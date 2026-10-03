@@ -1,36 +1,9 @@
 {
   "schema": "btrc.expected-skips/1",
-  "runner": "macos",
+  "runner": "macos-hosted",
   "enforce": true,
-  "description": "The acceptance Mac (the owner's M1 Max): `make test` inside `nix develop`. Hosted CI runners use macos-hosted.json instead. The Mac's `make test` inside `nix develop`, classified from the 1cadaf4 record (172 skips) on 2026-09-30. naga has no rule: the dev shell provides it from stage2/nix (e74a3cc), so a naga skip is unexpected again. lldb has no rule either: the debug adapter resolves Apple's lldb without the shell's DEVELOPER_DIR and SDKROOT (stage2/lldbenv), so on a developer-mode Mac a DAP session skip is unexpected; only developer mode being off is expected. pugixml, sqlite3 and the native compiler provider have no rule since stage4/tools-ci (88a5c36) gave the Darwin dev shells pugixml, sqlite.dev and BTRC_NATIVE_PROVIDER_CC/CXX: macOS run 36934014516 ran every C++ owner, SQLite, compiler-context, receipt and consumer case, so their skips are unexpected again.",
+  "description": "GitHub's hosted macos-15 runners: every macos.yml job sets BTRC_TEST_RUNNER=macos-hosted (Stage 38, CL-R-36). A hosted runner expects only platform skips (tests for another OS or toolchain) and hardware skips (a device the image lacks, covered by the acceptance Mac); tools/qualification/skips.py enforces both. Classified from macOS runs 37110991739 (main, 5b57618) and 37099829848 (stage30/ci-codex-lanes, 379ab93): unit 86 and btrc 3 skips, the corpus, bootstrap and strict-C11 shards none, all of them platform. Unlike the acceptance Mac, a hosted runner has no capability or runtime-probe rule: macos.yml enables developer mode, so a DAP session skip is a defect, ThreadSanitizer starts there, and clang's ASan+UBSan runtime runs. The two hardware rules matched nothing in those runs.",
   "rules": [
-    {
-      "id": "dap-session-developer-mode",
-      "files": [
-        "src/tests/debug/test_dap_session.py"
-      ],
-      "reason": "^needs macOS developer mode for lldb to launch an inferior",
-      "category": "capability",
-      "gating": {
-        "capabilities": [
-          "debugger-access"
-        ]
-      },
-      "covered_by": [],
-      "note": "LldbBootstrap.debugger_access_available() found developer mode off, so lldb cannot launch an inferior without an authorization prompt. macos.yml enables it for the hosted unit shard, where the four DAP sessions run and macos-hosted.json expects no such skip; the devcontainer skips them."
-    },
-    {
-      "id": "arc-witness-sanitizer-runtime",
-      "files": [
-        "src/tests/python/test_arc_witness_runtime.py"
-      ],
-      "reason": "ASan\\+UBSan",
-      "category": "runtime-probe",
-      "covered_by": [
-        "linux-devcontainer"
-      ],
-      "note": "Nix gcc on macOS has no libasan, and clang's ASan+UBSan runtime does not start under the dev shell; the devcontainer runs both witnesses."
-    },
     {
       "id": "windows-artifact-storage",
       "files": [
@@ -115,30 +88,6 @@
         "linux-devcontainer"
       ],
       "note": "These cases link ELF objects with the Linux toolchain."
-    },
-    {
-      "id": "freestanding-ubsan-runtime",
-      "files": [
-        "src/tests/python/test_freestanding_reference.py"
-      ],
-      "reason": "^compiler wrapper does not provide its UBSan runtime$",
-      "category": "runtime-probe",
-      "covered_by": [
-        "linux-devcontainer"
-      ],
-      "note": "The macOS compiler wrapper ships no UBSan runtime."
-    },
-    {
-      "id": "gpu-async-thread-sanitizer",
-      "files": [
-        "src/tests/python/test_gpu_async_runtime.py"
-      ],
-      "reason": "ThreadSanitizer",
-      "category": "runtime-probe",
-      "covered_by": [
-        "linux-devcontainer"
-      ],
-      "note": "ThreadSanitizer crashes on an independent exact-flags probe on this host."
     },
     {
       "id": "linux-native-reader-covered",
@@ -233,6 +182,60 @@
         "linux-devcontainer"
       ],
       "note": "The configured-PCM capability cases run wherever ALSA headers exist."
+    },
+    {
+      "id": "darwin-gcc-sanitizer-runtime",
+      "files": [
+        "src/tests/python/test_arc_witness_runtime.py",
+        "src/tests/python/test_freestanding_reference.py"
+      ],
+      "nodes": [
+        "*::test_witness_transitions_are_exact[[]asan-ubsan-gcc[]]",
+        "*::test_reference_runtime_is_strict_and_width_correct[[]ubsan-gcc[]]"
+      ],
+      "reason": "^(gcc cannot link ASan\\+UBSan here: ld: library not found for -lasan|compiler wrapper does not provide its UBSan runtime$)",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "GCC ships no libsanitizer for aarch64-darwin, so the dev shell's gcc links neither -lasan nor its UBSan runtime on macOS. Only the gcc parametrizations are expected: the same ASan+UBSan witness and UBSan freestanding cases run through clang and /usr/bin/clang on this runner (macOS runs 37110991739 and 37099829848), and through gcc in the devcontainer (CI 37110991727)."
+    },
+    {
+      "id": "coreaudio-output-device",
+      "files": [
+        "src/tests/python/test_core_audio_device_runtime.py"
+      ],
+      "nodes": [
+        "*::test_core_audio_provider_on_both_frontends[[]*[]]"
+      ],
+      "reason": "^SKIP: CoreAudio output (capability|session) unavailable$",
+      "category": "hardware",
+      "gating": {
+        "capabilities": [
+          "coreaudio-device"
+        ]
+      },
+      "covered_by": [
+        "macos"
+      ],
+      "note": "CoreAudioDeviceConformance.btrc prints these when the host has no usable default output device (no output stream with a known 16 to 8,192 frame buffer) or the device refuses an output session (unavailable, busy or permission denied). A hosted image's audio device is not guaranteed; the acceptance Mac's built-in output runs the callback and drain barrier. The provider itself must still open: 'CoreAudio provider unavailable' stays unexpected here."
+    },
+    {
+      "id": "gpu-compute-adapter",
+      "files": [
+        "src/tests/python/test_native_gpu_runtime.py"
+      ],
+      "reason": "^no native compute adapter is available$",
+      "category": "hardware",
+      "gating": {
+        "capabilities": [
+          "gpu-adapter"
+        ]
+      },
+      "covered_by": [
+        "macos"
+      ],
+      "note": "The harness exits 77 when wgpu-native finds no compute adapter. Hosted macos-15 exposes a paravirtual Metal adapter, so these cases ran there in macOS runs 37110991739 and 37099829848; the rule keeps a runner image without one from failing the gate, and the acceptance Mac's GPU covers them. The WebGPU toolchain itself is required: its skips stay unexpected."
     }
   ]
 }
