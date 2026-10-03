@@ -31,6 +31,7 @@ from src.compiler.python.frontend.sources import (
 )
 from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.syntax.ast.generated import PreprocessorDirective
+from tools.compiler_codegen.hosted_abi import TargetManifest
 
 REPO = Path(__file__).resolve().parents[3]
 TESTS = REPO / "src" / "tests"
@@ -822,3 +823,467 @@ def test_the_verifier_skips_exactly_the_conditioning_candidates() -> None:
         text = path.read_text(encoding="utf-8")
         if SourceConditionals.candidate(text):
             assert pattern.search(text) is not None, path
+
+
+# -- The self-hosted half (CL-C-06) ------------------------------------------
+#
+# btrcc must give every battery, directive and diagnostic row above exactly the
+# reference's outcome, message and file-local line:col.
+
+GRAMMAR = REPO / "src" / "language" / "grammar.ebnf"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+NATIVE_HEADER_READER = os.environ.get("BTRC_NATIVE_HEADER_READER")
+
+
+@pytest.fixture(scope="module")
+def conditional_driver(selfhost_driver) -> Path:
+    """btrc's FeSourceConditionals, built once per btrcc fingerprint."""
+
+    return selfhost_driver(FIXTURES / "ConditionalExpressionDriver.btrc", compile_flags=("-pedantic-errors",))
+
+
+@pytest.fixture(scope="module")
+def frontend_driver(selfhost_driver) -> Path:
+    return selfhost_driver(REPO / "src" / "compiler" / "btrc" / "tools" / "FrontendMain.btrc")
+
+
+def selfhost_condition(driver: Path, tmp_path: Path, source: str, *, no_target: bool = False) -> str:
+    """btrc's conditioned text for linux-x86_64, or ``error LINE:COL MESSAGE``."""
+
+    program = tmp_path / "Input.btrc"
+    program.write_bytes(source.encode())
+    result = subprocess.run(
+        [str(driver), str(GRAMMAR), *(["--no-target"] if no_target else []), "--file", str(program)],
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.removesuffix("\n")
+
+
+def reference_condition(source: str) -> str:
+    try:
+        return condition(source)
+    except PreprocessorConditionalError as error:
+        return f"error {error.line}:{error.col} {error.message}"
+
+
+def test_selfhost_expression_battery(conditional_driver: Path) -> None:
+    result = subprocess.run(
+        [str(conditional_driver), str(GRAMMAR), str(BATTERY)],
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr
+    outcomes = result.stdout.splitlines()
+    assert len(outcomes) == len(EXPRESSION_CASES)
+    for case, outcome in zip(EXPRESSION_CASES, outcomes, strict=True):
+        assert outcome == case.expected, case.payload
+
+
+SELFHOST_FILES = [
+    *(source for source, _expected in DIRECTIVE_ERRORS),
+    "int a;\n#if 0\nint b;\n#else\n  int c; // live\n#endif\nint d;",
+    "#if 0\n#if garbage (\n#elif 1/0\nx\n#endif\n#elif 1\ny\n#endif\n",
+    "#if 1\na\n#elif 1/0 garbage (\nb\n#endif\n",
+    "/*\n#if FOO\n*/\nint a;\n#if 1\nint b;\n#endif\n",
+    "#define L 10\n#define L  10 /* same */\n#define T 1\n#undef T\n#ifdef T\nx\n#else\ny\n#endif\n",
+    *FAST_PATH_SHAPES,
+    *C_SHAPES,
+    SELECTION,
+]
+
+
+@pytest.mark.parametrize("source", SELFHOST_FILES)
+def test_selfhost_conditions_each_file_as_the_reference(
+    conditional_driver: Path, tmp_path: Path, source: str
+) -> None:
+    assert selfhost_condition(conditional_driver, tmp_path, source) == reference_condition(source)
+
+
+def test_selfhost_conditions_the_corpus_program_as_the_reference(conditional_driver: Path, tmp_path: Path) -> None:
+    source = (TESTS / "c_compat" / "PreprocessorConditionals.btrc").read_text()
+    assert selfhost_condition(conditional_driver, tmp_path, source) == reference_condition(source)
+
+
+def test_selfhost_no_target_fails_only_at_the_first_evaluated_conditional(
+    conditional_driver: Path, tmp_path: Path
+) -> None:
+    """D13 through the unit seam: btrcc on a host that is not a btrc target."""
+
+    assert selfhost_condition(conditional_driver, tmp_path, "int a;\n", no_target=True) == "int a;\n"
+    assert selfhost_condition(conditional_driver, tmp_path, "#define X 1\nint a;\n", no_target=True) == (
+        "#define X 1\nint a;\n"
+    )
+    assert selfhost_condition(conditional_driver, tmp_path, "int a;\n  #ifdef X\n#endif\n", no_target=True) == (
+        "error 2:3 preprocessor conditionals need a target; this host is not a btrc target, so pass --target OS-ARCH"
+    )
+
+
+def btrcc_run(btrcc: Path, arguments: list[str], cwd: Path, **environment: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(btrcc), *arguments],
+        cwd=cwd,
+        env={**os.environ, "BTRC_HOME": str(REPO / "src"), **environment},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+
+@pytest.mark.parametrize("target", [f"{row.operating_system}-{row.architecture}" for row in TARGET_ROWS])
+def test_selfhost_per_target_selection(
+    target: str, frontend_driver: Path, immutable_btrcc: Path, tmp_path: Path
+) -> None:
+    root = tmp_path / "Main.btrc"
+    root.write_text(SELECTION)
+    reference = compile_files(tmp_path, {"Main.btrc": SELECTION}, target=target)
+    assert reference.successful, reference.failure
+    resolved = subprocess.run(
+        [str(frontend_driver), "--no-stdlib", "--target", target, str(root)],
+        env={**os.environ, "BTRC_HOME": str(REPO / "src")},
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert resolved.returncode == 0, resolved.stderr
+    assert resolved.stdout == reference.source_bundle.source
+    compiled = btrcc_run(immutable_btrcc, ["--no-stdlib", "--no-cache", "--target", target, str(root)], tmp_path)
+    assert compiled.returncode == 0, compiled.stderr
+    system, architecture = target.split("-")
+    header, value = {"linux": ("stdio.h", "1"), "macos": ("stdlib.h", "2"), "windows": ("string.h", "3")}[system]
+    for c_source in (compiled.stdout, reference.c_source):
+        includes = {line for line in c_source.splitlines() if line in {f"#include <{name}>" for name in ("stdio.h", "stdlib.h", "string.h")}}
+        assert f"#include <{header}>" in includes
+        assert f"return {value};" in c_source
+        assert all(f"return {other};" not in c_source for other in {"1", "2", "3"} - {value})
+        assert ("return 64;" in c_source) == (architecture == "aarch64")
+        assert ("return 46;" in c_source) == (architecture != "aarch64")
+    reference_includes = {line for line in reference.c_source.splitlines() if line.startswith("#include")}
+    selfhost_includes = {line for line in compiled.stdout.splitlines() if line.startswith("#include")}
+    assert selfhost_includes == reference_includes
+
+
+def test_selfhost_dead_import_adds_no_edge_source_or_plan_entry(immutable_btrcc: Path, tmp_path: Path) -> None:
+    files = {
+        "Main.btrc": "#if 0\nimport ./Missing.btrc;\nimport ./Conflict.btrc;\nimport ./helpers.c;\n#endif\n"
+        "int value() { return 2; }\nint main() { return value(); }\n",
+        "Conflict.btrc": "int value() { return 1; }\n",
+        "helpers.c": "int helper(void) { return 1; }\n",
+    }
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    root = tmp_path / "Main.btrc"
+    selfhost = btrcc_run(
+        immutable_btrcc,
+        ["--no-stdlib", "--no-cache", "--target", "linux-x86_64", str(root), "-o", str(tmp_path / "selfhost.c"),
+         "--emit-link-plan", str(tmp_path / "selfhost.json")],
+        tmp_path,
+    )
+    assert selfhost.returncode == 0, selfhost.stderr
+    reference = subprocess.run(
+        [sys.executable, "-m", "src.compiler.python.main", str(root), "--no-stdlib", "--no-cache", "--target",
+         "linux-x86_64", "-o", str(tmp_path / "reference.c"), "--emit-link-plan", str(tmp_path / "reference.json")],
+        cwd=REPO,
+        env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")},
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert reference.returncode == 0, reference.stderr
+    import json
+
+    plans = [json.loads((tmp_path / f"{name}.json").read_text()) for name in ("selfhost", "reference")]
+    # The link plan's native units and headers: no dead .c import is a unit.
+    assert plans[0]["units"] == plans[1]["units"]
+    assert plans[0]["headers"] == plans[1]["headers"]
+    assert all("helpers.c" not in json.dumps(plan) for plan in plans)
+    for name in ("selfhost", "reference"):
+        c_source = (tmp_path / f"{name}.c").read_text()
+        assert "helpers.c" not in c_source and "return 1;" not in c_source
+
+
+_PLAIN = re.compile(r"^error: (?P<message>.*) at (?P<line>\d+):(?P<col>\d+)$", re.MULTILINE)
+
+
+def selfhost_diagnostic(btrcc: Path, tmp_path: Path, files: dict[str, str]) -> tuple[str, str, int, int]:
+    """btrcc's first error: rendered with its file, or a root-file parse error."""
+
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    result = btrcc_run(
+        btrcc,
+        ["--no-stdlib", "--no-cache", "--target", "linux-x86_64", str(tmp_path / "Main.btrc"), "-o",
+         str(tmp_path / "Main.c")],
+        tmp_path,
+    )
+    assert result.returncode != 0, result.stderr
+    match = _RENDERED.search(result.stderr)
+    if match is not None:
+        return match["message"], os.path.basename(match["path"]), int(match["line"]), int(match["col"])
+    plain = _PLAIN.search(result.stderr)
+    assert plain is not None, result.stderr
+    # btrcc's parser reports root-file positions without a file name.
+    return plain["message"], "Main.btrc", int(plain["line"]), int(plain["col"])
+
+
+@pytest.mark.parametrize("case", DIAGNOSTIC_CASES, ids=lambda case: case.name)
+def test_selfhost_diagnostics(case: DiagnosticCase, immutable_btrcc: Path, tmp_path: Path) -> None:
+    assert selfhost_diagnostic(immutable_btrcc, tmp_path, case.files) == (case.message, case.file, case.line, case.col)
+
+
+def test_selfhost_program_checks_run_in_every_emitting_mode(immutable_btrcc: Path, tmp_path: Path) -> None:
+    files = {
+        "Main.btrc": "import ./Config.btrc;\n#ifdef USE_FAST\n#endif\nint main() { return 0; }\n",
+        "Config.btrc": "#define USE_FAST 1\n",
+    }
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    for mode in ([], ["--emit-ir"], ["--emit-optimized-ir"]):
+        result = btrcc_run(
+            immutable_btrcc, ["--no-stdlib", "--no-cache", *mode, str(tmp_path / "Main.btrc")], tmp_path
+        )
+        assert result.returncode != 0 and "'USE_FAST' is defined in Config.btrc" in result.stderr, mode
+
+
+def test_selfhost_undef_is_emitted_in_hoisted_order(immutable_btrcc: Path, tmp_path: Path) -> None:
+    source = tmp_path / "Main.btrc"
+    source.write_text("#define X 1\n#undef X\n#define X 2\nint main() { return 0; }\n")
+    result = btrcc_run(immutable_btrcc, ["--no-stdlib", "--no-cache", str(source)], tmp_path)
+    assert result.returncode == 0, result.stderr
+    directives = [line for line in result.stdout.splitlines() if line.startswith(("#define X", "#undef X"))]
+    assert directives == ["#define X 1", "#undef X", "#define X 2"]
+
+
+def test_selfhost_module_units_carry_the_whole_directive_list_with_undefs(
+    immutable_btrcc: Path, tmp_path: Path
+) -> None:
+    (tmp_path / "Main.btrc").write_text(
+        "import ./B.btrc;\n#define X 1\n#undef X\n#define X 2\nint main() { return b(); }\n"
+    )
+    (tmp_path / "B.btrc").write_text("#undef X\nint b() { return 1; }\n")
+    result = btrcc_run(
+        immutable_btrcc,
+        ["--no-stdlib", "--no-cache", "--target", "linux-x86_64", "Main.btrc", "-o", "out.c", "--emit-units",
+         "out", "--module-units"],
+        tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    whole = [line for line in (tmp_path / "out.c").read_text().splitlines() if line.startswith(("#define X", "#undef X"))]
+    assert whole == ["#undef X", "#define X 1", "#undef X", "#define X 2"]
+    units = sorted(tmp_path.glob("out.unit-*.c"))
+    assert units
+    for unit in units:
+        assert [line for line in unit.read_text().splitlines() if line.startswith(("#define X", "#undef X"))] == whole
+
+
+@pytest.fixture(scope="module")
+def lowering_driver(selfhost_driver) -> Path:
+    return selfhost_driver(FIXTURES / "LoweringInvariantDriver.btrc")
+
+
+def selfhost_lowering(driver: Path, tmp_path: Path, directive: str) -> subprocess.CompletedProcess[str]:
+    program = tmp_path / "Main.btrc"
+    program.write_text("int main() { return 0; }\n")
+    return subprocess.run(
+        [str(driver), str(GRAMMAR), str(REPO / "src" / "stdlib"), str(program), directive],
+        env={**os.environ, "BTRC_HOME": str(REPO / "src")},
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+
+
+@pytest.mark.parametrize("name", ["if", "ifdef", "ifndef", "elif", "else", "endif", "elifdef", "elifndef"])
+def test_selfhost_lowering_keeps_refusing_conditional_directives(
+    lowering_driver: Path, tmp_path: Path, name: str
+) -> None:
+    result = selfhost_lowering(lowering_driver, tmp_path, f"#{name} 1")
+    assert result.returncode != 0
+    assert f"unsupported preprocessor directive '#{name}'" in result.stderr
+
+
+def test_selfhost_lowering_refuses_live_directive_shapes(lowering_driver: Path, tmp_path: Path) -> None:
+    for directive, message in (
+        ("#define X\f1", "only spaces and tabs may separate tokens"),
+        ("#define X 1 /* open", "a comment in a preprocessor directive must close"),
+        ("#define X 1\n#undef X Y", "malformed #undef directive: #undef X Y"),
+    ):
+        result = selfhost_lowering(lowering_driver, tmp_path, directive)
+        assert result.returncode != 0 and message in result.stderr, directive
+    assert selfhost_lowering(lowering_driver, tmp_path, "#define X 1\n#undef X").stdout == "lowered\n"
+
+
+# -- Caches in both compilers --------------------------------------------------
+
+CACHE_FILES = {
+    "Main.btrc": "import ./A.btrc;\nimport ./B.btrc;\nint main() { return a() + b(); }\n",
+    "A.btrc": "#define TAG 2\n#if defined(__linux__)\nint a() { return 1; }\n#else\nint a() { return 5; }\n#endif\n",
+    "B.btrc": "int b() { return 3; }\n",
+}
+
+
+class CacheWorkspace:
+    """One program compiled with module units through both compilers' caches."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root.resolve()
+        self.sources = self.root / "src"
+        self.sources.mkdir(parents=True)
+        for name, text in CACHE_FILES.items():
+            (self.sources / name).write_text(text)
+        self.builds = 0
+
+    def edit(self, name: str, old: str, new: str) -> None:
+        path = self.sources / name
+        text = path.read_text()
+        assert old in text
+        path.write_text(text.replace(old, new))
+
+    def reference(self, monkeypatch: pytest.MonkeyPatch, target: str, cache: str = "cache"):
+        from src.compiler.python.artifacts.cache import CompilerCache
+
+        monkeypatch.setenv("BTRC_CACHE_DIR", str(self.root / f"reference-{cache}"))
+        # One output prefix for every build: the whole-program key covers it.
+        output = self.root / "reference-out"
+        output.mkdir(exist_ok=True)
+        root = self.sources / "Main.btrc"
+        result = Compiler(cache=CompilerCache()).compile(
+            root.read_text(),
+            str(root),
+            CompilerOptions(
+                include_stdlib=False,
+                target=target,
+                units_prefix=str(output / "program"),
+                module_units=True,
+                generated_c_path=str(output / "program.c"),
+            ),
+        )
+        assert result.failure is None, result.failure
+        lowered = {os.path.basename(path) for path in result.module_units_lowered}
+        return result, lowered, (result.c_source, tuple(result.c_units))
+
+    def selfhost(self, btrcc: Path, target: str, cache: str = "cache") -> tuple[dict[str, int], str, dict[str, int]]:
+        self.builds += 1
+        output = self.root / f"selfhost-{self.builds}"
+        output.mkdir()
+        result = btrcc_run(
+            btrcc,
+            ["--no-stdlib", "--target", target, "Main.btrc", "-o", str(output / "program.c"), "--emit-units",
+             str(output / "program"), "--module-units"],
+            self.sources,
+            BTRC_TIMING="1",
+            BTRC_CACHE_DIR=str(self.root / f"selfhost-{cache}"),
+        )
+        assert result.returncode == 0, result.stderr
+        counters = {
+            name: int(value)
+            for name, value in (item.split(":") for item in result.stderr.split("module-units=", 1)[1].split()[0].split(","))
+        }
+        texts = [(output / "program.c").read_text()]
+        texts.extend(path.read_text() for path in sorted(output.glob("program.unit-*.c")))
+        records = re.search(r"a-records-stored\(replayed=(\d+),journaled=(\d+)\)", result.stderr)
+        replay = {"replayed": int(records.group(1)), "journaled": int(records.group(2))} if records else {}
+        return counters, "\n".join(texts), replay
+
+
+ALL_GROUPS = {"Main.btrc", "A.btrc", "B.btrc"}
+
+
+def test_reference_caches_follow_conditioned_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = CacheWorkspace(tmp_path)
+    _cold, lowered, linux = workspace.reference(monkeypatch, "linux-x86_64")
+    assert lowered == ALL_GROUPS
+    # A target switch misses the whole-program cache; warm equals cold.
+    switched, _lowered, windows = workspace.reference(monkeypatch, "windows-x86_64")
+    assert not switched.cache_hit
+    _fresh, _lowered, windows_cold = workspace.reference(monkeypatch, "windows-x86_64", cache="fresh")
+    assert windows == windows_cold
+    assert workspace.reference(monkeypatch, "linux-x86_64")[2] == linux
+    # A live line inside a conditional group re-lowers exactly that group.
+    workspace.edit("A.btrc", "return 1;", "return 7;")
+    assert workspace.reference(monkeypatch, "linux-x86_64")[1] == {"A.btrc"}
+    # A live directive is part of the program interface: every group re-lowers.
+    workspace.edit("A.btrc", "#define TAG 2", "#define TAG 3")
+    assert workspace.reference(monkeypatch, "linux-x86_64")[1] == ALL_GROUPS
+    # An edit confined to a dead group is a whole-program hit.
+    hit, lowered, before = workspace.reference(monkeypatch, "linux-x86_64")
+    workspace.edit("A.btrc", "return 5;", "return 9;")
+    dead, lowered, after = workspace.reference(monkeypatch, "linux-x86_64")
+    assert dead.cache_hit and not lowered and after == before
+    # With a live edit in another group, exactly that group re-lowers.
+    workspace.edit("A.btrc", "return 9;", "return 11;")
+    workspace.edit("B.btrc", "return 3;", "return 4;")
+    assert workspace.reference(monkeypatch, "linux-x86_64")[1] == {"B.btrc"}
+
+
+@pytest.mark.skipif(
+    not NATIVE_HEADER_READER, reason="self-hosted artifact reuse needs the native header reader identity"
+)
+def test_selfhost_caches_follow_conditioned_text(immutable_btrcc: Path, tmp_path: Path) -> None:
+    workspace = CacheWorkspace(tmp_path)
+    counters, linux, _replay = workspace.selfhost(immutable_btrcc, "linux-x86_64")
+    assert counters == {"lowered": 3, "reused": 0}
+    # Warm across a target switch equals cold.
+    _counters, windows, _replay = workspace.selfhost(immutable_btrcc, "windows-x86_64")
+    _counters, windows_cold, _replay = workspace.selfhost(immutable_btrcc, "windows-x86_64", cache="fresh")
+    assert windows == windows_cold
+    assert workspace.selfhost(immutable_btrcc, "linux-x86_64")[1] == linux
+    # A live line inside a conditional group re-lowers exactly that group.
+    workspace.edit("A.btrc", "return 1;", "return 7;")
+    assert workspace.selfhost(immutable_btrcc, "linux-x86_64")[0] == {"lowered": 1, "reused": 2}
+    # A live directive edit re-lowers every group.
+    workspace.edit("A.btrc", "#define TAG 2", "#define TAG 3")
+    assert workspace.selfhost(immutable_btrcc, "linux-x86_64")[0] == {"lowered": 3, "reused": 0}
+    # A dead-group edit misses the artifact (raw content) but reuses every
+    # unit and replays every validation record; the C is byte-identical.
+    _counters, before, _replay = workspace.selfhost(immutable_btrcc, "linux-x86_64")
+    workspace.edit("A.btrc", "return 5;", "return 9;")
+    counters, after, replay = workspace.selfhost(immutable_btrcc, "linux-x86_64")
+    assert counters == {"lowered": 0, "reused": 3}
+    assert after == before
+    assert replay.get("journaled") == 0 and replay.get("replayed", 0) > 0
+    # With a live edit in another group, exactly that group re-lowers.
+    workspace.edit("A.btrc", "return 9;", "return 11;")
+    workspace.edit("B.btrc", "return 3;", "return 4;")
+    assert workspace.selfhost(immutable_btrcc, "linux-x86_64")[0] == {"lowered": 1, "reused": 2}
+
+
+def test_selfhost_warm_compile_keeps_the_program_checks(immutable_btrcc: Path, tmp_path: Path) -> None:
+    """Two variants compose identically; a warm compile of the one with C evidence still gives P3."""
+
+    cache = str(tmp_path / "cache")
+    (tmp_path / "config.h").write_text("\n")
+    root = tmp_path / "Main.btrc"
+    arguments = ["--no-stdlib", "--target", "linux-x86_64", str(root), "-o", str(tmp_path / "Main.c")]
+    root.write_text('#include "config.h"\n\n\nint main() { return 0; }\n')
+    first = btrcc_run(immutable_btrcc, arguments, tmp_path, BTRC_CACHE_DIR=cache)
+    assert first.returncode == 0, first.stderr
+    root.write_text('#include "config.h"\n#ifdef HAVE_X\n#endif\nint main() { return 0; }\n')
+    for _ in range(2):
+        result = btrcc_run(immutable_btrcc, arguments, tmp_path, BTRC_CACHE_DIR=cache)
+        assert result.returncode != 0 and "may come from C that btrc does not read" in result.stderr
+
+
+# -- The stdlib conditions for every target ------------------------------------
+
+
+def test_the_generated_source_check_conditions_every_stdlib_module(tmp_path: Path) -> None:
+    """The generated-source check requires every stdlib module to condition for
+    every target, hold no #undef and record no test of an absent name."""
+
+    from tools.compiler_codegen.stdlib_symbols import StdlibSymbolIndexGenerator
+
+    StdlibSymbolIndexGenerator(REPO).verify_conditions()
+    stdlib = tmp_path / "src" / "stdlib"
+    stdlib.mkdir(parents=True)
+    for text, message in (
+        ("#define X 1\n#undef X\n", "may not #undef"),
+        ("#if 1\n", "'#if' without '#endif'"),
+        ("#ifdef HAVE_X\n#endif\n", "tests absent name 'HAVE_X'"),
+    ):
+        (stdlib / "Module.btrc").write_text(text)
+        with pytest.raises(ValueError, match=re.escape(message)):
+            StdlibSymbolIndexGenerator(tmp_path, TargetManifest.load_repository(REPO)).verify_conditions()
