@@ -135,8 +135,10 @@ def _yaml(text: str) -> object:
     strings, so `false` reads as "false".
     """
 
-    value, index = _yaml_node(text.splitlines(), 0, 0)
-    assert _yaml_skip(text.splitlines(), index) == len(text.splitlines()), "unparsed workflow lines"
+    lines = text.splitlines()
+    value, index = _yaml_node(lines, 0, 0)
+    index = _yaml_skip(lines, index)
+    assert index == len(lines), f"unparsed workflow line {index + 1}: {lines[index]!r}"
     return value
 
 
@@ -178,9 +180,13 @@ def _yaml_sequence(lines: list[str], index: int, indent: int) -> tuple[list[obje
 def _yaml_mapping(lines: list[str], index: int, indent: int) -> tuple[dict[str, object], int]:
     mapping: dict[str, object] = {}
     while index < len(lines) and _yaml_indent(lines[index]) == indent and not lines[index].lstrip().startswith("- "):
-        match = re.fullmatch(r"([^\s:#][^:#]*?|\"[^\"]*\"):(?:\s+(.*))?", lines[index].strip())
+        match = re.fullmatch(r"([^\s:#'\"][^:#]*?|\"[^\"]*\"|'[^']*'):(?:\s+(.*))?", lines[index].strip())
         assert match is not None, f"not a mapping entry: {lines[index]!r}"
-        key, rest = match.group(1).strip('"'), _yaml_comment(match.group(2) or "")
+        key, rest = (
+            match.group(1)[1:-1] if match.group(1)[0] in "'\"" else match.group(1),
+            _yaml_comment(match.group(2) or ""),
+        )
+        assert key != "<<", f"merge keys are outside the subset: {lines[index]!r}"
         assert key not in mapping, f"duplicate key {key!r}"
         if rest in ("|", "|-"):
             body = index + 1
@@ -217,6 +223,9 @@ def _yaml_comment(text: str) -> str:
 
 def _yaml_scalar(text: str) -> object:
     text = _yaml_comment(text)
+    assert not text.startswith(("&", "*", "!")), f"anchors, aliases and tags are outside the subset: {text!r}"
+    if text in ("~", "null"):
+        return None
     if text.startswith("'"):
         assert text.endswith("'"), text
         return text[1:-1].replace("''", "'")
@@ -307,15 +316,31 @@ def _trigger_violations(name: str, triggers: object) -> list[str]:
     problems = [] if required <= set(triggers) <= required | {"workflow_call"} else [f"triggers {sorted(triggers)}"]
     for event in ("push", "pull_request"):
         rule = triggers.get(event)
-        if not (isinstance(rule, dict) and rule.get("branches") == ["main"] and set(rule) <= {"branches", "paths"}):
-            problems.append(f"{event} must be branches [main] with an optional paths filter: {rule!r}")
-            continue
-        paths = rule.get("paths")
-        if event == "pull_request" and paths is None:
-            problems.append("pull_request needs a paths filter")
-        if paths is not None and not any(fnmatch.fnmatchcase(f".github/workflows/{name}", path) for path in paths):
+        paths = rule.get("paths") if isinstance(rule, dict) else None
+        if not (isinstance(rule, dict) and set(rule) == {"branches", "paths"} and rule["branches"] == ["main"]):
+            problems.append(f"{event} must be branches [main] with a paths filter: {rule!r}")
+        elif not (isinstance(paths, list) and paths and all(isinstance(path, str) for path in paths)):
+            problems.append(f"{event}'s paths filter must be a list of patterns: {paths!r}")
+        elif not _github_paths_match(paths, f".github/workflows/{name}"):
             problems.append(f"{event}'s paths filter must include .github/workflows/{name}")
     return problems + _dispatch_violations(triggers.get("workflow_dispatch"))
+
+
+def _github_paths_match(patterns: list[str], path: str) -> bool:
+    """Whether GitHub's `paths` filter selects `path`.
+
+    `*` stays within one directory, `**` crosses them, and a later `!pattern`
+    excludes what an earlier pattern included (GitHub's filter-pattern rules).
+    """
+
+    selected = False
+    for pattern in patterns:
+        negated = pattern.startswith("!")
+        glob = re.escape(pattern.removeprefix("!"))
+        glob = glob.replace(r"\*\*/", "(?:.*/)?").replace(r"\*\*", ".*").replace(r"\*", "[^/]*").replace(r"\?", "[^/]")
+        if re.fullmatch(glob, path):
+            selected = not negated
+    return selected
 
 
 def test_every_workflow_parses_and_follows_its_class_trigger_policy() -> None:
@@ -344,9 +369,26 @@ def test_every_workflow_parses_and_follows_its_class_trigger_policy() -> None:
         ("windows.yml", "push:\n  branches: [main]\npull_request:\n  branches: [main]\n", 1),
         (
             "host-linux.yml",
-            "push:\n  branches: [main]\npull_request:\n  branches: [main]\n"
+            "push:\n  branches: [main]\n  paths: [.github/workflows/host-linux.yml]\npull_request:\n  branches: [main]\n"
             "  paths:\n    - .github/workflows/host-linux.yml\n    - tools/target_hosts/**\nworkflow_dispatch:\nworkflow_call:\n",
             0,
+        ),
+        (
+            "host-linux.yml",
+            "push:\n  branches: [main]\n  paths: ['*']\npull_request:\n  branches: [main]\n"
+            "  paths: ['.github/**', '!.github/workflows/host-*.yml']\nworkflow_dispatch: ~\n",
+            2,
+        ),
+        (
+            "host-linux.yml",
+            "push:\n  branches: [main]\n  paths: src/**\npull_request:\n  branches: [main]\n"
+            "  paths: ['**/*.yml']\nworkflow_dispatch:\n",
+            1,
+        ),
+        (
+            "windows-x64.yml",
+            "push:\n  branches: [main]\npull_request:\n  branches: [main]\n  paths: ['**']\nworkflow_dispatch:\n",
+            1,
         ),
         (
             "ios.yml",
@@ -354,10 +396,11 @@ def test_every_workflow_parses_and_follows_its_class_trigger_policy() -> None:
             "  paths: ['.github/workflows/*.yml', src/stdlib/GUI/IOS/**]\nworkflow_dispatch:\n",
             0,
         ),
-        ("android.yml", "push:\n  branches: [main]\npull_request:\n  branches: [main]\nworkflow_dispatch:\n", 1),
+        ("android.yml", "push:\n  branches: [main]\npull_request:\n  branches: [main]\nworkflow_dispatch:\n", 2),
         (
             "windows-arm64.yml",
-            "push:\n  branches: [main]\npull_request:\n  branches: [main]\n  paths: [src/stdlib/**]\nworkflow_dispatch:\n",
+            "push:\n  branches: [main]\n  paths: [.github/workflows/windows-arm64.yml]\npull_request:\n  branches: [main]\n"
+            "  paths: [src/stdlib/**]\nworkflow_dispatch:\n",
             1,
         ),
         ("host-macos.yml", "pull_request:\n  branches: [main]\n  paths: [.github/workflows/host-macos.yml]\n", 2),
@@ -388,31 +431,86 @@ def _job_names(workflow: dict[str, object]) -> list[str]:
     return list(jobs)
 
 
+# A job runs the suite when a step calls pytest or a make target that does:
+# test, test-<anything> (the shards, test-c11-one, test-native-gui) or linux-ci.
+RUNS_PYTEST = re.compile(r"\bpytest\b|\bmake\b.*\s(?:test(?:-[a-z0-9-]+)?|linux-ci)(?:\s|$)")
+
+
+def _matrix_rows(matrix: object) -> list[dict[str, object]] | None:
+    """The combinations a static matrix expands to; None when an expression decides them."""
+
+    if not isinstance(matrix, dict):
+        return None
+    axes = {key: value for key, value in matrix.items() if key not in ("include", "exclude")}
+    if any(not isinstance(value, list) for value in axes.values()) or "exclude" in matrix:
+        return None
+    rows: list[dict[str, object]] = [{}]
+    for key, values in axes.items():
+        rows = [{**row, key: value} for row in rows for value in values]
+    include = matrix.get("include", [])
+    if not isinstance(include, list):
+        return None
+    if not axes:
+        return [dict(row) for row in include]
+    return rows + [dict(row) for row in include if not any(row.items() <= base.items() for base in rows)]
+
+
+def _job_commands(job: dict[str, object]) -> list[str]:
+    """Each step's script, once per static matrix combination with its values filled in."""
+
+    scripts = [_code(str(step.get("run", ""))) for step in job.get("steps", [])]
+    rows = _matrix_rows(job.get("strategy", {}).get("matrix")) or [{}]
+    return [
+        re.sub(r"\$\{\{ matrix\.([a-z_]+) \}\}", lambda use, row=row: str(row.get(use.group(1), use.group(0))), script)
+        for script in scripts
+        for row in rows
+    ]
+
+
 def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
     # Any job that runs the suite keeps the skip report its pytest sessions
     # write, even when a test failed, under a name unique within the run that
     # the workflow and job derive: skip-report-<workflow stem>-<job>, then one
-    # suffix per matrix key the job fans out on.
+    # `-${{ matrix.<key> }}` per key that tells the job's combinations apart.
     test_jobs = {
         (path.name, name): job
         for path in _workflow_paths()
-        for name, job in _jobs(path.read_text(encoding="utf-8")).items()
-        if re.search(r"\bpytest\b|\btest-shard-|\btest-c11|\btest-native-gui\b", _code(job))
+        for name, job in _parsed(path.name)["jobs"].items()
+        if any(RUNS_PYTEST.search(command) for command in _job_commands(job))
     }
-    assert {("ci.yml", "tests"), ("macos.yml", "tests"), ("windows.yml", "windows")} <= set(test_jobs)
+    assert {
+        ("ci.yml", "docs"),
+        ("ci.yml", "tests"),
+        ("ci.yml", "native-gui"),
+        ("macos.yml", "tests"),
+        ("macos.yml", "native-gui"),
+        ("windows.yml", "windows"),
+    } <= set(test_jobs)
     for (workflow, name), job in test_jobs.items():
-        final = _steps(job)[-1]
-        stem = workflow.rsplit(".", 1)[0]
-        matrix = _parsed(workflow)["jobs"][name].get("strategy", {}).get("matrix")
-        suffix = r"(-\$\{\{ matrix\.[a-z_]+ \}\})+" if matrix else ""
-        assert "if: always()" in final, (workflow, name)
-        assert UPLOAD_ARTIFACT in final, (workflow, name)
-        assert re.search(rf"(?m)^          name: skip-report-{re.escape(stem)}-{re.escape(name)}{suffix}$", final), (
-            workflow,
-            name,
-        )
-        assert f"path: {SKIP_REPORTS}" in final, (workflow, name)
-        assert "if-no-files-found: warn" in final, (workflow, name)
+        final = job["steps"][-1]
+        assert final.get("if") == "always()", (workflow, name)
+        assert final.get("uses") == UPLOAD_ARTIFACT, (workflow, name)
+        upload = final["with"]
+        assert upload["path"] == SKIP_REPORTS, (workflow, name)
+        assert upload["if-no-files-found"] == "warn", (workflow, name)
+        base = f"skip-report-{workflow.rsplit('.', 1)[0]}-{name}"
+        assert upload["name"].startswith(base), (workflow, name, upload["name"])
+        keys = re.findall(r"-\$\{\{ matrix\.([a-z_]+) \}\}", upload["name"][len(base) :])
+        assert upload["name"] == base + "".join(f"-${{{{ matrix.{key} }}}}" for key in keys), (workflow, name)
+        assert len(set(keys)) == len(keys), (workflow, name)
+        matrix = job.get("strategy", {}).get("matrix")
+        if matrix is None:
+            assert keys == [], (workflow, name)
+            continue
+        assert keys, f"{workflow} {name}: a matrix job needs a matrix suffix"
+        rows = _matrix_rows(matrix)
+        if rows is None:
+            # An expression decides the combinations: name only its own axes.
+            assert set(keys) <= set(matrix), (workflow, name, keys)
+            continue
+        names = [tuple(row.get(key) for key in keys) for row in rows]
+        assert all(None not in values for values in names), (workflow, name, keys)
+        assert len(set(names)) == len(rows), f"{workflow} {name}: skip-report names collide across the matrix"
 
 
 def test_sharded_workflows_name_every_shard_that_left_no_skip_report() -> None:
@@ -423,7 +521,8 @@ def test_sharded_workflows_name_every_shard_that_left_no_skip_report() -> None:
         parsed = _parsed(workflow)["jobs"]["skip-reports"]
         assert parsed["needs"] == ["scope", "tests"], workflow
         condition = _class_condition(runs)
-        assert parsed["if"] == (f"always() && ({condition})" if len(runs) > 1 else f"always() && {condition}"), workflow
+        condition = f"({condition})" if len(runs) > 1 else condition
+        assert parsed["if"] == f"${{{{ !cancelled() && {condition} }}}}", workflow
         assert re.search(r"(?m)^    timeout-minutes: \d+$", job), workflow
         assert "actions: read" in job, workflow
         step = _code(_steps(job)[-1])

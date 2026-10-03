@@ -42,7 +42,8 @@ jobs:
   #         compilers, their specs and runtime, the stdlib modules btrcc
   #         imports, the CI hotspots), or any other branch's change.
   # Labels and files are read through the API rather than the event payload,
-  # so a rerun sees a label added after the push.
+  # so "Re-run all jobs" sees a label added after the push ("Re-run failed
+  # jobs" keeps this job's earlier result).
   scope:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -267,10 +268,11 @@ jobs:
   # reaches its `if: always()` upload, and the run's artifact list just lacks
   # its report. This job runs after every shard, whatever their outcome, and
   # names each tests job that left no skip report, so missing coverage shows
-  # as a warning on the run rather than as an absent artifact.
+  # as a warning on the run rather than as an absent artifact. A run a newer
+  # push cancelled is skipped: its shards never had the chance to upload.
   skip-reports:
     needs: [scope, tests]
-    if: always() && needs.scope.outputs.class == 'full'
+    if: ${{ !cancelled() && needs.scope.outputs.class == 'full' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
