@@ -834,15 +834,18 @@ class HostManifest:
         def count(value: object) -> bool:
             return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
-        if table.get("schema") != cls.SCHEMA:
+        def member(value: object, choices: frozenset[str]) -> bool:
+            return isinstance(value, str) and value in choices
+
+        if type(table.get("schema")) is not int or table["schema"] != cls.SCHEMA:
             problems.append(f"schema must be {cls.SCHEMA}")
         if table.get("id") != stem:
             problems.append(f"id must be the file name, {stem!r}")
-        if table.get("role") not in cls.ROLES:
+        if not member(table.get("role"), cls.ROLES):
             problems.append(f"role must be one of {', '.join(sorted(cls.ROLES))}")
-        if table.get("architecture") not in cls.ARCHITECTURES:
+        if not member(table.get("architecture"), cls.ARCHITECTURES):
             problems.append(f"architecture must be one of {', '.join(sorted(cls.ARCHITECTURES))}")
-        if table.get("instruction_counter") not in cls.COUNTERS:
+        if not member(table.get("instruction_counter"), cls.COUNTERS):
             problems.append(f"instruction_counter must be one of {', '.join(sorted(cls.COUNTERS))}")
         if not text(table.get("source")):
             problems.append("source must say where the facts come from")

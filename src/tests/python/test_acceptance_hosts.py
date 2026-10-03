@@ -130,6 +130,11 @@ def put(name: str, value: object):
     ("base", "change", "problem"),
     [
         ("mac-m1-max", put("schema", 2), "schema must be 1"),
+        ("mac-m1-max", put("schema", True), "schema must be 1"),
+        ("mac-m1-max", put("schema", 1.0), "schema must be 1"),
+        ("mac-m1-max", put("role", ["acceptance"]), "role must be one of"),
+        ("mac-m1-max", put("architecture", {"arm64": 1}), "architecture must be one of"),
+        ("mac-m1-max", put("instruction_counter", ["/usr/bin/time -l"]), "instruction_counter must be one of"),
         ("mac-m1-max", put("id", "mac"), "id must be the file name"),
         ("mac-m1-max", put("role", "dev"), "role must be one of"),
         ("mac-m1-max", put("architecture", "riscv64"), "architecture must be one of"),
