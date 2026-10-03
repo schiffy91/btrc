@@ -269,8 +269,9 @@ class LoweringContext {
 	}
 
 	/* Note a file whose declaration body or source positions this unit
-	 * copies: an inherited `__del__`, a `#line` or `__LINE__` position. A
-	 * module unit reused across builds depends on those files' groups. */
+	 * copies: an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__`
+	 * position. A module unit reused across builds depends on those files'
+	 * groups. */
 	public void consultSource(string file) {
 		if (!file.isEmpty()) { self.consultedSources.put(file, true); }
 	}

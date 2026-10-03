@@ -40,9 +40,14 @@ def _command(compiler: str, request) -> list[str]:
     return [str(request.getfixturevalue("immutable_btrcc"))]
 
 
-def _records(cache: Path) -> dict[Path, int]:
-    """The reference compiler's stored unit records and when each was written."""
-    return {path: path.stat().st_mtime_ns for path in cache.rglob("*.module.json")} if cache.exists() else {}
+def _records(cache: Path) -> dict[Path, tuple[int, int]]:
+    """The reference compiler's stored unit records, each by the file it was
+    last written as: every store replaces the record with a new file."""
+    records = {}
+    for path in cache.rglob("*.module.json") if cache.exists() else ():
+        written = path.stat()
+        records[path] = (written.st_ino, written.st_mtime_ns)
+    return records
 
 
 def _build(command: list[str], source: Path, output: Path, cache: Path, *extra: str) -> _Build:

@@ -98,8 +98,8 @@ class ModuleUnitRecord:
     realtime_proofs: Mapping[str, tuple[str, ...]]
     # Every other group whose declaration bodies or source positions the unit
     # copied, with that group's source digest when it was lowered: a kernel's
-    # WGSL, an inherited `__del__`, a `#line` or `__LINE__` position. None of
-    # them is in the program interface.
+    # WGSL, an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__`
+    # position. None of them is in the program interface.
     consulted_sources: Mapping[str, str] = field(default_factory=dict)
 
     @staticmethod
@@ -1024,7 +1024,11 @@ class ModuleUnitCompiler:
                     helpers=reply["helpers"],
                     realtime_roots=state.realtime_roots,
                     realtime_proofs={name: tuple(sorted(callees)) for name, callees in state.realtime_proofs.items()},
-                    consulted_sources=self._consulted_groups(reply["sources"], state.name, groups, group_sources),
+                    consulted_sources={
+                        group: group_sources[group]
+                        for group in reply["sources"]
+                        if group != state.name and group in group_sources
+                    },
                 )
                 store.store_module_unit(state.key, record.to_json(), input_path)
                 state.record = record
@@ -1471,18 +1475,6 @@ class ModuleUnitCompiler:
         self._finalize(unit)
 
     @staticmethod
-    def _consulted_groups(
-        sources: Iterable[str], owner: str, groups: CompilationGroups, group_sources: Mapping[str, str]
-    ) -> dict[str, str]:
-        """The other groups behind the files a unit copied from, with their source digests."""
-        consulted: dict[str, str] = {}
-        for path in sources:
-            group = groups.group_of(path)
-            if group not in (owner, CompilationGroups.PROGRAM) and group in group_sources:
-                consulted[group] = group_sources[group]
-        return dict(sorted(consulted.items()))
-
-    @staticmethod
     def _exporters(states: Sequence[_GroupState]) -> dict[str, str]:
         """Which group defines each externally linked function."""
         exporters: dict[str, str] = {}
@@ -1669,7 +1661,7 @@ class ModuleUnitWorker:
 
     def _finish(self, group: str, unit: IRModule, setjmp_functions: frozenset[str], request: dict) -> dict:
         """Optimize and emit the unit with the program facts the owner settled."""
-        analyzed, _filename, options, _source_map, _groups, _facts = self._lowering
+        analyzed, _filename, options, _source_map, groups, _facts = self._lowering
         unit.realtime_safe_externals.update(request["realtime_safe"])
         if request["reset"]:
             self._solved = {}
@@ -1685,18 +1677,17 @@ class ModuleUnitWorker:
         )
         if kept:
             self._shared.trim_native_includes(unit)
-        # The WGSL of each kernel the unit dispatches is built from its body.
-        functions = analyzed.function_table
+        # The groups whose bodies or positions the unit copied; the WGSL of
+        # each kernel it dispatches is built from the kernel's body.
         sources = set(unit.consulted_sources)
         for kernel in unit.gpu_kernels:
-            declaration = functions.get(kernel.name)
-            if isinstance(getattr(declaration, "source_file", None), str):
-                sources.add(str(declaration.source_file))
+            sources.add(getattr(analyzed.function_table.get(kernel.name), "source_file", None))
+        consulted = {groups.group_of(source) for source in sources if isinstance(source, str) and source}
         return {
             "kept": kept,
             "text": CEmitter().emit_module_unit(unit) if kept else "",
             "exports": tuple(sorted(function.name for function in unit.function_defs if not function.is_static)),
             "entry": any(function.name in {"main", "btrc_main"} for function in unit.function_defs),
             "helpers": helpers,
-            "sources": tuple(sorted(sources)),
+            "sources": tuple(sorted(consulted - {CompilationGroups.PROGRAM})),
         }

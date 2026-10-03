@@ -210,8 +210,8 @@ class ModuleUnitRecord {
 	public Vector<string> keptInstances = [];
 	/* Every other group whose declaration bodies or source positions the unit
 	 * copied, with that group's source digest when it was lowered: a kernel's
-	 * WGSL, an inherited `__del__`, a `#line` or `__LINE__` position. None of
-	 * them is in the program interface. */
+	 * WGSL, an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__`
+	 * position. None of them is in the program interface. */
 	public Map<string, string> consultedSources = {};
 
 	public ModuleUnitRecord() {}
@@ -1881,10 +1881,11 @@ class ModuleUnitCompiler {
 				ModuleUnitRecord? loaded = state.record;
 				if (loaded != null) {
 					for group in loaded.consultedSources.keys() {
-						if (state.record != null && (!sources.has(group) || !sources.get(group).equals(loaded.consultedSources.get(group)))) {
+						if (!sources.has(group) || !sources.get(group).equals(loaded.consultedSources.get(group))) {
 							state.record = null;
 							state.stored = false;
 							self.relowered("consulted-source");
+							break;
 						}
 					}
 				}

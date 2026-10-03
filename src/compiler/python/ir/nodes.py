@@ -1039,8 +1039,10 @@ class IRModule(IRNode):
         default_factory=set, repr=False, compare=False, metadata={"ir_traverse": False, "ir_render": False}
     )
     # Source files whose declarations' bodies or positions this unit copied:
-    # an inherited `__del__`, a `#line` or `__LINE__` position. A module unit
-    # reused across builds depends on those files' groups. Bookkeeping only.
+    # an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__` position. A
+    # module unit reused across builds depends on those files' groups; a
+    # native stamp keeps its type, so it maps to the program unit.
+    # Bookkeeping only.
     consulted_sources: set[str] = field(
         default_factory=set, repr=False, compare=False, metadata={"ir_traverse": False, "ir_render": False}
     )
