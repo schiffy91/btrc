@@ -316,6 +316,13 @@ more than a set share of groups is dirty.
   and they extend the `globals` map.
   - Raw-borrow proofs are re-proved. A failure undoes the deferred
     references, validates the declaration live, and voids the record.
+  - Whether a callee never returns is a fact of its body, outside the
+    interface the key covers, and it decides reachability and nullable-flow
+    warnings. Each answer body validation relied on is journaled with its
+    question (`VALIDATION_DIVERGENCE`: a function, a static method, or a
+    dispatch from a class) and asked again before anything replays; a moved
+    answer validates the declaration live and voids the record (SB-D5,
+    CL-REQ-07).
   - A record is written only when every function and class of its group
     was journaled.
 - **Gate.** `BTRC_VERIFY_VALIDATION_RECORDS` validates everything live. It
@@ -701,8 +708,13 @@ A **`ModuleUnitRecord`** per group (in the compiler cache, checksummed and
 framed by the toolchain fingerprint) holds the unit text and the facts it
 published or consulted: exported setjmp summaries, the summaries it consulted,
 whether it contains `setjmp`, releases cyclable values or defines the entry,
-the cyclable-release fact it consulted, its helpers, and the groups its
-realtime proofs traversed. A record is reused only when its key matches and,
+the cyclable-release fact it consulted, its helpers, the groups its
+realtime proofs traversed, and the source digest of every other group whose
+declaration bodies or source positions the unit copied (CL-REQ-07): the
+kernels whose WGSL it embeds, the inherited `__del__` its destroy hooks carry,
+and the files its `#line` markers and `__LINE__`/`__FILE__` defaults name. A
+record is reused only when its key matches, every group it copied from has
+the source it had then, and,
 after the stale groups are solved, every consulted summary is unchanged, no
 summary-dependency cycle joins it to a stale group, and no realtime proof it
 made or needs crosses a stale group; otherwise the group is lowered again and
@@ -716,7 +728,11 @@ except in generic templates, keeping only whether a body exists and which
 parameters its leading statements consume (the two body facts lowering reads
 from other declarations). The facts digest covers exception use, generic class,
 method and callable instance tables, the realtime-safe set and stdlib
-reachability. Both are whole-program: a public signature change, a new generic
+reachability, plus the orders a unit emits in that other groups' bodies
+decide: the tuple shapes and the class and method specializations in
+discovery order (SB-D7, SB-D8), and in btrcc the order of the program's files
+(SB-D6; btrcpy's interface digest is already ordered). Both are whole-program:
+a public signature change, a new generic
 instance or newly reached stdlib declaration anywhere invalidates every group.
 That over-approximation is visible in the lowered/reused counters and is the
 next refinement (per-group consulted facts).
@@ -759,7 +775,8 @@ Records are stored as two files per key in the self-hosted artifact cache:
 `unit.c` holds the C text verbatim, and `record.txt` starts with the digests
 of the record and of the text, followed by the record itself: one
 tab-separated line per field, then counted sections for the effect summaries,
-realtime proofs and reference-graph edges, so reading it back is a split per
+realtime proofs, reference-graph edges and the groups the unit copied
+bodies or positions from, so reading it back is a split per
 line. Either digest failing is a
 miss. Module-unit cache opens skip revalidating every input read so far: a key
 already digests the exact group sources, and publishing the build still
