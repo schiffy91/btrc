@@ -19,10 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.c_compatibility_harness import reference_output, relative_to_program, selfhost_output, write_program
 from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
-from src.tests.btrc.test_c_compatibility_bodies import _reference, _relative, _selfhost, _write
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
 CORPUS = REPO / "src/tests/c_compat"
@@ -181,14 +179,16 @@ def test_declarator_lowers_exactly_like_its_cfunction_twin(
     declarator: str,
     cfunction: str,
 ) -> None:
-    left = _write(tmp_path / "declarator", declarator)
-    right = _write(tmp_path / "cfunction", cfunction)
+    left = write_program(tmp_path / "declarator", declarator)
+    right = write_program(tmp_path / "cfunction", cfunction)
 
     for flags in (("--emit-ir",), (), ("--debug",)):
-        assert _relative(_reference(left, *flags), left) == _relative(_reference(right, *flags), right), flags
+        assert relative_to_program(reference_output(left, *flags), left) == relative_to_program(
+            reference_output(right, *flags), right
+        ), flags
     for flags in ((), ("--debug",)):
-        assert _relative(_selfhost(semantic_btrcc, left, *flags), left) == _relative(
-            _selfhost(semantic_btrcc, right, *flags), right
+        assert relative_to_program(selfhost_output(semantic_btrcc, left, *flags), left) == relative_to_program(
+            selfhost_output(semantic_btrcc, right, *flags), right
         ), flags
 
 

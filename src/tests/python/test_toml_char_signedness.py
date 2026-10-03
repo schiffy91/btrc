@@ -7,18 +7,17 @@ plain char is unsigned, where a `c >= 0` test is -Wtype-limits' "always true".
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = ROOT / "src/tests/stdlib/TomlUtilities.btrc"
-C_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 @pytest.fixture(scope="module")
@@ -37,8 +36,8 @@ def generated(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return output
 
 
-@pytest.mark.skipif(not C_COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", C_COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("signedness", ["-fsigned-char", "-funsigned-char"])
 def test_toml_builds_and_runs_with_either_char_signedness(generated, tmp_path, c_compiler, signedness):
     executable = tmp_path / "TomlUtilities"

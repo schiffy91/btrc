@@ -80,6 +80,13 @@ def test_dev_shell_does_not_inject_fortify_into_strict_o0_tests() -> None:
     assert 'hardeningDisable = [ "fortify" "fortify3" ];' in flake
 
 
+def test_perf_target_pairs_the_host_c_and_cxx_drivers():
+    # A clang build linked by GCC's c++ would mix two toolchains' runtimes.
+    command = next(line for line in _make_dry_run("NIX=", "perf-self").splitlines() if "tools.perf" in line)
+    cc, cxx = ("clang", "clang++") if platform.system() == "Darwin" else ("cc", "c++")
+    assert f'--cc "{cc}" --cxx "{cxx}"' in command
+
+
 def test_memory_intensive_bootstrap_runs_after_the_parallel_suite():
     output = _make_dry_run("test", "NIX=").replace("\\\n", " ")
     commands = [line for line in output.splitlines() if "python3 -m pytest" in line]

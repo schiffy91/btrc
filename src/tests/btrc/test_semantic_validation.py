@@ -3,23 +3,22 @@
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 
 import pytest
 
 from src.tests.btrc.selfhost_snippet_harness import (
-    CC,
     REPO,
     compile_reference_source,
     compile_source,
     strict_build_and_run,
 )
+from src.tests.c_toolchains import host_c_compiler
 
 SELFHOST = REPO / "src/compiler/btrc"
 
 pytestmark = pytest.mark.skipif(
-    not CC or shutil.which(CC[0]) is None,
+    host_c_compiler() is None,
     reason="needs a C compiler",
 )
 

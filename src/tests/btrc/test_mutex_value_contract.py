@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import shutil
-import sys
 from pathlib import Path
 
 import pytest
@@ -20,7 +17,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     sanitized_build_and_run,
 )
 from src.tests.btrc.selfhost_snippet_harness import compile_source
-from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.c_toolchains import HOST_C_COMPILERS, sanitizer_clang
 
 FIXTURES = Path(__file__).with_name("fixtures")
 ABI_RUNTIME = FIXTURES / "MutexValueAbiRuntime.btrc"
@@ -115,9 +112,7 @@ def test_mutex_concurrent_snapshots_are_thread_sanitizer_clean(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    clang = (
-        "/usr/bin/clang" if sys.platform == "darwin" and os.access("/usr/bin/clang", os.X_OK) else shutil.which("clang")
-    )
+    clang = sanitizer_clang()
     if clang is None:
         pytest.skip("ThreadSanitizer requires clang")
     compiled = compile_snippet_pair(

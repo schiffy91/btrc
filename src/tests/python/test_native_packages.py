@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +22,7 @@ from src.compiler.python.frontend.packages import (
 )
 from src.compiler.python.frontend.sources import SourceDependencyGraph
 from src.compiler.python.main import main as compiler_main
+from src.tests.c_toolchains import default_toolchain
 from src.tests.native_targets import cross_target_environment
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
@@ -514,10 +514,10 @@ def test_one_native_record_cannot_be_split_across_module_scopes(tmp_path: Path) 
 
 
 def _compile_plan(plan: dict, generated_c: Path, output: Path, temporary: Path) -> None:
-    cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
-    cxx = shutil.which("c++") or shutil.which("clang++") or shutil.which("g++")
-    if cc is None or cxx is None:
+    toolchain = default_toolchain()
+    if toolchain is None:
         pytest.skip("native package proof needs C and C++ compilers")
+    cc, cxx = toolchain
     includes = [f"-I{entry['path']}" for entry in plan["include-directories"]]
     defines = [
         f"-D{entry['name']}={entry['value']}" if entry["value"] else f"-D{entry['name']}" for entry in plan["defines"]

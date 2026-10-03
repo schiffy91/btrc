@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -11,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 REPOSITORY = Path(__file__).resolve().parents[3]
@@ -19,7 +19,6 @@ PUBLIC_API = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport
 RUNTIME = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransportRuntime.btrc"
 PRACTICE_RUNTIME = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipPracticeRuntime.btrc"
 MANIFEST = REPOSITORY / "src" / "stdlib" / "Realtime" / "btrc.toml"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _reference(output: Path, cache: Path) -> subprocess.CompletedProcess[str]:
@@ -115,7 +114,7 @@ def test_callback_mechanics_are_private_to_the_realtime_package(module: str, tmp
     assert "is private to package 'btrc_stdlib_realtime'" in compiled.stderr
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_real_runtime_runs_from_both_frontends_with_strict_compilers(semantic_btrcc: Path, tmp_path: Path) -> None:
     generated = {
         "reference": tmp_path / "RealtimeClipTransportRuntimeReference.c",
@@ -143,7 +142,7 @@ def test_real_runtime_runs_from_both_frontends_with_strict_compilers(semantic_bt
             "struct BtrcRealtimeClipPracticeInputValue sample = "
             "(struct BtrcRealtimeClipPracticeInputValue){.deviceFrame = 0};"
         ) in emitted
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"runtime-{frontend}-{Path(compiler).name}"
             built = _strict_build(compiler, source, executable)
             assert built.returncode == 0, built.stderr

@@ -12,13 +12,13 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.native_targets import cross_target_environment
 from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "native-package"
-C_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _environment() -> dict[str, str]:
@@ -333,7 +333,7 @@ def test_empty_native_plan_preserves_explicit_target_with_frontend_parity(
         "os": "macos",
     }
     for frontend, generated in (("reference", reference_c), ("selfhost", selfhost_c)):
-        for compiler in C_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             _assert_strict_c_program(
                 generated,
                 tmp_path / f"{root.name}-{frontend}-{Path(compiler).name}",

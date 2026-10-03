@@ -16,6 +16,7 @@ from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.btrc.gpu_stub_harness import CC, FIXTURES, REPO, compile_with_stub, run_in_repo
+from src.tests.c_toolchains import host_c_compiler
 from src.tests.process_limits import TRANSPILE_TIMEOUT
 from src.tests.python.reference_pipeline import emit_c
 
@@ -27,7 +28,7 @@ if NAGA is None:
         NAGA = str(shared_naga)
 
 pytestmark = pytest.mark.skipif(
-    sys.platform == "win32" or not CC or shutil.which(CC[0]) is None,
+    sys.platform == "win32" or host_c_compiler() is None,
     reason="requires a hosted C11 compiler",
 )
 

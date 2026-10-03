@@ -9,7 +9,6 @@ program output.
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -18,6 +17,7 @@ import time
 import pytest
 
 from src.devex.debug.runtime.bootstrap import LldbBootstrap
+from src.tests.c_toolchains import host_c_compiler
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 ADAPTER_COMMAND = [sys.executable, "-m", "src.devex.debug"]
@@ -45,7 +45,7 @@ def _session_skip_reason() -> str | None:
     is asked first, of the same bootstrap, and reported under its own reason:
     a Mac with developer mode off is an expected skip, an lldb that cannot
     start under developer mode is not."""
-    if shutil.which("cc") is None and shutil.which("gcc") is None:
+    if host_c_compiler() is None:
         return COMPILER_REASON
     if not LldbBootstrap().debugger_access_available():
         return DEVELOPER_MODE_REASON

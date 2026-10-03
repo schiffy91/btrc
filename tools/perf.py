@@ -35,7 +35,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from src.compiler.python.frontend.packages import PackageTarget
-from tools.budget_bench import Distribution, HostSummary
+from tools.budget_bench import CC, CXX, Distribution, HostSummary
 from tools.native_plan import NativePlanError, NativePlanReader
 
 REPO = Path(__file__).resolve().parents[1]
@@ -661,8 +661,9 @@ class Perf:
         parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
         parser.add_argument("program", help="the .btrc entry point to build")
         parser.add_argument("--btrcc", default=str(REPO / "bin" / "btrcc"))
-        parser.add_argument("--cc", default="clang")
-        parser.add_argument("--cxx", default="c++")
+        # One toolchain for both drivers, the pair tools.budget_bench pins.
+        parser.add_argument("--cc", default=CC)
+        parser.add_argument("--cxx", default=CXX)
         parser.add_argument("--pkg-config", default="pkg-config")
         parser.add_argument("--target", help="OS-ARCH (defaults to the current host)")
         parser.add_argument("--frontends", default="btrcpy,btrcc", help="comma-separated: btrcpy,btrcc")

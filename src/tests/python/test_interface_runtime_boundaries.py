@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +13,7 @@ from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import sanitizer_clang
 
 
 def _analyze(source: str):
@@ -193,11 +192,7 @@ def _translation_unit(text: str) -> str:
 
 
 def _run_interface_program(tmp_path, emitted, sanitized, *, other_units=()):
-    # Nix's clang ships a compiler-rt whose sanitizer runtime deadlocks in
-    # dyld initialization on macOS; Apple's clang links the working one.
-    compiler = (
-        "/usr/bin/clang" if sys.platform == "darwin" and os.path.exists("/usr/bin/clang") else shutil.which("clang")
-    )
+    compiler = sanitizer_clang()
     if compiler is None:
         pytest.skip("requires clang")
     c_file = tmp_path / "interfaces.c"

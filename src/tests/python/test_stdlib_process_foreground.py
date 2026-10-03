@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import select
-import shutil
 import subprocess
 import sys
 import textwrap
@@ -19,8 +18,10 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import host_c_compiler
+
 ROOT = Path(__file__).resolve().parents[3]
-C_COMPILER = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+C_COMPILER = host_c_compiler()
 PROGRAM = r"""
     import Library.Process;
 
@@ -63,7 +64,7 @@ def _build(tmp_path: Path) -> Path:
     assert transpile.returncode == 0, transpile.stderr
     build = subprocess.run(
         [
-            C_COMPILER,
+            *C_COMPILER,
             "-std=c11",
             "-O1",
             f"-I{ROOT / 'src' / 'stdlib'}",
