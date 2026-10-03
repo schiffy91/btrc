@@ -1627,12 +1627,12 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	private ExclusiveFileLease? lease = null;
 	private BtrccArtifactDigests? artifactDigests;
 	/* Stage 6 records spike (never merged): every module-unit record and
-	 * validation record this build read or wrote, packed into one file that
-	 * the next build reads once and trusts without digests. */
+	 * validation record a build read from outside the pack or wrote is
+	 * appended to one file that later builds read once and trust without
+	 * digests. */
 	private Map<string, BtrccModuleUnitPayload>? spikePack = null;
 	private Map<string, BtrccModuleUnitPayload> spikeUsed = {};
 	private Vector<string> spikeOrder = [];
-	private bool spikeChanged = false;
 	public int spikePackHits = 0;
 
 	public BtrccArtifactCache(string executable, FeSourceFileReader sourceFiles, string unitsPrefix, BtrccArtifactDigests? artifactDigests = null) {
@@ -1857,16 +1857,17 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		return entries;
 	}
 
+	/* An entry this build read from outside the pack or wrote. */
 	private void spikeKeep(string identity, BtrccModuleUnitPayload payload, bool changed) {
+		if (!changed) { return; }
 		if (!self.spikeUsed.has(identity)) { self.spikeOrder.push(identity); }
 		self.spikeUsed.put(identity, payload);
-		if (changed) { self.spikeChanged = true; }
 	}
 
-	/* Rewrites the pack when this build read a record from outside it or
-	 * wrote one. */
+	/* Appends this build's new or replaced entries to the pack; a later
+	 * entry for an identity overrides an earlier one when the pack is read. */
 	public void spikeFlush() {
-		if (!self.spikeChanged) { return; }
+		if (self.spikeOrder.len == 0) { return; }
 		string path = self.spikePackPath();
 		if (path.isEmpty()) { return; }
 		StringBuilder out = StringBuilder();
@@ -1879,8 +1880,10 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 			out.append(payload.record);
 			out.append(payload.text);
 		}
-		Path.writeAll(path + ".tmp", out.toString());
-		rename(path + ".tmp", path);
+		File pack = File(path, "ab");
+		if (!pack.ok()) { return; }
+		pack.write(out.toString());
+		pack.close();
 	}
 
 	public BtrccModuleUnitPayload? loadModuleUnit(string identity) {
