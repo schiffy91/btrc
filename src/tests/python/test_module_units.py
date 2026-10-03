@@ -1274,20 +1274,28 @@ def test_an_edit_replaces_only_the_changed_unit_files(compiler: str, tmp_path, r
 
 # Each group's header reads a macro an earlier group defines and must not see
 # one a later group defines, so a unit that put its own directives ahead of the
-# other groups' fails to preprocess.
+# other groups' fails to preprocess. Two groups repeat a macro and an include,
+# and Probe imports a raw C source, which only Probe's unit may include.
 _DIRECTIVE_PROGRAM = {
     "Config/Config.btrc": """#define CFG_SCALE 3
 #define CFG_LABEL "cfg"
+#define SHARED_FLAG 1
+#include <iso646.h>
 
 int configScale() {
 	return CFG_SCALE;
 }
 """,
     "Probe/Probe.btrc": """import ../Config/Config.btrc;
+import ./helper.c;
 #include "probe.h"
+#define SHARED_FLAG 1
+#include <iso646.h>
+
+extern int probeHelper(int value);
 
 int probeValue() {
-	return probeScaled(configScale());
+	return probeHelper(probeScaled(configScale()));
 }
 """,
     "Main.btrc": """import ./Config/Config.btrc;
@@ -1299,6 +1307,10 @@ int main() {
 	int scaled = libScaled(2);
 	print(f"{configScale()} {probeValue()} {scaled + MAIN_OFFSET}");
 	return 0;
+}
+""",
+    "Probe/helper.c": """int probeHelper(int value) {
+    return value * 2;
 }
 """,
     "Probe/probe.h": """#ifndef CFG_SCALE
@@ -1318,10 +1330,15 @@ static inline int probeScaled(int value) { return value + CFG_SCALE; }
 static inline int libScaled(int value) { return value * CFG_SCALE; }
 """,
 }
+# The whole program's source directives, in source order: the repeated macro
+# stays twice, the repeated include once.
 _DIRECTIVES = (
     "#define CFG_SCALE 3",
     '#define CFG_LABEL "cfg"',
+    "#define SHARED_FLAG 1",
+    "#include <iso646.h>",
     '#include "probe.h"',
+    "#define SHARED_FLAG 1",
     '#include "lib.h"',
     "#define MAIN_OFFSET 10",
 )
@@ -1331,12 +1348,18 @@ def _source_directives(text: str, directives: tuple[str, ...]) -> list[str]:
     return [line for line in text.split("\n") if line in directives]
 
 
+def _c_source_includes(text: str) -> list[str]:
+    return [line for line in text.split("\n") if line.startswith("#include") and line.endswith('helper.c"')]
+
+
 def test_every_unit_carries_the_whole_directive_list_in_source_order(compiler: str, tmp_path, request):
     """A `#define` / `#include` pair split across groups keeps its order in every unit.
 
     Each unit, the runtime unit included, carries the whole program's directive
-    list in source order, so it compiles as strict C11 and the program runs;
-    a warm build after a directive edit equals a cold one.
+    list in source order, so it compiles as strict C11 and the program runs.
+    Macros are never deduplicated, identical includes are, and an imported C
+    source stays in its own group's unit. A warm build after a directive edit
+    equals a cold one.
     """
     if compiler == "python":
         command = [sys.executable, "-m", "src.compiler.python.main"]
@@ -1365,14 +1388,23 @@ def test_every_unit_carries_the_whole_directive_list_in_source_order(compiler: s
         assert completed.returncode == 0, completed.stderr
         return {path.name: path.read_text() for path in sorted(output.glob("p*.c"))}
 
+    def check(texts: dict[str, str], whole: str, directives: tuple[str, ...]) -> None:
+        for name, text in texts.items():
+            assert _source_directives(text, directives) == list(directives), name
+        # Only Probe's unit includes the C source, at its place in the whole list.
+        including = [name for name, text in texts.items() if _c_source_includes(text)]
+        assert len(including) == 1 and ".unit-Probe-" in including[0], including
+        expected = [line for line in whole.split("\n") if line in directives or line in _c_source_includes(whole)]
+        assert _source_directives(texts[including[0]], (*directives, *_c_source_includes(whole))) == expected
+
     root = tmp_path.resolve()
     whole = build(root / "whole", root / "whole-cache")
     assert list(whole) == ["p.c"]
     assert _source_directives(whole["p.c"], _DIRECTIVES) == list(_DIRECTIVES)
+    assert len(_c_source_includes(whole["p.c"])) == 1
     units = build(root / "units", root / "cache", "--module-units")
     assert len([name for name in units if ".unit-" in name]) >= 3
-    for name, text in units.items():
-        assert _source_directives(text, _DIRECTIVES) == list(_DIRECTIVES), name
+    check(units, whole["p.c"], _DIRECTIVES)
 
     # Every key covers the directive text: a warm build after a directive edit
     # gives the same C as a cold build.
@@ -1381,8 +1413,7 @@ def test_every_unit_carries_the_whole_directive_list_in_source_order(compiler: s
     warm = build(root / "warm", root / "cache", "--module-units")
     assert warm == build(root / "cold", root / "cold-cache", "--module-units")
     edited = (*_DIRECTIVES[:-1], "#define MAIN_OFFSET 20")
-    for name, text in warm.items():
-        assert _source_directives(text, edited) == list(edited), name
+    check(warm, whole["p.c"].replace("#define MAIN_OFFSET 10", "#define MAIN_OFFSET 20"), edited)
 
     if not HOST_C_COMPILERS:
         pytest.skip("module-unit compilation needs a C compiler")
@@ -1390,7 +1421,7 @@ def test_every_unit_carries_the_whole_directive_list_in_source_order(compiler: s
         objects = []
         for name in units:
             objects.append(root / "units" / f"{name}.{Path(c_compiler).name}.o")
-            subprocess.run(
+            compiled = subprocess.run(
                 [
                     c_compiler,
                     "-std=c11",
@@ -1405,19 +1436,21 @@ def test_every_unit_carries_the_whole_directive_list_in_source_order(compiler: s
                     "-o",
                     str(objects[-1]),
                 ],
-                check=True,
                 capture_output=True,
+                text=True,
                 timeout=180,
             )
+            assert compiled.returncode == 0, (c_compiler, name, compiled.stderr)
         executable = root / f"program-{Path(c_compiler).name}"
-        subprocess.run(
+        linked = subprocess.run(
             [c_compiler, *map(str, objects), "-o", str(executable), "-lm", "-lpthread"],
-            check=True,
             capture_output=True,
+            text=True,
             timeout=180,
         )
+        assert linked.returncode == 0, (c_compiler, linked.stderr)
         ran = subprocess.run([str(executable)], check=True, capture_output=True, text=True, timeout=30)
-        assert ran.stdout == "3 6 16\n", c_compiler
+        assert ran.stdout == "3 12 16\n", c_compiler
 
 
 _DYING_WORKER = """

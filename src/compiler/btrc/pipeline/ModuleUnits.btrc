@@ -370,8 +370,8 @@ class ModuleUnitRecord {
 /* The program's declaration-level IR, drawn from by every module unit. One
  * declarations-only lowering produces every type, prototype and extern global;
  * a unit lowers only what its group owns and then takes, by name closure, the
- * shared declarations its own IR references. Preprocessor declarations are
- * shared by every unit. */
+ * shared declarations its own IR references. Every unit lowers the program's
+ * whole directive list itself, in source order. */
 class ModuleUnitDeclarations {
 	private IRModule shared;
 	/* Entry kinds: 0 forward, 1 enum, 2 function-pointer typedef, 3 typedef,

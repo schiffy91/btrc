@@ -164,7 +164,8 @@ class TranslationUnitLowerer:
         self._session.stdlib_reachability = self._facts.stdlib_reachability
         self._classes.configure_pack_alignments(self.declaration_pack_alignments(self._analyzed.program))
         # A module unit whose declarations come from the shared program
-        # declarations lowers only what its own group defines.
+        # declarations lowers only what its own group defines, plus every
+        # group's directives.
         shared = self._session.declarations_elsewhere
         if shared:
             class_views = tuple(view for view in class_views if not self._foreign(view.declaration))
