@@ -2,8 +2,8 @@
 
 The self-hosted compiler's tree is pinned by
 ``src/tests/btrc/test_compiler_structure_contract.py``; this module pins the
-Python side the same way, reading the normative tree from ``AGENTS.md`` and
-``docs/design/compiler-structure.md`` so the documents cannot drift from the
+Python side the same way, reading the normative tree from
+``docs/design/compiler-structure.md`` so the document cannot drift from the
 files on disk.
 """
 
@@ -16,7 +16,6 @@ REPO = Path(__file__).resolve().parents[3]
 PYTHON_COMPILER = REPO / "src/compiler/python"
 EXPECTED_FILE_COUNT = 88
 INVENTORY_DOCUMENTS = {
-    "AGENTS.md": "The destination contains exactly 88 production Python files:",
     "docs/design/compiler-structure.md": "The Python compiler contains exactly 88 production `.py` files:",
 }
 # Thin process and package entry points are the only module-level functions.

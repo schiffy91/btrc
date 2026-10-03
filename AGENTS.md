@@ -3,6 +3,46 @@
 These rules are non-negotiable. Every contributor (human or AI) must follow them.
 Read this ENTIRE file before writing any code.
 
+## Second agent: Codex
+
+OpenAI Codex builds in this repository beside Claude under PLAN.md's decision
+D27. [`WORKSTREAMS.md`](WORKSTREAMS.md) assigns every remaining PLAN.md item as
+a work packet; Codex's are in
+[`docs/workstreams/codex.md`](docs/workstreams/codex.md). Read WORKSTREAMS.md
+§2 and §3 before taking a packet.
+
+- **Applies to Codex:** everything here about architecture, the pipeline,
+  parity, strict imports, naming, generated files, and the Hard Rules.
+- **Does not apply:** "Host capacity and agent rules" (the Mac's locks, hubs,
+  disk and load rules), MEMORY.md, and the Mac measurement rules. In a cloud
+  container, export `BTRC_TEST_RUNNER=linux-devcontainer` and run every
+  command through `nix develop --command` (WORKSTREAMS.md §3.11).
+- **Branches:** one packet per `codex/…` branch, with a draft PR to `main`
+  titled `[CX-…]` whose body starts with the packet's owned paths and follows
+  `.github/PULL_REQUEST_TEMPLATE/codex-packet.md`. The draft PR is for CI only.
+- **Never:** push `main` or `main-kn9jxh`, merge or close a PR, edit
+  `docs/design/plan-reference.md`, claim Mac, device or account evidence, or
+  treat a local `make test` as the gate (draft-PR CI is).
+- **Paths Codex never edits** (put a `REQUEST(<target>)` block in the PR body
+  instead, WORKSTREAMS.md §3.6):
+  - `src/compiler/**`, `src/language/**`, `tools/compiler_codegen/**`;
+  - generated files: the Python compiler's `generated.py` modules,
+    `src/compiler/btrc/generated/**`, `src/stdlib/btrc.lock`,
+    `src/stdlib/btrc.symbols`, `src/devex/lsp/catalog/generated.py`;
+  - `src/runtime/**`, `tools/NativeHeaderReader.cpp`,
+    `tools/JavaClassReader.c`, the boundary manifest;
+  - `src/devex/**` and the compiler-import stdlib modules (WORKSTREAMS.md
+    §3.4), unless the packet names the file;
+  - `Makefile`, `flake.nix`, `flake.lock`, `nix/*`, `src/tests/conftest.py`,
+    `src/tests/runner_capabilities.py`, `tools/native_plan.py`,
+    `tools/budget_bench.py`, `.github/workflows/{ci,macos,windows}.yml`,
+    PLAN.md and this file.
+- **Integrator-owned data** (`btrc.toml` exports and native rows,
+  expected-skip manifests, denominators, Makefile lines, `ci/tiers.toml`)
+  changes only in a final `fragment: <what>` commit, and regenerated outputs
+  only in a `derived: regenerate` commit, which Claude drops and regenerates
+  (WORKSTREAMS.md §3.5).
+
 ---
 
 ## Multi-Session Warning
@@ -97,101 +137,13 @@ The test harness builds the self-hosted compiler once per source revision and
 caches it under `build/test-btrcc/<fingerprint>/`; a change to any compiler
 source, the stdlib, a shared spec, a runtime asset, or the C compiler version
 invalidates it. Set `BTRC_TEST_BTRCC` to reuse a binary you built yourself.
-### Measuring a compile
 
-Name the C compiler that built the `btrcc` you measured. Nix's `cc` on macOS is
-gcc, which emulates thread-local storage; the same generated `btrcc.c` built by
-gcc runs a cold BTRSmith compile in 74.9 s against clang's 62.3 s, taking 20%
-longer overall and 79% longer on the generic-instance closure. The test harness
-already selects clang through `default_c_compiler()`, so this bites hand-rolled
-measurement inside a dev shell, not the gates. The quick tell is binary size:
-about 20.7 MB from clang against 13.0 MB from gcc.
-
-Compare two compilers on **instructions retired and peak memory**, not wall
-clock. On this laptop identical cold compiles of BTRSmith swing 3-7 s, which
-buries a 1-2% change; `/usr/bin/time -l` on a single-process compile
-(`--jobs 1`) reports `instructions retired` and `peak memory footprint`, and
-both repeat to within about 0.3%. A harness that samples memory in a 1 s
-polling loop and times around it also rounds every wall figure to a second.
-
-Keep measurement workspaces and inputs out of `/tmp`: macOS's daily cleanup
-deletes anything there untouched for three days, and on 2026-09-28 it emptied
-the BTRSmith measurement copy. `~/.cache/btrc/` is safe.
-
-`BTRC_TIMING=1` prints a per-phase breakdown for a whole compile as one line
-from the owner process (`btrcc timing:` or `btrcpy timing:`). When a
-module-unit build forks its worker pool, each worker sends its report to the
-owner just before the pool closes, and the owner prints one `btrcc worker
-timing:` (or `btrcpy worker timing:`) line per worker after its own, in worker
-order: `worker=<i> pid=<pid> requests=lower:n,setjmp:n,realtime:n,finish:n
-busy=<op>:Nus,...`, the idle time before requests as `w-wait`, and in btrcc the
-worker's own `u-*`/`l-*` marks and `w-reply`. The owner's later phases still
-count time spent waiting for its workers; the worker lines say where that time
-went. `tools/perf.py`'s `phase_times` sums the owner's line only and
-`worker_phase_times` reads the worker lines. An inline pool (`--jobs 1`, or
-fewer than two stale groups) prints no worker line: its work is the owner's,
-and its marks fold into the owner's line, which is enough to attribute a cold
-build without attaching a profiler. The owner reaps each worker with `wait4`
-and ends that worker's line with what the process used over its whole life,
-`usage=user:Nus,sys:Nus,maxrss:NKiB` (peak resident memory in KiB on macOS
-too, where the kernel reports bytes); a host without `wait4` omits the field,
-and `tools/perf.py`'s `worker_usage` reads it.
-
-With forked workers, `/usr/bin/time -l` mixes scopes: instructions retired,
-cycles and peak memory footprint describe the owner process only, user and sys
-time are summed over the reaped workers, and maxrss is the largest single
-process. Compare forked builds on the owner's figures plus the worker lines,
-whose `usage` gives each worker's own CPU time and peak memory but not its
-instructions retired, or measure with `--jobs 1`.
-
-### Performance changes already measured and rejected
-
-Each of these was implemented or prototyped, measured, and abandoned. Do not
-retry them without new evidence:
-
-- **Bounding the substring scan.** `__btrc_substring` measures the whole string
-  to clamp, so lexing is quadratic — `Lexer_readIdentifier` slices the entire
-  source once per token, and `strlen` was 60% of a self-compile profile.
-  Scanning only `start + len` measured **415s against a 278s baseline**: it
-  traded a SIMD `strlen` for a byte-at-a-time loop.
-- **A pointer-keyed string-length cache.** Memory-unsafe. Cache `(buf, 900)`
-  for a `char[1024]`, let the frame return, and a later `char[16]` at that
-  stack address yields a 900-byte read from a 16-byte buffer.
-- **One shared empty list as a node field's default.** Correct (403 BTRSmith
-  units byte-identical) and 2-3x slower: 119-216 s against a 64 s baseline.
-  `__btrc_arc_unregister_incoming` finds an owner by walking a singly linked
-  incoming-edge list, so a managed object shared by millions of holders makes
-  every release of a holder walk that list (10,188 of 10,202 samples sat in
-  `__btrc_arc_replace_edge`, where it inlines). Worse, it could not have won
-  even with O(1) removal: `Node_init` holds 21 `_new(` calls and 58
-  `replace_edge` calls, and every published managed edge mallocs an
-  `__btrc_arc_incoming` record, so a shared empty trades vector allocations for
-  edge-record allocations. Only a **null** field removes both. Share a managed
-  object widely and you pay twice.
-- **Consolidating the thread-locals.** `_tlv_get_addr` was 45% of profile
-  samples, but a build with `_Thread_local` stripped was not faster.
-  Leaf-sample share is not speedup. This was measured on a **clang** build,
-  where a thread-local is a cheap TLV descriptor read, so it says nothing about
-  gcc builds, which emit emulated TLS. That distinction is already handled:
-  `default_c_compiler()` in `src/tests/runner.py` selects clang on Darwin, and
-  every gate that builds `btrcc` routes through it.
-- **`-ftls-model=local-exec`.** Identical timings; Darwin resolves
-  thread-locals through its own TLV descriptors, not the ELF models that flag
-  selects.
-- **`-O1` for the bootstrap's C compiles.** `-O1` is 392s against `-O2`'s 430s;
-  the cliff is `-O0`→`-O1`. Dropping to `-O0` would also retire
-  `-Wmaybe-uninitialized`, which only fires at `-O2`.
-- **Running the gate's three verifications concurrently.** Reverted:
-  `test_memory_intensive_bootstrap_runs_after_the_parallel_suite` encodes the
-  sequencing, and its reason is in its name — the bootstrap compiles a
-  431k-line translation unit at `-O2`, which is a memory risk beside eight
-  pytest workers.
-
-What did work: emitting the generated ABI and runtime-catalog tables as many
-small methods rather than one constructor (a single 114,073-line C function was
-~90% of the cost of compiling the compiler; `-O2` went 429.8s → 52.5s), and
-sharing one cached compiler across test modules instead of rebuilding it per
-xdist worker.
+Before measuring a compile or changing the compiler for performance, read
+"Measuring a compile" and "Performance changes already measured and rejected"
+in [`docs/design/compile-performance.md`](docs/design/compile-performance.md):
+which C compiler built the `btrcc` you measure, comparing on instructions
+retired and peak memory, `BTRC_TIMING=1`, and the experiments not to retry
+without new evidence.
 
 Self-host binaries under `/tmp` are an ephemeral convenience, never a tracked
 build product. Rebuild after any change to self-host production sources or to
@@ -431,126 +383,9 @@ prove the strict-import path.
 
 ### File Structure
 
-The destination contains exactly 88 production Python files:
-
-```text
-src/compiler/python/
-  __init__.py                     Compiler/Options/Result API only
-  main.py                         thin process entry point
-
-  application/
-    __init__.py
-    compiler.py                   Compiler
-    pipeline.py                   CompilationPipeline
-    modules.py                    ModuleUnitCompiler (per-group units, reuse)
-    results.py                    immutable cross-stage results
-
-  cli/
-    __init__.py
-    compiler.py                   CompilerCommand
-    bundle.py                     BundleCommand
-
-  frontend/
-    __init__.py
-    stage.py                      frontend composition
-    sources.py                    SourceResolver/dependency graph
-    imports.py                    ImportResolver/visibility
-    packages.py                   PackageUniverse/GitDependencyCache
-    native_imports.py              NativeHeaderCodec: checked Clang semantic input
-    symbol_index.py               StdlibSymbolIndex: generated root-stdlib owners
-
-  syntax/
-    __init__.py
-    grammar.py                    GrammarRepository, EbnfGrammarParser
-    tokens.py                     Token, TokenKind, TokenVocabulary
-    ast/
-      __init__.py
-      generated.py                generated ASDL dataclasses
-      codec.py                    AstJsonCodec
-
-  lexer/
-    __init__.py
-    lexer.py                      Lexer and LiteralScanner
-
-  parser/
-    __init__.py
-    parser.py                     complete stateful Parser
-
-  analyzer/
-    __init__.py
-    analyzer.py                   SemanticAnalyzer composition root
-    program.py                    AnalyzedProgram/scopes/indexes
-    declarations.py              DeclarationRegistry
-    types.py                      TypeSystem
-    aggregates.py                 AggregateAnalyzer
-    expressions.py                ExpressionAnalyzer
-    calls.py                      CallAnalyzer/callable flow
-    statements.py                 StatementAnalyzer
-    flow.py                       ControlFlowAnalyzer
-    storage.py                    StorageModel
-    ownership.py                  OwnershipAnalyzer
-    generics.py                   GenericAnalyzer
-    gpu.py                        GpuAnalyzer
-    macros.py                     SourceMacroAnalyzer/Namespace
-    generated_symbols.py          GeneratedSymbolRegistry
-    realtime.py                   RealtimeAnalyzer/fixed-point effect proof
-
-  abi/
-    __init__.py
-    generated.py                  generated hosted-ABI data
-    native_generated.py           ASDL-generated native-header semantic data
-    declarations.py               hosted ABI value declarations
-    hosted.py                     HostedAbiRepository
-    freestanding.py               FreestandingRuntime
-
-  ir/
-    __init__.py
-    nodes.py                      complete typed IR model/IRModule
-    verifier.py                   IRVerifier
-    optimizer.py                  IROptimizer
-
-    lowering/
-      __init__.py
-      lowerer.py                   IRLowerer composition root
-      session.py                   LoweringSession/scopes/temporaries
-      translation_unit.py          TranslationUnitLowerer
-      declarations.py              DeclarationLowerer
-      classes.py                   ClassLowerer
-      functions.py                 FunctionLowerer
-      types.py                     CTypeLowerer
-      expressions.py               ExpressionLowerer
-      calls.py                     CallLowerer
-      storage.py                   StorageLowerer
-      ownership.py                 OwnershipLowerer
-      statements.py                StatementLowerer
-      control_flow.py              ControlFlowLowerer
-      collections.py               CollectionLowerer
-      iteration.py                 IterationLowerer
-      exceptions.py                ExceptionLowerer/setjmp analysis
-      concurrency.py               ConcurrencyLowerer
-      generics.py                   GenericSpecializer only
-      gpu.py                        GpuLowerer
-      reachability.py               StdlibReachability: stdlib callables to lower
-
-  backend/
-    __init__.py
-    c_emitter.py                  CEmitter
-    wgsl_emitter.py               WgslEmitter
-    runtime_state.py              RuntimeUnitState: runtime text per split unit
-
-  runtime/
-    __init__.py
-    catalog.py                    RuntimeHelperCatalog
-    generated.py                  generated runtime-helper data
-
-  artifacts/
-    __init__.py
-    archive.py                    ArchiveCodec/validation
-    cache.py                      CompilerCache
-    publication.py                ArtifactPublisher
-    stdlib.py                     StdlibArtifactRepository
-    selfhost.py                   SelfhostBundleBuilder
-```
+The exact 88-file production inventory, with each file's owner, is normative
+in [`docs/design/compiler-structure.md`](docs/design/compiler-structure.md);
+`src/tests/python/test_python_compiler_structure.py` checks it against the tree.
 
 Compiler tests live in `src/tests/python/`; generated language/runtime fixtures
 and their golden output live alongside the topic-organized corpus in

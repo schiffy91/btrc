@@ -1,10 +1,109 @@
 # Compile performance: where the time goes and what to do about it
 
-Status: **historical record** (2026-09-19 to 2026-09-22). The priorities,
-measurements and plans below describe the compiler as it was then and are not
-current direction; `PLAN.md` owns what remains, and `AGENTS.md` ("Measuring a
-compile" and "Performance changes already measured and rejected") holds the
-current measurement rules and rejected experiments.
+Status: **historical record** (2026-09-19 to 2026-09-22), except the two
+sections right below. The priorities, measurements and plans after them
+describe the compiler as it was then and are not current direction; `PLAN.md`
+owns what remains. "Measuring a compile" and "Performance changes already
+measured and rejected" are current: they hold the measurement rules and the
+rejected experiments, and moved here from `AGENTS.md` on 2026-10-03.
+
+## Measuring a compile
+
+Name the C compiler that built the `btrcc` you measured. Nix's `cc` on macOS is
+gcc, which emulates thread-local storage; the same generated `btrcc.c` built by
+gcc runs a cold BTRSmith compile in 74.9 s against clang's 62.3 s, taking 20%
+longer overall and 79% longer on the generic-instance closure. The test harness
+already selects clang through `default_c_compiler()`, so this bites hand-rolled
+measurement inside a dev shell, not the gates. The quick tell is binary size:
+about 20.7 MB from clang against 13.0 MB from gcc.
+
+Compare two compilers on **instructions retired and peak memory**, not wall
+clock. On this laptop identical cold compiles of BTRSmith swing 3-7 s, which
+buries a 1-2% change; `/usr/bin/time -l` on a single-process compile
+(`--jobs 1`) reports `instructions retired` and `peak memory footprint`, and
+both repeat to within about 0.3%. A harness that samples memory in a 1 s
+polling loop and times around it also rounds every wall figure to a second.
+
+Keep measurement workspaces and inputs out of `/tmp`: macOS's daily cleanup
+deletes anything there untouched for three days, and on 2026-09-28 it emptied
+the BTRSmith measurement copy. `~/.cache/btrc/` is safe.
+
+`BTRC_TIMING=1` prints a per-phase breakdown for a whole compile as one line
+from the owner process (`btrcc timing:` or `btrcpy timing:`). When a
+module-unit build forks its worker pool, each worker sends its report to the
+owner just before the pool closes, and the owner prints one `btrcc worker
+timing:` (or `btrcpy worker timing:`) line per worker after its own, in worker
+order: `worker=<i> pid=<pid> requests=lower:n,setjmp:n,realtime:n,finish:n
+busy=<op>:Nus,...`, the idle time before requests as `w-wait`, and in btrcc the
+worker's own `u-*`/`l-*` marks and `w-reply`. The owner's later phases still
+count time spent waiting for its workers; the worker lines say where that time
+went. `tools/perf.py`'s `phase_times` sums the owner's line only and
+`worker_phase_times` reads the worker lines. An inline pool (`--jobs 1`, or
+fewer than two stale groups) prints no worker line: its work is the owner's,
+and its marks fold into the owner's line, which is enough to attribute a cold
+build without attaching a profiler. The owner reaps each worker with `wait4`
+and ends that worker's line with what the process used over its whole life,
+`usage=user:Nus,sys:Nus,maxrss:NKiB` (peak resident memory in KiB on macOS
+too, where the kernel reports bytes); a host without `wait4` omits the field,
+and `tools/perf.py`'s `worker_usage` reads it.
+
+With forked workers, `/usr/bin/time -l` mixes scopes: instructions retired,
+cycles and peak memory footprint describe the owner process only, user and sys
+time are summed over the reaped workers, and maxrss is the largest single
+process. Compare forked builds on the owner's figures plus the worker lines,
+whose `usage` gives each worker's own CPU time and peak memory but not its
+instructions retired, or measure with `--jobs 1`.
+
+## Performance changes already measured and rejected
+
+Each of these was implemented or prototyped, measured, and abandoned. Do not
+retry them without new evidence:
+
+- **Bounding the substring scan.** `__btrc_substring` measures the whole string
+  to clamp, so lexing is quadratic — `Lexer_readIdentifier` slices the entire
+  source once per token, and `strlen` was 60% of a self-compile profile.
+  Scanning only `start + len` measured **415s against a 278s baseline**: it
+  traded a SIMD `strlen` for a byte-at-a-time loop.
+- **A pointer-keyed string-length cache.** Memory-unsafe. Cache `(buf, 900)`
+  for a `char[1024]`, let the frame return, and a later `char[16]` at that
+  stack address yields a 900-byte read from a 16-byte buffer.
+- **One shared empty list as a node field's default.** Correct (403 BTRSmith
+  units byte-identical) and 2-3x slower: 119-216 s against a 64 s baseline.
+  `__btrc_arc_unregister_incoming` finds an owner by walking a singly linked
+  incoming-edge list, so a managed object shared by millions of holders makes
+  every release of a holder walk that list (10,188 of 10,202 samples sat in
+  `__btrc_arc_replace_edge`, where it inlines). Worse, it could not have won
+  even with O(1) removal: `Node_init` holds 21 `_new(` calls and 58
+  `replace_edge` calls, and every published managed edge mallocs an
+  `__btrc_arc_incoming` record, so a shared empty trades vector allocations for
+  edge-record allocations. Only a **null** field removes both. Share a managed
+  object widely and you pay twice.
+- **Consolidating the thread-locals.** `_tlv_get_addr` was 45% of profile
+  samples, but a build with `_Thread_local` stripped was not faster.
+  Leaf-sample share is not speedup. This was measured on a **clang** build,
+  where a thread-local is a cheap TLV descriptor read, so it says nothing about
+  gcc builds, which emit emulated TLS. That distinction is already handled:
+  `default_c_compiler()` in `src/tests/runner.py` selects clang on Darwin, and
+  every gate that builds `btrcc` routes through it.
+- **`-ftls-model=local-exec`.** Identical timings; Darwin resolves
+  thread-locals through its own TLV descriptors, not the ELF models that flag
+  selects.
+- **`-O1` for the bootstrap's C compiles.** `-O1` is 392s against `-O2`'s 430s;
+  the cliff is `-O0`→`-O1`. Dropping to `-O0` would also retire
+  `-Wmaybe-uninitialized`, which only fires at `-O2`.
+- **Running the gate's three verifications concurrently.** Reverted:
+  `test_memory_intensive_bootstrap_runs_after_the_parallel_suite` encodes the
+  sequencing, and its reason is in its name — the bootstrap compiles a
+  431k-line translation unit at `-O2`, which is a memory risk beside eight
+  pytest workers.
+
+What did work: emitting the generated ABI and runtime-catalog tables as many
+small methods rather than one constructor (a single 114,073-line C function was
+~90% of the cost of compiling the compiler; `-O2` went 429.8s → 52.5s), and
+sharing one cached compiler across test modules instead of rebuilding it per
+xdist worker.
+
+---
 
 **Priority as of September 22 (historical):** unchanged latency is closed at ≤5 s.
 The latest edit/cold campaign is recorded at the end of this document; the
