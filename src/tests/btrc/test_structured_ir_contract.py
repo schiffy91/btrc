@@ -178,8 +178,9 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
     assert "return IRNode.call(lambda.functionName, arguments);" in callables
     assert 'suffix = "[" + self.expr(field.arraySize) + "]";' in emitter
     assert emitter.count("self.structFieldDeclaration(") == 2
-    assert "self.collectStructRefsNode(field.arraySize, knownNames, fr);" in optimizer
-    assert "self.collectStructRefsNode(field.arraySize, knownNames, refs);" in optimizer
+    # Type pruning reads a field's array bound as IR, for types and enum values.
+    assert "self.collectStructRefsNode(field.arraySize, typeNames, types);" in optimizer
+    assert "self.collectEnumValueRefs(field.arraySize, valueNames, values);" in optimizer
     assert "self.collectNode(field.arraySize, used);" in helper_reachability
     assert 'f.name + "["' not in declarations
     assert "irExprText" not in declarations + expressions

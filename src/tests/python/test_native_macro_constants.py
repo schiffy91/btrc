@@ -289,7 +289,7 @@ def test_string_and_integer_macro_constants_build_and_run(reader, tmp_path, requ
 @pytest.mark.parametrize(
     ("statement", "symbols", "diagnostic"),
     [
-        ("var unselected = UNSELECTED;", SELECTED, "error: Cannot infer type for 'var' declaration of 'unselected'"),
+        ("var unselected = UNSELECTED;", SELECTED, "error: Unresolved identifier 'UNSELECTED' used as a value"),
         ('STRING = "other";', SELECTED, "error: Cannot modify read-only native global"),
         (
             "const char** slot = &STRING;",

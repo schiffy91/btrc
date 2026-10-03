@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.c_toolchains import HOST_CLANG, configured_c_compiler, host_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
 BTRCC_SOURCE = REPO / "src/compiler/btrc/BtrccMain.btrc"
 CC = configured_c_compiler()
-CLANG = shutil.which("clang")
+# The depth test measures Clang's own default bracket-depth limit.
+CLANG = HOST_CLANG
 
 pytestmark = pytest.mark.skipif(
-    not CC or shutil.which(CC[0]) is None,
+    host_c_compiler() is None,
     reason="needs a C compiler",
 )
 

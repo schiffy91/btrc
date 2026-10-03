@@ -2565,8 +2565,8 @@ kind = "operation"
 id = "runtime.__btrc_gpu_index_check"
 group = "runtime/gpu"
 title = "__btrc_gpu_index_check (gpu.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-gpu/GpuInferredArrayResult.btrc]"]
-note = "python-catalog only: the manifest gives gpu helpers no btrc order, so btrcc's CPU fallback lowers its own __btrc_gpu_checked_index instead"
+regression = ["src/tests/runner.py::test_btrc_file[python-gpu/GpuInferredArrayResult.btrc]", "src/tests/runner.py::test_btrc_file[btrc-gpu/GpuInferredArrayResult.btrc]"]
+note = "both catalogs: the CPU fallback of either compiler bounds-checks through this helper"
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }

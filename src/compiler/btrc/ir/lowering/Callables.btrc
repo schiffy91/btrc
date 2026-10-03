@@ -700,6 +700,7 @@ class CallableLambdaPlan {
 	public Vector<IRNode> bodyPrefix;
 	public bool hasEnvironment;
 	public bool materialized;
+	public int depth;
 
 	public CallableLambdaPlan(Node source, int identity, string functionName, string environmentName) {
 		self.source = source;
@@ -716,6 +717,7 @@ class CallableLambdaPlan {
 		self.bodyPrefix = [];
 		self.hasEnvironment = false;
 		self.materialized = false;
+		self.depth = 0;
 	}
 }
 
@@ -761,6 +763,7 @@ class CallableSpawnPlan {
 	public Vector<IRNode> bodyPrefix;
 	public bool hasEnvironment;
 	public bool materialized;
+	public int depth;
 
 	public CallableSpawnPlan(Node source, Node lambda, int identity, string wrapperName, string environmentName) {
 		self.source = source;
@@ -778,6 +781,7 @@ class CallableSpawnPlan {
 		self.bodyPrefix = [];
 		self.hasEnvironment = false;
 		self.materialized = false;
+		self.depth = 0;
 	}
 }
 
@@ -794,6 +798,10 @@ class CallableValueLowerer {
 	private int nextIdentity;
 	private Vector<CallableLambdaPlan> pendingLambdas;
 	private Vector<CallableSpawnPlan> pendingSpawns;
+	private Vector<CallableLambdaPlan> liftedLambdas;
+	private Vector<CallableSpawnPlan> liftedSpawns;
+	/* How many lifted bodies enclose the one being lowered. */
+	public int liftDepth;
 
 	public CallableValueLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, CallableValueSemantics values, CallableBoundaryPolicy boundaries, LoweringContext context, CTypeLowerer cTypes, ManagedValueSemantics managedValues, ManagedLifetimeLowerer managedLifetime, ConcurrencyLowerer concurrency) {
 		self.analyzed = analyzed;
@@ -808,6 +816,9 @@ class CallableValueLowerer {
 		self.nextIdentity = 0;
 		self.pendingLambdas = [];
 		self.pendingSpawns = [];
+		self.liftedLambdas = [];
+		self.liftedSpawns = [];
+		self.liftDepth = 0;
 	}
 
 	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
@@ -845,6 +856,7 @@ class CallableValueLowerer {
 		string environmentName = functionName + "_env";
 		self.context.localDefinitions.put(functionName, true);
 		CallableLambdaPlan plan = CallableLambdaPlan(lambda, identity, functionName, environmentName);
+		plan.depth = self.liftDepth;
 		plan.captures = self.values.captureNames(lambda, boundary);
 		plan.hasEnvironment = plan.captures.len > 0;
 		self.boundaries.rejectCapturedEnvironments(plan.captures, lambda, boundary);
@@ -959,6 +971,7 @@ class CallableValueLowerer {
 		string suffix = Strings.fromInt(identity);
 		CallableSpawnPlan plan = CallableSpawnPlan(sourceSpawn, lambda, identity, "__btrc_spawn_wrapper_" + suffix, "__btrc_spawn_env_" + suffix);
 		self.context.localDefinitions.put(plan.wrapperName, true);
+		plan.depth = self.liftDepth;
 		plan.captures = self.values.captureNames(lambda, boundary);
 		plan.hasEnvironment = plan.captures.len > 0;
 		self.boundaries.rejectCapturedEnvironments(plan.captures, lambda, boundary);
@@ -997,7 +1010,7 @@ class CallableValueLowerer {
 				plan.environmentDefinition.fields.push(field);
 				captureIndex = captureIndex + 1;
 			}
-			string environmentType = "struct " + plan.environmentName + "*";
+			string environmentType = plan.environmentName + "*";
 			plan.bodyPrefix.push(IRNode.variableDeclaration(environmentType, "__env", IRNode.cast(environmentType, IRNode.variable("__arg"))));
 			captureIndex = 0;
 			while (captureIndex < plan.captures.len) {
@@ -1012,6 +1025,12 @@ class CallableValueLowerer {
 			}
 		}
 
+		/* The environment is a typedef'd struct declared where the spawn is
+		 * lowered, as Python's ConcurrencyLowerer does. */
+		if (plan.hasEnvironment) {
+			self.context.activeModule().structForwards.push(IRStructForward(plan.environmentName));
+			self.context.activeModule().structDefs.push(plan.environmentDefinition);
+		}
 		string disposer = self.concurrency.emitSpawnCaptureDisposer(plan.captures, variableTypes, plan.environmentName, identity);
 		IRNode wrapperValue = IRNode.cast("void*(*)(void*)", IRNode.functionReference(plan.wrapperName));
 		if (!plan.hasEnvironment) {
@@ -1024,13 +1043,13 @@ class CallableValueLowerer {
 		} else {
 			string environmentStorage = "__se" + suffix;
 			Vector<IRNode> declarations = [];
-			declarations.push(IRNode.variableDeclaration("struct " + plan.environmentName + "*", environmentStorage, null));
+			declarations.push(IRNode.variableDeclaration(plan.environmentName + "*", environmentStorage, null));
 			Vector<IRNode> sequence = [];
 			self.context.referenceHelper("__btrc_safe_realloc");
 			Vector<IRNode> allocationArguments = [];
 			allocationArguments.push(IRNode.literal("NULL"));
-			allocationArguments.push(IRNode.sizeofType("struct " + plan.environmentName));
-			IRNode allocation = IRNode.cast("struct " + plan.environmentName + "*", IRNode.call("__btrc_safe_realloc", allocationArguments));
+			allocationArguments.push(IRNode.sizeofType(plan.environmentName));
+			IRNode allocation = IRNode.cast(plan.environmentName + "*", IRNode.call("__btrc_safe_realloc", allocationArguments));
 			sequence.push(IRNode.binary(IRNode.variable(environmentStorage), "=", allocation));
 			int captureIndex = 0;
 			while (captureIndex < plan.captures.len) {
@@ -1098,9 +1117,6 @@ class CallableValueLowerer {
 			index = index + 1;
 		}
 		plan.liftedFunction.body = IRNode.block(body);
-		if (plan.hasEnvironment) {
-			module.structDefs.push(plan.environmentDefinition);
-		}
 		/* A lambda nested inside another lambda is lifted while the outer body
          * is still being lowered, so it is materialized after the caller that
          * names it. A prototype keeps every lifted body callable regardless of
@@ -1112,7 +1128,7 @@ class CallableValueLowerer {
 			parameterIndex = parameterIndex + 1;
 		}
 		module.functionDecls.push(prototype);
-		module.functions.push(plan.liftedFunction);
+		self.liftedLambdas.push(plan);
 		plan.materialized = true;
 	}
 
@@ -1137,10 +1153,40 @@ class CallableValueLowerer {
 			body.push(IRNode.returnStatement(IRNode.literal("NULL")));
 		}
 		plan.wrapper.body = IRNode.block(body);
-		if (plan.hasEnvironment) {
-			module.structDefs.push(plan.environmentDefinition);
-		}
-		module.functions.push(plan.wrapper);
+		IRFunctionDecl prototype = IRFunctionDecl(plan.wrapper.name, plan.wrapper.returnType, plan.wrapper.isStatic);
+		prototype.params.push(self.cTypes.copyParameter(plan.wrapper.params.get(0)));
+		module.functionDecls.push(prototype);
+		self.liftedSpawns.push(plan);
 		plan.materialized = true;
+	}
+
+	/* Place every lifted body after the declarations, lambdas before thread
+	 * wrappers, each breadth-first by nesting and then in creation order:
+	 * the order in which Python's queue lowers deferred callables. */
+	public void placeLifted(IRModule module) {
+		Vector<CallableLambdaPlan> lambdas = [];
+		for plan in self.liftedLambdas {
+			int at = lambdas.len;
+			while (at > 0 && self.liftedBefore(plan.depth, plan.identity, lambdas.get(at - 1).depth, lambdas.get(at - 1).identity)) { at = at - 1; }
+			lambdas.insert(at, plan);
+		}
+		for plan in lambdas {
+			if (plan.hasEnvironment) { module.structDefs.push(plan.environmentDefinition); }
+			module.functions.push(plan.liftedFunction);
+		}
+		Vector<CallableSpawnPlan> spawns = [];
+		for plan in self.liftedSpawns {
+			int at = spawns.len;
+			while (at > 0 && self.liftedBefore(plan.depth, plan.identity, spawns.get(at - 1).depth, spawns.get(at - 1).identity)) { at = at - 1; }
+			spawns.insert(at, plan);
+		}
+		for plan in spawns { module.functions.push(plan.wrapper); }
+		while (self.liftedLambdas.len > 0) { self.liftedLambdas.pop(); }
+		while (self.liftedSpawns.len > 0) { self.liftedSpawns.pop(); }
+	}
+
+	private bool liftedBefore(int depth, int identity, int otherDepth, int otherIdentity) {
+		if (depth != otherDepth) { return depth < otherDepth; }
+		return identity < otherIdentity;
 	}
 }

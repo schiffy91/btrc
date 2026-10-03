@@ -3,20 +3,19 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "RealtimeClipTransportContract.btrc"
 CONTRACT = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport.btrc"
 PRACTICE = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipPractice.btrc"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _reference(output: Path, cache: Path) -> subprocess.CompletedProcess[str]:
@@ -92,7 +91,7 @@ def test_contract_is_product_neutral_and_keeps_raw_mechanics_out_of_the_public_a
     assert "RealtimeClipPracticeConfiguration" in source + practice
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_contract_fake_runs_from_both_frontends_with_strict_compilers(semantic_btrcc: Path, tmp_path: Path) -> None:
     generated = {
         "reference": tmp_path / "RealtimeClipTransportContractReference.c",
@@ -107,7 +106,7 @@ def test_contract_fake_runs_from_both_frontends_with_strict_compilers(semantic_b
         emitted = source.read_text()
         assert "DeterministicClipTransportContractFake" in emitted
         assert "RealtimeClipClock" in emitted
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"contract-{frontend}-{Path(compiler).name}"
             built = _strict_build(compiler, source, executable)
             assert built.returncode == 0, built.stderr

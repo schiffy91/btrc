@@ -270,7 +270,7 @@ row = "21"
 construct = "char* == int compares a pointer with an integer"
 intent = "negative"
 status = "rejected"
-revision = "b5749e6"
+revision = "cf28fe7"
 divergence = "diagnostic wording"
 python = { diagnostic = "cannot compare incompatible reference operands ('char*' and 'int') at 3:9" }
 btrcc = { diagnostic = "Operator '==' is not defined for 'char*' and 'int' at 3:9" }

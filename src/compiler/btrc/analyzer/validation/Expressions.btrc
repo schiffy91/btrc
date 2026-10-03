@@ -961,7 +961,7 @@ class ExpressionValidator {
 			if (!vars.has(name) && self.state.analyzed.isAmbiguousEnumValue(name)) {
 				TypeValidator.fail("Ambiguous enum value '" + name + "'; qualify it with the enum name", expression);
 			}
-			bool known = vars.has(name) || self.state.analyzed.funcTable.has(name) || self.sourceMacros.declared(name) || self.state.analyzed.isClass(name) || self.state.analyzed.isGenericClass(name) || self.state.analyzed.isEnum(name) || self.state.analyzed.isRichEnum(name) || self.state.analyzed.isEnumValue(name) || self.sourceRuntimeSymbols.helper(name) || SemanticTypeSystem.isCIntegerIdentifier(name) || name == "NULL" || name == "__func__" || name == "stdin" || name == "stdout" || name == "stderr";
+			bool known = vars.has(name) || self.state.analyzed.funcTable.has(name) || self.sourceMacros.declared(name) || self.state.analyzed.isClass(name) || self.state.analyzed.isGenericClass(name) || self.state.analyzed.isEnum(name) || self.state.analyzed.isRichEnum(name) || self.state.analyzed.isEnumValue(name) || self.sourceRuntimeSymbols.helper(name) || name == "errno" || self.names.foreignConstant(name, expression) || name == "NULL" || name == "__func__" || name == "stdin" || name == "stdout" || name == "stderr";
 			self.names.deferGeneratedSymbolReference(expression, vars, known);
 		} else if (expression.kind == NK_SELF_EXPR) {
 			if (self.state.inParameterDefault && self.state.callable != null && self.state.callable.isConstructor) {

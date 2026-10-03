@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -16,12 +15,12 @@ from src.tests.btrc.selfhost_snippet_harness import (
     run_in_repo,
     strict_build_and_run,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS, host_c_compiler
 
 SELFHOST = REPO / "src" / "compiler" / "btrc"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 pytestmark = pytest.mark.skipif(
-    not CC or shutil.which(CC[0]) is None,
+    host_c_compiler() is None,
     reason="needs a C compiler",
 )
 
@@ -309,7 +308,7 @@ def test_nullable_generic_substitution_has_dual_runtime_parity(
     )
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_nullable_generic_parameter_accepts_unlifted_value_on_both_frontends(
     selfhost_compiler: Path,
     tmp_path: Path,
@@ -331,7 +330,7 @@ def test_nullable_generic_parameter_accepts_unlifted_value_on_both_frontends(
         assert "PromotionCursor* _cursor;" in anchor
         assert "PromotionCursor** _cursor;" not in anchor
     for frontend, emitted in generated.items():
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"NullableGenericPromotion-{frontend}-{Path(compiler).name}"
             built = run_in_repo(
                 [

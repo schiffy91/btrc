@@ -15,6 +15,9 @@ HOST_AR     := $(if $(filter Darwin,$(shell uname -s)),/usr/bin/ar,ar)
 # storage through pthread keys, which roughly halves the speed of every compiled
 # btrc program, the self-hosted compiler included. Apple's clang uses native TLS.
 HOST_CC     := $(if $(filter Darwin,$(shell uname -s)),clang,cc)
+# The C++ driver from the same toolchain, so a native build never links clang's
+# objects with GCC's runtime (tools.host_c_compiler's default_cxx agrees).
+HOST_CXX    := $(if $(filter Darwin,$(shell uname -s)),clang++,c++)
 # The repository links wgpu-native, whose WaitAny entry point aborts. Override
 # this only when linking a conforming webgpu.h implementation such as Dawn.
 GPU_BACKEND_CFLAGS ?= -DBTRC_GPU_WGPU_NATIVE
@@ -420,7 +423,7 @@ perf-budget: btrcc ## Measure BTRSmith's bucket-1 budgets (choose scenarios/fron
 # then the native build of the result (tools/perf.py; used by perf-self).
 PERF := python3 -m tools.perf
 PERF_ARGS ?=
-PERF_OPTIONS := --btrcc "$(abspath $(BTRCC_NATIVE))" --cc "$(HOST_CC)" $(PERF_ARGS)
+PERF_OPTIONS := --btrcc "$(abspath $(BTRCC_NATIVE))" --cc "$(HOST_CC)" --cxx "$(HOST_CXX)" $(PERF_ARGS)
 perf-btrsmith: btrcc ## BTRSmith cold dev and release builds on both frontends (tools/budget_bench.py)
 	$(NIX) $(BUDGET_BENCH) $(BUDGET_BENCH_OPTIONS) --frontend selfhost --scenarios cold,release --out build/perf/btrsmith-selfhost $(BUDGET_BENCH_ARGS)
 	$(NIX) $(BUDGET_BENCH) $(BUDGET_BENCH_OPTIONS) --frontend reference --scenarios cold,release --out build/perf/btrsmith-reference $(BUDGET_BENCH_ARGS)

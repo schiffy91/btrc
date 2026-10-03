@@ -683,6 +683,13 @@ Clean and incremental builds are compared unit-for-unit in tests.
 6. Units that define nothing externally are dropped; each kept unit is named
    `unit-<stem>-<path hash>` so its file and native object stay stable, and the
    runtime unit is `unit-runtime`.
+7. Publication keeps every unchanged unit file (inode and mtime included) but
+   never leaves the primary outputs behind a changed unit: the link plan
+   records each unit's SHA-256 (`emitted-unit-digests`), and the primary C file
+   is published again whenever any other output of the compile was replaced.
+   A make rule that depends only on the primary C or the plan therefore
+   relinks after an edit that lands in one secondary unit, while the primary's
+   unchanged bytes keep its native object cached.
 
 A **`ModuleUnitRecord`** per group (in the compiler cache, checksummed and
 framed by the toolchain fingerprint) holds the unit text and the facts it

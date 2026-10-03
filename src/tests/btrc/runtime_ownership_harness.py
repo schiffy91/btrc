@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.selfhost_snippet_harness import CC, REPO
+from src.tests.c_toolchains import HOST_CLANG, HOST_GCC
 
 SANITIZER_FLAGS = (
     "-fsanitize=address,undefined",
@@ -66,8 +67,8 @@ def _sanitizer_candidates() -> tuple[SanitizerToolchain, ...]:
         )
     if not explicit_override and configured:
         candidates.append(SanitizerToolchain(configured))
-    for name in ("clang", "gcc"):
-        if path := shutil.which(name):
+    for path in (HOST_CLANG, HOST_GCC):
+        if path:
             candidates.append(SanitizerToolchain((path,)))
 
     unique: list[SanitizerToolchain] = []

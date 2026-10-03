@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import io
-import shutil
 import struct
 import subprocess
 from pathlib import Path
@@ -16,6 +15,7 @@ from src.compiler.python.artifacts.archive import (
     TargetBinaryValidator,
     TargetCatalog,
 )
+from src.tests.c_toolchains import host_c_compiler
 from src.tests.python.btrcc_binary_fixtures import binary_payload
 
 
@@ -233,14 +233,14 @@ def test_target_binary_accepts_short_stream_reads(target: str) -> None:
 
 
 def test_target_binary_accepts_a_real_native_executable(tmp_path: Path) -> None:
-    compiler = shutil.which("cc")
+    compiler = host_c_compiler()
     if compiler is None:
         pytest.skip("a native C compiler is unavailable")
     source = tmp_path / "probe.c"
     executable = tmp_path / ("probe.exe" if archive_module.os.name == "nt" else "probe")
     source.write_text("int main(void) { return 0; }\n", encoding="utf-8")
     result = subprocess.run(
-        [compiler, str(source), "-o", str(executable)],
+        [*compiler, str(source), "-o", str(executable)],
         capture_output=True,
         text=True,
         timeout=120,

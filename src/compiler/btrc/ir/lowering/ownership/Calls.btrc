@@ -91,7 +91,7 @@ class OwnershipBoundary {
 		if (self.managedValues.isManaged(resolvedType)) {
 			runtimeType = self.managedValues.runtimeType(resolvedType);
 		}
-		string name = self.context.freshTemporary("__btrc_operand");
+		string name = self.context.freshTemporary("__btrc_call_operand");
 		IRNode declaration = IRNode.variableDeclaration(storageCType, name, null);
 		self.declarations.push(declaration);
 		self.context.recordLocal(declaration);
@@ -100,12 +100,12 @@ class OwnershipBoundary {
 		IRNode callValue = value;
 
 		if (owned && runtimeType != "") {
-			self.registerCleanup(declaration, name, runtimeType);
+			self.lifetime.protectTemporary(declaration, runtimeType, "__btrc_call_operand_cleanup", self.declarations, self.prefix);
 			if (!transferred) {
 				self.appendReleaseAndClear(value, resolvedType, runtimeType);
 			} else {
 				string handoffName = self.context.freshTemporary("__btrc_transferred_operand");
-				IRNode handoffDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), handoffName, IRNode.literal("NULL"));
+				IRNode handoffDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), handoffName, null);
 				self.declarations.push(handoffDeclaration);
 				self.context.recordLocal(handoffDeclaration);
 				callValue = IRNode.variable(handoffName);
@@ -121,7 +121,7 @@ class OwnershipBoundary {
 			IRNode kept = IRNode.variable(keptName);
 			self.prefix.push(self.lifetime.retainValue(value, resolvedType));
 			self.prefix.push(IRNode.binary(kept, "=", value));
-			self.registerCleanup(keptDeclaration, keptName, runtimeType);
+			self.lifetime.protectTemporary(keptDeclaration, runtimeType, "__btrc_kept_operand_cleanup", self.declarations, self.prefix);
 			self.appendReleaseAndClear(kept, resolvedType, runtimeType);
 		}
 		return callValue;
@@ -129,13 +129,14 @@ class OwnershipBoundary {
 
 	public void appendReleaseAndClear(IRNode value, Node resolvedType, string runtimeType) {
 		string savedName = self.context.freshTemporary("__btrc_released_operand");
-		IRNode savedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), savedName, IRNode.literal("NULL"));
+		IRNode savedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), savedName, null);
 		self.declarations.push(savedDeclaration);
 		self.context.recordLocal(savedDeclaration);
 		IRNode saved = IRNode.variable(savedName);
 		self.suffix.push(IRNode.binary(saved, "=", value));
 		self.suffix.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
-		self.suffix.push(self.lifetime.optionalRelease(saved, runtimeType));
+		self.suffix.push(self.lifetime.releaseAfterHandoff(saved, runtimeType));
+		if (self.lifetime.releaseMayEnqueue(runtimeType)) { self.suffix.push(self.lifetime.pollCycles()); }
 	}
 
 	public void restore() {
@@ -181,7 +182,7 @@ class OwnershipBoundary {
 		}
 		Node resultType = resolvedResultType;
 		string resultC = self.cTypes.lower(resultType);
-		string resultName = self.context.freshTemporary("__btrc_boundary_result");
+		string resultName = self.context.freshTemporary("__btrc_call_result");
 		IRNode resultDeclaration = IRNode.variableDeclaration(resultC, resultName, null);
 		/* Without suffix cleanup the stored value is consumed immediately;
          * operands run before the assignment. Managed protection below owns
@@ -196,12 +197,12 @@ class OwnershipBoundary {
 		}
 		bool protectResult = self.context.exceptionsAreEnabled() && self.managedValues.isManaged(resultType) && (self.resultOwned || promoteResult);
 		if (protectResult) {
-			sequence.push(self.lifetime.registerCleanupSlot(resultDeclaration, self.managedValues.runtimeType(resultType)));
+			self.lifetime.protectTemporary(resultDeclaration, self.managedValues.runtimeType(resultType), "__btrc_call_result_cleanup", self.declarations, sequence);
 		}
 		self.appendSuffix(sequence);
 		if (protectResult) {
-			string handoffName = self.context.freshTemporary("__btrc_boundary_result_handoff");
-			IRNode handoffDeclaration = IRNode.variableDeclaration(resultC, handoffName, IRNode.literal("NULL"));
+			string handoffName = self.context.freshTemporary("__btrc_call_result_handoff");
+			IRNode handoffDeclaration = IRNode.variableDeclaration(resultC, handoffName, null);
 			self.declarations.push(handoffDeclaration);
 			self.context.recordLocal(handoffDeclaration);
 			IRNode handoff = IRNode.variable(handoffName);

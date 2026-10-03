@@ -1018,6 +1018,12 @@ class IRModule(IRNode):
 
     language: str = "c"
     native_units: dict[str, IRModule] = field(default_factory=dict, metadata={"ir_traverse": False})
+    # Every compiler temporary lowering named in this unit; the optimizer
+    # renumbers them per function. Bookkeeping only, so never traversed or
+    # rendered in a canonical IR dump.
+    temporary_names: set[str] = field(
+        default_factory=set, repr=False, compare=False, metadata={"ir_traverse": False, "ir_render": False}
+    )
     preprocessor_decls: list[IRInclude | IRMacroDef] = field(default_factory=list)
     freestanding: bool = False
     runtime_roots: set[str] = field(default_factory=set)
@@ -1230,6 +1236,8 @@ class IRCanonicalRenderer:
         try:
             encoded = {"$type": type(value).__name__}
             for node_field in dataclasses.fields(value):
+                if not node_field.metadata.get("ir_render", True):
+                    continue
                 field_value = getattr(value, node_field.name)
                 field_path = f"{path}.{node_field.name}"
                 if isinstance(value, IRModule) and node_field.name == "ordered_type_declarations":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import hashlib
 import json
 import multiprocessing
 import os
@@ -19,6 +20,7 @@ import pytest
 from src.compiler.python.artifacts.cache import CompilerGenerationPublisher, CompilerOutput
 from src.compiler.python.artifacts.publication import ArtifactPublisher, PublicationLock, PublishedArtifact
 from src.compiler.python.frontend.packages import NativeGeneratedUnit, NativeLinkPlan, PackageTarget
+from src.tests.c_toolchains import HOST_CLANG, default_toolchain, host_c_compiler
 from src.tests.native_targets import cross_target_environment
 from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.python.native_plan_fixtures import publish_native_generation
@@ -984,10 +986,9 @@ def test_reader_rejects_frameworks_for_non_macos_target(tmp_path: Path) -> None:
 
 
 def test_example_makefile_realizes_the_canonical_plan(tmp_path: Path) -> None:
-    cc = shutil.which("cc")
-    cxx = shutil.which("c++")
+    toolchain = default_toolchain()
     make = shutil.which("make")
-    if cc is None or cxx is None or make is None:
+    if toolchain is None or make is None:
         pytest.skip("native Make proof needs make, C, and C++ compilers")
     environment = cross_target_environment(tmp_path, "linux-x64", {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
     try:
@@ -1000,8 +1001,8 @@ def test_example_makefile_realizes_the_canonical_plan(tmp_path: Path) -> None:
                 "run",
                 "TARGET=linux-x64",
                 f"PYTHON={sys.executable}",
-                f"CC={cc}",
-                f"CXX={cxx}",
+                f"CC={toolchain[0]}",
+                f"CXX={toolchain[1]}",
             ],
             cwd=REPO,
             capture_output=True,
@@ -1258,7 +1259,10 @@ def test_object_cache_hashes_compiler_executable(cached_program):
     source, _, commands, build = cached_program
     source.write_text("int main(void) { return 0; }\n")
     wrapper = source.parent / "compiler"
-    script = f'#!/bin/sh\nexec {shlex.quote(shutil.which("cc"))} "$@"\n'
+    compiler = host_c_compiler()
+    if compiler is None:
+        pytest.skip("a native C compiler is unavailable")
+    script = f'#!/bin/sh\nexec {shlex.join(compiler)} "$@"\n'
     wrapper.write_text(script)
     wrapper.chmod(0o755)
     build(cc=str(wrapper))
@@ -1510,6 +1514,7 @@ def test_native_build_report_covers_generated_cpp_adapter_and_link(tmp_path):
     assert report["native_units"] == 0
     assert len(report["units"]) == 2
     assert "-fexceptions" in report["units"][1]["command"]
+    # The CLI ran without --cxx, so the link uses the builder's own default `c++`.
     assert Path(report["link_command"][0]).name == Path(shutil.which("c++")).name
     assert report["wall_s"] >= report["link_s"] > 0
     subprocess.run([str(output)], check=True, timeout=RUN_TIMEOUT)
@@ -1784,7 +1789,7 @@ def _build_units_sharing_a_prologue(tmp_path: Path, header_text: str, first_unit
     )
 
 
-@pytest.mark.skipif(shutil.which("clang") is None, reason="precompiled preludes need Clang")
+@pytest.mark.skipif(HOST_CLANG is None, reason="precompiled preludes need Clang")
 @pytest.mark.parametrize(
     "rewrite",
     ["", "#undef _DEFAULT_SOURCE\n#define _DEFAULT_SOURCE 1\n"],
@@ -1806,7 +1811,7 @@ def test_units_sharing_a_prologue_compile_with_one_precompiled_prelude(tmp_path:
     assert ran.stdout == f"{sum(100 + index for index in range(count))}\n"
 
 
-@pytest.mark.skipif(shutil.which("clang") is None, reason="precompiled preludes need Clang")
+@pytest.mark.skipif(HOST_CLANG is None, reason="precompiled preludes need Clang")
 def test_a_prelude_does_not_hide_a_real_feature_macro_redefinition(tmp_path: Path) -> None:
     """A unit that redefines a prologue feature macro after its prologue is
     rejected with a prelude exactly as without one."""
@@ -1847,3 +1852,32 @@ def test_unwritten_schema_three_link_plans_are_rejected(tmp_path):
 
     with pytest.raises(NativePlanError, match="schema must be integer 1, 2 or 4"):
         NativePlanReader().read(plan)
+
+
+@pytest.mark.parametrize("digests", ["absent", "matching", "short", "uppercase", "missing-unit"])
+def test_emitted_unit_digests_name_one_sha256_per_unit(tmp_path, digests):
+    """Plans record each secondary unit's digest; older plans omit the field."""
+    units = [tmp_path / "program.unit-1.c", tmp_path / "program.unit-2.c"]
+    for unit in units:
+        unit.write_text(f"int {unit.stem.replace('.', '_').replace('-', '_')}(void) {{ return 0; }}\n")
+    plan = NativeLinkPlan.empty(PackageTarget.parse(None)).with_emitted_units(
+        str(tmp_path / "program"), 2, tuple(unit.read_text() for unit in units)
+    )
+    payload = plan.as_dict()
+    assert payload["emitted-unit-digests"] == [hashlib.sha256(unit.read_bytes()).hexdigest() for unit in units]
+    if digests == "absent":
+        del payload["emitted-unit-digests"]
+    elif digests == "short":
+        payload["emitted-unit-digests"][0] = payload["emitted-unit-digests"][0][:63]
+    elif digests == "uppercase":
+        payload["emitted-unit-digests"][1] = payload["emitted-unit-digests"][1].upper()
+    elif digests == "missing-unit":
+        payload["emitted-unit-digests"].pop()
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
+
+    if digests in ("absent", "matching"):
+        assert NativePlanReader().read(path).emitted_paths == tuple(units)
+    else:
+        with pytest.raises(NativePlanError, match="emitted-unit-digests must give one SHA-256 per emitted unit"):
+            NativePlanReader().read(path)

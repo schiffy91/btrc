@@ -462,10 +462,18 @@ class CycleMetadata:
         """Whether an emitted representation can join a retain cycle."""
         if emitted_name in self._emitted_may_cycle:
             return self._emitted_may_cycle[emitted_name]
+        result = True
         info = self._analyzed.class_table.get(emitted_name)
+        instance = self._generic_instance(emitted_name)
         if info is not None and (not info.generic_params):
-            return self.type_may_cycle(TypeExpr(base=emitted_name))
-        return True
+            result = self.type_may_cycle(TypeExpr(base=emitted_name))
+        elif instance is not None:
+            # A specialization answers from its concrete type, exactly as the
+            # typed query does; only an unknown emitted name stays conservative.
+            base, arguments = instance
+            result = self.type_may_cycle(TypeExpr(base=base, generic_args=list(arguments)))
+        self._emitted_may_cycle[emitted_name] = result
+        return result
 
     def visit_action(self, type_expr: TypeExpr, seen: set[tuple] | None = None) -> DirectVisitAction | None:
         """Return one typed heap edge, or ``None`` for unmanaged storage."""
@@ -2627,6 +2635,8 @@ class OwnershipLowerer:
         if isinstance(node, TupleLiteral):
             return any(self.has_observable_effect(child) for child in node.elements)
         if isinstance(node, FieldAccessExpr):
+            if self._rich_enum_variant_tag(node):
+                return False
             if node.optional or self.has_observable_effect(node.obj):
                 return True
             receiver_type = self._canonical_receiver_type(self._session.type_of(node.obj))
@@ -2647,6 +2657,8 @@ class OwnershipLowerer:
             return True
         if isinstance(node, Identifier):
             return self._enum_constant_identifier(node)
+        if isinstance(node, FieldAccessExpr):
+            return self._rich_enum_variant_tag(node)
         if isinstance(node, CastExpr):
             return self.reorder_inert(node.expr)
         if isinstance(node, SizeofExpr):
@@ -2657,6 +2669,13 @@ class OwnershipLowerer:
 
     def _canonical_receiver_type(self, type_expr):
         return self._types.canonical_type(type_expr)
+
+    def _rich_enum_variant_tag(self, node) -> bool:
+        """Whether one projection names a rich enum variant's tag constant."""
+        if node.optional or not isinstance(node.obj, Identifier) or self._session.local_is_declared(node.obj.name):
+            return False
+        declaration = self._analyzed.rich_enum_table.get(node.obj.name)
+        return declaration is not None and any(variant.name == node.field for variant in declaration.variants)
 
     def _enum_constant_identifier(self, node) -> bool:
         """Whether one identifier names a declared enum constant.

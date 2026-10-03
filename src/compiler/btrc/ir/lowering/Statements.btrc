@@ -664,7 +664,13 @@ class StatementLowerer {
 				IRNode discardedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(discardedType), discardedName, loweredExpression);
 				self.context.recordLocal(discardedDeclaration);
 				out.push(discardedDeclaration);
-				out.push(self.expressions.releaseVarStmt2(IRNode.variable(discardedName), self.managedValues.runtimeType(self.cTypes.resolveBodyType(discardedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))));
+				Node concreteDiscarded = self.cTypes.resolveBodyType(discardedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+				Vector<IRNode> discardRelease = [];
+				discardRelease.push(self.managedLifetime.releaseValue(IRNode.variable(discardedName), concreteDiscarded));
+				if (self.managedValues.isArc(concreteDiscarded) && self.cycles.runtimeTypeMayCycle(self.managedValues.runtimeType(concreteDiscarded))) {
+					discardRelease.push(self.managedLifetime.pollCycles());
+				}
+				out.push(IRNode.expressionStatement(IRNode.commaExpression(discardRelease)));
 			} else {
 				out.push(IRNode.expressionStatement(loweredExpression));
 			}
@@ -760,9 +766,9 @@ class StatementLowerer {
 				kt = SemanticTypeSystem.resolveGenericType(kt, self.context.activeTypeMap, self.analyzed);
 			}
 			if (kt != null && self.managedValues.isManaged(self.cTypes.resolveBodyType(kt, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
-				string valueName = self.context.freshTemporary("__btrc_keep_value");
-				out.push(IRNode.variableDeclaration(self.cTypes.lower(kt), valueName, self.expressions.lowerExpr(node.expr, varTypes, callableFlow)));
-				IRNode value = IRNode.variable(valueName);
+				/* The retain consumes the value exactly once, as Python's
+				 * StatementLowerer spells keep. */
+				IRNode value = self.expressions.lowerExpr(node.expr, varTypes, callableFlow);
 				if (self.context.collectionEdgeKeeps) {
 					/* Public collection methods use keep/release to mutate
                      * persistent element slots.  Those references contribute
@@ -781,9 +787,27 @@ class StatementLowerer {
 			return;
 		}
 		if (node.kind == NK_THROW_STMT) {
-			/* throw expr -> __btrc_throw(expr) (mirrors control_flow._lower_throw). */
+			/* throw expr -> __btrc_throw(expr). An owned message stays
+			 * registered for cleanup until the throw unwinds it, as Python's
+			 * materialize_terminal_operand keeps it. */
 			self.context.referenceHelper("__btrc_throw");
-			IRNode e = self.expressions.lowerExpr(node.expr, varTypes, callableFlow);
+			Node messageType = SemanticTypeSystem.primitive("string");
+			PreparedValue prepared = self.expressions.prepareTargetValue(node.expr, messageType, varTypes, callableFlow);
+			IRNode e = prepared.value;
+			if (prepared.owned) {
+				Node concreteMessage = messageType;
+				if (prepared.effectiveType != null) { concreteMessage = prepared.effectiveType; }
+				string terminalName = self.context.freshTemporary("__btrc_terminal_operand");
+				IRNode terminal = IRNode.variableDeclaration(self.cTypes.lower(concreteMessage), terminalName, e);
+				self.context.recordLocal(terminal);
+				Vector<IRNode> terminalDeclarations = [];
+				terminalDeclarations.push(terminal);
+				Vector<IRNode> registrations = [];
+				self.managedLifetime.protectTemporary(terminal, self.managedValues.runtimeType(concreteMessage), "__btrc_terminal_operand_cleanup", terminalDeclarations, registrations, true);
+				for declaration in terminalDeclarations { out.push(declaration); }
+				for registration in registrations { out.push(IRNode.expressionStatement(registration)); }
+				e = IRNode.variable(terminalName);
+			}
 			Vector<IRNode> targs = [];
 			targs.push(e);
 			IRNode throwCall = IRNode.call("__btrc_throw", targs);
@@ -997,11 +1021,14 @@ class StatementLowerer {
 		} else {
 			string valueName = self.context.freshTemporary("__btrc_release_value");
 			out.push(IRNode.variableDeclaration(self.cTypes.lower(et), valueName, slot));
-			if (persistentSlot) {
+			/* A string slot holds no ARC edge, so it is taken, cleared and
+			 * released, as Python's _take_clear_release spells it. */
+			bool edgeSlot = persistentSlot && runtimeType != self.managedValues.stringRuntimeType();
+			if (edgeSlot) {
 				out.push(IRNode.expressionStatement(self.managedLifetime.unlinkEdge(IRNode.variable(valueName), et, releaseSlot.owner)));
 			}
 			out.push(IRNode.assignment(slot, IRNode.literal("NULL")));
-			if (persistentSlot) {
+			if (edgeSlot) {
 				out.push(IRNode.expressionStatement(self.managedLifetime.releaseEdge(IRNode.variable(valueName), et, IRNode.literal("NULL"))));
 			} else {
 				out.push(IRNode.expressionStatement(self.managedLifetime.releaseRuntime(IRNode.variable(valueName), runtimeType)));
@@ -1034,8 +1061,7 @@ class StatementLowerer {
 		self.context.referenceHelper("__btrc_trycatch_globals");
 		self.context.referenceHelper("__btrc_push_try");
 		self.context.referenceHelper("__btrc_throw");
-		/* try/catch needs <setjmp.h> (already added at module level when any
-         * declaration uses try/catch). */
+		/* Its setjmp call makes helper materialization include <setjmp.h>. */
 
 		/* A try with a `finally` but NO `catch` must run the finally and then
          * RE-THROW any pending exception to the enclosing handler (mirrors
@@ -1153,15 +1179,6 @@ class StatementLowerer {
 			catchFlow = callableFlow.snapshot();
 			catchContinues = IRStatementSequence(catchBody.stmts()).mayFallThrough();
 			callableFlow.restore(incoming);
-			if (node.catchVar != "") {
-				/* A catch binding may be intentionally ignored. Keep the C
-                 * warning contract explicit without textual statement escapes. */
-				int declarationIndex = 0;
-				while (declarationIndex < catchBody.stmts().len && !(catchBody.stmts().get(declarationIndex).kind == IRK_VAR_DECL && catchBody.stmts().get(declarationIndex).name == catchCName)) {
-					declarationIndex = declarationIndex + 1;
-				}
-				catchBody.stmtsMut().insert(declarationIndex + 1, IRNode.expressionStatement(IRNode.variable(catchCName)));
-			}
 			self.context.restoreSourceBindings(catchSourceBindings);
 		}
 
@@ -1396,7 +1413,8 @@ class StatementLowerer {
 				beforeUpdate = callableFlow.merged(repeated);
 			}
 			callableFlow.restore(beforeUpdate);
-			update = self.expressions.lowerExpr(node.update, loopTypes, callableFlow);
+			/* The update's value is discarded, as Python's materialize_c_for spells it. */
+			update = IRNode.cast("void", self.expressions.lowerExpr(node.update, loopTypes, callableFlow));
 			CallableFlowSnapshot updateFlow = callableFlow.snapshot();
 			if (repeated.len > 0 && conditionCanRepeat) {
 				callableFlow.requireInvariant(loweredBody.head, updateFlow, "back-edge");
@@ -1545,11 +1563,12 @@ class StatementLowerer {
 		if (self.analyzed.isGenericClass(iterType.base)) {
 			calleePrefix = TypeIdentity.mangleGenericType(iterType.base, iterType.genericArgs());
 		}
-		string idx = self.context.freshTemporary("__i");
-		string nVar = self.context.freshTemporary("__n");
+		/* Allocation order follows Python's _plan_iterable_for_in. */
 		string iterVar = self.context.freshTemporary("__iter");
 		out.push(IRNode.variableDeclaration(self.cTypes.lower(iterType), iterVar, irIter));
 		string ownedRuntimeType = self.expressions.beginOwnedIteration(node.iterable, iterType, varTypes, iterVar, out, callableFlow);
+		string idx = self.context.freshTemporary("__i");
+		string nVar = self.context.freshTemporary("__n");
 		Node? getMethod = ControlFlowValidator.iterableMethod(iterType, "iterGet", self.analyzed);
 		if (getMethod == null) {
 			fprintf(stderr, "internal compiler error: iterable '%s' at %d:%d has no iterGet method\n", iterType.base, node.line, node.col);
@@ -1632,42 +1651,56 @@ class StatementLowerer {
 		self.expressions.endOwnedIteration(iterVar, ownedRuntimeType, out);
 	}
 
-	/* for x in range(...) -> C for loop (1, 2, or 3+ args). */
+	/* An integer literal is its own value; any other range operand is
+	 * evaluated once into its own temporary, as Python's _range_operand. */
+	private IRNode rangeOperand(IRNode lowered, string prefix, Vector<IRNode> out) {
+		if (self.integerLiteral(lowered)) { return lowered; }
+		string name = self.context.freshTemporary(prefix);
+		out.push(IRNode.variableDeclaration("int", name, lowered));
+		return IRNode.variable(name);
+	}
+
+	private bool integerLiteral(IRNode value) {
+		if (value.kind != IRK_LITERAL || value.text.isEmpty()) { return false; }
+		for character in value.text {
+			if (character < '0' || character > '9') { return false; }
+		}
+		return true;
+	}
+
+	/* for x in range(...) -> C for loop (1, 2, or 3+ args).  The operands are
+	 * lowered in source order and each is evaluated exactly once, a
+	 * non-literal one into its own temporary named after all are lowered. */
 	public void lowerRangeFor(string varName, Vector<Node> args, Node bodyNode, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
-		string startName = self.context.freshTemporary("__range_start");
-		string endName = self.context.freshTemporary("__range_end");
-		string stepName = self.context.freshTemporary("__range_step");
 		IRNode start = IRNode.literal("0");
-		IRNode end = IRNode.literal("0");
 		IRNode step = IRNode.literal("1");
-		if (args.len == 1) {
-			end = self.expressions.lowerExpr(args.get(0), varTypes, callableFlow);
-			out.push(IRNode.variableDeclaration("int", endName, end));
-		} else if (args.len == 2 || args.len == 3) {
-			start = self.expressions.lowerExpr(args.get(0), varTypes, callableFlow);
-			end = self.expressions.lowerExpr(args.get(1), varTypes, callableFlow);
-			out.push(IRNode.variableDeclaration("int", startName, start));
-			out.push(IRNode.variableDeclaration("int", endName, end));
-			start = IRNode.variable(startName);
-			if (args.len == 3) {
-				step = self.expressions.lowerExpr(args.get(2), varTypes, callableFlow);
-				out.push(IRNode.variableDeclaration("int", stepName, step));
-				step = IRNode.variable(stepName);
-				Vector<IRNode> zeroStep = [];
-				Vector<IRNode> errorArgs = [];
-				errorArgs.push(IRNode.literal("\"range step cannot be zero\\n\""));
-				errorArgs.push(IRNode.variable("stderr"));
-				zeroStep.push(IRNode.expressionStatement(IRNode.call("fputs", errorArgs)));
-				Vector<IRNode> exitArgs = [];
-				exitArgs.push(IRNode.literal("1"));
-				zeroStep.push(IRNode.expressionStatement(IRNode.call("exit", exitArgs)));
-				out.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(step, "==", IRNode.literal("0")), IRNode.block(zeroStep), null)));
-			}
-		} else {
+		if (args.len < 1 || args.len > 3) {
 			print(f"irgen: range expects 1 to 3 arguments, got {args.len}");
 			exit(1);
 		}
-		end = IRNode.variable(endName);
+		Vector<IRNode> lowered = [];
+		for argument in args { lowered.push(self.expressions.lowerExpr(argument, varTypes, callableFlow)); }
+		IRNode end = IRNode.literal("0");
+		if (args.len == 1) {
+			end = self.rangeOperand(lowered.get(0), "__range_end", out);
+		} else {
+			start = self.rangeOperand(lowered.get(0), "__range_start", out);
+			end = self.rangeOperand(lowered.get(1), "__range_end", out);
+			if (args.len == 3) {
+				step = self.rangeOperand(lowered.get(2), "__range_step", out);
+				if (!(self.integerLiteral(step) && step.text != "0")) {
+					Vector<IRNode> zeroStep = [];
+					Vector<IRNode> errorArgs = [];
+					errorArgs.push(IRNode.literal("\"range step cannot be zero\\n\""));
+					errorArgs.push(IRNode.variable("stderr"));
+					zeroStep.push(IRNode.expressionStatement(IRNode.call("fputs", errorArgs)));
+					Vector<IRNode> exitArgs = [];
+					exitArgs.push(IRNode.literal("1"));
+					zeroStep.push(IRNode.expressionStatement(IRNode.call("exit", exitArgs)));
+					out.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(step, "==", IRNode.literal("0")), IRNode.block(zeroStep), null)));
+				}
+			}
+		}
 		varTypes.put(varName, SemanticTypeSystem.primitive("int"));
 		self.context.activateSourceName(varName, self.lexicalBindingCName(varName));
 		string varCName = self.context.sourceCName(varName);

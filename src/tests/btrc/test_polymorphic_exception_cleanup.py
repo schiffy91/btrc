@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -15,9 +14,9 @@ from src.tests.btrc.runtime_ownership_harness import (
     sanitized_build_and_run,
 )
 from src.tests.btrc.selfhost_snippet_harness import REPO, compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 FIXTURE = REPO / "src/tests/btrc/fixtures/PolymorphicExceptionCycleCleanupRuntime.btrc"
-STRICT_COMPILERS = tuple(compiler for name in ("gcc", "clang") if (compiler := shutil.which(name)) is not None)
 
 
 def test_both_cleanup_runtimes_dispatch_through_concrete_arc_metadata() -> None:
@@ -32,7 +31,7 @@ def test_both_cleanup_runtimes_dispatch_through_concrete_arc_metadata() -> None:
 
 
 @pytest.mark.skipif(
-    not STRICT_COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires a hosted strict C11 compiler",
 )
 def test_polymorphic_exception_cleanup_collects_runtime_subclass_cycles(
@@ -57,7 +56,7 @@ def test_polymorphic_exception_cleanup_collects_runtime_subclass_cycles(
         ("selfhost", selfhost_generated),
         ("reference", reference_generated),
     ):
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"{frontend}-polymorphic-cleanup-{Path(compiler).name}"
             build = subprocess.run(
                 [
