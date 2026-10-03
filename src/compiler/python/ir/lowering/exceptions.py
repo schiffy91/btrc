@@ -1616,21 +1616,22 @@ class ExceptionLowerer:
         effects and `setjmp`-containing functions its program solve found.
         """
         globals_by_name = ExceptionLowerer.reject_volatile_global_aliases(module)
+        # Only a function that calls setjmp somewhere can qualify storage: the
+        # visibility pass marks nothing elsewhere, and qualifier safety only
+        # rejects what was marked. Effects are solved for those roots alone.
+        mentions = {id(function): ExceptionLowerer.mentions_setjmp(function.body) for function in module.function_defs}
         with_setjmp = {
             id(function): function.name in setjmp_functions
             if setjmp_functions is not None
-            else ExceptionLowerer.contains_setjmp(function.body)
+            else mentions[id(function)] and ExceptionLowerer.contains_setjmp(function.body)
             for function in module.function_defs
         }
         if not any(with_setjmp.values()):
             return
-        # Only a function that calls setjmp somewhere can qualify storage: the
-        # visibility pass marks nothing elsewhere, and qualifier safety only
-        # rejects what was marked. Effects are solved for those roots alone.
         roots = {
             function.name
             for function in module.function_defs
-            if with_setjmp[id(function)] or ExceptionLowerer.mentions_setjmp(function.body)
+            if with_setjmp[id(function)] or mentions[id(function)]
         }
         if not call_effects:
             call_effects = ExceptionLowerer.build_setjmp_call_effects(module, solved_effects, roots=roots)
