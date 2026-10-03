@@ -34,6 +34,34 @@ The clock snapshot is a sequence lock whose payload words are published with
 release stores and read with acquire loads, so a reader either sees one
 complete snapshot or retries.
 
+## Device timeline and block clock
+
+Each block's `AudioBlockView` is the device timeline. The practice mapping
+runs on `outputDeviceFrame`, captured input reports `inputDeviceFrame` plus the
+frame's offset in the block, and `RealtimeClipClock.deviceFrame()` is the output
+device frame after the last block. A block that does not continue the previous
+one (a different `streamEpoch`, `AUDIO_BLOCK_INPUT_DISCONTINUITY` or
+`AUDIO_BLOCK_OUTPUT_DISCONTINUITY`, or an `outputDeviceFrame` other than the
+previous block's end) re-anchors a playing clip's mapping at its first frame
+under a new mapping generation. The playhead does not move, so practice frames
+stay continuous across the break.
+
+Clip positions (seek, loop bounds, `RealtimeClipClock.frame()`) count clip
+source frames, which run at the transport format's sample rate. Practice
+frames (captured input `transportFrame()`, telemetry `mappedTransportFrame()`,
+the beat grid and count-in) count frames of the practice configuration's
+`transportRate()`; every anchor is converted between the two.
+
+A composing `@realtime` program learns the playhead a block was rendered at
+from `RealtimeClipTransport.renderWithClock`, which renders like `render` and
+fills a `RealtimeClipTransportBlockClock` the caller owns: the active token,
+play state, frame, speed and mapping generation at the block's start (after
+the commands queued before it applied) and at its end, with the block's device
+frame and epoch. The fields are written by the render itself, so the read is
+allocation-free, lock-free and never retries; `clock()` and `telemetry()` stay
+control-thread calls. A render that returns `false` did not enter the
+transport, and its clock reports no clip (token zero).
+
 ## Package-private runtime
 
 `RealtimeClipTransportRuntime.btrc` and `RealtimeClipPracticeRuntime.btrc` hold
