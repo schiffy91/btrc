@@ -1,0 +1,31 @@
+#include <stdio.h>
+
+// Canonical UTF-8 TSV, LF terminated. Titles contain no tabs or newlines.
+// R: key, numeric sort key, facet, title. D: step, deleted key.
+// I: step, inserted key, numeric sort key, facet, title.
+// Each D/I pair replaces one record without reusing a stable key.
+const char* recordTitle(int index) {
+	switch (index % 8) {
+		case 0: return "A";
+		case 1: return "An intentionally long collection title for clipping and variable row measurement";
+		case 2: return "مرحبا بالعالم";
+		case 3: return "שלום עולם";
+		case 4: return "🎸 Music 🎵";
+		case 5: return "Café";
+		case 6: return "東京の音楽";
+		default: return "";
+	}
+}
+
+int main() {
+	printf("btrc.collection-records\t1\n");
+	for (int index = 0; index < 100000; index++) {
+		printf("R\tk%06d\t%d\t%d\t%s\n", index, (index * 7919) % 100000, index % 17, recordTitle(index));
+	}
+	for (int step = 0; step < 1000; step++) {
+		int inserted = 100000 + step;
+		printf("D\t%d\tk%06d\n", step, step * 97);
+		printf("I\t%d\tk%06d\t%d\t%d\t%s\n", step, inserted, (inserted * 7919) % 100000, inserted % 17, recordTitle(inserted));
+	}
+	return fflush(stdout) == 0 && ferror(stdout) == 0 ? 0 : 1;
+}
