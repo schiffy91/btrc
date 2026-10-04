@@ -646,6 +646,55 @@ def test_last_evidence_wins_without_erasing_classification(catalog_directory, st
         assert any("stale" in problem.lower() for problem in catalog.problems())
 
 
+EVIDENCE_BY_SOURCE = {
+    "inventory": {"status": "implemented-unverified"},
+    "junit": {"status": "passed", "observed": "passed"},
+}
+
+
+@pytest.mark.parametrize(
+    ("old_source", "new_source", "new_revision", "stale"),
+    [
+        ("inventory", "junit", "fixture-revision", False),
+        ("junit", "junit", "fixture-revision", True),
+        ("junit", "inventory", "fixture-revision", True),
+        ("inventory", "junit", "other-revision", True),
+    ],
+    ids=["junit-over-inventory", "junit-over-junit", "inventory-over-junit", "junit-over-other-tree-inventory"],
+)
+def test_an_observation_supersedes_an_inventory_audit_of_the_same_tree(
+    catalog_directory, old_source, new_source, new_revision, stale
+):
+    original = classified_operation()
+    original["evidence"] = dict(EVIDENCE_BY_SOURCE[old_source])
+    original["provenance"] = {
+        "source": old_source,
+        "recorded_at": "2026-10-03T12:00:00+00:00",
+        "runner": "linux-devcontainer",
+    }
+    write_shard(catalog_directory, "operations/IWindow.toml", records=[original])
+    replacement = operation(evidence=dict(EVIDENCE_BY_SOURCE[new_source]))
+    replacement["provenance"] = {
+        "source": new_source,
+        "recorded_at": "2026-10-01T12:00:00+00:00",
+        "runner": "linux-devcontainer",
+        "btrc_revision": new_revision,
+    }
+    write_shard(catalog_directory, "evidence/ui1-linux.toml", records=[replacement])
+    catalog = UICatalog(directory=catalog_directory)
+    merged = next(
+        record
+        for record in catalog.records
+        if record.subject.key == ("ui-operation", "IWindow.isOpen", "linux", "reference", "")
+    )
+    assert merged.evidence.status == EVIDENCE_BY_SOURCE[new_source]["status"]
+    assert merged.provenance.source == new_source
+    assert merged.classification.implementation == "partial"
+    problems = catalog.problems()
+    assert bool(problems) == stale
+    assert all("stale evidence overwrite" in problem for problem in problems)
+
+
 def surface_font(**overrides):
     return {
         "module": "GUI.Font",
