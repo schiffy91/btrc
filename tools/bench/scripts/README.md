@@ -66,7 +66,7 @@ caller chain, callee and caller-callee edge.
 | Script | What it does |
 | --- | --- |
 | `batch_gate.sh` | The D5 batch gate: diff-check, lint, format, generated, extension, `make test`, `bootstrap`, `test-c11` (rerun once for the daemon deadline alone) and BTRSmith's frontend check and library smoke, each logged with its duration. Run under `withlock.sh gate`. |
-| `ccompat_checkpoint.sh` | Bucket-2 Mac checkpoint: `--parent SHA --commit SHA --memory --budget noop,edit --gate --btrsmith PATH --logdir DIR`; three alternating instruction/footprint samples, quiet budget runs, D5 gate and JSON/text summaries. `--bump-btrsmith-pin` checks and publishes the pin only after GREEN; `--dry-run` prints the plan on Linux. |
+| `ccompat_checkpoint.sh` | Bucket-2 Mac checkpoint: `--parent SHA --commit SHA --memory --budget noop,edit --gate --btrsmith PATH --logdir DIR`; three alternating instruction/footprint samples, quiet budget runs, D5 gate and JSON/text summaries. `--btrsmith` selects only the gate/pin checkout; measurements use the D9-pinned workspace (`--workspace` overrides), with independent `BTRSMITH_DEV_SHELL` and `BSM_PKG_CONFIG_PATH`. Reports include workspace HEAD, readers, gate steps, budget reports and retained-worktree cleanup commands. `--bump-btrsmith-pin` checks preconditions before work and publishes the pin only after GREEN; `--dry-run` prints the plan on Linux. |
 | `gates.sh` | The shorter gate matrix (lint, format, test, bootstrap, test-c11) on one tree. |
 | `split.py` | Rebuilds one combined diff as a stack of unsigned commits from a JSON plan of hunks; `split-m12.json` is the plan that built the M12 stack. |
 
