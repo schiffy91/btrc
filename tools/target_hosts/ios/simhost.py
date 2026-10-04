@@ -167,7 +167,7 @@ class IOSSimulatorHost:
         }
 
     @staticmethod
-    def stop_launcher(process) -> None:
+    def stop_launcher(process) -> tuple[bytes, bytes]:
         """Reap the local simctl client only after stopping the simulator child."""
         try:
             return process.communicate(timeout=2)

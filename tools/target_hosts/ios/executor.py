@@ -172,14 +172,15 @@ class IOSSimulatorExecutor:
         while time.monotonic() < deadline:
             try:
                 identity = identity or self._identity(directory)
-            except SimulatorError as error:
+                if identity is not None:
+                    break
+                if launcher.poll() is not None:
+                    # Read again after observing exit, covering atomic publication races.
+                    identity = self._identity(directory)
+                    break
+            except Exception as error:
+                # A malformed/racing reread must not bypass local launcher reaping.
                 identity_error = error
-                break
-            if identity is not None:
-                break
-            if launcher.poll() is not None:
-                # Read again after observing exit, covering atomic publication races.
-                identity = self._identity(directory)
                 break
             time.sleep(0.02)
         errors = []

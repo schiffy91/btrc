@@ -116,6 +116,7 @@ class DelayedProcessHost(LocalProcessHost):
         self.delay = delay
         self.child_file = root / "delayed-child-pid"
         self.child_file.unlink(missing_ok=True)
+        self.child_file.with_suffix(".stdout").unlink(missing_ok=True)
 
     def spawn(self, executable, argv, env):
         process = subprocess.Popen(
@@ -358,6 +359,22 @@ class ExecutorProcessTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-O", "-c", code], capture_output=True, timeout=15)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"stdout mismatch", result.stderr)
+
+    def test_malformed_identity_after_launcher_exit_still_reaps_launcher(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        executor = self.executor("spawn")
+        launcher = SimpleNamespace(poll=lambda: 0)
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch.object(executor, "_identity", side_effect=[None, SimulatorError("malformed late identity")]),
+            patch.object(self.host, "stop_launcher", return_value=(b"", b"")) as stop,
+            self.assertRaises(ExceptionGroup) as caught,
+        ):
+            executor._cleanup_spawn(Path(temporary), launcher)
+        stop.assert_called_once_with(launcher)
+        self.assertEqual(str(caught.exception.exceptions[0]), "malformed late identity")
 
     def test_launcher_cleanup_bounds_both_waits_and_handles_exit_race(self):
         from unittest.mock import Mock, patch
