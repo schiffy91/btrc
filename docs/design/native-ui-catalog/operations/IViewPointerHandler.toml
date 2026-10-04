@@ -1,0 +1,65 @@
+# CX-UIA-03: source classification and assertion map; execution evidence is separate.
+# Missing providers stay missing on both frontends; candidate regression IDs are not passes.
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-03-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:43:34Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "linux-devcontainer"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-linux"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-macos"
+
+[[operations]]
+id = "IViewPointerHandler.pointer"
+owner = "IViewPointerHandler"
+implementation = "implemented"
+links = ["N08", "UI3"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[reference-False]", "src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[reference-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSViewInput.btrc; operation IViewPointerHandler.pointer. Assertion candidate in src/tests/native/gui/NativePointer.btrc: assert(receiver.presses == 1 && receiver.entered == 1); Additional assertions cover local coordinates, consumed/default routing, drag capture, release, focus loss and cancellation. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[selfhost-False]", "src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[selfhost-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSViewInput.btrc; operation IViewPointerHandler.pointer. Assertion candidate in src/tests/native/gui/NativePointer.btrc: assert(receiver.presses == 1 && receiver.entered == 1); Additional assertions cover local coordinates, consumed/default routing, drag capture, release, focus loss and cancellation. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxView.btrc; operation IViewPointerHandler.pointer. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._cardPointer.presses == 1 && self._rootPointer.presses == self._rootBefore); Synthetic SDL press reaches the panel handler before built-in processing; consumed event does not bubble to root, and entered is checked. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxView.btrc; operation IViewPointerHandler.pointer. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._cardPointer.presses == 1 && self._rootPointer.presses == self._rootBefore); Synthetic SDL press reaches the panel handler before built-in processing; consumed event does not bubble to root, and entered is checked. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
