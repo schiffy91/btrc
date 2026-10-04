@@ -388,9 +388,10 @@ Keep DaemonSpec's validation and declared Command data; replace the rendered
 shell supervisor with the explicitly packaged `btrc-daemon-supervisor.exe`
 entry, owned by CX-P2-08 and launched only through the runtime transfer helper. Resolve owner-controlled records/logs through
 ApplicationDirectories. Generate 128-bit instance/control tokens with
-`BCryptGenRandom`; records, logs and channel endpoints require current-user DACLs.
-PID alone is never a capability. Match instance token and authenticated peer before
-status/stop or stale-record cleanup; do not terminate a process from an old PID.
+`BCryptGenRandom`; records, logs and control-capability files require current-user DACLs.
+PID alone is never a capability. Match the instance token against the protected
+instance record and authenticate the file-control capability before status/stop
+or stale-record cleanup; do not terminate a process from an old PID.
 
 Start the supervisor with the adaptation's detached/new-process-group/breakaway
 flags only where the parent/package policy permits them. It owns a job for its
