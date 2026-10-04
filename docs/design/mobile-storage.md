@@ -5,7 +5,7 @@
 > obtain two adversarial reviews and one parity review, resolve blocking
 > findings and record approval in PLAN.md. The separate `DocumentTree`
 > recommendation answers adaptations Q2 provisionally; neither this draft nor
-> WORKSTREAMS Q9 establishes owner sign-off. iOS and iPadOS are one platform
+> WORKSTREAMS §7 Q9 establishes owner sign-off. iOS and iPadOS are one platform
 > family, with phone/tablet fixtures and device-class evidence.
 
 ## Basis and boundaries
@@ -27,8 +27,9 @@ not provide a temporary root. `IO.File.readBytes()` reads in 8192-byte chunks
 but accumulates the whole input. Its borrowed `FILE*` does not establish
 ownership of a mobile descriptor, grant or cancellation operation.
 `RegularFileSnapshot` depends on seekable regular-file identity/version checks.
-`DirectoryHandle.openExact` and `PrivateDirectory` provide descriptor-relative
-filesystem guarantees which a document provider need not supply.
+`DirectoryHandle.openExact` validates a local directory's identity/version;
+`PrivateDirectory` provides descriptor-relative private-file operations. Those
+filesystem guarantees are not necessarily available from a document provider.
 `DirectoryPickerOutcome.selected` carries a string, not authority.
 
 No existing API is silently reinterpreted. This proposal adds stream and grant
@@ -53,6 +54,14 @@ retains native root handles and performs child traversal relative to them;
 prefix matching does not authorize a path. Directory creation is explicit and
 failure is typed. No root falls back to the working directory, `/`, another
 platform's HOME/XDG interpretation or public shared storage.
+
+An OS-returned container URL can include a platform-managed path alias. The
+mobile bridge must establish the trusted root's native identity before applying
+no-follow child traversal; blindly feeding that spelling into the current
+all-ancestor no-follow `PrivateDirectory.openAbsoluteLeaf` is not a verified
+mobile implementation. Any canonicalization is confined to establishing the
+OS-authorized root and revalidated against that authority. It never permits
+caller-controlled symlink traversal below the root.
 
 | Root | iOS/iPadOS proposal | Android proposal | Persistence |
 |---|---|---|---|
@@ -214,6 +223,12 @@ POSIX child paths; cloud-backed iOS resources also have availability and access
 lifetimes beyond a string. Fabricating inode identity or seek support would
 weaken current callers' guarantees.
 
+This recommendation deliberately differs from CX-P1-02's proposed adaptations
+Q2 default, an opaque grant owned by `DirectoryHandle`. CL-P2-01 must reconcile
+that choice with the adaptations owner and record the decision before any API
+implementation. Separate DocumentTree is this draft's recommendation, not a
+claim that the existing default has changed.
+
 The proposed owner contains provider identity, an opaque root document identity,
 read/write grant flags, grant provenance and an active-access lease. It exposes
 bounded/paged enumeration, checked child references and byte-source opening.
@@ -311,7 +326,7 @@ separately. This proposal does not change failure channels of unrelated APIs.
 | CX-P2-37, I1 | scoped URL/bookmark owner; relaunch/revocation; restartable scans; SQLite kill-during-write evidence | mobile foundation, iOS lifecycle owner and cache identity; pre-granted URLs until UI7 |
 | CX-P2-42, A1 | SAF descriptor/tree owners and persisted grants; runtime permission state integration; provider cancellation/recreation | mobile foundation, CX-P2-41 Activity/context owner and cache identity |
 | UI7 contract/provider packets | additive grant selection with lifecycle-safe completion and native picker UX | UI2/UI3 and platform shell/contract approvals; no picker implementation in P2-03 |
-| CL-P2-01 | approve this design and record assumed Q2/Q9 decisions; assign shared paths below | two adversarial reviewers and one parity reviewer, no blocking findings, PLAN approval |
+| CL-P2-01 | approve this design and record adaptations Q2 / WORKSTREAMS §7 Q9 decisions; assign shared paths below | two adversarial reviewers and one parity reviewer, no blocking findings, PLAN approval |
 
 IO and FileSystem are compiler imports. Additions must preserve current symbols,
 constructors, import direction and desktop emitted behavior. Implementation
@@ -329,7 +344,8 @@ Requests to Claude for CL-P2-01:
   gap in packet scope before implementation; no opportunistic edit is implied.
 - Confirm the temporary-root query, IO-level result shape and cancellation
   capability boundary without creating an IO/FileSystem import cycle.
-- Record Q2's DocumentTree choice, Q9/adaptations approval status, proposed
+- Record adaptations Q2's DocumentTree choice, WORKSTREAMS §7 Q9's approval
+  status (not adaptations Q9, which concerns HTTP), proposed
   64 KiB/two-import defaults, and any required production cancellation deadline.
 - Route compiler/checked-bridge gaps through REQUEST packets with minimal
   reproducers when implementation can demonstrate them. This draft reports no
