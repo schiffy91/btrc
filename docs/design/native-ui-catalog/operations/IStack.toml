@@ -1,0 +1,337 @@
+# CX-UIA-04: operation source classification and assertion-scoped shared UI0 evidence.
+# Inherited IView/IContainer operations keep their declaring-owner shards (CX-UIA-03).
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-04-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:36:56Z"
+runner = "linux-devcontainer"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+runner = "github-linux"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+runner = "github-macos"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[[operations]]
+id = "IStack.alignment"
+owner = "IStack"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc: center and end alignment round-trip through alignment(), followed by restoration to start."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc: center and end alignment round-trip through alignment(), followed by restoration to start."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IStack.layout"
+owner = "IStack"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc/StackProbe: native child frames follow padding and changing spacing across 20 resizes while editing/undo and view identity survive; negative padding is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc/StackProbe: native child frames follow padding and changing spacing across 20 resizes while editing/undo and view identity survive; negative padding is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IStack.setAlignment"
+owner = "IStack"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc: center and end alignment round-trip through alignment(), followed by restoration to start."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc: center and end alignment round-trip through alignment(), followed by restoration to start."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IStack.setPadding"
+owner = "IStack"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc/StackProbe: native child frames follow padding and changing spacing across 20 resizes while editing/undo and view identity survive; negative padding is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc/StackProbe: native child frames follow padding and changing spacing across 20 resizes while editing/undo and view identity survive; negative padding is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IStack.setSpacing"
+owner = "IStack"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc/StackProbe: native child frames follow padding and changing spacing across 20 resizes while editing/undo and view identity survive; negative padding is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection. Assertion: NativeStacks.btrc/StackProbe: native child frames follow padding and changing spacing across 20 resizes while editing/undo and view identity survive; negative padding is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IStack.spacing"
+owner = "IStack"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxStack.btrc: source implements this operation. Rows/columns arrange children at fitting sizes; this is not the proposed constrained-layout solver or a virtualized collection."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"

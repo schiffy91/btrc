@@ -192,6 +192,11 @@ class SemanticValidator {
 	 * matters (deferred references are dropped; side-table writes are ones
 	 * live validation repeats) and the caller validates live. */
 	private bool replay(Vector<ValidationFact> facts) {
+		/* Whether a callee never returns is a fact of its body: a record
+		 * whose answers moved is validated live, before anything installs. */
+		for fact in facts {
+			if (fact.kind == VALIDATION_DIVERGENCE && self.controlFlow.flow.divergenceAnswer(fact.detail, fact.name, fact.member) != (fact.parameter == 1)) { return false; }
+		}
 		int references = self.names.deferredReferenceCount();
 		for fact in facts {
 			Node? node = fact.node;
@@ -220,7 +225,7 @@ class SemanticValidator {
 				self.state.analyzed.recordMethodCallArguments(node, fact.arguments);
 			} else if (fact.kind == VALIDATION_WARNING) {
 				self.state.analyzed.recordWarning(fact.detail, node);
-			} else {
+			} else if (fact.kind != VALIDATION_DIVERGENCE) {
 				self.names.truncateDeferredReferences(references);
 				return false;
 			}

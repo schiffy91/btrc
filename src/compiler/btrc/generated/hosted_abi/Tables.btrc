@@ -70,12 +70,48 @@ class GeneratedHostedFunctionRow {
 }
 
 class GeneratedTargetRow {
+	public string label;
 	public string operatingSystem;
 	public string architecture;
+	public string environment;
+	public string minimumVersion;
+	public string triple;
+	public Vector<string> tripleAliases;
+	public string zigTarget;
+	public Vector<string> targetArguments;
+	public int sizeofPointer;
+	public int sizeofLong;
+	public int sizeofWcharT;
+	public int sizeofLongDouble;
+	public bool charSigned;
+	public bool wcharSigned;
+	public string sysrootKind;
+	public string sysrootName;
+	public bool compilerHost;
+	public bool objectiveC;
+	public bool frameworks;
 
-	public GeneratedTargetRow(string operatingSystem, string architecture) {
+	public GeneratedTargetRow(string label, string operatingSystem, string architecture, string environment, string minimumVersion, string triple, Vector<string> tripleAliases, string zigTarget, Vector<string> targetArguments, int sizeofPointer, int sizeofLong, int sizeofWcharT, int sizeofLongDouble, bool charSigned, bool wcharSigned, string sysrootKind, string sysrootName, bool compilerHost, bool objectiveC, bool frameworks) {
+		self.label = label;
 		self.operatingSystem = operatingSystem;
 		self.architecture = architecture;
+		self.environment = environment;
+		self.minimumVersion = minimumVersion;
+		self.triple = triple;
+		self.tripleAliases = tripleAliases;
+		self.zigTarget = zigTarget;
+		self.targetArguments = targetArguments;
+		self.sizeofPointer = sizeofPointer;
+		self.sizeofLong = sizeofLong;
+		self.sizeofWcharT = sizeofWcharT;
+		self.sizeofLongDouble = sizeofLongDouble;
+		self.charSigned = charSigned;
+		self.wcharSigned = wcharSigned;
+		self.sysrootKind = sysrootKind;
+		self.sysrootName = sysrootName;
+		self.compilerHost = compilerHost;
+		self.objectiveC = objectiveC;
+		self.frameworks = frameworks;
 	}
 }
 
@@ -101,6 +137,8 @@ class GeneratedHostedAbiData {
 	public string fingerprint;
 	public string targetSpecFingerprint;
 	private Vector<GeneratedTargetRow>? targetRowsMemo = null;
+	private Map<string, string>? architectureAliasesMemo = null;
+	private Map<string, string>? defaultEnvironmentsMemo = null;
 	private Vector<GeneratedPredefinedMacroRow>? predefinedMacroRowsMemo = null;
 	private Vector<GeneratedHostedFunctionRow>? functionRows = null;
 	private Map<string, int>? functionSlots = null;
@@ -133,7 +171,7 @@ class GeneratedHostedAbiData {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
 		self.fingerprint = "b07b01e79a64ba737b576643e93e54c5dce217fdbe11a11c74a1a4ddc3b86fe2";
-		self.targetSpecFingerprint = "41217ebe87181609d3bb2d8f68f3f4f9b3460196efcffac209ddd9d060f245c0";
+		self.targetSpecFingerprint = "7865f267cc2888822ba3f93f571f923a1a835f94049abc4876c0e4c5d8dcfa58";
 	}
 
 	/* Every table builds on first use. A compile that never asks for a
@@ -16409,10 +16447,7 @@ class GeneratedHostedAbiData {
 		return built;
 	}
 
-	private void pushUndefinedMacroNames0(Vector<string> values) {
-		values.push("__ANDROID__");
-		values.push("__cplusplus");
-	}
+	private void pushUndefinedMacroNames0(Vector<string> values) { values.push("__cplusplus"); }
 
 	public Vector<string> foreignMacroNames() {
 		Vector<string>? memo = self.foreignMacroNamesMemo;
@@ -16461,13 +16496,38 @@ class GeneratedHostedAbiData {
 		Vector<GeneratedTargetRow>? memo = self.targetRowsMemo;
 		if (memo != null) { return memo; }
 		Vector<GeneratedTargetRow> built = [];
-		built.push(GeneratedTargetRow("linux", "x86_64"));
-		built.push(GeneratedTargetRow("linux", "aarch64"));
-		built.push(GeneratedTargetRow("macos", "x86_64"));
-		built.push(GeneratedTargetRow("macos", "aarch64"));
-		built.push(GeneratedTargetRow("windows", "x86_64"));
-		built.push(GeneratedTargetRow("windows", "aarch64"));
+		built.push(GeneratedTargetRow("android-aarch64", "android", "aarch64", "", "29", "aarch64-unknown-linux-android29", ["aarch64-linux-android29"], "", ["--target=aarch64-unknown-linux-android29"], 8, 8, 4, 16, false, false, "ndk", "", false, false, false));
+		built.push(GeneratedTargetRow("android-x86_64", "android", "x86_64", "", "29", "x86_64-unknown-linux-android29", ["x86_64-linux-android29"], "", ["--target=x86_64-unknown-linux-android29"], 8, 8, 4, 16, true, true, "ndk", "", false, false, false));
+		built.push(GeneratedTargetRow("ios-aarch64", "ios", "aarch64", "", "17.0", "arm64-apple-ios17.0.0", ["arm64-apple-ios17.0"], "", ["--target=arm64-apple-ios17.0.0"], 8, 8, 4, 8, true, true, "xcrun", "iphoneos", false, true, true));
+		built.push(GeneratedTargetRow("ios-aarch64-simulator", "ios", "aarch64", "simulator", "17.0", "arm64-apple-ios17.0.0-simulator", ["arm64-apple-ios17.0-simulator"], "", ["--target=arm64-apple-ios17.0.0-simulator"], 8, 8, 4, 8, true, true, "xcrun", "iphonesimulator", false, true, true));
+		built.push(GeneratedTargetRow("linux-aarch64", "linux", "aarch64", "gnu", "", "aarch64-unknown-linux-gnu", ["aarch64-linux-gnu"], "aarch64-linux-gnu", ["--target=aarch64-unknown-linux-gnu"], 8, 8, 4, 16, false, false, "none", "", true, false, false));
+		built.push(GeneratedTargetRow("linux-x86_64", "linux", "x86_64", "gnu", "", "x86_64-unknown-linux-gnu", ["x86_64-linux-gnu"], "x86_64-linux-gnu", ["--target=x86_64-unknown-linux-gnu"], 8, 8, 4, 16, true, true, "none", "", true, false, false));
+		built.push(GeneratedTargetRow("macos-aarch64", "macos", "aarch64", "", "14.0", "arm64-apple-macosx14.0.0", ["aarch64-apple-macosx14.0.0", "arm64-apple-macosx14.0"], "", ["--target=arm64-apple-macosx14.0.0"], 8, 8, 4, 8, true, true, "xcrun", "macosx", true, true, true));
+		built.push(GeneratedTargetRow("macos-x86_64", "macos", "x86_64", "", "14.0", "x86_64-apple-macosx14.0.0", ["x86_64-apple-macosx14.0"], "", ["--target=x86_64-apple-macosx14.0.0"], 8, 8, 4, 16, true, true, "xcrun", "macosx", true, true, true));
+		built.push(GeneratedTargetRow("windows-aarch64", "windows", "aarch64", "gnu", "", "aarch64-w64-windows-gnu", ["aarch64-w64-mingw32"], "aarch64-windows-gnu", ["--target=aarch64-w64-windows-gnu"], 8, 4, 2, 8, true, false, "zig-mingw", "", true, false, false));
+		built.push(GeneratedTargetRow("windows-aarch64-msvc", "windows", "aarch64", "msvc", "", "aarch64-pc-windows-msvc19.40.0", self.emptyNames(), "aarch64-windows-msvc", ["--target=aarch64-pc-windows-msvc19.40.0"], 8, 4, 2, 8, true, false, "windows-sdk", "", false, false, false));
+		built.push(GeneratedTargetRow("windows-x86_64", "windows", "x86_64", "gnu", "", "x86_64-w64-windows-gnu", ["x86_64-w64-mingw32"], "x86_64-windows-gnu", ["--target=x86_64-w64-windows-gnu"], 8, 4, 2, 16, true, false, "zig-mingw", "", true, false, false));
 		self.targetRowsMemo = built;
+		return built;
+	}
+
+	public Map<string, string> architectureAliases() {
+		Map<string, string>? memo = self.architectureAliasesMemo;
+		if (memo != null) { return memo; }
+		Map<string, string> built = {};
+		built.put("arm64", "aarch64");
+		built.put("x64", "x86_64");
+		self.architectureAliasesMemo = built;
+		return built;
+	}
+
+	public Map<string, string> defaultEnvironments() {
+		Map<string, string>? memo = self.defaultEnvironmentsMemo;
+		if (memo != null) { return memo; }
+		Map<string, string> built = {};
+		built.put("linux", "gnu");
+		built.put("windows", "gnu");
+		self.defaultEnvironmentsMemo = built;
 		return built;
 	}
 
@@ -16475,23 +16535,36 @@ class GeneratedHostedAbiData {
 		Vector<GeneratedPredefinedMacroRow>? memo = self.predefinedMacroRowsMemo;
 		if (memo != null) { return memo; }
 		Vector<GeneratedPredefinedMacroRow> built = [];
-		built.push(GeneratedPredefinedMacroRow("__ELF__", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__linux", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__linux__", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__unix", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__unix__", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__APPLE__", 1LL, ["macos"], self.emptyNames(), self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__MACH__", 1LL, ["macos"], self.emptyNames(), self.emptyNames()));
+		self.pushPredefinedMacroRows0(built);
+		self.pushPredefinedMacroRows1(built);
+		self.pushPredefinedMacroRows2(built);
+		self.pushPredefinedMacroRows3(built);
+		self.predefinedMacroRowsMemo = built;
+		return built;
+	}
+
+	private void pushPredefinedMacroRows0(Vector<GeneratedPredefinedMacroRow> built) {
+		built.push(GeneratedPredefinedMacroRow("__ELF__", 1LL, ["android", "linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__linux", 1LL, ["android", "linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__linux__", 1LL, ["android", "linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__unix", 1LL, ["android", "linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__unix__", 1LL, ["android", "linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__ANDROID__", 1LL, ["android"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__APPLE__", 1LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__MACH__", 1LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__APPLE_EMBEDDED_SIMULATOR__", 1LL, ["ios"], self.emptyNames(), ["simulator"]));
 		built.push(GeneratedPredefinedMacroRow("_WIN32", 1LL, ["windows"], self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("_WIN64", 1LL, ["windows"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__MINGW32__", 1LL, ["windows"], self.emptyNames(), ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__MINGW64__", 1LL, ["windows"], self.emptyNames(), ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SEH__", 1LL, ["windows"], self.emptyNames(), ["gnu"]));
 		built.push(GeneratedPredefinedMacroRow("__amd64", 1LL, self.emptyNames(), ["x86_64"], self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__amd64__", 1LL, self.emptyNames(), ["x86_64"], self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__x86_64", 1LL, self.emptyNames(), ["x86_64"], self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__x86_64__", 1LL, self.emptyNames(), ["x86_64"], self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__aarch64__", 1LL, self.emptyNames(), ["aarch64"], self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__arm64", 1LL, ["macos"], ["aarch64"], self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__arm64__", 1LL, ["macos"], ["aarch64"], self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__CHAR_UNSIGNED__", 1LL, ["linux"], ["aarch64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__arm64", 1LL, ["ios", "macos"], ["aarch64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__arm64__", 1LL, ["ios", "macos"], ["aarch64"], self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__CHAR_BIT__", 8LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_SHORT__", 2LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_INT__", 4LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
@@ -16503,9 +16576,110 @@ class GeneratedHostedAbiData {
 		built.push(GeneratedPredefinedMacroRow("__ORDER_BIG_ENDIAN__", 4321LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__ORDER_PDP_ENDIAN__", 3412LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__BYTE_ORDER__", 1234LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
-		built.push(GeneratedPredefinedMacroRow("__STDC__", 1LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__STDC__", 1LL, self.emptyNames(), self.emptyNames(), ["", "gnu", "simulator"]));
 		built.push(GeneratedPredefinedMacroRow("__STDC_VERSION__", 201112LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
-		self.predefinedMacroRowsMemo = built;
-		return built;
+		built.push(GeneratedPredefinedMacroRow("TARGET_IPHONE_SIMULATOR", 1LL, ["ios"], self.emptyNames(), ["simulator"]));
+		built.push(GeneratedPredefinedMacroRow("TARGET_IPHONE_SIMULATOR", 0LL, ["ios", "macos"], self.emptyNames(), [""]));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_DRIVERKIT", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_EMBEDDED", 1LL, ["ios"], self.emptyNames(), [""]));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_EMBEDDED", 0LL, ["ios"], self.emptyNames(), ["simulator"]));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_EMBEDDED", 0LL, ["macos"], self.emptyNames(), self.emptyNames()));
+	}
+
+	private void pushPredefinedMacroRows1(Vector<GeneratedPredefinedMacroRow> built) {
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_IOS", 1LL, ["ios"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_IOS", 0LL, ["macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_IPHONE", 1LL, ["ios"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_IPHONE", 0LL, ["macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_LINUX", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_MAC", 1LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_MACCATALYST", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_NANO", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_OSX", 1LL, ["macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_OSX", 0LL, ["ios"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_SIMULATOR", 1LL, ["ios"], self.emptyNames(), ["simulator"]));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_SIMULATOR", 0LL, ["ios", "macos"], self.emptyNames(), [""]));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_TV", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_UEFI", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_UIKITFORMAC", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_UNIX", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_VISION", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_WATCH", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_WIN32", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_WINDOWS", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("_LP64", 1LL, ["android"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("_LP64", 1LL, ["android"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("_LP64", 1LL, ["ios"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("_LP64", 1LL, ["ios"], ["aarch64"], ["simulator"]));
+		built.push(GeneratedPredefinedMacroRow("_LP64", 1LL, ["linux"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("_LP64", 1LL, ["linux"], ["x86_64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("_LP64", 1LL, ["macos"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("_LP64", 1LL, ["macos"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__ANDROID_API__", 29LL, ["android"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__ANDROID_API__", 29LL, ["android"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__ANDROID_MIN_SDK_VERSION__", 29LL, ["android"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__ANDROID_MIN_SDK_VERSION__", 29LL, ["android"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__CHAR_UNSIGNED__", 1LL, ["android"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__CHAR_UNSIGNED__", 1LL, ["linux"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__", 170000LL, ["ios"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__", 170000LL, ["ios"], ["aarch64"], ["simulator"]));
+		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__", 140000LL, ["macos"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__", 140000LL, ["macos"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", 170000LL, ["ios"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", 170000LL, ["ios"], ["aarch64"], ["simulator"]));
+	}
+
+	private void pushPredefinedMacroRows2(Vector<GeneratedPredefinedMacroRow> built) {
+		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", 140000LL, ["macos"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", 140000LL, ["macos"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__LP64__", 1LL, ["android"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__LP64__", 1LL, ["android"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__LP64__", 1LL, ["ios"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__LP64__", 1LL, ["ios"], ["aarch64"], ["simulator"]));
+		built.push(GeneratedPredefinedMacroRow("__LP64__", 1LL, ["linux"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__LP64__", 1LL, ["linux"], ["x86_64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__LP64__", 1LL, ["macos"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__LP64__", 1LL, ["macos"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 16LL, ["android"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 16LL, ["android"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 8LL, ["ios"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 8LL, ["ios"], ["aarch64"], ["simulator"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 16LL, ["linux"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 16LL, ["linux"], ["x86_64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 8LL, ["macos"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 16LL, ["macos"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 8LL, ["windows"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 8LL, ["windows"], ["aarch64"], ["msvc"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_DOUBLE__", 16LL, ["windows"], ["x86_64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 8LL, ["android"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 8LL, ["android"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 8LL, ["ios"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 8LL, ["ios"], ["aarch64"], ["simulator"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 8LL, ["linux"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 8LL, ["linux"], ["x86_64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 8LL, ["macos"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 8LL, ["macos"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 4LL, ["windows"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 4LL, ["windows"], ["aarch64"], ["msvc"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG__", 4LL, ["windows"], ["x86_64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["android"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["android"], ["x86_64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["ios"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["ios"], ["aarch64"], ["simulator"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["linux"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["linux"], ["x86_64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["macos"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["macos"], ["x86_64"], [""]));
+	}
+
+	private void pushPredefinedMacroRows3(Vector<GeneratedPredefinedMacroRow> built) {
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 2LL, ["windows"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 2LL, ["windows"], ["aarch64"], ["msvc"]));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 2LL, ["windows"], ["x86_64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__WCHAR_UNSIGNED__", 1LL, ["android"], ["aarch64"], [""]));
+		built.push(GeneratedPredefinedMacroRow("__WCHAR_UNSIGNED__", 1LL, ["linux"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__WCHAR_UNSIGNED__", 1LL, ["windows"], ["aarch64"], ["gnu"]));
+		built.push(GeneratedPredefinedMacroRow("__WCHAR_UNSIGNED__", 1LL, ["windows"], ["aarch64"], ["msvc"]));
+		built.push(GeneratedPredefinedMacroRow("__WCHAR_UNSIGNED__", 1LL, ["windows"], ["x86_64"], ["gnu"]));
 	}
 }

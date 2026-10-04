@@ -2124,6 +2124,7 @@ class ExpressionLowerer:
         name = node.name
         predefined = self._default_arguments.predefined_identifier(node)
         if predefined is not None:
+            self._session.consult_source(self._default_arguments.positioned_source(node))
             return IRLiteral(text=predefined)
         if self._session.local_is_declared(name):
             return self._source_identifier_var(node, self._ownership.source_binding_c_name(name, provenance))

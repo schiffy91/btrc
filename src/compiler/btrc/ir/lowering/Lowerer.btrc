@@ -121,6 +121,9 @@ class IRLowerer {
 	/* Module units: functions lowered as members of a generic instance. */
 	public Map<string, bool> instanceDefinitions() { return self.context.instanceDefinitions; }
 
+	/* Module units: files whose declaration bodies or positions this unit copied. */
+	public Map<string, bool> consultedSources() { return self.context.consultedSources; }
+
 	/* Lower one compilation group's module unit (see LoweringContext). */
 	public void configureModuleUnit(string ownedGroup, Map<string, string> groupOfFile, bool declarationsElsewhere) { self.context.configureModuleUnit(ownedGroup, groupOfFile, declarationsElsewhere); }
 

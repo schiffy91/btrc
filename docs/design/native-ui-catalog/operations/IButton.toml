@@ -1,0 +1,873 @@
+# CX-UIA-04: operation source classification and assertion-scoped shared UI0 evidence.
+# Inherited IView/IContainer operations keep their declaring-owner shards (CX-UIA-03).
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-04-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:36:56Z"
+runner = "linux-devcontainer"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+runner = "github-linux"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+runner = "github-macos"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[[operations]]
+id = "IButton.activate"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.cancelPendingActions"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc verifyBoundedActions/ButtonInput.finish: cancellation removes only the chosen sender and preserves second/first order."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc verifyBoundedActions/ButtonInput.finish: cancellation removes only the chosen sender and preserves second/first order."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.isEnabled"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.isSelected"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc main: selected state reads true, native activation clears it, and the action sender is retained."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc main: selected state reads true, native activation clears it, and the action sender is retained."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.onAction"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeGUI.btrc verifyActions: callbacks are deferred, deliver [1,2,1], respect cancellation and finish callback-scope cleanup."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeGUI.btrc verifyActions: callbacks are deferred, deliver [1,2,1], respect cancellation and finish callback-scope cleanup."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc Journey: synthetic pointer press/release invokes the registered counter exactly once at step 4."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc Journey: synthetic pointer press/release invokes the registered counter exactly once at step 4."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.setBordered"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeControlSizing.btrc: 20-point ink remains within the bezel; 24-point bordered font and rebordering are rejected; unbordered 24-point succeeds and sizing restores."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[reference-False]", "src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[reference-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeControlSizing.btrc: 20-point ink remains within the bezel; 24-point bordered font and rebordering are rejected; unbordered 24-point succeeds and sizing restores."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-False]", "src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc typography checks: bordered size above 20 is rejected, unbordered size 24 succeeds, and rebordering at 24 is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc typography checks: bordered size above 20 is rejected, unbordered size 24 succeeds, and rebordering at 24 is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.setCentered"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.setEnabled"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.setFont"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeControlSizing.btrc: 20-point ink remains within the bezel; 24-point bordered font and rebordering are rejected; unbordered 24-point succeeds and sizing restores."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[reference-False]", "src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[reference-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeControlSizing.btrc: 20-point ink remains within the bezel; 24-point bordered font and rebordering are rejected; unbordered 24-point succeeds and sizing restores."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-False]", "src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc typography checks: bordered size above 20 is rejected, unbordered size 24 succeeds, and rebordering at 24 is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc typography checks: bordered size above 20 is rejected, unbordered size 24 succeeds, and rebordering at 24 is rejected."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.setSelected"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc main: selected state reads true, native activation clears it, and the action sender is retained."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc main: selected state reads true, native activation clears it, and the action sender is retained."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.setSystemSymbol"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc symbols: unknown symbol throws the exact unavailable error; tuningfork and quote.bubble are accepted with positive fitting width. No OS-native icon rendering is claimed."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc symbols: unknown symbol throws the exact unavailable error; tuningfork and quote.bubble are accepted with positive fitting width. No OS-native icon rendering is claimed."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.setTitle"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc verifyPortableButton: title round-trips the longer Unicode title and increases fittingWidth."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc verifyPortableButton: title round-trips the longer Unicode title and increases fittingWidth."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.setToolTip"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeToolTips.btrc: empty, replacement, Unicode and cleared tooltips round-trip while title remains Play."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeToolTips-native control tool tips-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeToolTips-native control tool tips-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeToolTips.btrc: empty, replacement, Unicode and cleared tooltips round-trip while title remains Play."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeToolTips-native control tool tips-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeToolTips-native control tool tips-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.setTransparent"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: capture loses only the first button text after setTransparent(true); click routing still delivers its action."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: capture loses only the first button text after setTransparent(true); click routing still delivers its action."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.title"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc verifyPortableButton: title round-trips the longer Unicode title and increases fittingWidth."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc verifyPortableButton: title round-trips the longer Unicode title and increases fittingWidth."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IButton.toolTip"
+owner = "IButton"
+links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "E23", "E31", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeToolTips.btrc: empty, replacement, Unicode and cleared tooltips round-trip while title remains Play."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeToolTips-native control tool tips-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeToolTips-native control tool tips-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeToolTips.btrc: empty, replacement, Unicode and cleared tooltips round-trip while title remains Play."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeToolTips-native control tool tips-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeToolTips-native control tool tips-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"

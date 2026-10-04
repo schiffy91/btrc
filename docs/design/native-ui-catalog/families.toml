@@ -1,0 +1,2049 @@
+# Frozen 2026-09-21 source classifications; no runtime evidence.
+schema = "btrc.qualification.ledger/1"
+
+[[records]]
+subject = { kind = "family-cell", id = "N01", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N01", "UI1"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N01", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N01", "UI1"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N01", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N01", "UI1"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N01", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N01", "UI1"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N01", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N01", "UI1"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N02", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N02", "UI1"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N02", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N02", "UI1"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N02", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N02", "UI1"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N02", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N02", "UI1"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N02", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N02", "UI1"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N03", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N03", "UI2"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N03", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N03", "UI2"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N03", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N03", "UI2"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N03", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N03", "UI2"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N03", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N03", "UI2"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N04", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N04", "UI2"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N04", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N04", "UI2"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N04", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N04", "UI2"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N04", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N04", "UI2"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N04", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N04", "UI2"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N05", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N05", "UI2"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N05", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N05", "UI2"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N05", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N05", "UI2"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N05", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N05", "UI2"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N05", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N05", "UI2"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N06", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N06", "UI3"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N06", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N06", "UI3"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N06", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N06", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N06", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N06", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N06", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N06", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N07", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N07", "UI3"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N07", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N07", "UI3"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N07", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N07", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N07", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N07", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N07", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N07", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N08", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N08", "UI3"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N08", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N08", "UI3"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N08", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N08", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N08", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N08", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N08", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N08", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N09", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N09", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N09", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N09", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N09", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N09", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N09", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N09", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N09", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N09", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N10", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N10", "UI3"]
+note = "P credits only the native editor and control foundation, not a verified shared editing or accessibility contract."
+
+[[records]]
+subject = { kind = "family-cell", id = "N10", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N10", "UI3"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N10", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N10", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N10", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N10", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N10", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N10", "UI3"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N11", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N11", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N11", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N11", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N11", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N11", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N11", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N11", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N11", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N11", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N12", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N12", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N12", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N12", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N12", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N12", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N12", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N12", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N12", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N12", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N13", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N13", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N13", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N13", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N13", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N13", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N13", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N13", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N13", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N13", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N14", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N14", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N14", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N14", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N14", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N14", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N14", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N14", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N14", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N14", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N15", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N15", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N15", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N15", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N15", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N15", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N15", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N15", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N15", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N15", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N16", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N16", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N16", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N16", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N16", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N16", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N16", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N16", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N16", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N16", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N17", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N17", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N17", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N17", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N17", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N17", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N17", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N17", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N17", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N17", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N18", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N18", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N18", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N18", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N18", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N18", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N18", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N18", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N18", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N18", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N19", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N19", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N19", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N19", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N19", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N19", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N19", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N19", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N19", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N19", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N20", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N20", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N20", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N20", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N20", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N20", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N20", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N20", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N20", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N20", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N21", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N21", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N21", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N21", "UI4"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N21", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N21", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N21", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N21", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N21", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N21", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N22", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N22", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N22", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N22", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N22", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N22", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N22", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N22", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N22", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N22", "UI4"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N23", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N23", "UI5"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N23", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N23", "UI5"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N23", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N23", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N23", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N23", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N23", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N23", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N24", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N24", "UI5"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N24", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N24", "UI5"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N24", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N24", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N24", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N24", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N24", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N24", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N25", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N25", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N25", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N25", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N25", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N25", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N25", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N25", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N25", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N25", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N26", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N26", "UI6"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N26", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N26", "UI6"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N26", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N26", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N26", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N26", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N26", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N26", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N27", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N27", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N27", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N27", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N27", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N27", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N27", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N27", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N27", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N27", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N28", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N28", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N28", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N28", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N28", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N28", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N28", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N28", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N28", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N28", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N29", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N29", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N29", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N29", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N29", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N29", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N29", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N29", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N29", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N29", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N30", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N30", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N30", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N30", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N30", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N30", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N30", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N30", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N30", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N30", "UI6"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N31", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N31", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N31", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N31", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N31", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N31", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N31", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N31", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N31", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N31", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N32", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N32", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N32", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N32", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N32", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N32", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N32", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N32", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N32", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N32", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N33", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N33", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N33", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N33", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N33", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N33", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N33", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N33", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N33", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N33", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N34", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N34", "UI7"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N34", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N34", "UI7"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N34", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N34", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N34", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N34", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N34", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N34", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N35", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N35", "UI7"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N35", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N35", "UI7"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N35", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N35", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N35", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N35", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N35", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N35", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N36", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N36", "UI7"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N36", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N36", "UI7"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N36", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N36", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N36", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N36", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N36", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N36", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N37", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N37", "UI7"]
+note = "P credits only the native editor and control foundation, not a verified shared editing or accessibility contract."
+
+[[records]]
+subject = { kind = "family-cell", id = "N37", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N37", "UI7"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N37", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N37", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N37", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N37", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N37", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N37", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N38", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N38", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N38", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N38", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N38", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N38", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N38", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N38", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N38", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N38", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N39", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N39", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N39", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N39", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N39", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N39", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N39", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N39", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N39", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N39", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N40", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N40", "UI7"]
+note = "P credits only the native editor and control foundation, not a verified shared editing or accessibility contract."
+
+[[records]]
+subject = { kind = "family-cell", id = "N40", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N40", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N40", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N40", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N40", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N40", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N40", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N40", "UI7"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N41", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N41", "UI8"]
+parity = "missing"
+note = "Missing because native control defaults provide no custom-content bridge."
+
+[[records]]
+subject = { kind = "family-cell", id = "N41", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N41", "UI8"]
+parity = "missing"
+note = "Missing because native control defaults provide no custom-content bridge."
+
+[[records]]
+subject = { kind = "family-cell", id = "N41", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N41", "UI8"]
+parity = "missing"
+note = "Missing because native control defaults provide no custom-content bridge."
+
+[[records]]
+subject = { kind = "family-cell", id = "N41", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N41", "UI8"]
+parity = "missing"
+note = "Missing because native control defaults provide no custom-content bridge."
+
+[[records]]
+subject = { kind = "family-cell", id = "N41", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N41", "UI8"]
+parity = "missing"
+note = "Missing because native control defaults provide no custom-content bridge."
+
+[[records]]
+subject = { kind = "family-cell", id = "N42", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N42", "UI8"]
+note = "P credits only the native editor and control foundation, not a verified shared editing or accessibility contract."
+
+[[records]]
+subject = { kind = "family-cell", id = "N42", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N42", "UI8"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N42", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N42", "UI8"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N42", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N42", "UI8"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N42", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N42", "UI8"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N43", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N43", "UI8"]
+note = "P credits only the native editor and control foundation, not a verified shared editing or accessibility contract."
+
+[[records]]
+subject = { kind = "family-cell", id = "N43", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N43", "UI8"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N43", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N43", "UI8"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N43", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N43", "UI8"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N43", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N43", "UI8"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N44", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N44", "UI5"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N44", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N44", "UI5"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N44", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N44", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N44", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N44", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N44", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N44", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N45", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N45", "UI5"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N45", platform = "linux" }
+[records.classification]
+implementation = "custom"
+links = ["N45", "UI5"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N45", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N45", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N45", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N45", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N45", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N45", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N46", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N46", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N46", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N46", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N46", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N46", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N46", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N46", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N46", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N46", "UI5"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N47", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N47", "UI9"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N47", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N47", "UI9"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N47", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N47", "UI9"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N47", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N47", "UI9"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N47", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N47", "UI9"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N48", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N48", "UI9"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N48", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N48", "UI9"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N48", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N48", "UI9"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N48", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N48", "UI9"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N48", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N48", "UI9"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N49", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N49", "UI9"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N49", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N49", "UI9"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N49", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N49", "UI9"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N49", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N49", "UI9"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N49", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N49", "UI9"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N50", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N50", "UI10"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N50", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N50", "UI10"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N50", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N50", "UI10"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N50", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N50", "UI10"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N50", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N50", "UI10"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N51", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N51", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N51", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N51", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N51", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N51", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N51", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N51", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N51", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N51", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N52", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N52", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N52", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N52", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N52", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N52", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N52", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N52", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N52", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N52", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N53", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N53", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N53", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N53", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N53", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N53", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N53", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N53", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N53", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N53", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N54", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N54", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N54", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N54", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N54", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N54", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N54", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N54", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N54", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N54", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N55", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N55", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N55", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N55", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N55", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N55", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N55", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N55", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N55", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N55", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N56", platform = "macos" }
+[records.classification]
+implementation = "partial"
+links = ["N56", "UI11"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N56", platform = "linux" }
+[records.classification]
+implementation = "partial"
+links = ["N56", "UI11"]
+
+[[records]]
+subject = { kind = "family-cell", id = "N56", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N56", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N56", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N56", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N56", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N56", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N57", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N57", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N57", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N57", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N57", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N57", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N57", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N57", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N57", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N57", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N58", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N58", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N58", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N58", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N58", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N58", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N58", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N58", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N58", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N58", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N59", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N59", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N59", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N59", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N59", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N59", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N59", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N59", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N59", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N59", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N60", platform = "macos" }
+[records.classification]
+implementation = "missing"
+links = ["N60", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N60", platform = "linux" }
+[records.classification]
+implementation = "missing"
+links = ["N60", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N60", platform = "windows" }
+[records.classification]
+implementation = "missing"
+links = ["N60", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N60", platform = "ios" }
+[records.classification]
+implementation = "missing"
+links = ["N60", "UI11"]
+parity = "missing"
+
+[[records]]
+subject = { kind = "family-cell", id = "N60", platform = "android" }
+[records.classification]
+implementation = "missing"
+links = ["N60", "UI11"]
+parity = "missing"
