@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 import tomllib
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
@@ -48,6 +48,7 @@ from tools.compiler_codegen.hosted_abi import (
     HostedAbiManifest,
     HostedAbiManifestError,
     TargetManifest,
+    TargetRowSpec,
     TargetUnion,
 )
 from tools.compiler_codegen.runtime import RuntimeManifest
@@ -459,9 +460,23 @@ def test_generated_enum_names_are_safe_but_anonymous_values_are_raw() -> None:
 
 
 # The compilation-target spec (src/language/targets.toml, PLAN.md D21) and its
-# generated rows: docs/design/c-preprocessor-conditionals.md, "Shared owners".
+# generated rows: docs/design/c-preprocessor-conditionals.md, "Shared owners",
+# and docs/design/platform-target-contract.md §1.1-§1.3 (schema 2).
 
 TARGET_SPEC = SOURCE_ROOT / "language/targets.toml"
+TARGET_LABELS = (
+    "android-aarch64",
+    "android-x86_64",
+    "ios-aarch64",
+    "ios-aarch64-simulator",
+    "linux-aarch64",
+    "linux-x86_64",
+    "macos-aarch64",
+    "macos-x86_64",
+    "windows-aarch64",
+    "windows-aarch64-msvc",
+    "windows-x86_64",
+)
 
 
 def _target_document() -> dict:
@@ -473,34 +488,212 @@ def _hosted_manifest() -> HostedAbiManifest:
     return HostedAbiManifest.load(SOURCE_ROOT / "language/hosted_abi.toml", runtime)
 
 
-def _macro(document: dict, name: str) -> dict:
-    return next(row for row in document["predefined_macros"] if row["name"] == name)
+def _macro(document: dict, name: str, value: int | None = None) -> dict:
+    return next(row for row in document["predefined_macros"] if row["name"] == name and value in (None, row["value"]))
+
+
+def _row(document: dict, label: str) -> dict:
+    return next(row for row in document["targets"] if row["label"] == label)
+
+
+def _set(row_label: str, /, **columns):
+    return lambda document: _row(document, row_label).update(columns)
 
 
 def _duplicate_target(document: dict) -> None:
-    document["targets"].append(dict(document["targets"][0]))
+    document["targets"].insert(1, dict(document["targets"][0]))
+
+
+def _swap_targets(document: dict) -> None:
+    targets = document["targets"]
+    targets[0], targets[1] = targets[1], targets[0]
 
 
 def _overlapping_rows(document: dict) -> None:
     document["predefined_macros"].append({"name": "__linux__", "value": 2, "architectures": ["aarch64"]})
 
 
+def _derived_row(document: dict) -> None:
+    document["predefined_macros"].append({"name": "__SIZEOF_LONG__", "value": 8, "operating_systems": ["linux"]})
+
+
+# One failing fixture per generator rule (platform-target-contract.md §1.1,
+# §1.3, and C4's rules that still hold): each mutation of the shipped spec
+# must fail with its rule's message.
 TARGET_RULE_VIOLATIONS = {
-    "schema": (lambda document: document.update(schema_version=2), "unsupported target spec schema version"),
+    # Document shape.
+    "schema": (lambda document: document.update(schema_version=1), "unsupported target spec schema version: 1"),
     "unknown-key": (lambda document: document.update(environments=[]), "unknown target spec keys: environments"),
-    "duplicate-target": (_duplicate_target, "target 'linux-x86_64' appears more than once"),
+    "missing-aliases": (lambda document: document.pop("aliases"), "missing target spec keys: aliases"),
+    "unknown-alias-key": (
+        lambda document: document["aliases"].update(operating_systems={}),
+        "unknown aliases keys: operating_systems",
+    ),
+    "unknown-row-key": (_set("linux-x86_64", abi="sysv"), "unknown targets\\[5\\] keys: abi"),
+    "missing-row-key": (lambda document: _row(document, "linux-x86_64").pop("triple"), "missing targets\\[5\\] keys"),
+    "row-type": (_set("linux-x86_64", sizeof_long="8"), "targets\\[5\\].sizeof_long must be an integer"),
+    "empty-targets": (lambda document: document.update(targets=[]), "targets must be a non-empty array of tables"),
+    "alias-value": (
+        lambda document: document["aliases"]["architectures"].update(x64=""),
+        "aliases.architectures must map identifiers to non-empty strings",
+    ),
+    "row-strings": (_set("linux-x86_64", triple_aliases=[""]), "triple_aliases must be an array of non-empty strings"),
+    "row-boolean": (_set("linux-x86_64", compiler_host="true"), "compiler_host must be a boolean"),
+    "macro-name": (
+        lambda document: _macro(document, "__linux__").update(name="__linux-gnu__"),
+        "name is not an identifier",
+    ),
+    "missing-conditionals-key": (
+        lambda document: document["conditionals"].pop("foreign_macro_names"),
+        "missing conditionals keys: foreign_macro_names",
+    ),
+    "conditionals-array": (
+        lambda document: document["conditionals"].update(undefined_macro_names="__cplusplus"),
+        "undefined_macro_names must be an array",
+    ),
+    # Labels.
+    "duplicate-target": (_duplicate_target, "target 'android-aarch64' appears more than once"),
+    "label-order": (_swap_targets, "targets must be listed in label order"),
+    "label": (_set("linux-x86_64", label="linux-x64"), "target 'linux-x64' must be labelled 'linux-x86_64'"),
+    "explicit-default-label": (
+        _set("windows-x86_64", label="windows-x86_64-gnu"),
+        "target 'windows-x86_64-gnu' must be labelled 'windows-x86_64'",
+    ),
+    "unknown-operating-system": (
+        _set("linux-x86_64", operating_system="freebsd"),
+        "target 'linux-x86_64' has unknown operating system 'freebsd'",
+    ),
+    "unknown-target-architecture": (
+        _set("linux-x86_64", architecture="riscv64"),
+        "target 'linux-x86_64' has unknown architecture 'riscv64'",
+    ),
+    # Environments and their defaults.
+    "environment-fit": (
+        _set("macos-x86_64", environment="gnu"),
+        "target 'macos-x86_64' has environment 'gnu', which macos does not take",
+    ),
+    "default-environment-without-row": (
+        lambda document: document["aliases"]["default_environments"].update(freebsd="gnu"),
+        "default environment of 'freebsd' names an operating system with no row",
+    ),
+    "default-environment-fit": (
+        lambda document: document["aliases"]["default_environments"].update(linux="simulator"),
+        "default environment 'simulator' does not fit operating system 'linux'",
+    ),
+    "default-environment-row": (
+        _set("windows-aarch64", environment="msvc"),
+        "windows-aarch64 must have exactly one row in its default environment 'gnu'",
+    ),
+    "architecture-alias-canonical": (
+        lambda document: document["aliases"]["architectures"].update(x86_64="aarch64"),
+        "architecture alias 'x86_64' is a canonical architecture",
+    ),
+    "architecture-alias-target": (
+        lambda document: document["aliases"]["architectures"].update(x64="x86"),
+        "architecture alias 'x64' names 'x86', which is not a canonical architecture",
+    ),
+    # Deployment minimum and triples.
+    "apple-minimum": (_set("macos-aarch64", minimum_version="14"), "minimum_version must be MAJOR.MINOR"),
+    "android-minimum": (_set("android-x86_64", minimum_version="29.0"), "minimum_version must be an API level"),
+    "apple-minimum-minor": (_set("macos-aarch64", minimum_version="14.100"), "minimum_version must be MAJOR.MINOR"),
+    "versionless-minimum": (_set("linux-x86_64", minimum_version="1"), "minimum_version must be empty"),
+    "triple": (
+        _set("linux-x86_64", triple="x86_64-linux-gnu"),
+        "triple 'x86_64-linux-gnu' is not clang's cc1 form 'x86_64-unknown-linux-gnu'",
+    ),
+    "apple-triple-version": (
+        _set("macos-aarch64", triple="arm64-apple-macosx14.0"),
+        "is not clang's cc1 form 'arm64-apple-macosx14.0.0'",
+    ),
+    "simulator-triple": (
+        _set("ios-aarch64-simulator", triple="arm64-apple-ios17.0.0"),
+        "is not clang's cc1 form 'arm64-apple-ios17.0.0-simulator'",
+    ),
+    "msvc-pinned-version": (
+        _set("windows-aarch64-msvc", triple="aarch64-pc-windows-msvc"),
+        "is not clang's cc1 form 'aarch64-pc-windows-msvc19.40.0'",
+    ),
+    "alias-is-a-triple": (
+        _set("linux-x86_64", triple_aliases=["x86_64-unknown-linux-gnu"]),
+        "triple alias 'x86_64-unknown-linux-gnu' is the triple of 'linux-x86_64'",
+    ),
+    "alias-shared": (
+        _set("android-x86_64", triple_aliases=["x86_64-linux-android29", "x86_64-linux-gnu"]),
+        "target 'linux-x86_64' triple alias 'x86_64-linux-gnu' is also an alias of 'android-x86_64'",
+    ),
+    "alias-order": (
+        _set("macos-aarch64", triple_aliases=["arm64-apple-macosx14.0", "aarch64-apple-macosx14.0.0"]),
+        "triple_aliases must be sorted and unique",
+    ),
+    "zig-target": (_set("linux-x86_64", zig_target=""), "zig_target must be 'x86_64-linux-gnu'"),
+    "zig-target-apple": (_set("ios-aarch64", zig_target="aarch64-ios"), "zig_target must be ''"),
+    "target-arguments": (
+        _set("linux-x86_64", target_arguments=["--target=x86_64-unknown-linux-gnu", "-fPIC"]),
+        "target_arguments must be exactly \\['--target=x86_64-unknown-linux-gnu'\\]",
+    ),
+    # Data model.
+    "sizeof-pointer": (_set("linux-x86_64", sizeof_pointer=4), "sizeof_pointer must be 8: there is no 32-bit row"),
+    "sizeof-long": (_set("windows-x86_64", sizeof_long=8), "sizeof_long must be 4"),
+    "sizeof-long-unix": (_set("linux-x86_64", sizeof_long=4), "sizeof_long must be 8"),
+    "sizeof-wchar": (_set("linux-x86_64", sizeof_wchar_t=2), "sizeof_wchar_t must be 4"),
+    "sizeof-wchar-windows": (_set("windows-aarch64-msvc", sizeof_wchar_t=4), "sizeof_wchar_t must be 2"),
+    "sizeof-long-double": (_set("linux-x86_64", sizeof_long_double=12), "sizeof_long_double must be 8 or 16"),
+    "pinned-size-value": (
+        lambda document: _macro(document, "__SIZEOF_INT__").update(value=8),
+        "'__SIZEOF_INT__' must be one row of value 4 on every target",
+    ),
+    "pinned-size-selector": (
+        lambda document: _macro(document, "__CHAR_BIT__").update(operating_systems=["linux"]),
+        "'__CHAR_BIT__' must be one row of value 8 on every target",
+    ),
+    # Sysroots, hosts and Apple capabilities.
+    "sysroot-kind": (_set("linux-x86_64", sysroot_kind="glibc"), "unknown sysroot_kind 'glibc'"),
+    "sysroot-name": (
+        _set("linux-x86_64", sysroot_name="linux"),
+        "must name a sysroot_name exactly when sysroot_kind is xcrun",
+    ),
+    "xcrun-sysroot-name": (
+        _set("macos-x86_64", sysroot_name=""),
+        "must name a sysroot_name exactly when sysroot_kind is xcrun",
+    ),
+    "sysroot-fit": (
+        _set("android-x86_64", sysroot_kind="xcrun", sysroot_name="macosx"),
+        "'android-x86_64' must have sysroot_kind 'ndk' and sysroot_name ''",
+    ),
+    "xcrun-sdk-fit": (
+        _set("ios-aarch64-simulator", sysroot_name="iphoneos"),
+        "must have sysroot_kind 'xcrun' and sysroot_name 'iphonesimulator'",
+    ),
+    "compiler-host-mobile": (_set("ios-aarch64", compiler_host=True), "'ios-aarch64' compiler_host must be false"),
+    "compiler-host-environment": (
+        _set("windows-aarch64-msvc", compiler_host=True),
+        "'windows-aarch64-msvc' compiler_host must be false",
+    ),
+    "compiler-host-desktop": (_set("linux-aarch64", compiler_host=False), "'linux-aarch64' compiler_host must be true"),
+    "objective-c": (_set("linux-x86_64", objective_c=True), "objective_c and frameworks must be false"),
+    "frameworks": (_set("ios-aarch64", frameworks=False), "objective_c and frameworks must be true"),
+    # Predefined-macro rows.
     "unknown-os": (
-        lambda document: _macro(document, "__linux__").update(operating_systems=["ios"]),
+        lambda document: _macro(document, "__linux__").update(operating_systems=["freebsd"]),
         "'__linux__' selects unknown operating systems",
     ),
     "unknown-architecture": (
         lambda document: _macro(document, "__aarch64__").update(architectures=["riscv64"]),
         "'__aarch64__' selects unknown architectures",
     ),
-    "environments": (
-        lambda document: _macro(document, "_WIN32").update(environments=["gnu"]),
-        "'_WIN32' selects environments",
+    "unknown-environment": (
+        lambda document: _macro(document, "_WIN32").update(environments=["mingw"]),
+        "'_WIN32' selects unknown environments \\['mingw'\\]",
     ),
+    "empty-environment-elsewhere": (
+        lambda document: _macro(document, "__linux__").update(operating_systems=["", "linux"]),
+        "operating_systems contains an invalid identifier",
+    ),
+    "dead-row": (
+        lambda document: _macro(document, "__APPLE_EMBEDDED_SIMULATOR__").update(operating_systems=["macos"]),
+        "'__APPLE_EMBEDDED_SIMULATOR__' has a row that selects no target",
+    ),
+    "derived-row": (_derived_row, "'__SIZEOF_LONG__' is derived from the target columns and cannot be a row"),
     "unreserved-name": (
         lambda document: _macro(document, "__linux__").update(name="linux"),
         "'linux' is not a reserved name",
@@ -508,6 +701,14 @@ TARGET_RULE_VIOLATIONS = {
     "lowercase-underscore-name": (
         lambda document: _macro(document, "__linux__").update(name="_linux"),
         "'_linux' is not a reserved name",
+    ),
+    "target-name-outside-apple": (
+        lambda document: _macro(document, "TARGET_OS_MAC").update(operating_systems=["ios", "linux", "macos"]),
+        "'TARGET_OS_MAC' is not a reserved name \\(a TARGET_ name may select only macos and ios\\)",
+    ),
+    "target-name-every-target": (
+        lambda document: _macro(document, "TARGET_OS_TV").pop("operating_systems"),
+        "'TARGET_OS_TV' is not a reserved name",
     ),
     "negative-value": (
         lambda document: _macro(document, "__STDC__").update(value=-1),
@@ -517,7 +718,12 @@ TARGET_RULE_VIOLATIONS = {
         lambda document: _macro(document, "__STDC__").update(value=2**63),
         "outside \\[0, 2\\*\\*63 - 1\\]",
     ),
-    "overlapping-rows": (_overlapping_rows, "'__linux__' has rows that both select 'linux-aarch64'"),
+    "overlapping-rows": (_overlapping_rows, "'__linux__' has rows that both select 'android-aarch64'"),
+    "overlapping-environments": (
+        lambda document: _macro(document, "TARGET_OS_EMBEDDED", 1).update(environments=["", "simulator"]),
+        "'TARGET_OS_EMBEDDED' has rows that both select 'ios-aarch64-simulator'",
+    ),
+    # Conditionals.
     "unreserved-undefined": (
         lambda document: document["conditionals"].update(undefined_macro_names=["ANDROID"]),
         "undefined macro name 'ANDROID' is not a reserved name",
@@ -525,6 +731,10 @@ TARGET_RULE_VIOLATIONS = {
     "undefined-in-table": (
         lambda document: document["conditionals"].update(undefined_macro_names=["__cplusplus", "__linux__"]),
         "undefined macro name '__linux__' is also a predefined macro",
+    ),
+    "undefined-derived": (
+        lambda document: document["conditionals"].update(undefined_macro_names=["__LP64__", "__cplusplus"]),
+        "undefined macro name '__LP64__' is also a predefined macro",
     ),
     "reserved-foreign": (
         lambda document: document["conditionals"].update(foreign_macro_names=["__FOREIGN"]),
@@ -547,7 +757,7 @@ TARGET_RULE_VIOLATIONS = {
         "operating_systems must name a value",
     ),
     "unsorted-selector": (
-        lambda document: _macro(document, "__linux__").update(operating_systems=["macos", "linux"]),
+        lambda document: _macro(document, "__linux__").update(operating_systems=["linux", "android"]),
         "operating_systems must be sorted and unique",
     ),
 }
@@ -555,15 +765,18 @@ TARGET_RULE_VIOLATIONS = {
 
 def test_target_spec_loads_and_satisfies_the_generator_rules() -> None:
     targets = TargetManifest.load(TARGET_SPEC, _hosted_manifest())
-    assert targets.labels == (
-        "linux-x86_64",
-        "linux-aarch64",
-        "macos-x86_64",
-        "macos-aarch64",
-        "windows-x86_64",
-        "windows-aarch64",
-    )
+    assert targets.labels == TARGET_LABELS
     assert {"__CHAR_BIT__", "__STDC_VERSION__", "__BYTE_ORDER__"} <= {macro.name for macro in targets.predefined_macros}
+    assert dict(targets.architecture_aliases) == {"arm64": "aarch64", "x64": "x86_64"}
+    assert dict(targets.default_environments) == {"linux": "gnu", "windows": "gnu"}
+    assert [target.label for target in targets.targets if target.compiler_host] == [
+        "linux-aarch64",
+        "linux-x86_64",
+        "macos-aarch64",
+        "macos-x86_64",
+        "windows-aarch64",
+        "windows-x86_64",
+    ]
 
 
 @pytest.mark.parametrize("violation", tuple(TARGET_RULE_VIOLATIONS))
@@ -579,24 +792,125 @@ def test_target_spec_generator_rules_fail_closed(violation: str) -> None:
 
 def test_generated_target_rows_equal_the_spec() -> None:
     targets = TargetManifest.load(TARGET_SPEC, _hosted_manifest())
+    columns = [column.name for column in fields(TargetRowSpec)]
+    assert list(generated_abi.GeneratedTargetRow._fields) == columns
     assert [tuple(row) for row in generated_abi.TARGET_ROWS] == [
-        (target.operating_system, target.architecture) for target in targets.targets
+        tuple(getattr(target, column) for column in columns) for target in targets.targets
     ]
+    assert [row.label for row in generated_abi.TARGET_ROWS] == sorted(TARGET_LABELS)
+    assert dict(generated_abi.TARGET_ARCHITECTURE_ALIASES) == dict(targets.architecture_aliases)
+    assert dict(generated_abi.TARGET_DEFAULT_ENVIRONMENTS) == dict(targets.default_environments)
+    assert generated_abi.TARGET_ENVIRONMENTS == ("", "gnu", "msvc", "simulator")
+    with pytest.raises(TypeError):
+        generated_abi.TARGET_ARCHITECTURE_ALIASES["amd64"] = "x86_64"  # type: ignore[index]
     assert [tuple(row) for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS] == [
         (macro.name, macro.value, macro.operating_systems, macro.architectures, macro.environments)
-        for macro in targets.predefined_macros
+        for macro in (*targets.predefined_macros, *targets.derived_macros)
     ]
     assert targets.undefined_macro_names == generated_abi.TARGET_UNDEFINED_MACRO_NAMES
     assert targets.foreign_macro_names == generated_abi.TARGET_FOREIGN_MACRO_NAMES
     assert targets.fingerprint == generated_abi.TARGET_SPEC_FINGERPRINT
     tables = (SOURCE_ROOT / "compiler/btrc/generated/hosted_abi/Tables.btrc").read_text()
     assert f'self.targetSpecFingerprint = "{targets.fingerprint}";' in tables
+    for name in ("minimumVersion", "tripleAliases", "targetArguments", "sizeofLong", "sizeofWcharT", "charSigned"):
+        assert re.search(rf"\tpublic [A-Za-z<>]+ {name};", tables), name
+    for name in ("sysrootKind", "compilerHost", "objectiveC", "frameworks", "zigTarget", "wcharSigned"):
+        assert re.search(rf"\tpublic [A-Za-z<>]+ {name};", tables), name
     for target in targets.targets:
-        assert f'built.push(GeneratedTargetRow("{target.operating_system}", "{target.architecture}"));' in tables
+        assert f'built.push(GeneratedTargetRow("{target.label}", "{target.operating_system}", ' in tables
+    assert 'built.put("x64", "x86_64");' in tables
+    assert 'built.put("windows", "gnu");' in tables
+    assert "public Map<string, string> architectureAliases() {" in tables
+    assert "public Map<string, string> defaultEnvironments() {" in tables
+
+
+def _derived(label: str) -> dict[str, int]:
+    return {
+        row.name: row.value
+        for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS
+        if row.name in TargetManifest.DERIVED_MACRO_NAMES and _row_selects(_target_row(label), row)
+    }
+
+
+def test_derived_macros_come_only_from_the_row_columns() -> None:
+    targets = TargetManifest.load(TARGET_SPEC, _hosted_manifest())
+    assert not {macro.name for macro in targets.predefined_macros} & set(TargetManifest.DERIVED_MACRO_NAMES)
+    assert {macro.name for macro in targets.derived_macros} == set(TargetManifest.DERIVED_MACRO_NAMES)
+    keys = [
+        (macro.name, label)
+        for macro in targets.derived_macros
+        for label in targets.labels
+        if macro.selects(next(target for target in targets.targets if target.label == label))
+    ]
+    assert keys == sorted(keys)
+    assert len(keys) == len(targets.derived_macros)
+    assert _derived("linux-x86_64") == {
+        "__SIZEOF_LONG__": 8,
+        "__SIZEOF_WCHAR_T__": 4,
+        "__SIZEOF_LONG_DOUBLE__": 16,
+        "__LP64__": 1,
+        "_LP64": 1,
+    }
+    assert _derived("windows-aarch64-msvc") == {
+        "__SIZEOF_LONG__": 4,
+        "__SIZEOF_WCHAR_T__": 2,
+        "__SIZEOF_LONG_DOUBLE__": 8,
+        "__WCHAR_UNSIGNED__": 1,
+    }
+    assert _derived("android-aarch64") == {
+        "__SIZEOF_LONG__": 8,
+        "__SIZEOF_WCHAR_T__": 4,
+        "__SIZEOF_LONG_DOUBLE__": 16,
+        "__LP64__": 1,
+        "_LP64": 1,
+        "__CHAR_UNSIGNED__": 1,
+        "__WCHAR_UNSIGNED__": 1,
+        "__ANDROID_API__": 29,
+        "__ANDROID_MIN_SDK_VERSION__": 29,
+    }
+    assert _derived("ios-aarch64-simulator") == {
+        "__SIZEOF_LONG__": 8,
+        "__SIZEOF_WCHAR_T__": 4,
+        "__SIZEOF_LONG_DOUBLE__": 8,
+        "__LP64__": 1,
+        "_LP64": 1,
+        "__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__": 170000,
+        "__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__": 170000,
+    }
+    assert _derived("macos-x86_64")["__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__"] == 140000
+    # A column change moves its derived macros with it.
+    document = _target_document()
+    _row(document, "linux-x86_64").update(char_signed=False)
+    changed = TargetManifest.from_document(document, _hosted_manifest())
+    linux = next(target for target in changed.targets if target.label == "linux-x86_64")
+    assert any(macro.name == "__CHAR_UNSIGNED__" and macro.selects(linux) for macro in changed.derived_macros)
+
+
+def test_compiler_host_rows_select_the_same_macros_without_their_environment() -> None:
+    """Until Stage 24 commit 1b, both compilers select rows by operating system
+    and architecture only; on every row they can target that must give what
+    the environment-aware selection gives, or the spec changed a compile."""
+
+    for target in generated_abi.TARGET_ROWS:
+        if not target.compiler_host:
+            continue
+        pair = {
+            (row.name, row.value)
+            for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS
+            if (not row.operating_systems or target.operating_system in row.operating_systems)
+            and (not row.architectures or target.architecture in row.architectures)
+        }
+        exact = {
+            (row.name, row.value) for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS if _row_selects(target, row)
+        }
+        assert pair == exact, target.label
 
 
 def test_target_union_merges_targets_and_names_a_disagreement() -> None:
     union = TargetUnion(TargetManifest.load(TARGET_SPEC, _hosted_manifest()))
+    # The conditional environments distinguish operating system and
+    # architecture until Stage 24 commit 1b adds the environment axis.
+    assert union.labels == tuple(dict.fromkeys("-".join(label.split("-")[:2]) for label in TARGET_LABELS))
     first, *rest = union.labels
     owners = union.owners(
         {label: {"Vector": {"Vector.btrc"}} for label in union.labels} | {first: {"Map": {"Map.btrc"}}}
@@ -619,8 +933,14 @@ _CANDIDATE_OPERATING_SYSTEMS = ("linux", "macos", "windows", "ios", "android")
 _CANDIDATE_ARCHITECTURES = ("x86_64", "aarch64", "riscv64")
 
 
-def _spec_labels() -> set[str]:
-    return {f"{row.operating_system}-{row.architecture}" for row in generated_abi.TARGET_ROWS}
+def _compiler_host_labels() -> set[str]:
+    """The labels both compilers accept today: the compiler-host rows.
+
+    Stage 24 commit 1b makes both accept every row (platform-target-contract.md
+    §1.5); until then they parse OS-ARCH over the desktop rows only.
+    """
+
+    return {row.label for row in generated_abi.TARGET_ROWS if row.compiler_host}
 
 
 def test_target_rows_equal_the_reference_package_targets() -> None:
@@ -633,12 +953,12 @@ def test_target_rows_equal_the_reference_package_targets() -> None:
             except ValueError:
                 continue
             accepted.add(f"{target.operating_system}-{target.architecture}")
-    assert accepted == _spec_labels()
+    assert accepted == _compiler_host_labels()
     assert {
         f"{operating_system}-{architecture}"
         for operating_system in _TARGET_OPERATING_SYSTEMS
         for architecture in _TARGET_ARCHITECTURES
-    } == _spec_labels()
+    } == _compiler_host_labels()
 
 
 def test_target_rows_equal_the_self_hosted_package_targets(tmp_path: Path, immutable_btrcc: Path) -> None:
@@ -664,17 +984,27 @@ def test_target_rows_equal_the_self_hosted_package_targets(tmp_path: Path, immut
                 accepted.add(label)
             else:
                 assert f"unsupported package target '{label}'" in result.stderr, result.stderr
-    assert accepted == _spec_labels()
+    assert accepted == _compiler_host_labels()
+
+
+def _target_row(label: str):
+    return next(row for row in generated_abi.TARGET_ROWS if row.label == label)
+
+
+def _row_selects(target, row) -> bool:
+    return (
+        (not row.operating_systems or target.operating_system in row.operating_systems)
+        and (not row.architectures or target.architecture in row.architectures)
+        and (not row.environments or target.environment in row.environments)
+    )
 
 
 def _selected_value(label: str, name: str) -> int:
-    operating_system, architecture = label.split("-", 1)
+    target = _target_row(label)
     values = [
         row.value
         for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS
-        if row.name == name
-        and (not row.operating_systems or operating_system in row.operating_systems)
-        and (not row.architectures or architecture in row.architectures)
+        if row.name == name and _row_selects(target, row)
     ]
     assert len(values) == 1, f"{name} on {label}"
     return values[0]
@@ -692,7 +1022,7 @@ def _table_widths(label: str) -> tuple[int, int, int, int]:
 
 def test_reference_analyzer_widths_equal_every_target_row() -> None:
     widths = CIntegerWidths.native()
-    for label in sorted(_spec_labels()):
+    for label in TARGET_LABELS:
         assert _table_widths(label) == (widths.char, widths.short, widths.int_, widths.long_long), label
 
 
@@ -723,7 +1053,7 @@ def test_self_hosted_analyzer_widths_equal_every_target_row(tmp_path: Path) -> N
     result = subprocess.run([str(executable)], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT)
     char_bit, schar_max, short_max, int_max, long_long_max = map(int, result.stdout.split())
     limits = (char_bit, (schar_max + 1).bit_length(), (short_max + 1).bit_length(), (int_max + 1).bit_length())
-    for label in sorted(_spec_labels()):
+    for label in TARGET_LABELS:
         char, short, int_, long_long = _table_widths(label)
         assert limits == (char, char, short, int_), label
         assert (long_long_max + 1).bit_length() == long_long, label

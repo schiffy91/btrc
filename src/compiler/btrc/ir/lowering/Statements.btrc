@@ -349,7 +349,10 @@ class StatementLowerer {
 	public void lowerStmtInto(Node node, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
 		if (self.context.debug && node.line > 0) {
 			string sourceFile = self.context.sourceFileForLine(node.line);
-			if (sourceFile != "<stdlib>" && sourceFile != "") { out.push(IRNode.lineMarker(sourceFile, self.context.sourceLineFor(node.line))); }
+			if (sourceFile != "<stdlib>" && sourceFile != "") {
+				self.context.consultSource(sourceFile);
+				out.push(IRNode.lineMarker(sourceFile, self.context.sourceLineFor(node.line)));
+			}
 		}
 		GpuStatementPlan gpuPlan = self.gpuPipeline.planStatement(node, varTypes);
 		if (gpuPlan.handled) {
