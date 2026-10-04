@@ -263,7 +263,10 @@ class QualificationCommand:
             from tools.qualification.ui_catalog import UICatalog
 
             try:
-                catalog = UICatalog(arguments.ui_catalog)
+                # The catalog counts the manifest the command names, so --denominators moves its UI
+                # releases too; the package manifests it reads lazily are read here, under this guard.
+                catalog = UICatalog(arguments.ui_catalog, manifest=denominators)
+                catalog.surface_exports()
             except (ValueError, KeyError) as error:
                 # A malformed shard, amendment or package manifest: the catalog cannot load, which is
                 # not the same as a catalog that loads with problems (exit 1).

@@ -309,6 +309,30 @@ def test_a_catalog_that_cannot_load_is_an_input_error(checkout: Path, capsys):
     assert f"qualification: ui catalog {checkout}: " in capsys.readouterr().err
 
 
+def test_a_malformed_package_manifest_is_an_input_error(checkout: Path, capsys):
+    """The catalog reads the stdlib package manifests lazily; a broken one still exits 2, not with a traceback."""
+
+    manifest = checkout / "src/stdlib/App/btrc.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "[package\n", encoding="utf-8")
+
+    assert QualificationCommand().run(["report", "--ui-catalog", str(checkout)]) == 2
+    assert f"qualification: ui catalog {checkout}: " in capsys.readouterr().err
+
+
+def test_the_catalog_counts_the_named_manifest(checkout: Path, capsys):
+    """A UI release that only the --denominators manifest declares is counted, not silently dropped."""
+
+    tracked = checkout / "tools/qualification/denominators.toml"
+    custom = checkout / "custom-denominators.toml"
+    extra = _release("ui-case", ("E02",), FRONTENDS).replace(f'release = "{RELEASE}"', 'release = "probe-2026-10-04"')
+    custom.write_text(tracked.read_text(encoding="utf-8") + "\n" + extra, encoding="utf-8")
+
+    assert QualificationCommand().run(["report", "--ui-catalog", str(checkout), "--denominators", str(tracked)]) == 0
+    assert "| ui-case | 1 | 10 |" in capsys.readouterr().out
+    assert QualificationCommand().run(["report", "--ui-catalog", str(checkout), "--denominators", str(custom)]) == 0
+    assert "| ui-case | 2 | 20 |" in capsys.readouterr().out
+
+
 def test_the_catalog_owns_the_ui_denominators(checkout: Path, capsys):
     """With the catalog, --denominators counts the UI releases once: against the catalog, not the ledger."""
 
