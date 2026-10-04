@@ -303,6 +303,31 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - the Linux rows use zig's default glibc floor, not the host's;
     - struct members count as declared.
   - Codex's repaired accessibility prototype (`CX-UIB-07`) got its one native macOS run: 37217909473.
+- **Batch 29 (2026-10-04): Stage 24 commit 1b, one target owner per compiler.** `stage24/target-owner` (`CL-P1-04`) adds `TargetRepository` in Python and `FePackageTarget` in btrc, both over the generated target rows.
+  - Both compilers accept the same 30 spellings (11 labels plus the `x64`/`arm64` and `-gnu` aliases) and reject everything else with the same §1.5 message, at the same point: arguments, then target, then input.
+  - Host inference returns only compiler-host rows. `--target ""` and a repeated `--target` are errors. Release names come from the compiler-host rows, which adds `windows-arm64`. btrcc keys its caches by the canonical label, so old entries go unused but are never misread.
+  - `architectureAliases()` and `defaultEnvironments()` now have callers.
+  - CI, macOS and Windows passed on the lane head, and the lane ran the bootstrap and three zero-warning self-host transpiles. Two reviewers and a verifier found nothing blocking.
+  - Deferred to `CL-P1-05`, whose packet now owns it: both compilers still choose macro rows by operating system and architecture only. So the three newly accepted non-host rows get wrong `#if` values:
+    - `ios-aarch64` gets `TARGET_OS_EMBEDDED=0` and `__APPLE_EMBEDDED_SIMULATOR__`;
+    - `ios-aarch64-simulator` gets `TARGET_OS_SIMULATOR=0`;
+    - `windows-aarch64-msvc` gets the MinGW macros.
+
+    Nothing reaches this today. No source branches on those macros, and nothing selects those rows by default. 1c must land before the sub-batch 1 gate.
+  - The integrator corrected the targets.toml comment to name 1c and updated three docs that still said `--target OS-ARCH`. Minor follow-ups are listed in the review:
+    - the help text hard-codes the alias list;
+    - btrc hard-codes the predicate vocabulary;
+    - a non-UTF-8 `--target` gives a Python traceback;
+    - argparse accepts `--target=X` where btrcc does not;
+    - link plans drop the environment until schema 5.
+  - `btrc-format` no longer removes the space after `;` when a `for` clause opens with `(`. BTRSmith's lane reported it.
+  - BTRSmith (`CL-R-01`, `stage4/pin-bump` `8204b8a`):
+    - The three Linux failures were out-of-date tests and a make recipe that hid the binary's exit status; none was a btrc defect.
+    - Two flaky harness tests were also fixed: ToneRealtimeProcessor, and the AsyncLibraryScanReconfiguration cancel race.
+    - The btrc input now follows a branch URL with the lock unchanged.
+    - Only the 10 remaining qualifying-column tests stay red on Linux, plus `NativeAudioSessionOwner`, which needs a real audio device.
+    - `CL-UIA-03`: 3,479 BTRSmith call sites map to the catalog with 0 unmapped; all 115 GUI operations and 38 cases are classified.
+    - The BTRSmith CI pull request (`CL-R-37`) still waits: the qualifying-column tests keep its runs red, and every run bills minutes.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.

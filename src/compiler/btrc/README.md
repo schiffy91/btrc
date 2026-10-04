@@ -109,7 +109,7 @@ module runtime described in that stdlib directory.
 
 `btrcc` resolves strict version-1 local package graphs with dependency-local
 aliases, recursive cycle detection, canonical schema-3 locks, and native link
-plans. `--target OS-ARCH --emit-link-plan PATH` emits the same plan bytes as
+plans. `--target OS-ARCH[-ENV] --emit-link-plan PATH` emits the same plan bytes as
 the reference compiler. `btrcc` requires the target explicitly for a
 version-1 manifest and fails closed if it is omitted. Git acquisition remains
 owned by `btrcpy`; `btrcc`

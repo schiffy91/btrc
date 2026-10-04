@@ -381,7 +381,7 @@ operating_systems = ["ios", "macos"]
 architectures = ["aarch64"]
 
 # _M_ARM64 (windows, aarch64, msvc) joins when the compilers select by
-# environment (Stage 24 commit 1b, platform-target-contract.md §1.3): until
+# environment (Stage 24 commit 1c, platform-target-contract.md §1.3): until
 # then they read rows by operating system and architecture only, and it
 # would read 1 on windows-aarch64 (gnu), where clang leaves it undefined.
 

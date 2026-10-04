@@ -265,7 +265,7 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-REQ-04` | Claude | `stage18/req04-formatter-indent` | — | integrated in batch 15 |
 | `CL-UIA-21` | Claude | `stage30/headless-gui-shell` | — | integrated in batch 13 (`tools/ui/headless-session.sh` and `test_headless_session.py` included) |
 | `CL-R-02` | Claude | `stage5/runbook-kit` | — | integrated in batch 13 |
-| `CL-R-01` | Claude | BTRSmith `stage4/pin-bump` (`49a23af`) | BTRSmith `flake.nix`, `flake.lock`, `src/**`, `tests/**`, `tools/**`, `make/**`, `docs/Handoff.md` | Linux done; waits for `MAC-R-01` |
+| `CL-R-01` | Claude | BTRSmith `stage4/pin-bump` (`8204b8a`) | BTRSmith `flake.nix`, `flake.lock`, `src/**`, `tests/**`, `tools/**`, `make/**`, `docs/Handoff.md` | Linux done (the three named failures and two flaky tests fixed; the btrc input follows a branch URL, lock unchanged); waits for `MAC-R-01` |
 | `CL-C-03` | Claude | `stage16/c4-spec` | — | integrated in batch 14 |
 | `CL-C-05`, `CL-C-06` | Claude | `stage16/c4-python`, then `stage16/c4-conditionals` (the one paired commit) | — | C4 integrated in batch 19 (the paired construct commit plus the ten review fixes); Stage 24 (`CL-P1-03`) and C2 may start |
 | `CL-P1-01` | Claude | `stage22/doc-closeout` | — | integrated in batch 14 |
@@ -277,6 +277,8 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-R-05` | Claude | `stage6/spikes-preset` (spikes `spike/stage6-*`, never merged) | — | preset integrated in batch 18; its rehearsal runs with `--stand-in` in the cloud; the measurements are `MAC-R-03`'s |
 | `CL-REQ-05`, `CL-REQ-06` | Claude | `stage18/req05-lambda-capture`, `stage18/req06-scope-capture` | — | integrated in batch 19; REQ-06's deferred parity gaps (enum-constant shadowing, `class int* p = &Box.x`, first-error order, `CFunction` in `@realtime`) await a packet |
 | `CL-P1-03` | Claude | `stage24/targets-schema` | — | integrated in batch 22 (Stage 24 commit 1a: targets.toml schema 2, 11 rows); `CL-P1-04` (commit 1b) is next and must first call `architectureAliases()`/`defaultEnvironments()` and drop them from the structure test's definition-only list |
+| `CL-P1-04` | Claude | `stage24/target-owner` | — | integrated in batch 29 (one target owner per compiler); environment-aware macro selection moved to `CL-P1-05`, which waits for `CL-C-08` (shared analyzer files) |
+| `CL-P1-07` | Claude | `stage24/hosted-platform-extractor` (fragments on never-merge `stage24/hosted-platform-fragments`) | `tools/hosted_platform.py`, its test | returned in batch 28 (the conservative MSVC table refused too little); lane fixing |
 | `CL-REQ-07` | Claude | `stage18/req07-module-unit-staleness` | — | integrated in batch 22 (SB-D1…D8 fixed, plus a stale `__LINE__`/`__FILE__` default) |
 | `CL-R-23` | Claude | `stage10/host-manifests` | — | integrated in batch 16; `adapters.py` does not yet carry `host_manifest` into the ledger records |
 | `CL-R-04` | Claude | `stage6/stageb-spec` | — | integrated in batch 16 (docs only); its defects SB-D1…D8 wait for the C4 landing, and SB-D9 is `CL-REQ-05` |
