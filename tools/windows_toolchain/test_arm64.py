@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tools.windows_toolchain.arm64 import Evidence, pe_arm64
+from tools.windows_toolchain.arm64 import Evidence, main, pe_arm64
 from tools.windows_toolchain.process_runner import Result, run
 
 
@@ -80,6 +80,28 @@ class Arm64EvidenceTests(unittest.TestCase):
         ):
             evidence.native(self.image, self.root / "summary.json")
 
+    def test_actual_report_writer_supplies_accepted_cross_provenance(self):
+        def identify(evidence):
+            evidence.report.update(revision="a" * 40, zig_version="0.16.0")
+
+        def build(evidence):
+            evidence.report["compiler"] = pe_arm64(self.image)
+            return self.image
+
+        with (
+            patch("sys.argv", ["arm64.py", "cross", "--out", str(self.root)]),
+            patch("platform.system", return_value="Linux"),
+            patch.object(Evidence, "identify", identify),
+            patch.object(Evidence, "build", build),
+        ):
+            self.assertEqual(main(), 0)
+        report = json.loads((self.root / "summary.json").read_text())
+        self.assertEqual(report["host_system"], "Linux")
+        self.assertTrue(report["python_platform"])
+        consumer = Evidence(self.root / "native", "zig")
+        consumer.report.update(revision="a" * 40, cross_compiler=pe_arm64(self.image))
+        consumer.verify_cross(self.root / "summary.json")
+
     def test_cross_provenance_checks_host_revision_and_bytes(self):
         evidence = Evidence(self.root, "zig")
         evidence.report.update(revision="a" * 40, cross_compiler=pe_arm64(self.image))
@@ -137,7 +159,7 @@ class Arm64EvidenceTests(unittest.TestCase):
         timeout = 3 if sys.platform == "win32" else 0.2
         result = run([sys.executable, "-c", program, child], cwd=self.root, env=None, timeout=timeout)
         self.assertTrue(result.timed_out)
-        self.assertEqual(result.stdout, b"partial\n")
+        self.assertEqual(result.stdout.splitlines(), [b"partial"])
         self.assertLess(time.monotonic() - started, timeout + 3)
 
     def test_download_pins_are_complete(self):

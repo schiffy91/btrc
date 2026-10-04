@@ -50,7 +50,14 @@ class Evidence:
         self.output, self.zig = output.resolve(), zig
         self.output.mkdir(parents=True, exist_ok=True)
         self.environment = {**os.environ, "BTRC_HOME": str(ROOT / "src")}
-        self.report = {"status": "failed", "host": platform.platform(), "native_execution": "not-run", "steps": []}
+        self.report = {
+            "status": "failed",
+            "host": platform.platform(),
+            "host_system": platform.system(),
+            "python_platform": sysconfig.get_platform(),
+            "native_execution": "not-run",
+            "steps": [],
+        }
 
     def run(self, args: list[str | Path], name: str, *, timeout: int = 3600) -> bytes:
         command = list(map(str, args))
