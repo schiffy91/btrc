@@ -8,6 +8,7 @@ NDK, zig's sysroots or an Apple SDK. The compiles go through clang with
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from pathlib import Path
 
@@ -72,6 +73,8 @@ int fixture_refused(void) __attribute__((unavailable("not on this row")));
 int fixture_redeclared(void) __attribute__((unavailable("not here")));
 int fixture_redeclared(void);
 int fixture_ios_gone(void) __attribute__((availability(ios, unavailable)));
+int fixture_ios_twice(void) __attribute__((availability(ios, unavailable)));
+int fixture_ios_twice(void);
 int fixture_macos_gone(void) __attribute__((availability(macos, unavailable)));
 #endif
 """,
@@ -125,6 +128,10 @@ def test_the_prologue_matches_the_c_emitters() -> None:
     assert tuple(translation_unit._STANDARD_FEATURE_MACROS) == PROLOGUE_DEFINES
     standard = tuple(translation_unit._STANDARD_INCLUDES)
     assert PROLOGUE_HEADERS[: len(standard)] == standard
+    # The rest is btrc_rt.h's system includes, exactly.
+    runtime = (REPO / "src" / "runtime" / "c" / "btrc_rt.h").read_text()
+    included = set(re.findall(r"^#include <([^>]+)>", runtime, re.MULTILINE))
+    assert set(PROLOGUE_HEADERS) == set(standard) | included
 
 
 def test_probe_includes_the_prologue_and_every_family_behind_has_include() -> None:
@@ -247,12 +254,16 @@ def test_the_text_dump_names_declarations_unavailable_on_a_platform() -> None:
             "|-FunctionDecl 0xb <line:5:1, col:40> col:5 redeclared 'int (void)'",
             '| `-AvailabilityAttr 0xc <col:20, col:39> ios 0 0 0 Unavailable "" "" 0',
             "|-FunctionDecl 0xd prev 0xb <line:6:1, col:12> col:5 redeclared 'int (void)'",
+            "|-FunctionDecl 0x11 <line:8:1, col:40> col:5 inherited 'int (void)'",
+            '| `-AvailabilityAttr 0x12 <col:20, col:39> ios 0 0 0 Unavailable "" "" 0',
+            "|-FunctionDecl 0x13 prev 0x11 <line:9:1, col:12> col:5 inherited 'int (void)'",
+            '| `-AvailabilityAttr 0x14 <line:8:20, col:39> Inherited ios 0 0 0 Unavailable "" "" 0',
             "`-RecordDecl 0xe <line:7:1, col:19> col:8 struct gone_tag definition",
             '  |-AvailabilityAttr 0xf <col:36, col:64> ios 0 0 0 Unavailable "" "" 0',
             "  `-FieldDecl 0x10 <col:12, col:16> col:16 f 'int'",
         ]
     )
-    assert HostedPlatformExtractor.unavailable_on(dump, ("ios",)) == {"fork", "gone_tag"}
+    assert HostedPlatformExtractor.unavailable_on(dump, ("ios",)) == {"fork", "gone_tag", "inherited"}
     assert HostedPlatformExtractor.unavailable_on(dump, ("macos",)) == {"sysctl"}
 
 
@@ -320,7 +331,8 @@ def test_apple_rows_hide_names_unavailable_on_their_platform(tmp_path: Path) -> 
     plan = fixture_plan(extractor, include, "ios-aarch64")
     assert plan.availability_platforms == ("ios",)
     declared = set(extractor.read_probe(plan, scratch_directory(tmp_path), "#include <fixture_io.h>\n").files)
-    assert "fixture_ios_gone" not in declared
+    # A redeclaration inherits the marking (clang prints it "Inherited"), as C does.
+    assert not {"fixture_ios_gone", "fixture_ios_twice"} & declared
     assert {"fixture_macos_gone", "fixture_open"} <= declared
 
 
@@ -374,6 +386,32 @@ def test_stdlib_self_declarations_are_read_at_file_scope(tmp_path: Path) -> None
     )
     extractor = HostedPlatformExtractor(tmp_path, platform_names=FIXTURE_PLATFORM, stdlib_declared=None)
     assert extractor.stdlib_declared() == {"fixture_environ", "fixture_open"}
+
+
+def test_runtime_names_come_only_from_the_gpu_runtime_and_are_best_effort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gpu = REPO / "src" / "runtime" / "gpu"
+    names = ProbeNames(
+        {
+            "btrc_gpu_dispatch": frozenset({str(gpu / "btrc_gpu_compute_internal.h")}),
+            "WGPUDevice": frozenset({"/nix/store/wgpu/include/webgpu.h"}),
+        },
+        {},
+        frozenset(),
+    )
+    extractor = fixture_extractor(tmp_path, runtime_declared=None)
+    monkeypatch.setattr(extractor, "read_probe", lambda plan, scratch, source: names)
+    assert extractor.runtime_declared() == {"btrc_gpu_dispatch"}
+    assert extractor._runtime_note == "GPU runtime names read from src/runtime/gpu: 1."
+
+    def failing(plan: ProbePlan, scratch: Path, source: str) -> ProbeNames:
+        raise HostedPlatformError("webgpu.h not found")
+
+    broken = fixture_extractor(tmp_path, runtime_declared=None)
+    monkeypatch.setattr(broken, "read_probe", failing)
+    assert broken.runtime_declared() == frozenset()
+    assert broken._runtime_note.startswith("GPU runtime names were not read")
 
 
 def fake_ndk(tmp_path: Path) -> Path:
@@ -462,10 +500,22 @@ def test_conservative_msvc_refuses_whatever_the_msvc_toolchain_may_lack(tmp_path
     overlay = (REPO / "src" / "runtime" / "windows").resolve()
     platform_names = {
         "functions": frozenset(
-            {"opendir", "_access", "access", "GetFileAttributesA", "mkstemp", "strtok_r", "memcpy", "fork", "sleep"}
+            {
+                "opendir",
+                "_access",
+                "access",
+                "GetFileAttributesA",
+                "mkstemp",
+                "strtok_r",
+                "memcpy",
+                "timespec_get",
+                "open",
+                "fork",
+                "sleep",
+            }
         ),
         "macros": frozenset({"O_DIRECTORY", "EINVAL", "POLLIN", "PATH_MAX", "STDIN_FILENO", "S_ISDIR", "O_RDONLY"}),
-        "objects": frozenset({"signgam", "timezone", "environ"}),
+        "objects": frozenset({"signgam", "timezone", "environ", "daylight"}),
         "types": frozenset({"DIR", "useconds_t", "timezone"}),
         "typedefs": frozenset({"DIR", "useconds_t"}),
     }
@@ -480,8 +530,12 @@ def test_conservative_msvc_refuses_whatever_the_msvc_toolchain_may_lack(tmp_path
         "useconds_t": frozenset({f"{zig}/sys/types.h"}),
         "signgam": frozenset({f"{zig}/math.h"}),
         "sleep": frozenset({f"{zig}/unistd.h"}),
-        # dllimport object `timezone` and MinGW's `struct timezone` share a name.
+        # dllimport objects MinGW declares in the shared time.h; UCRT has only _daylight/_timezone.
         "timezone": frozenset({f"{zig}/time.h"}),
+        "daylight": frozenset({f"{zig}/time.h"}),
+        # An ISO name declared only in the overlay or a MinGW-only header stays refused.
+        "timespec_get": frozenset({f"{overlay}/btrc_win_compat.h"}),
+        "open": frozenset({f"{zig}/io.h"}),
         "GetFileAttributesA": frozenset({f"{overlay}/btrc_win_compat.h"}),
         "O_DIRECTORY": frozenset({f"{overlay}/btrc_win_compat.h"}),
         "EINVAL": frozenset({f"{zig}/errno.h"}),
@@ -499,34 +553,49 @@ def test_conservative_msvc_refuses_whatever_the_msvc_toolchain_may_lack(tmp_path
         files,
         {"functions": ("fork",), "macros": ("POLLIN",), "objects": (), "types": (), "typedefs": ()},
         "zig",
-        frozenset({"_access", "timezone", "sched_yield"}),
+        frozenset({"_access", "timezone", "daylight", "sched_yield"}),
     )
-    sdk_files = {
-        # The overlay declares this Win32 function itself; the SDK declares it too.
-        "GetFileAttributesA": frozenset({f"{zig}/fileapi.h"}),
-        # windows.h also reaches CRT and MinGW-only headers; neither is Windows API.
-        "strtok_r": frozenset({f"{zig}/string.h"}),
-        "opendir": frozenset({f"{zig}/dirent.h"}),
-    }
-    # EINVAL and memcpy are in the ISO C11 set: UCRT is the row's C library.
+    sdk = ProbeNames(
+        {
+            # The overlay declares this Win32 function itself; the SDK declares it too.
+            "GetFileAttributesA": frozenset({f"{zig}/fileapi.h"}),
+            # windows.h also reaches CRT and MinGW-only headers; neither is Windows API.
+            "strtok_r": frozenset({f"{zig}/string.h"}),
+            "opendir": frozenset({f"{zig}/dirent.h"}),
+            # A struct member (IXMLHttpRequest's vtable `open`) is not a declared function.
+            "open": frozenset({f"{zig}/msxml.h"}),
+        },
+        {
+            "GetFileAttributesA": frozenset({"function"}),
+            "strtok_r": frozenset({"function"}),
+            "opendir": frozenset({"function"}),
+            "open": frozenset({"field"}),
+        },
+        frozenset(),
+    )
+    # EINVAL, memcpy and timespec_get are in the ISO C11 set: UCRT is the row's C library.
     extractor = fixture_extractor(
-        tmp_path, platform_names=platform_names, iso_c_declared=frozenset({"memcpy", "EINVAL"})
+        tmp_path, platform_names=platform_names, iso_c_declared=frozenset({"memcpy", "EINVAL", "timespec_get"})
     )
-    msvc = extractor.conservative_msvc("windows-aarch64-msvc", windows, sdk_files)
+    msvc = extractor.conservative_msvc("windows-aarch64-msvc", windows, sdk)
     assert msvc.source == CONSERVATIVE_SOURCE
-    assert msvc.notes == ("btrc stdlib self-declarations are not counted on this conservative row.",)
+    assert msvc.notes[0] == "btrc stdlib self-declarations are not counted on this conservative row."
+    assert any("<windows.h>" in note for note in msvc.notes)
+    assert any("aligned_alloc" in note for note in msvc.notes)
+    # dllimport proves nothing: MinGW marks its own old-name objects _CRTIMP too.
     assert msvc.unavailable == {
-        "functions": ("access", "fork", "mkstemp", "opendir", "sleep", "strtok_r"),
+        "functions": ("_access", "access", "fork", "mkstemp", "open", "opendir", "sleep", "strtok_r", "timespec_get"),
         "macros": ("O_DIRECTORY", "O_RDONLY", "PATH_MAX", "POLLIN", "STDIN_FILENO", "S_ISDIR"),
-        "objects": ("environ", "signgam"),
+        "objects": ("daylight", "environ", "signgam", "timezone"),
         "types": ("DIR", "timezone", "useconds_t"),
         "typedefs": ("DIR", "useconds_t"),
     }
     # The windows-aarch64 list is a subset: the copy only refuses more.
     for kind in KINDS:
         assert set(windows.unavailable[kind]) <= set(msvc.unavailable[kind])
-    assert {"_access", "GetFileAttributesA", "memcpy", "EINVAL", "timezone", "btrc_gpu_dispatch"} <= msvc.declared
-    assert not {"mkstemp", "strtok_r", "opendir", "PATH_MAX", "environ", "sched_yield"} & msvc.declared
+    assert {"GetFileAttributesA", "memcpy", "EINVAL", "btrc_gpu_dispatch"} <= msvc.declared
+    refused = {"mkstemp", "strtok_r", "opendir", "PATH_MAX", "environ", "sched_yield", "daylight", "timespec_get"}
+    assert not refused & msvc.declared
 
 
 def test_extract_all_derives_the_msvc_row_from_its_gnu_sibling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -538,7 +607,7 @@ def test_extract_all_derives_the_msvc_row_from_its_gnu_sibling(tmp_path: Path, m
         return PlatformExtraction(label, frozenset(), {}, EMPTY, label)
 
     monkeypatch.setattr(extractor, "extract", fake_extract)
-    monkeypatch.setattr(extractor, "windows_sdk_declared", lambda row: {})
+    monkeypatch.setattr(extractor, "windows_sdk_declared", lambda row: ProbeNames({}, {}, frozenset()))
     result = extractor.extract_all(["windows-aarch64-msvc", "linux-x86_64"])
     assert list(result) == ["windows-aarch64-msvc", "linux-x86_64"]
     assert extracted == ["linux-x86_64", "windows-aarch64"]

@@ -42,7 +42,9 @@ Two kinds of name are never listed. btrc's own namespace
 headers declare are read on the host, best effort. A ``[platform]`` name that a
 btrc stdlib source declares itself at file scope (``extern char** environ;``)
 counts as declared on every extracted row, because the C library exports it,
-except on the conservative MSVC row; each fragment names them.
+except on the conservative MSVC row; each fragment names them. Only
+column-0 ``extern`` lines are read, and ``#if`` guards around them are
+ignored (today the one such name is ``environ``).
 
 ``windows-aarch64-msvc`` (``windows-sdk``) is runner-bound. Its table is the
 conservative copy §2.3 prescribes: ``windows-aarch64``'s list plus every
@@ -348,8 +350,17 @@ _TEXT_DECLARATION = re.compile(
     r"(?:parent 0x[0-9a-f]+ )?(?:prev 0x[0-9a-f]+ )?<(?:[^<>]|<[^<>]*>)*> (?P<rest>.*)$"
 )
 _TEXT_UNAVAILABLE = re.compile(
-    r"^[| ] [|`]-AvailabilityAttr 0x[0-9a-f]+ <(?:[^<>]|<[^<>]*>)*> (?P<platform>\w+) \S+ \S+ \S+ Unavailable\b"
+    r"^[| ] [|`]-AvailabilityAttr 0x[0-9a-f]+ <(?:[^<>]|<[^<>]*>)*> (?:Inherited )?(?:Implicit )?"
+    r"(?P<platform>\w+) \S+ \S+ \S+ Unavailable\b"
 )
+# How each kind may be declared for the Windows API to count it (struct members never do).
+_SDK_CATEGORIES = {
+    "functions": frozenset({"function"}),
+    "objects": frozenset({"object"}),
+    "types": frozenset({"tag", "typedef"}),
+    "typedefs": frozenset({"typedef"}),
+    "macros": frozenset({"enumerator"}),
+}
 _TEXT_LOCATION = re.compile(r"^(?:<invalid sloc>|\S+) ")
 _TEXT_FLAGS = frozenset(
     {"implicit", "used", "referenced", "invalid", "struct", "union", "enum", "definition", "extern", "static", "inline"}
@@ -400,6 +411,8 @@ class PlatformExtraction:
 
 class HostedPlatformExtractor:
     """Extract one target row's hosted availability through its real C toolchain."""
+
+    _runtime_note = ""
 
     def __init__(
         self,
@@ -743,12 +756,17 @@ class HostedPlatformExtractor:
                     files = self.read_probe(plan, Path(directory), source).files
             except HostedPlatformError as error:
                 print(f"warning: GPU runtime names not read: {error}", file=sys.stderr)
-                files = {}
+                files = None
             prefix = gpu.resolve().as_posix() + "/"
             self._runtime = frozenset(
                 name
-                for name, paths in files.items()
+                for name, paths in (files or {}).items()
                 if any(Path(path).resolve().as_posix().startswith(prefix) for path in paths)
+            )
+            self._runtime_note = (
+                "GPU runtime names were not read (the host probe failed); RUNTIME_PREFIXES still excludes them."
+                if files is None
+                else f"GPU runtime names read from src/runtime/gpu: {len(self._runtime)}."
             )
         return self._runtime
 
@@ -776,7 +794,8 @@ class HostedPlatformExtractor:
         plan = self.plan(row)
         with tempfile.TemporaryDirectory(prefix="hosted-platform-") as directory:
             names = self.read_probe(plan, Path(directory))
-        probed = frozenset(names.files) | self.runtime_declared()
+        runtime = self.runtime_declared()
+        probed = frozenset(names.files) | runtime
         self_declared = self.stdlib_declared() - probed
         declared = probed | self_declared
         arguments = " ".join(row.target_arguments)
@@ -793,6 +812,8 @@ class HostedPlatformExtractor:
             )
         else:
             notes.append("No [platform] name needed a btrc stdlib self-declaration to count as declared.")
+        if self._runtime_note:
+            notes.append(self._runtime_note)
         source = f"{description}, {arguments}, extracted {self.date} by tools/hosted_platform.py"
         return PlatformExtraction(
             label, declared, names.files, self.unavailable(declared), source, names.imported, tuple(notes)
@@ -810,48 +831,55 @@ class HostedPlatformExtractor:
         relative = normalized.split(marker, 1)[1]
         return relative in MINGW_ONLY_HEADERS or relative.rsplit("/", 1)[-1].startswith(MINGW_ONLY_PREFIXES)
 
-    def windows_sdk_declared(self, row: GeneratedTargetRow) -> dict[str, frozenset[str]]:
-        """Names MinGW-w64's ``<windows.h>`` declares for *row*, with their declaring headers."""
+    def windows_sdk_declared(self, row: GeneratedTargetRow) -> ProbeNames:
+        """What MinGW-w64's ``<windows.h>`` declares for *row*, with headers and categories."""
         flags = self._common_flags()
         plan = ProbePlan((self.zig(), "cc", "-target", row.zig_target, *flags), self._parser(row), "windows.h")
         with tempfile.TemporaryDirectory(prefix="hosted-platform-sdk-") as directory:
-            return self.read_probe(plan, Path(directory), "#include <windows.h>\n").files
+            return self.read_probe(plan, Path(directory), "#include <windows.h>\n")
 
-    def conservative_msvc(
-        self, label: str, windows: PlatformExtraction, sdk_files: dict[str, frozenset[str]]
-    ) -> PlatformExtraction:
+    def conservative_msvc(self, label: str, windows: PlatformExtraction, sdk: ProbeNames) -> PlatformExtraction:
         """The runner-bound MSVC row, which may only refuse too much (§2.3).
 
         It is *windows*' (the gnu sibling's) list plus every name the MSVC
         toolchain cannot be shown to declare, kind by kind. A name stays
         available for a kind only when
-        - the Windows API declares it: ``<windows.h>`` (*sdk_files*) declares
-          it only in headers that are neither the sibling's CRT headers nor
-          MinGW-w64-only;
-        - or the sibling declares it in a header UCRT shares (not MinGW-w64,
-          winpthreads or the overlay only) and either ISO C11 declares it
-          (``iso_c_declared``), or the kind is a function or object whose
-          declaration is ``dllimport``, a CRT DLL export.
+        - the Windows API declares it as that kind: ``<windows.h>`` (*sdk*)
+          declares it as a function, object, tag, typedef, enumerator or bare
+          macro (never a struct member) only in headers that are neither the
+          sibling's CRT headers nor MinGW-w64-only;
+        - or ISO C11 declares it (``iso_c_declared``) and the sibling declares
+          it in a header UCRT shares (not MinGW-w64, winpthreads or the
+          overlay only).
         Everything else is refused: MinGW-w64's own POSIX additions to shared
-        CRT headers (``mkstemp``, ``strtok_r``, ``PATH_MAX``, ``S_ISDIR``),
-        winpthreads, the compat overlay, a stdlib self-declaration, and the
-        old POSIX spellings UCRT keeps (``access``, ``O_RDONLY``), until the
-        runner extraction replaces this table."""
+        CRT headers (``mkstemp``, ``strtok_r``, ``PATH_MAX``, ``S_ISDIR``,
+        ``daylight``, ``tzname``), winpthreads, the compat overlay, a stdlib
+        self-declaration, and the old POSIX spellings UCRT keeps (``access``,
+        ``execv``, ``O_RDONLY``), until the runner extraction replaces this
+        table. A dllimport declaration proves nothing: MinGW marks its own
+        old-name objects ``_CRTIMP`` too."""
         overlay = (self.repo / "src" / "runtime" / "windows").resolve()
         crt_files = {path for paths in windows.files.values() for path in paths if not self.mingw_only(path, overlay)}
-        sdk_api = {
+        sdk_headers = {
             name
-            for name, paths in sdk_files.items()
+            for name, paths in sdk.files.items()
             if paths and paths.isdisjoint(crt_files) and not any(self.mingw_only(path, overlay) for path in paths)
         }
         iso_c = self.iso_c_declared()
 
-        def kept(name: str, kind: str) -> bool:
-            if name in sdk_api:
-                return True
-            if not any(not self.mingw_only(path, overlay) for path in windows.files.get(name, ())):
+        def sdk_declares(name: str, kind: str) -> bool:
+            if name not in sdk_headers:
                 return False
-            return name in iso_c or (kind in {"functions", "objects"} and name in windows.imported)
+            categories = sdk.categories.get(name, frozenset())
+            if kind == "macros" and not categories:
+                return True
+            return bool(categories & _SDK_CATEGORIES[kind])
+
+        def kept(name: str, kind: str) -> bool:
+            if sdk_declares(name, kind):
+                return True
+            shared = any(not self.mingw_only(path, overlay) for path in windows.files.get(name, ()))
+            return shared and name in iso_c
 
         unavailable = {
             kind: tuple(
@@ -869,7 +897,15 @@ class HostedPlatformExtractor:
             for name in windows.declared
             if name.startswith(RUNTIME_PREFIXES) or any(kept(name, kind) for kind in KINDS)
         )
-        notes = ("btrc stdlib self-declarations are not counted on this conservative row.",)
+        notes = (
+            "btrc stdlib self-declarations are not counted on this conservative row.",
+            "Keeping Windows API names (GetFileAttributesA, FILE_ATTRIBUTE_*) assumes the MSVC compile sees "
+            "<windows.h>; the compat overlay includes MinGW-only <dirent.h>, so it cannot be force-included "
+            "on MSVC as it is.",
+            "ISO C names in [names] can never be listed, so this provisional row cannot refuse an ISO name UCRT "
+            "lacks, such as aligned_alloc.",
+            *(note for note in windows.notes if note.startswith("GPU runtime names")),
+        )
         return PlatformExtraction(label, declared, {}, unavailable, CONSERVATIVE_SOURCE, notes=notes)
 
     def extract_all(self, labels: list[str]) -> dict[str, PlatformExtraction]:
