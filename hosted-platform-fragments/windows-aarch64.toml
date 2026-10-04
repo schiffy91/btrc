@@ -1,4 +1,5 @@
 # No [platform] name needed a btrc stdlib self-declaration to count as declared.
+# GPU runtime names read from src/runtime/gpu: 35.
 [[platform_targets]]
 target = "windows-aarch64"
 unavailable_functions = [

@@ -1,5 +1,6 @@
 # glibc floor: 2.31 (zig's default for x86_64-linux-gnu).
 # Declared by a btrc stdlib source at file scope, so counted as declared: environ.
+# GPU runtime names read from src/runtime/gpu: 35.
 [[platform_targets]]
 target = "linux-x86_64"
 unavailable_functions = [

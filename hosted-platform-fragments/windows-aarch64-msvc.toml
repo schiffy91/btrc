@@ -1,4 +1,7 @@
 # btrc stdlib self-declarations are not counted on this conservative row.
+# Keeping Windows API names (GetFileAttributesA, FILE_ATTRIBUTE_*) assumes the MSVC compile sees <windows.h>; the compat overlay includes MinGW-only <dirent.h>, so it cannot be force-included on MSVC as it is.
+# ISO C names in [names] can never be listed, so this provisional row cannot refuse an ISO name UCRT lacks, such as aligned_alloc.
+# GPU runtime names read from src/runtime/gpu: 35.
 [[platform_targets]]
 target = "windows-aarch64-msvc"
 unavailable_functions = [
@@ -91,7 +94,10 @@ unavailable_functions = [
   "execl",
   "execle",
   "execlp",
+  "execv",
   "execvP",
+  "execve",
+  "execvp",
   "explicit_bzero",
   "faccessat",
   "fchdir",
@@ -346,6 +352,7 @@ unavailable_functions = [
   "nrand48",
   "nrand48_r",
   "on_exit",
+  "open",
   "open_dprotected_np",
   "openat",
   "openat_authenticated_np",
@@ -2802,6 +2809,7 @@ unavailable_objects = [
   "P_PID",
   "P_PIDFD",
   "UUID_NULL",
+  "daylight",
   "environ",
   "getdate_err",
   "in6addr_any",
@@ -2820,6 +2828,7 @@ unavailable_objects = [
   "suboptarg",
   "sys_siglist",
   "sys_signame",
+  "tzname",
 ]
 unavailable_types = [
   "DIR",
