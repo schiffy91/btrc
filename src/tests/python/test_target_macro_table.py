@@ -2,15 +2,25 @@
 
 ``#if`` evaluates a target macro from the table before C compilation, so the
 table must say exactly what the C compiler of that target will define
-(docs/design/c-preprocessor-conditionals.md, test 3). For each spec target,
-clang's ``-dM`` dump must define exactly the table names and undefined names
-the table selects, with the table's values; the host's gcc must agree on its
-own target. The names left out on purpose must stay out of the table.
+(docs/design/c-preprocessor-conditionals.md, test 3, and
+docs/design/platform-target-contract.md §1.3). For each spec row, clang's
+``-dM`` dump for the row's triple must define exactly the table names and
+undefined names the table selects, with the table's values; the host's gcc
+must agree on its own target. The names left out on purpose must stay out of
+the table.
+
+Two checks are Mac-bound (MAC-P1-05): Apple clang must predefine the same
+``TARGET_OS_*`` set as the table for the four Apple rows, and the iOS SDK's
+``<TargetConditionals.h>`` must accept the predefined values. They run on the
+acceptance Mac, whose Xcode build the design pins, and are classified skips
+everywhere else.
 """
 
 from __future__ import annotations
 
+import platform
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -25,48 +35,50 @@ from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.c_toolchains import HOST_CLANG, HOST_GCC
 from src.tests.process_limits import C_COMPILE_TIMEOUT
 
-# clang's spelling of each target. They live here until PLAN.md Stage 24 moves
-# triples into targets.toml; Windows is the MinGW environment, because
-# x86_64-pc-windows-msvc does not define __STDC__.
-TRIPLES = {
-    "linux-x86_64": "x86_64-unknown-linux-gnu",
-    "linux-aarch64": "aarch64-unknown-linux-gnu",
-    "macos-x86_64": "x86_64-apple-macosx14.0.0",
-    "macos-aarch64": "arm64-apple-macosx14.0.0",
-    "windows-x86_64": "x86_64-w64-windows-gnu",
-    "windows-aarch64": "aarch64-w64-windows-gnu",
-}
-
-# Left out on purpose (c-preprocessor-conditionals.md, "Left out on purpose"):
-# toolchain or invocation identity, the data model, and a size MinGW and MSVC
-# disagree on. #if refuses each one as reserved until a later stage adds it.
+# Left out on purpose (c-preprocessor-conditionals.md, "Left out on purpose",
+# and platform-target-contract.md §1.3, "Still left out"): toolchain or
+# invocation identity, CPU features and header-defined names. #if refuses
+# each one as reserved.
 LEFT_OUT = (
     "__GNUC__",
-    "__MINGW32__",
-    "__MINGW64__",
+    "__OBJC_BOOL_IS_BOOL",
     "__OPTIMIZE__",
-    "__SIZEOF_LONG_DOUBLE__",
-    "__SIZEOF_LONG__",
-    "__SIZEOF_WCHAR_T__",
     "__STDC_HOSTED__",
+    "__STDC_NO_THREADS__",
+    "__STRICT_ANSI__",
+    "__WIN32__",
+    "__WINNT__",
     "__clang__",
     "__gnu_linux__",
-    "_LP64",
-    "__LP64__",
+    "_INTEGRAL_MAX_BITS",
+    "_MSC_BUILD",
+    "_MSC_EXTENSIONS",
+    "_MSC_FULL_VER",
+    "_MSC_VER",
+    "__MSVCRT__",
 )
+
+# The Xcode build that Apple's checks are pinned to (platform-target-contract.md
+# §1.3), and the operating systems whose rows it covers.
+APPLE_XCODE_BUILD = "27A266a"
+APPLE_OPERATING_SYSTEMS = ("ios", "macos")
+# §1.3 checks the predefined values against the iOS SDK's <TargetConditionals.h>.
+IOS_SDK = "iphoneos"
+APPLE_TARGET_NAME = re.compile(r"TARGET_(?:OS_[A-Z0-9_]+|IPHONE_SIMULATOR)\Z")
 
 _DEFINE = re.compile(r"#define ([A-Za-z_][A-Za-z0-9_]*) (.*)\Z")
 _INTEGER = re.compile(r"([0-9]+)[uUlL]*\Z")
 
 
-def _label(row) -> str:
-    return f"{row.operating_system}-{row.architecture}"
+def _row(label: str):
+    return next(row for row in TARGET_ROWS if row.label == label)
 
 
 def _unwrapped_clang() -> str | None:
     """The clang binary itself, not nix's cc-wrapper.
 
-    The wrapper adds host flags and warns on every foreign --target; its
+    The wrapper adds host flags (its -fPIC makes clang refuse the msvc
+    environment) and warns on every foreign --target; its
     nix-support/orig-cc names the store path of the clang it wraps.
     """
 
@@ -83,8 +95,9 @@ def _unwrapped_clang() -> str | None:
 def _predefines(command: list[str]) -> dict[str, int | None]:
     """Every macro the compiler predefines, with its integer value (None when not an integer).
 
-    An object-like alias (``__BYTE_ORDER__`` is ``__ORDER_LITTLE_ENDIAN__``)
-    resolves through the dump, and integer suffixes are stripped.
+    An object-like alias (``__BYTE_ORDER__`` is ``__ORDER_LITTLE_ENDIAN__``,
+    ``__ANDROID_API__`` is ``__ANDROID_MIN_SDK_VERSION__``) resolves through
+    the dump, and integer suffixes are stripped.
     """
 
     completed = subprocess.run(
@@ -115,44 +128,133 @@ def _predefines(command: list[str]) -> dict[str, int | None]:
 
 
 def _selected(label: str) -> dict[str, int]:
-    operating_system, architecture = label.split("-", 1)
-    return {
-        row.name: row.value
+    target = _row(label)
+    rows = [
+        (row.name, row.value)
         for row in TARGET_PREDEFINED_MACRO_ROWS
-        if (not row.operating_systems or operating_system in row.operating_systems)
-        and (not row.architectures or architecture in row.architectures)
-    }
+        if (not row.operating_systems or target.operating_system in row.operating_systems)
+        and (not row.architectures or target.architecture in row.architectures)
+        and (not row.environments or target.environment in row.environments)
+    ]
+    selected = dict(rows)
+    assert len(selected) == len(rows), f"{label}: two rows select one name"
+    return selected
 
 
 def _checked_names() -> set[str]:
     return {row.name for row in TARGET_PREDEFINED_MACRO_ROWS} | set(TARGET_UNDEFINED_MACRO_NAMES)
 
 
-def _assert_agrees(label: str, predefined: dict[str, int | None]) -> None:
-    expected = _selected(label)
-    defined = {name: predefined[name] for name in _checked_names() if name in predefined}
+def _assert_agrees(label: str, predefined: dict[str, int | None], names: set[str] | None = None) -> None:
+    names = _checked_names() if names is None else names
+    expected = {name: value for name, value in _selected(label).items() if name in names}
+    defined = {name: predefined[name] for name in names if name in predefined}
     assert defined == expected, f"{label}: compiler {defined!r} != table {expected!r}"
 
 
-def test_every_spec_target_has_a_clang_triple() -> None:
-    assert set(TRIPLES) == {_label(row) for row in TARGET_ROWS}
-    assert len(TRIPLES) == 6
+def _apple_labels() -> tuple[str, ...]:
+    return tuple(row.label for row in TARGET_ROWS if row.operating_system in APPLE_OPERATING_SYSTEMS)
+
+
+def _apple_toolchain() -> str | None:
+    """Why the Mac-bound checks cannot run here, or None on the acceptance Mac's Xcode."""
+
+    reason = f"Mac-bound: requires macOS with xcrun and Xcode {APPLE_XCODE_BUILD} (MAC-P1-05)"
+    if platform.system() != "Darwin" or shutil.which("xcrun") is None:
+        return reason
+    completed = subprocess.run(
+        ["xcrun", "xcodebuild", "-version"], capture_output=True, text=True, check=False, timeout=C_COMPILE_TIMEOUT
+    )
+    build = re.search(r"Build version (\S+)", completed.stdout)
+    if completed.returncode != 0 or build is None or build.group(1) != APPLE_XCODE_BUILD:
+        return f"{reason}; this host has {build.group(1) if build else 'no Xcode'}"
+    return None
+
+
+def _xcrun(sdk: str, *arguments: str) -> list[str]:
+    return ["xcrun", "--sdk", sdk, *arguments]
+
+
+def test_every_spec_row_has_a_clang_triple() -> None:
+    assert len(TARGET_ROWS) == 11
+    for row in TARGET_ROWS:
+        assert row.target_arguments == (f"--target={row.triple}",), row.label
 
 
 def test_left_out_names_stay_out_of_the_table() -> None:
     assert not set(LEFT_OUT) & _checked_names()
 
 
-@pytest.mark.parametrize("label", tuple(TRIPLES))
+@pytest.mark.parametrize("label", tuple(row.label for row in TARGET_ROWS))
 def test_clang_defines_exactly_the_selected_table_rows(label: str) -> None:
     clang = _unwrapped_clang()
     if clang is None:
         pytest.skip("requires clang to dump each target's predefined macros")
-    _assert_agrees(label, _predefines([clang, f"--target={TRIPLES[label]}"]))
+    _assert_agrees(label, _predefines([clang, *_row(label).target_arguments]))
+
+
+@pytest.mark.parametrize("label", tuple(row.label for row in TARGET_ROWS))
+def test_clang_maps_every_triple_alias_to_the_row_triple(label: str) -> None:
+    clang = _unwrapped_clang()
+    if clang is None:
+        pytest.skip("requires clang to print each target's cc1 triple")
+    row = _row(label)
+    for spelling in (row.triple, *row.triple_aliases):
+        completed = subprocess.run(
+            [clang, f"--target={spelling}", "-###", "-c", "-x", "c", "-"],
+            input="",
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=C_COMPILE_TIMEOUT,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert f'"-triple" "{row.triple}"' in completed.stderr, f"{spelling}: {completed.stderr}"
 
 
 def test_host_gcc_agrees_on_its_own_target() -> None:
     if HOST_GCC is None:
         pytest.skip("requires the host gcc to dump its predefined macros")
-    host = PackageTarget.parse(None)
-    _assert_agrees(f"{host.operating_system}-{host.architecture}", _predefines([HOST_GCC]))
+    try:
+        host = PackageTarget.parse(None)
+    except ValueError:
+        pytest.skip("requires a host that is a btrc target")
+    label = next(
+        row.label
+        for row in TARGET_ROWS
+        if row.compiler_host and (row.operating_system, row.architecture) == (host.operating_system, host.architecture)
+    )
+    _assert_agrees(label, _predefines([HOST_GCC]))
+
+
+@pytest.mark.parametrize("label", _apple_labels())
+def test_apple_clang_defines_the_table_target_os_set(label: str) -> None:
+    reason = _apple_toolchain()
+    if reason is not None:
+        pytest.skip(reason)
+    row = _row(label)
+    predefined = _predefines(_xcrun(row.sysroot_name, "clang", *row.target_arguments))
+    names = {name for name in _checked_names() | set(predefined) if APPLE_TARGET_NAME.fullmatch(name)}
+    _assert_agrees(label, predefined, names)
+
+
+@pytest.mark.parametrize("label", _apple_labels())
+def test_target_conditionals_header_accepts_the_predefined_values(label: str, tmp_path: Path) -> None:
+    reason = _apple_toolchain()
+    if reason is not None:
+        pytest.skip(reason)
+    row = _row(label)
+    selected = {name: value for name, value in _selected(label).items() if APPLE_TARGET_NAME.fullmatch(name)}
+    probe = tmp_path / "conditionals.c"
+    probe.write_text(
+        "#include <TargetConditionals.h>\n"
+        + "".join(f'_Static_assert({name} == {value}, "{name}");\n' for name, value in sorted(selected.items()))
+    )
+    completed = subprocess.run(
+        [*_xcrun(IOS_SDK, "clang"), *row.target_arguments, "-std=c11", "-fsyntax-only", str(probe)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=C_COMPILE_TIMEOUT,
+    )
+    assert completed.returncode == 0, completed.stderr
