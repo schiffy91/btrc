@@ -118,7 +118,7 @@ def test_alignment_check_accepts_all_16k_or_larger_segments():
 
 def test_builder_cannot_claim_pinned_provenance_for_another_ndk(tmp_path):
     (tmp_path / "source.properties").write_text("Pkg.Revision = 99.0.0\n")
-    with pytest.raises(ValueError, match="platforms.nix revision"):
+    with pytest.raises(ValueError, match=r"platforms\.nix revision"):
         AndroidHostBuilder(tmp_path, tmp_path / "output")
 
 
