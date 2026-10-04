@@ -20,6 +20,8 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import BinaryIO
 
+from ..abi.generated import TARGET_ARCHITECTURE_ALIASES, GeneratedTargetRow
+from ..abi.hosted import TargetRepository
 from .publication import ArtifactStorage, ReparsePointError
 
 _CHUNK_SIZE = 1024 * 1024
@@ -1311,54 +1313,23 @@ class TargetSpec:
     description: str
 
 
-_DEFAULT_TARGETS = MappingProxyType(
+# The executable format of each compiler-host operating system, and each
+# format's machine code and name per architecture.
+_HOST_BINARY_FORMATS = MappingProxyType(
     {
-        "linux-x64": TargetSpec(
-            "bin/btrcc",
-            ".tar.gz",
-            "elf",
-            62,
-            "ELF x86-64",
-        ),
-        "linux-arm64": TargetSpec(
-            "bin/btrcc",
-            ".tar.gz",
-            "elf",
-            183,
-            "ELF AArch64",
-        ),
-        "macos-x64": TargetSpec(
-            "bin/btrcc",
-            ".tar.gz",
-            "mach-o",
-            0x01000007,
-            "Mach-O x86_64",
-        ),
-        "macos-arm64": TargetSpec(
-            "bin/btrcc",
-            ".tar.gz",
-            "mach-o",
-            0x0100000C,
-            "Mach-O arm64",
-        ),
-        "windows-x64": TargetSpec(
-            "bin/btrcc.exe",
-            ".zip",
-            "pe",
-            0x8664,
-            "PE x86-64",
-        ),
+        "linux": ("bin/btrcc", ".tar.gz", "elf"),
+        "macos": ("bin/btrcc", ".tar.gz", "mach-o"),
+        "windows": ("bin/btrcc.exe", ".zip", "pe"),
     },
 )
-
-_DEFAULT_HOST_TARGETS = MappingProxyType(
+_BINARY_MACHINES = MappingProxyType(
     {
-        ("darwin", "arm64"): "macos-arm64",
-        ("darwin", "x86_64"): "macos-x64",
-        ("linux", "aarch64"): "linux-arm64",
-        ("linux", "x86_64"): "linux-x64",
-        ("windows", "amd64"): "windows-x64",
-        ("windows", "x86_64"): "windows-x64",
+        ("elf", "x86_64"): (62, "ELF x86-64"),
+        ("elf", "aarch64"): (183, "ELF AArch64"),
+        ("mach-o", "x86_64"): (0x01000007, "Mach-O x86_64"),
+        ("mach-o", "aarch64"): (0x0100000C, "Mach-O arm64"),
+        ("pe", "x86_64"): (0x8664, "PE x86-64"),
+        ("pe", "aarch64"): (0xAA64, "PE ARM64"),
     },
 )
 
@@ -1372,13 +1343,25 @@ class TargetCatalog:
         host_targets: Mapping[tuple[str, str], str] | None = None,
     ) -> None:
         self._targets = MappingProxyType(
-            dict(_DEFAULT_TARGETS if targets is None else targets),
+            dict(self._default_targets() if targets is None else targets),
         )
-        self._host_targets = MappingProxyType(
-            dict(
-                _DEFAULT_HOST_TARGETS if host_targets is None else host_targets,
-            ),
-        )
+        self._host_targets = None if host_targets is None else MappingProxyType(dict(host_targets))
+
+    @staticmethod
+    def release_name(row: GeneratedTargetRow) -> str:
+        """A compiler-host row's release spelling, through the inverse architecture aliases."""
+
+        inverse = {canonical: alias for alias, canonical in TARGET_ARCHITECTURE_ALIASES.items()}
+        return f"{row.operating_system}-{inverse.get(row.architecture, row.architecture)}"
+
+    @classmethod
+    def _default_targets(cls) -> dict[str, TargetSpec]:
+        targets = {}
+        for row in TargetRepository.compiler_host_rows():
+            executable, suffix, binary_format = _HOST_BINARY_FORMATS[row.operating_system]
+            machine, description = _BINARY_MACHINES[binary_format, row.architecture]
+            targets[cls.release_name(row)] = TargetSpec(executable, suffix, binary_format, machine, description)
+        return targets
 
     def spec(self, target: str) -> TargetSpec:
         try:
@@ -1392,12 +1375,16 @@ class TargetCatalog:
         """Return the release target matching the native Python process."""
 
         host = platform.system().lower(), platform.machine().lower()
-        try:
-            return self._host_targets[host]
-        except KeyError as error:
+        if self._host_targets is not None:
+            selected = self._host_targets.get(host)
+        else:
+            row = TargetRepository.host(*host)
+            selected = None if row is None else self.release_name(row)
+        if selected is None:
             raise ValueError(
                 f"unsupported bundle host: {host[0]} {host[1]}",
-            ) from error
+            )
+        return selected
 
 
 class TargetBinaryValidator:

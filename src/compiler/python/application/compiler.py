@@ -10,7 +10,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
 
-from ..frontend.packages import IncludeResolutionError, NativeLinkPlan
+from ..abi.hosted import TargetRepository, TargetSelectionError
+from ..frontend.packages import IncludeResolutionError, NativeLinkPlan, PackageTarget
 from ..frontend.sources import PreprocessorConditionalError, ResolvedSource, SourceFileReader, SourceText
 from .pipeline import CompilationPipeline
 from .results import (
@@ -221,6 +222,25 @@ class Compiler:
             ),
         )
 
+    @staticmethod
+    def target_labels() -> tuple[str, ...]:
+        """Every canonical ``--target`` label, sorted."""
+
+        return TargetRepository.labels()
+
+    @staticmethod
+    def select_target(raw: str | None) -> str | CompilerFailure:
+        """The canonical label ``raw`` names, the host's when it is ``None``.
+
+        A spelling that names no row, or a host that is no compiler host,
+        is an input failure that carries the shared target message.
+        """
+
+        try:
+            return PackageTarget.parse(raw).label
+        except TargetSelectionError as error:
+            return CompilerFailure(CompilerFailureKind.INPUT, str(error))
+
     @classmethod
     def read_source(cls, path: str) -> SourceText:
         """Read file-backed input with identity; compile() also accepts memory text."""
@@ -236,6 +256,10 @@ class Compiler:
 
         options = options or CompilerOptions()
         profile: dict[str, float] | None = {} if options.profile else None
+        if options.target is not None:
+            selected = self.select_target(options.target)
+            if isinstance(selected, CompilerFailure):
+                return CompilerResult(options=options, source_bundle=None, failure=selected)
         try:
             resolved = self.pipeline.resolve(source, source_path, options, profile)
         except IncludeResolutionError as error:

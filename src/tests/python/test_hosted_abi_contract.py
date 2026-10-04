@@ -29,7 +29,7 @@ from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.analyzer.types import CIntegerWidths
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
-from src.compiler.python.frontend.packages import _TARGET_ARCHITECTURES, _TARGET_OPERATING_SYSTEMS, PackageTarget
+from src.compiler.python.frontend.packages import PackageTarget
 from src.compiler.python.frontend.sources import (
     CompilerStdlibSource,
     ConditionalEnvironment,
@@ -933,14 +933,15 @@ _CANDIDATE_OPERATING_SYSTEMS = ("linux", "macos", "windows", "ios", "android")
 _CANDIDATE_ARCHITECTURES = ("x86_64", "aarch64", "riscv64")
 
 
-def _compiler_host_labels() -> set[str]:
-    """The labels both compilers accept today: the compiler-host rows.
+def _two_part_labels() -> set[str]:
+    """The rows an OS-ARCH spelling selects: each OS's default environment.
 
-    Stage 24 commit 1b makes both accept every row (platform-target-contract.md
-    §1.5); until then they parse OS-ARCH over the desktop rows only.
+    Both compilers accept every row (platform-target-contract.md §1.5); an
+    OS-ARCH spelling without an environment names the default-environment
+    rows, so the simulator and MSVC rows need their suffix.
     """
 
-    return {row.label for row in generated_abi.TARGET_ROWS if row.compiler_host}
+    return {row.label for row in generated_abi.TARGET_ROWS if row.label.count("-") == 1}
 
 
 def test_target_rows_equal_the_reference_package_targets() -> None:
@@ -952,13 +953,8 @@ def test_target_rows_equal_the_reference_package_targets() -> None:
                 target = PackageTarget.parse(label)
             except ValueError:
                 continue
-            accepted.add(f"{target.operating_system}-{target.architecture}")
-    assert accepted == _compiler_host_labels()
-    assert {
-        f"{operating_system}-{architecture}"
-        for operating_system in _TARGET_OPERATING_SYSTEMS
-        for architecture in _TARGET_ARCHITECTURES
-    } == _compiler_host_labels()
+            accepted.add(target.label)
+    assert accepted == _two_part_labels()
 
 
 def test_target_rows_equal_the_self_hosted_package_targets(tmp_path: Path, immutable_btrcc: Path) -> None:
@@ -983,8 +979,8 @@ def test_target_rows_equal_the_self_hosted_package_targets(tmp_path: Path, immut
             if result.returncode == 0:
                 accepted.add(label)
             else:
-                assert f"unsupported package target '{label}'" in result.stderr, result.stderr
-    assert accepted == _compiler_host_labels()
+                assert f"error: unsupported target '{label}'; expected one of " in result.stderr, result.stderr
+    assert accepted == _two_part_labels()
 
 
 def _target_row(label: str):
