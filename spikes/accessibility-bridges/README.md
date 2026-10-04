@@ -32,19 +32,23 @@ its private connection after the client requests Quit.
 ## macOS
 
 The fixture compiles a btrc MacOSGPUSurface consumer through both compilers.
-A test-only Objective-C adapter attaches one NSAccessibilityElement virtual
+The imported Bridge.h exposes only a C function taking a void-pointer handle.
+The test compiles Bridge.m separately with the selected Apple SDK and links its
+object with the generated native plan; it does not import Objective-C declaration
+bodies into btrc. That test-only adapter attaches one NSAccessibilityElement virtual
 button to the surface's NSView and reads its role, label, parent and child list
 back in-process. It records AXIsProcessTrusted() without prompting/changing TCC,
 checks whether the default element exposes a press selector, and records its
 result. It defines no subclass overrides and does not prove VoiceOver use.
 
-The existing macOS focused workflow collects it. When the heavy-CI slot is free:
+The existing macOS focused workflow collects it. The packet's permitted dispatch
+was run 37172345932 at eb5e94ed. Both frontend rows failed before native execution
+because the old inline Objective-C binding required adapter lowering. Its actual
+JUnit has no accessibility properties. The split C/Objective-C adapter is the
+fixture repair; it still needs an integrator-arranged run after local validation.
+Do not issue a duplicate dispatch or infer trust from the compile failure.
 
-```bash
-gh workflow run macos.yml --ref codex/cx-uib-07-spike -f focus=native-gui
-```
-
-The packet permits at most one such dispatch. JUnit testcase properties preserve
+JUnit testcase properties preserve
 `virtual_child_attached`, `ax_trusted`, `press_selector` and
 `default_press_result` in the workflow's existing uploaded artifact. A successful
 in-process property test is not an assertion that the hosted runner grants AX

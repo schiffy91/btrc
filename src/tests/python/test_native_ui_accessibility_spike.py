@@ -3,6 +3,7 @@
 import json
 import subprocess
 
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.python.native_import_fixtures import REPO, apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
@@ -10,13 +11,13 @@ from tools.native_plan import NativePlanBuilder
 
 
 def test_macos_virtual_gpu_accessibility(native_project, native_compile, gui_provider_root, record_property):
-    source, _sdk, _triple = native_project
+    source, sdk, triple = native_project
     root = source.parent.parent
-    (root / "AccessibilityBridge.h").write_text((REPO / "spikes/accessibility-bridges/macos/Bridge.h").read_text())
+    (root / "Bridge.h").write_text((REPO / "spikes/accessibility-bridges/macos/Bridge.h").read_text())
     manifest = root / "btrc.toml"
     manifest.write_text(
-        manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "AccessibilityBridge.h"\n'
-        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "Bridge.h"\n'
+        'language = "c"\nstandard = "c11"\nos = ["macos"]\n'
         'symbols = ["spikeAccessibilityProbe"]\n'
         '[[native.frameworks]]\nname = "ApplicationServices"\nmodules = ["Main"]\nos = ["macos"]\n'
     )
@@ -26,7 +27,7 @@ import Library.GUI.MacOS.MacOSGPUSurface;
 int main() {
     var app = MacOSApplication();
     var surface = MacOSGPUSurface();
-    int result = spikeAccessibilityProbe(surface.nativeView());
+    int result = spikeAccessibilityProbe((void*)surface.nativeView());
     surface.close();
     return result;
 }
@@ -39,7 +40,36 @@ int main() {
     generated.write_text(result.c_source)
     executable = root / "Program"
 
+    bridge = root / "Bridge.m"
+    bridge.write_text((REPO / "spikes/accessibility-bridges/macos/Bridge.m").read_text())
+    bridge_object = root / "Bridge.o"
+    compiled = subprocess.run(
+        [
+            "/usr/bin/clang",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-isysroot",
+            str(sdk),
+            "-target",
+            triple,
+            "-c",
+            str(bridge),
+            "-o",
+            str(bridge_object),
+        ],
+        env=apple_environment(),
+        capture_output=True,
+        text=True,
+        timeout=C_COMPILE_TIMEOUT,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+
     def runner(command, **kwargs):
+        command = list(command)
+        if "-o" in command and "-c" not in command:
+            command.append(str(bridge_object))
         return subprocess.run(command, env=apple_environment(), **kwargs)
 
     NativePlanBuilder(runner=runner).build(
