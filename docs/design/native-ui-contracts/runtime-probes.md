@@ -28,7 +28,7 @@ the build measurement tools; this is the runtime probe surface.
 | Steady product working set | `runtime.memory.aggregate` plus CPU/native/GPU components and measurement coverage. | ≤512 MiB desktop / ≤384 MiB mobile; native/GPU accounted separately and included without double counting. |
 | Repeated lifecycle ownership | `runtime.lifecycle.liveHandles`, `.liveRegistrations`, `.memoryGrowth`: before warmup/after settle per cycle, plus acquired/released counts. | **100** open/close/route-change/recreate cycles; zero leaked live handles/callback owners; settled growth ≤5% after warmup. |
 | Controlled audio soak | `runtime.audio.xruns`, `.dropouts`: native/provider counter deltas and attributed cause during controlled UI/audio workload. | **30 min**, zero app-induced xruns/dropouts; **2 h physical release soak** separate. |
-| Realtime callback execution | `runtime.audio.callbackPeriodPercent`: callback exit−entry divided by the **negotiated current buffer period**, not requested settings. | p99 ≤50%, p99.9 ≤75%; zero forbidden allocation/blocking paths. |
+| Realtime callback execution | `runtime.audio.callbackPeriodPercent`: 100 × (callback exit−entry) / the **negotiated current buffer period**, not requested settings. | p99 ≤50%, p99.9 ≤75%; zero forbidden allocation/blocking paths. |
 | Wired instrument round-trip latency | `runtime.audio.wiredRoundTrip`: physical loopback/input-output observations with sample rate, actual buffers, interface and method. | p95 ≤20 ms Windows/iOS; ≤30 ms Android. Mac/Linux retain their applicable product/reference goals. |
 | Ordinary graceful close/drain | `runtime.close.drain`: authorized close starts → final owned callbacks/resources drained. Prompt/save decision latency is a separate component. | p95 ≤2 s; zero late callback use-after-free; terminal failure explicit. |
 | Pause/resume/permission/route recovery | `runtime.recovery.duration` and `.crash`, `.duplicatePlayback`, `.lostDurableState`: lifecycle request/notification → usable recovery, with cause/route generation. | **100 scripted cycles**, zero crashes, duplicate playback or lost durable state; report recovery duration separately. |
@@ -88,7 +88,14 @@ slowest samples cannot improve a result. Size rings from the declared workload
 before collection and record capacity/high-water marks. Collector shutdown
 seals producers, drains admitted entries, snapshots final counters and only then
 releases buffers. A late callback hits the owner generation barrier, not freed
-probe storage.
+probe storage. This requires the foreign/native unregister entry barrier from
+the existing [Callback contract](../../../src/stdlib/Callback.btrc): once it
+returns, no new producer may begin unless it already published an in-flight
+claim. Each registered producer has a pre-retained lease on its ring and control
+state, released only after that barrier and its final in-flight exit. Generation
+checks reject stale delivery; they cannot make a read of freed storage safe.
+Counter-only producers and snapshot readers use the same approved synchronized
+ownership protocol; unsynchronized counter reads are not a cheaper substitute.
 
 Probe initialization, snapshot copying, sorting, quantile computation and export
 never occur in audio/display/native callback context. The final implementation
