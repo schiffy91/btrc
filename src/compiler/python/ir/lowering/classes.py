@@ -618,7 +618,9 @@ class ClassLowerer:
         if dtor and dtor.body:
             # The hook copies the body of the nearest `__del__`, an ancestor's
             # when the class has none of its own.
-            self._session.consult_source(dtor.source_file)
+            # `source_file` is a declaration attribute the frontend also stamps
+            # on class members; a member lowered without the frontend has none.
+            self._session.consult_source(getattr(dtor, "source_file", None))
             provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
             self._session.function_declarations = []
             previous_return_type = self._session.current_return_type
