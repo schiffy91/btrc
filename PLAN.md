@@ -274,6 +274,35 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - One finding is the plan's, not Codex's: BTRSmith pins btrc by commit inside its flake input URL, so a flake.lock-only bump can never move it. `CL-R-01` moves the input to a branch URL with the lock unchanged.
   - UI0 evidence: Codex's token cannot download CI artifacts, so the integrator promoted the shared UI0 runs (CI 37171132726, macOS 37171133887, both on `1645699f`, 0 failures). 438 operation cells are now passed, 130 on Linux and 308 on macOS across both frontends; 382 are frozen and 56 pending. Every listed regression passed. The 142 case cells whose component tests passed stay partial on purpose, because the case shards record component coverage only. The 274 operation cells with no listed regression stay implemented-unverified.
   - The run headers carry the workflows' creation times, which predate the source audits, so the loader now lets an observation supersede an inventory audit of the same `btrc_revision` regardless of clock order. Every other older-over-newer overwrite still fails.
+- **Batch 27 (2026-10-04): the Stage 26 design reviews (`CL-P2-01`, first round).** Two adversarial reviewers and one parity reviewer read each Codex design. A verifier then tried to refute every blocking finding. None of the three is approved yet; the findings are posted on the Codex PRs, and Codex revises each in a docs-only PR.
+  - `windows-os-services.md` (`CX-P2-01`, PR #37), 7 blocking findings:
+    - SDK-reader bindings inside btrcc's own import closure break the Windows btrcc build, and they add a second process-launch owner;
+    - first providers on IO, Process and FileSystem with only a Windows filter make those imports fail on iOS, Android and windows-aarch64-msvc;
+    - nothing can link `ole32` or `bcrypt`;
+    - the 128-bit Windows file identity does not fit the 64-bit device/inode carrier that the traversal and lock checks rely on;
+    - the named-pipe endpoint and identity protocol is unspecified;
+    - executable resolution is unspecified, so `CreateProcessW`'s search order and its implicit `cmd.exe` reopen shell injection;
+    - a tag-blind reparse refusal breaks ordinary Windows 11 folders, and `:` can select an alternate data stream.
+  - `http-transport.md` (`CX-P2-02`, PR #39), 5 blocking findings:
+    - loading HTTPClient pulls in a native transport, which breaks the HTTP corpus and `test-c11`;
+    - redirect and credential origin checks run in portable code that has no URL parser;
+    - `HTTPServer.start` has no channel for the diagnostics the design requires;
+    - there is no client request-header policy;
+    - the Windows test-CA fixture cannot run unattended on a hosted runner.
+  - `mobile-storage.md` (`CX-P2-03`, PR #36), 1 blocking finding: appending to `FileSystemErrorKind`, or a mobile branch in the root resolver, changes btrcc's own C on every host. The design routes that to a Codex packet under a gate weaker than WORKSTREAMS §3.4.
+  - The reviews list 19, 12 and 13 requests to Claude (link plans, launch seam, harness changes, the URL parser and others). They become scope for `CL-P2-02`, `03`, `04` and `14` when the designs are approved.
+  - Assumed adaptation defaults are listed on each PR, because the owner's sign-off on `platform-adaptations.md` is still pending.
+- **Batch 28 (2026-10-04): the UI catalog in the qualification report.** `stage30/ui0-report` finishes `CL-UIA-24` step 4 and `CL-UIA-05` step 5.
+  - The 2026-09-21 family-cell release now reads its ids from `native-ui-catalog/families.toml`, with the same 60 ids and the same digest (132b05e6…), which the reviewer recomputed.
+  - `make qualification-report` renders a UI catalog section from the catalog's own counts: per kind the frozen, pending and retired partitions, classified slots and evidence statuses per platform and frontend, retired operations, and surface rows. With the catalog present, the UI denominators are counted once, by the catalog.
+  - The reviewer and the verifier found nothing blocking. The integrator fixed two minor defects they found, each with a test that fails without the fix: a custom `--denominators` manifest's UI releases were silently dropped, and a malformed stdlib package manifest ended in a traceback instead of exit 2.
+  - Behaviour change: with no skip reports, `make qualification-report` now exits 0 and renders the catalog section; before, it exited 2 with "nothing to report".
+  - A planning note for a second family-cell release: families.toml is now both the base release's source and the only classification shard, so the base must be re-pointed to a `{list}` first.
+  - `CL-P1-07` (the hosted-platform extractor) went back to its lane. Its conservative windows-aarch64-msvc table kept MinGW-only POSIX macros and `struct timezone` available, which breaks §2.3's "only refuse too much" rule. The integrator also decided:
+    - stdlib-declared names such as `environ` count as declared wherever the libc exports them;
+    - the Linux rows use zig's default glibc floor, not the host's;
+    - struct members count as declared.
+  - Codex's repaired accessibility prototype (`CX-UIB-07`) got its one native macOS run: 37217909473.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
