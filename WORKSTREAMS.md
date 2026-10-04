@@ -281,7 +281,9 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-R-36` | Claude | `stage38/macos-hardware-tier` | — | integrated in batch 15 (`macos-hosted` runner manifest, `hardware` skip category); releases the workflows to `CL-R-38` |
 | `CL-R-06` | Claude | `stage6/reference-attribution` | — | integrated in batch 15 |
 | `CL-C-04` | Claude | `stage16/c4-directives` | — | integrated in batch 13 |
-| Reserved: C2 schema (`CL-C-07`) | Claude | — | the ASDL, `Node`, IR and both parsers | next C-track packet; never beside `CL-P1-03`…`06` per D27 |
+| `CL-C-07` | Claude | `stage17/c2-schema` | — | integrated in batch 25 (the C2/Stage 18 schema; parsers still refuse the new forms); `CL-C-08` is next, and `CL-P1-04` may run beside it |
+| `CL-R-37` | Claude | BTRSmith `stage38/btrsmith-ci` (`6658536`) | — | workflows proven (warm 50–57 billed minutes, cold about 250); the draft PR waits for `CL-R-01`'s three product fixes and the owner's check of plan minutes (D26) |
+| Reserved: C3 schema (`CL-C-23`) | Claude | — | the ASDL, `Node`, IR and both parsers | after C2's lanes; never beside `CL-P1-03`…`06` per D27 |
 | Reserved: `flake.nix`/`nix/*` | Claude | — | free | queue |
 | Reserved: `macos.yml`/`ci.yml`/`windows.yml`/`release.yml` | Claude | — | free; next `CL-UIA-11` (after `CX-UIA-09` and `CX-UIA-11`), then `CL-UIB-04`, then `CL-UIB-14`. `CL-R-50` edits `ci/tiers.toml` and the contract test, not the workflows | queue |
 
