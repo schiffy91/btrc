@@ -236,7 +236,20 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - `CX-UIA-01` pushed only the runbook;
   - `CX-UIB-07` needs the macOS run the integrator dispatched (37172345932).
 
-  Codex's CI policy now requires the whole unit shard before any code push. Probing it found nine defects on `main`: eight incremental-build staleness cases (SB-D1…D8), which wait for the C4 landing because they touch the module-unit owners, and one btrcc miscompile (SB-D9: an unimported module's same-named global shadows a lambda capture), which `CL-REQ-05` fixes.
+  Codex's CI policy now requires the whole unit shard before any code push.
+- **Batch 22 (2026-10-04): Stage 24 commit 1a; module-unit staleness.**
+  - `stage24/targets-schema` (`CL-P1-03`, Stage 24 commit 1a, no behaviour change): `targets.toml` schema 2 holds the 11 target rows of `platform-target-contract.md` §1.2, including iOS, the iOS simulator and Android, with every column (triples, sizes, sysroot kinds, compiler host, Objective-C, frameworks). It also holds the §1.3 predefined-macro rows (`TARGET_OS_*`, `__ANDROID__`, MinGW). `TargetManifest` enforces every §1.1 rule with one failing fixture each, and the target rows are regenerated in both compilers. clang 21's `-dM` output matches the table for all 11 rows. The `_M_ARM64` row and the `TARGET_OS_*` refusals wait for commits 1b and 1c. CI caught two new generated accessors with no caller yet; the structure test lists them until `CL-P1-04` calls them.
+  - `stage18/req07-module-unit-staleness` (`CL-REQ-07`): the eight staleness defects CL-R-04 found (SB-D1…D8) are fixed in both compilers. Module-unit builds now rebuild a dependent group when it depends on any of these that changed:
+    - a `@gpu` kernel's body;
+    - an inherited `__del__` and its `#line`;
+    - a debug default-argument helper;
+    - a "never returns" body fact (validation re-asks the answers it relied on);
+    - the import order;
+    - shared tuple, span and atomic declaration order;
+    - instance discovery order.
+
+    A stale `__LINE__`/`__FILE__` default is fixed too. Clean output is unchanged. The keys are coarser than the spec's per-body digests: sound, but they relower more, which is left to `CL-R-18`. CI caught one crash, on members lowered without the frontend, which the integrator fixed.
+  - Gate: three zero-warning self-host entries; `boundary-check` 287 of 311; 13,398 passed with 0 failures in the broad suite; `make test-native-gui` 101 passed with 0 failures (four ALSA skips are this container's); the bootstrap fixed point in 16 minutes. Probing it found nine defects on `main`: eight incremental-build staleness cases (SB-D1…D8), which wait for the C4 landing because they touch the module-unit owners, and one btrcc miscompile (SB-D9: an unimported module's same-named global shadows a lambda capture), which `CL-REQ-05` fixes.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
