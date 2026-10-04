@@ -25,6 +25,7 @@ from tools.hosted_platform import (
     HostedPlatformError,
     HostedPlatformExtractor,
     PlatformExtraction,
+    ProbeNames,
     ProbePlan,
 )
 
@@ -33,7 +34,15 @@ ROWS = {row.label: row for row in TARGET_ROWS}
 
 FIXTURE_PLATFORM = {
     "functions": frozenset(
-        {"fixture_open", "fixture_inline", "fixture_gated", "fixture_macro_call", "absent_call", "btrc_gpu_absent"}
+        {
+            "fixture_open",
+            "fixture_inline",
+            "fixture_gated",
+            "fixture_macro_call",
+            "fixture_refused",
+            "absent_call",
+            "btrc_gpu_absent",
+        }
     ),
     "macros": frozenset({"FIXTURE_FLAG", "FIXTURE_RED", "ABSENT_MACRO", "BTRC_STALE_GUARD_H"}),
     "objects": frozenset({"fixture_environ", "absent_object"}),
@@ -56,6 +65,9 @@ static inline int fixture_inline(int value) { int local_shadow = value; return l
 #if FIXTURE_API >= 30
 int fixture_gated(void);
 #endif
+int fixture_refused(void) __attribute__((unavailable("not on this row")));
+int fixture_ios_gone(void) __attribute__((availability(ios, unavailable)));
+int fixture_macos_gone(void) __attribute__((availability(macos, unavailable)));
 #endif
 """,
     "fixture_net.h": """
@@ -72,6 +84,7 @@ def fixture_extractor(tmp_path: Path, **overrides: object) -> HostedPlatformExtr
     options: dict[str, object] = {
         "platform_names": FIXTURE_PLATFORM,
         "runtime_declared": frozenset(),
+        "iso_c_declared": frozenset(),
         "date": "2026-10-04",
     }
     options.update(overrides)
@@ -138,6 +151,18 @@ def test_ast_names_map_to_their_presumed_headers_by_offset() -> None:
                 "loc": {"spellingLoc": {"offset": 0}, "expansionLoc": {"offset": beta_offset}},
             },
             {
+                "kind": "FunctionDecl",
+                "name": "gone",
+                "loc": {"offset": alpha_offset},
+                "inner": [{"kind": "UnavailableAttr", "message": "no"}],
+            },
+            {
+                "kind": "FunctionDecl",
+                "name": "imported",
+                "loc": {"offset": beta_offset},
+                "inner": [{"kind": "DLLImportAttr"}],
+            },
+            {
                 "kind": "RecordDecl",
                 "name": "outer",
                 "loc": {"offset": beta_offset},
@@ -148,8 +173,36 @@ def test_ast_names_map_to_their_presumed_headers_by_offset() -> None:
             },
         ],
     }
-    found = HostedPlatformExtractor.parse_ast(document, preprocessed)
-    assert found == {"alpha": {"/inc/a.h"}, "beta": {"/inc/b.h"}, "outer": {"/inc/b.h"}, "nested": {"/inc/b.h"}}
+    found, imported = HostedPlatformExtractor.parse_ast(document, preprocessed)
+    assert found == {
+        "alpha": {"/inc/a.h"},
+        "beta": {"/inc/b.h"},
+        "imported": {"/inc/b.h"},
+        "outer": {"/inc/b.h"},
+        "nested": {"/inc/b.h"},
+    }
+    assert imported == {"imported"}
+
+
+def test_the_text_dump_names_declarations_unavailable_on_a_platform() -> None:
+    dump = "\n".join(
+        [
+            "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+            "|-TypedefDecl 0x2 <<invalid sloc>> <invalid sloc> implicit __int128_t '__int128'",
+            "|-FunctionDecl 0x3 </p.i:1:1, col:40> col:5 fork 'int (void)'",
+            '| `-AvailabilityAttr 0x4 <col:20, col:39> ios 0 0 0 Unavailable "" "" 0',
+            "|-FunctionDecl 0x5 prev 0x3 <line:2:1, col:12> col:5 used fork 'int (void)'",
+            "|-FunctionDecl 0x6 <line:3:1, col:40> col:5 sysctl 'int (void)'",
+            '| `-AvailabilityAttr 0x7 <col:20, col:39> macos 0 0 0 Unavailable "" "" 0',
+            "|-FunctionDecl 0x8 <line:4:1, col:40> col:5 newer 'int (void)'",
+            '| `-AvailabilityAttr 0x9 <col:20, col:39> ios 18.0 0 0 "" "" 0',
+            "`-RecordDecl 0xa <line:5:1, col:19> col:8 struct gone_tag definition",
+            '  |-AvailabilityAttr 0xb <col:36, col:64> ios 0 0 0 Unavailable "" "" 0',
+            "  `-FieldDecl 0xc <col:12, col:16> col:16 f 'int'",
+        ]
+    )
+    assert HostedPlatformExtractor.unavailable_on(dump, ("ios",)) == {"fork", "gone_tag"}
+    assert HostedPlatformExtractor.unavailable_on(dump, ("macos",)) == {"sysctl"}
 
 
 def test_fixture_headers_through_clang_give_platform_minus_declared(tmp_path: Path) -> None:
@@ -166,7 +219,8 @@ def test_fixture_headers_through_clang_give_platform_minus_declared(tmp_path: Pa
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     source = "#include <fixture_net.h>\nint probe_local(void) { int not_file_scope = 0; return not_file_scope; }\n"
-    files = extractor.read_probe(plan, scratch, source)
+    names = extractor.read_probe(plan, scratch, source)
+    files = names.files
     declared = frozenset(files)
     assert {
         "FIXTURE_FLAG",
@@ -183,13 +237,16 @@ def test_fixture_headers_through_clang_give_platform_minus_declared(tmp_path: Pa
         "fixture_connect",
     } <= declared
     # Gated above the fixture API, function-local and parameter names are not declared.
-    assert not {"fixture_gated", "not_file_scope", "local_shadow", "path", "value"} & declared
+    assert not {"fixture_gated", "fixture_refused", "not_file_scope", "local_shadow", "path", "value"} & declared
+    # Without availability platforms, an Apple-only marking does not hide a name.
+    assert {"fixture_ios_gone", "fixture_macos_gone"} <= declared
+    assert "FIXTURE_FLAG" not in names.declarations and "fixture_open" in names.declarations
     assert files["fixture_open"] == {str(include / "fixture_io.h")}
     assert files["fixture_connect"] == {str(include / "fixture_net.h")}
     assert files["FIXTURE_FLAG"] == frozenset({str(include / "fixture_io.h")})
     # btrc's own namespace (btrc_gpu_absent, BTRC_STALE_GUARD_H) is never listed.
     assert extractor.unavailable(declared) == {
-        "functions": ("absent_call", "fixture_gated"),
+        "functions": ("absent_call", "fixture_gated", "fixture_refused"),
         "macros": ("ABSENT_MACRO",),
         "objects": ("absent_object",),
         "types": ("absent_type",),
@@ -212,15 +269,35 @@ def test_the_probe_compiles_on_fixture_headers_alone(tmp_path: Path) -> None:
     )
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    files = extractor.read_probe(plan, scratch)
+    files = extractor.read_probe(plan, scratch).files
     assert {"fixture_unistd", "fixture_open", "_DEFAULT_SOURCE", "_DARWIN_C_SOURCE"} <= set(files)
     assert "fixture_gated" not in files
+
+
+def test_apple_rows_hide_names_unavailable_on_their_platform(tmp_path: Path) -> None:
+    include = tmp_path / "include"
+    write_fixture_headers(include)
+    extractor = fixture_extractor(tmp_path)
+    clang = extractor.clang()
+    row = ROWS["ios-aarch64"]
+    plan = ProbePlan(
+        (clang, *row.target_arguments, "-nostdinc", "-isystem", str(include)),
+        (clang, *row.target_arguments),
+        "fixture",
+        ("ios",),
+    )
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    declared = set(extractor.read_probe(plan, scratch, "#include <fixture_io.h>\n").files)
+    assert "fixture_ios_gone" not in declared
+    assert {"fixture_macos_gone", "fixture_open"} <= declared
 
 
 def test_runtime_names_count_as_declared_on_every_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     extractor = fixture_extractor(tmp_path, runtime_declared=frozenset({"absent_call"}))
     monkeypatch.setattr(extractor, "plan", lambda row: ProbePlan(("cc",), ("cc",), "fixture"))
-    monkeypatch.setattr(extractor, "read_probe", lambda plan, scratch: {"fixture_open": frozenset({"a.h"})})
+    names = ProbeNames({"fixture_open": frozenset({"a.h"})}, frozenset({"fixture_open"}), frozenset())
+    monkeypatch.setattr(extractor, "read_probe", lambda plan, scratch: names)
     extraction = extractor.extract("android-aarch64")
     assert "absent_call" not in extraction.unavailable["functions"]
     assert "fixture_open" not in extraction.unavailable["functions"]
@@ -326,47 +403,66 @@ def test_every_row_is_in_exactly_one_extraction_set() -> None:
     assert "xcrun" not in {ROWS[label].sysroot_kind for label in DEFAULT_LABELS}
 
 
-def test_conservative_msvc_adds_mingw_and_overlay_only_names(tmp_path: Path) -> None:
+def test_conservative_msvc_refuses_whatever_the_msvc_toolchain_may_lack(tmp_path: Path) -> None:
     zig = "/zig/lib/libc/include/any-windows-any"
     overlay = (REPO / "src" / "runtime" / "windows").resolve()
     platform_names = {
-        "functions": frozenset({"opendir", "access", "GetFileAttributesA", "pthread_detach", "fork", "sleep"}),
-        "macros": frozenset({"O_DIRECTORY", "EINVAL"}),
-        "objects": frozenset(),
-        "types": frozenset({"DIR"}),
-        "typedefs": frozenset({"DIR"}),
+        "functions": frozenset(
+            {"opendir", "_access", "access", "GetFileAttributesA", "mkstemp", "strtok_r", "memcpy", "fork", "sleep"}
+        ),
+        "macros": frozenset({"O_DIRECTORY", "EINVAL", "POLLIN"}),
+        "objects": frozenset({"signgam"}),
+        "types": frozenset({"DIR", "useconds_t"}),
+        "typedefs": frozenset({"DIR", "useconds_t"}),
     }
     files = {
         "opendir": frozenset({f"{zig}/dirent.h"}),
         "DIR": frozenset({f"{zig}/dirent.h"}),
-        "access": frozenset({f"{zig}/io.h", f"{zig}/unistd.h"}),
+        # A CRT DLL export stays; MinGW's additions to shared CRT headers do not.
+        "_access": frozenset({f"{zig}/io.h"}),
+        "access": frozenset({f"{zig}/io.h"}),
+        "mkstemp": frozenset({f"{zig}/stdlib.h"}),
+        "strtok_r": frozenset({f"{zig}/string.h"}),
+        "memcpy": frozenset({f"{zig}/string.h"}),
+        "useconds_t": frozenset({f"{zig}/sys/types.h"}),
+        "signgam": frozenset({f"{zig}/math.h"}),
         "sleep": frozenset({f"{zig}/unistd.h"}),
-        "pthread_detach": frozenset({f"{zig}/pthread.h"}),
+        # The overlay declares this Win32 function itself; the SDK declares it too.
         "GetFileAttributesA": frozenset({f"{overlay}/btrc_win_compat.h"}),
         "O_DIRECTORY": frozenset({f"{overlay}/btrc_win_compat.h"}),
         "EINVAL": frozenset({f"{zig}/errno.h"}),
     }
+    declarations = frozenset(files) - {"O_DIRECTORY", "EINVAL"}
     windows = PlatformExtraction(
         "windows-aarch64",
-        frozenset(files),
+        frozenset(files) | {"btrc_gpu_dispatch"},
         files,
-        {"functions": ("fork",), "macros": (), "objects": (), "types": (), "typedefs": ()},
+        {"functions": ("fork",), "macros": ("POLLIN",), "objects": (), "types": (), "typedefs": ()},
         "zig",
+        declarations,
+        frozenset({"_access"}),
     )
-    extractor = fixture_extractor(tmp_path, platform_names=platform_names)
-    msvc = extractor.conservative_msvc("windows-aarch64-msvc", windows, frozenset({"GetFileAttributesA"}))
+    sdk_files = {
+        "GetFileAttributesA": frozenset({f"{zig}/fileapi.h"}),
+        # windows.h also reaches CRT headers; a name declared there is not Windows API.
+        "strtok_r": frozenset({f"{zig}/string.h"}),
+    }
+    # ISO C11 names stay: UCRT is the row's C library.
+    extractor = fixture_extractor(tmp_path, platform_names=platform_names, iso_c_declared=frozenset({"memcpy"}))
+    msvc = extractor.conservative_msvc("windows-aarch64-msvc", windows, sdk_files)
     assert msvc.source == CONSERVATIVE_SOURCE
     assert msvc.unavailable == {
-        "functions": ("fork", "opendir", "pthread_detach", "sleep"),
-        "macros": ("O_DIRECTORY",),
-        "objects": (),
-        "types": ("DIR",),
-        "typedefs": ("DIR",),
+        "functions": ("access", "fork", "mkstemp", "opendir", "sleep", "strtok_r"),
+        "macros": ("O_DIRECTORY", "POLLIN"),
+        "objects": ("signgam",),
+        "types": ("DIR", "useconds_t"),
+        "typedefs": ("DIR", "useconds_t"),
     }
     # The windows-aarch64 list is a subset: the copy only refuses more.
     for kind in KINDS:
         assert set(windows.unavailable[kind]) <= set(msvc.unavailable[kind])
-    assert {"access", "GetFileAttributesA", "EINVAL"} <= msvc.declared
+    assert {"_access", "GetFileAttributesA", "memcpy", "EINVAL", "btrc_gpu_dispatch"} <= msvc.declared
+    assert not {"mkstemp", "strtok_r", "opendir"} & msvc.declared
 
 
 def test_extract_all_derives_the_msvc_row_from_its_gnu_sibling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -379,7 +475,7 @@ def test_extract_all_derives_the_msvc_row_from_its_gnu_sibling(tmp_path: Path, m
         return PlatformExtraction(label, frozenset(), {}, empty, label)
 
     monkeypatch.setattr(extractor, "extract", fake_extract)
-    monkeypatch.setattr(extractor, "windows_sdk_declared", lambda row: frozenset())
+    monkeypatch.setattr(extractor, "windows_sdk_declared", lambda row: {})
     result = extractor.extract_all(["windows-aarch64-msvc", "linux-x86_64"])
     assert list(result) == ["windows-aarch64-msvc", "linux-x86_64"]
     assert extracted == ["linux-x86_64", "windows-aarch64"]
