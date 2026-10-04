@@ -1744,12 +1744,17 @@ def test_ingest_keeps_raw_inputs_and_report_reads_every_ledger(tmp_path: Path, c
     assert all(record.evidence is None or record.evidence.artifact.startswith(str(store.root)) for record in records)
     capsys.readouterr()
 
-    assert QualificationCommand(store).run(["report", "--all-ledgers", "--format", "json"]) == 0
+    assert QualificationCommand(store).run(["report", "--no-ui-catalog", "--all-ledgers", "--format", "json"]) == 0
     rendered = json.loads(capsys.readouterr().out)
     assert {row["kind"]: row["slots"] for row in rendered["evidence"]} == {"scenario": 20, "test": 7}
     with pytest.raises(QualificationStoreError, match="run id"):
         store.ledger_path("../escape")
-    assert QualificationCommand(store).run(["report", "--budget", "noop:p50<=3", "--budget-bench", str(bench)]) == 2
+    assert (
+        QualificationCommand(store).run(
+            ["report", "--no-ui-catalog", "--budget", "noop:p50<=3", "--budget-bench", str(bench)]
+        )
+        == 2
+    )
 
 
 def test_the_report_command_fails_on_missing_frozen_slots_and_relabelled_runs(tmp_path: Path, capsys):
@@ -1761,9 +1766,17 @@ def test_the_report_command_fails_on_missing_frozen_slots_and_relabelled_runs(tm
     bench.write_text(json.dumps({"provenance": {**BENCH_HOST, "frontend": "selfhost"}, "scenarios": QUICK_BENCH}))
     budgets = ["--budget", "cold-transpile:median<=45", "--budget", "memory:max<=3758096384"]
 
-    assert QualificationCommand(store).run(["report", "--budget-bench", str(bench), *budgets]) == 0
+    assert QualificationCommand(store).run(["report", "--no-ui-catalog", "--budget-bench", str(bench), *budgets]) == 0
     assert "| cold-transpile | macos | selfhost | - | wall-time | s | 5 | 43.574 |" in capsys.readouterr().out
-    assert QualificationCommand(store).run(["report", "--budget-bench", str(bench), "--denominators"]) == 1
+    assert (
+        QualificationCommand(store).run(["report", "--no-ui-catalog", "--budget-bench", str(bench), "--denominators"])
+        == 1
+    )
     assert "family-cell: 300 of 300 declared slots have no record" in capsys.readouterr().err
-    assert QualificationCommand(store).run(["report", "--budget-bench", str(bench), "--frontend", "reference"]) == 2
+    assert (
+        QualificationCommand(store).run(
+            ["report", "--no-ui-catalog", "--budget-bench", str(bench), "--frontend", "reference"]
+        )
+        == 2
+    )
     assert "the run measured the selfhost frontend, not reference" in capsys.readouterr().err
