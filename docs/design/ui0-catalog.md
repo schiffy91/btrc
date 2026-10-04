@@ -1,4 +1,28 @@
-# UI0 focused gate and catalog schema
+# UI0 focused gate and catalog shards
+
+The shard follow-up (`CX-UIA-02`) keeps the seed byte-identical and adds
+`tools.qualification.ui_catalog` as the admission and reporting boundary.
+Shards live beside the seed under `native-ui-catalog/`: `families.toml`,
+`operations/<Owner>.toml`, `cases/E<first>-E<last>.toml`,
+`surface/{GUIModules,App,UI,Tray}.toml`, `evidence/<kebab-name>.toml|.jsonl`,
+`amendments/<packet-id>.toml`, and `hosts.toml`. The directory README records
+ownership; an unrecognized file is an error. Each operation or case has one
+classification writer, while later evidence shards may update its evidence.
+
+Three partitions keep source changes separate from a frozen release:
+
+- **Frozen:** the declared operation, case and family slots. Retired slots
+  retain their place in these denominators.
+- **Pending:** amendment additions and reviewed surface proposals that no
+  denominator release yet declares. They receive the same platform/frontend
+  coverage as operations but never increase the frozen counts.
+- **Retired:** removed declarations with their decision references. They are
+  listed separately and excluded from strict classification checks.
+
+A classified operation or case has both `classification.implementation` and
+`evidence.status`. A classified family cell has `implementation`; a source
+inventory gives it no execution evidence. An absent evidence record never
+means passed. iPad evidence uses the `ios` family and `provenance.device_class`.
 
 This is the serial foundation for PLAN.md Stage 30 (`ui-0-focused-gate` and
 `ui-0-catalog-schema`). It freezes identities and detects source drift; it
