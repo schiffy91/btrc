@@ -1041,9 +1041,11 @@ class ExpressionLowerer {
 					return IRNode.literal(StringLiteral(self.context.defaultFunctionName).cSource());
 				}
 				if (node.name == "__LINE__") {
+					self.context.consultSource(self.context.sourceFileForLine(node.line));
 					return IRNode.literal(Strings.fromInt(self.context.sourceLineFor(node.line)));
 				}
 				if (node.name == "__FILE__") {
+					self.context.consultSource(self.context.sourceFileForLine(node.line));
 					return IRNode.literal(StringLiteral(self.context.sourceFileForLine(node.line)).cSource());
 				}
 			}

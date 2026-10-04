@@ -158,6 +158,67 @@ These are compiler defects, not open spec questions. Each needs a paired
 fixer commit (or a btrc-internal one for SB-D6 and SB-D9) before CL-R-09's
 tests can pass. Each is a row of section 9.
 
+#### 2.3.1 How the defects were fixed
+
+CL-REQ-05 fixed SB-D9. CL-REQ-07 fixed SB-D1 to SB-D8 against today's Stage A
+keys, without the logs of section 5. Each case is tested through both
+compilers in `src/tests/python/test_module_unit_staleness.py`: a cold build,
+one edit, an incremental build, and a clean build in a fresh cache into the
+same output directory. Units and diagnostics must be equal, and the test
+asserts how many groups relowered.
+
+- **SB-D1 to SB-D4: copied bodies and positions.** The lowering session logs
+  each foreign source file whose body or positions it copies into its unit:
+  - an inherited `__del__` (SB-D2, SB-D4);
+  - each `#line` marker (SB-D3, SB-D4);
+  - a `__LINE__` or `__FILE__` in a default argument.
+
+  The worker adds the files of the kernels whose WGSL the finished unit
+  embeds (SB-D1). `ModuleUnitRecord` stores each such group with the source
+  digest it had. A record whose groups' digests moved is a miss
+  (`relowered-consulted-source`).
+
+  This answers the `body` and `subtree` namespaces of 5.2 per group, not per
+  declaration. Any edit to the copied-from group relowers the copier, which is
+  sound but coarser than a body digest. The relowered sets match SB-01, SB-02,
+  SB-03 and SB-27. btrcpy positions its default helpers at
+  `<btrc-generated>`, so SB-03 relowers only `Lib` there (Q3).
+- **A tenth case, release mode.** A `__LINE__` default is frozen at the
+  callee's line, in a release build too. Lines added above `int where(int
+  line = __LINE__)` left a caller's unit stale in both compilers. The
+  `__LINE__` log above fixes it. Section 5.4's claim that release builds are
+  unaffected by foreign positions did not hold for this case.
+- **SB-D5.** btrcc journals each "never returns" answer that body validation
+  relied on, as a `VALIDATION_DIVERGENCE` fact (`validation-record-v5`).
+  Replay asks every answer again before installing anything. A moved answer
+  validates the declaration live and voids the record. This is
+  `summary.diverges` with early cutoff, logged per declaration.
+  - Only an answer that reads a callable's body is journaled. An answer that
+    follows from the hosted ABI or the interface alone, such as a call to
+    `print`, is already covered by the key.
+  - Verify mode treats a stored record whose answers moved as one a replay
+    rejects, not as a disagreement.
+
+  btrcpy keeps no analysis records.
+- **SB-D6.** btrcc's facts digest covers the program's file order. btrcpy's
+  ordered interface digest already did. Every group relowers, as SB-12
+  expects.
+- **SB-D7 and SB-D8.** Both facts digests cover:
+  - the order of the shared declarations each unit draws from (each entry's
+    kind and names). Tuple shapes are declared there in body-discovery
+    order, and in btrcpy span and atomic shapes too; the review found the
+    span case stale when only tuple shapes were covered. btrcc declares
+    spans in each unit's own session;
+  - in btrcpy, the class and method specializations in discovery order.
+    btrcc's instance lists were already ordered.
+
+  A discovery-order change therefore relowers every group.
+
+  **Conflict with G12.** G12 prescribes canonical orders, which would relower
+  only the edited group (SB-28, SB-29). They also change clean output, and
+  CL-REQ-07 had to keep clean output byte-identical. The canonical orders
+  stay CL-R-18 groundwork; the key covers the order until then.
+
 ### 2.4 Groundwork slice 4 needs first
 
 Each item is a prerequisite of CL-R-18 and lands paired:
