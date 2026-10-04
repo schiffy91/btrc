@@ -370,6 +370,20 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - `http-transport.md` (`CX-P2-02`, PR #51): all five round-1 blockers are resolved. Two new blockers:
       - the frozen client validation lets providers send different requests, and Android silently turns a GET with a body into a POST;
       - the Windows row cancels synchronous WinHTTP requests with `WinHttpCloseHandle`, which Microsoft forbids.
+- **Batch 32 (2026-10-04): the UI evidence host map and the 100,000-record fixture.** Two Codex code PRs passed a reviewer and an adversarial verifier with no blocking finding.
+  - `CX-UIA-06` (PR #49) adds `native-ui-catalog/hosts.toml` (schema `btrc.ui-hosts/1`), its validator test, and `tools/ui/linux-desktop-check.sh`. The routes map each platform's UI evidence to a hosted runner, an owner device or a stand-in.
+    - The data is correct today, but the validator can be fooled. It accepts a physical Windows route pointed at the owner's Mac, because runner and `device_id` are not tied to the platform and the stand-in check trusts the route's own `kind`.
+    - Codex's follow-up must tie them together, and fix three more problems:
+      - the Android owner-emulator and GitHub iOS simulator blockers are wrong;
+      - the runner ids differ from the qualification ledger's (`github-linux` against `linux-devcontainer`);
+      - recording `MAC-UIA-01` will need a probe field.
+  - `CX-UIB-08` (PR #48) adds `CollectionRecords.btrc`: a deterministic 100,000-record generator with a frozen digest (3,974,541 bytes, `37f91c9b…`), checked through both compilers.
+    - After the edit schedule, 989 sort keys repeat. Titles have only 8 distinct strings.
+    - `CX-UIB-28` must pick a tie-break, or richer titles, before it consumes the digest.
+  - `CX-P1-03` (PR #53, the Windows ARM64 lane) went back to Codex:
+    - its workflow is missing, so none of its five acceptance items is met;
+    - every native path depends on unintegrated PR #43;
+    - its VsDevCmd capture quotes `cmd.exe` arguments wrongly and fails on a real runner.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
