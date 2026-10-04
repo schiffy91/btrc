@@ -1,0 +1,643 @@
+# CX-UIA-04: operation source classification and assertion-scoped shared UI0 evidence.
+# Inherited IView/IContainer operations keep their declaring-owner shards (CX-UIA-03).
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-04-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:36:56Z"
+runner = "linux-devcontainer"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+runner = "github-linux"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+runner = "github-macos"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[[operations]]
+id = "IGrid.childAt"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc: cell identity round-trips, invalid/cyclic/duplicate attachments are rejected, removal yields null, and nested layout gives the descendant a width above 100."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc: cell identity round-trips, invalid/cyclic/duplicate attachments are rejected, removal yields null, and nested layout gives the descendant a width above 100."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.columnCount"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.fitColumn"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.fitRow"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.layout"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc: cell identity round-trips, invalid/cyclic/duplicate attachments are rejected, removal yields null, and nested layout gives the descendant a width above 100."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc: cell identity round-trips, invalid/cyclic/duplicate attachments are rejected, removal yields null, and nested layout gives the descendant a width above 100."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.rowCount"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.setChild"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc: cell identity round-trips, invalid/cyclic/duplicate attachments are rejected, removal yields null, and nested layout gives the descendant a width above 100."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc: cell identity round-trips, invalid/cyclic/duplicate attachments are rejected, removal yields null, and nested layout gives the descendant a width above 100."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.setColumnHidden"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc GridLayout.run: hiding column 1 reduces fitting width and unhiding restores it within 0.5 points."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc GridLayout.run: hiding column 1 reduces fitting width and unhiding restores it within 0.5 points."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.setColumnWidth"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc GridLayout.run: the input initially exceeds width 400; setting column width 220 reduces it by more than 150 after layout."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API. Assertion: NativeGrid.btrc GridLayout.run: the input initially exceeds width 400; setting column width 220 reduces it by more than 150 after layout."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.setRowHeight"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.setRowHidden"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IGrid.setSpacing"
+owner = "IGrid"
+links = ["N23", "N24", "UI5", "E15", "E26", "E29", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxGrid.btrc: source implements this operation. Fixed row/column counts with explicit fitting/size/hidden controls; collection virtualization, spanning and a constraint solver are outside this API."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
