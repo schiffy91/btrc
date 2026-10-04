@@ -1,0 +1,19 @@
+{
+  "zig_version": "0.16.0",
+  "zig_windows_arm64": {
+    "tarball": "https://ziglang.org/download/0.16.0/zig-aarch64-windows-0.16.0.zip",
+    "shasum": "aee38316ee4111717900f45dd3130145c39289e105541d737eb8c5ed653c78ef",
+    "size": "93109828"
+  },
+  "zig_linux_x64": {
+    "tarball": "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz",
+    "shasum": "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00",
+    "size": "55478392"
+  },
+  "wgpu": {
+    "version": "27.0.4.0",
+    "url": "https://github.com/gfx-rs/wgpu-native/releases/download/v27.0.4.0/wgpu-windows-aarch64-msvc-release.zip",
+    "sha256": "71271c3671bbcbb8935211dc18bfc1f765326d72f6d1710c93afb0d597000aa9",
+    "source": "nix/wgpu-native-prebuilt.nix (CL-P1-02)"
+  }
+}
