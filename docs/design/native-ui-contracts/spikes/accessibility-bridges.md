@@ -1,6 +1,6 @@
 # Accessibility bridge feasibility
 
-CX-UIB-07, 2026-10-04. **Partial findings; macOS execution is pending.**
+CX-UIB-07, 2026-10-04. **Partial findings; macOS evidence is not yet verified.**
 
 A btrc process can serve a small AT-SPI wire tree over the actual accessibility
 D-Bus, using the same direct libdbus/pull-dispatch pattern as Tray/Linux. Both
@@ -8,9 +8,11 @@ compilers produced working executables, and a separate client read a window,
 button and virtual child. This proves wire exposure, not a complete AT-SPI
 bridge, Orca navigation or production accessibility.
 
-The macOS prototype is prepared and collected for both compilers, but has not
-executed on an Apple runner. **Hosted-runner AX/TCC trust is unknown**, not an
-inferred yes or no. This packet's macOS acceptance remains open.
+The macOS prototype failed compilation in both compilers on the hosted runner:
+its inline Objective-C header requires adapter lowering. Neither executable
+ran, and neither testcase recorded native properties. **Hosted-runner AX/TCC
+trust is unknown**, not an inferred yes or no. This packet's macOS acceptance
+remains open while the test adapter is repaired and validated.
 
 ## Prototype and reproductions
 
@@ -94,31 +96,51 @@ In-process property reads do not require or establish external AX trust.
 No Objective-C subclass override is defined by this probe, so custom press
 behavior remains a separate requirement even if default property exposure works.
 
-Once the single heavy-CI slot is available, the packet permits one dispatch:
+Claude dispatched the permitted native run on the prototype head `eb5e94ed`:
 
-```bash
-gh workflow run macos.yml --ref codex/cx-uib-07-spike -f focus=native-gui
-```
+- [macOS run 37172345932](https://github.com/schiffy91/btrc/actions/runs/37172345932),
+  native-gui job 111349170278, completed with failure. Dispatch count: **1**.
+- Genuine `junit-macos-native-gui` artifact 11292718381 (6,681 bytes) was
+  downloaded and inspected on 2026-10-04 after initial artifact-host denials
+  cleared. Both `test_macos_virtual_gpu_accessibility[reference]` and
+  `[selfhost]` failed at the `result.successful` assertion before native build
+  or execution, with `Objective-C header declarations require adapter lowering`.
+- Neither testcase has `ax_trusted`, `virtual_child_attached`, `press_selector`
+  or `default_press_result` properties. The report establishes a compile failure,
+  not an observed trust value or accessibility runtime failure.
 
-Dispatch count: **0**. Run ID: **not yet assigned**. It is queued behind the
-native-shell/focused-gate work under the current CI-cap policy. Do not call the
-macOS part passed until the native test and its JUnit properties are inspected.
-This environment also currently receives Forbidden responses when downloading
-GitHub job logs/artifacts; required network-domain additions were saved in the
-environment draft but are not known to be active. If that persists, obtaining
-the actual JUnit values remains an explicit evidence prerequisite.
+The fixture unnecessarily exposes its inline Objective-C implementation through
+`native.bindings`. The repair being validated separates a plain C declaration
+(`void *` view handle) from the test-only `.m` adapter, compiles that adapter with
+the selected Apple SDK, and links it through the existing native plan. It adds
+no production bridge, subclass, compiler workaround or workflow change.
+
+A local Linux smoke test imported the exact plain-C header through both
+frontends, compiled and linked a C stub under strict C11, and executed both
+binaries successfully. Source review also found and fixed a missing timeout
+in the delegated native-build runner. These checks validate the C boundary
+and bounded harness; they do not establish Apple SDK compilation, NSView
+conversion or native accessibility behavior.
+
+A repaired prototype still needs native execution and actual JUnit properties.
+The original dispatch is consumed; the integrator must arrange any additional
+run after the repaired head is published. No duplicate dispatch has been made.
 
 ## Interop gaps and next proof
 
-For **CL-UIB-09 (Linux accessibility bridge)**, reuse the direct libdbus boundary
-pattern, then supply registry embedding and the complete set of interfaces/events
-required by the approved accessibility contract. Map stable semantic keys to
-object paths, enforce UI-thread ownership, and define parent/child teardown so
-stale accessible references fail predictably. Reproduce with a separate Orca or
-pyatspi discovery/navigation client; direct wire calls alone are insufficient.
-No compiler defect was demonstrated by the narrow prototype.
+For **CL-UIB-12 (Linux UI interop)**, qualify the D-Bus method/property vtables
+and callback boundary required by the SDL route, through both compilers and
+sanitizers after D23 selects that route. This prototype uses bounded pull
+dispatch, so it does not establish vtable/callback support and demonstrates no
+compiler defect in that untested path. GTK-specific interop remains conditional
+on the other D23 route.
 
-For **CL-UIB-12 (macOS virtual accessibility)**, inspect the native run before
+The production Linux bridge remains Codex's **CX-UIB-23/24** work: registry
+embedding, the complete interfaces/events, stable semantic keys, UI-thread
+ownership and parent/child teardown. It needs a separate Orca or pyatspi
+discovery/navigation client; direct wire calls alone are insufficient.
+
+For **CL-UIB-09 (Objective-C UI interop)**, inspect the native run before
 choosing property-only elements versus Objective-C subclasses. Custom actions
 (press/increment/decrement), dynamic hit testing and focus behavior need an
 implementation that can route native accessibility callbacks to the approved
