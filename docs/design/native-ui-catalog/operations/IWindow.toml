@@ -1,0 +1,771 @@
+# CX-UIA-03: source classification and assertion map; execution evidence is separate.
+# Missing providers stay missing on both frontends; candidate regression IDs are not passes.
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-03-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:43:34Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "linux-devcontainer"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-linux"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-macos"
+
+[[operations]]
+id = "IWindow.attachRoot"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.attachRoot. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.root() == root && rejectsClose(root)); Also covers duplicate owner rejection, native attachment/arrangement rollback and reentrant mutation rejection. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.attachRoot. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.root() == root && rejectsClose(root)); Also covers duplicate owner rejection, native attachment/arrangement rollback and reentrant mutation rejection. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.attachRoot. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.attachRoot. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.close"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.close. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.close. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.close. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.close. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.contentHeight"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.contentHeight. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0); After setContentSize(720.0,400.0), also asserts root frame size; native NSWindow resize has a separate root-layout assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.contentHeight. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0); After setContentSize(720.0,400.0), also asserts root frame size; native NSWindow resize has a separate root-layout assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.contentHeight. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.contentHeight. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.contentWidth"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.contentWidth. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0); After setContentSize(720.0,400.0), also asserts root frame size; native NSWindow resize has a separate root-layout assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.contentWidth. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0); After setContentSize(720.0,400.0), also asserts root frame size; native NSWindow resize has a separate root-layout assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.contentWidth. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.contentWidth. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.detachRoot"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.detachRoot. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(detached == root && first.root() == null && root.isOpen()); Also asserts native superview cleared and original autoresizing mask restored; detached root attaches to second window. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.detachRoot. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(detached == root && first.root() == null && root.isOpen()); Also asserts native superview cleared and original autoresizing mask restored; detached root attaches to second window. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.detachRoot. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.detachRoot. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.hide"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.hide. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(!self._window.isVisible()); After hide twice; show/hide on a closed window are rejected. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.hide. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(!self._window.isVisible()); After hide twice; show/hide on a closed window are rejected. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.hide. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.hide. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.isFocused"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "N06", "UI3"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isFocused. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isFocused. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isFocused. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isFocused. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.isOpen"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isOpen. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.isOpen() && first.root() == null && first.detachRoot() == null);  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isOpen. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.isOpen() && first.root() == null && first.detachRoot() == null);  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isOpen. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isOpen. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.isVisible"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isVisible. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isVisible. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isVisible. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isVisible. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.onKey"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "N07", "UI3"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_native_window_keyboard_monitor[reference-False]", "src/tests/python/test_native_gui_appkit.py::test_native_window_keyboard_monitor[reference-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.onKey. Assertion candidate in src/tests/native/gui/NativeKeyboard.btrc: assert(receiver.calls == 1 && receiver.last == APP_KEY_A); Synthetic native A/D events exercise window-specific delivery, consumption and scope cancellation; callbacks on other window are excluded. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_native_window_keyboard_monitor[selfhost-False]", "src/tests/python/test_native_gui_appkit.py::test_native_window_keyboard_monitor[selfhost-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.onKey. Assertion candidate in src/tests/native/gui/NativeKeyboard.btrc: assert(receiver.calls == 1 && receiver.last == APP_KEY_A); Synthetic native A/D events exercise window-specific delivery, consumption and scope cancellation; callbacks on other window are excluded. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.onKey. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.onKey. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.pollClose"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.pollClose. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.pollClose. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.pollClose. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.pollClose. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.root"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.root. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.isOpen() && first.root() == null && first.detachRoot() == null);  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.root. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.isOpen() && first.root() == null && first.detachRoot() == null);  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.root. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.root. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.setContentSize"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setContentSize. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0); After setContentSize(720.0,400.0), also asserts root frame size; native NSWindow resize has a separate root-layout assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setContentSize. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0); After setContentSize(720.0,400.0), also asserts root frame size; native NSWindow resize has a separate root-layout assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.setContentSize. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.setContentSize. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.setMinimumContentSize"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setMinimumContentSize. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setMinimumContentSize. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.setMinimumContentSize. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.setMinimumContentSize. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.setTitle"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setTitle. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.title().equals(\"Library — 音楽\")); After setTitle(\"Library — 音楽\"); tests Unicode round trip. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setTitle. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.title().equals(\"Library — 音楽\")); After setTitle(\"Library — 音楽\"); tests Unicode round trip. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.setTitle. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.setTitle. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.show"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.show. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.show. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.show. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.show. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.showAlert"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "N35", "UI7"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.title"
+owner = "IWindow"
+implementation = "implemented"
+links = ["N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.title. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.title().equals(\"Library — 音楽\")); After setTitle(\"Library — 音楽\"); tests Unicode round trip. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.title. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.title().equals(\"Library — 音楽\")); After setTitle(\"Library — 音楽\"); tests Unicode round trip. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.title. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.title. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
