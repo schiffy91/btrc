@@ -7,6 +7,7 @@ import json
 import os
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
 
@@ -256,10 +257,13 @@ class Compiler:
 
         options = options or CompilerOptions()
         profile: dict[str, float] | None = {} if options.profile else None
+        # Every spelling of one target compiles, and keys its caches, as its
+        # canonical label; an unknown host fails here rather than in resolution.
+        selected = self.select_target(options.target)
+        if isinstance(selected, CompilerFailure):
+            return CompilerResult(options=options, source_bundle=None, failure=selected)
         if options.target is not None:
-            selected = self.select_target(options.target)
-            if isinstance(selected, CompilerFailure):
-                return CompilerResult(options=options, source_bundle=None, failure=selected)
+            options = replace(options, target=selected)
         try:
             resolved = self.pipeline.resolve(source, source_path, options, profile)
         except IncludeResolutionError as error:

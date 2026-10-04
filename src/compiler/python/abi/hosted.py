@@ -322,7 +322,8 @@ class TargetRepository:
     def parse(cls, value: str) -> GeneratedTargetRow:
         """The row ``OS-ARCH[-ENV]`` names, through the aliases and default environment."""
 
-        parts = value.split("-") if isinstance(value, str) else []
+        raw = value if isinstance(value, str) else ""
+        parts = raw.split("-")
         if len(parts) in (2, 3) and all(parts):
             operating_system = parts[0]
             architecture = TARGET_ARCHITECTURE_ALIASES.get(parts[1], parts[1])
@@ -330,7 +331,7 @@ class TargetRepository:
             row = cls.row(operating_system, architecture, environment)
             if row is not None:
                 return row
-        raise TargetSelectionError(cls.unsupported_message(str(value)))
+        raise TargetSelectionError(cls.unsupported_message(raw))
 
     @classmethod
     def host(cls, system: str | None = None, machine: str | None = None) -> GeneratedTargetRow | None:

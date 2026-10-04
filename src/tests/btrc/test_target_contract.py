@@ -21,7 +21,12 @@ from src.compiler.python.abi import hosted as hosted_module
 from src.compiler.python.abi.generated import TARGET_ROWS
 from src.compiler.python.abi.hosted import TargetRepository, TargetSelectionError
 from src.compiler.python.application.compiler import Compiler
-from src.compiler.python.application.results import CompilerFailure, CompilerFailureKind
+from src.compiler.python.application.results import (
+    CompilerFailure,
+    CompilerFailureKind,
+    CompilerOptions,
+    CompilerOutput,
+)
 from src.compiler.python.artifacts.archive import TargetCatalog
 from src.compiler.python.cli.compiler import CompilerCommand, CompilerDiagnostics
 from src.compiler.python.frontend.packages import PackageTarget
@@ -225,6 +230,17 @@ def test_selfhost_parses_and_rejects_as_the_reference(target_driver: Path) -> No
             expected.append("error " + UNSUPPORTED.format(raw=spelling))
     assert _driver(target_driver, "parse", *spellings) == expected
     assert _driver(target_driver, "labels") == list(LABELS)
+
+
+def test_the_compiler_api_compiles_every_spelling_as_its_label(tmp_path: Path) -> None:
+    compiler = Compiler()
+    path = str(tmp_path / "Main.btrc")
+    aliased = compiler.compile(
+        "int main() { return 0; }\n", path, CompilerOptions(output=CompilerOutput.AST, target="linux-x64")
+    )
+    assert aliased.failure is None and aliased.options.target == "linux-x86_64"
+    rejected = compiler.compile("int main() { return 0; }\n", path, CompilerOptions(target="linux-x86"))
+    assert rejected.failure == CompilerFailure(CompilerFailureKind.INPUT, UNSUPPORTED.format(raw="linux-x86"))
 
 
 # -- the CLIs: argument errors, then the target, then the input --------------
