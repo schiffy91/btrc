@@ -111,7 +111,7 @@ route. Search the same pinned headers with:
 ```bash
 nix develop --command bash -c '
   for flag in $(pkg-config --cflags-only-I wgpu-native); do
-    rg -ni "dmabuf|dma_buf|external.memory|wgpu[a-z0-9_]*Export[a-z0-9_]*" "${flag#-I}/webgpu.h" "${flag#-I}/wgpu.h"
+    rg -n "[Dd][Mm][Aa][Bb][Uu][Ff]|dma_buf|[Ee]xternal.?[Mm]emory|wgpu[A-Za-z0-9]*Export" "${flag#-I}/webgpu.h" "${flag#-I}/wgpu.h"
     status=$?
     if [ "$status" -gt 1 ]; then exit "$status"; fi
   done
