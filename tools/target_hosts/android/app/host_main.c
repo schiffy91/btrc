@@ -93,10 +93,12 @@ static void *run_program(void *context) {
     }
     int status = 0;
     if (child < 0) {
+        write_number("signal", 0);
         write_number("exit_status", 121);
     } else {
         while (waitpid(child, &status, 0) < 0) {
             if (errno != EINTR) {
+                write_number("signal", 0);
                 write_number("exit_status", 121);
                 return NULL;
             }
@@ -105,6 +107,7 @@ static void *run_program(void *context) {
             write_number("signal", WTERMSIG(status));
             write_number("exit_status", 128 + WTERMSIG(status));
         } else {
+            write_number("signal", 0);
             write_number("exit_status", WEXITSTATUS(status));
         }
     }

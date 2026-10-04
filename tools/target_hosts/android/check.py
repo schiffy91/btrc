@@ -60,18 +60,20 @@ class HostFixtureCheck:
                 if case in expected and (result.stdout, result.stderr) != expected[case]:
                     raise AssertionError(f"{mode}/{case}: stdout or stderr differs from expected bytes")
                 if case == "timeout":
-                    assert result.timed_out and result.stdout == b"started\n", (
-                        f"{mode}: timeout did not terminate the started fixture"
-                    )
+                    if not result.timed_out or result.stdout != b"started\n":
+                        raise AssertionError(f"{mode}: timeout did not terminate the started fixture")
                 elif case == "sigkill":
-                    assert result.signal == 9 and not result.timed_out, f"{mode}: SIGKILL was confused with a deadline"
+                    if result.signal != 9 or result.timed_out:
+                        raise AssertionError(f"{mode}: SIGKILL was confused with a deadline")
                 elif case == "abort":
-                    assert result.signal == 6 and not result.timed_out, f"{mode}: abort did not preserve SIGABRT"
+                    if result.signal != 6 or result.timed_out:
+                        raise AssertionError(f"{mode}: abort did not preserve SIGABRT")
                 else:
-                    assert (
-                        result.exit_status == ({"exit3": 3, "exit124": 124, "exit137": 137}.get(case, 0))
-                        and not result.timed_out
-                    )
+                    if (
+                        result.exit_status != {"exit3": 3, "exit124": 124, "exit137": 137}.get(case, 0)
+                        or result.timed_out
+                    ):
+                        raise AssertionError(f"{mode}/{case}: exit status or deadline differs from expected")
                 row = asdict(result)
                 for name in ("stdout", "stderr"):
                     data = row.pop(name)

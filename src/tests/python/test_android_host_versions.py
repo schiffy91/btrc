@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import shlex
 import struct
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.process_limits import TOOL_TIMEOUT
 from tools.target_hosts.android.avd import AvdManager
 from tools.target_hosts.android.build import AndroidHostBuilder
 from tools.target_hosts.android.executor import AndroidEmulatorExecutor, ExecutionRequest
@@ -137,37 +141,125 @@ def test_avd_requires_kvm_before_spawning(tmp_path, monkeypatch):
 
 
 class FakeAdb:
-    """A deterministic transport double; its results are not emulator evidence."""
+    """Stateful shell-v2 transport model, not Android execution evidence."""
 
     def __init__(
-        self, exit_status=0, *, app_timeout=False, signum=0, timed_out=False, shell_status=0, status_error=None
+        self,
+        exit_status=0,
+        *,
+        app_timeout=False,
+        signum=0,
+        timed_out=False,
+        shell_status=0,
+        status_error=None,
+        app_exit_status=3,
+        pending_polls=0,
+        fail_write=False,
+        lingering_polls=0,
+        uninstall_error=False,
+        cleanup_uninstall_error=False,
+        stop_error=False,
+        install_error=False,
     ):
         self.calls = []
         self.exit_status = exit_status
         self.app_timeout = app_timeout
         self.signum, self.timed_out, self.shell_status = signum, timed_out, shell_status
         self.status_error = status_error
+        self.app_exit_status = app_exit_status
+        self.pending_polls = pending_polls
+        self.fail_write = fail_write
+        self.lingering_polls = lingering_polls
+        self.uninstall_error = uninstall_error
+        self.cleanup_uninstall_error = cleanup_uninstall_error
+        self.stop_error = stop_error
+        self.install_error = install_error
+        self.installed = self.launched = False
+        self.files = {}
+        self.writes = {}
+        self.status_polls = 0
 
     def __call__(self, command, **options):
         arguments = command[3:]
         self.calls.append((arguments, options))
         code, stdout, stderr = 0, b"", b""
         if arguments[:2] == ["shell", "-T"]:
-            code, stdout = self.shell_status, b"stdout\x00bytes"
+            words = shlex.split(arguments[2])
+            if words[0] == "cd":
+                code, stdout = self.shell_status, b"stdout\x00bytes"
+            else:
+                assert words[:4] == ["run-as", "dev.btrc.testhost.fixture", "sh", "-c"]
+                assert len(words) == 5 and self.installed
+                script = words[4]
+                if script.startswith("cat > files/"):
+                    name = script.removeprefix("cat > files/")
+                    assert name in ("request.bin", "stdin")
+                    if self.fail_write:
+                        code, stderr = 1, b"write failed"
+                    else:
+                        self.files[name] = self.writes[name] = options["input"]
+                else:
+                    match = re.fullmatch(r"if \[ ! -e files/([a-z_]+) \]; then exit 42; fi; cat files/\1", script)
+                    assert match is not None, f"unknown remote script: {script}"
+                    name = match[1]
+                    assert self.launched
+                    if name == "exit_status":
+                        self.status_polls += 1
+                        if self.status_error == "timeout":
+                            raise subprocess.TimeoutExpired(command, options["timeout"])
+                        if self.status_error in ("transport", "client"):
+                            return subprocess.CompletedProcess(
+                                command, 255 if self.status_error == "transport" else 1, b"", b"disconnected"
+                            )
+                        if self.pending_polls:
+                            self.pending_polls -= 1
+                            return subprocess.CompletedProcess(command, 42, b"", b"")
+                    code, stdout = (0, self.files[name]) if name in self.files else (42, b"")
         elif arguments[:2] == ["exec-out", "cat"]:
+            # Shell-mode raw reads use content validation, not a remote exit code.
             stdout = (
                 f"{self.exit_status} {self.signum} {int(self.timed_out)}\n".encode()
                 if arguments[-1].endswith("/status")
                 else b"stderr\x00bytes"
             )
-        elif arguments[-1] == "files/exit_status":
-            if self.status_error == "timeout":
-                raise subprocess.TimeoutExpired(command, options["timeout"])
-            if self.status_error == "transport":
-                return subprocess.CompletedProcess(command, 255, b"", b"disconnected")
-            code, stdout = (1, b"") if self.app_timeout else (0, b"3\n")
-        elif arguments[-1] == "files/signal":
-            code = 1
+        elif arguments[0] == "install":
+            assert not self.installed
+            self.installed = True
+            if self.install_error:
+                code, stderr = 1, b"install failed after creating package"
+        elif arguments[0] == "uninstall":
+            if self.uninstall_error or (self.cleanup_uninstall_error and self.launched):
+                code, stderr = 1, b"uninstall failed"
+            elif not self.installed:
+                code, stderr = 1, b"package is not installed"
+            else:
+                self.installed = False
+                self.files.clear()
+        elif arguments[:4] == ["shell", "pm", "list", "packages"]:
+            stdout = b"package:dev.btrc.testhost.fixture\n" if self.installed else b""
+        elif arguments[:3] == ["shell", "am", "start"]:
+            assert self.installed and set(self.files) == {"request.bin", "stdin"}
+            self.launched = True
+            self.files.update(stdout=b"app\x00stdout", stderr=b"app\x00stderr")
+            if not self.app_timeout:
+                self.files.update(exit_status=f"{self.app_exit_status}\n".encode(), signal=f"{self.signum}\n".encode())
+        elif arguments[:3] == ["shell", "am", "force-stop"]:
+            if self.stop_error:
+                code, stderr = 1, b"force-stop failed"
+        elif arguments[:2] == ["shell", "pidof"]:
+            if self.lingering_polls:
+                self.lingering_polls -= 1
+                stdout = b"1234\n"
+            else:
+                code = 1
+        elif arguments[:2] == ["shell", "run-as"]:
+            assert arguments[3:] == ["mkdir", "-p", "files"] and self.installed
+        elif arguments[:2] == ["shell", "getprop"]:
+            stdout = b"fake-build\n"
+        elif arguments[:2] in (["shell", "mkdir"], ["shell", "chmod"], ["shell", "rm"]) or arguments[0] == "push":
+            pass
+        else:
+            raise AssertionError(f"unexpected adb command: {arguments}")
         return subprocess.CompletedProcess(command, code, stdout, stderr)
 
 
@@ -233,8 +325,10 @@ def test_app_mode_collects_exit_and_uninstalls_a_fresh_sandbox(tmp_path):
     result = executor.run(ExecutionRequest("probe", ("arg",), b"input"))
     assert result.exit_status == 3 and not result.timed_out
     assert len([args for args, _ in transport.calls if args[0] == "uninstall"]) == 2
-    writes = [(args, options["input"]) for args, options in transport.calls if args[0] == "exec-in"]
-    assert writes[1][1] == b"input"
+    assert transport.writes["stdin"] == b"input"
+    assert transport.writes["request.bin"] == executor.configuration(ExecutionRequest("probe", ("arg",)))
+    assert result.stdout == b"app\x00stdout" and result.stderr == b"app\x00stderr"
+    assert result.signal is None
     assert result.provenance["install_s"] >= 0 and result.provenance["launch_s"] >= 0
 
 
@@ -252,11 +346,15 @@ def test_app_poll_timeout_is_bounded_by_remaining_program_budget(tmp_path):
     executor = executor_bundle(tmp_path, transport, "app")
     result = executor.run(ExecutionRequest("probe", timeout_s=1))
     assert result.timed_out
-    assert all(0 < options["timeout"] <= 1 for args, options in transport.calls if args[-1] == "files/exit_status")
+    assert all(
+        0 < options["timeout"] <= 1
+        for args, options in transport.calls
+        if args[:2] == ["shell", "-T"] and "files/exit_status" in args[-1]
+    )
     assert any(args[:3] == ["shell", "am", "force-stop"] for args, _ in transport.calls)
 
 
-@pytest.mark.parametrize("error", ["timeout", "transport"])
+@pytest.mark.parametrize("error", ["timeout", "transport", "client"])
 def test_app_infrastructure_failure_always_force_stops_and_uninstalls(tmp_path, error):
     transport = FakeAdb(status_error=error)
     executor = executor_bundle(tmp_path, transport, "app")
@@ -293,3 +391,200 @@ def test_bundle_cannot_escape_its_artifact_directory(tmp_path):
     with pytest.raises(ValueError, match="inside the bundle"):
         AndroidEmulatorExecutor(tmp_path, "emulator-5554", transport=transport).prepare(tmp_path, "fixture")
     assert transport.calls == []
+
+
+@pytest.mark.parametrize("status,signum", [(0, 0), (3, 0), (124, 0), (137, 0), (134, 6), (137, 9)])
+def test_app_pending_status_then_normal_or_signal_exit(tmp_path, status, signum):
+    transport = FakeAdb(app_exit_status=status, signum=signum, pending_polls=1)
+    executor = executor_bundle(tmp_path, transport, "app")
+    result = executor.run(ExecutionRequest("probe"))
+    assert (result.exit_status, result.signal, result.timed_out) == (
+        None if signum else status,
+        signum or None,
+        False,
+    )
+    assert transport.status_polls == 2
+    assert not transport.installed
+
+
+def test_failed_app_payload_write_never_launches_and_cleans_up(tmp_path):
+    transport = FakeAdb(fail_write=True)
+    executor = executor_bundle(tmp_path, transport, "app")
+    with pytest.raises(RuntimeError, match="write failed"):
+        executor.run(ExecutionRequest("probe"))
+    assert not transport.launched and not transport.installed
+
+
+@pytest.mark.parametrize("payload", [b"cat: not found\n", b"", b"-1\n", b"256\n", b"3\n4\n", b"9" * 5000])
+def test_app_rejects_corrupt_exit_status(payload):
+    with pytest.raises(RuntimeError, match="invalid exit status"):
+        AndroidEmulatorExecutor.status_number(payload, "exit status", 255)
+
+
+def test_app_shutdown_waits_for_a_dying_process(tmp_path):
+    transport = FakeAdb(lingering_polls=1)
+    executor = executor_bundle(tmp_path, transport, "app")
+    executor.run(ExecutionRequest("probe"))
+    assert len([args for args, _ in transport.calls if args[:2] == ["shell", "pidof"]]) == 2
+
+
+def test_unknown_program_is_a_request_error(tmp_path):
+    executor = executor_bundle(tmp_path, FakeAdb())
+    with pytest.raises(ValueError, match="unknown program_id"):
+        executor.run(ExecutionRequest("unknown"))
+
+
+class LocalAdbProtocol:
+    """Run the real POSIX shell boundary with AOSP client quoting/status rules.
+
+    This exercises shell parsing, files and streams on the host. It is not adb,
+    run-as permission, NativeActivity or emulator execution evidence.
+    """
+
+    def __init__(self, root):
+        self.root = root
+        (root / "files").mkdir()
+        shim = root / "run-as"
+        shim.write_text('#!/bin/sh\nshift\nexec "$@"\n')
+        shim.chmod(0o755)
+
+    def __call__(self, command, **options):
+        arguments = command[3:]
+        if arguments[:2] == ["shell", "-T"]:
+            script = " ".join(arguments[2:])
+            raw = False
+        else:
+            assert arguments[0] in ("exec-in", "exec-out")
+            # AOSP client/commandline.cpp: argv[1] verbatim, then escape_arg.
+            script = arguments[1] + "".join(" " + shlex.quote(word) for word in arguments[2:])
+            raw = True
+        completed = subprocess.run(
+            ["sh", "-c", script],
+            cwd=self.root,
+            env={**os.environ, "PATH": str(self.root) + os.pathsep + os.environ["PATH"]},
+            input=options["input"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if raw else subprocess.PIPE,
+            timeout=TOOL_TIMEOUT,
+            check=False,
+        )
+        return subprocess.CompletedProcess(
+            command,
+            0 if raw else completed.returncode,
+            b"" if arguments[0] == "exec-in" else completed.stdout,
+            b"" if raw else completed.stderr,
+        )
+
+
+def test_app_transfer_and_missing_file_status_use_real_shell_boundaries(tmp_path):
+    transport = LocalAdbProtocol(tmp_path)
+    executor = AndroidEmulatorExecutor(tmp_path, "emulator-5554", transport=transport)
+    request = ExecutionRequest(
+        "probe", ("space and ' quote", "", "$(touch should-not-exist)"), env={"VALUE": "line\nvalue"}
+    )
+    payloads = {"request.bin": executor.configuration(request), "stdin": bytes(range(256)) + b"\r\n\x00"}
+    for name, payload in payloads.items():
+        executor.remote("run-as", "dev.btrc.testhost.fixture", "sh", "-c", f"cat > files/{name}", input=payload)
+        assert (tmp_path / "files" / name).read_bytes() == payload
+    assert executor.app_file("dev.btrc.testhost.fixture", "exit_status", optional=True) is None
+    (tmp_path / "files/exit_status").write_bytes(b"3\n")
+    assert executor.app_file("dev.btrc.testhost.fixture", "exit_status") == b"3\n"
+    (tmp_path / "files/exit_status").unlink()
+    (tmp_path / "files/exit_status").mkdir()
+    with pytest.raises(RuntimeError, match="transport failed for exit_status"):
+        executor.app_file("dev.btrc.testhost.fixture", "exit_status", optional=True)
+    with pytest.raises(RuntimeError, match="transport failed for signal"):
+        executor.app_file("dev.btrc.testhost.fixture", "signal")
+    completed = executor.remote("sh", "-c", "printf 'output'; printf 'error' >&2; exit 7", check=False)
+    assert (completed.returncode, completed.stdout, completed.stderr) == (7, b"output", b"error")
+    assert not (tmp_path / "should-not-exist").exists()
+
+
+def test_raw_exec_regression_reproduces_double_quote_and_missing_file(tmp_path):
+    transport = LocalAdbProtocol(tmp_path)
+    executor = AndroidEmulatorExecutor(tmp_path, "emulator-5554", transport=transport)
+    executor.adb(
+        "exec-in",
+        "run-as",
+        "dev.btrc.testhost.fixture",
+        "sh",
+        "-c",
+        shlex.quote("cat > files/request.bin"),
+        input=b"lost",
+    )
+    assert not (tmp_path / "files/request.bin").exists()
+    missing = executor.adb("exec-out", "run-as", "dev.btrc.testhost.fixture", "cat", "files/exit_status")
+    assert missing.returncode == 0 and missing.stderr == b"" and b"files/exit_status" in missing.stdout
+    # Without prequoting, one raw-client escape pass reaches the inner shell.
+    executor.adb("exec-in", "run-as", "dev.btrc.testhost.fixture", "sh", "-c", "cat > files/request.bin", input=b"ok")
+    assert (tmp_path / "files/request.bin").read_bytes() == b"ok"
+
+
+def test_fixture_checks_remain_enabled_with_optimized_python():
+    script = """
+from tools.target_hosts.android.check import HostFixtureCheck
+from tools.target_hosts.android.executor import ExecutionResult
+class BrokenExecutor:
+    programs = {"app": {}}
+    def run(self, request):
+        if request.argv[0] != "stdout":
+            raise RuntimeError("the first fixture's incorrect exit status was accepted")
+        return ExecutionResult(7, None, b"stdout\\n", b"", False, 0, {})
+try:
+    HostFixtureCheck(BrokenExecutor()).run()
+except AssertionError as error:
+    if "exit status" not in str(error):
+        raise RuntimeError("fixture failed for an unrelated reason") from error
+else:
+    raise RuntimeError("optimized Python disabled fixture validation")
+"""
+    subprocess.run([sys.executable, "-O", "-c", script], cwd=REPO, check=True, timeout=TOOL_TIMEOUT)
+
+
+def test_failed_uninstall_cannot_reuse_an_installed_apps_stale_success(tmp_path):
+    transport = FakeAdb(uninstall_error=True)
+    transport.installed = True
+    transport.files.update(exit_status=b"0\n", signal=b"0\n", stdout=b"stale", stderr=b"")
+    executor = executor_bundle(tmp_path, transport, "app")
+    with pytest.raises(RuntimeError, match="still installed"):
+        executor.run(ExecutionRequest("probe"))
+    assert not transport.launched
+    assert not any(args[0] == "install" for args, _ in transport.calls)
+    assert transport.files["stdout"] == b"stale"
+
+
+def test_missing_package_is_confirmed_before_fresh_install(tmp_path):
+    transport = FakeAdb()
+    executor = executor_bundle(tmp_path, transport, "app")
+    executor.run(ExecutionRequest("probe"))
+    commands = [args for args, _ in transport.calls]
+    inventory = next(index for index, args in enumerate(commands) if args[:4] == ["shell", "pm", "list", "packages"])
+    install = next(index for index, args in enumerate(commands) if args[0] == "install")
+    assert inventory < install
+
+
+def test_app_cleanup_preserves_primary_error_and_attempts_both_actions(tmp_path):
+    transport = FakeAdb(status_error="transport", stop_error=True, cleanup_uninstall_error=True)
+    executor = executor_bundle(tmp_path, transport, "app")
+    with pytest.raises(RuntimeError, match="app file transport failed") as caught:
+        executor.run(ExecutionRequest("probe"))
+    notes = " ".join(caught.value.__notes__)
+    assert "force-stop failed" in notes and "still installed" in notes
+    assert len([args for args, _ in transport.calls if args[0] == "uninstall"]) == 2
+
+
+def test_install_failure_still_attempts_package_cleanup(tmp_path):
+    transport = FakeAdb(install_error=True)
+    executor = executor_bundle(tmp_path, transport, "app")
+    with pytest.raises(RuntimeError, match="install failed"):
+        executor.run(ExecutionRequest("probe"))
+    assert not transport.installed
+    assert any(args[:3] == ["shell", "am", "force-stop"] for args, _ in transport.calls)
+
+
+def test_cleanup_failure_cannot_turn_a_successful_fixture_into_a_pass(tmp_path):
+    transport = FakeAdb(stop_error=True)
+    executor = executor_bundle(tmp_path, transport, "app")
+    with pytest.raises(ExceptionGroup, match="app cleanup failed"):
+        executor.run(ExecutionRequest("probe"))
+    assert not transport.installed

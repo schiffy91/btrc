@@ -6,11 +6,15 @@ This standalone host implements the proposed CL-P1-17 executor shape:
 and a debug-signed, Java-free NativeActivity app mode. Compiler integration
 belongs to CX-P1-09 after the target runner contract lands.
 
-The local unit tests exercise transport boundaries using a fake adb. They are
-not Android execution evidence. The cloud container has no `/dev/kvm`;
+The local unit tests use a stateful fake and real host-shell subprocesses to
+exercise quoting, binary file transfer, separate streams and command status.
+They are not Android execution evidence. The cloud container has no `/dev/kvm`;
 emulator boot, app installation, launch timings and on-device fixture results
 remain unverified until the requested `host-android.yml` workflow runs.
-No workflow file is added by this packet under the owner's explicit rule.
+No workflow file, including a proposed workflow, is added under the owner's
+explicit instruction in the standing goal: "Never edit ... CI-workflow files."
+The integrator's repository correction does not supersede that instruction;
+the workflow remains a concrete REQUEST in the PR body.
 
 ## Versions and setup
 
@@ -47,6 +51,11 @@ or older revisions. If Google's current packages drift, the integrator must
 install the exact Linux archives and checksums in `nix/android-repo-overlay.json`,
 not relax the check. API 29/36 images use `google_apis;x86_64`. No x86_64
 16 KiB image is invented: API 36's pinned 16 KiB arm64 image remains MAC-P1-03.
+Platform and system-image package revisions are not pinned independently:
+verification checks their API-specific payloads exist, not their package
+revision. The package-list unit check covers the SDK helper, not a workflow's
+installation commands. Checking that the eventual workflow consumes
+`sdk packages` and runs `sdk verify` remains part of the workflow REQUEST.
 
 This cloud environment's full `.#platforms` realization failed because
 `ncurses-abi5-compat` invokes an i386 Bash binary unsupported by its kernel
@@ -120,6 +129,12 @@ keeping deliberate exits such as 124/137 distinct from signals and timeouts.
 It kills the child process group at its deadline and cleans up descendants.
 Toybox timeout remains an outer infrastructure guard; its failure or an adb
 transport failure is an infrastructure error, not a program result.
+The adb client receives empty stdin for commands that do not transfer a
+payload, so it cannot consume the invoking terminal's input. An adb timeout
+beyond the supervisor's outer guard is reported as an infrastructure error.
+If the supervisor itself hangs, the outer guard does not prove that its
+detached child process group has stopped; full failure-path process cleanup
+remains a CX-P1-09 prerequisite.
 
 The app uses `hasCode=false`, loads `libbtrcprogram.so`, and calls
 `android_main`. A worker forks a child that reads a length-delimited request,
@@ -129,14 +144,35 @@ including signals. This process boundary is a spike for C fixtures; its
 post-fork behavior is not a claim of JNI/ART or arbitrary threaded-program
 safety. Those require the later Android host/interop contract.
 
+App request writes and file reads use `adb shell -T` with shell protocol v2,
+one explicit quoting pass, separate stdout/stderr and the remote exit status.
+Raw `exec-in`/`exec-out` return success after a successful connection and merge
+error output; they cannot be used to infer whether a status file exists.
+The app writes `signal=0` on a normal exit before publishing its atomic exit
+marker. Missing status is an explicit pending result; failed reads and malformed
+status values are infrastructure errors. The host-shell regression demonstrates
+the previous double-quoting and missing-file failures but does not exercise
+Android `run-as`, adb itself or NativeActivity.
+
 Each app run uninstalls/reinstalls the fixture package before launch. Timeout
-force-stops the app and verifies `pidof` is empty before uninstall. Status
+force-stops the app and polls `pidof` for at most two seconds before uninstall. Status
 polls are bounded by the remaining program deadline; infrastructure failures
 also force-stop and uninstall in cleanup. Only
 `cwd_policy="isolated"` is supported until CL-P1-17 specifies other policies.
 Request strings are NUL-free; the binary stdin stream has no such restriction.
 The entry rename is tested on hand-written C, not btrc-emitted C; integration
 must request CL-P1-21 if it needs a compiler entry-symbol option.
+An initial uninstall failure is tolerated only when a successful package-list
+query proves the package is absent; a still-installed package fails before
+`install -r` can preserve stale success markers. Cleanup attempts both force-stop
+and uninstall, including a failed installation, and attaches cleanup errors to
+the original failure. A cleanup error after an otherwise successful fixture
+remains a host failure.
+The program deadline starts after `am start -W` returns; installation and launch
+retain their own bounded transport deadlines and separately recorded timings.
+Fixture checks remain active under optimized Python (`python -O`). Harness
+files currently share the fixture cwd; separating control files from program
+data and proving cleanup of arbitrary descendants belong to CX-P1-09.
 
 ## Verification and integrator handoff
 
@@ -151,3 +187,7 @@ this host directory and the version test, plus workflow_dispatch. Upload the
 JSON reports, emulator logs and LOAD tables even on failure. New workflow
 policy and any `ci/tiers.toml` integration remain integrator-owned; no missing
 emulator evidence is represented as passed or skipped unit coverage.
+Acceptance remains open until both emulator matrices actually execute and the
+run artifacts include LOAD tables, boot/install/launch timings and fixture
+results. Previously reported cross-build and APK packaging success is historical
+build evidence, not a revalidated result of the transport repair.

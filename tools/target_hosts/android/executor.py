@@ -52,7 +52,7 @@ class AndroidEmulatorExecutor:
         self.programs = {}
         self.base = f"/data/local/tmp/btrc/{uuid.uuid4().hex}"
 
-    def adb(self, *arguments, timeout=30, check=True, input=None):
+    def adb(self, *arguments, timeout=30, check=True, input=b""):
         completed = self.transport(
             [str(self.adb_path), "-s", self.serial, *arguments],
             input=input,
@@ -65,6 +65,39 @@ class AndroidEmulatorExecutor:
                 f"adb {' '.join(arguments[:3])} failed ({completed.returncode}): {completed.stderr.decode(errors='replace')}"
             )
         return completed
+
+    def remote(self, *arguments, **options):
+        # shell -T uses shell-v2: binary streams, separate stderr and remote status.
+        # Unlike exec-in/out, shell joins its arguments without escaping them.
+        return self.adb("shell", "-T", shlex.join(arguments), **options)
+
+    def app_file(self, package, name, *, optional=False, timeout=30):
+        # A dedicated missing-file status distinguishes pending from a failed cat
+        # or run-as. Raw exec-out cannot make that distinction (it returns 0).
+        path = shlex.quote(f"files/{name}")
+        completed = self.remote(
+            "run-as",
+            package,
+            "sh",
+            "-c",
+            f"if [ ! -e {path} ]; then exit 42; fi; cat {path}",
+            timeout=timeout,
+            check=False,
+        )
+        if optional and completed.returncode == 42:
+            return None
+        if completed.returncode:
+            raise RuntimeError(
+                f"adb app file transport failed for {name} ({completed.returncode}): "
+                f"{completed.stderr.decode(errors='replace')}"
+            )
+        return completed.stdout
+
+    @staticmethod
+    def status_number(payload, name, maximum):
+        if not re.fullmatch(rb"[0-9]{1,3}\n?", payload) or int(payload) > maximum:
+            raise RuntimeError(f"app wrote an invalid {name}")
+        return int(payload)
 
     def prepare(self, bundle_dir, label):
         self.bundle = Path(bundle_dir).resolve()
@@ -114,6 +147,8 @@ class AndroidEmulatorExecutor:
         self.validate(request)
         if self.bundle is None:
             raise RuntimeError("prepare a bundle before running")
+        if request.program_id not in self.programs:
+            raise ValueError(f"unknown program_id: {request.program_id}")
         program = self.programs[request.program_id]
         for key in ("install_s", "launch_s"):
             self.provenance.pop(key, None)
@@ -146,7 +181,10 @@ class AndroidEmulatorExecutor:
                     *request.argv,
                 ]
                 command = f"cd {shlex.quote(remote)} && {shlex.join(arguments)} <stdin 2>stderr"
-                completed = self.adb("shell", "-T", command, timeout=request.timeout_s + 15, check=False)
+                try:
+                    completed = self.adb("shell", "-T", command, timeout=request.timeout_s + 15, check=False)
+                except subprocess.TimeoutExpired as error:
+                    raise RuntimeError("adb shell transport stalled beyond the supervisor guard") from error
                 stderr = self.adb("exec-out", "cat", f"{remote}/stderr").stdout
                 if completed.returncode:
                     raise RuntimeError(
@@ -186,14 +224,15 @@ class AndroidEmulatorExecutor:
     def app(self, request, program):
         package = program["package"]
         # A unique package per fixture and uninstall/install guarantee a clean sandbox.
-        self.adb("uninstall", package, check=False)
-        installed = time.monotonic()
-        self.adb("install", "-r", str(self.artifact(program, "apk")), timeout=120)
-        self.provenance["install_s"] = time.monotonic() - installed
+        self.uninstall_app(package)
+        primary_error = None
         try:
+            installed = time.monotonic()
+            self.adb("install", "-r", str(self.artifact(program, "apk")), timeout=120)
+            self.provenance["install_s"] = time.monotonic() - installed
             self.adb("shell", "run-as", package, "mkdir", "-p", "files")
             for name, payload in (("request.bin", self.configuration(request)), ("stdin", request.stdin)):
-                self.adb("exec-in", "run-as", package, "sh", "-c", shlex.quote(f"cat > files/{name}"), input=payload)
+                self.remote("run-as", package, "sh", "-c", f"cat > files/{name}", input=payload)
             launched = time.monotonic()
             self.adb("shell", "am", "start", "-W", "-n", f"{package}/android.app.NativeActivity")
             self.provenance["launch_s"] = time.monotonic() - launched
@@ -201,43 +240,62 @@ class AndroidEmulatorExecutor:
             status = None
             while (remaining := deadline - time.monotonic()) > 0:
                 try:
-                    completed = self.adb(
-                        "exec-out",
-                        "run-as",
-                        package,
-                        "cat",
-                        "files/exit_status",
-                        timeout=min(remaining, 15),
-                        check=False,
-                    )
+                    payload = self.app_file(package, "exit_status", optional=True, timeout=min(remaining, 15))
                 except subprocess.TimeoutExpired as error:
                     if remaining > 15:
                         raise RuntimeError("adb app status transport stalled before the program deadline") from error
                     break
-                if completed.returncode == 255:
-                    raise RuntimeError("adb transport failed while polling app status")
-                if completed.returncode == 0:
-                    status = int(completed.stdout.strip())
+                if payload is not None:
+                    status = self.status_number(payload, "exit status", 255)
                     break
                 time.sleep(min(0.05, max(0, deadline - time.monotonic())))
             timed_out = status is None
             if timed_out:
                 self.stop_app(package)
-            stdout = self.adb("exec-out", "run-as", package, "cat", "files/stdout", check=False).stdout
-            stderr = self.adb("exec-out", "run-as", package, "cat", "files/stderr", check=False).stdout
-            signal = self.adb("exec-out", "run-as", package, "cat", "files/signal", check=False)
-            signum = int(signal.stdout.strip()) if signal.returncode == 0 else None
-            return (None if timed_out or signum else status, signum, stdout, stderr, timed_out)
+            stdout = self.app_file(package, "stdout", optional=timed_out) or b""
+            stderr = self.app_file(package, "stderr", optional=timed_out) or b""
+            signal = self.app_file(package, "signal", optional=timed_out)
+            signum = self.status_number(signal, "signal", 64) if signal is not None else 0
+            return (None if timed_out or signum else status, signum or None, stdout, stderr, timed_out)
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            try:
-                self.stop_app(package)
-            finally:
-                self.adb("uninstall", package)
+            errors = []
+            for cleanup in (self.stop_app, self.uninstall_app):
+                try:
+                    cleanup(package)
+                except Exception as error:
+                    errors.append(error)
+            if primary_error is not None:
+                for error in errors:
+                    primary_error.add_note(f"Android cleanup also failed: {error!r}")
+            elif errors:
+                raise ExceptionGroup("Android app cleanup failed", errors)
+
+    def uninstall_app(self, package):
+        result = self.adb("uninstall", package, check=False)
+        if result.returncode == 0:
+            return
+        # "Not installed" and a genuine uninstall failure may have the same adb
+        # status. Only a successful package query proving absence permits reuse.
+        inventory = self.adb("shell", "pm", "list", "packages", package).stdout.decode(errors="replace").splitlines()
+        if any(not re.fullmatch(r"package:[A-Za-z0-9_.]+", line) for line in inventory):
+            raise RuntimeError("adb returned an invalid package inventory after uninstall failure")
+        if f"package:{package}" in inventory:
+            raise RuntimeError(f"adb uninstall failed and {package} is still installed")
 
     def stop_app(self, package):
         self.adb("shell", "am", "force-stop", package)
-        if self.adb("shell", "pidof", package, check=False).stdout.strip():
-            raise RuntimeError("app process survived force-stop")
+        deadline = time.monotonic() + 2
+        while (remaining := deadline - time.monotonic()) > 0:
+            result = self.adb("shell", "pidof", package, check=False, timeout=remaining)
+            if result.returncode not in (0, 1) or result.stderr:
+                raise RuntimeError("adb transport failed while verifying app shutdown")
+            if not result.stdout.strip():
+                return
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+        raise RuntimeError("app process survived force-stop")
 
     def close(self):
         if self.bundle is not None:
