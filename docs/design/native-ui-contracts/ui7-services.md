@@ -297,9 +297,8 @@ terminal transfer outcome. UI3 owns hit testing and input capture; a drop target
 does not take over their coordinate model.
 
 ```btrc
-interface ITransferSession {
+interface ITransferSession extends IServiceOperation {
 	ServiceStart<ITransferSession> begin(TransferOffer offer, ITransferCompletion completion);
-	void cancel();
 	void accept(TransferAcceptance acceptance);
 }
 ```
