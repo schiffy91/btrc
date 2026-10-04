@@ -1,0 +1,390 @@
+{
+  "name": "Unnamed",
+  "role": "application",
+  "children": [
+    {
+      "name": "BTRC GTK4 WebGPU probe",
+      "role": "frame",
+      "child_count": 2,
+      "children": [
+        {
+          "name": "",
+          "role": "panel",
+          "child_count": 3,
+          "children": [
+            {
+              "name": "",
+              "role": "text",
+              "child_count": 0,
+              "children": []
+            },
+            {
+              "name": "",
+              "role": "scroll pane",
+              "child_count": 1,
+              "children": [
+                {
+                  "name": "",
+                  "role": "panel",
+                  "child_count": 1,
+                  "children": [
+                    {
+                      "name": "",
+                      "role": "panel",
+                      "child_count": 2,
+                      "children": [
+                        {
+                          "name": "",
+                          "role": "image",
+                          "child_count": 0,
+                          "children": []
+                        },
+                        {
+                          "name": "Overlay",
+                          "role": "button",
+                          "child_count": 1,
+                          "children": [
+                            {
+                              "name": "Overlay",
+                              "role": "label",
+                              "child_count": 0,
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "",
+              "role": "scroll pane",
+              "child_count": 2,
+              "children": [
+                {
+                  "name": "",
+                  "role": "list",
+                  "child_count": 17,
+                  "children": [
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0000",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0001",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0002",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0003",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0004",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0005",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0006",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0007",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0008",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0009",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0010",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0011",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0012",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0013",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0014",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "",
+                      "role": "list item",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "row-0015",
+                          "role": "label",
+                          "child_count": 0,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ],
+                  "truncated": "children-not-fully-enumerated"
+                },
+                {
+                  "name": "",
+                  "role": "scroll bar",
+                  "child_count": 1,
+                  "children": [
+                    {
+                      "name": "",
+                      "role": "panel",
+                      "child_count": 0,
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "",
+          "role": "grouping",
+          "child_count": 1,
+          "children": [
+            {
+              "name": "",
+              "role": "panel",
+              "child_count": 1,
+              "children": [
+                {
+                  "name": "",
+                  "role": "panel",
+                  "child_count": 3,
+                  "children": [
+                    {
+                      "name": "",
+                      "role": "panel",
+                      "child_count": 0,
+                      "children": []
+                    },
+                    {
+                      "name": "BTRC GTK4 WebGPU probe",
+                      "role": "label",
+                      "child_count": 0,
+                      "children": []
+                    },
+                    {
+                      "name": "",
+                      "role": "panel",
+                      "child_count": 1,
+                      "children": [
+                        {
+                          "name": "",
+                          "role": "grouping",
+                          "child_count": 3,
+                          "children": [
+                            {
+                              "name": "Minimize",
+                              "role": "button",
+                              "child_count": 0,
+                              "children": []
+                            },
+                            {
+                              "name": "Maximize",
+                              "role": "button",
+                              "child_count": 0,
+                              "children": []
+                            },
+                            {
+                              "name": "Close",
+                              "role": "button",
+                              "child_count": 0,
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "capture": {
+    "atspi": "captured",
+    "application": "Unnamed",
+    "window": "BTRC GTK4 WebGPU probe",
+    "nodes": 56,
+    "roles": {
+      "application": 1,
+      "button": 4,
+      "frame": 1,
+      "grouping": 2,
+      "image": 1,
+      "label": 18,
+      "list": 1,
+      "list item": 16,
+      "panel": 8,
+      "scroll bar": 1,
+      "scroll pane": 2,
+      "text": 1
+    },
+    "truncated_nodes": 1,
+    "node_budget": 256,
+    "children_per_node_limit": 16
+  }
+}

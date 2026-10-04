@@ -1,0 +1,4 @@
+
+(process:91852): dbind-WARNING **: 01:21:36.161: AT-SPI: Error in GetItems, sender=:1.2, error=Object does not exist at path “/org/a11y/atspi/cache”
+{"application": "Unnamed", "atspi": "captured", "children_per_node_limit": 16, "node_budget": 256, "nodes": 56, "roles": {"application": 1, "button": 4, "frame": 1, "grouping": 2, "image": 1, "label": 18, "list": 1, "list item": 16, "panel": 8, "scroll bar": 1, "scroll pane": 2, "text": 1}, "truncated_nodes": 1, "window": "BTRC GTK4 WebGPU probe"}
+AT-SPI exit=0
