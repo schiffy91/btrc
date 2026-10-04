@@ -212,7 +212,7 @@ class CompilerCommand:
         if requested is not None and len(requested) > 1:
             print("error: --target may be specified only once", file=self._diagnostics.stderr)
             raise SystemExit(1)
-        selected = self.compiler.select_target(requested[0] if requested else None)
+        selected = Compiler.select_target(requested[0] if requested else None)
         if not isinstance(selected, str):
             print(f"error: {selected.message}", file=self._diagnostics.stderr)
             raise SystemExit(1)
