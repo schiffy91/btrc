@@ -366,6 +366,25 @@ class SemanticTypeSystem {
 
 	class bool sameNode(Node left, Node right) { return (uintptr_t)left == (uintptr_t)right; }
 
+	/* The direct members a static initializer list zero-fills: those after the
+	 * plan's last initialized slot. A union's initializer names exactly one
+	 * member, so it fills none (a second element would be excess). */
+	class Vector<Node> zeroFilledMembers(Node record, SemanticInitializerPlan plan) {
+		Vector<Node> filled = [];
+		if (record.isUnion) { return filled; }
+		Vector<Node> members = SemanticTypeSystem.recordMembers(record);
+		int next = 0;
+		for slot in plan.slots {
+			int position = SemanticTypeSystem.memberPosition(members, slot.path.get(0)) + 1;
+			if (position > next) { next = position; }
+		}
+		while (next < members.len) {
+			filled.push(members.get(next));
+			next = next + 1;
+		}
+		return filled;
+	}
+
 	class int memberPosition(Vector<Node> members, Node member) {
 		int index = 0;
 		while (index < members.len) {

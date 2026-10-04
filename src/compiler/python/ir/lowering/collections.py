@@ -438,11 +438,9 @@ class CollectionLowerer:
                 self._analyzed.initializer_slot_plans, self._analyzed, declaration, node
             )
             slot_types = {id(slot.element): slot.type for slot in plan.slots}
-            members = TypeSystem.record_members(declaration)
-            last = max((TypeSystem.member_position(members, slot.path[0]) for slot in plan.slots), default=-1)
             return StaticAggregatePlan(
                 element_types=tuple(slot_types.get(id(element)) for element in node.elements),
-                padding=tuple(member.type for member in members[last + 1 :]),
+                padding=tuple(member.type for member in TypeSystem.zero_filled_members(declaration, plan)),
             )
         if canonical is not None and self._is_static_tuple(canonical):
             arguments = tuple(canonical.generic_args)

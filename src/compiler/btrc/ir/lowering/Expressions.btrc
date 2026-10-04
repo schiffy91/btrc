@@ -3433,16 +3433,7 @@ class ExpressionLowerer {
 		Node? declaration = self.staticInitializerRecord(canonical);
 		if (declaration == null) { return padding; }
 		SemanticInitializerPlan plan = SemanticTypeSystem.initializerSlots(declaration, aggregate, self.analyzed);
-		Vector<Node> members = SemanticTypeSystem.recordMembers(declaration);
-		int next = 0;
-		for slot in plan.slots {
-			int position = SemanticTypeSystem.memberPosition(members, slot.path.get(0)) + 1;
-			if (position > next) { next = position; }
-		}
-		while (next < members.len) {
-			padding.push(members.get(next).type);
-			next = next + 1;
-		}
+		for member in SemanticTypeSystem.zeroFilledMembers(declaration, plan) { padding.push(member.type); }
 		return padding;
 	}
 

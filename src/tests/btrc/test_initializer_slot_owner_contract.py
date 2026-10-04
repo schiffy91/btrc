@@ -26,15 +26,12 @@ PYTHON = REPO / "src/compiler/python"
 LSP = REPO / "src/devex/lsp"
 
 OWNER = "the initializer-slot owner itself"
-PADDING = "zero-fills the members after the plan's last slot; elements are only counted for a tuple"
 
 BTRC_ALLOWED = {
     "analyzer/Types.btrc::planInitializerSlots": OWNER,
-    "ir/lowering/Expressions.btrc::staticInitializerPadding": PADDING,
 }
 PYTHON_ALLOWED = {
     "analyzer/types.py::TypeSystem.plan_initializer_slots": OWNER,
-    "ir/lowering/collections.py::CollectionLowerer.plan_static": PADDING,
     "ir/lowering/exceptions.py::PointerFlow._expression": "walks IRInitializerList.elements and IRCompoundLiteral.fields, lowered IR",
 }
 
@@ -134,6 +131,86 @@ def test_no_site_indexes_a_member_list_directly() -> None:
     assert _PYTHON_INDEXED_MEMBERS.search("return TypeSystem.record_fields(declaration)[index].type")
 
 
+_RECORD_OWNER_CALLS = frozenset({"record_fields", "record_members", "record_declarators", "record_named_members"})
+# Helpers that hand a record's member list out of the owner, so a caller
+# could index it by an element position (the old _aggregate_field_types +
+# plan_static split shape).
+PYTHON_MEMBER_LIST_RETURNS = {
+    "analyzer/types.py::TypeSystem.record_fields": OWNER,
+    "analyzer/types.py::TypeSystem._aggregate_field_types": (
+        "pairs each member type with its visiting set for any() walks; no element is ever paired with it"
+    ),
+}
+_BTRC_MEMBER_LIST_RETURN = re.compile(r"\breturn\s+SemanticTypeSystem\.record(?:Fields|Members|Declarators)\(")
+
+
+def _returns_member_list(value: ast.AST | None) -> bool:
+    """Whether a return value is a record owner's list or a sequence built from one."""
+
+    def owner_call(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute | ast.Name)
+            and getattr(node.func, "attr", getattr(node.func, "id", "")) in _RECORD_OWNER_CALLS
+        )
+
+    def built_from_owner(node: ast.AST) -> bool:
+        return isinstance(node, ast.ListComp | ast.GeneratorExp | ast.SetComp) and any(
+            owner_call(generator.iter) for generator in node.generators
+        )
+
+    if value is None:
+        return False
+    if owner_call(value) or built_from_owner(value):
+        return True
+    return (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id in {"list", "tuple"}
+        and any(built_from_owner(argument) or owner_call(argument) for argument in value.args)
+    )
+
+
+def python_member_list_returns(source: str) -> list[str]:
+    found = []
+
+    def visit(node: ast.AST, scope: tuple[str, ...]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                visit(child, (*scope, child.name))
+            elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                returns = [inner for inner in ast.walk(child) if isinstance(inner, ast.Return)]
+                if any(_returns_member_list(inner.value) for inner in returns):
+                    found.append(".".join((*scope, child.name)))
+                visit(child, (*scope, child.name))
+
+    visit(ast.parse(source), ())
+    return found
+
+
+def test_no_helper_hands_a_member_list_out_for_index_pairing() -> None:
+    btrc_hits = [
+        f"{path.relative_to(BTRC).as_posix()}:{number}"
+        for path in sorted(BTRC.rglob("*.btrc"))
+        if path.relative_to(BTRC).as_posix() not in {"analyzer/Types.btrc"}
+        and not path.relative_to(BTRC).as_posix().startswith("generated/")
+        for number, line in enumerate(path.read_text().split("\n"), 1)
+        if _BTRC_MEMBER_LIST_RETURN.search(line)
+    ]
+    assert btrc_hits == []
+    found = set()
+    for path in sorted([*PYTHON.rglob("*.py"), *LSP.rglob("*.py")]):
+        if path.name == "generated.py" or "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(PYTHON if path.is_relative_to(PYTHON) else REPO).as_posix()
+        found.update(f"{relative}::{name}" for name in python_member_list_returns(path.read_text()))
+    assert found - set(PYTHON_MEMBER_LIST_RETURNS) == set(), "a helper returns a record's member list"
+    assert set(PYTHON_MEMBER_LIST_RETURNS) - found == set(), "stale allow-list entries"
+    split = "def types(self, d):\n    return [f.type for f in TypeSystem.record_fields(d)]\n"
+    assert python_member_list_returns(split) == ["types"]
+    assert _BTRC_MEMBER_LIST_RETURN.search("\t\treturn SemanticTypeSystem.recordFields(declaration);")
+
+
 def test_the_scans_see_index_pairing() -> None:
     """Both scanners recognize the pairing loops the owner replaced."""
     btrc = (
@@ -191,3 +268,14 @@ def test_python_slot_plan_follows_members_and_designators() -> None:
     first_member = TypeSystem.plan_initializer_slots(union, BraceInitializer(elements=[one, two]), tables)
     assert [slot.path for slot in first_member.slots] == [(kind,)]
     assert (first_member.capacity, first_member.excess) == (1, 1)
+
+    # Static zero-fill: members after the last slot, and none for a union.
+    flat = StructDecl(name="P", fields=[kind, tail])
+    assert TypeSystem.zero_filled_members(
+        flat, TypeSystem.plan_initializer_slots(flat, BraceInitializer(elements=[one]), tables)
+    ) == (tail,)
+    assert TypeSystem.zero_filled_members(
+        flat, TypeSystem.plan_initializer_slots(flat, BraceInitializer(elements=[]), tables)
+    ) == (kind, tail)
+    one_member = TypeSystem.plan_initializer_slots(union, BraceInitializer(elements=[one]), tables)
+    assert TypeSystem.zero_filled_members(union, one_member) == ()

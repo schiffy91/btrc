@@ -1190,6 +1190,17 @@ class TypeSystem:
             )
         return InitializerSlotPlan(initializer, tuple(slots), capacity, excess)
 
+    @classmethod
+    def zero_filled_members(cls, record, plan: InitializerSlotPlan) -> tuple:
+        """The direct members a static initializer list zero-fills: those after
+        the plan's last initialized slot. A union's initializer names exactly
+        one member, so it fills none (a second element would be excess)."""
+        if record.is_union:
+            return ()
+        members = cls.record_members(record)
+        last = max((cls.member_position(members, slot.path[0]) for slot in plan.slots), default=-1)
+        return members[last + 1 :]
+
     @staticmethod
     def member_position(members, member) -> int:
         """The position of ``member`` (by identity) among ``members``, or -1."""

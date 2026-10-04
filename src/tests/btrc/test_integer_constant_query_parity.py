@@ -174,3 +174,81 @@ def test_both_compilers_answer_the_integer_constant_query_identically(
         pinned_reference, pinned_selfhost = harness.compile(_program(probe.expression, str(probe.answer)))
         assert pinned_selfhost == pinned_reference
         assert pinned_reference.message == _DUPLICATE
+
+
+# Known integer-constant divergences after CL-C-08, recorded so later lanes see
+# them: probe -> (meaning, program, Python's first diagnostic, btrc's first
+# diagnostic). ``None`` is acceptance; a duplicate label is ``_DUPLICATE``.
+# Each is pinned by the test below, so a lane that brings the two compilers
+# together must move its row into BATTERY. The C2 shared-owner commit changed
+# only Python's ``long long`` rule; none of these was in scope.
+_CASE_PAIR = "enum Color {{ RED, GREEN }};\n{prefix}int main() {{\n    long long x = 0;\n    switch (x) {{\n        case {label}: break;\n        case {label}: break;\n    }}\n    return 0;\n}}\n"
+KNOWN_DIVERGENCES = {
+    "errno": (
+        "Python: not a constant; btrc: a C macro it cannot evaluate",
+        _CASE_PAIR.format(prefix="", label="errno"),
+        _REFUSED,
+        None,
+    ),
+    "lowercase-source-macro": (
+        "a declared lowercase source macro: Python cannot evaluate it; btrc says not a constant",
+        _CASE_PAIR.format(prefix="#define limit 4\n", label="limit"),
+        None,
+        _REFUSED,
+    ),
+    "enum-cast": (
+        "(Color)1: Python cannot evaluate (no range for an enum target); btrc folds it to 1",
+        _CASE_PAIR.format(prefix="", label="(Color)1"),
+        None,
+        _DUPLICATE,
+    ),
+    "case-division-by-zero": (
+        "7 / 0 in a case label: Python's expression analysis reports first; btrc reports the constant refusal",
+        _CASE_PAIR.format(prefix="", label="7 / 0"),
+        "Division by zero",
+        _REFUSED,
+    ),
+    "enum-value-from-other-enum": (
+        "enum Other { X = RED }: Python accepts a member of another enum; btrc refuses it",
+        "enum Color { RED, GREEN };\nenum Other { X = RED };\nint main() { return 0; }\n",
+        None,
+        "Enum value 'X' requires an integral constant expression using only earlier members",
+    ),
+}
+
+# Divergences no switch probe reaches, or that depend on the platform:
+# - an unsupported binary operator over an operand btrc cannot evaluate:
+#   btrc answers "cannot evaluate", Python "not a constant";
+# - the cast-range tables are separate (btrc ConstantValidator.integralCastRange,
+#   Python NumericLiteralSemantics._type_limits); nothing compares them;
+# - float-literal casts: btrc converts with strtold (80-bit on Linux x86-64,
+#   double on macOS arm64), Python and gcc/clang with double. On Linux x86-64
+#   `(unsigned long long)18446744073709551615.0` is "cannot evaluate" in btrc and
+#   "not a constant" in Python, and `(long long)9007199254740993.0` is
+#   9007199254740993 in btrc and 9007199254740992 in Python; on macOS arm64
+#   both compilers agree.
+PLATFORM_DIVERGENCES = {
+    "float-cast-beyond-double": (
+        _CASE_PAIR.format(prefix="", label="(unsigned long long)18446744073709551615.0"),
+        _REFUSED,
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(KNOWN_DIVERGENCES))
+def test_recorded_integer_constant_divergences_still_hold(harness: ConstantHarness, name: str) -> None:
+    _meaning, program, python, btrc = KNOWN_DIVERGENCES[name]
+    reference, selfhost = harness.compile(program)
+    assert (reference.message, selfhost.message) == (python, btrc)
+
+
+@pytest.mark.skipif(
+    not (sys.platform.startswith("linux") and os.uname().machine == "x86_64"),
+    reason="btrc's strtold is 80-bit only on Linux x86-64",
+)
+@pytest.mark.parametrize("name", sorted(PLATFORM_DIVERGENCES))
+def test_recorded_platform_divergences_still_hold(harness: ConstantHarness, name: str) -> None:
+    program, python, btrc = PLATFORM_DIVERGENCES[name]
+    reference, selfhost = harness.compile(program)
+    assert (reference.message, selfhost.message) == (python, btrc)
