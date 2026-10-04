@@ -338,6 +338,38 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - The four macOS shell rows add time to the macOS unit shard.
   - `CX-UIA-01` (PR #33), the rest of the UI0 focused gate: the agent runbook, `tools/ui/codex-setup.sh`, and a coverage test that every native GUI test is in `NATIVE_GUI_TESTS`. It passes with #40's new shell tests on the merged tree.
   - Locally, the skip-ledger tests fail when `TMPDIR` lies inside the checkout, because their node ids become repository-relative. The batch gates now keep `TMPDIR` under `~/.cache`.
+- **Batch 31 (2026-10-04): the hosted-platform extractor, and the first approved Stage 26 design.**
+  - `CL-P1-07` (`stage24/hosted-platform-extractor`) adds `tools/hosted_platform.py` (`HostedPlatformExtractor`) and its test. It produces the seven Linux, MinGW and NDK unavailability fragments that `CL-P1-08` copies into `hosted_abi.toml`. They are on the never-merge branch `stage24/hosted-platform-fragments` (`1020307`).
+  - Two review rounds sent it back:
+    - **Round 1.** The conservative `windows-aarch64-msvc` table kept MinGW-only POSIX macros and `struct timezone` available.
+    - **Round 2.** It also kept the dllimport objects `daylight` and `tzname`, and the Apple text dump missed inherited availability.
+  - The final rule keeps a name on the MSVC row only if ISO C11 declares it in a UCRT-shared header, or the Windows API declares it as the same kind. Over-refusal is allowed until the runner extraction. A verifier mutation-tested both fixes.
+  - Integrator decisions:
+    - `environ` counts as declared through the stdlib's own `extern` on every row but MSVC;
+    - the Linux rows use zig's default glibc floor (2.31);
+    - struct members count as declared;
+    - a name is refused only if every declaration is unavailable.
+  - Integrator corrections to `platform-target-contract.md` §2.2, §2.3 and §2.5 and to the `CL-P1-07`/`08` packets:
+    - bionic r29 has no `explicit_bzero` at any API level;
+    - it declares the C11 `<threads.h>` names at API 29 as static inlines;
+    - the probe and the declared rule are written down;
+    - `CL-P1-08` gains the MSVC must-refuse names and `environ`.
+  - Hand-off to `CL-P1-08`: the ISO set comes from the host's libc, so the extractor must run on a Linux host. A Darwin host would reopen the leak. Run the ISO probe through zig with a fixed Linux target, or refuse a non-Linux host, before anyone reruns it.
+  - `CL-P2-01` round 2 reviewed Codex's three revisions at `854f33f`, `3d962e0` and `eb8a6e9` with a resolution check, a fresh adversarial review and a verifier:
+    - `mobile-storage.md` (`CX-P2-03`, PR #50): approved under the standing design-approval rule and merged in this batch. The round-1 blocker is resolved: btrcc-C-changing pieces now go to Claude landings under the full §3.4 gate. Its 11 non-blocking items and 10 requests to Claude are on the PR; the requests become scope for `CL-P2-14` and the storage landing. It assumes adaptation defaults that wait for the owner's sign-off on `platform-adaptations.md`.
+    - `windows-os-services.md` (`CX-P2-01`, PR #52): all seven round-1 blockers are resolved:
+      - the btrcc import closure reads no headers;
+      - an 11-row provider matrix;
+      - a system-library request;
+      - a 192-bit file identity;
+      - the named-pipe protocol;
+      - executable resolution that refuses batch files;
+      - the reparse grammar.
+
+      One new blocker remains: the Daemon supervisor executable has no build, bundle or trusted-location mechanism.
+    - `http-transport.md` (`CX-P2-02`, PR #51): all five round-1 blockers are resolved. Two new blockers:
+      - the frozen client validation lets providers send different requests, and Android silently turns a GET with a body into a POST;
+      - the Windows row cancels synchronous WinHTTP requests with `WinHttpCloseHandle`, which Microsoft forbids.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
