@@ -105,6 +105,11 @@ are distinct; IOS cannot alias MacOS. Shared policy and byte conversion live
 in portable HTTP files with no foreign SDK imports. Any new portable files need
 the CX-P2-09 owner/CL-P2-01 scope recorded before editing them.
 
+The Linux-first transition retains an explicit MacOS legacy transport provider
+that adapts the existing curl transaction for existing string calls until the
+separately approved NSURLSession step lands. Its temporary contract and
+qualification limits are specified under interim availability below.
+
 This revision chooses the **link-plan-aware corpus harness route**. The facade
 keeps importing HTTPClient, and Http, HttpFramingSafety and HttpClientLocal stay
 in the corpus. Consequently even facade/server-only imports may require the
@@ -289,6 +294,7 @@ URL credentials or response bodies in failure diagnostics.
 | Invalid/missing final status | HTTP_FAILURE_INVALID_STATUS | `curl returned an invalid HTTP status` |
 | Incremental body limit | HTTP_FAILURE_RESPONSE_TOO_LARGE | `response body is too large` |
 | New header bound / local provider failure | HTTP_FAILURE_HEADER_TOO_LARGE / HTTP_FAILURE_PROVIDER | Proposed codes 1001 / 2; 1001 deliberately avoids size-code 63; approval required |
+| Additive capability unavailable on interim MacOS provider | HTTP_FAILURE_UNSUPPORTED | Not reachable from existing string signatures; proposed byte/options outcome only, approval required |
 
 HTTP status errors are not transport failures. Distinguish 401/403 from local OS
 permission denial. A native error unknown to the common taxonomy stays
@@ -486,7 +492,8 @@ SIGPIPE-policy and short-I/O coverage on POSIX plus equivalent Windows cases;
 HttpClientLocal becomes the real local-client corpus. New provider suites add
 TLS, cancellation and redirect coverage absent from today's eight programs.
 
-For the no-executable proof, compile first, then run the complete HTTP corpus
+For each native transport being qualified, the no-executable proof must compile
+first, then run the complete HTTP corpus
 and provider tests with a minimal explicit PATH whose entries contain no curl
 or curl.exe. Assert shutil.which('curl') is None and on Windows also check
 curl.exe; use absolute paths for the test interpreter, compiled programs and
@@ -505,11 +512,34 @@ result does not fill Windows, macOS, simulator, emulator or device evidence.
 
 ### Interim availability and case accounting
 
+The first Linux landing must also select a real MacOS legacy provider over the
+existing curl implementation. Existing macOS string calls and their corpus
+remain working; do not create an unconfigured MacOS row or silently skip that
+previously supported surface. That temporary provider preserves current
+subprocess transaction/status/body behavior beneath the approved versioned
+facade validation, and keeps its direct-exec/protocol
+security guard and legacy plumbing fixture, updating their expected admission
+results for those deliberate common URL/header changes. It does not qualify the new
+requestBytes/options/redirect/cancellation contract: those additive calls return
+HTTP_FAILURE_UNSUPPORTED before I/O until the native provider lands.
+CL-P2-01 must freeze that transitional outcome and amend the packet scope.
+The existing string API has no new options, so this does not change its accepted
+call shape. Common corpus coverage still runs on macOS; native-only new cases
+get exact temporary capability rules approved by Claude.
+
+Inventory continues to say macOS HTTPS client via curl, and the no-executable/
+no-ChildProcess proof applies only to Linux at this stage. Never claim macOS
+curl-free or Stage-26 HTTP completion from that intermediate green run. The
+NSURLSession landing atomically replaces this legacy provider, removes its
+plumbing fixture/old process guard and temporary capability rules, updates the
+inventory and enables the full macOS native corpus/no-process proof. There is
+no automatic runtime fallback from a failed native request to curl.
+
 Until their real providers land, windows/ios/android HTTPTransport rows remain
 Stage-24 missing, not stub providers. Claude supplies expected-skip fragments for
 Http, HttpFramingSafety and HttpClientLocal on affected runner rows, and updates
-platform-inventory cells including the obsolete "HTTPS client via curl" title,
-regression IDs and aggregate. This is honest interim availability, not final
+platform-inventory cells, including replacing "HTTPS client via curl" only for
+rows whose native provider has actually landed, regression IDs and aggregate. This is honest interim availability, not final
 Stage-26 acceptance. HTTPServer's iOS inventory also waits for Q7's decision.
 
 Case IDs are stable by family: HTTP-URL-*, HTTP-HEADER-*, HTTP-BYTES-*,
@@ -536,7 +566,7 @@ OAuth callbacks belong to a dedicated authentication session owner.
 
 | Packet | Handoff |
 | --- | --- |
-| CX-P2-09 | Land portable HTTP seam plus Linux libcurl first; split MacOS NSURLSession into a separately approved dependent step and shared endpoint tests after approval/CL-P2-04/provider filters. Record the proposed App.Browser owner; this packet does not own a new portable App contract or promise Linux/macOS browser implementation. Request assignment for those providers. |
+| CX-P2-09 | Land portable HTTP seam plus Linux libcurl with the explicit MacOS legacy provider and preserved corpus first; split MacOS NSURLSession into a separately approved dependent step and shared endpoint tests after approval/CL-P2-04/provider filters. Record the proposed App.Browser owner; this packet does not own a new portable App contract or promise Linux/macOS browser implementation. Request assignment for those providers. |
 | CX-P2-10 | Windows HTTP and Winsock; App/Windows Browser provider uses ShellExecuteExW with verb open, validates allowed schemes and maps Win32 failure. Use the shared COM STA owner and SEE_MASK_FLAG_NO_UI|SEE_MASK_NOASYNC; do not initialize an unrelated apartment model. If requesting a process handle, close it; never wait for browser exit as page-load proof. |
 | CX-P2-11 | Separate IOS transport and Q7 reconciliation. Browser remains missing until CX-P2-36 provides UIApplication; then UIApplication open on the main thread supplies its completion outcome. In-app Safari is a separate presentation choice, not transport fallback. |
 | CX-P2-12 | Android HTTP and network permission fixtures; explicitly defer Browser to CX-P2-42. |
@@ -556,7 +586,7 @@ Workaround: Existing client remains until this seam and its dependencies pass.
 
 REQUEST(CL-REQ): Assign the link-plan-aware corpus/test-c11 harness before CX-P2-09 lands.
 Repro: Http, HttpFramingSafety and HttpClientLocal import HTTPClient; current runner.py links only fixed libraries and ignores native provider plans.
-Expected / actual: Both compiler paths and all test-c11 cells consume pkg-config/framework/native/adapter units, with a bounded run-environment hook for PATH scrub; conftest/Makefile/skip changes are Claude-owned. Replace the process-security guard with both-frontend static no-child-process reachability proof. Keep the facade and all three corpus programs.
+Expected / actual: Both compiler paths and all test-c11 cells consume pkg-config/framework/native/adapter units, with a bounded run-environment hook for PATH scrub; conftest/Makefile/skip changes are Claude-owned. Replace the process-security guard with both-frontend static no-child-process reachability proof for each native target when it lands; retain the MacOS legacy guard until its native replacement. Keep the facade and all three corpus programs.
 Blocks: Any native HTTPTransport import; no known-red intermediate landing.
 Workaround: None; native suites supplement rather than replace corpus coverage.
 
@@ -576,7 +606,7 @@ Blocks: Windows socket build. Workaround: provider cannot edit runtime headers.
 REQUEST(CL-P2-07): Qualify Apple delegate queue executor/release executor, task-level delegates, completion blocks passed as delegate arguments and data-payload R1/R2 leases.
 Expected / actual: Native-state-only callbacks on the serial SDK queue, final didBecomeInvalidWithError drain; re-review native-interop-ownership's closed executor set. Alternatively approve a native-only HTTP/MacOS and HTTP/IOS transaction header.
 Blocks: MacOS half of CX-P2-09 and CX-P2-11, after CL-C-40 unless Q48 changes. Split Linux first rather than imply Apple interop already works.
-Workaround: No handwritten compiler lowering or cross-thread ARC.
+Workaround: Retain the explicit MacOS curl provider and existing string/corpus coverage; new native-only capabilities remain unsupported. No macOS curl-free claim, handwritten compiler lowering or cross-thread ARC.
 
 REQUEST(CL-P2-09): Supply checked HttpURLConnection JNI calls and Java thread-key ownership.
 Expected / actual: No direct attach/detach, shared JNIEnv or Java callbacks; retained R1 native state survives deadline/quiescence.
@@ -587,7 +617,7 @@ Expected / actual: CL-P1-10 native bindings and CL-P1-14/15 provider selection/c
 Blocks: Platform implementation acceptance. Workaround: none; this revision does not edit workflows or workstream assignments.
 
 REQUEST(CL-P2-01): Apply final integration fragments for HTTP/btrc.toml transport/socket rows, fixture-only trust exports, expected skips for each landing and platform-inventory regression/title/aggregate/iOS-server cells.
-Expected / actual: Missing targets stay classified missing until native evidence; no stub success.
+Expected / actual: Missing targets stay classified missing until native evidence; no stub success. Preserve the explicit MacOS legacy provider/corpus until the atomic NSURLSession replacement, with target-specific process guards, typed unsupported additive calls and exact temporary capability rules; do not mark its inventory native or curl-free early.
 Blocks: Green, accurately qualified platform landing.
 Workaround: None. Any macOS cleartext exception or exact-capacity Bytes requirement needs a separate concrete request rather than disabling ATS or changing compiler imports.
 ```
