@@ -11,10 +11,10 @@ import ast
 import fnmatch
 import json
 import os
-from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -94,11 +94,17 @@ def test_native_gui_target_drives_every_fixture() -> None:
     fixtures = {path.relative_to(REPO).as_posix() for root in FIXTURE_ROOTS for path in (REPO / root).rglob("*.btrc")}
     drivers = {module: (REPO / module).read_text() for module in selected}
     assert fixtures, "GUI/tray fixture roots are empty"
-    assert not (missing := _uncovered(fixtures, drivers, selected)), f"Fixtures missing from focused GUI gate: {sorted(missing)}"
+    assert not (missing := _uncovered(fixtures, drivers, selected)), (
+        f"Fixtures missing from focused GUI gate: {sorted(missing)}"
+    )
 
 
 def test_target_expands_literals_and_the_future_ui_glob() -> None:
-    available = {"src/tests/python/test_native_gui.py", "src/tests/python/test_native_ui_new.py", "src/tests/python/test_other.py"}
+    available = {
+        "src/tests/python/test_native_gui.py",
+        "src/tests/python/test_native_ui_new.py",
+        "src/tests/python/test_other.py",
+    }
     makefile = (
         "NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui.py) \\\n"
         " $(sort $(wildcard src/tests/python/test_native_ui_*.py))\n"
@@ -112,27 +118,34 @@ def test_unselected_driver_does_not_hide_a_missing_fixture() -> None:
     assert _uncovered({fixture}, drivers, {"selected.py"}) == {fixture}
 
 
-@pytest.mark.parametrize("reference", ['"NativeKeyboard"', '"NativeKeyboard.btrc"', '"src/tests/native/gui/NativeKeyboard.btrc"'])
+@pytest.mark.parametrize(
+    "reference", ['"NativeKeyboard"', '"NativeKeyboard.btrc"', '"src/tests/native/gui/NativeKeyboard.btrc"']
+)
 def test_literal_names_count(reference: str) -> None:
     assert _covered("src/tests/native/gui/NativeKeyboard.btrc", _driver_patterns(f"source = {reference}"))
 
 
 def test_named_subtree_and_constrained_filename_template_count() -> None:
-    patterns = _driver_patterns('directory = "src/tests/native/gui/webgpu_child"\nname = f"MacOS{control}Conformance.btrc"')
+    patterns = _driver_patterns(
+        'directory = "src/tests/native/gui/webgpu_child"\nname = f"MacOS{control}Conformance.btrc"'
+    )
     assert _covered("src/tests/native/gui/webgpu_child/Consumer.btrc", patterns)
     assert _covered("src/tests/native/gui/MacOSScrollConformance.btrc", patterns)
     assert not _covered("src/tests/native/gui/Unrelated.btrc", patterns)
 
 
-@pytest.mark.parametrize("source", [
-    'root = "src/tests/native/gui"',
-    'root = "src/tests/native/tray"',
-    'name = f"src/tests/native/gui/{fixture}.btrc"',
-    'name = f"{fixture}.btrc"',
-    'platform = "linux"',
-    'name = "*.btrc"',
-    'name = "src/tests/native/gui/*.btrc"',
-])
+@pytest.mark.parametrize(
+    "source",
+    [
+        'root = "src/tests/native/gui"',
+        'root = "src/tests/native/tray"',
+        'name = f"src/tests/native/gui/{fixture}.btrc"',
+        'name = f"{fixture}.btrc"',
+        'platform = "linux"',
+        'name = "*.btrc"',
+        'name = "src/tests/native/gui/*.btrc"',
+    ],
+)
 def test_generic_anchors_do_not_claim_fixture_coverage(source: str) -> None:
     patterns = _driver_patterns(source)
     assert not _covered("src/tests/native/gui/linux/NewControl.btrc", patterns)
@@ -210,7 +223,9 @@ def test_setup_is_repeatable_and_platforms_are_opt_in(setup_environment: dict[st
 
 
 @pytest.mark.parametrize("stored_failure", ["0", "1"])
-def test_setup_persists_supplied_secret_only_when_needed(setup_environment: dict[str, str], stored_failure: str) -> None:
+def test_setup_persists_supplied_secret_only_when_needed(
+    setup_environment: dict[str, str], stored_failure: str
+) -> None:
     setup_environment.update(GH_TOKEN="synthetic-setup-secret", STORED_AUTH_FAILURE=stored_failure)
     result = _setup(setup_environment)
     assert result.returncode == 0, result.stderr
