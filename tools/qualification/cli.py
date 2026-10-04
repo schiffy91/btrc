@@ -262,7 +262,12 @@ class QualificationCommand:
             # the other commands (tiers, skip-gate on the CI plan jobs) never need.
             from tools.qualification.ui_catalog import UICatalog
 
-            catalog = UICatalog(arguments.ui_catalog)
+            try:
+                catalog = UICatalog(arguments.ui_catalog)
+            except (ValueError, KeyError) as error:
+                # A malformed shard, amendment or package manifest: the catalog cannot load, which is
+                # not the same as a catalog that loads with problems (exit 1).
+                raise LedgerSchemaError(f"ui catalog {arguments.ui_catalog}: {error}") from error
         report = QualificationReport(records, denominators, catalog)
         text = report.render_json() if arguments.format == "json" else report.render_markdown()
         if arguments.output is not None:

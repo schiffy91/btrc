@@ -214,6 +214,13 @@ class QualificationReport:
         ui_catalog: UICatalog | None = None,
     ) -> None:
         self.rollup = LedgerRollup(records)
+        if ui_catalog is not None and denominators is not None:
+            # The catalog counts the UI releases against its own merged records, so the ledger is
+            # not also counted against them: its UI slots live in the catalog, not in these records.
+            covered = set(ui_catalog.manifest.kinds())
+            denominators = DenominatorManifest(
+                [denominator for denominator in denominators.denominators if denominator.kind not in covered]
+            )
         self.denominators = denominators
         self.ui_catalog = UICatalogSection(ui_catalog) if ui_catalog is not None else None
         # Tables gain a retired column only when the ledger retires a slot, so a ledger without
@@ -572,9 +579,10 @@ class QualificationReport:
             "",
             "## UI catalog",
             "",
-            f"The UI0 seed ledger and its shards: {totals['frozen']} frozen, {totals['pending']} pending and "
-            f"{totals['retired']} retired slots. Frozen slots are the releases in force; pending slots are "
-            "admitted operations no release declares yet; a retired slot stays frozen and resolves by its decision.",
+            f"The UI0 seed ledger and its shards: {totals['frozen']} frozen and {totals['pending']} pending "
+            f"slots, {totals['retired']} of them retired. Frozen slots are the releases in force; pending slots "
+            "are admitted operations no release declares yet; a retired slot keeps its partition and resolves by "
+            "its decision.",
             "",
             "### Partitions",
             "",
@@ -629,7 +637,8 @@ class QualificationReport:
             return text.replace("|", "\\|")
 
         header = "| " + " | ".join(column.replace("_", " ") for column in columns) + " |"
-        rule = "|" + "|".join("---:" if all(isinstance(row.get(c), int) for row in rows) else "---" for c in columns)
+        numeric = [c for c in columns if rows and all(isinstance(row.get(c), int) for row in rows)]
+        rule = "|" + "|".join("---:" if c in numeric else "---" for c in columns)
         return [header, rule + "|", *("| " + " | ".join(cell(row.get(c)) for c in columns) + " |" for row in rows)]
 
 

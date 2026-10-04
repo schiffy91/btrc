@@ -130,7 +130,7 @@ def checkout(tmp_path: Path) -> Path:
 EXPECTED = """\
 ## UI catalog
 
-The UI0 seed ledger and its shards: 35 frozen, 20 pending and 10 retired slots. Frozen slots are the releases in force; pending slots are admitted operations no release declares yet; a retired slot stays frozen and resolves by its decision.
+The UI0 seed ledger and its shards: 35 frozen and 20 pending slots, 10 of them retired. Frozen slots are the releases in force; pending slots are admitted operations no release declares yet; a retired slot keeps its partition and resolves by its decision.
 
 ### Partitions
 
@@ -287,7 +287,7 @@ def test_a_report_without_the_catalog_has_no_ui_section(checkout: Path):
     assert "ui_catalog" not in report.to_json()
 
 
-def test_catalog_problems_fail_the_report(checkout: Path):
+def test_catalog_problems_fail_the_report(checkout: Path, capsys):
     families = checkout / "docs/design/native-ui-catalog/families.toml"
     text = families.read_text(encoding="utf-8")
     # Keep only the macOS cell: the other four family cells lose their only writer.
@@ -295,9 +295,38 @@ def test_catalog_problems_fail_the_report(checkout: Path):
 
     problems = QualificationReport([], ui_catalog=UICatalog(checkout)).problems()
 
-    assert problems == [
-        "ui catalog: family-cell: 4 of 5 declared slots have no record (e.g. N01 android, N01 ios, N01 linux, N01 windows)"
-    ]
+    missing = "family-cell: 4 of 5 declared slots have no record (e.g. N01 android, N01 ios, N01 linux, N01 windows)"
+    assert problems == [f"ui catalog: {missing}"]
+    assert QualificationCommand().run(["report", "--ui-catalog", str(checkout)]) == 1
+    assert f"ui catalog: {missing}" in capsys.readouterr().err
+
+
+def test_a_catalog_that_cannot_load_is_an_input_error(checkout: Path, capsys):
+    amendments = checkout / "docs/design/ui0-source-amendments.toml"
+    amendments.write_text(amendments.read_text(encoding="utf-8") + "[[removals]\n", encoding="utf-8")
+
+    assert QualificationCommand().run(["report", "--ui-catalog", str(checkout)]) == 2
+    assert f"qualification: ui catalog {checkout}: " in capsys.readouterr().err
+
+
+def test_the_catalog_owns_the_ui_denominators(checkout: Path, capsys):
+    """With the catalog, --denominators counts the UI releases once: against the catalog, not the ledger."""
+
+    manifest = str(checkout / "tools/qualification/denominators.toml")
+
+    assert QualificationCommand().run(["report", "--ui-catalog", str(checkout), "--denominators", manifest]) == 0
+    assert "## Frozen denominators" not in capsys.readouterr().out
+    ledger = checkout / "ledger.toml"
+    ledger.write_text(
+        'schema = "btrc.qualification.ledger/1"\n\n'
+        '[[records]]\nsubject = { kind = "test", id = "src/tests/x.py::test_a", platform = "linux" }\n'
+        'evidence = { status = "passed" }\n'
+        'provenance = { btrc_revision = "fixture", recorded_at = "2026-10-04T00:00:00Z" }\n',
+        encoding="utf-8",
+    )
+    command = ["report", "--no-ui-catalog", "--ledger", str(ledger), "--denominators", manifest]
+    assert QualificationCommand().run(command) == 1
+    assert "family-cell: 5 of 5 declared slots have no record" in capsys.readouterr().err
 
 
 def test_the_report_command_renders_a_checkouts_catalog(checkout: Path, tmp_path: Path, capsys):
