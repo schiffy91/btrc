@@ -964,7 +964,7 @@ class TranslationUnitLowerer:
                 yield method.return_type
                 yield from (parameter.type for parameter in method.params)
         elif isinstance(declaration, StructDecl):
-            yield from (field.type for field in declaration.fields)
+            yield from (field.type for field in TypeSystem.record_fields(declaration))
         elif isinstance(declaration, RichEnumDecl):
             for variant in declaration.variants:
                 yield from (parameter.type for parameter in variant.params)

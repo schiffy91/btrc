@@ -1165,10 +1165,8 @@ class ClassLowerer:
             return
         provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
         fields = []
-        for f in decl.fields:
+        for f in TypeSystem.record_declarators(decl):
             if f.type and f.type.is_array and f.type.array_size:
-                from src.compiler.python.analyzer.types import TypeSystem
-
                 base_type = TypeSystem.strip_outer_storage(f.type, array=True)
                 fields.append(
                     IRStructField(

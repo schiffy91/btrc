@@ -1205,9 +1205,10 @@ class RealtimeAnalyzer {
 		}
 		if (self.analyzed.structTable.has(base)) {
 			Node structure = self.analyzed.structTable.get(base);
+			Vector<Node> structureFields = SemanticTypeSystem.recordFields(structure);
 			int field = 0;
-			while (field < structure.fields().len) {
-				if (self.managedType(structure.fields().get(field).type, self.nextSeen(seen, base))) {
+			while (field < structureFields.len) {
+				if (self.managedType(structureFields.get(field).type, self.nextSeen(seen, base))) {
 					return true;
 				}
 				field = field + 1;

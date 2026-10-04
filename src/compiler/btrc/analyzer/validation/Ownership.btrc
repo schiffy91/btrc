@@ -179,9 +179,10 @@ class OwnershipValidator {
 		if (self.state.analyzed.structTable.has(name)) {
 			Node declaration = self.state.analyzed.structTable.get(name);
 			if (!declaration.isForward) {
+				Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
 				int fieldIndex = 0;
-				while (fieldIndex < declaration.fields().len) {
-					if (self.containsMutexStorageImpl(declaration.fields().get(fieldIndex).type, nested)) {
+				while (fieldIndex < declarationFields.len) {
+					if (self.containsMutexStorageImpl(declarationFields.get(fieldIndex).type, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;
@@ -246,9 +247,10 @@ class OwnershipValidator {
 		if (self.state.analyzed.structTable.has(name)) {
 			Node declaration = self.state.analyzed.structTable.get(name);
 			if (!declaration.isForward) {
+				Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
 				int fieldIndex = 0;
-				while (fieldIndex < declaration.fields().len) {
-					if (self.threadAggregateHasManagedReference(declaration.fields().get(fieldIndex).type, nested)) {
+				while (fieldIndex < declarationFields.len) {
+					if (self.threadAggregateHasManagedReference(declarationFields.get(fieldIndex).type, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;
@@ -305,9 +307,10 @@ class OwnershipValidator {
 		if (self.state.analyzed.structTable.has(name)) {
 			Node declaration = self.state.analyzed.structTable.get(name);
 			if (!declaration.isForward) {
+				Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
 				int fieldIndex = 0;
-				while (fieldIndex < declaration.fields().len) {
-					if (self.threadResultHasUnsizedArray(declaration.fields().get(fieldIndex).type, nested)) {
+				while (fieldIndex < declarationFields.len) {
+					if (self.threadResultHasUnsizedArray(declarationFields.get(fieldIndex).type, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;
@@ -393,9 +396,10 @@ class OwnershipValidator {
 		if (self.state.analyzed.structTable.has(name)) {
 			Node declaration = self.state.analyzed.structTable.get(name);
 			if (!declaration.isForward) {
+				Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
 				int fieldIndex = 0;
-				while (fieldIndex < declaration.fields().len) {
-					if (self.mutexPayloadMatches(declaration.fields().get(fieldIndex).type, query, nested)) {
+				while (fieldIndex < declarationFields.len) {
+					if (self.mutexPayloadMatches(declarationFields.get(fieldIndex).type, query, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;
@@ -796,7 +800,7 @@ class OwnershipValidator {
 		}
 	}
 
-	public Node? shallowElementType(Node aggregate, int index) {
+	public Node? shallowElementType(Node aggregate, Node initializer, int index) {
 		if (aggregate.isArray) {
 			return self.types.arrayElementType(aggregate);
 		}
@@ -811,17 +815,19 @@ class OwnershipValidator {
 			return null;
 		}
 		Node declaration = self.state.analyzed.structTable.get(structName);
-		if (declaration.isForward || index >= declaration.fields().len) {
+		if (declaration.isForward) {
 			return null;
 		}
-		return declaration.fields().get(index).type;
+		SemanticInitializerPlan plan = SemanticTypeSystem.initializerSlots(declaration, initializer, self.state.analyzed);
+		return SemanticTypeSystem.initializerSlotType(plan, initializer.elements().get(index));
 	}
 
-	public void rejectConvertedShallowElements(Node aggregate, Vector<Node> elements, Map<string, Node> vars) {
+	public void rejectConvertedShallowElements(Node aggregate, Node initializer, Map<string, Node> vars) {
+		Vector<Node> elements = initializer.elements();
 		int index = 0;
 		while (index < elements.len) {
 			Node element = elements.get(index);
-			Node? expected = self.shallowElementType(aggregate, index);
+			Node? expected = self.shallowElementType(aggregate, initializer, index);
 			Node? actual = self.types.inferType(element,  vars);
 			if (self.types.requiresTargetStringConversion(expected, actual)) {
 				TypeValidator.fail("implicit class-to-string conversion cannot be embedded " + "in a shallow aggregate because conversion creates " + "a caller-owned temporary; bind the converted string " + "to an owner first", element);
@@ -838,7 +844,7 @@ class OwnershipValidator {
 		string structName = StorageValidator.structTypeName(canonical, self.state.analyzed);
 		bool shallow = canonical.isArray || canonical.base == "Tuple" || (structName != "" && canonical.pointerDepth == 0);
 		if (shallow) {
-			self.rejectConvertedShallowElements(canonical, initializer.elements(), vars);
+			self.rejectConvertedShallowElements(canonical, initializer, vars);
 			self.rejectOwnedElements(initializer.elements(), "a shallow aggregate", vars);
 		}
 	}

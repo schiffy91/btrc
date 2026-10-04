@@ -890,9 +890,10 @@ class DeclarationValidator {
 			TypeValidator.fail("By-value struct dependency cycle involving '" + name + "'", declaration);
 		}
 		states.put(name, 1);
+		Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
 		int fieldIndex = 0;
-		while (fieldIndex < declaration.fields().len) {
-			Node field = declaration.fields().get(fieldIndex);
+		while (fieldIndex < declarationFields.len) {
+			Node field = declarationFields.get(fieldIndex);
 			string target = DeclarationValidator.structFieldTarget(field.type, declarations, registrations);
 			if (target != "") {
 				if (!declarations.has(target)) {
