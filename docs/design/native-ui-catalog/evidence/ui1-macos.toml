@@ -1,0 +1,48 @@
+# CX-UIA-10 AppKit shell observations. No new native run is claimed yet.
+# The native test embeds its JSON report in the existing uploaded JUnit as
+# property ui1_macos_evidence; build/ui-shell/ui1-macos-*.json is the local copy.
+# A passing observation harness does not turn a reported traversal gap into
+# implemented UI behavior. Classification remains in the operation/case owners.
+schema = "btrc.qualification.ledger/1"
+
+[[records]]
+subject = { kind = "test", id = "ui1.macos.native-shell-observation", platform = "macos", frontend = "reference" }
+classification = { note = "AX role/label/value/focus/frame dump, unchanged native key-view traversal, explicit GPU accessibility/focus status, 100 lifecycle cycles and 100 fresh-process restores; plain and ASan/UBSan rows. Hosted AppKit is stand-in evidence, not external AX trust or physical GPU timing." }
+evidence = { status = "implemented-unverified", reason = "New probe awaits actual macOS test_native_ui_shell_macos.py rows and JUnit JSON properties; Linux parser checks are not native execution." }
+
+[[records]]
+subject = { kind = "test", id = "ui1.macos.native-shell-observation", platform = "macos", frontend = "selfhost" }
+classification = { note = "Same real AppKit probe and acceptance as the reference frontend; no inferred native pass from Linux checks or earlier fixture CI." }
+evidence = { status = "implemented-unverified", reason = "New probe awaits actual macOS test_native_ui_shell_macos.py rows and JUnit JSON properties; Linux parser checks are not native execution." }
+
+[[records]]
+subject = { kind = "ui-case", id = "E46", platform = "macos", frontend = "reference" }
+classification = { note = "CX-UIA-10 source baseline at 72592d36: src/stdlib/GUI/MacOS/MacOSWindow.btrc:19 windowShouldClose returns true unconditionally. Dirty-close veto remains missing; shell teardown success does not implement E46." }
+
+[[records]]
+subject = { kind = "ui-case", id = "E46", platform = "macos", frontend = "selfhost" }
+classification = { note = "CX-UIA-10 source baseline at 72592d36: src/stdlib/GUI/MacOS/MacOSWindow.btrc:19 windowShouldClose returns true unconditionally. Dirty-close veto remains missing; shell teardown success does not implement E46." }
+
+[[records]]
+subject = { kind = "ui-operation", id = "IButton.setFont", platform = "macos", frontend = "reference" }
+classification = { note = "CX-UIA-10 source baseline at 72592d36: src/stdlib/GUI/MacOS/MacOSButton.btrc:86 rejects bordered button font sizes above 20 points; line74 also guards switching a larger-font button to bordered. No wider typography claim." }
+
+[[records]]
+subject = { kind = "ui-operation", id = "IButton.setFont", platform = "macos", frontend = "selfhost" }
+classification = { note = "CX-UIA-10 source baseline at 72592d36: src/stdlib/GUI/MacOS/MacOSButton.btrc:86 rejects bordered button font sizes above 20 points; line74 also guards switching a larger-font button to bordered. No wider typography claim." }
+
+[[records]]
+subject = { kind = "ui-operation", id = "ISelect.setFont", platform = "macos", frontend = "reference" }
+classification = { note = "CX-UIA-10 source baseline at 72592d36: src/stdlib/GUI/MacOS/MacOSSelect.btrc:110 rejects native selection font sizes above 20 points. The shell probe does not instantiate a select and makes no new runtime font claim." }
+
+[[records]]
+subject = { kind = "ui-operation", id = "ISelect.setFont", platform = "macos", frontend = "selfhost" }
+classification = { note = "CX-UIA-10 source baseline at 72592d36: src/stdlib/GUI/MacOS/MacOSSelect.btrc:110 rejects native selection font sizes above 20 points. The shell probe does not instantiate a select and makes no new runtime font claim." }
+
+[[records]]
+subject = { kind = "ui-operation", id = "IDirectoryPicker.chooseDirectory", platform = "macos", frontend = "reference" }
+classification = { note = "CX-UIA-10 source baseline at 72592d36: src/stdlib/GUI/MacOS/MacOSDirectoryPicker.btrc:41 calls NSOpenPanel.runModal synchronously. This shell test never opens a panel and does not claim asynchronous or cancellation-safe picker behavior." }
+
+[[records]]
+subject = { kind = "ui-operation", id = "IDirectoryPicker.chooseDirectory", platform = "macos", frontend = "selfhost" }
+classification = { note = "CX-UIA-10 source baseline at 72592d36: src/stdlib/GUI/MacOS/MacOSDirectoryPicker.btrc:41 calls NSOpenPanel.runModal synchronously. This shell test never opens a panel and does not claim asynchronous or cancellation-safe picker behavior." }

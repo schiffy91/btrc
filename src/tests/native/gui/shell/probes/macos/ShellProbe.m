@@ -132,23 +132,149 @@ static int survivors(NSHashTable *objects, const char *scope) {
 }
 int shellProbeNativeCount(void) { return survivors(owned, "provider"); }
 int shellProbePrivateCount(void) { return survivors(privateObjects, "appkit-private"); }
-static NSDictionary *accessible(id element, int depth) {
-    if (depth > 12) return @{@"truncated": @YES};
-    if (![element respondsToSelector:@selector(accessibilityRole)]) return @{@"role": @"unknown"};
+/* Identity comes from the fixture's actual provider-created children, not AX
+ * role guesses. The GPU provider currently hosts an ordinary NSView. */
+static NSDictionary *controls(NSWindow *target) {
+    NSView *root = target.contentView.subviews.firstObject;
+    assert(root && root.subviews.count == 4);
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    for (NSView *view in root.subviews) {
+        NSString *name = [view isKindOfClass:NSTextField.class] ? @"field" :
+            [view isKindOfClass:NSButton.class] ? @"button" :
+            [view isKindOfClass:NSScrollView.class] ? @"scroll" : @"gpu";
+        assert(!result[name]);
+        result[name] = view;
+    }
+    assert(result.count == 4);
+    return result;
+}
+static NSString *identity(id object, NSDictionary *views) {
+    for (NSString *name in views)
+        if (object == views[name]) return name;
+    /* AppKit edits an NSTextField through its window-owned field editor. */
+    if ([object isKindOfClass:NSTextView.class] && [(NSTextView *)object isFieldEditor] &&
+        [(NSTextView *)object delegate] == views[@"field"]) return @"field";
+    return @"other";
+}
+static NSString *responderIdentity(NSResponder *responder, NSDictionary *views) {
+    NSString *name = identity(responder, views);
+    if (![name isEqualToString:@"other"]) return name;
+    if ([responder isKindOfClass:NSView.class]) {
+        for (NSView *parent = [(NSView *)responder superview]; parent; parent = parent.superview) {
+            name = identity(parent, views);
+            if (![name isEqualToString:@"other"]) return name;
+        }
+    }
+    return @"other";
+}
+static NSString *responderClass(NSResponder *responder) {
+    return responder ? NSStringFromClass(responder.class) : @"nil";
+}
+static NSArray *rectangle(NSRect value) {
+    return @[@(value.origin.x), @(value.origin.y), @(value.size.width), @(value.size.height)];
+}
+static id jsonValue(id value) {
+    if (!value) return NSNull.null;
+    if ([value isKindOfClass:NSString.class] || [value isKindOfClass:NSNumber.class]) return value;
+    if ([value isKindOfClass:NSAttributedString.class]) return [value string];
+    /* Do not turn an arbitrary native object's description into an AX value. */
+    return NSNull.null;
+}
+static NSDictionary *accessible(id element, NSDictionary *views, NSHashTable *seen, int depth) {
+    if (depth > 16 || seen.count >= 512) return @{@"truncated": @YES};
+    if ([seen containsObject:element]) return @{@"cycle": @YES};
+    [seen addObject:element];
     NSMutableArray *children = [NSMutableArray array];
     if ([element respondsToSelector:@selector(accessibilityChildren)])
-        for (id child in [element accessibilityChildren]) [children addObject:accessible(child, depth + 1)];
-    NSString *role = [element accessibilityRole] ?: @"unknown";
-    return @{@"role": role, @"children": children};
+        for (id child in [element accessibilityChildren])
+            [children addObject:accessible(child, views, seen, depth + 1)];
+    id value = [element respondsToSelector:@selector(accessibilityValue)] ? [element accessibilityValue] : nil;
+    return @{
+        @"fixture_id": identity(element, views),
+        @"native_class": NSStringFromClass([element class]),
+        @"role": [element respondsToSelector:@selector(accessibilityRole)] ? jsonValue([element accessibilityRole]) : NSNull.null,
+        @"label": [element respondsToSelector:@selector(accessibilityLabel)] ? jsonValue([element accessibilityLabel]) : NSNull.null,
+        @"value": jsonValue(value),
+        @"value_class": value ? NSStringFromClass([value class]) : (id)NSNull.null,
+        @"focused": [element respondsToSelector:@selector(isAccessibilityFocused)] ? @([element isAccessibilityFocused]) : (id)NSNull.null,
+        @"frame": [element respondsToSelector:@selector(accessibilityFrame)] ? rectangle([element accessibilityFrame]) : (id)NSNull.null,
+        @"children": children
+    };
+}
+static NSUInteger subviewTotal(NSView *view) {
+    NSUInteger total = view.subviews.count;
+    for (NSView *child in view.subviews) total += subviewTotal(child);
+    return total;
+}
+static NSDictionary *keyViews(NSWindow *target, NSDictionary *views) {
+    NSResponder *saved = [target.firstResponder retain];
+    BOOL fieldAccepted = [target makeFirstResponder:views[@"field"]];
+    NSMutableArray *traversal = [NSMutableArray arrayWithObject:responderIdentity(target.firstResponder, views)];
+    NSMutableArray *classes = [NSMutableArray arrayWithObject:responderClass(target.firstResponder)];
+    for (int turn = 0; turn < 3; turn++) {
+        key(@"\t", 48);
+        [traversal addObject:responderIdentity(target.firstResponder, views)];
+        [classes addObject:responderClass(target.firstResponder)];
+    }
+    NSMutableArray *native = [NSMutableArray array];
+    for (NSString *name in @[@"field", @"button", @"scroll", @"gpu"]) {
+        NSView *view = views[name];
+        [native addObject:@{
+            @"fixture_id": name, @"native_class": NSStringFromClass(view.class),
+            @"accepts_first_responder": @(view.acceptsFirstResponder),
+            @"can_become_key_view": @(view.canBecomeKeyView),
+            @"next_key_view": responderIdentity(view.nextKeyView, views),
+            @"next_valid_key_view": responderIdentity(view.nextValidKeyView, views)
+        }];
+    }
+    BOOL gpuAccepted = [target makeFirstResponder:views[@"gpu"]];
+    NSString *gpuResponder = responderIdentity(target.firstResponder, views);
+    BOOL restored = [target makeFirstResponder:saved];
+    [saved release];
+    return @{
+        @"method": @"NSEvent Tab through NSApplication.sendEvent; unchanged native key-view loop",
+        @"full_keyboard_access": @([NSApplication.sharedApplication isFullKeyboardAccessEnabled]),
+        @"field_accepted": @(fieldAccepted), @"tab_order": traversal, @"responder_classes": classes,
+        @"controls": native, @"gpu_make_first_responder": @(gpuAccepted),
+        @"gpu_responder": gpuResponder, @"restored": @(restored)
+    };
 }
 void shellProbeDump(void) {
     @autoreleasepool {
-        if ([window().firstResponder isKindOfClass:NSTextView.class])
-            [privateObjects addObject:window().firstResponder];
-        id accessibility = getenv("BTRC_UI_SHELL_NO_AX") ? (id)@"disabled diagnostic" : accessible(window(), 0);
-        NSDictionary *document = @{@"probe": @"macos-appkit", @"focus": @(shellProbeFocus()),
+        NSWindow *target = window();
+        if ([target.firstResponder isKindOfClass:NSTextView.class])
+            [privateObjects addObject:target.firstResponder];
+        int originalFocus = shellProbeFocus();
+        BOOL disabled = getenv("BTRC_UI_SHELL_NO_AX") != NULL;
+        id accessibility = @"disabled diagnostic";
+        id traversal = @{@"disabled": @YES};
+        NSMutableArray *native = [NSMutableArray array];
+        if (!disabled) {
+            NSDictionary *views = controls(target);
+            NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+            accessibility = accessible(target, views, seen, 0);
+            for (NSString *name in @[@"field", @"button", @"scroll", @"gpu"]) {
+                NSView *view = views[name];
+                [native addObject:@{
+                    @"fixture_id": name, @"native_class": NSStringFromClass(view.class),
+                    @"ax_exposed": @([seen containsObject:view]),
+                    @"is_accessibility_element": @([view isAccessibilityElement]),
+                    @"frame": rectangle([view convertRect:view.bounds toView:target.contentView])
+                }];
+            }
+            traversal = keyViews(target, views);
+        }
+        /* Newly-created field-editor/AX descendants belong in the separate
+         * private-object observation, never excluded from provider accounting. */
+        observePrivate(target.contentView);
+        NSDictionary *document = @{
+            @"probe": @"macos-appkit", @"focus": @(originalFocus),
             @"provider_objects": @(owned.allObjects.count), @"private_objects": @(privateObjects.allObjects.count),
-            @"accessibility": accessibility};
+            @"subview_total": @(subviewTotal(target.contentView)),
+            @"ax_frame_space": @"AppKit screen points; origin bottom-left",
+            @"native_frame_space": @"window content points; origin bottom-left",
+            @"accessibility": accessibility, @"native_controls": native, @"key_views": traversal
+        };
         NSData *data = [NSJSONSerialization dataWithJSONObject:document options:0 error:NULL];
         assert(data);
         fwrite(data.bytes, 1, data.length, stdout);
