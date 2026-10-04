@@ -22,8 +22,10 @@ with these defaults so an unanswered question does not block the foundation.
 | Q5 | Named pipes for LocalApplicationChannel | No AF_UNIX credentials emulation. Choosing another transport requires a new authenticated peer-identity contract. |
 | Q6 | `LockFileEx` behind `AdvisoryFileLock` | The Windows lock is mandatory for conflicting byte-range I/O. Documentation and callers must accept this stronger behavior. |
 
-Windows 10 or later is the proposed API baseline (`_WIN32_WINNT=0x0A00`), subject
-to CL-P2-01 review. Both `x86_64-windows-gnu` and `aarch64-windows-gnu` are required.
+Windows 11 is the product floor fixed by PLAN decision D21. The SDK declarations
+use `_WIN32_WINNT=0x0A00` (also used for Windows 11); this does not qualify Windows
+10 as a supported product target. Both `x86_64-windows-gnu` and
+`aarch64-windows-gnu` are required.
 Windows MSVC is a separate target qualification; a successful GNU reader probe
 does not qualify MSVC or native execution. No compiler, runtime, library, manifest,
 inventory, availability catalog or PLAN file is changed by this design packet.
@@ -489,7 +491,7 @@ race tests need repeated runs under bounded deadlines, not timing-only sleeps.
 The binding function selections are checked; provider code, record qualification,
 linking, native execution, package permissions and performance are deferred to
 implementation packets. CL-P2-01 review/PLAN approval remains pending. Open review
-decisions are the API baseline, unsigned process-status accessor, exact NT
+decisions are the unsigned process-status accessor, exact NT
 operation coverage, peer-authentication details and detached ownership transfer;
 the concrete defaults above allow implementation planning without owner polling.
 UI folder-picker grants, Windows UI event-loop integration, process-pool bootstrap
