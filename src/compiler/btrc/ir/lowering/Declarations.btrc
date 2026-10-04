@@ -3945,8 +3945,9 @@ class DeclarationLowerer {
 		}
 	}
 
-	/* Scan all declarations (function return/param types, class method return
-     * types) and bodies for tuple types, then emit one struct def + forward
+	/* Scan all declarations (function and method signatures, class fields,
+     * globals, structs, typedefs, rich enums, interfaces) and bodies for tuple
+     * types, then emit one struct def + forward
      * typedef per unique mangled tuple. Mirrors legacy tuple emission
      * (the body walk substitutes for Python's node_types scan). */
 	public void emitTupleStructs(Node prog, IRModule m) {
@@ -3987,6 +3988,11 @@ class DeclarationLowerer {
 					}
 					mi = mi + 1;
 				}
+			} else if (d.kind == NK_VAR_DECL_STMT || d.kind == NK_STRUCT_DECL || d.kind == NK_TYPEDEF_DECL || d.kind == NK_RICH_ENUM_DECL || d.kind == NK_INTERFACE_DECL) {
+				/* A global (static or not), struct field, typedef target,
+                 * rich-enum payload or interface signature may be the only
+                 * spelling of a tuple type. */
+				self.collectTupleTypesBody(d, seen, order, tupleTypes);
 			}
 			i = i + 1;
 		}
@@ -4056,13 +4062,20 @@ class DeclarationLowerer {
 		}
 	}
 
-	/* Walk a function/method body for tuple types appearing on local var decls
-     * and tuple literals. This stands in for the Python node_types scan, which
-     * the on-demand inference design of this compiler doesn't maintain. */
+	/* Walk a declaration, statement or expression for every type expression it
+     * spells (var decls, casts, compound literals, sizeof operands, struct
+     * fields, typedef targets) and for inferred local tuple types. This stands
+     * in for the Python node_types scan, which the on-demand inference design
+     * of this compiler doesn't maintain. */
 	public void collectTupleTypesBody(Node? n, Map<string, bool> seen, Vector<string> order, Vector<Node> tupleTypes) {
 		if (n == null) { return; }
+		if (n.kind == NK_TYPE_EXPR) {
+			self.collectTupleTypes(n, seen, order, tupleTypes);
+			self.collectTupleTypesBody(n.arraySize, seen, order, tupleTypes);
+			return;
+		}
 		if (n.kind == NK_VAR_DECL_STMT) {
-			self.collectTupleTypes(n.type, seen, order, tupleTypes);
+			self.collectTupleTypesBody(n.type, seen, order, tupleTypes);
 			/* `var t = (1, 2)` declares t with an inferred tuple type and a null
              * annotation, so scanning n.type alone misses the tuple. Infer the
              * type from the initializer (Python catches this via node_types). */
@@ -4071,16 +4084,60 @@ class DeclarationLowerer {
 				Node? it = self.expressions.resolvedExpressionType(n.initializer, vt);
 				self.collectTupleTypes(it, seen, order, tupleTypes);
 			}
+			self.collectTupleTypesBody(n.initializer, seen, order, tupleTypes);
+			return;
 		}
-		int si = 0;
-		while (si < n.statements().len) {
-			self.collectTupleTypesBody(n.statements().get(si), seen, order, tupleTypes);
-			si = si + 1;
-		}
-		self.collectTupleTypesBody(n.thenBlock, seen, order, tupleTypes);
-		self.collectTupleTypesBody(n.elseBlock, seen, order, tupleTypes);
-		self.collectTupleTypesBody(n.bodyNode, seen, order, tupleTypes);
+		/* Every other node: skip unset fields and unwritten lists. */
+		if (n.returnType != null) { self.collectTupleTypesBody(n.returnType, seen, order, tupleTypes); }
+		if (n.original != null) { self.collectTupleTypesBody(n.original, seen, order, tupleTypes); }
+		if (n.type != null) { self.collectTupleTypesBody(n.type, seen, order, tupleTypes); }
+		if (n.targetType != null) { self.collectTupleTypesBody(n.targetType, seen, order, tupleTypes); }
+		if (n.catchType != null) { self.collectTupleTypesBody(n.catchType, seen, order, tupleTypes); }
+		if (n.paramsStorage != null) { self.collectTupleTypesList(n.paramsStorage, seen, order, tupleTypes); }
+		if (n.fieldsStorage != null) { self.collectTupleTypesList(n.fieldsStorage, seen, order, tupleTypes); }
+		if (n.methodsStorage != null) { self.collectTupleTypesList(n.methodsStorage, seen, order, tupleTypes); }
+		if (n.variantsStorage != null) { self.collectTupleTypesList(n.variantsStorage, seen, order, tupleTypes); }
+		if (n.genericArgsStorage != null) { self.collectTupleTypesList(n.genericArgsStorage, seen, order, tupleTypes); }
+		if (n.default_ != null) { self.collectTupleTypesBody(n.default_, seen, order, tupleTypes); }
+		if (n.initializer != null) { self.collectTupleTypesBody(n.initializer, seen, order, tupleTypes); }
+		if (n.valueNode != null) { self.collectTupleTypesBody(n.valueNode, seen, order, tupleTypes); }
+		if (n.condition != null) { self.collectTupleTypesBody(n.condition, seen, order, tupleTypes); }
+		if (n.init != null) { self.collectTupleTypesBody(n.init, seen, order, tupleTypes); }
+		if (n.update != null) { self.collectTupleTypesBody(n.update, seen, order, tupleTypes); }
+		if (n.iterable != null) { self.collectTupleTypesBody(n.iterable, seen, order, tupleTypes); }
+		if (n.expr != null) { self.collectTupleTypesBody(n.expr, seen, order, tupleTypes); }
+		if (n.expression != null) { self.collectTupleTypesBody(n.expression, seen, order, tupleTypes); }
+		if (n.left != null) { self.collectTupleTypesBody(n.left, seen, order, tupleTypes); }
+		if (n.right != null) { self.collectTupleTypesBody(n.right, seen, order, tupleTypes); }
+		if (n.operand != null) { self.collectTupleTypesBody(n.operand, seen, order, tupleTypes); }
+		if (n.callee != null) { self.collectTupleTypesBody(n.callee, seen, order, tupleTypes); }
+		if (n.obj != null) { self.collectTupleTypesBody(n.obj, seen, order, tupleTypes); }
+		if (n.index != null) { self.collectTupleTypesBody(n.index, seen, order, tupleTypes); }
+		if (n.trueExpr != null) { self.collectTupleTypesBody(n.trueExpr, seen, order, tupleTypes); }
+		if (n.falseExpr != null) { self.collectTupleTypesBody(n.falseExpr, seen, order, tupleTypes); }
+		if (n.target != null) { self.collectTupleTypesBody(n.target, seen, order, tupleTypes); }
+		if (n.fn != null) { self.collectTupleTypesBody(n.fn, seen, order, tupleTypes); }
+		if (n.key != null) { self.collectTupleTypesBody(n.key, seen, order, tupleTypes); }
+		if (n.argsStorage != null) { self.collectTupleTypesList(n.argsStorage, seen, order, tupleTypes); }
+		if (n.elementsStorage != null) { self.collectTupleTypesList(n.elementsStorage, seen, order, tupleTypes); }
+		if (n.entriesStorage != null) { self.collectTupleTypesList(n.entriesStorage, seen, order, tupleTypes); }
+		if (n.partsStorage != null) { self.collectTupleTypesList(n.partsStorage, seen, order, tupleTypes); }
+		if (n.statementsStorage != null) { self.collectTupleTypesList(n.statementsStorage, seen, order, tupleTypes); }
+		if (n.casesStorage != null) { self.collectTupleTypesList(n.casesStorage, seen, order, tupleTypes); }
+		if (n.bodyNodeListStorage != null) { self.collectTupleTypesList(n.bodyNodeListStorage, seen, order, tupleTypes); }
+		if (n.thenBlock != null) { self.collectTupleTypesBody(n.thenBlock, seen, order, tupleTypes); }
+		if (n.elseBlock != null) { self.collectTupleTypesBody(n.elseBlock, seen, order, tupleTypes); }
 		if (n.ifStmt != null) { self.collectTupleTypesBody(n.ifStmt, seen, order, tupleTypes); }
+		if (n.bodyNode != null) { self.collectTupleTypesBody(n.bodyNode, seen, order, tupleTypes); }
+		if (n.tryBlock != null) { self.collectTupleTypesBody(n.tryBlock, seen, order, tupleTypes); }
+		if (n.catchBlock != null) { self.collectTupleTypesBody(n.catchBlock, seen, order, tupleTypes); }
+		if (n.finallyBlock != null) { self.collectTupleTypesBody(n.finallyBlock, seen, order, tupleTypes); }
+	}
+
+	private void collectTupleTypesList(Vector<Node> nodes, Map<string, bool> seen, Vector<string> order, Vector<Node> tupleTypes) {
+		for (int index = 0; index < nodes.len; index++) {
+			self.collectTupleTypesBody(nodes.get(index), seen, order, tupleTypes);
+		}
 	}
 
 
