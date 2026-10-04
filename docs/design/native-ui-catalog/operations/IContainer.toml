@@ -1,0 +1,197 @@
+# CX-UIA-03: source classification and assertion map; execution evidence is separate.
+# Missing providers stay missing on both frontends; candidate regression IDs are not passes.
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-03-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:43:34Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "linux-devcontainer"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-linux"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-macos"
+
+[[operations]]
+id = "IContainer.attach"
+owner = "IContainer"
+implementation = "implemented"
+links = ["N03", "N24", "UI2", "UI5"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-False-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-True-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-False-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-True-python]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSContainer.btrc; operation IContainer.attach. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(root.childCount() == 2 && nested.childCount() == 2); Generic MacOSContainer receiver only; duplicate ownership, cycle, native attachment rollback and reentry have separate assertions. Concrete container receivers are audited separately. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Receiver audit: generic container=A, panel=A, stack=A, scroll=A. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt.  Concrete assertion candidates: IPanel at src/tests/native/gui/NativePanel.btrc:88: assert(panel.childCount() == 1 && panel.childAt(0) == imageView); (A: attach(imageView)86 followed by count1/exact child identity0.); IStack at src/tests/native/gui/NativeStacks.btrc:39: assert(column.childAt(0) == field && row.childAt(0) == apply); (A: Concrete row/column attach23–26 followed by child identity after layout.); IStack at src/tests/native/gui/NativeStacks.btrc:62: assert(rejected && row.childCount() == 2); (A: Cycle attach61 rejected/count2 preserved; reattach57 restored child.); IScrollView at src/tests/native/gui/MacOSScrollViewConformance.btrc:29: assert(scroll.childCount() == 1 && scroll.childAt(0) == field); (A: Scroll.attach(field)27 yields count1/exact identity0.). These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-True-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-True-selfhost]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSContainer.btrc; operation IContainer.attach. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(root.childCount() == 2 && nested.childCount() == 2); Generic MacOSContainer receiver only; duplicate ownership, cycle, native attachment rollback and reentry have separate assertions. Concrete container receivers are audited separately. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Receiver audit: generic container=A, panel=A, stack=A, scroll=A. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt.  Concrete assertion candidates: IPanel at src/tests/native/gui/NativePanel.btrc:88: assert(panel.childCount() == 1 && panel.childAt(0) == imageView); (A: attach(imageView)86 followed by count1/exact child identity0.); IStack at src/tests/native/gui/NativeStacks.btrc:39: assert(column.childAt(0) == field && row.childAt(0) == apply); (A: Concrete row/column attach23–26 followed by child identity after layout.); IStack at src/tests/native/gui/NativeStacks.btrc:62: assert(rejected && row.childCount() == 2); (A: Cycle attach61 rejected/count2 preserved; reattach57 restored child.); IScrollView at src/tests/native/gui/MacOSScrollViewConformance.btrc:29: assert(scroll.childCount() == 1 && scroll.childAt(0) == field); (A: Scroll.attach(field)27 yields count1/exact identity0.). These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "custom"
+note = "Source: src/stdlib/GUI/Linux/LinuxContainer.btrc; operation IContainer.attach.  Receiver audit: generic container=C, panel=C, stack=U, scroll=C. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt. These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "custom"
+note = "Source: src/stdlib/GUI/Linux/LinuxContainer.btrc; operation IContainer.attach.  Receiver audit: generic container=C, panel=C, stack=U, scroll=C. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt. These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IContainer.childAt"
+owner = "IContainer"
+implementation = "implemented"
+links = ["N03", "N24", "UI2", "UI5"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-False-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-True-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-False-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-True-python]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSContainer.btrc; operation IContainer.childAt. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(root.childAt(0) == nested && nested.childAt(0) == field); Generic MacOSContainer receiver only; negative index is separately rejected. IGrid.childAt(column,row) is a different operation. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Receiver audit: generic container=A, panel=A, stack=A, scroll=A. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt.  Concrete assertion candidates: IPanel at src/tests/native/gui/NativePanel.btrc:88: assert(panel.childCount() == 1 && panel.childAt(0) == imageView); (A: attach(imageView)86 followed by count1/exact child identity0.); IStack at src/tests/native/gui/NativeStacks.btrc:39: assert(column.childAt(0) == field && row.childAt(0) == apply); (A: Concrete row/column attach23–26 followed by child identity after layout.); IScrollView at src/tests/native/gui/MacOSScrollViewConformance.btrc:29: assert(scroll.childCount() == 1 && scroll.childAt(0) == field); (A: Scroll.attach(field)27 yields count1/exact identity0.). These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-True-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-True-selfhost]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSContainer.btrc; operation IContainer.childAt. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(root.childAt(0) == nested && nested.childAt(0) == field); Generic MacOSContainer receiver only; negative index is separately rejected. IGrid.childAt(column,row) is a different operation. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Receiver audit: generic container=A, panel=A, stack=A, scroll=A. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt.  Concrete assertion candidates: IPanel at src/tests/native/gui/NativePanel.btrc:88: assert(panel.childCount() == 1 && panel.childAt(0) == imageView); (A: attach(imageView)86 followed by count1/exact child identity0.); IStack at src/tests/native/gui/NativeStacks.btrc:39: assert(column.childAt(0) == field && row.childAt(0) == apply); (A: Concrete row/column attach23–26 followed by child identity after layout.); IScrollView at src/tests/native/gui/MacOSScrollViewConformance.btrc:29: assert(scroll.childCount() == 1 && scroll.childAt(0) == field); (A: Scroll.attach(field)27 yields count1/exact identity0.). These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "custom"
+note = "Source: src/stdlib/GUI/Linux/LinuxContainer.btrc; operation IContainer.childAt.  Receiver audit: generic container=U, panel=U, stack=U, scroll=U. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt. These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "custom"
+note = "Source: src/stdlib/GUI/Linux/LinuxContainer.btrc; operation IContainer.childAt.  Receiver audit: generic container=U, panel=U, stack=U, scroll=U. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt. These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IContainer.childCount"
+owner = "IContainer"
+implementation = "implemented"
+links = ["N03", "N24", "UI2", "UI5"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-False-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-True-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-False-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-True-python]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSContainer.btrc; operation IContainer.childCount. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(root.childCount() == 2 && nested.childCount() == 2); Generic MacOSContainer receiver only; duplicate ownership, cycle, native attachment rollback and reentry have separate assertions. Concrete container receivers are audited separately. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Receiver audit: generic container=A, panel=A, stack=A, scroll=A. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt.  Concrete assertion candidates: IPanel at src/tests/native/gui/NativePanel.btrc:88: assert(panel.childCount() == 1 && panel.childAt(0) == imageView); (A: attach(imageView)86 followed by count1/exact child identity0.); IStack at src/tests/native/gui/NativeStacks.btrc:55: assert(detached == cancel && detached.isOpen() && row.childCount() == 1); (A: Row.detach54 returns same still-open button, count1.); IStack at src/tests/native/gui/NativeStacks.btrc:62: assert(rejected && row.childCount() == 2); (A: Cycle attach61 rejected/count2 preserved; reattach57 restored child.); IScrollView at src/tests/native/gui/MacOSScrollViewConformance.btrc:29: assert(scroll.childCount() == 1 && scroll.childAt(0) == field); (A: Scroll.attach(field)27 yields count1/exact identity0.). These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-True-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-True-selfhost]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSContainer.btrc; operation IContainer.childCount. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(root.childCount() == 2 && nested.childCount() == 2); Generic MacOSContainer receiver only; duplicate ownership, cycle, native attachment rollback and reentry have separate assertions. Concrete container receivers are audited separately. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Receiver audit: generic container=A, panel=A, stack=A, scroll=A. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt.  Concrete assertion candidates: IPanel at src/tests/native/gui/NativePanel.btrc:88: assert(panel.childCount() == 1 && panel.childAt(0) == imageView); (A: attach(imageView)86 followed by count1/exact child identity0.); IStack at src/tests/native/gui/NativeStacks.btrc:55: assert(detached == cancel && detached.isOpen() && row.childCount() == 1); (A: Row.detach54 returns same still-open button, count1.); IStack at src/tests/native/gui/NativeStacks.btrc:62: assert(rejected && row.childCount() == 2); (A: Cycle attach61 rejected/count2 preserved; reattach57 restored child.); IScrollView at src/tests/native/gui/MacOSScrollViewConformance.btrc:29: assert(scroll.childCount() == 1 && scroll.childAt(0) == field); (A: Scroll.attach(field)27 yields count1/exact identity0.). These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "custom"
+note = "Source: src/stdlib/GUI/Linux/LinuxContainer.btrc; operation IContainer.childCount.  Receiver audit: generic container=U, panel=U, stack=U, scroll=U. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt. These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "custom"
+note = "Source: src/stdlib/GUI/Linux/LinuxContainer.btrc; operation IContainer.childCount.  Receiver audit: generic container=U, panel=U, stack=U, scroll=U. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt. These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IContainer.detach"
+owner = "IContainer"
+implementation = "implemented"
+links = ["N03", "N24", "UI2", "UI5"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeLabels-native label ellipsis-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeLabels-native label ellipsis-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSContainer.btrc; operation IContainer.detach. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(detached == field && detached.isOpen() && nested.childCount() == 1); Generic MacOSContainer receiver; detached child identity and continued usability are asserted, including reattachment to another container. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Receiver audit: generic container=A, panel=A, stack=A, scroll=C. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt.  Concrete assertion candidates: IPanel at src/tests/native/gui/NativeLabels.btrc:79: assert(self._background.detach(label) == label); (A: Concrete background panel detach returns same label.); IStack at src/tests/native/gui/NativeStacks.btrc:55: assert(detached == cancel && detached.isOpen() && row.childCount() == 1); (A: Row.detach54 returns same still-open button, count1.). These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeLabels-native label ellipsis-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeLabels-native label ellipsis-True]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSContainer.btrc; operation IContainer.detach. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(detached == field && detached.isOpen() && nested.childCount() == 1); Generic MacOSContainer receiver; detached child identity and continued usability are asserted, including reattachment to another container. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Receiver audit: generic container=A, panel=A, stack=A, scroll=C. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt.  Concrete assertion candidates: IPanel at src/tests/native/gui/NativeLabels.btrc:79: assert(self._background.detach(label) == label); (A: Concrete background panel detach returns same label.); IStack at src/tests/native/gui/NativeStacks.btrc:55: assert(detached == cancel && detached.isOpen() && row.childCount() == 1); (A: Row.detach54 returns same still-open button, count1.). These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "custom"
+note = "Source: src/stdlib/GUI/Linux/LinuxContainer.btrc; operation IContainer.detach.  Receiver audit: generic container=U, panel=C, stack=U, scroll=U. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt. These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "custom"
+note = "Source: src/stdlib/GUI/Linux/LinuxContainer.btrc; operation IContainer.detach.  Receiver audit: generic container=U, panel=C, stack=U, scroll=U. A=receiver-specific partial assertion; R=attached-close rejection only; S=ancestor shutdown only; C=setup/call without dedicated oracle; U=no receiver-specific exercise. Only generic container, panel, stack and scroll are IContainer receivers here; IGrid extends IView and its two-coordinate childAt is not IContainer.childAt. These receiver subsets do not establish a blanket inherited-operation pass; missing receiver/oracle coverage remains unverified even if a shared fixture passes. Generic MacOSView/GPUSurface wrappers and native built-in input are not substituted for concrete control registrations."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."

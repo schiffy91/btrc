@@ -404,10 +404,12 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
 
     assert rules["native-reader-macos-only"].covered_by == ("macos-hosted",)
     assert rules["windows-junctions"].covered_by == ("windows",)
-    # Only a display and a session bus are missing everywhere; the pugixml,
-    # SQLite, lldb and native-provider cases Linux skips run on macOS.
+    # Only a display and a session bus are missing everywhere, and only the
+    # acceptance Mac's pinned Xcode runs the Apple macro oracle (MAC-P1-05);
+    # the pugixml, SQLite, lldb and native-provider cases Linux skips run on
+    # macOS.
     uncovered = {rule_id for rule_id, rule in rules.items() if not rule.covered_by}
-    assert uncovered == {"linux-tray-session-bus"}
+    assert uncovered == {"apple-target-macro-oracle", "linux-tray-session-bus"}
     for rule_id in ("pugixml-sdk", "native-compiler-provider", "native-receipt-provider", "lldb-missing"):
         assert rules[rule_id].covered_by == ("macos-hosted",), rule_id
     # No rule waits on a lane that has landed.

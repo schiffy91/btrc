@@ -38,6 +38,9 @@ TESTS = REPO / "src" / "tests"
 BATTERY = Path(__file__).resolve().parent / "fixtures" / "conditional_expressions.tsv"
 LINUX = ConditionalEnvironment(PackageTarget("linux", "x86_64"))
 TIMEOUT = 120
+# The rows both compilers accept as --target today; Stage 24 commit 1b makes
+# them accept every row (platform-target-contract.md §1.5).
+COMPILER_TARGETS = [row.label for row in TARGET_ROWS if row.compiler_host]
 
 
 # -- The shared expression battery ------------------------------------------
@@ -404,7 +407,7 @@ def compile_files(
     return Compiler().compile(root.read_text(), str(root), options)
 
 
-@pytest.mark.parametrize("target", [f"{row.operating_system}-{row.architecture}" for row in TARGET_ROWS])
+@pytest.mark.parametrize("target", COMPILER_TARGETS)
 def test_per_target_selection(target: str, tmp_path: Path) -> None:
     result = compile_files(tmp_path, {"Main.btrc": SELECTION}, target=target)
     assert result.successful, result.failure
@@ -980,7 +983,7 @@ def btrcc_run(btrcc: Path, arguments: list[str], cwd: Path, **environment: str) 
     )
 
 
-@pytest.mark.parametrize("target", [f"{row.operating_system}-{row.architecture}" for row in TARGET_ROWS])
+@pytest.mark.parametrize("target", COMPILER_TARGETS)
 def test_selfhost_per_target_selection(
     target: str, frontend_driver: Path, immutable_btrcc: Path, tmp_path: Path
 ) -> None:

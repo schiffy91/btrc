@@ -6,8 +6,9 @@ import hashlib
 import json
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 from typing import Any
 
 from . import GeneratedArtifact, GeneratedSourceStyle
@@ -590,24 +591,49 @@ class HostedAbiManifest:
 
 @dataclass(frozen=True, slots=True)
 class TargetRowSpec:
-    """One compilation target: an operating system and an architecture."""
+    """One compilation target row: the unit every consumer selects, keys and reports.
 
+    It joins operating system, architecture, environment, deployment minimum,
+    clang triple, data model and sysroot rule
+    (docs/design/platform-target-contract.md §1.1). Fields are the spec's
+    columns, in its order.
+    """
+
+    label: str
     operating_system: str
     architecture: str
-
-    @property
-    def label(self) -> str:
-        return f"{self.operating_system}-{self.architecture}"
+    environment: str
+    minimum_version: str
+    triple: str
+    triple_aliases: tuple[str, ...]
+    zig_target: str
+    target_arguments: tuple[str, ...]
+    sizeof_pointer: int
+    sizeof_long: int
+    sizeof_wchar_t: int
+    sizeof_long_double: int
+    char_signed: bool
+    wchar_signed: bool
+    sysroot_kind: str
+    sysroot_name: str
+    compiler_host: bool
+    objective_c: bool
+    frameworks: bool
 
     def canonical(self) -> dict[str, object]:
-        return {"operating_system": self.operating_system, "architecture": self.architecture}
+        return {
+            field.name: list(value) if isinstance(value, tuple) else value
+            for field in fields(self)
+            for value in (getattr(self, field.name),)
+        }
 
 
 @dataclass(frozen=True, slots=True)
 class PredefinedMacroSpec:
     """One target predefined macro and the targets whose C compilers define it.
 
-    An empty selector selects every value of its axis.
+    An empty selector selects every value of its axis; ``""`` in
+    ``environments`` names the empty environment.
     """
 
     name: str
@@ -617,9 +643,14 @@ class PredefinedMacroSpec:
     environments: tuple[str, ...]
 
     def selects(self, target: TargetRowSpec) -> bool:
-        return (not self.operating_systems or target.operating_system in self.operating_systems) and (
-            not self.architectures or target.architecture in self.architectures
+        return (
+            (not self.operating_systems or target.operating_system in self.operating_systems)
+            and (not self.architectures or target.architecture in self.architectures)
+            and (not self.environments or target.environment in self.environments)
         )
+
+    def selects_every_value(self) -> bool:
+        return not (self.operating_systems or self.architectures or self.environments)
 
     def canonical(self) -> dict[str, object]:
         return {
@@ -635,27 +666,90 @@ class PredefinedMacroSpec:
 class TargetManifest:
     """Validated compilation-target spec (``src/language/targets.toml``, PLAN.md D21).
 
-    It holds the target rows, the predefined-macro table that ``#if`` reads,
+    It holds the target rows, the architecture aliases and default
+    environments that labels use, the predefined-macro table that ``#if``
+    reads (the hand-written rows and the rows derived from the row columns),
     and the reserved and foreign macro name lists
-    (docs/design/c-preprocessor-conditionals.md). It is rendered into the
-    hosted-ABI catalogs; selection and classification belong to each
-    compiler's conditional-environment owner, never to generated data.
+    (docs/design/c-preprocessor-conditionals.md,
+    docs/design/platform-target-contract.md §1.1-§1.3). It is rendered into
+    the hosted-ABI catalogs; parsing, selection and classification belong to
+    each compiler's target and conditional-environment owners, never to
+    generated data.
     """
 
     _FIELDS = ManifestFields(HostedAbiManifestError)
+    _ROW_FIELDS = ManifestFields(HostedAbiManifestError, empty_strings=True)
 
     schema_version: int
+    architecture_aliases: tuple[tuple[str, str], ...]
+    default_environments: tuple[tuple[str, str], ...]
     targets: tuple[TargetRowSpec, ...]
     predefined_macros: tuple[PredefinedMacroSpec, ...]
+    derived_macros: tuple[PredefinedMacroSpec, ...]
     undefined_macro_names: tuple[str, ...]
     foreign_macro_names: tuple[str, ...]
 
-    _ROOT_KEYS = frozenset({"schema_version", "targets", "predefined_macros", "conditionals"})
-    _TARGET_KEYS = frozenset({"operating_system", "architecture"})
+    SCHEMA_VERSION = 2
+    OPERATING_SYSTEMS = ("android", "ios", "linux", "macos", "windows")
+    ARCHITECTURES = ("aarch64", "x86_64")
+    ENVIRONMENTS = ("", "gnu", "msvc", "simulator")
+    SYSROOT_KINDS = ("ndk", "none", "windows-sdk", "xcrun", "zig-mingw")
+    # The environments each operating system takes.
+    _OS_ENVIRONMENTS = MappingProxyType(
+        {
+            "android": ("",),
+            "ios": ("", "simulator"),
+            "linux": ("gnu",),
+            "macos": ("",),
+            "windows": ("gnu", "msvc"),
+        }
+    )
+    # The sysroot kind and xcrun SDK name each (operating system, environment) takes.
+    _SYSROOTS = MappingProxyType(
+        {
+            ("android", ""): ("ndk", ""),
+            ("ios", ""): ("xcrun", "iphoneos"),
+            ("ios", "simulator"): ("xcrun", "iphonesimulator"),
+            ("linux", "gnu"): ("none", ""),
+            ("macos", ""): ("xcrun", "macosx"),
+            ("windows", "gnu"): ("zig-mingw", ""),
+            ("windows", "msvc"): ("windows-sdk", ""),
+        }
+    )
+    _DESKTOP_OPERATING_SYSTEMS = ("linux", "macos", "windows")
+    _APPLE_OPERATING_SYSTEMS = ("ios", "macos")
+    # cc1's spelling of each architecture on Apple triples.
+    _APPLE_ARCHITECTURES = MappingProxyType({"aarch64": "arm64", "x86_64": "x86_64"})
+    # The MSVC compatibility version an msvc triple pins (Visual Studio 2022
+    # 17.10), so cc1's triple and _MSC_VER do not vary with the host.
+    MSVC_COMPATIBILITY_VERSION = "19.40.0"
+    # char, short, int and long long have one width on every row.
+    _PINNED_SIZES = (("__CHAR_BIT__", 8), ("__SIZEOF_SHORT__", 2), ("__SIZEOF_INT__", 4), ("__SIZEOF_LONG_LONG__", 8))
+    # Generated from the row columns; a hand-written row may not name one.
+    DERIVED_MACRO_NAMES = (
+        "_LP64",
+        "__ANDROID_API__",
+        "__ANDROID_MIN_SDK_VERSION__",
+        "__CHAR_UNSIGNED__",
+        "__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__",
+        "__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__",
+        "__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__",
+        "__LP64__",
+        "__SIZEOF_LONG_DOUBLE__",
+        "__SIZEOF_LONG__",
+        "__SIZEOF_WCHAR_T__",
+        "__WCHAR_UNSIGNED__",
+    )
+
+    _ROOT_KEYS = frozenset({"schema_version", "aliases", "targets", "predefined_macros", "conditionals"})
+    _ALIAS_KEYS = frozenset({"architectures", "default_environments"})
+    _TARGET_KEYS = frozenset(field.name for field in fields(TargetRowSpec))
     _MACRO_REQUIRED_KEYS = frozenset({"name", "value"})
     _MACRO_KEYS = _MACRO_REQUIRED_KEYS | frozenset({"operating_systems", "architectures", "environments"})
     _CONDITIONAL_KEYS = frozenset({"undefined_macro_names", "foreign_macro_names"})
     _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+    _APPLE_MINIMUM = re.compile(r"[1-9][0-9]?\.[0-9]{1,2}\Z")
+    _ANDROID_MINIMUM = re.compile(r"[1-9][0-9]*\Z")
     _MAXIMUM_VALUE = 2**63 - 1
 
     @classmethod
@@ -681,8 +775,10 @@ class TargetManifest:
     def from_document(cls, document: dict[str, Any], hosted_abi: HostedAbiManifest) -> TargetManifest:
         cls._FIELDS.require_keys(document, cls._ROOT_KEYS, "target spec")
         schema_version = cls._FIELDS.integer(document, "schema_version", "target spec")
-        if schema_version != 1:
+        if schema_version != cls.SCHEMA_VERSION:
             raise HostedAbiManifestError(f"unsupported target spec schema version: {schema_version}")
+        aliases = cls._FIELDS.table(document, "aliases", "target spec")
+        cls._FIELDS.require_keys(aliases, cls._ALIAS_KEYS, "aliases")
         targets = tuple(
             cls._target(value, index) for index, value in enumerate(cls._tables(document, "targets", "target spec"))
         )
@@ -694,8 +790,11 @@ class TargetManifest:
         cls._FIELDS.require_keys(conditionals, cls._CONDITIONAL_KEYS, "conditionals")
         manifest = cls(
             schema_version=schema_version,
+            architecture_aliases=cls._string_table(aliases, "architectures", "aliases"),
+            default_environments=cls._string_table(aliases, "default_environments", "aliases"),
             targets=targets,
             predefined_macros=macros,
+            derived_macros=cls._derived_macros(targets),
             undefined_macro_names=cls._names(conditionals, "undefined_macro_names", "conditionals"),
             foreign_macro_names=cls._names(conditionals, "foreign_macro_names", "conditionals"),
         )
@@ -707,9 +806,17 @@ class TargetManifest:
         return tuple(target.label for target in self.targets)
 
     @property
+    def macro_rows(self) -> tuple[PredefinedMacroSpec, ...]:
+        """The hand-written rows, then the derived rows sorted by name and label."""
+
+        return self.predefined_macros + self.derived_macros
+
+    @property
     def fingerprint(self) -> str:
         payload = {
             "schema_version": self.schema_version,
+            "architecture_aliases": dict(self.architecture_aliases),
+            "default_environments": dict(self.default_environments),
             "targets": [target.canonical() for target in self.targets],
             "predefined_macros": [macro.canonical() for macro in self.predefined_macros],
             "undefined_macro_names": list(self.undefined_macro_names),
@@ -732,13 +839,48 @@ class TargetManifest:
         return value
 
     @classmethod
+    def _string_table(cls, table: dict[str, Any], key: str, context: str) -> tuple[tuple[str, str], ...]:
+        """A table of identifier keys and string values, in key order."""
+
+        value = cls._FIELDS.table(table, key, context)
+        for name, item in value.items():
+            if not cls._IDENTIFIER.fullmatch(name) or not isinstance(item, str) or not item:
+                raise HostedAbiManifestError(f"{context}.{key} must map identifiers to non-empty strings")
+        return tuple(sorted(value.items()))
+
+    @classmethod
     def _target(cls, value: dict[str, Any], index: int) -> TargetRowSpec:
         context = f"targets[{index}]"
         cls._FIELDS.require_keys(value, cls._TARGET_KEYS, context)
+        strings = {
+            field.name: cls._ROW_FIELDS.string(value, field.name, context)
+            for field in fields(TargetRowSpec)
+            if field.type == "str"
+        }
+        integers = {
+            field.name: cls._FIELDS.integer(value, field.name, context)
+            for field in fields(TargetRowSpec)
+            if field.type == "int"
+        }
+        booleans = {
+            field.name: cls._FIELDS.boolean(value, field.name, context)
+            for field in fields(TargetRowSpec)
+            if field.type == "bool"
+        }
         return TargetRowSpec(
-            operating_system=cls._identifier(value, "operating_system", context),
-            architecture=cls._identifier(value, "architecture", context),
+            **strings,
+            **integers,
+            **booleans,
+            triple_aliases=cls._strings(value, "triple_aliases", context),
+            target_arguments=cls._strings(value, "target_arguments", context),
         )
+
+    @classmethod
+    def _strings(cls, table: dict[str, Any], key: str, context: str) -> tuple[str, ...]:
+        value = table.get(key)
+        if not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value):
+            raise HostedAbiManifestError(f"{context}.{key} must be an array of non-empty strings")
+        return tuple(value)
 
     @classmethod
     def _macro(cls, value: dict[str, Any], index: int) -> PredefinedMacroSpec:
@@ -749,7 +891,7 @@ class TargetManifest:
             value=cls._FIELDS.integer(value, "value", context),
             operating_systems=cls._selector(value, "operating_systems", context),
             architectures=cls._selector(value, "architectures", context),
-            environments=cls._names(value, "environments", context) if "environments" in value else (),
+            environments=cls._selector(value, "environments", context),
         )
 
     @classmethod
@@ -761,35 +903,230 @@ class TargetManifest:
 
     @classmethod
     def _selector(cls, table: dict[str, Any], key: str, context: str) -> tuple[str, ...]:
-        """An omitted selector selects every value; an explicit one names at least one."""
+        """An omitted selector selects every value; an explicit one names at least one.
+
+        Only ``environments`` may name ``""``, the empty environment.
+        """
 
         if key not in table:
             return ()
-        values = cls._names(table, key, context)
+        values = cls._names(table, key, context, empty_name=key == "environments")
         if not values:
             raise HostedAbiManifestError(f"{context}.{key} must name a value; omit it to select every value")
         return values
 
     @classmethod
-    def _names(cls, table: dict[str, Any], key: str, context: str) -> tuple[str, ...]:
+    def _names(cls, table: dict[str, Any], key: str, context: str, *, empty_name: bool = False) -> tuple[str, ...]:
         value = table.get(key)
         if not isinstance(value, list):
             raise HostedAbiManifestError(f"{context}.{key} must be an array")
         names = tuple(value)
-        if any(not isinstance(name, str) or not cls._IDENTIFIER.fullmatch(name) for name in names):
+        if any(
+            not isinstance(name, str) or not (cls._IDENTIFIER.fullmatch(name) or (empty_name and name == ""))
+            for name in names
+        ):
             raise HostedAbiManifestError(f"{context}.{key} contains an invalid identifier")
         if names != tuple(sorted(set(names))):
             raise HostedAbiManifestError(f"{context}.{key} must be sorted and unique")
         return names
 
+    @classmethod
+    def _derived_macros(cls, targets: tuple[TargetRowSpec, ...]) -> tuple[PredefinedMacroSpec, ...]:
+        """One row per derived macro a target defines, selecting exactly that target, by name then label."""
+
+        rows = [
+            (
+                name,
+                target.label,
+                PredefinedMacroSpec(
+                    name, value, (target.operating_system,), (target.architecture,), (target.environment,)
+                ),
+            )
+            for target in targets
+            for name, value in cls._derived_values(target)
+        ]
+        return tuple(row for _, _, row in sorted(rows, key=lambda item: (item[0], item[1])))
+
+    @classmethod
+    def _derived_values(cls, target: TargetRowSpec) -> tuple[tuple[str, int], ...]:
+        """The data-model and deployment macros clang derives from a row (§1.3)."""
+
+        values = [
+            ("__SIZEOF_LONG__", target.sizeof_long),
+            ("__SIZEOF_WCHAR_T__", target.sizeof_wchar_t),
+            ("__SIZEOF_LONG_DOUBLE__", target.sizeof_long_double),
+        ]
+        if target.sizeof_long == 8 and target.sizeof_pointer == 8:
+            values.extend([("__LP64__", 1), ("_LP64", 1)])
+        if not target.char_signed:
+            values.append(("__CHAR_UNSIGNED__", 1))
+        if not target.wchar_signed:
+            values.append(("__WCHAR_UNSIGNED__", 1))
+        if target.operating_system == "android" and cls._ANDROID_MINIMUM.fullmatch(target.minimum_version):
+            level = int(target.minimum_version)
+            values.extend([("__ANDROID_API__", level), ("__ANDROID_MIN_SDK_VERSION__", level)])
+        if target.operating_system in cls._APPLE_OPERATING_SYSTEMS and cls._APPLE_MINIMUM.fullmatch(
+            target.minimum_version
+        ):
+            major, minor = (int(part) for part in target.minimum_version.split("."))
+            version = major * 10000 + minor * 100
+            values.append(("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", version))
+            platform = "MAC_OS_X" if target.operating_system == "macos" else "IPHONE_OS"
+            values.append((f"__ENVIRONMENT_{platform}_VERSION_MIN_REQUIRED__", version))
+        return tuple(values)
+
     def _validate(self, hosted_abi: HostedAbiManifest) -> None:
+        self._validate_aliases()
+        self._validate_targets()
+        self._validate_macros(hosted_abi)
+
+    def _validate_aliases(self) -> None:
+        for alias, architecture in self.architecture_aliases:
+            if alias in self.ARCHITECTURES:
+                raise HostedAbiManifestError(f"architecture alias {alias!r} is a canonical architecture")
+            if architecture not in self.ARCHITECTURES:
+                raise HostedAbiManifestError(
+                    f"architecture alias {alias!r} names {architecture!r}, which is not a canonical architecture"
+                )
+        rows = {target.operating_system for target in self.targets}
+        for operating_system, environment in self.default_environments:
+            if operating_system not in rows:
+                raise HostedAbiManifestError(
+                    f"default environment of {operating_system!r} names an operating system with no row"
+                )
+            if environment not in self._OS_ENVIRONMENTS.get(operating_system, ()):
+                raise HostedAbiManifestError(
+                    f"default environment {environment!r} does not fit operating system {operating_system!r}"
+                )
+            for architecture in sorted(
+                {t.architecture for t in self.targets if t.operating_system == operating_system}
+            ):
+                count = sum(
+                    1
+                    for target in self.targets
+                    if (target.operating_system, target.architecture, target.environment)
+                    == (operating_system, architecture, environment)
+                )
+                if count != 1:
+                    raise HostedAbiManifestError(
+                        f"{operating_system}-{architecture} must have exactly one row in its default "
+                        f"environment {environment!r}"
+                    )
+
+    def _validate_targets(self) -> None:
         labels = [target.label for target in self.targets]
         if len(labels) != len(set(labels)):
             duplicate = next(label for label in labels if labels.count(label) > 1)
             raise HostedAbiManifestError(f"target {duplicate!r} appears more than once")
+        if labels != sorted(labels):
+            raise HostedAbiManifestError("targets must be listed in label order")
+        defaults = dict(self.default_environments)
+        aliases: dict[str, str] = {}
+        triples = {target.triple: target.label for target in self.targets}
+        for target in self.targets:
+            context = f"target {target.label!r}"
+            if target.operating_system not in self.OPERATING_SYSTEMS:
+                raise HostedAbiManifestError(f"{context} has unknown operating system {target.operating_system!r}")
+            if target.architecture not in self.ARCHITECTURES:
+                raise HostedAbiManifestError(f"{context} has unknown architecture {target.architecture!r}")
+            if target.environment not in self._OS_ENVIRONMENTS[target.operating_system]:
+                raise HostedAbiManifestError(
+                    f"{context} has environment {target.environment!r}, which {target.operating_system} does not take"
+                )
+            default = defaults.get(target.operating_system, "")
+            suffix = f"-{target.environment}" if target.environment and target.environment != default else ""
+            label = f"{target.operating_system}-{target.architecture}{suffix}"
+            if target.label != label:
+                raise HostedAbiManifestError(f"{context} must be labelled {label!r}")
+            self._validate_minimum(target, context)
+            triple = self._cc1_triple(target)
+            if target.triple != triple:
+                raise HostedAbiManifestError(f"{context} triple {target.triple!r} is not clang's cc1 form {triple!r}")
+            if list(target.triple_aliases) != sorted(set(target.triple_aliases)):
+                raise HostedAbiManifestError(f"{context} triple_aliases must be sorted and unique")
+            for alias in target.triple_aliases:
+                if alias in triples:
+                    raise HostedAbiManifestError(
+                        f"{context} triple alias {alias!r} is the triple of {triples[alias]!r}"
+                    )
+                if alias in aliases:
+                    raise HostedAbiManifestError(
+                        f"{context} triple alias {alias!r} is also an alias of {aliases[alias]!r}"
+                    )
+                aliases[alias] = target.label
+            zig = (
+                f"{target.architecture}-{target.operating_system}-{target.environment}"
+                if target.operating_system in ("linux", "windows")
+                else ""
+            )
+            if target.zig_target != zig:
+                raise HostedAbiManifestError(f"{context} zig_target must be {zig!r}")
+            if target.target_arguments != (f"--target={target.triple}",):
+                raise HostedAbiManifestError(f"{context} target_arguments must be exactly ['--target={target.triple}']")
+            self._validate_data_model(target, context)
+            if target.sysroot_kind not in self.SYSROOT_KINDS:
+                raise HostedAbiManifestError(f"{context} has unknown sysroot_kind {target.sysroot_kind!r}")
+            if bool(target.sysroot_name) != (target.sysroot_kind == "xcrun"):
+                raise HostedAbiManifestError(f"{context} must name a sysroot_name exactly when sysroot_kind is xcrun")
+            sysroot = self._SYSROOTS[(target.operating_system, target.environment)]
+            if (target.sysroot_kind, target.sysroot_name) != sysroot:
+                raise HostedAbiManifestError(
+                    f"{context} must have sysroot_kind {sysroot[0]!r} and sysroot_name {sysroot[1]!r}"
+                )
+            host = target.operating_system in self._DESKTOP_OPERATING_SYSTEMS and target.environment == default
+            if target.compiler_host != host:
+                raise HostedAbiManifestError(
+                    f"{context} compiler_host must be {str(host).lower()}: compiler hosts are exactly the desktop "
+                    "rows in their default environment"
+                )
+            apple = target.operating_system in self._APPLE_OPERATING_SYSTEMS
+            if target.objective_c != apple or target.frameworks != apple:
+                raise HostedAbiManifestError(f"{context} objective_c and frameworks must be {str(apple).lower()}")
+
+    def _validate_minimum(self, target: TargetRowSpec, context: str) -> None:
+        if target.operating_system in self._APPLE_OPERATING_SYSTEMS:
+            pattern, form = self._APPLE_MINIMUM, "MAJOR.MINOR"
+        elif target.operating_system == "android":
+            pattern, form = self._ANDROID_MINIMUM, "an API level"
+        else:
+            if target.minimum_version:
+                raise HostedAbiManifestError(f"{context} minimum_version must be empty: its triple carries none")
+            return
+        if not pattern.fullmatch(target.minimum_version):
+            raise HostedAbiManifestError(f"{context} minimum_version must be {form}")
+
+    @classmethod
+    def _cc1_triple(cls, target: TargetRowSpec) -> str:
+        """The triple clang's cc1 uses for a row (``-###``)."""
+
+        architecture = target.architecture
+        if target.operating_system in cls._APPLE_OPERATING_SYSTEMS:
+            system = "macosx" if target.operating_system == "macos" else "ios"
+            suffix = "-simulator" if target.environment == "simulator" else ""
+            return f"{cls._APPLE_ARCHITECTURES[architecture]}-apple-{system}{target.minimum_version}.0{suffix}"
+        if target.operating_system == "linux":
+            return f"{architecture}-unknown-linux-gnu"
+        if target.operating_system == "android":
+            return f"{architecture}-unknown-linux-android{target.minimum_version}"
+        if target.environment == "msvc":
+            return f"{architecture}-pc-windows-msvc{cls.MSVC_COMPATIBILITY_VERSION}"
+        return f"{architecture}-w64-windows-gnu"
+
+    def _validate_data_model(self, target: TargetRowSpec, context: str) -> None:
+        windows = target.operating_system == "windows"
+        if target.sizeof_pointer != 8:
+            raise HostedAbiManifestError(f"{context} sizeof_pointer must be 8: there is no 32-bit row")
+        if target.sizeof_long != (4 if windows else 8):
+            raise HostedAbiManifestError(f"{context} sizeof_long must be {4 if windows else 8}")
+        if target.sizeof_wchar_t != (2 if windows else 4):
+            raise HostedAbiManifestError(f"{context} sizeof_wchar_t must be {2 if windows else 4}")
+        if target.sizeof_long_double not in (8, 16):
+            raise HostedAbiManifestError(f"{context} sizeof_long_double must be 8 or 16")
+
+    def _validate_macros(self, hosted_abi: HostedAbiManifest) -> None:
         operating_systems = {target.operating_system for target in self.targets}
         architectures = {target.architecture for target in self.targets}
-        selections: dict[str, list[PredefinedMacroSpec]] = {}
+        environments = {target.environment for target in self.targets}
         for macro in self.predefined_macros:
             context = f"predefined macro {macro.name!r}"
             unknown = sorted(set(macro.operating_systems) - operating_systems)
@@ -798,16 +1135,37 @@ class TargetManifest:
             unknown = sorted(set(macro.architectures) - architectures)
             if unknown:
                 raise HostedAbiManifestError(f"{context} selects unknown architectures {unknown!r}")
-            if macro.environments:
-                raise HostedAbiManifestError(f"{context} selects environments, which no target row has yet")
-            if not self.reserved(macro.name):
-                raise HostedAbiManifestError(f"{context} is not a reserved name")
+            unknown = sorted(set(macro.environments) - environments)
+            if unknown:
+                raise HostedAbiManifestError(f"{context} selects unknown environments {unknown!r}")
+            if macro.name in self.DERIVED_MACRO_NAMES:
+                raise HostedAbiManifestError(f"{context} is derived from the target columns and cannot be a row")
+            apple_only = bool(macro.operating_systems) and set(macro.operating_systems) <= set(
+                self._APPLE_OPERATING_SYSTEMS
+            )
+            if not self.reserved(macro.name) and not (macro.name.startswith("TARGET_") and apple_only):
+                raise HostedAbiManifestError(
+                    f"{context} is not a reserved name (a TARGET_ name may select only macos and ios)"
+                )
+            if not any(macro.selects(target) for target in self.targets):
+                raise HostedAbiManifestError(f"{context} has a row that selects no target")
             if not 0 <= macro.value <= self._MAXIMUM_VALUE:
                 raise HostedAbiManifestError(f"{context} has value {macro.value} outside [0, 2**63 - 1]")
+        for name, value in self._PINNED_SIZES:
+            rows = [macro for macro in self.predefined_macros if macro.name == name]
+            if len(rows) != 1 or rows[0].value != value or not rows[0].selects_every_value():
+                raise HostedAbiManifestError(
+                    f"predefined macro {name!r} must be one row of value {value} on every target: "
+                    "char, short, int and long long are pinned across rows"
+                )
+        selections: dict[str, list[PredefinedMacroSpec]] = {}
+        for macro in self.macro_rows:
             for other in selections.get(macro.name, ()):
                 shared = [target.label for target in self.targets if macro.selects(target) and other.selects(target)]
                 if shared:
-                    raise HostedAbiManifestError(f"{context} has rows that both select {shared[0]!r}")
+                    raise HostedAbiManifestError(
+                        f"predefined macro {macro.name!r} has rows that both select {shared[0]!r}"
+                    )
             selections.setdefault(macro.name, []).append(macro)
         for name in self.undefined_macro_names:
             if not self.reserved(name):
@@ -830,10 +1188,18 @@ class TargetUnion:
     declarations (c-preprocessor-conditionals.md, "Stdlib symbol index"). A
     name that two targets declare differently in one file has no union, so
     the generator fails, naming the file and the two targets.
+
+    The union is keyed by the identities the compilers' conditional
+    environments distinguish. Until PLAN.md Stage 24 commit 1b gives them the
+    environment axis (platform-target-contract.md §1.4), an environment is
+    an ``operating_system-architecture`` pair, so rows that differ only in
+    their environment share one key; commit 1b keys it by row label.
     """
 
     def __init__(self, targets: TargetManifest) -> None:
-        self._labels = targets.labels
+        self._labels = tuple(
+            dict.fromkeys(f"{target.operating_system}-{target.architecture}" for target in targets.targets)
+        )
 
     @property
     def labels(self) -> tuple[str, ...]:
@@ -891,6 +1257,7 @@ class HostedAbiCatalogGenerator:
         lines = [
             '"""Generated hosted-ABI data. Do not edit by hand."""',
             "",
+            "from types import MappingProxyType",
             "from typing import NamedTuple",
             "",
             "",
@@ -926,8 +1293,7 @@ class HostedAbiCatalogGenerator:
             "",
             "",
             "class GeneratedTargetRow(NamedTuple):",
-            "    operating_system: str",
-            "    architecture: str",
+            *(f"    {field.name}: {field.type}" for field in fields(TargetRowSpec)),
             "",
             "",
             "class GeneratedPredefinedMacroRow(NamedTuple):",
@@ -981,12 +1347,25 @@ class HostedAbiCatalogGenerator:
 
     def _python_targets(self) -> list[str]:
         lines = ["TARGET_ROWS: tuple[GeneratedTargetRow, ...] = ("]
-        lines.extend(
-            f"    GeneratedTargetRow({target.operating_system!r}, {target.architecture!r}),"
-            for target in self._targets.targets
-        )
-        lines.extend([")", "", "TARGET_PREDEFINED_MACRO_ROWS: tuple[GeneratedPredefinedMacroRow, ...] = ("])
-        for macro in self._targets.predefined_macros:
+        for target in self._targets.targets:
+            lines.append("    GeneratedTargetRow(")
+            for field in fields(TargetRowSpec):
+                value = getattr(target, field.name)
+                rendered = self._python_names(value) if isinstance(value, tuple) else repr(value)
+                lines.append(f"        {field.name}={rendered},")
+            lines.append("    ),")
+        lines.extend([")", ""])
+        for name, table in (
+            ("TARGET_ARCHITECTURE_ALIASES", self._targets.architecture_aliases),
+            ("TARGET_DEFAULT_ENVIRONMENTS", self._targets.default_environments),
+        ):
+            lines.append(f"{name}: MappingProxyType[str, str] = MappingProxyType(")
+            lines.append("    {")
+            lines.extend(f"        {key!r}: {value!r}," for key, value in table)
+            lines.extend(["    }", ")", ""])
+        GeneratedSourceStyle.append_python_tuple(lines, "TARGET_ENVIRONMENTS", self._targets.ENVIRONMENTS)
+        lines.append("TARGET_PREDEFINED_MACRO_ROWS: tuple[GeneratedPredefinedMacroRow, ...] = (")
+        for macro in self._targets.macro_rows:
             lines.extend(
                 [
                     "    GeneratedPredefinedMacroRow(",
@@ -1135,16 +1514,7 @@ class HostedAbiCatalogGenerator:
             "    }",
             "}",
             "",
-            "class GeneratedTargetRow {",
-            "    public string operatingSystem;",
-            "    public string architecture;",
-            "",
-            "    public GeneratedTargetRow(string operatingSystem, string architecture) {",
-            "        self.operatingSystem = operatingSystem;",
-            "        self.architecture = architecture;",
-            "    }",
-            "}",
-            "",
+            *self._btrc_target_row_class(),
             "class GeneratedPredefinedMacroRow {",
             "    public string name;",
             "    public long long value;",
@@ -1169,6 +1539,8 @@ class HostedAbiCatalogGenerator:
             "    public string fingerprint;",
             "    public string targetSpecFingerprint;",
             "    private Vector<GeneratedTargetRow>? targetRowsMemo = null;",
+            "    private Map<string, string>? architectureAliasesMemo = null;",
+            "    private Map<string, string>? defaultEnvironmentsMemo = null;",
             "    private Vector<GeneratedPredefinedMacroRow>? predefinedMacroRowsMemo = null;",
             "    private Vector<GeneratedHostedFunctionRow>? functionRows = null;",
             "    private Map<string, int>? functionSlots = null;",
@@ -1307,7 +1679,7 @@ class HostedAbiCatalogGenerator:
         return "\n".join(lines)
 
     def _btrc_targets(self) -> list[str]:
-        """The target spec's rows, built on first use like the hosted tables."""
+        """The target spec's rows and tables, built on first use like the hosted tables."""
 
         lines = [
             "    public Vector<GeneratedTargetRow> targetRows() {",
@@ -1315,33 +1687,91 @@ class HostedAbiCatalogGenerator:
             "        if (memo != null) { return memo; }",
             "        Vector<GeneratedTargetRow> built = [];",
         ]
-        lines.extend(
-            "        built.push(GeneratedTargetRow("
-            f"{GeneratedSourceStyle.btrc_string(target.operating_system)}, "
-            f"{GeneratedSourceStyle.btrc_string(target.architecture)}));"
-            for target in self._targets.targets
-        )
+        for target in self._targets.targets:
+            arguments = ", ".join(self._btrc_value(getattr(target, field.name)) for field in fields(TargetRowSpec))
+            lines.append(f"        built.push(GeneratedTargetRow({arguments}));")
+        lines.extend(["        self.targetRowsMemo = built;", "        return built;", "    }", ""])
+        for method, table in (
+            ("architectureAliases", self._targets.architecture_aliases),
+            ("defaultEnvironments", self._targets.default_environments),
+        ):
+            lines.extend(
+                [
+                    f"    public Map<string, string> {method}() {{",
+                    f"        Map<string, string>? memo = self.{method}Memo;",
+                    "        if (memo != null) { return memo; }",
+                    "        Map<string, string> built = {};",
+                ]
+            )
+            lines.extend(
+                f"        built.put({GeneratedSourceStyle.btrc_string(key)}, {GeneratedSourceStyle.btrc_string(value)});"
+                for key, value in table
+            )
+            lines.extend([f"        self.{method}Memo = built;", "        return built;", "    }", ""])
+        # The hand-written rows, then the derived ones, spread over small
+        # methods like the hosted tables.
+        macros = list(self._targets.macro_rows)
+        chunks = range(0, len(macros), self.BTRC_ROWS_PER_METHOD)
         lines.extend(
             [
-                "        self.targetRowsMemo = built;",
-                "        return built;",
-                "    }",
-                "",
                 "    public Vector<GeneratedPredefinedMacroRow> predefinedMacroRows() {",
                 "        Vector<GeneratedPredefinedMacroRow>? memo = self.predefinedMacroRowsMemo;",
                 "        if (memo != null) { return memo; }",
                 "        Vector<GeneratedPredefinedMacroRow> built = [];",
             ]
         )
-        lines.extend(
-            "        built.push(GeneratedPredefinedMacroRow("
-            f"{GeneratedSourceStyle.btrc_string(macro.name)}, {macro.value}LL, "
-            f"{self._btrc_names(macro.operating_systems)}, {self._btrc_names(macro.architectures)}, "
-            f"{self._btrc_names(macro.environments)}));"
-            for macro in self._targets.predefined_macros
-        )
+        lines.extend(f"        self.pushPredefinedMacroRows{chunk}(built);" for chunk, _ in enumerate(chunks))
         lines.extend(["        self.predefinedMacroRowsMemo = built;", "        return built;", "    }", ""])
+        for chunk, start_index in enumerate(chunks):
+            lines.append(
+                f"    private void pushPredefinedMacroRows{chunk}(Vector<GeneratedPredefinedMacroRow> built) {{"
+            )
+            lines.extend(
+                "        built.push(GeneratedPredefinedMacroRow("
+                f"{GeneratedSourceStyle.btrc_string(macro.name)}, {macro.value}LL, "
+                f"{self._btrc_names(macro.operating_systems)}, {self._btrc_names(macro.architectures)}, "
+                f"{self._btrc_names(macro.environments)}));"
+                for macro in macros[start_index : start_index + self.BTRC_ROWS_PER_METHOD]
+            )
+            lines.extend(["    }", ""])
         return lines
+
+    @classmethod
+    def _btrc_target_row_class(cls) -> list[str]:
+        """``GeneratedTargetRow`` with the spec's columns respelled in camelCase, in spec order."""
+
+        columns = [(cls._btrc_field(field.name), cls._BTRC_COLUMN_TYPES[field.type]) for field in fields(TargetRowSpec)]
+        parameters = ", ".join(f"{kind} {name}" for name, kind in columns)
+        return [
+            "class GeneratedTargetRow {",
+            *(f"    public {kind} {name};" for name, kind in columns),
+            "",
+            f"    public GeneratedTargetRow({parameters}) {{",
+            *(f"        self.{name} = {name};" for name, _ in columns),
+            "    }",
+            "}",
+            "",
+        ]
+
+    _BTRC_COLUMN_TYPES = MappingProxyType(
+        {"str": "string", "int": "int", "bool": "bool", "tuple[str, ...]": "Vector<string>"}
+    )
+
+    @staticmethod
+    def _btrc_field(name: str) -> str:
+        """Respell one snake_case spec field the way btrc source spells names."""
+
+        head, *rest = name.split("_")
+        return head + "".join(part[:1].upper() + part[1:] for part in rest)
+
+    def _btrc_value(self, value: object) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, tuple):
+            return self._btrc_names(value)
+        return GeneratedSourceStyle.btrc_string(str(value))
 
     @staticmethod
     def _btrc_names(values: tuple[str, ...]) -> str:

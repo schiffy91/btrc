@@ -66,7 +66,7 @@ C4 adds two of its own:
 | Caches | Every compiler cache keys on conditioned or composed text, so a target switch invalidates with no new key component. Two keys change: Python's whole-program `cache_identity()` gains the program-check records, and the LSP unit cache gains the target and its environment identity. |
 | Positions | Conditioning errors and P1–P4 are file-local in both compilers. btrcc prints them with `FeVisibilityDiagnostic.render()`. |
 | Inspection tools | `LexMain`, `ParseMain` and the boundary verifier's raw AST dump stay single-stage and raw. Conditional parity is observed through `FrontendMain --target`. |
-| iOS / Android | Deferred to Stage 24. `__ANDROID__` is a target macro that no current target defines. |
+| iOS / Android | Deferred to Stage 24. `__ANDROID__` is a target macro that no current target defines. (Stage 24: a row on android, [platform-target-contract.md](platform-target-contract.md) §1.3.) |
 
 ## Shared owners
 
@@ -171,6 +171,7 @@ Blanking never cuts a comment or literal in half. A block comment hides any line
 - The environment is built lazily: when the walk first evaluates an `#if`, `#elif`, `#ifdef` or `#ifndef`, that directive fails with D13 at its `#`.
 - The reference refuses such a host before resolving (`packages.py:166-180`).
 - The LSP builds its environment the same lazy way, so on an unsupported host only files with conditionals get D13.
+- Superseded for compiles by Stage 24's host inference: both compilers refuse an unrecognized host at the target check, before reading any source, with `cannot infer a supported target from this host; pass --target`. Only the LSP keeps the lazy D13 ([platform-target-contract.md](platform-target-contract.md) §1.7).
 
 ### Shape checks (C11 translation phases 1–3)
 
@@ -348,11 +349,11 @@ An angle `#include <…>` is not P3 evidence, as in C2:
 |-------|-----------|----------|
 | Directive cache (Python `artifacts/cache.py:1029-1063`; btrc `cli/Driver.btrc:1478-1508`) | compiler identity plus the scanned text | It scans conditioned text. One raw file under two targets gives two entries, and a restore never brings back a dead import. No new component. |
 | Stdlib AST cache (`sources.py:618-751`, `:1048-1067`) | schema, frontend version, composed stdlib text | The text is composed from conditioned files, and parsing is context-free. No new component. |
-| Module units (`modules.py:767-782`, `:845-877`; `ModuleUnits.btrc:1095-1111`, `:1857-1866`) | target, per-group conditioned lines, program interface | No new component. The interface hashes every live directive, so editing any live directive re-lowers every group. An edit inside a dead group changes no key. |
+| Module units (`modules.py:767-782`, `:845-877`; `ModuleUnits.btrc:1095-1111`, `:1857-1866`) | target, per-group conditioned lines, program interface | No new component. The interface hashes every live directive, so editing any live directive re-lowers every group. An edit inside a dead group changes no key. Stage 24 keys the target by its canonical label ([platform-target-contract.md](platform-target-contract.md) §6.2). |
 | btrc `ValidationRecords` (`ModuleUnits.btrc:2709-2765`; `Pipeline.btrc:147-151`) | `userLines` text, `target=`, interface | `userLines` are conditioned. No new component. |
 | btrc whole-program artifacts (`Compiler.btrc:30-41`) | raw root text, every read file's raw digest, target, link plan | Already covers raw content and target. |
 | Python whole-program artifacts (`compiler.py:197-222`) | composed text plus `cache_identity()` | **Changed.** Blanked lines drop out of the composed text. So `#if 0 … #endif`, and an absent `#ifdef HAVE_X` beside a C include, compose identically, and a warm compile would skip P3. `cache_identity()` now appends the ordered records as canonical `path\0name\0line\0col\0local` text. |
-| Prebuilt stdlib archive (`artifacts/stdlib.py:119-170`) | hash of the composed stdlib source | `build_stdlib_archive` (`application/pipeline.py:884`) conditions with its target (`options.target`, else the host). Consumers compare the hash of their own conditioned composition, as today. |
+| Prebuilt stdlib archive (`artifacts/stdlib.py:119-170`) | hash of the composed stdlib source | `build_stdlib_archive` (`application/pipeline.py:884`) conditions with its target (`options.target`, else the host). Consumers compare the hash of their own conditioned composition, as today. Stage 24 adds the canonical target label to the key ([platform-target-contract.md](platform-target-contract.md) §6.2). |
 | LSP `UnitCache` (`devex/lsp/workspace/cache.py:150-159`) | schema, `FrontendFingerprint`, raw text | **Changed.** The key adds the target label and `ConditionalEnvironment.cache_identity()`, a digest of the selected macro rows, the undefined names and the foreign name set. `FrontendFingerprint` hashes no ABI data, and a `.btrc-cache` is shared by synced checkouts on different hosts. |
 
 Toolchain fingerprints need no change:
@@ -468,8 +469,8 @@ The text is identical in both compilers, and positions follow the conventions.
 |---|------|------------|
 | M1 | non-identical redefinition | `Macro 'N' is redefined with a different replacement; #undef it first (C11 6.10.3p2)` |
 | M2 | `#undef` of a name that no non-stdlib btrc source defines | `#undef of 'max' is not allowed; btrc undefines only macros that its own sources #define` |
-| M3 | `#define`/`#undef` of `defined` | `'defined' cannot be #define'd or #undef'd (C11 6.10.8p2)` |
-| M4 | `#define`/`#undef` of a foreign macro name | `'NDEBUG' is set by C headers or compiler flags; btrc sources cannot #define or #undef it` |
+| M3 | `#define`/`#undef` of `defined` (Stage 24: also of every predefined-macro row name and derived name, [platform-target-contract.md](platform-target-contract.md) §1.3) | `'defined' cannot be #define'd or #undef'd (C11 6.10.8p2)` |
+| M4 | `#define`/`#undef` of a foreign macro name (see M3 for the predefined names from Stage 24) | `'NDEBUG' is set by C headers or compiler flags; btrc sources cannot #define or #undef it` |
 | — | keyword; `BTRC_` prefix | existing `'int' is a reserved word and cannot be used as a name`; existing `Macro name 'BTRC_X' uses the compiler-reserved 'BTRC_' prefix` / `Source #undef of compiler-owned C symbol 'BTRC_X' is not allowed` |
 | U1 | code use of an `#undef`'d macro | `Source macro 'WRAP' cannot be used in code because it is #undef'd; btrc emits every #define and #undef before the program` |
 | U2 | code use through another macro | `Source macro 'A' cannot be used in code because it expands to #undef'd macro 'WRAP'; btrc emits every #define and #undef before the program` |
@@ -530,6 +531,7 @@ operating_systems = ["linux"]
 
 [conditionals]
 undefined_macro_names = ["__ANDROID__", "__cplusplus"]   # reserved; no target defines them
+# Stage 24 moves __ANDROID__ into a row on android (platform-target-contract.md §1.3).
 foreign_macro_names = ["NDEBUG", "TARGET_OS_MAC", "bool", "..."]   # set by headers or flags
 ```
 
@@ -537,23 +539,25 @@ foreign_macro_names = ["NDEBUG", "TARGET_OS_MAC", "bool", "..."]   # set by head
 
 | Name | Selection |
 |------|-----------|
-| `__linux__`, `__linux`, `__unix__`, `__unix`, `__ELF__` | linux |
-| `__APPLE__`, `__MACH__` | macos |
+| `__linux__`, `__linux`, `__unix__`, `__unix`, `__ELF__` | linux (Stage 24: linux and android, [platform-target-contract.md](platform-target-contract.md) §1.3) |
+| `__APPLE__`, `__MACH__` | macos (Stage 24: macos and ios, §1.3) |
 | `_WIN32`, `_WIN64` | windows |
 | `__x86_64__`, `__x86_64`, `__amd64__`, `__amd64` | x86_64 |
 | `__aarch64__` | aarch64 |
-| `__arm64__`, `__arm64` | macos and aarch64 |
-| `__CHAR_UNSIGNED__` | linux and aarch64 |
+| `__arm64__`, `__arm64` | macos and aarch64 (Stage 24: macos and ios on aarch64, §1.3) |
+| `__CHAR_UNSIGNED__` | linux and aarch64 (Stage 24: derived from `char_signed`, [platform-target-contract.md](platform-target-contract.md) §1.3) |
 | `__CHAR_BIT__`=8, `__SIZEOF_SHORT__`=2, `__SIZEOF_INT__`=4, `__SIZEOF_LONG_LONG__`=8, `__SIZEOF_POINTER__`=8, `__SIZEOF_SIZE_T__`=8, `__SIZEOF_PTRDIFF_T__`=8 | every target |
 | `__ORDER_LITTLE_ENDIAN__`=1234, `__ORDER_BIG_ENDIAN__`=4321, `__ORDER_PDP_ENDIAN__`=3412, `__BYTE_ORDER__`=1234 | every target |
-| `__STDC__`=1, `__STDC_VERSION__`=201112 | every target |
+| `__STDC__`=1, `__STDC_VERSION__`=201112 | every target (Stage 24: `__STDC__` on every environment except `msvc`, §1.3 of [platform-target-contract.md](platform-target-contract.md)) |
 
 **Left out on purpose.** Each is I2 until a later stage adds it.
 - **Toolchain or invocation identity:** `__GNUC__`, `__clang__`, `__MINGW32__`, `__MINGW64__`, `__STDC_HOSTED__`, `__OPTIMIZE__`, `__gnu_linux__`.
+  - Stage 24 makes `__MINGW32__` and `__MINGW64__` rows on windows with the `gnu` environment: with the environment axis they name an ABI, not a toolchain version ([platform-target-contract.md](platform-target-contract.md) §1.3).
 - **The data model:** `__SIZEOF_LONG__`, `__SIZEOF_WCHAR_T__`, `__LP64__` and `_LP64`.
   - Both analyzers take `long` from the host. In a Linux → windows-x86_64 cross compile, `#if __SIZEOF_LONG__ == 4` would select LLP64 code that the analyzer types as LP64.
   - Stage 24 adds data-model columns to `[[targets]]` and generates these four from them. It also switches `CIntegerWidths` and btrc's limits to the target row.
-- **`__SIZEOF_LONG_DOUBLE__`:** MinGW and MSVC disagree on windows-x86_64.
+  - Done in Stage 24's spec commit: they are derived macros ([platform-target-contract.md](platform-target-contract.md) §1.3).
+- **`__SIZEOF_LONG_DOUBLE__`:** MinGW and MSVC disagree on windows-x86_64. Stage 24 derives it from the `sizeof_long_double` column, since the environments are separate rows ([platform-target-contract.md](platform-target-contract.md) §1.3).
 
 **`foreign_macro_names`** holds:
 - `bool`, `NDEBUG`, `WINAPI_FAMILY` and `TARGET_IPHONE_SIMULATOR`;
@@ -561,11 +565,13 @@ foreign_macro_names = ["NDEBUG", "TARGET_OS_MAC", "bool", "..."]   # set by head
   - `TARGET_OS_{MAC, OSX, IPHONE, IOS, MACCATALYST, TV, WATCH, VISION, BRIDGE, DRIVERKIT, SIMULATOR, EMBEDDED, UNIX, WIN32, LINUX, WINDOWS}`;
   - `TARGET_CPU_{ARM, ARM64, X86, X86_64, PPC, PPC64}`;
   - `TARGET_RT_{64_BIT, LITTLE_ENDIAN, BIG_ENDIAN, MAC_MACHO, MAC_CFM}`.
+- Stage 24 makes the `TARGET_OS_*` names clang predefines, and `TARGET_IPHONE_SIMULATOR`, rows on macos and ios, so `#if` reads them. They stay in this list, so that M4 keeps refusing `#define` and `#undef` of them, until M3 refuses every predefined-macro row name and derived name; that commit removes the 16 names from the list ([platform-target-contract.md](platform-target-contract.md) §1.3).
+- `undefined_macro_names` loses `__ANDROID__`, which becomes a row on android (§1.3 of [platform-target-contract.md](platform-target-contract.md)).
 
 **Generator rules** (raised in the `HostedAbiManifestError` style):
 - `(operating_system, architecture)` pairs are unique.
-- Selector values name values that exist in `[[targets]]`. `environments` is absent or empty.
-- A predefined-macro name is reserved: it starts with `__`, or with `_` and an uppercase letter.
+- Selector values name values that exist in `[[targets]]`. `environments` is absent or empty. (Stage 24: `environments` is a selector like the others, and it alone may name `""`, the empty environment; [platform-target-contract.md](platform-target-contract.md) §1.1, §1.3.)
+- A predefined-macro name is reserved: it starts with `__`, or with `_` and an uppercase letter. (Stage 24 exempts a `TARGET_` name whose row selects only macos and ios, §1.1 of [platform-target-contract.md](platform-target-contract.md).)
 - Values lie in [0, 2⁶³−1].
 - Rows that share a name select disjoint targets.
 - `undefined_macro_names` are reserved and appear in no row.
@@ -703,7 +709,7 @@ foreign_macro_names = ["NDEBUG", "TARGET_OS_MAC", "bool", "..."]   # set by head
    - The left-out names are only checked to be absent from the table.
    - Host gcc must agree on its own target.
    - The Windows triples are `x86_64-w64-windows-gnu` and `aarch64-w64-windows-gnu`. `x86_64-pc-windows-msvc` does not define `__STDC__`, so a switch to MSVC revisits that row.
-   - The triples live in the test until Stage 24 puts them in the spec.
+   - The triples live in the test until Stage 24 puts them in the spec. Since Stage 24's spec commit the test takes them from `TARGET_ROWS[*].triple` and covers all eleven rows ([platform-target-contract.md](platform-target-contract.md) §1.3).
    - A missing clang is a classified skip in the skip ledger.
 4. **Python units:** the expression battery, blanking, LF normalization in the LSP, the fast-path regex, the symbol-index union, and `test_hosted_abi_contract.py`'s spec rules and width check.
 5. **Inventory** (`c3_c4.toml`, `test_c_compatibility_inventory.py`). The inventory compiles with the host target, so every r18 outcome must be target-independent.
