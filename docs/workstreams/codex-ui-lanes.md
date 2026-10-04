@@ -6,6 +6,11 @@ D27 and WORKSTREAMS.md §2–§3. Where it and `docs/workstreams/codex.md` disag
 it into codex.md. Claude rewrites it whenever the lanes change; read the version on `origin/main` before each new
 packet.
 
+## Corrections (2026-10-04)
+
+- **Lane workflows are yours.** The goal text the owner pasted said never to edit "CI-workflow files". That was the integrator's wording, and it was too broad. Only `.github/workflows/{ci,macos,windows,release}.yml` are Claude's. A packet's own lane workflow (`host-android.yml`, `host-ios.yml`, `host-windows.yml`, `windows-arm64.yml`, …) is that packet's owned path. Commit it in the lane-workflow class (CI policy, item 8). If the token lacks the `workflows` permission, commit it as `ci/proposed/<name>.yml` instead, and Claude installs and dispatches it.
+- **Evidence artifacts.** Codex's token gets HTTP 403 on `gh run download` for the shared UI0 runs. Claude can download them. Until the token can, leave cells implemented-unverified and say so in the PR, as `CX-UIA-03`, `04` and `30` did. Claude promotes the evidence in a follow-up. If your environment can read artifacts, cite the `[runs.ui0-*]` headers in the cells.
+
 ## Where each platform stands
 
 Only UI0's serial foundation has landed: PR #21's catalog seed and drift gate (`b7aa53f`, batch 11), the focused
