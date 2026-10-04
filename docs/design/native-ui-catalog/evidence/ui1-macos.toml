@@ -1,19 +1,32 @@
-# CX-UIA-10 AppKit shell observations. No new native run is claimed yet.
-# The native test embeds its JSON report in the existing uploaded JUnit as
-# property ui1_macos_evidence; build/ui-shell/ui1-macos-*.json is the local copy.
-# A passing observation harness does not turn a reported traversal gap into
-# implemented UI behavior. Classification remains in the operation/case owners.
+# CX-UIA-10 actual hosted AppKit observations from PR54 / source e6b7ad8d.
+# Run 37237585439, job 111539718600; downloaded JUnit artifact 11317401315.
+# The complete JSON is retained in each testcase's ui1_macos_evidence property.
+# Passing observation/lifecycle checks do not resolve the recorded focus gaps.
 schema = "btrc.qualification.ledger/1"
 
 [[records]]
-subject = { kind = "test", id = "ui1.macos.native-shell-observation", platform = "macos", frontend = "reference" }
-classification = { note = "AX role/label/value/focus/frame dump, unchanged native key-view traversal, explicit GPU accessibility/focus status, 100 lifecycle cycles and 100 fresh-process restores; plain and ASan/UBSan rows. Hosted AppKit is stand-in evidence, not external AX trust or physical GPU timing." }
-evidence = { status = "implemented-unverified", reason = "New probe awaits actual macOS test_native_ui_shell_macos.py rows and JUnit JSON properties; Linux parser checks are not native execution." }
+subject = { kind = "test", id = "ui1.macos.native-shell-observation", platform = "macos", frontend = "reference", variant = "macos-plain" }
+classification = { note = "Actual hosted observation proof. AX exposes field/button cells rather than their NSControl objects; scroll is directly exposed. Full Keyboard Access was false; Tab remained on the field. Direct GPU first-responder assignment succeeded despite acceptsFirstResponder=false, but Tab/AX inclusion remain gaps. No provider fix, external AX trust or physical GPU timing claim." }
+evidence = { status = "passed", observed = "{\"appkit_private_survivors\":1,\"ax_fixture_roles\":[\"NSTextFieldCell/AXTextField\",\"NSButtonCell/AXButton (Commit)\",\"NSScrollView/AXScrollArea\"],\"cycles\":100,\"fresh_process_restores\":100,\"full_keyboard_access\":false,\"gpu_accepts_first_responder\":false,\"gpu_ax_exposed\":false,\"gpu_direct_first_responder\":true,\"gpu_focus_status\":\"gap\",\"gpu_frames\":100,\"gpu_tab_reached\":false,\"job_id\":111539718600,\"key_view_status\":\"gap\",\"provider_survivors\":0,\"registration_survivors\":0,\"run_id\":37237585439,\"source_head\":\"e6b7ad8d724fb80d4b202dd2ac4687e688419188\",\"subview_totals\":[60],\"tab_order\":[\"field\",\"field\",\"field\",\"field\"]}", artifact = "https://github.com/schiffy91/btrc/actions/runs/37237585439/artifacts/11317401315" }
+provenance = { btrc_revision = "494df7d60d42afb5ec95b729fb20e317123c4f85", build_mode = "plain", device_class = "stand-in", os_build = "macOS-15.7.9-arm64-arm-64bit-Mach-O", recorded_at = "2026-10-04T22:20:31.338032+00:00", runner = "macos-hosted" }
 
 [[records]]
-subject = { kind = "test", id = "ui1.macos.native-shell-observation", platform = "macos", frontend = "selfhost" }
-classification = { note = "Same real AppKit probe and acceptance as the reference frontend; no inferred native pass from Linux checks or earlier fixture CI." }
-evidence = { status = "implemented-unverified", reason = "New probe awaits actual macOS test_native_ui_shell_macos.py rows and JUnit JSON properties; Linux parser checks are not native execution." }
+subject = { kind = "test", id = "ui1.macos.native-shell-observation", platform = "macos", frontend = "selfhost", variant = "macos-plain" }
+classification = { note = "Actual hosted observation proof. AX exposes field/button cells rather than their NSControl objects; scroll is directly exposed. Full Keyboard Access was false; Tab remained on the field. Direct GPU first-responder assignment succeeded despite acceptsFirstResponder=false, but Tab/AX inclusion remain gaps. No provider fix, external AX trust or physical GPU timing claim." }
+evidence = { status = "passed", observed = "{\"appkit_private_survivors\":1,\"ax_fixture_roles\":[\"NSTextFieldCell/AXTextField\",\"NSButtonCell/AXButton (Commit)\",\"NSScrollView/AXScrollArea\"],\"cycles\":100,\"fresh_process_restores\":100,\"full_keyboard_access\":false,\"gpu_accepts_first_responder\":false,\"gpu_ax_exposed\":false,\"gpu_direct_first_responder\":true,\"gpu_focus_status\":\"gap\",\"gpu_frames\":100,\"gpu_tab_reached\":false,\"job_id\":111539718600,\"key_view_status\":\"gap\",\"provider_survivors\":0,\"registration_survivors\":0,\"run_id\":37237585439,\"source_head\":\"e6b7ad8d724fb80d4b202dd2ac4687e688419188\",\"subview_totals\":[60],\"tab_order\":[\"field\",\"field\",\"field\",\"field\"]}", artifact = "https://github.com/schiffy91/btrc/actions/runs/37237585439/artifacts/11317401315" }
+provenance = { btrc_revision = "494df7d60d42afb5ec95b729fb20e317123c4f85", build_mode = "plain", device_class = "stand-in", os_build = "macOS-15.7.9-arm64-arm-64bit-Mach-O", recorded_at = "2026-10-04T22:25:11.373516+00:00", runner = "macos-hosted" }
+
+[[records]]
+subject = { kind = "test", id = "ui1.macos.native-shell-observation", platform = "macos", frontend = "reference", variant = "macos-sanitized" }
+classification = { note = "Actual hosted observation proof. AX exposes field/button cells rather than their NSControl objects; scroll is directly exposed. Full Keyboard Access was false; Tab remained on the field. Direct GPU first-responder assignment succeeded despite acceptsFirstResponder=false, but Tab/AX inclusion remain gaps. No provider fix, external AX trust or physical GPU timing claim." }
+evidence = { status = "passed", observed = "{\"appkit_private_survivors\":1,\"ax_fixture_roles\":[\"NSTextFieldCell/AXTextField\",\"NSButtonCell/AXButton (Commit)\",\"NSScrollView/AXScrollArea\"],\"cycles\":100,\"fresh_process_restores\":100,\"full_keyboard_access\":false,\"gpu_accepts_first_responder\":false,\"gpu_ax_exposed\":false,\"gpu_direct_first_responder\":true,\"gpu_focus_status\":\"gap\",\"gpu_frames\":100,\"gpu_tab_reached\":false,\"job_id\":111539718600,\"key_view_status\":\"gap\",\"provider_survivors\":0,\"registration_survivors\":0,\"run_id\":37237585439,\"source_head\":\"e6b7ad8d724fb80d4b202dd2ac4687e688419188\",\"subview_totals\":[60],\"tab_order\":[\"field\",\"field\",\"field\",\"field\"]}", artifact = "https://github.com/schiffy91/btrc/actions/runs/37237585439/artifacts/11317401315" }
+provenance = { btrc_revision = "494df7d60d42afb5ec95b729fb20e317123c4f85", build_mode = "asan-ubsan", device_class = "stand-in", os_build = "macOS-15.7.9-arm64-arm-64bit-Mach-O", recorded_at = "2026-10-04T22:24:21.572652+00:00", runner = "macos-hosted" }
+
+[[records]]
+subject = { kind = "test", id = "ui1.macos.native-shell-observation", platform = "macos", frontend = "selfhost", variant = "macos-sanitized" }
+classification = { note = "Actual hosted observation proof. AX exposes field/button cells rather than their NSControl objects; scroll is directly exposed. Full Keyboard Access was false; Tab remained on the field. Direct GPU first-responder assignment succeeded despite acceptsFirstResponder=false, but Tab/AX inclusion remain gaps. No provider fix, external AX trust or physical GPU timing claim." }
+evidence = { status = "passed", observed = "{\"appkit_private_survivors\":1,\"ax_fixture_roles\":[\"NSTextFieldCell/AXTextField\",\"NSButtonCell/AXButton (Commit)\",\"NSScrollView/AXScrollArea\"],\"cycles\":100,\"fresh_process_restores\":100,\"full_keyboard_access\":false,\"gpu_accepts_first_responder\":false,\"gpu_ax_exposed\":false,\"gpu_direct_first_responder\":true,\"gpu_focus_status\":\"gap\",\"gpu_frames\":100,\"gpu_tab_reached\":false,\"job_id\":111539718600,\"key_view_status\":\"gap\",\"provider_survivors\":0,\"registration_survivors\":0,\"run_id\":37237585439,\"source_head\":\"e6b7ad8d724fb80d4b202dd2ac4687e688419188\",\"subview_totals\":[60],\"tab_order\":[\"field\",\"field\",\"field\",\"field\"]}", artifact = "https://github.com/schiffy91/btrc/actions/runs/37237585439/artifacts/11317401315" }
+provenance = { btrc_revision = "494df7d60d42afb5ec95b729fb20e317123c4f85", build_mode = "asan-ubsan", device_class = "stand-in", os_build = "macOS-15.7.9-arm64-arm-64bit-Mach-O", recorded_at = "2026-10-04T22:29:09.377600+00:00", runner = "macos-hosted" }
 
 [[records]]
 subject = { kind = "ui-case", id = "E46", platform = "macos", frontend = "reference" }
