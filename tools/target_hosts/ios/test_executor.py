@@ -7,6 +7,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -65,7 +66,7 @@ class LocalProcessHost:
 
     @staticmethod
     def stop_launcher(process):
-        process.communicate(timeout=3)
+        return process.communicate(timeout=3)
 
     def terminate_app(self, bundle_id):
         app = self.apps.get(bundle_id)
@@ -105,6 +106,53 @@ class LocalProcessHost:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
             process.communicate(timeout=3)
+
+
+class DelayedProcessHost(LocalProcessHost):
+    """Keep the simctl-shaped launcher distinct from the native fixture PID."""
+
+    def __init__(self, root, delay=1):
+        super().__init__(root)
+        self.delay = delay
+        self.child_file = root / "delayed-child-pid"
+        self.child_file.unlink(missing_ok=True)
+
+    def spawn(self, executable, argv, env):
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                str(SimulatorSpike.root / "fixtures/delayed_launcher.py"),
+                str(self.delay),
+                str(self.child_file),
+                str(executable),
+                *argv,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=self.child_environment(env),
+            start_new_session=True,
+        )
+        self.processes[process.pid] = process
+        return process
+
+    def alive(self, pid):
+        return IOSSimulatorHost.alive(self, pid)
+
+    def send_signal(self, pid, number, *, group=False):
+        self.signals.append(number)
+        IOSSimulatorHost.send_signal(self, pid, number, group=group)
+
+    def stop_launcher(self, process):
+        return IOSSimulatorHost.stop_launcher(process)
+
+    def close(self):
+        # Own cleanup independently, including when testing a regressed executor.
+        if self.child_file.exists():
+            pid = int(self.child_file.read_text())
+            if self.alive(pid):
+                self.send_signal(pid, signal.SIGKILL)
+        super().close()
 
 
 class ExecutorProcessTests(unittest.TestCase):
@@ -224,6 +272,122 @@ class ExecutorProcessTests(unittest.TestCase):
             self.assertFalse(timed_out)
             self.assertEqual(identity, (12345, True))
 
+    def test_spawn_execution_budget_starts_after_delayed_child_identity(self):
+        self.host = DelayedProcessHost(self.root, delay=1)
+        result = self.executor("spawn").run(SimulatorSpike.request("timeout"))
+        SimulatorSpike.check("timeout", result)
+        pid = int(self.host.child_file.read_text())
+        self.assertNotIn(pid, self.host.processes)  # Launcher and child really differ.
+        self.assertFalse(self.host.alive(pid))
+        self.assertTrue(all(process.poll() is not None for process in self.host.processes.values()))
+        self.assertGreaterEqual(result.provenance["cold_launch_s"], 1)
+        self.assertIn(signal.SIGKILL, self.host.signals)
+
+    def test_launch_deadline_cleans_identity_published_during_cleanup_grace(self):
+        self.host = DelayedProcessHost(self.root, delay=0.2)
+        executor = self.executor("spawn")
+        executor.launch_timeout_s = 0.05
+        with self.assertRaisesRegex(SimulatorError, "launch deadline"):
+            executor.run(SimulatorSpike.request("stdout"))
+        pid = int(self.host.child_file.read_text())
+        self.assertFalse(self.host.alive(pid))
+        self.assertTrue(all(process.poll() is not None for process in self.host.processes.values()))
+        self.assertEqual(self.host.child_file.with_suffix(".stdout").read_bytes(), b"")
+
+    def test_spawn_launcher_diagnostics_survive_failed_execution(self):
+        from unittest.mock import patch
+
+        def fail(executable, argv, env):
+            process = subprocess.Popen(
+                [sys.executable, "-c", "import sys; sys.stderr.write('simctl diagnostic'); sys.exit(7)"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+            self.host.processes[process.pid] = process
+            return process
+
+        with (
+            patch.object(self.host, "spawn", side_effect=fail),
+            self.assertRaisesRegex(SimulatorError, "without a test-host result") as caught,
+        ):
+            self.executor("spawn").run(ExecutionRequest("stdout"))
+        self.assertIn("simctl diagnostic", " ".join(caught.exception.__notes__))
+
+    def test_reused_app_container_is_rejected_by_persistent_marker(self):
+        from unittest.mock import patch
+
+        original = self.host.command
+        kept = {}
+
+        def retain_container(*args, **kwargs):
+            if args[0] == "uninstall":
+                kept.update(self.host.apps.pop(args[2]))
+                return subprocess.CompletedProcess(args, 0, b"", b"")
+            result = original(*args, **kwargs)
+            if args[0] == "install" and kept:
+                bundle_id = f"dev.btrc.testhost.{Path(args[2]).stem}"
+                self.host.apps[bundle_id]["data"] = kept["data"]
+            return result
+
+        with patch.object(self.host, "command", side_effect=retain_container):
+            executor = self.executor("app")
+            executor.run(ExecutionRequest("stdout"))
+            with self.assertRaisesRegex(SimulatorError, "data survived reinstall"):
+                executor.run(ExecutionRequest("stdout"))
+
+    def test_app_cleanup_preserves_execution_error_and_attempts_uninstall(self):
+        from unittest.mock import patch
+
+        executor = self.executor("app")
+        with (
+            patch.object(executor, "_wait", side_effect=SimulatorError("original execution error")),
+            patch.object(self.host, "terminate_app", side_effect=SimulatorError("terminate failed")),
+            self.assertRaisesRegex(SimulatorError, "original execution error") as caught,
+        ):
+            executor.run(ExecutionRequest("stdout"))
+        self.assertFalse(self.host.apps)
+        self.assertIn("terminate failed", " ".join(caught.exception.__notes__))
+
+    def test_fixture_checks_survive_python_optimization(self):
+        code = (
+            "from types import SimpleNamespace; "
+            "from tools.target_hosts.ios.spike import SimulatorSpike; "
+            "SimulatorSpike.check('stdout', SimpleNamespace(stdout=b'wrong'))"
+        )
+        result = subprocess.run([sys.executable, "-O", "-c", code], capture_output=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"stdout mismatch", result.stderr)
+
+    def test_launcher_cleanup_bounds_both_waits_and_handles_exit_race(self):
+        from unittest.mock import Mock, patch
+
+        process = Mock(pid=12345)
+        process.communicate.side_effect = [subprocess.TimeoutExpired("simctl", 2), (b"out", b"err")]
+        with patch("tools.target_hosts.ios.simhost.os.killpg", side_effect=ProcessLookupError):
+            self.assertEqual(IOSSimulatorHost.stop_launcher(process), (b"out", b"err"))
+        self.assertEqual([call.kwargs for call in process.communicate.call_args_list], [{"timeout": 2}, {"timeout": 3}])
+        process.communicate.side_effect = subprocess.TimeoutExpired("simctl", 3)
+        with (
+            patch("tools.target_hosts.ios.simhost.os.killpg"),
+            self.assertRaisesRegex(SimulatorError, "did not drain/reap"),
+        ):
+            IOSSimulatorHost.stop_launcher(process)
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()
+
+    def test_real_host_spawn_builds_child_environment_and_separate_client_session(self):
+        from unittest.mock import patch
+
+        host = IOSSimulatorHost()
+        host.udid = "test-device"
+        with patch("tools.target_hosts.ios.simhost.subprocess.Popen") as launch:
+            host.spawn(Path("/fixture"), ("one argument",), {"VALUE": "data"})
+        args, kwargs = launch.call_args
+        self.assertEqual(args[0], ["xcrun", "simctl", "spawn", "test-device", "/fixture", "one argument"])
+        self.assertEqual(kwargs["env"]["SIMCTL_CHILD_VALUE"], "data")
+        self.assertTrue(kwargs["start_new_session"])
+
 
 class SimulatorInventoryTests(unittest.TestCase):
     @staticmethod
@@ -310,6 +474,23 @@ class SimulatorInventoryTests(unittest.TestCase):
         inventory["devices"]["com.apple.CoreSimulator.SimRuntime.iOS-17-0"][0]["deviceTypeIdentifier"] = "phone"
         with self.assertRaisesRegex(SimulatorError, "device class"):
             IOSSimulatorHost("ipad", runner=runner).prepare()
+
+    def test_runtime_supported_device_types_excludes_newer_incompatible_type(self):
+        inventory = self.inventory()
+        inventory["runtimes"][0]["supportedDeviceTypes"] = [{"identifier": "phone"}]
+        inventory["devicetypes"].append({"name": "iPhone incompatible", "identifier": "unsupported"})
+        calls = []
+
+        def runner(command, **_kwargs):
+            calls.append(command)
+            output = json.dumps(inventory).encode() if command[-2:] == ["list", "-j"] else b"new-device\n"
+            return subprocess.CompletedProcess(command, 0, stdout=output, stderr=b"")
+
+        host = IOSSimulatorHost("iphone", runner=runner)
+        host.prepare()
+        create = next(command for command in calls if command[2] == "create")
+        self.assertEqual(create[4], "phone")
+        host.close()
 
     def test_child_environment_does_not_replay_previous_request(self):
         from unittest.mock import patch

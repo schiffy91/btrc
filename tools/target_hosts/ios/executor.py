@@ -43,14 +43,18 @@ class ExecutionResult:
 
 
 class IOSSimulatorExecutor:
-    def __init__(self, *, mode: str = "spawn", device_class: str = "iphone", host=None):
+    def __init__(self, *, mode: str = "spawn", device_class: str = "iphone", host=None, launch_timeout_s: float = 30):
         if mode not in {"spawn", "app"}:
             raise ValueError("mode must be spawn or app")
+        if not math.isfinite(launch_timeout_s) or launch_timeout_s <= 0:
+            raise ValueError("launch_timeout_s must be finite and positive")
+        self.launch_timeout_s = launch_timeout_s
         self.mode = mode
         self.host = host if host is not None else IOSSimulatorHost(device_class)
         self.bundle_dir: Path | None = None
         self.programs: dict = {}
         self.host_provenance: dict = {}
+        self._active_identity: tuple[int, bool] | None = None
 
     def prepare(self, bundle_dir: str | Path, label: str) -> None:
         if label != "ios-aarch64-simulator":
@@ -123,13 +127,21 @@ class IOSSimulatorExecutor:
             raise SimulatorError("Timed-out simulator child is still alive after SIGKILL")
 
     def _wait(self, directory: Path, timeout: float, launcher=None, *, launched_at: float):
-        deadline = time.monotonic() + timeout
+        launch_deadline = launched_at + self.launch_timeout_s
+        execution_deadline = None
         identity = None
         first_identity_s = None
         while True:
-            identity = self._identity(directory) or identity
+            observed = self._identity(directory)
+            if identity is not None and observed not in (None, identity):
+                raise SimulatorError("Test-host process identity changed during execution")
+            identity = observed or identity
+            self._active_identity = identity
             if identity and first_identity_s is None:
                 first_identity_s = time.monotonic() - launched_at
+                execution_deadline = time.monotonic() + timeout
+                # The wrapper never invokes fixture code without this acknowledgement.
+                (directory / "start").touch()
             terminal = (directory / "exit_status").exists() or (directory / "signal_status").exists()
             if terminal:
                 if identity is None:
@@ -144,12 +156,56 @@ class IOSSimulatorExecutor:
                 if (directory / "exit_status").exists() or (directory / "signal_status").exists():
                     continue
                 raise SimulatorError("Simulator child disappeared without a terminal result")
-            if time.monotonic() >= deadline:
-                if identity is None:
-                    raise SimulatorError("Test host never published its process identity; launch failed")
+            if identity is None and time.monotonic() >= launch_deadline:
+                raise SimulatorError("Test host never published its process identity before the launch deadline")
+            if execution_deadline is not None and time.monotonic() >= execution_deadline:
                 self._stop_child(identity)
                 return True, identity, first_identity_s
             time.sleep(0.02)
+
+    def _cleanup_spawn(self, directory: Path, launcher) -> tuple[bytes, bytes]:
+        # Cancel before waiting: a late wrapper cannot begin executing the fixture.
+        (directory / "cancel").touch()
+        deadline = time.monotonic() + 3
+        identity = self._active_identity
+        identity_error = None
+        while time.monotonic() < deadline:
+            try:
+                identity = identity or self._identity(directory)
+            except SimulatorError as error:
+                identity_error = error
+                break
+            if identity is not None:
+                break
+            if launcher.poll() is not None:
+                # Read again after observing exit, covering atomic publication races.
+                identity = self._identity(directory)
+                break
+            time.sleep(0.02)
+        errors = []
+        if identity_error is not None:
+            errors.append(identity_error)
+        try:
+            if identity and self.host.alive(identity[0]):
+                self._stop_child(identity)
+        except Exception as error:
+            errors.append(error)
+        try:
+            output = self.host.stop_launcher(launcher)
+        except Exception as error:
+            errors.append(error)
+            output = (b"", b"")
+        # The client can exit just as its child atomically publishes the identity.
+        if identity is None and identity_error is None:
+            try:
+                identity = self._identity(directory)
+                if identity and self.host.alive(identity[0]):
+                    self._stop_child(identity)
+            except Exception as error:
+                errors.append(error)
+        if errors:
+            raise ExceptionGroup("Simulator spawn cleanup failed", errors)
+        return output
 
     @staticmethod
     def _collect(directory: Path, timed_out: bool) -> tuple[int | None, int | None, bytes, bytes]:
@@ -173,6 +229,10 @@ class IOSSimulatorExecutor:
         started = time.monotonic()
         launcher = None
         installed = False
+        self._active_identity = None
+        primary_error = None
+        directory = None
+        launcher_output = (b"", b"")
         bundle_id = row["bundle_id"]
         with tempfile.TemporaryDirectory(prefix="btrc-ios-") as temporary:
             staging = Path(temporary)
@@ -193,6 +253,11 @@ class IOSSimulatorExecutor:
                     )
                     if not container.is_absolute() or not container.is_dir():
                         raise SimulatorError("simctl returned no accessible app data container")
+                    marker = container / "tmp" / "btrc-previous-invocation"
+                    if marker.exists():
+                        raise SimulatorError("App data survived reinstall; fresh container proof failed")
+                    marker.parent.mkdir(parents=True, exist_ok=True)
+                    marker.write_text(uuid.uuid4().hex)
                     directory = container / "tmp" / f"btrc-run-{uuid.uuid4().hex}"
                 else:
                     directory = staging / "result"
@@ -224,7 +289,7 @@ class IOSSimulatorExecutor:
                         self.host.device(),
                         bundle_id,
                         *request.argv,
-                        timeout=min(request.timeout_s + 5, 120),
+                        timeout=self.launch_timeout_s,
                         env=self.host.child_environment(values),
                     )
                 launch_duration = time.monotonic() - launch_started
@@ -233,7 +298,7 @@ class IOSSimulatorExecutor:
                 )
                 launcher_status = None
                 if launcher is not None:
-                    self.host.stop_launcher(launcher)
+                    launcher_output = self.host.stop_launcher(launcher)
                     launcher_status = launcher.returncode
                     launcher = None
                 status, signum, stdout, stderr = self._collect(directory, timed_out)
@@ -244,6 +309,10 @@ class IOSSimulatorExecutor:
                     cold_launch_s=cold_launch,
                     launch_command_s=launch_duration,
                     simctl_spawn_status=launcher_status,
+                    simctl_stdout=launcher_output[0].decode(errors="replace"),
+                    simctl_stderr=launcher_output[1].decode(errors="replace"),
+                    app_container=str(container) if self.mode == "app" else None,
+                    app_container_marker_absent=self.mode == "app",
                     timeout_kill_verified=timed_out,
                     cleanup_scope="direct-process-only",
                     process_group_isolated=identity[1] if identity else False,
@@ -251,18 +320,34 @@ class IOSSimulatorExecutor:
                 return ExecutionResult(
                     status, signum, stdout, stderr, timed_out, time.monotonic() - started, provenance
                 )
+            except BaseException as error:
+                primary_error = error
+                raise
             finally:
-                if installed:
-                    self.host.terminate_app(bundle_id)
-                    self.host.command("uninstall", self.host.device(), bundle_id)
-                if launcher is not None:
-                    # A failed poll or malformed result also has to stop a live child.
+                cleanup_errors = []
+                if launcher is not None and directory is not None:
                     try:
-                        identity = self._identity(directory)
-                        if identity and self.host.alive(identity[0]):
-                            self._stop_child(identity)
-                    finally:
-                        self.host.stop_launcher(launcher)
+                        launcher_output = self._cleanup_spawn(directory, launcher)
+                    except Exception as error:
+                        cleanup_errors.append(error)
+                if installed:
+                    for cleanup in (
+                        lambda: self.host.terminate_app(bundle_id),
+                        lambda: self.host.command("uninstall", self.host.device(), bundle_id),
+                    ):
+                        try:
+                            cleanup()
+                        except Exception as error:
+                            cleanup_errors.append(error)
+                if primary_error is not None:
+                    primary_error.add_note(
+                        f"simctl stdout: {launcher_output[0].decode(errors='replace')}; "
+                        f"stderr: {launcher_output[1].decode(errors='replace')}"
+                    )
+                    for error in cleanup_errors:
+                        primary_error.add_note(f"Cleanup also failed: {error!r}")
+                elif cleanup_errors:
+                    raise ExceptionGroup("Simulator cleanup failed", cleanup_errors)
 
     def close(self) -> None:
         self.host.close()

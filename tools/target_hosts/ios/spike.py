@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 from tools.target_hosts.ios.executor import ExecutionRequest, IOSSimulatorExecutor
+from tools.target_hosts.ios.simhost import SimulatorError
 
 
 class SimulatorSpike:
@@ -43,7 +44,9 @@ class SimulatorSpike:
         if template["UIDeviceFamily"] != [1, 2] or template["MinimumOSVersion"] != "17.0":
             raise ValueError("Test host must declare iPhone, iPad and the iOS 17 floor")
         host_object = output / "host_main.o"
-        subprocess.run([*cc, *cls.flags, "-c", str(cls.root / "app/host_main.c"), "-o", str(host_object)], check=True)
+        subprocess.run(
+            [*cc, *cls.flags, "-c", str(cls.root / "app/host_main.c"), "-o", str(host_object)], check=True, timeout=120
+        )
         programs = {}
         for mode, name in enumerate(cls.cases, 1):
             object_path = output / f"{name}.o"
@@ -60,15 +63,18 @@ class SimulatorSpike:
                     str(object_path),
                 ],
                 check=True,
+                timeout=120,
             )
-            subprocess.run([*cc, *cls.flags, str(host_object), str(object_path), "-o", str(executable)], check=True)
+            subprocess.run(
+                [*cc, *cls.flags, str(host_object), str(object_path), "-o", str(executable)], check=True, timeout=120
+            )
             app = output / f"{name}.app"
             app.mkdir(exist_ok=True)
             shutil.copy2(executable, app / "TestHost")
             metadata = dict(template, CFBundleIdentifier=f"dev.btrc.testhost.{name}")
             (app / "Info.plist").write_bytes(plistlib.dumps(metadata))
             if not local_cc:
-                subprocess.run(["codesign", "--force", "--sign", "-", str(app)], check=True)
+                subprocess.run(["codesign", "--force", "--sign", "-", str(app)], check=True, timeout=120)
             programs[name] = {"spawn": name, "app": app.name, "bundle_id": metadata["CFBundleIdentifier"]}
         manifest = {
             "schema": "btrc.ios-testhost/1",
@@ -97,40 +103,76 @@ class SimulatorSpike:
             "stdin": b"binary\x00input\n\xff",
         }.get(name, b"")
         if name == "cwd":
-            assert result.stdout.rstrip().endswith(b"/work"), result.stdout
-        else:
-            assert result.stdout == expected_stdout, f"{name}: stdout mismatch"
-        assert result.stderr == (b"stderr\n" if name == "stderr" else b""), f"{name}: stderr mismatch"
+            if not result.stdout.rstrip().endswith(b"/work"):
+                raise SimulatorError(f"{name}: cwd mismatch: {result.stdout!r}")
+        elif result.stdout != expected_stdout:
+            raise SimulatorError(f"{name}: stdout mismatch")
+        if result.stderr != (b"stderr\n" if name == "stderr" else b""):
+            raise SimulatorError(f"{name}: stderr mismatch")
         if name == "timeout":
-            assert result.timed_out and result.exit_status is None
-            assert result.provenance["timeout_kill_verified"]
+            if not result.timed_out or result.exit_status is not None:
+                raise SimulatorError("timeout: expected a verified execution timeout")
         elif name == "abort":
-            assert not result.timed_out and result.exit_status is None and result.signal == 6
-        else:
-            assert not result.timed_out and result.signal is None
-            assert result.exit_status == {"exit3": 3, "exit124": 124, "exit137": 137}.get(name, 0)
+            if result.timed_out or result.exit_status is not None or result.signal != 6:
+                raise SimulatorError("abort: expected SIGABRT rather than an ordinary exit")
+        elif (
+            result.timed_out
+            or result.signal is not None
+            or result.exit_status != {"exit3": 3, "exit124": 124, "exit137": 137}.get(name, 0)
+        ):
+            raise SimulatorError(f"{name}: exit status mismatch")
+        if result.provenance.get("mode") == "spawn" and not result.timed_out:
+            # Record raw simctl output too: the hosted run must prove propagation.
+            expected_statuses = (
+                {-result.signal, 128 + result.signal} if result.signal is not None else {result.exit_status}
+            )
+            if result.provenance["simctl_spawn_status"] not in expected_statuses:
+                raise SimulatorError(
+                    f"{name}: simctl status {result.provenance['simctl_spawn_status']} does not match "
+                    f"fixture status {sorted(expected_statuses)}; stderr={result.provenance['simctl_stderr']!r}"
+                )
+        if result.provenance.get("mode") == "app" and not result.provenance["app_container_marker_absent"]:
+            raise SimulatorError(f"{name}: app container freshness was not verified")
 
     @classmethod
     def run(cls, bundle: Path, output: Path, *, device_class: str, mode: str) -> None:
         executor = IOSSimulatorExecutor(mode=mode, device_class=device_class)
         reports = []
+        cases = (*cls.cases, "stdout") if mode == "app" else cls.cases
+        primary_error = None
         try:
             executor.prepare(bundle, cls.target)
-            for name in cls.cases:
+            for index, name in enumerate(cases):
                 result = executor.run(cls.request(name))
-                executor.write_result(result, output / device_class / mode / name)
+                invocation = name if index < len(cls.cases) else f"{name}-repeat"
+                executor.write_result(result, output / device_class / mode / invocation)
                 cls.check(name, result)
-                reports.append({"fixture": name, "passed": True, "provenance": result.provenance})
+                reports.append(
+                    {"fixture": name, "invocation": invocation, "passed": True, "provenance": result.provenance}
+                )
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            executor.close()
+            cleanup_error = None
+            try:
+                executor.close()
+            except Exception as error:
+                cleanup_error = error
+                if primary_error is not None:
+                    primary_error.add_note(f"Simulator close also failed: {error!r}")
             output.mkdir(parents=True, exist_ok=True)
             summary = {
                 "device_class": device_class,
                 "mode": mode,
                 "results": reports,
-                "complete": len(reports) == len(cls.cases),
+                "complete": len(reports) == len(cases) and cleanup_error is None,
+                "error": repr(primary_error) if primary_error is not None else None,
+                "cleanup_error": repr(cleanup_error) if cleanup_error is not None else None,
             }
             (output / f"{device_class}-{mode}.json").write_text(json.dumps(summary, indent=2) + "\n")
+            if cleanup_error is not None and primary_error is None:
+                raise cleanup_error
 
     @classmethod
     def main(cls) -> None:

@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import subprocess
+from contextlib import suppress
 from pathlib import Path
 
 
@@ -169,7 +170,15 @@ class IOSSimulatorHost:
     def stop_launcher(process) -> None:
         """Reap the local simctl client only after stopping the simulator child."""
         try:
-            process.communicate(timeout=2)
+            return process.communicate(timeout=2)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            try:
+                return process.communicate(timeout=3)
+            except subprocess.TimeoutExpired as error:
+                # Descendants can retain pipe writers after the client exits.
+                for stream in (process.stdout, process.stderr):
+                    if stream is not None:
+                        stream.close()
+                raise SimulatorError("simctl client did not drain/reap after SIGKILL") from error

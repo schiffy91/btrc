@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 int btrc_program_main(int argc, char **argv);
@@ -72,18 +73,39 @@ int main(int argc, char **argv) {
     action.sa_handler = signal_result;
     action.sa_flags = SA_RESETHAND | SA_NODEFER;
     if (sigemptyset(&action.sa_mask) != 0) { return 125; }
-    const int signals[] = {SIGABRT, SIGTERM, SIGINT, SIGSEGV, SIGBUS, SIGILL, SIGFPE};
+    const int signals[] = {SIGABRT, SIGTERM, SIGINT, SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGTRAP, SIGPIPE, SIGSYS};
     for (size_t index = 0; index < sizeof(signals) / sizeof(signals[0]); index++) {
         if (sigaction(signals[index], &action, NULL) != 0) { return 125; }
     }
     char identity[128];
     (void)snprintf(identity, sizeof(identity), "%ld %ld\n", (long)getpid(), (long)getpgrp());
     if (!write_status(directory, "process", identity)) { return 125; }
+    /* The executor acknowledges this PID before user code may run. A launch
+     * timeout writes cancel, so late simulator startup cannot orphan a fixture. */
+    char start[PATH_MAX];
+    char cancel[PATH_MAX];
+    if (!path_join(start, directory, "start") || !path_join(cancel, directory, "cancel")) { return 125; }
+    const struct timespec delay = {0, 10000000L};
+    int acknowledged = 0;
+    for (int attempt = 0; attempt < 3000; attempt++) {
+        if (access(cancel, F_OK) == 0 || access(directory, F_OK) != 0) { return 125; }
+        if (access(start, F_OK) == 0) { acknowledged = 1; break; }
+        (void)nanosleep(&delay, NULL);
+    }
+    if (!acknowledged) { return 125; }
     int result = btrc_program_main(argc, argv);
+    /* Freeze the terminal disposition before publishing normal completion. */
+    sigset_t terminal_signals;
+    if (sigemptyset(&terminal_signals) != 0) { return 125; }
+    for (size_t index = 0; index < sizeof(signals) / sizeof(signals[0]); index++) {
+        if (sigaddset(&terminal_signals, signals[index]) != 0) { return 125; }
+    }
+    if (sigprocmask(SIG_BLOCK, &terminal_signals, NULL) != 0) { return 125; }
     if (fflush(stdout) != 0 || fflush(stderr) != 0) { return 125; }
     char status[32];
     (void)snprintf(status, sizeof(status), "%u\n", (unsigned int)result & 255U);
     if (!write_status(directory, "exit_status", status)) { return 125; }
     (void)close(signal_fd);
+    signal_fd = -1;
     return result;
 }

@@ -50,15 +50,22 @@ spike. No native GUI behavior is implemented here.
 ## Lifetime and output protocol
 
 The host redirects stdin/stdout/stderr before publishing an atomic `process`
-identity file. In app mode files are beneath the app data container's `tmp`
+identity file. It then waits for the executor to acknowledge that identity with
+a `start` file before invoking fixture code. A `cancel` file or removal of the
+result directory aborts that wait; the wait itself is bounded at 30 seconds. In app mode files are beneath the app data container's `tmp`
 directory (under its HOME); in spawn mode they live in an isolated temporary
 directory. No shell interpolation is used for paths, environment or arguments.
 Every requested environment variable travels through `SIMCTL_CHILD_*` in the
 real host; stale inherited child assignments are cleared between requests.
 
 Normal return flushes byte streams and atomically publishes `exit_status`.
-Handled fatal signals publish `signal_status` with async-signal-safe operations
-and re-raise with the default disposition; abort is distinct from exit 3.
+Handled fatal signals (ABRT, TERM, INT, SEGV, BUS, ILL, FPE, TRAP, PIPE and SYS)
+publish `signal_status` with async-signal-safe operations and re-raise with the
+default disposition; abort is distinct from exit 3. Normal completion blocks
+those signals before publishing `exit_status` and closing the signal descriptor,
+so a late handled signal cannot publish a second terminal result. Uncatchable
+SIGKILL and direct `exit`/`_Exit` still require a runner-core fallback before
+full corpus integration; this spike reports a host error when no status exists.
 The parent waits for process disappearance as well as a terminal status.
 Missing/malformed status, failed launch or unverified cleanup raises
 SimulatorError instead of creating a passed ExecutionResult.
@@ -68,7 +75,11 @@ needed, and verifies that PID is gone. CoreSimulator shares the host kernel,
 so these are direct host POSIX signals, not attempts to run a second `kill`
 executable inside a stalled simulator. The wrapper attempts a private session;
 when its group is isolated the signal targets that group. Only after native
-child cleanup does the parent reap/kill a stuck local simctl client. Killing
+child cleanup does the parent reap/kill a stuck local simctl client. On a launch
+failure it first cancels the C wrapper, polls for late identity publication for
+up to three seconds, and rechecks identity after the launcher is reaped. Known
+identity is retained across errors; cleanup diagnostics supplement the original
+exception. Both launcher drain/reap attempts are bounded. Killing
 the simctl client alone is not a timeout proof. **This spike accepts only
 fixtures that do not create child processes.** Cleanup verification covers the
 direct process only and is recorded as `cleanup_scope=direct-process-only`.
@@ -78,21 +89,36 @@ programs need additional containment/whole-group proof before full corpus
 integration; none of the hand-written fixtures creates a child.
 The C timeout fixture ignores TERM so tests prove the KILL path.
 
-The execution deadline starts after the launch command returns; host commands
-have separate bounded timeouts. Duration includes install/launch/collection.
+Launch has its own bounded 30-second deadline, measured from the spawn/launch
+request, including xcrun/simctl startup. The execution deadline starts when the
+executor first observes the native child identity and acknowledges execution;
+it therefore excludes startup latency in **both** modes. The 0.5-second timeout
+fixture still exercises short execution budgets after slow simulator startup.
+Host commands and each compiler/codesign call also have bounded timeouts.
+Duration includes install/launch/collection.
 `cold_launch_s` is the observed time from issuing spawn/launch until the first
 process-identity observation, an upper bound influenced by simctl/poll latency;
 `launch_command_s` is recorded separately. Neither is GPU presentation latency
 or a benchmark. The result also records the simctl spawn client's status so the
-hosted run can establish signal/exit propagation rather than guess it.
+hosted run can establish signal/exit propagation rather than guess it. Raw simctl
+stdout/stderr are retained in provenance, and error diagnostics include them.
+For normal exits the spike requires simctl status to match the fixture exit;
+for handled signals it accepts the POSIX negative signal or 128+signal forms.
+An unexpected mapping fails and leaves diagnostics for the first hosted review.
 
 App mode checks for a previous fixture install, uninstalls it, installs the app,
 uses `get_app_container` to find data and installed-bundle paths, launches with
 `--terminate-running-process`, collects results and uninstalls in `finally`.
-Each run creates a fresh result/work directory; successful cleanup never leaves
-the fixture installed. Failure to uninstall remains a host failure. Local tests
-also assert separate data containers across repeated app invocations; the
-actual CoreSimulator container behavior still needs hosted validation.
+Each run creates a fresh result/work directory and checks a persistent marker in
+the installed data container before writing it. If uninstall/reinstall preserves
+the previous marker, execution fails; a different temporary subdirectory alone
+is not proof. The app-mode CLI repeats the stdout fixture after the full fixture
+set, records the actual container path and marker absence, and writes separate
+`stdout-repeat` evidence. Successful cleanup never leaves the fixture installed.
+Termination and uninstall are attempted independently; cleanup failure is a host
+failure, and an original execution error is preserved with cleanup notes. Local
+regressions deliberately retain an old container to prove marker rejection.
+Actual CoreSimulator container behavior still needs hosted validation.
 
 ## Local validation
 
@@ -101,6 +127,7 @@ From the repository root, using the pinned development shell:
 ```sh
 export BTRC_TEST_RUNNER=linux-devcontainer
 nix develop --command python3 -m unittest tools.target_hosts.ios.test_executor -v
+nix develop --command make NIX= test-unit
 nix develop --command ruff check tools/target_hosts/ios
 nix develop --command ruff format --check tools/target_hosts/ios
 nix develop --command git diff --check
@@ -110,8 +137,14 @@ The unit tests compile the host/fixtures with `cc -std=c11 -pedantic-errors
 -Wall -Wextra -Werror` and run both transport modes against real local
 processes. They test byte streams, exact arguments/environment, signal versus
 normal exit, forced timeout cleanup, cwd, fresh-container cleanup and request
-validation. Simulated inventory tests cover iPhone/iPad selection, unavailable
-runtimes and preserving an already booted matching device. No tests skip or
+validation. The delayed-launch regressions use distinct launcher and native
+fixture processes: one delays startup beyond the execution budget, and another
+publishes identity during launch-failure cleanup. Each independently checks
+child disappearance. Additional tests cover raw launcher failure diagnostics,
+bounded reap/exit races, cleanup error preservation, runtime-supported device
+selection, and checks remaining active under `python3 -O`. Simulated inventory
+tests cover iPhone/iPad selection, unavailable runtimes and preserving an already
+booted matching device. No tests skip or
 claim Apple execution on Linux.
 
 ## Hosted run requested from Claude
@@ -126,6 +159,7 @@ The requested macos-15 job records `xcodebuild -version` and
 `xcrun simctl list -j`, then uses an available Python >= 3.13 to run:
 
 ```sh
+python3 -m unittest tools.target_hosts.ios.test_executor -v
 python3 -m tools.target_hosts.ios.spike build build/ios-testhost
 python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone --mode spawn
 python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone --mode app
@@ -136,12 +170,15 @@ python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results
 Build uses `xcrun --sdk iphonesimulator clang -target
 arm64-apple-ios17.0-simulator` and the strict C11 flags, then
 `codesign --force --sign -` on each bundle. The matrix is twelve fixtures × two
-modes × two device classes, 48 assertions; all modes must pass before the host
+modes × two device classes, plus one repeated stdout app run per class: 50
+fixture executions. Checks use explicit exceptions and remain active under
+`python3 -O`. All modes must pass before the host
 spike's runtime acceptance is ticked. A job should upload `build/ios-results`
 even on failure, plus Xcode/runtime inventory and stdout/stderr of the CLI.
 Unavailable iPad/runtime/tooling is a recorded blocker, not a substituted iPhone
 pass. Stop at the first failing case in each run; summaries set complete=false
-unless all twelve fixtures passed.
+unless every scheduled fixture (including the app-mode repeat) passed and
+host cleanup succeeded.
 
 Use the existing pinned action revisions and lane trigger policy: push and PR
 to main with paths for this directory and the workflow itself, plus dispatch.
@@ -156,3 +193,22 @@ it does not prove the iOS 17 deployment-floor runtime, which remains a separate
 MAC-P1-02 question. iPhone and iPad results share the ios family and record
 device_class. Physical devices and UI/IME/accessibility proof are outside this
 spike and remain D8-gated.
+
+
+## Remaining integration requests
+
+`REQUEST(CL-R-38)`: the CI owner must supply and execute the lane-shaped iOS
+workflow above, including the standalone local unittest command. The earlier
+PR request named the completed CL-UIA-02 policy packet; CL-R-38 is the CI owner
+request target. This is required because the user's explicit no-workflow-edit
+instruction remains in force, even though the integrator's lane document now
+permits packet-owned workflows. No proposed workflow is supplied either.
+
+`REQUEST(CL-P1-17)` / `REQUEST(CL-P1-21)`: before full corpus integration,
+reconcile executor types, prove entry/exit handling for compiler-emitted C,
+and qualify stronger child/process-group containment and PID ownership. Current
+fixtures are trusted, do not create descendants, and cleanup remains explicitly
+`direct-process-only`. The process file and host PID namespace are not a secure
+sandbox; PID reuse and a forged initial identity need a stronger transport-level
+ownership proof before arbitrary corpus programs are admitted. These limitations
+are not solved by the delayed-launch regression or by green ordinary lane CI.
