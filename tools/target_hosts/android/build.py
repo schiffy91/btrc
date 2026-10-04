@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,6 +20,9 @@ class AndroidHostBuilder:
         if abi not in ("x86_64", "arm64-v8a"):
             raise ValueError("supported Android ABIs are x86_64 and arm64-v8a")
         self.ndk, self.output, self.abi = Path(ndk), Path(output).resolve(), abi
+        revision = re.search(r"^Pkg.Revision\s*=\s*(\S+)", (self.ndk / "source.properties").read_text(), re.MULTILINE)
+        if not revision or revision[1] != SDKVersions().ndk:
+            raise ValueError("the selected NDK does not match the platforms.nix revision")
         self.triple = "x86_64-linux-android29" if abi == "x86_64" else "aarch64-linux-android29"
         self.bin = self.ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin"
         self.clang = self.bin / "clang"

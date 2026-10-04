@@ -116,6 +116,12 @@ def test_alignment_check_accepts_all_16k_or_larger_segments():
     )
 
 
+def test_builder_cannot_claim_pinned_provenance_for_another_ndk(tmp_path):
+    (tmp_path / "source.properties").write_text("Pkg.Revision = 99.0.0\n")
+    with pytest.raises(ValueError, match="platforms.nix revision"):
+        AndroidHostBuilder(tmp_path, tmp_path / "output")
+
+
 @pytest.mark.parametrize("api,port", [("1", 5554), ("29", 5555), ("29", 1)])
 def test_avd_rejects_unpinned_apis_and_invalid_ports(tmp_path, api, port):
     with pytest.raises(ValueError):
