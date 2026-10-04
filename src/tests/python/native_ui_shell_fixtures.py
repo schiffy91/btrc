@@ -34,11 +34,16 @@ SYMBOLS = (
     "shellProbeClose",
     "shellProbeFocus",
     "shellProbeNativeCount",
+    "shellProbePrivateCount",
+    "shellProbeDrain",
     "shellProbeObserve",
     "shellProbeDump",
     "shellStateCommit",
     "shellStateCheckpoint",
-    "shellStateRestore",
+    "shellStateLoad",
+    "shellStateDraft",
+    "shellStateAnchor",
+    "shellStateCommits",
 )
 
 
@@ -176,15 +181,33 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
     state = tmp_path / "state"
     state.mkdir()
     environment = shell_environment(sanitized)
-    result = subprocess.run(
-        [str(executable), str(cycles), str(state)], capture_output=True, text=True, env=environment, timeout=1200
-    )
+    command = [str(executable), str(cycles), str(state)]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=1200)
+    except subprocess.TimeoutExpired as error:
+        stdout = error.stdout or b""
+        stderr = error.stderr or b""
+        stdout = stdout.decode(errors="replace") if isinstance(stdout, bytes) else stdout
+        stderr = stderr.decode(errors="replace") if isinstance(stderr, bytes) else stderr
+        result = subprocess.CompletedProcess(command, 124, stdout, stderr + "\nShell exceeded 1200-second timeout")
     (tmp_path / "shell.stdout").write_text(result.stdout)
     (tmp_path / "shell.stderr").write_text(result.stderr)
-    assert result.returncode == 0, result.stderr + result.stdout
+    if result.returncode != 0 and sys.platform == "darwin":
+        diagnostics = diagnose_macos_retention(executable, tmp_path, environment)
+        pytest_message = result.stderr + result.stdout + "\n" + json.dumps(diagnostics, indent=2)
+    else:
+        pytest_message = result.stderr + result.stdout
+    assert result.returncode == 0, pytest_message
     assert "ERROR: AddressSanitizer" not in result.stderr and "runtime error:" not in result.stderr
-    summary = re.search(r"SHELL cycles=(\d+) frames=(\d+) native=0 registrations=0 dirty-close=missing", result.stdout)
+    summary = re.search(
+        r"SHELL cycles=(\d+) frames=(\d+) native=(\d+) private=(\d+) registrations=(\d+) dirty-close=missing",
+        result.stdout,
+    )
     assert summary and int(summary[1]) == cycles, result.stdout
+    native_handles, private_objects, registrations = map(int, summary.group(3, 4, 5))
+    assert native_handles == registrations == 0, result.stdout
+    teardown = re.findall(r"SHELL teardown provider=(\d+) private=(\d+) registrations=(\d+)", result.stdout)
+    assert len(teardown) == cycles and all(int(row[0]) == int(row[2]) == 0 for row in teardown)
     probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
     assert len(probes) == cycles
     if provider.startswith("linux"):
@@ -197,13 +220,20 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
     journal = (state / "journal").read_bytes()
     assert journal.decode().splitlines() == [f"commit {index}" for index in range(1, cycles + 1)]
     checkpoint = (state / "checkpoint").read_text().splitlines()
-    expected = f"RESTORE draft=draft anchor={checkpoint[1]} commits={cycles}\n"
-    for _ in range(100):
+    assert checkpoint[0] == "draft" and int(checkpoint[1]) > 0 and int(checkpoint[2]) == cycles
+    expected = f"RESTORE draft=draft anchor={checkpoint[1]} commits={cycles} actions=0"
+    for restart in range(100):
         restored = subprocess.run(
             [str(executable), str(state), "restore"], env=environment, capture_output=True, text=True, timeout=30
         )
-        assert restored.returncode == 0, restored.stderr
-        assert restored.stdout == expected
+        (tmp_path / f"restore-{restart}.stdout").write_text(restored.stdout)
+        (tmp_path / f"restore-{restart}.stderr").write_text(restored.stderr)
+        assert restored.returncode == 0, restored.stderr + restored.stdout
+        assert expected in restored.stdout.splitlines(), restored.stdout
+        restored_teardown = re.search(
+            r"SHELL teardown provider=(\d+) private=(\d+) registrations=(\d+)", restored.stdout
+        )
+        assert restored_teardown and int(restored_teardown[1]) == int(restored_teardown[3]) == 0
         assert (state / "journal").read_bytes() == journal
     return write_evidence(
         "native-shell" if cycles == 100 else "native-shell-smoke",
@@ -213,8 +243,10 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
         {
             "cycles": cycles,
             "frames": frames,
-            "native_handles": 0,
-            "live_registrations": 0,
+            "native_handles": native_handles,
+            "private_objects": private_objects,
+            "live_registrations": registrations,
+            "teardown": teardown,
             "fresh_process_restores": 100,
             "e46": "missing",
             "e47": "fixture-only; stdlib missing",
@@ -222,3 +254,35 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
             "gate_cycles": cycles == 100,
         },
     )
+
+
+def diagnose_macos_retention(executable, tmp_path, environment):
+    """Preserve each independent A/B result, even if another probe times out."""
+    observations = []
+    for no_ax, no_scroll in [(False, False), (True, False), (False, True), (True, True)]:
+        name = f"diagnostic-ax-{int(not no_ax)}-wheel-{int(not no_scroll)}"
+        state = tmp_path / name
+        state.mkdir()
+        configured = {**environment}
+        for variable, disabled in [("BTRC_UI_SHELL_NO_AX", no_ax), ("BTRC_UI_SHELL_NO_SCROLL", no_scroll)]:
+            configured.pop(variable, None)
+            if disabled:
+                configured[variable] = "1"
+        try:
+            result = subprocess.run(
+                [str(executable), "1", str(state)], env=configured, capture_output=True, text=True, timeout=60
+            )
+            stdout, stderr, code = result.stdout, result.stderr, result.returncode
+        except subprocess.TimeoutExpired as error:
+            stdout = error.stdout or b""
+            stderr = error.stderr or b""
+            stdout = stdout.decode(errors="replace") if isinstance(stdout, bytes) else stdout
+            stderr = stderr.decode(errors="replace") if isinstance(stderr, bytes) else stderr
+            code = "timeout"
+        (state / "stdout").write_text(stdout)
+        (state / "stderr").write_text(stderr)
+        observations.append(
+            {"ax": not no_ax, "wheel": not no_scroll, "returncode": code, "stdout": stdout, "stderr": stderr}
+        )
+        (tmp_path / "retention-diagnostics.json").write_text(json.dumps(observations, indent=2))
+    return observations

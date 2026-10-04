@@ -3,38 +3,45 @@
 #import <CoreGraphics/CoreGraphics.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-/* These entry points are C ABI calls, so they do not receive the compiler
- * bridge pools used by Objective-C method probes. Bound every call's
- * temporary retaining arrays/events before checking weak teardown counts. */
-static NSHashTable *observed;
-static NSHashTable *editableFields;
-static NSHashTable *fieldEditors;
+/* Weak sets survive all cycles. Provider objects are selected by the exact
+ * fixture hierarchy, never by excluding inconvenient AppKit subclasses. */
+static NSHashTable *owned;
+static NSHashTable *privateObjects;
 static NSWindow *window(void) {
     for (NSWindow *candidate in NSApplication.sharedApplication.windows)
         if ([candidate.title isEqualToString:@"BTRC native shell"]) return candidate;
     assert(0 && "shell window missing");
     return nil;
 }
-static void observe(NSView *view) {
-    /* AppKit retains the process's field editor and sometimes its first field.
-     * Count owned container/control nodes; the text field retention baseline
-     * is separately covered by the existing native StackProbe fixture. */
-    if ([view isKindOfClass:NSTextField.class] && [(NSTextField *)view isEditable])
-        [editableFields addObject:view];
-    else if ([view isKindOfClass:NSTextView.class]) [fieldEditors addObject:view];
-    else [observed addObject:view];
-    for (NSView *child in view.subviews) observe(child);
+static void observePrivate(NSView *view) {
+    if (![owned containsObject:view]) [privateObjects addObject:view];
+    for (NSView *child in view.subviews) observePrivate(child);
 }
 void shellProbeObserve(void) {
     @autoreleasepool {
-        [observed release];
-        observed = [[NSHashTable weakObjectsHashTable] retain];
-        if (!editableFields) editableFields = [[NSHashTable weakObjectsHashTable] retain];
-        if (!fieldEditors) fieldEditors = [[NSHashTable weakObjectsHashTable] retain];
-        [observed addObject:window()];
-        for (NSView *root in window().contentView.subviews) observe(root);
-        assert(observed.allObjects.count > 0);
+        if (!owned) owned = [[NSHashTable weakObjectsHashTable] retain];
+        if (!privateObjects) privateObjects = [[NSHashTable weakObjectsHashTable] retain];
+        NSWindow *target = window();
+        [owned addObject:target];
+        assert(target.contentView.subviews.count == 1);
+        NSView *root = target.contentView.subviews.firstObject;
+        [owned addObject:root];
+        assert(root.subviews.count == 4);
+        int scrolls = 0;
+        for (NSView *child in root.subviews) {
+            [owned addObject:child]; /* field, button, scroll view and GPU view */
+            if ([child isKindOfClass:NSScrollView.class]) {
+                scrolls++;
+                NSView *document = [(NSScrollView *)child documentView];
+                assert(document && document.subviews.count == 50);
+                [owned addObject:document];
+                for (NSView *label in document.subviews) [owned addObject:label];
+            }
+        }
+        assert(scrolls == 1 && owned.allObjects.count >= 57);
+        observePrivate(target.contentView);
     }
 }
 void shellProbeClick(double x, double y) {
@@ -99,24 +106,26 @@ int shellProbeFocus(void) {
         return 0;
     }
 }
-int shellProbeNativeCount(void) {
-    @autoreleasepool {
-        /* Retain these weak sets across cycles: a one-field-per-cycle leak
-         * cannot hide behind the existing process-retained editor baseline. */
-        NSUInteger count = observed.allObjects.count;
-        NSUInteger fields = editableFields.allObjects.count;
-        NSUInteger editors = fieldEditors.allObjects.count;
-        if (count != 0 || fields > 1 || editors > 1) {
-            fprintf(stderr, "SHELL retained native=%lu fields=%lu editors=%lu\n",
-                (unsigned long)count, (unsigned long)fields, (unsigned long)editors);
-            for (id object in observed.allObjects)
-                fprintf(stderr, "SHELL retained class=%s\n", NSStringFromClass([object class]).UTF8String);
+void shellProbeDrain(void) {
+    /* Ten bounded turns let window/CA teardown and delayed scroller work run.
+     * The deadline is diagnostic, not permission to forgive provider survivors. */
+    for (int turn = 0; turn < 10; turn++) {
+        @autoreleasepool {
+            [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
         }
-        assert(fields <= 1);
-        assert(editors <= 1);
-        return (int)count;
     }
 }
+static int survivors(NSHashTable *objects, const char *scope) {
+    @autoreleasepool {
+        NSArray *remaining = objects.allObjects;
+        for (id object in remaining)
+            fprintf(stderr, "SHELL survivor scope=%s class=%s identity=%p\n",
+                scope, NSStringFromClass([object class]).UTF8String, (void *)object);
+        return (int)remaining.count;
+    }
+}
+int shellProbeNativeCount(void) { return survivors(owned, "provider"); }
+int shellProbePrivateCount(void) { return survivors(privateObjects, "appkit-private"); }
 static NSDictionary *accessible(id element, int depth) {
     if (depth > 12) return @{@"truncated": @YES};
     if (![element respondsToSelector:@selector(accessibilityRole)]) return @{@"role": @"unknown"};
@@ -129,9 +138,11 @@ static NSDictionary *accessible(id element, int depth) {
 void shellProbeDump(void) {
     @autoreleasepool {
         if ([window().firstResponder isKindOfClass:NSTextView.class])
-            [fieldEditors addObject:window().firstResponder];
-        NSDictionary *document = @{@"probe": @"macos-appkit", @"focus": @(shellProbeFocus()), @"native_handles": @(observed.allObjects.count),
-            @"accessibility": accessible(window(), 0)};
+            [privateObjects addObject:window().firstResponder];
+        id accessibility = getenv("BTRC_UI_SHELL_NO_AX") ? (id)@"disabled diagnostic" : accessible(window(), 0);
+        NSDictionary *document = @{@"probe": @"macos-appkit", @"focus": @(shellProbeFocus()),
+            @"provider_objects": @(owned.allObjects.count), @"private_objects": @(privateObjects.allObjects.count),
+            @"accessibility": accessibility};
         NSData *data = [NSJSONSerialization dataWithJSONObject:document options:0 error:NULL];
         assert(data);
         fwrite(data.bytes, 1, data.length, stdout);

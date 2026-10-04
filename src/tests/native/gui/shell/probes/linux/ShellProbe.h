@@ -11,10 +11,18 @@ void shellProbeEnter(void);
 void shellProbeScroll(void);
 void shellProbeClose(void);
 int shellProbeFocus(void);
+/* NativeCount is strictly provider-created objects, including editable fields.
+ * PrivateCount reports toolkit-created descendants separately; neither set
+ * is reset between cycles. Drain is bounded and must precede teardown counts. */
 int shellProbeNativeCount(void);
+int shellProbePrivateCount(void);
+void shellProbeDrain(void);
 void shellProbeObserve(void);
 void shellProbeDump(void);
 void shellStateCommit(const char *directory, int sequence);
 void shellStateCheckpoint(const char *directory, const char *draft, double anchor, int commits);
-int shellStateRestore(const char *directory);
+void shellStateLoad(const char *directory);
+const char *shellStateDraft(void);
+double shellStateAnchor(void);
+int shellStateCommits(void);
 #endif

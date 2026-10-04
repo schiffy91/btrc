@@ -25,10 +25,18 @@ disabled for process-global SDK allocations, as in existing provider tests;
 these explicit ownership checks do not claim a whole-process allocation audit.
 
 The probe header defines a C ABI shared by both providers. macOS observes weak
-references to native views and walks in-process NSAccessibility children,
-without TCC-dependent cross-process automation. Its native count includes the window and labels, and separately bounds
-AppKit's process-retained editable field and field editor to one each across
-all cycles, matching the existing StackProbe retention baseline. Linux counts SDL windows: its controls are
+references to the exact 57 provider-created objects (window, root, text field,
+button, scroll view, document view, 50 labels and GPU view), separately from
+AppKit-private descendants and field editors. Both weak sets persist across
+cycles. A bounded 200 ms run-loop drain precedes teardown observations; every
+provider survivor fails the fixture and is printed with its class and pointer.
+Private survivors are reported, without being mistaken for provider handles.
+No editable-field exemption is applied. If macOS fails, four independent
+one-cycle diagnostics isolate AX traversal and wheel injection; disabling the
+wheel substitutes public `scrollTo` so the rest of the journey still runs.
+Each diagnostic has a 60-second timeout and saves its output even when another
+times out. Pooling alone does not establish the cause of AppKit retention.
+Linux counts SDL windows: its controls are
 drawn nodes, not native child windows. Their retained portable aliases prove
 closure. SDL keyboard/text routing confirms editor focus but cannot identify
 arbitrary drawn views; the probe reports `focused_editor`, and accessibility
@@ -38,16 +46,22 @@ mutable ring is local to the provider's generated translation unit.
 
 E01's Enter subscription, E46's dirty-close negotiation, and the stdlib E47
 restoration contract remain missing. A passing baseline is not parity for
-those contracts. Tab is injected and the resulting native focus is recorded;
-provider focus behavior is classified by the subsequent proof packets.
+those contracts. Tab is injected and the resulting native focus is recorded. The previous
+Linux and macOS runs kept the editor focused after Tab; traversal is a known
+unresolved gap for the subsequent proof packets.
 
 For the fixture-owned E47 harness, `ShellState.c` flushes the side-effect journal
 and publishes draft plus scroll anchor in one checkpoint rename. The harness
 launches 100 fresh processes in restore mode and checks the draft, anchor,
-commit count, and byte-identical journal after each. Restore mode reads state
-without opening the GUI or replaying an action. This proves fixture storage
-and replay discipline, not scene restoration, power-loss durability, or a
-transaction spanning the checkpoint and external side effects.
+commit count, and byte-identical journal after each. Every restore recreates
+the actual window, field, scroll content, button and GPU child. The real button
+action is registered against the journal before `setText` and `scrollTo` apply
+the checkpoint. Two event-loop turns verify the live getters and zero action
+invocations, then the fixture closes and checks every portable alias,
+registration and native provider handle. Summaries print measured values.
+The checkpoint is written after clean shutdown; this fixture does not prove
+crash recovery, power-loss durability, or a transaction spanning the checkpoint
+and external side effects. The stdlib restoration contract remains missing.
 
 Per-provider/frontend/build-mode JSONL under `build/ui-shell/` is validated by
 `LedgerDocument`. Mobile rows are unavailable until their shell packets land;

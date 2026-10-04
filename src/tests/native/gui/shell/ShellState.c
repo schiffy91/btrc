@@ -28,16 +28,18 @@ void shellStateCheckpoint(const char *directory, const char *draft, double ancho
     assert(fflush(state) == 0 && fsync(fileno(state)) == 0);
     assert(fclose(state) == 0 && rename(temporary, checkpoint) == 0);
 }
-int shellStateRestore(const char *directory) {
-    char checkpoint[4096], draft[32];
+static char draft[32];
+static double anchor;
+static int commits;
+const char *shellStateDraft(void) { return draft; }
+double shellStateAnchor(void) { return anchor; }
+int shellStateCommits(void) { return commits; }
+void shellStateLoad(const char *directory) {
+    char checkpoint[4096];
     assert(snprintf(checkpoint, sizeof checkpoint, "%s/checkpoint", directory) < (int)sizeof checkpoint);
     FILE *state = fopen(checkpoint, "r");
     assert(state);
-    double anchor = 0.0;
-    int commits = 0;
     assert(fscanf(state, "%31s\n%lf\n%d", draft, &anchor, &commits) == 3);
     assert(fclose(state) == 0);
     assert(strcmp(draft, "draft") == 0 && anchor > 0 && commits > 0);
-    printf("RESTORE draft=%s anchor=%.0f commits=%d\n", draft, anchor, commits);
-    return 0;
 }

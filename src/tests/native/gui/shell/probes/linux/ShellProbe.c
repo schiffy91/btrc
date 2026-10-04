@@ -49,6 +49,8 @@ int shellProbeNativeCount(void) {
     SDL_free(windows);
     return count;
 }
+int shellProbePrivateCount(void) { return 0; }
+void shellProbeDrain(void) {}
 void shellProbeObserve(void) { assert(shellProbeNativeCount() == 1); }
 void shellProbeDump(void) {
     printf("{\"probe\":\"linux-sdl\",\"accessibility\":\"no bridge\",\"native_windows\":%d,\"focused_editor\":%d}\n",
