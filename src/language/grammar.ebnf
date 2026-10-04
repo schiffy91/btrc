@@ -27,8 +27,6 @@
   --   goto            -- no goto/label syntax
   --   override        -- not a member modifier (member_body has no slot for
   --                      it); `public override int f()` is a parse error
-  --   union           -- only usable as a `union IDENT` base_type, never as a
-  --                      top-level declaration
   -- These remain in @keywords so the keyword/token round-trip stays total
   -- (every keyword maps to an existing TokenKind, and syntax/tokens.py validates it).
 
@@ -234,7 +232,7 @@
 
   method_rest     = "(" param_list ")" ( block | ";" ) ;
   property_rest   = "{" { property_accessor } "}" ;
-  field_rest      = [ array_suffix ] [ "=" expr ] { "," init_declarator } ";"
+  field_rest      = [ array_declarator ] [ "=" expr ] { "," init_declarator } ";"
                     (* Each declarator is its own field with the same access
                        and its own initializer; a property declares one. *) ;
 
@@ -256,21 +254,50 @@
   -- Struct declaration
   -- ----------------------------------------------------------------
 
-  struct_decl = "struct" [ IDENT ] "{" { struct_field } "}" ";"
-              | "struct" IDENT ";"
-                (* The name is optional, allowing anonymous structs
-                   (struct { int x; };). A named struct with no body is a
-                   forward declaration (struct Foo;). *) ;
+  -- C2 aggregates (PLAN.md Stage 17) and array dimensions (Stage 18) are
+  -- specified here by the schema commit (docs/design/c-compatibility.md).
+  -- Until its row lands, each parser refuses a union, an anonymous member, a
+  -- bit-field, a flexible array member, a typedef or object declarator on a
+  -- record definition, a designation, a compound literal and a second array
+  -- extent.
 
-  struct_field = type_expr first_declarator { "," declarator } ";" ;
+  record_keyword = "struct" | "union" ;
+
+  struct_decl = record_keyword [ IDENT ] "{" { struct_member } "}" ";"
+              | record_keyword IDENT ";"
+                (* The name is optional, allowing anonymous structs
+                   (struct { int x; };). A named record with no body is a
+                   forward declaration (struct Foo;). A union is a StructDecl
+                   with is_union: its members are plain C values, a positional
+                   brace initializer sets its first member, and btrc emits
+                   `typedef union U U;`. *) ;
+
+  struct_member = type_expr struct_declarator { "," { "*" } struct_declarator } ";"
+                | record_keyword "{" { struct_member } "}" ";"
+                | type_expr ":" expr ";"
+                  (* In a struct or union body: "struct" or "union" directly
+                     followed by "{" is an anonymous member (AnonymousMember,
+                     C11 6.7.2.1p13), whose members belong to the enclosing
+                     record; "type_expr : expr ;" is an unnamed bit-field
+                     (FieldDef with name "" and the width as value). btrc's
+                     "T[] name" spelling is refused in record bodies. A last
+                     member "T name[]" after a named member of a named struct
+                     is a flexible array member. *) ;
+
+  struct_declarator = IDENT [ array_declarator ] [ ":" expr ]
+                    | function_pointer_declarator
+                      (* ": expr" is a bit-field width (C11 6.7.2.1), an
+                         integer constant; the first declarator's "*"s are
+                         read with type_expr (declarator list, C row 3). *) ;
 
   -- ----------------------------------------------------------------
   -- Enum declarations
   -- ----------------------------------------------------------------
 
-  enum_decl      = "enum" [ IDENT ] "{" enum_value { "," enum_value } [ "," ] "}" ";"
+  enum_decl      = "enum" [ IDENT ] "{" enum_values "}" ";"
                    (* The name is optional: anonymous enums (enum { A, B };)
                       are supported. *) ;
+  enum_values    = enum_value { "," enum_value } [ "," ] ;
   enum_value     = IDENT [ "=" expr ] ;
 
   rich_enum_decl = "enum" "class" IDENT "{"
@@ -282,11 +309,16 @@
   -- Typedef
   -- ----------------------------------------------------------------
 
-  typedef_decl = "typedef" type_expr ( IDENT | function_pointer_declarator )
-                 { "," { "*" } ( IDENT | function_pointer_declarator ) } ";"
+  typedef_decl = "typedef" ( type_expr
+                           | record_keyword [ IDENT ] "{" { struct_member } "}"
+                           | "enum" [ IDENT ] "{" enum_values "}" )
+                 declarator { "," declarator } ";"
                  (* One alias per declarator, each binding its own "*". A
                     function type, "typedef R Name(params);", is refused
-                    with a hint to typedef the pointer. *) ;
+                    with a hint to typedef the pointer. A record or enum
+                    definition is spliced: one StructDecl or EnumDecl, then
+                    one TypedefDecl per declarator; an untagged one takes its
+                    first plain declarator's name as its tag. *) ;
 
   -- ----------------------------------------------------------------
   -- Function declaration
@@ -299,7 +331,7 @@
   -- Declarators (C row 7: function pointers)
   -- ----------------------------------------------------------------
 
-  first_declarator = IDENT [ array_suffix ]
+  first_declarator = IDENT [ array_declarator ]
                    | function_pointer_declarator
                      (* The first declarator's "*"s are read with type_expr;
                         each later one binds its own (declarator). *) ;
@@ -339,9 +371,18 @@
                  at most one UNSIZED array suffix "[]", then zero or more
                  pointer "*", then at most one nullable "?".
                  "?" is nullable sugar: adds one pointer level.
+                 btrc's prefix "T[]" stays one-dimensional: "T[][]" and
+                 "T[] x[3]" are refused.
                  SIZED arrays ("[" expr "]") are NOT part of type_expr; they
-                 are parsed only in param, struct_field, and var-decl contexts
-                 as a suffix on the declared name (e.g. int arr[10]). *) ;
+                 are parsed only as the array_declarator on a declared name
+                 (e.g. int arr[10], int grid[2][3]) or in a type_name. *) ;
+
+  type_name = type_expr [ array_declarator ]
+              (* C11 6.7.7's abstract type name: the head of a compound
+                 literal, and of sizeof (Stage 18) and _Alignof (Stage 19).
+                 Its "[]" is C's array of unknown size, never btrc's
+                 pointer-valued T[]. A cast to an array type is refused
+                 (C11 6.5.4p2). *) ;
 
   type_qualifier = "const" | "static" | "extern" | "volatile" ;
 
@@ -357,9 +398,17 @@
   -- nullable specifier ("?") with several declarators, and several "var"
   -- declarators.
 
-  declarator      = { "*" } ( IDENT [ array_suffix ] | function_pointer_declarator ) ;
+  declarator      = { "*" } ( IDENT [ array_declarator ] | function_pointer_declarator ) ;
   init_declarator = declarator [ "=" expr ] ;
-  array_suffix    = "[" [ expr ] "]" ;
+
+  array_declarator = "[" [ expr ] "]" { "[" expr "]" }
+                     (* On parameter, struct member, class field, variable
+                        and typedef declarators. The first extent is
+                        TypeExpr.array_size and the later ones its elements,
+                        outermost first: int g[2][3][4] has array_size 2 and
+                        elements [3, 4]. Only the outermost extent may be
+                        omitted or be a run-time bound; inner extents are
+                        integer constants. *) ;
 
   base_type = "void" | "int" | "float" | "double" | "char" | "bool" | "string"
             | "short" [ "int" ]
@@ -369,6 +418,9 @@
             | "signed" [ "int" | "short" [ "int" ]
                          | "long" [ "long" ] [ "int" ] | "char" ]
             | "struct" IDENT | "enum" IDENT | "union" IDENT
+              (* A tag names the btrc declaration X when one exists, so
+                 "struct X", "union X" and "enum X" are the same type as X;
+                 otherwise it is a foreign C tag. *)
             | IDENT
             | "(" type_list ")"  (* tuple type: (int, string, bool) *)
             ;
@@ -400,7 +452,7 @@
                   anywhere else -- named, qualified, kept, or beside another
                   parameter -- is refused. *) ;
 
-  param = [ "keep" ] type_expr ( IDENT [ "[" [ expr ] "]" ]
+  param = [ "keep" ] type_expr ( IDENT [ array_declarator ]
                                 | function_pointer_declarator ) [ "=" expr ]
           (* "keep" qualifier: the callee keep-retains the argument.
              Array-style params: int arr[], int arr[10]
@@ -488,7 +540,12 @@
                      Two vars: for k, v in map { }
                      Disambiguation: if token after "for" is IDENT and
                      second-next is "in" or ",", it is for-in.
-                     Otherwise it is C-style for. *) ;
+                     Otherwise it is C-style for.
+                     In the iterable, a parenthesized head that also parses
+                     as an expression, "(IDENT)" or "(IDENT[expr])", stays
+                     the iterable when "{" follows, and the "{" opens the
+                     body: a compound literal there is written
+                     "for x in ((T){...}) {". *) ;
 
   c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ comma_expr ] ")" body ;
 
@@ -595,7 +652,15 @@
                       followed by ")", "*", or "<", is read as a type;
                       otherwise the operand is parsed as an expression. *) ;
 
-  postfix        = primary { postfix_op } ;
+  postfix        = ( compound_literal | primary ) { postfix_op } ;
+
+  compound_literal = "(" type_name ")" brace_initializer
+                     (* C11 6.5.2.5: an lvalue of the type, automatic inside a
+                        function and static at file scope. "{" is not in the
+                        cast-follow set, so no cast changes meaning. A bare
+                        identifier head is a compound literal syntactically;
+                        the analyzer refuses a head that names no type. See
+                        for_in_clause for the iterable exception. *) ;
 
   postfix_op     = "(" arg_list ")"         (* function call *)
                  | "[" expr "]"             (* indexing *)
@@ -663,10 +728,25 @@
                    (* A trailing comma is allowed: [1, 2, 3,] *) ;
 
   map_or_brace   = "{" map_entries "}"            (* map literal: {k: v, ...} *)
-                 | "{" [ expr_list [ "," ] ] "}"  (* brace initializer: {a, b, c} *)
+                 | brace_initializer
                  (* Disambiguation: if first expr is followed by ":",
                     treat as map literal. Otherwise brace initializer.
                     Both forms allow a trailing comma: {1: 2,} and {1, 2,}. *) ;
+
+  brace_initializer = "{" [ initializer_item { "," initializer_item } [ "," ] ] "}"
+                      (* brace initializer: {a, b, c} or {.x = 1, [2] = 7} *) ;
+
+  initializer_item = [ designation "=" ] expr
+                     (* The value is BraceInitializer.elements; a designated
+                        element adds a Designation to its entries (C11 6.7.9).
+                        An element starting with "." IDENT, or with a "[...]"
+                        group continuing through further designators to "=",
+                        is a designation; "[2]" followed by "," or "}" stays a
+                        list literal. *) ;
+
+  designation    = designator { designator } ;
+  designator     = "." IDENT | "[" expr "]"
+                   (* A GNU range "[a ... b]" is refused. *) ;
 
   map_entries    = map_entry { "," map_entry } [ "," ] ;
   map_entry      = expr ":" expr ;

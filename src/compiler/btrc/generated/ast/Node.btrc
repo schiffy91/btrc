@@ -37,6 +37,7 @@ enum NodeKind {
 	NK_ENUM_VALUE,
 	NK_RICH_ENUM_VARIANT,
 	NK_FIELD_DEF,
+	NK_ANONYMOUS_MEMBER,
 	NK_BLOCK,
 	NK_VAR_DECL_STMT,
 	NK_RETURN_STMT,
@@ -88,6 +89,7 @@ enum NodeKind {
 	NK_SPAWN_EXPR,
 	NK_STRING_CONCAT,
 	NK_COMMA_EXPR,
+	NK_COMPOUND_LITERAL,
 	NK_SIZEOF_TYPE,
 	NK_SIZEOF_EXPR_OP,
 	NK_MAP_ENTRY,
@@ -96,6 +98,9 @@ enum NodeKind {
 	NK_LAMBDA_BLOCK,
 	NK_LAMBDA_EXPR_BODY,
 	NK_CAPTURE,
+	NK_DESIGNATION,
+	NK_FIELD_DESIGNATOR,
+	NK_INDEX_DESIGNATOR,
 };
 
 class Node {
@@ -144,6 +149,7 @@ class Node {
      * through fields(), write it through fieldsMut(). */
 	public Vector<Node>? fieldsStorage;
 	public bool isForward;
+	public bool isUnion;
 	/* Null until written: a node pays neither a list allocation nor a
      * managed edge for a `values` it never fills. Read it
      * through values(), write it through valuesMut(). */
@@ -172,12 +178,17 @@ class Node {
 	public int pointerDepth;
 	public bool isArray;
 	public Node arraySize;
+	/* Null until written: a node pays neither a list allocation nor a
+     * managed edge for a `elements` it never fills. Read it
+     * through elements(), write it through elementsMut(). */
+	public Vector<Node>? elementsStorage;
 	public bool isConst;
 	public bool isNullable;
 	public int nullableOuterDepth;
 	public bool isStatic;
 	public bool isExtern;
 	public bool isVolatile;
+	public int arrayPointerDepth;
 	public Node type;
 	public Node default_;
 	public bool keep_;
@@ -246,10 +257,6 @@ class Node {
 	public Node falseExpr;
 	public Node target;
 	/* Null until written: a node pays neither a list allocation nor a
-     * managed edge for a `elements` it never fills. Read it
-     * through elements(), write it through elementsMut(). */
-	public Vector<Node>? elementsStorage;
-	/* Null until written: a node pays neither a list allocation nor a
      * managed edge for a `entries` it never fills. Read it
      * through entries(), write it through entriesMut(). */
 	public Vector<Node>? entriesStorage;
@@ -295,6 +302,7 @@ class Node {
 		self.isRealtime = false;
 		self.keepReturn = false;
 		self.isForward = false;
+		self.isUnion = false;
 		self.alias = "";
 		self.recursive = false;
 		self.path = "";
@@ -307,6 +315,7 @@ class Node {
 		self.isStatic = false;
 		self.isExtern = false;
 		self.isVolatile = false;
+		self.arrayPointerDepth = 0;
 		self.keep_ = false;
 		self.access = "";
 		self.isConstructor = false;
@@ -518,6 +527,22 @@ class Node {
 		return fresh;
 	}
 
+	/* `elements` for reading: the shared empty while unwritten. */
+	public Vector<Node> elements() {
+		if (self.elementsStorage != null) { return self.elementsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
+	}
+
+	/* `elements` for mutation: allocated on first write. */
+	public Vector<Node> elementsMut() {
+		if (self.elementsStorage != null) { return self.elementsStorage; }
+		Vector<Node> fresh = [];
+		self.elementsStorage = fresh;
+		return fresh;
+	}
+
 	/* `statements` for reading: the shared empty while unwritten. */
 	public Vector<Node> statements() {
 		if (self.statementsStorage != null) { return self.statementsStorage; }
@@ -595,22 +620,6 @@ class Node {
 		if (self.argNamesStorage != null) { return self.argNamesStorage; }
 		Vector<string> fresh = [];
 		self.argNamesStorage = fresh;
-		return fresh;
-	}
-
-	/* `elements` for reading: the shared empty while unwritten. */
-	public Vector<Node> elements() {
-		if (self.elementsStorage != null) { return self.elementsStorage; }
-		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return Node.sharedEmptyNodes;
-	}
-
-	/* `elements` for mutation: allocated on first write. */
-	public Vector<Node> elementsMut() {
-		if (self.elementsStorage != null) { return self.elementsStorage; }
-		Vector<Node> fresh = [];
-		self.elementsStorage = fresh;
 		return fresh;
 	}
 

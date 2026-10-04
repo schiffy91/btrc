@@ -151,6 +151,9 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
         # commit 1b (CL-P1-04) are their first callers. Remove both then.
         ("GeneratedHostedAbiData", "architectureAliases"),
         ("GeneratedHostedAbiData", "defaultEnvironments"),
+        # The C2 schema commit (CL-C-07) defines IRK_DESIGNATION's constructor;
+        # the r10 designated-initializer lowering is its first caller. Remove then.
+        ("IRNode", "designation"),
     }
 )
 

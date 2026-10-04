@@ -25,6 +25,7 @@ from ..ir.nodes import (
     IRCxxExceptionBoundary,
     IRCxxNew,
     IRDeref,
+    IRDesignation,
     IRDoWhile,
     IREnumDef,
     IRExpr,
@@ -759,13 +760,19 @@ class CEmitter:
         if isinstance(expression, IRInitializerList):
             values = [self._expr(value) for value in expression.elements] or ["0"]
             return self._delimited("{", values, "}")
+        if isinstance(expression, IRDesignation):
+            designator = f".{expression.field}" if expression.field else f"[{self._expr(expression.index)}]"
+            return self._compound(f"{designator} = ", [self._expr(expression.value)], "")
         if isinstance(expression, IRCompoundLiteral):
+            # An entry named "" is positional (array and scalar literals).
             fields = [
                 self._compound(
                     f".{name} = ",
                     [self._expr(value)],
                     "",
                 )
+                if name
+                else self._expr(value)
                 for name, value in expression.fields
             ] or ["0"]
             return self._compound(
@@ -1008,7 +1015,8 @@ class CEmitter:
         self._line("")
 
     def _emit_struct_forward(self, declaration: IRStructForward):
-        self._line(f"typedef struct {declaration.name} {declaration.name};")
+        keyword = "union" if declaration.is_union else "struct"
+        self._line(f"typedef {keyword} {declaration.name} {declaration.name};")
 
     def _emit_function_pointer_typedef(
         self,
@@ -1080,20 +1088,38 @@ class CEmitter:
     def _emit_struct(self, struct: IRStructDef):
         if struct.pack_alignment is not None:
             self._line(f"#pragma pack(push, {struct.pack_alignment})")
-        self._line(f"struct {struct.name} {{")
-        self._indent += 1
-        for field in struct.fields:
-            suffix = f"[{self._expr(field.array_size)}]" if field.array_size is not None else ""
-            c_type = CType.qualify_volatile_object(
-                str(field.c_type),
-                field.is_volatile,
-            )
-            self._line(f"{c_type} {field.name}{suffix};")
-        self._indent -= 1
+        keyword = "union" if struct.is_union else "struct"
+        self._line(f"{keyword} {struct.name} {{")
+        self._emit_struct_fields(struct)
         self._line("};")
         if struct.pack_alignment is not None:
             self._line("#pragma pack(pop)")
         self._line("")
+
+    def _emit_struct_fields(self, struct: IRStructDef):
+        self._indent += 1
+        for field in struct.fields:
+            if field.record is not None:
+                # An anonymous member: its untagged record is emitted inline.
+                self._line(f"{field.c_type} {{")
+                self._emit_struct_fields(field.record)
+                self._line("};")
+                continue
+            if field.array_size is not None:
+                suffix = f"[{self._expr(field.array_size)}]"
+            elif field.is_unsized_array:
+                suffix = "[]"
+            elif field.bit_width is not None:
+                suffix = f" : {field.bit_width}"
+            else:
+                suffix = ""
+            c_type = CType.qualify_volatile_object(
+                str(field.c_type),
+                field.is_volatile,
+            )
+            declarator = f"{c_type} {field.name}" if field.name else c_type
+            self._line(f"{declarator}{suffix};")
+        self._indent -= 1
 
     @staticmethod
     def _include_text(include: IRInclude) -> str:

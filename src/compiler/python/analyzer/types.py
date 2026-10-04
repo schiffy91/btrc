@@ -2635,6 +2635,7 @@ class TypeSystem:
             pointer_depth=resolved.pointer_depth + applied_pointer_depth,
             is_array=applied.is_array or resolved.is_array,
             array_size=applied.array_size if applied.array_size is not None else resolved.array_size,
+            elements=applied.elements if applied.array_size is not None else resolved.elements,
             is_const=applied.is_const or resolved.is_const,
             is_nullable=applied.is_nullable or resolved.is_nullable,
             nullable_outer_depth=nullable_outer_depth,

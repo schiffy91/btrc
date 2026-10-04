@@ -497,13 +497,14 @@ class SemanticTypeSystem {
 			result.genericArgsStorage = arguments;
 			result.pointerDepth = typeExpr.pointerDepth;
 			result.isArray = typeExpr.isArray;
-			result.arraySize = typeExpr.arraySize;
+			TypeShape.copyArrayExtents(result, typeExpr);
 			result.isConst = typeExpr.isConst;
 			result.isNullable = typeExpr.isNullable;
 			result.nullableOuterDepth = typeExpr.nullableOuterDepth;
 			result.isStatic = typeExpr.isStatic;
 			result.isExtern = typeExpr.isExtern;
 			result.isVolatile = typeExpr.isVolatile;
+			result.arrayPointerDepth = typeExpr.arrayPointerDepth;
 			result.line = typeExpr.line;
 			result.col = typeExpr.col;
 			return result;
