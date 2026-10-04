@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from src.tests.native_bindings import NativeBindingPackage
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.linux_provider_fixtures import provider_environment
 from src.tests.python.native_import_fixtures import apple_environment
 from tools.native_plan import NativePlanBuilder
@@ -89,7 +90,9 @@ def build_shell(tmp_path, frontend, sanitized, request):
     compiler = "/usr/bin/clang" if system == "macos" else "cc"
     environment = shell_environment(sanitized)
     sdk_flags = (
-        [] if system == "macos" else subprocess.check_output(["pkg-config", "--cflags", "sdl3"], text=True).split()
+        []
+        if system == "macos"
+        else subprocess.check_output(["pkg-config", "--cflags", "sdl3"], text=True, timeout=TOOL_TIMEOUT).split()
     )
     objects = []
     for unit in [probe.with_suffix(".m" if system == "macos" else ".c"), SHELL / "ShellState.c"]:
@@ -152,7 +155,9 @@ def write_evidence(name, platform_name, frontend, sanitized, observations, statu
             ),
             "recorded_at": datetime.now(UTC).isoformat(),
             "device_class": "stand-in",
-            "btrc_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+            "btrc_revision": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=TOOL_TIMEOUT
+            ).strip(),
             "build_mode": "asan-ubsan" if sanitized else "plain",
             "os_build": platform.platform(),
         },
