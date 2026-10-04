@@ -21,7 +21,12 @@ The Stage 34 pre-drafts for UI4–UI9 live beside these in
 [`../native-ui-contracts/`](../native-ui-contracts/), as their packets name it:
 [UI4 controls](../native-ui-contracts/ui4-controls.md) (CX-UIB-01),
 [UI5 layout](../native-ui-contracts/ui5-layout.md) and
-[UI8 accessibility](../native-ui-contracts/ui8-accessibility.md) (CX-UIB-02);
+[UI8 accessibility](../native-ui-contracts/ui8-accessibility.md) (CX-UIB-02),
+[UI6 collections](../native-ui-contracts/ui6-collections.md) (CX-UIB-03),
+[UI7 services](../native-ui-contracts/ui7-services.md) (CX-UIB-04),
+[UI9 GPU and scheduling](../native-ui-contracts/ui9-gpu.md) and
+[runtime probes](../native-ui-contracts/runtime-probes.md) (CX-UIB-05), with the
+[collection data-model spike](../native-ui-contracts/spikes/collections-data-model.md) (CX-UIB-06);
 `CL-UIB-02` reviews them. The per-platform native-shell notes for Win32, UIKit
 (with iPadOS) and Android Views are in
 [`../native-ui-shells/`](../native-ui-shells/) (CX-UIA-13), which `CL-UIA-12`

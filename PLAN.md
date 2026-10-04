@@ -225,7 +225,18 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - the UI4, UI5 and UI8 pre-drafts `CX-UIB-01`/`02` in `docs/design/native-ui-contracts/`, which `CL-UIB-02` reviews;
     - the Win32, UIKit (with iPadOS) and Android Views shell notes `CX-UIA-13` in `docs/design/native-ui-shells/`.
     The reviewers' minor points are on each PR for those approvals. The UI2 index now links the other two directories.
-  - PR #26 (`CX-C-01`) went back to Codex: its unit shard was red (two untimed subprocess calls), and `--btrsmith` silently moved the measurements to BTRSmith main's gate clone instead of the D9 copy. Probing it found nine defects on `main`: eight incremental-build staleness cases (SB-D1…D8), which wait for the C4 landing because they touch the module-unit owners, and one btrcc miscompile (SB-D9: an unimported module's same-named global shadows a lambda capture), which `CL-REQ-05` fixes.
+  - PR #26 (`CX-C-01`) went back to Codex: its unit shard was red (two untimed subprocess calls), and `--btrsmith` silently moved the measurements to BTRSmith main's gate clone instead of the D9 copy.
+- **Batch 21 (2026-10-04): Codex's second wave, docs.** A second review round passed eight of eleven PRs:
+  - the UI6, UI7 and UI9 pre-drafts and the runtime-probe contract (`CX-UIB-03`/`04`/`05`) and the collection data-model findings (`CX-UIB-06`), which `CL-UIB-02` reviews;
+  - the Windows OS-services, native HTTP transport and mobile storage designs (`CX-P2-01`/`02`/`03`), which `CL-P2-01` approves;
+  - the GTK4/WebGPU pre-spike findings (`CX-UIA-12`).
+
+  Three went back to Codex:
+  - `CX-UIA-09`'s native-shell fixture passes on Linux (X11 and Wayland, both frontends, plain and sanitized) but fails all four macOS rows on a native-handle count after close, its unit shard is red, and its fresh-process restore check cannot fail;
+  - `CX-UIA-01` pushed only the runbook;
+  - `CX-UIB-07` needs the macOS run the integrator dispatched (37172345932).
+
+  Codex's CI policy now requires the whole unit shard before any code push. Probing it found nine defects on `main`: eight incremental-build staleness cases (SB-D1…D8), which wait for the C4 landing because they touch the module-unit owners, and one btrcc miscompile (SB-D9: an unimported module's same-named global shadows a lambda capture), which `CL-REQ-05` fixes.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.

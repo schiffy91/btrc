@@ -85,6 +85,7 @@ the seed ledger) before `CX-UIA-05` integrates; and reviews the drafts that gate
    - **When it rises:** Claude raises the cap to two once CL-R-50 (path-selective lane tier) lands and the first lane run's runner-minutes are recorded.
 3. **Before every push:**
    - the packet's acceptance commands pass locally;
+   - for any branch that adds or changes Python, shell or btrc files: the whole unit shard passes locally (`nix develop --command make NIX= test-unit`), not only your new tests. Three of the first ten Codex code pushes went red on `test_subprocess_timeouts.py` alone: every waited `subprocess` call in `src/tests/**` and `tools/bench/**` passes `timeout=` (use `src/tests/process_limits.py`). A macOS-facing change also needs the macOS `native-gui` job green before hand-back, and if a fixture cannot pass there, say so instead of handing back;
    - `git diff --name-only origin/main...HEAD` lists only owned paths (plus any `fragment:`/`derived:` commits). A stacked packet diffs against its base branch instead.
 4. **Push budget: at most four pushes per packet.** That is the claim, the final commit and two fixes.
    - Claim with your first real commit.

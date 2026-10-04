@@ -246,6 +246,10 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CX-UIA-18`, `CX-UIA-19`, `CX-UIA-20` | Codex | `codex/cx-uia-18`, `-19`, `-20` (PRs #25, #24, #23) | — | drafts integrated in batch 20 (`docs/design/ui-contracts/`); `CL-UIA-13` reviews them together; `CL-P2-22` may start on 19 and 20 |
 | `CX-UIB-01`, `CX-UIB-02` | Codex | `codex/cx-uib-01`, `-02` (PRs #29, #27) | — | pre-drafts integrated in batch 20 (`docs/design/native-ui-contracts/`); `CL-UIB-02` reviews them |
 | `CX-UIA-13` | Codex | `codex/cx-uia-13` (PR #28) | — | notes integrated in batch 20 (`docs/design/native-ui-shells/{windows,ios,android}.md`); `CL-UIA-12` reviews them |
+| `CX-UIB-03`…`06` | Codex | `codex/cx-uib-03`…`06` (PRs #30, #31, #32, #44) | — | pre-drafts and the collection-model findings integrated in batch 21 (`docs/design/native-ui-contracts/`); `CL-UIB-02` reviews them |
+| `CX-P2-01`, `02`, `03` | Codex | `codex/cx-p2-01`…`03` (PRs #37, #39, #36) | — | designs integrated in batch 21 (`docs/design/{windows-os-services,http-transport,mobile-storage}.md`); `CL-P2-01` approves them |
+| `CX-UIA-12` | Codex | `codex/cx-uia-12` (PR #38; spike `codex/cx-uia-12-spike`, never merged) | — | findings integrated in batch 21 (`docs/design/linux-gtk4-feasibility.md`); `CL-UIA-12` reviews them |
+| `CX-UIA-09`, `CX-UIA-01`, `CX-UIB-07` | Codex | `codex/cx-uia-09` (#40), `codex/cx-uia-01` (#33), `codex/cx-uib-07` (#42) | their packets' paths | returned for fixes in batch 21 (see each PR); `CX-UIB-07` waits on macOS run 37172345932 |
 | `CX-C-01` | Codex | `codex/cx-c-01` (PR #26) | `tools/bench/scripts/ccompat_checkpoint.sh`, one README row, `test_ccompat_checkpoint_script.py` | returned for fixes (red unit shard: untimed subprocess calls; `--btrsmith` swaps the measured workspace); see the PR comment |
 | `CL-UIA-01` (Gate 0) | Claude | — | — | done: `main` at `7a83bb1` |
 | `CL-UIA-02` | Claude | `stage30/ci-codex-lanes` | — | integrated in batch 13, with the `test-native-gui` Makefile target applied by the integrator; releases the workflows to `CL-R-36` |
