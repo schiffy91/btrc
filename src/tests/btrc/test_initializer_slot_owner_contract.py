@@ -137,6 +137,7 @@ _RECORD_OWNER_CALLS = frozenset({"record_fields", "record_members", "record_decl
 # plan_static split shape).
 PYTHON_MEMBER_LIST_RETURNS = {
     "analyzer/types.py::TypeSystem.record_fields": OWNER,
+    "analyzer/types.py::TypeSystem.zero_filled_members": OWNER,
     "analyzer/types.py::TypeSystem._aggregate_field_types": (
         "pairs each member type with its visiting set for any() walks; no element is ever paired with it"
     ),
@@ -144,30 +145,41 @@ PYTHON_MEMBER_LIST_RETURNS = {
 _BTRC_MEMBER_LIST_RETURN = re.compile(r"\breturn\s+SemanticTypeSystem\.record(?:Fields|Members|Declarators)\(")
 
 
-def _returns_member_list(value: ast.AST | None) -> bool:
-    """Whether a return value is a record owner's list or a sequence built from one."""
-
-    def owner_call(node: ast.AST) -> bool:
-        return (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute | ast.Name)
-            and getattr(node.func, "attr", getattr(node.func, "id", "")) in _RECORD_OWNER_CALLS
-        )
-
-    def built_from_owner(node: ast.AST) -> bool:
-        return isinstance(node, ast.ListComp | ast.GeneratorExp | ast.SetComp) and any(
-            owner_call(generator.iter) for generator in node.generators
-        )
-
-    if value is None:
-        return False
-    if owner_call(value) or built_from_owner(value):
-        return True
+def _owner_call(node: ast.AST) -> bool:
     return (
-        isinstance(value, ast.Call)
-        and isinstance(value.func, ast.Name)
-        and value.func.id in {"list", "tuple"}
-        and any(built_from_owner(argument) or owner_call(argument) for argument in value.args)
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute | ast.Name)
+        and getattr(node.func, "attr", getattr(node.func, "id", "")) in _RECORD_OWNER_CALLS
+    )
+
+
+def _member_list_value(node: ast.AST, locals_from_owner: set[str]) -> bool:
+    """A record owner's list, a slice of one, a sequence built from one, or a
+    local bound to any of those."""
+    if isinstance(node, ast.Name):
+        return node.id in locals_from_owner
+    if _owner_call(node):
+        return True
+    if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
+        return _member_list_value(node.value, locals_from_owner)
+    if isinstance(node, ast.ListComp | ast.GeneratorExp | ast.SetComp):
+        return any(_member_list_value(generator.iter, locals_from_owner) for generator in node.generators)
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"list", "tuple"}
+        and any(_member_list_value(argument, locals_from_owner) for argument in node.args)
+    )
+
+
+def _returns_member_list(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    locals_from_owner: set[str] = set()
+    for node in ast.walk(function):
+        if isinstance(node, ast.Assign) and _member_list_value(node.value, locals_from_owner):
+            locals_from_owner.update(target.id for target in node.targets if isinstance(target, ast.Name))
+    return any(
+        isinstance(node, ast.Return) and node.value is not None and _member_list_value(node.value, locals_from_owner)
+        for node in ast.walk(function)
     )
 
 
@@ -179,8 +191,7 @@ def python_member_list_returns(source: str) -> list[str]:
             if isinstance(child, ast.ClassDef):
                 visit(child, (*scope, child.name))
             elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
-                returns = [inner for inner in ast.walk(child) if isinstance(inner, ast.Return)]
-                if any(_returns_member_list(inner.value) for inner in returns):
+                if _returns_member_list(child):
                     found.append(".".join((*scope, child.name)))
                 visit(child, (*scope, child.name))
 
@@ -208,6 +219,8 @@ def test_no_helper_hands_a_member_list_out_for_index_pairing() -> None:
     assert set(PYTHON_MEMBER_LIST_RETURNS) - found == set(), "stale allow-list entries"
     split = "def types(self, d):\n    return [f.type for f in TypeSystem.record_fields(d)]\n"
     assert python_member_list_returns(split) == ["types"]
+    through_local = "def rest(self, d, i):\n    members = TypeSystem.record_members(d)\n    return members[i:]\n"
+    assert python_member_list_returns(through_local) == ["rest"]
     assert _BTRC_MEMBER_LIST_RETURN.search("\t\treturn SemanticTypeSystem.recordFields(declaration);")
 
 

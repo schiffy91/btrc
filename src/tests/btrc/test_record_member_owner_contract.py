@@ -14,7 +14,7 @@ field). Each hit is keyed by its file and enclosing method and must be listed
 below with its count, so a new raw walk in a listed method fails too. The
 Python scan trusts no receiver name: every ``X.fields`` and
 ``getattr(X, "fields")`` outside the IR modules counts, except
-``dataclasses.fields`` and dict-shaped reads of a ClassInfo member table, and
+``dataclasses.fields`` and dict-only reads (``.get/.items/.keys/.values``), and
 each must be the owner or listed with its reason and count.
 """
 
@@ -66,15 +66,19 @@ IR_RECORD = "an IR record (IRStructDef / IRCompoundLiteral / IRTaggedUnionVarian
 RICH_ENUM_IR = "IR tagged-union variant fields, already lowered"
 PYTHON_ALLOWED = {
     "src/compiler/python/analyzer/declarations.py::DeclarationRegistry._register_class": (1, CLASS_INFO),
-    "src/compiler/python/analyzer/declarations.py::InheritanceResolver._merge_parent": (2, CLASS_INFO),
+    "src/compiler/python/analyzer/declarations.py::InheritanceResolver._merge_parent": (4, CLASS_INFO),
+    "src/compiler/python/analyzer/expressions.py::ExpressionAnalyzer._analyze_field_access": (2, CLASS_INFO),
+    "src/compiler/python/analyzer/expressions.py::ExpressionAnalyzer._infer_field_access_type": (2, CLASS_INFO),
+    "src/compiler/python/analyzer/expressions.py::ExpressionAnalyzer._validate_static_member_access": (1, CLASS_INFO),
     "src/compiler/python/analyzer/flow.py::AccessPath.__eq__": (2, ACCESS_PATH),
     "src/compiler/python/analyzer/flow.py::AccessPath.__hash__": (1, ACCESS_PATH),
-    "src/compiler/python/analyzer/flow.py::AccessPath.contains": (2, ACCESS_PATH),
+    "src/compiler/python/analyzer/flow.py::AccessPath.contains": (3, ACCESS_PATH),
     "src/compiler/python/analyzer/flow.py::ControlFlowAnalyzer._facts_surviving_nodes": (3, ACCESS_PATH),
     "src/compiler/python/analyzer/flow.py::ControlFlowAnalyzer._facts_surviving_unknown_write": (1, ACCESS_PATH),
     "src/compiler/python/analyzer/flow.py::ControlFlowAnalyzer.access_path": (1, ACCESS_PATH),
     "src/compiler/python/analyzer/flow.py::ControlFlowAnalyzer.invalidate_nonnull_target": (2, ACCESS_PATH),
     "src/compiler/python/analyzer/flow.py::ControlFlowAnalyzer.record_nullable_address_escape": (1, ACCESS_PATH),
+    "src/compiler/python/analyzer/ownership.py::CallableValueSemantics._is_bound_instance_method": (1, CLASS_INFO),
     "src/compiler/python/analyzer/types.py::TypeSystem.record_declarators": (1, OWNER),
     "src/compiler/python/analyzer/types.py::TypeSystem.record_members": (1, OWNER),
     "src/compiler/python/application/modules.py::SharedDeclarations._provided": (1, RICH_ENUM_IR),
@@ -131,16 +135,25 @@ PYTHON_ALLOWED = {
         1,
         NATIVE_FRONTEND,
     ),
-    "src/compiler/python/frontend/native_imports.py::NativeDeclarationImporter._record_input": (4, NATIVE_FRONTEND),
+    "src/compiler/python/frontend/native_imports.py::NativeDeclarationImporter._record_input": (5, NATIVE_FRONTEND),
     "src/compiler/python/frontend/native_imports.py::NativeDeclarationImporter._require_completion_value": (
         2,
         NATIVE_FRONTEND,
     ),
     "src/compiler/python/frontend/native_imports.py::NativeDeclarationImporter._snapshot_path": (1, NATIVE_FRONTEND),
+    "src/compiler/python/frontend/native_imports.py::NativeDeclarationImporter._transparent_union_member": (
+        1,
+        NATIVE_FRONTEND,
+    ),
     "src/compiler/python/frontend/native_imports.py::NativeHeaderCodec.decode": (1, NATIVE_FRONTEND),
+    "src/compiler/python/ir/lowering/calls.py::CallableProvenance._is_bound_instance_method": (1, CLASS_INFO),
     "src/compiler/python/ir/lowering/exceptions.py::PointerFlow._expression": (1, IR_RECORD),
     "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._emit_cxx_method": (4, NATIVE_CONTRACT),
-    "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._native_record_input": (1, NATIVE_CONTRACT),
+    "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._emit_one_shot_c_adapter": (1, CLASS_INFO),
+    "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._native_record_input": (
+        2,
+        "a native call-contract record and a ClassInfo member table, not a StructDecl",
+    ),
     "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._native_record_output": (2, NATIVE_CONTRACT),
     "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._native_record_snapshot": (1, NATIVE_CONTRACT),
     "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._stored_action_holder": (1, IR_RECORD),
@@ -148,6 +161,8 @@ PYTHON_ALLOWED = {
     "src/compiler/python/ir/lowering/functions.py::FunctionLowerer.emit_native_adapter": (1, NATIVE_CONTRACT),
     "src/devex/lsp/features/completion.py::CompletionProvider.class_member_items": (1, CLASS_INFO),
     "src/devex/lsp/features/hover.py::HoverProvider._format_class_info": (1, CLASS_INFO),
+    "src/devex/lsp/features/hover.py::HoverProvider._try_member_hover": (2, CLASS_INFO),
+    "src/devex/lsp/features/navigation.py::NavigationProvider._classify_symbol": (2, CLASS_INFO),
 }
 
 _BTRC_RAW = re.compile(r"\bfields\(\)|\bfieldsStorage\b|\bfieldsMut\(\)")
@@ -186,10 +201,11 @@ class _PythonRecordReads:
     """Every read of a ``fields`` member list, keyed by ``file::qualname``.
 
     No receiver name is trusted: any ``X.fields`` or ``getattr(X, "fields")``
-    counts, except ``dataclasses.fields`` and the dict-shaped reads of a
-    ClassInfo member table (``k in X.fields``, ``X.fields[k]``,
-    ``X.fields.get/items/keys/values(...)``), which a StructDecl's list never
-    supports. Everything else must be the owner or carry a listed reason.
+    counts, except ``dataclasses.fields`` and the dict-only reads of a
+    ClassInfo member table (``X.fields.get/items/keys/values(...)``), which a
+    StructDecl's list does not have. A subscript, a slice or an ``in`` test
+    works on a list too, so it counts. Everything else must be the owner or
+    carry a listed reason.
     """
 
     def __init__(self, relative: str, source: str) -> None:
@@ -218,15 +234,7 @@ class _PythonRecordReads:
 
     def _is_dict_read(self, node: ast.Attribute) -> bool:
         parent = self._parents.get(node)
-        if isinstance(parent, ast.Subscript) and parent.value is node:
-            return True
-        if isinstance(parent, ast.Attribute) and parent.value is node and parent.attr in _DICT_METHODS:
-            return True
-        return (
-            isinstance(parent, ast.Compare)
-            and node in parent.comparators
-            and any(isinstance(operator, ast.In | ast.NotIn) for operator in parent.ops)
-        )
+        return isinstance(parent, ast.Attribute) and parent.value is node and parent.attr in _DICT_METHODS
 
     def _qualname(self, node: ast.AST) -> str:
         names = []
@@ -292,7 +300,17 @@ def test_the_scans_see_a_raw_walk() -> None:
     }
     for name, python in probes.items():
         assert _PythonRecordReads("probe.py", python).found == {"probe.py::f": 1}, name
-    dict_reads = "def f(info, k):\n    return (k in info.fields, info.fields[k], info.fields.get(k), list(info.fields.items()))\n"
+    list_shapes = {
+        "index": "def f(decl, i):\n    return decl.fields[i].type\n",
+        "slice": "def f(decl, last):\n    return decl.fields[last + 1 :]\n",
+        "in": "def f(decl, m):\n    return m in decl.fields\n",
+        "struct-table-subscript": "def f(self, name):\n    return self.index.struct_table[name].fields[0].type\n",
+        "annotated-in": "def f(self, owner: StructDecl, m):\n    return m in owner.fields\n",
+        "split-helper": "def f(self, decl, i):\n    return decl.fields[i]\n",
+    }
+    for name, python in list_shapes.items():
+        assert _PythonRecordReads("probe.py", python).found == {"probe.py::f": 1}, name
+    dict_reads = "def f(info, k):\n    return (info.fields.get(k), list(info.fields.items()), info.fields.keys())\n"
     assert _PythonRecordReads("probe.py", dict_reads).found == {}
 
 

@@ -233,6 +233,15 @@ PLATFORM_DIVERGENCES = {
         _REFUSED,
         None,
     ),
+    # Python folds the cast to 9007199254740992 (a double), so the second
+    # label duplicates it; btrc's 80-bit strtold keeps 9007199254740993.
+    "float-cast-beyond-53-bits": (
+        _CASE_PAIR.replace("{label}: break;\n        case {label}", "{first}: break;\n        case {second}").format(
+            prefix="", first="(long long)9007199254740993.0", second="9007199254740992"
+        ),
+        _DUPLICATE,
+        None,
+    ),
 }
 
 
