@@ -10,6 +10,7 @@ git clone https://github.com/schiffy91/btrc.git
 cd btrc
 git fetch origin main
 git ls-tree --name-only origin/main docs/workstreams/codex-ui-lanes.md
+git show origin/main:docs/workstreams/codex-ui-lanes.md
 git switch -c codex/cx-example origin/main
 export BTRC_TEST_RUNNER=linux-devcontainer
 ```
@@ -25,7 +26,14 @@ explicit: automatic container detection may otherwise select an unsupported
 Install Nix with flakes enabled in the cloud environment's setup phase, with
 network access for the large Nix store downloads. If Nix cannot be installed,
 document and catalog edits can continue, but repository tests cannot be
-claimed as run. Once Nix is ready:
+claimed as run. Follow the suggested setup script in
+[WORKSTREAMS.md §3.11](../../WORKSTREAMS.md#311-codex-cloud-environment):
+the Determinate installer uses `--init none` and `NIX_REMOTE=local` for a
+daemonless container. If the container forbids a system store, provision a
+configured rootless Nix entry point on PATH instead. This script verifies an
+existing installation; it does not install Nix or replace the environment’s
+Nix configuration. Keep the environment’s existing Git credential helper;
+omit the suggested script’s `gh auth setup-git` command. Once Nix is ready:
 
 ```sh
 tools/ui/codex-setup.sh
@@ -47,7 +55,9 @@ The runner export is appended once to `~/.bashrc`. For a setup rehearsal,
 `BTRC_CODEX_RC_FILE` may name a disposable writable rc file instead. If a
 `GH_TOKEN` setup secret is supplied and no working stored GitHub authentication
 exists, the script persists it through `gh auth login --with-token`, without
-printing it. Repository access requires branch and pull-request write;
+printing it. It preserves the platform Git credential proxy and never calls
+`gh auth setup-git`. It does not store a token when `GH_TOKEN` is absent.
+Repository access requires branch and pull-request write;
 workflow dispatch also requires `actions:write`. Do not paste tokens in logs.
 
 The Nix shell exports `BTRC_NATIVE_HEADER_READER`; without that executable the
@@ -126,7 +136,10 @@ device evidence. Leave those to the named `MAC-` packets.
 
 ## Draft PR and CI handoff
 
-Check the current CI cap before pushing. Open a draft PR against `main`, title
+Before each push that changes Python, shell or btrc files, run the whole unit
+shard with `nix develop --command make NIX= test-unit`; focused tests alone do
+not meet the current CI policy. Every waited test subprocess needs `timeout=`
+from `src/tests/process_limits.py`. Check the current CI cap before pushing. Open a draft PR against `main`, title
 it `[CX-…] …`, and start its body with Owned paths followed by the repository's
 Codex packet template. Include exact commands, counts, skip rules, evidence
 artifacts and run IDs. Use at most four pushes per packet. Watch `release`,
