@@ -1,0 +1,65 @@
+# CX-UIA-03: source classification and assertion map; execution evidence is separate.
+# Missing providers stay missing on both frontends; candidate regression IDs are not passes.
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-03-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:43:34Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "linux-devcontainer"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-linux"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-macos"
+
+[[operations]]
+id = "IDirectoryPicker.chooseDirectory"
+owner = "IDirectoryPicker"
+implementation = "implemented"
+links = ["N36", "UI7"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_directory_picker_appkit[False-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_directory_picker_appkit[True-python]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSDirectoryPicker.btrc; operation IDirectoryPicker.chooseDirectory. Assertion candidate in src/tests/native/gui/MacOSDirectoryPickerConformance.btrc: assert(result.kind == DIRECTORY_PICKER_SELECTED); Nine injected AppKit dialog modes also assert selected Unicode filesystem path ownership, cancellation, invalid request, wrong-thread and internal failure. This is fixture-controlled native behavior, not an attended user session. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_directory_picker_appkit[False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_directory_picker_appkit[True-selfhost]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSDirectoryPicker.btrc; operation IDirectoryPicker.chooseDirectory. Assertion candidate in src/tests/native/gui/MacOSDirectoryPickerConformance.btrc: assert(result.kind == DIRECTORY_PICKER_SELECTED); Nine injected AppKit dialog modes also assert selected Unicode filesystem path ownership, cancellation, invalid request, wrong-thread and internal failure. This is fixture-controlled native behavior, not an attended user session. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxDirectoryPicker.btrc; operation IDirectoryPicker.chooseDirectory. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._picker.error.equals(\"Native event dispatch is already active\")); Only nested native-dispatch rejection is asserted. Successful portal/zenity selection, cancellation and native failure outcomes remain unverified. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Only nested-dispatch rejection has an assertion; dialog acceptance/cancellation remain unverified."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxDirectoryPicker.btrc; operation IDirectoryPicker.chooseDirectory. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._picker.error.equals(\"Native event dispatch is already active\")); Only nested native-dispatch rejection is asserted. Successful portal/zenity selection, cancellation and native failure outcomes remain unverified. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Only nested-dispatch rejection has an assertion; dialog acceptance/cancellation remain unverified."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."

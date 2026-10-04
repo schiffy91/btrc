@@ -1,0 +1,129 @@
+# CX-UIA-04: operation source classification and assertion-scoped shared UI0 evidence.
+# Inherited IView/IContainer operations keep their declaring-owner shards (CX-UIA-03).
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-04-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:36:56Z"
+runner = "linux-devcontainer"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+runner = "github-linux"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+runner = "github-macos"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[[operations]]
+id = "IImageView.setImage"
+owner = "IImageView"
+links = ["N20", "N49", "UI4", "UI9", "E20", "E24", "E35", "E36"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSImageView.btrc: source implements this operation. LinuxImageView stops painting a closed handle; macOS presentation retains the assigned native image, but rebinding a closed handle is rejected. Dimensions/capture are not full color-management evidence. Assertion: NativePanel.btrc: setting red artwork produces red captured pixels in the image region, which remain bounded by the rounded parent."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSImageView.btrc: source implements this operation. LinuxImageView stops painting a closed handle; macOS presentation retains the assigned native image, but rebinding a closed handle is rejected. Dimensions/capture are not full color-management evidence. Assertion: NativePanel.btrc: setting red artwork produces red captured pixels in the image region, which remain bounded by the rounded parent."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. LinuxImageView stops painting a closed handle; macOS presentation retains the assigned native image, but rebinding a closed handle is rejected. Dimensions/capture are not full color-management evidence."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. LinuxImageView stops painting a closed handle; macOS presentation retains the assigned native image, but rebinding a closed handle is rejected. Dimensions/capture are not full color-management evidence."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IImageView.setImageHandle"
+owner = "IImageView"
+links = ["N20", "N49", "UI4", "UI9", "E20", "E24", "E35", "E36"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "adapted"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSImageView.btrc: source implements this operation. LinuxImageView stops painting a closed handle; macOS presentation retains the assigned native image, but rebinding a closed handle is rejected. Dimensions/capture are not full color-management evidence. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: NativeGUI.btrc verifyImageHandles: worker-created handle is accepted; a closed handle is rejected with the exact closed error; null clears presentation."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "adapted"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSImageView.btrc: source implements this operation. LinuxImageView stops painting a closed handle; macOS presentation retains the assigned native image, but rebinding a closed handle is rejected. Dimensions/capture are not full color-management evidence. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: NativeGUI.btrc verifyImageHandles: worker-created handle is accepted; a closed handle is rejected with the exact closed error; null clears presentation."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. LinuxImageView stops painting a closed handle; macOS presentation retains the assigned native image, but rebinding a closed handle is rejected. Dimensions/capture are not full color-management evidence. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: LinuxGUIControls.btrc: worker artwork sets fittingWidth to 4 and capture is green; closing the handle removes painting; binding null sets fittingWidth to zero."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. LinuxImageView stops painting a closed handle; macOS presentation retains the assigned native image, but rebinding a closed handle is rejected. Dimensions/capture are not full color-management evidence. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: LinuxGUIControls.btrc: worker artwork sets fittingWidth to 4 and capture is green; closing the handle removes painting; binding null sets fittingWidth to zero."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"

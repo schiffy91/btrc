@@ -229,6 +229,7 @@ class StatementLowerer:
             return
         from ..nodes import IRLineMarker
 
+        self._session.consult_source(mapped[0])
         out.append(IRLineMarker(file=mapped[0], line=mapped[1]))
 
     def lower_return(

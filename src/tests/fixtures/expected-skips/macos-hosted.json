@@ -250,16 +250,18 @@
       "note": "The C oracle compares btrc's linux-x86_64 selection with the host gcc and clang -E, so only an x86_64 Linux host runs it; the devcontainer does (CL-C-06)."
     },
     {
-      "id": "ui-shell-linux-only",
+      "id": "apple-target-macro-oracle",
       "files": [
-        "src/tests/python/test_native_ui_shell_linux.py"
+        "src/tests/python/test_target_macro_table.py"
       ],
-      "reason": "^requires Linux SDL native shell$",
+      "nodes": [
+        "src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set*",
+        "src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values*"
+      ],
+      "reason": "^Mac-bound: requires macOS with xcrun and Xcode 27A266a \\(MAC-P1-05\\); this host has ",
       "category": "platform",
-      "covered_by": [
-        "linux-devcontainer"
-      ],
-      "note": "CX-UIA-09 shell requires its host provider; both frontends and sanitizer modes run on the named stand-in."
+      "covered_by": [],
+      "note": "platform-target-contract.md §1.3 pins Apple clang's TARGET_OS_* set and the iOS SDK's <TargetConditionals.h> to the acceptance Mac's Xcode 27A266a; a hosted image carries another Xcode, whose predefined TARGET_OS_* set may differ. MAC-P1-05 runs both checks on the acceptance Mac; a hosted platform rule cannot name that host in covered_by, so the report shows them uncovered here."
     }
   ]
 }
