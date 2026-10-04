@@ -66,7 +66,9 @@ class ShellJourney implements IApplicationWork {
 				self._step++;
 				GUI.postAfter(0.01, self);
 			} else {
-				assert(!self._window.isOpen());
+				/* A posted native close may be consumed after a scheduled
+				 * application callback. The journey's deadline bounds teardown. */
+				if (self._window.isOpen()) { GUI.postAfter(0.01, self); return; }
 				assert(self._action.count == 0);
 				self.done = true;
 				GUI.requestQuit();

@@ -31,8 +31,8 @@ AppKit-private descendants and field editors. Both weak sets persist across
 cycles. A bounded 200 ms run-loop drain precedes teardown observations; every
 provider survivor fails the fixture and is printed with its class and pointer.
 Private survivors are reported, without being mistaken for provider handles.
-No editable-field exemption is applied. If macOS fails, four independent
-one-cycle diagnostics isolate AX traversal and wheel injection; disabling the
+No editable-field exemption is applied. Every macOS row also runs four independent
+one-cycle diagnostics isolating AX traversal and wheel injection; disabling the
 wheel substitutes public `scrollTo` so the rest of the journey still runs.
 Each diagnostic has a 60-second timeout and saves its output even when another
 times out. Pooling alone does not establish the cause of AppKit retention.

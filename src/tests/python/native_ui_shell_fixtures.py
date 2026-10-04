@@ -192,12 +192,10 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
         result = subprocess.CompletedProcess(command, 124, stdout, stderr + "\nShell exceeded 1200-second timeout")
     (tmp_path / "shell.stdout").write_text(result.stdout)
     (tmp_path / "shell.stderr").write_text(result.stderr)
-    if result.returncode != 0 and sys.platform == "darwin":
-        diagnostics = diagnose_macos_retention(executable, tmp_path, environment)
-        pytest_message = result.stderr + result.stdout + "\n" + json.dumps(diagnostics, indent=2)
-    else:
-        pytest_message = result.stderr + result.stdout
+    diagnostics = diagnose_macos_retention(executable, tmp_path, environment) if sys.platform == "darwin" else []
+    pytest_message = result.stderr + result.stdout + "\n" + json.dumps(diagnostics, indent=2)
     assert result.returncode == 0, pytest_message
+    assert all(item["returncode"] == 0 for item in diagnostics), pytest_message
     assert "ERROR: AddressSanitizer" not in result.stderr and "runtime error:" not in result.stderr
     summary = re.search(
         r"SHELL cycles=(\d+) frames=(\d+) native=(\d+) private=(\d+) registrations=(\d+) dirty-close=missing",
@@ -247,6 +245,7 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
             "private_objects": private_objects,
             "live_registrations": registrations,
             "teardown": teardown,
+            "retention_diagnostics": diagnostics,
             "fresh_process_restores": 100,
             "e46": "missing",
             "e47": "fixture-only; stdlib missing",
