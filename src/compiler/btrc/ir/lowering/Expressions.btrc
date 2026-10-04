@@ -2489,12 +2489,10 @@ class ExpressionLowerer {
 				Node declaration = self.analyzed.structTable.get(structName);
 				Vector<string> fields = [];
 				Vector<IRNode> values = [];
-				int fieldIndex = 0;
-				while (fieldIndex < node.elements().len && fieldIndex < declaration.fields().len) {
-					Node field = declaration.fields().get(fieldIndex);
+				for slot in SemanticTypeSystem.initializerSlots(declaration, node, self.analyzed).slots {
+					Node field = slot.member();
 					fields.push(field.name);
-					values.push(self.lowerAssignedValue(node.elements().get(fieldIndex), field.type, varTypes, callableFlow));
-					fieldIndex = fieldIndex + 1;
+					values.push(self.lowerAssignedValue(slot.element, field.type, varTypes, callableFlow));
 				}
 				return IRNode.compoundLiteral(self.cTypes.lower(expected), fields, values);
 			}
@@ -3385,7 +3383,7 @@ class ExpressionLowerer {
 		return typeExpr;
 	}
 
-	private Node? staticInitializerElementType(Node? aggregateType, int index) {
+	private Node? staticInitializerElementType(Node? aggregateType, Node aggregate, int index) {
 		Node? canonicalType = self.canonicalStaticInitializerType(aggregateType);
 		if (canonicalType == null) { return null; }
 		Node canonical = canonicalType;
@@ -3398,30 +3396,54 @@ class ExpressionLowerer {
 			}
 			return null;
 		}
-		string structName = StorageValidator.structTypeName(canonical, self.analyzed);
-		if (structName == "" || !self.analyzed.structTable.has(structName)) {
-			return null;
-		}
-		Node declaration = self.analyzed.structTable.get(structName);
-		if (declaration.isForward || index >= declaration.fields().len) {
-			return null;
-		}
-		return declaration.fields().get(index).type;
+		Node? declaration = self.staticInitializerRecord(canonical);
+		if (declaration == null) { return null; }
+		SemanticInitializerPlan plan = SemanticTypeSystem.initializerSlots(declaration, aggregate, self.analyzed);
+		return SemanticTypeSystem.initializerSlotType(plan, aggregate.elements().get(index));
 	}
 
-	private int staticInitializerFieldCount(Node? aggregateType) {
-		Node? canonicalType = self.canonicalStaticInitializerType(aggregateType);
-		if (canonicalType == null) { return -1; }
-		Node canonical = canonicalType;
-		if (canonical.isArray) { return -1; }
-		if (canonical.base == "Tuple") { return canonical.genericArgs().len; }
+	/* The complete record a static initializer targets, or null. */
+	private Node? staticInitializerRecord(Node canonical) {
+		if (canonical.isArray) { return null; }
 		string structName = StorageValidator.structTypeName(canonical, self.analyzed);
 		if (structName == "" || !self.analyzed.structTable.has(structName)) {
-			return -1;
+			return null;
 		}
 		Node declaration = self.analyzed.structTable.get(structName);
-		if (declaration.isForward) { return -1; }
-		return declaration.fields().len;
+		if (declaration.isForward) { return null; }
+		return declaration;
+	}
+
+	/* The members a record or tuple static initializer leaves to be
+	 * zero-initialized: those after its last initialized slot. */
+	private Vector<Node> staticInitializerPadding(Node? aggregateType, Node aggregate) {
+		Vector<Node> padding = [];
+		Node? canonicalType = self.canonicalStaticInitializerType(aggregateType);
+		if (canonicalType == null) { return padding; }
+		Node canonical = canonicalType;
+		if (canonical.isArray) { return padding; }
+		if (canonical.base == "Tuple") {
+			int argument = aggregate.elements().len;
+			while (argument < canonical.genericArgs().len) {
+				padding.push(canonical.genericArgs().get(argument));
+				argument = argument + 1;
+			}
+			return padding;
+		}
+		Node? declaration = self.staticInitializerRecord(canonical);
+		if (declaration == null) { return padding; }
+		SemanticInitializerPlan plan = SemanticTypeSystem.initializerSlots(declaration, aggregate, self.analyzed);
+		Vector<Node> members = SemanticTypeSystem.recordMembers(declaration);
+		int next = 0;
+		for slot in plan.slots {
+			int position = SemanticTypeSystem.memberPosition(members, slot.path.get(0)) + 1;
+			if (position > next) { next = position; }
+		}
+		while (next < members.len) {
+			padding.push(members.get(next).type);
+			next = next + 1;
+		}
+		return padding;
 	}
 
 	private IRNode zeroStaticInitializer(Node? expected) {
@@ -3429,7 +3451,7 @@ class ExpressionLowerer {
 		Node? canonicalType = self.canonicalStaticInitializerType(expected);
 		if (canonicalType != null) {
 			Node canonical = canonicalType;
-			if (canonical.isArray || self.staticInitializerFieldCount(canonical) >= 0) {
+			if (canonical.isArray || canonical.base == "Tuple" || self.staticInitializerRecord(canonical) != null) {
 				zero.push(IRNode.literal("0"));
 				return IRNode.initializerList(zero);
 			}
@@ -3539,15 +3561,13 @@ class ExpressionLowerer {
 		Vector<IRNode> elements = [];
 		int index = 0;
 		while (index < node.elements().len) {
-			Node? elementType = self.staticInitializerElementType(expected, index);
+			Node? elementType = self.staticInitializerElementType(expected, node, index);
 			elements.push(self.lowerStaticInitializer(node.elements().get(index), elementType, varTypes, callableFlow));
 			index = index + 1;
 		}
-		int fieldCount = self.staticInitializerFieldCount(expected);
 		if (elements.len > 0) {
-			while (index < fieldCount) {
-				elements.push(self.zeroStaticInitializer(self.staticInitializerElementType(expected, index)));
-				index = index + 1;
+			for paddingType in self.staticInitializerPadding(expected, node) {
+				elements.push(self.zeroStaticInitializer(paddingType));
 			}
 		} else {
 			elements.push(IRNode.literal("0"));

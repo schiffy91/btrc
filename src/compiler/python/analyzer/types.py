@@ -9,12 +9,20 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import ClassVar
 
-from src.compiler.python.analyzer.program import AnalysisSession, DeclarationIndex
+from src.compiler.python.analyzer.program import (
+    AnalysisSession,
+    DeclarationIndex,
+    InitializerSlot,
+    InitializerSlotPlan,
+)
 from src.compiler.python.lexer.lexer import LiteralDecoder
 from src.compiler.python.syntax.ast.generated import (
+    AnonymousMember,
     BraceInitializer,
     ClassDecl,
     FieldDecl,
+    FieldDef,
+    FieldDesignator,
     FunctionDecl,
     InterfaceDecl,
     ListLiteral,
@@ -192,6 +200,10 @@ class NumericLiteralSemantics:
     @staticmethod
     def float_type(raw: str) -> str:
         return "float" if raw.endswith(("f", "F")) else "double"
+
+    def has_integral_range(self, target_base: str) -> bool:
+        """Whether constant conversion to ``target_base`` has known bounds."""
+        return target_base == "bool" or self._type_limits(target_base) is not None
 
     def convert_integral(self, value: int | float, target_base: str) -> int | None:
         """Apply a defined C scalar-to-integer constant conversion."""
@@ -1079,6 +1091,147 @@ class TypeSystem:
         )
         self._index_protocols = IndexedProtocolResolver(self._type_identity, index.class_table)
 
+    # Record members (C11 6.7.2.1). Every walk over a struct's or union's
+    # members goes through these class methods; the record-member contract
+    # test refuses a raw ``StructDecl.fields`` walk anywhere else.
+
+    @classmethod
+    def record_declarators(cls, record) -> tuple:
+        """Every member declarator of a record or anonymous member, in source
+        order: named fields, unnamed bit-fields and anonymous members. Only
+        layout (emission and its type dependencies) reads unnamed bit-fields;
+        semantic walks read ``record_members`` or ``record_fields``."""
+        return tuple(record.fields)
+
+    @classmethod
+    def record_members(cls, record) -> tuple:
+        """The direct members, which are also the positional initializer slots:
+        named ``FieldDef``s and ``AnonymousMember``s. An unnamed bit-field is
+        not a member (C11 6.7.2.1p12)."""
+        return tuple(member for member in record.fields if isinstance(member, AnonymousMember) or member.name)
+
+    @classmethod
+    def record_named_members(cls, record) -> tuple[tuple, ...]:
+        """Every named member as its member path, flattened through anonymous
+        members (C11 6.7.2.1p13): the anonymous members it is reached through,
+        then the ``FieldDef`` itself."""
+        paths: list[tuple] = []
+        for member in cls.record_members(record):
+            if isinstance(member, AnonymousMember):
+                paths.extend((member, *path) for path in cls.record_named_members(member))
+            else:
+                paths.append((member,))
+        return tuple(paths)
+
+    @classmethod
+    def record_fields(cls, record) -> tuple[FieldDef, ...]:
+        """Every named member's ``FieldDef``, flattened, in declaration order."""
+        return tuple(path[-1] for path in cls.record_named_members(record))
+
+    @classmethod
+    def record_member_path(cls, record, name: str) -> tuple | None:
+        """The member path of the named member ``name``, or ``None``."""
+        if not name:
+            return None
+        return next((path for path in cls.record_named_members(record) if path[-1].name == name), None)
+
+    @classmethod
+    def record_member(cls, record, name: str) -> FieldDef | None:
+        """The named member ``name``, found through anonymous members too."""
+        path = cls.record_member_path(record, name)
+        return path[-1] if path is not None else None
+
+    @classmethod
+    def complete_member_record(cls, member_type, tables):
+        """The complete record a by-value member type names, for designator
+        chains; ``tables`` carries ``struct_table`` and ``typedef_table``."""
+        canonical = cls.canonical_declaration_type(member_type, tables.typedef_table)
+        if canonical is None or canonical.pointer_depth > 0 or canonical.is_array:
+            return None
+        declaration = tables.struct_table.get(canonical.base.removeprefix("struct "))
+        return declaration if declaration is not None and not declaration.is_forward else None
+
+    @classmethod
+    def plan_initializer_slots(cls, record, initializer, tables) -> InitializerSlotPlan:
+        """Map each brace element to a member path of ``record`` (C11 6.7.9p17).
+
+        Positional elements fill the direct members in order (only the first
+        member of a union); an anonymous member is one slot that takes its own
+        braces, and unnamed bit-fields take none. A designated element names
+        a flattened member, and its chain continues through nested records
+        (resolved through ``tables``) and array elements (the
+        ``IndexDesignator`` itself is the step). A positional element after a
+        designated one continues at the next direct member. Only a brace
+        initializer carries designations.
+        """
+        members = cls.record_members(record)
+        capacity = min(len(members), 1) if record.is_union else len(members)
+        designations = initializer.entries if isinstance(initializer, BraceInitializer) else []
+        slots: list[InitializerSlot] = []
+        excess = 0
+        cursor = 0
+        for position, element in enumerate(initializer.elements):
+            parts = designations[position].parts if position < len(designations) else []
+            if parts:
+                slot = cls._designated_slot(record, element, parts, tables)
+                if slot is None:
+                    excess += 1
+                    continue
+                slots.append(slot)
+                cursor = cls.member_position(members, slot.path[0]) + 1
+                continue
+            if cursor >= capacity:
+                excess += 1
+                continue
+            member = members[cursor]
+            cursor += 1
+            slots.append(
+                InitializerSlot(element, (member,), None if isinstance(member, AnonymousMember) else member.type)
+            )
+        return InitializerSlotPlan(initializer, tuple(slots), capacity, excess)
+
+    @staticmethod
+    def member_position(members, member) -> int:
+        """The position of ``member`` (by identity) among ``members``, or -1."""
+        return next((index for index, candidate in enumerate(members) if candidate is member), -1)
+
+    @classmethod
+    def _designated_slot(cls, record, element, parts, tables) -> InitializerSlot | None:
+        first = parts[0]
+        if not isinstance(first, FieldDesignator):
+            return None
+        path = cls.record_member_path(record, first.field)
+        if path is None:
+            return None
+        steps = list(path)
+        slot_type = path[-1].type
+        for part in parts[1:]:
+            if isinstance(part, FieldDesignator):
+                nested = cls.complete_member_record(slot_type, tables)
+                nested_path = cls.record_member_path(nested, part.field) if nested is not None else None
+                if nested_path is None:
+                    return None
+                steps.extend(nested_path)
+                slot_type = nested_path[-1].type
+            else:
+                if slot_type is None or not slot_type.is_array:
+                    return None
+                steps.append(part)
+                slot_type = cls.strip_outer_storage(slot_type, array=True)
+        return InitializerSlot(element, tuple(steps), slot_type)
+
+    @classmethod
+    def initializer_slots(
+        cls, plans: Mapping[int, InitializerSlotPlan], tables, record, initializer
+    ) -> InitializerSlotPlan:
+        """The analyzer's recorded plan for ``initializer``; an initializer the
+        analyzer never typed as this record (a generic body's ``T x = {...}``)
+        is planned again here, identically."""
+        plan = plans.get(id(initializer))
+        if plan is not None and plan.initializer is initializer:
+            return plan
+        return cls.plan_initializer_slots(record, initializer, tables)
+
     def function_pointer_signature(self, type_expr):
         """Return the canonical callable shape: return type followed by parameters."""
         canonical = self.canonical_type(type_expr)
@@ -1174,6 +1327,10 @@ class TypeSystem:
     def float_literal_type(self, raw: str) -> TypeExpr:
         """Decode a floating literal suffix into its semantic type."""
         return TypeExpr(base=self._numeric_literals.float_type(raw))
+
+    def has_integral_range(self, target_base: str) -> bool:
+        """Whether constant conversion to ``target_base`` has known bounds."""
+        return self._numeric_literals.has_integral_range(target_base)
 
     def convert_integral_literal(self, value: int | float, target_base: str) -> int | None:
         """Convert an integral constant under the target type's portable bounds."""
@@ -1464,7 +1621,7 @@ class TypeSystem:
         nested_visiting = visiting | {visit_key}
         declaration = self.index.struct_table.get(name)
         if declaration and (not declaration.is_forward):
-            return tuple((field.type, nested_visiting) for field in declaration.fields)
+            return tuple((field.type, nested_visiting) for field in self.record_fields(declaration))
         rich_enum = self.index.rich_enum_table.get(name)
         if rich_enum:
             return tuple(
@@ -1860,7 +2017,7 @@ class TypeSystem:
         declaration = self.index.struct_table.get(name)
         if declaration is None or declaration.is_forward:
             return False
-        for field in declaration.fields:
+        for field in self.record_fields(declaration):
             payload = self.canonical_type(field.type)
             if payload is not None and payload.is_array:
                 if payload.array_size is None or payload.is_nullable:
@@ -1905,7 +2062,9 @@ class TypeSystem:
         if declaration is None or declaration.is_forward:
             return False
         nested = visiting | {name}
-        return any(self.contains_realtime_function_storage(field.type, nested) for field in declaration.fields)
+        return any(
+            self.contains_realtime_function_storage(field.type, nested) for field in self.record_fields(declaration)
+        )
 
     def _validate_storage_qualifiers(self, type_expr, subject, role, line, col) -> None:
         if type_expr.is_static and type_expr.is_extern:
@@ -1994,7 +2153,7 @@ class TypeSystem:
                 decl.original = self.upgrade_class_type(decl.original)
                 self.index.typedef_table[decl.alias] = decl.original
             elif isinstance(decl, StructDecl):
-                for field in decl.fields:
+                for field in self.record_fields(decl):
                     field.type = self.upgrade_class_type(field.type)
             elif isinstance(decl, RichEnumDecl):
                 for variant in decl.variants:

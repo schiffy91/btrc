@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from src.compiler.python.analyzer.program import AnalyzedProgram
-from src.compiler.python.analyzer.types import TypeIdentity
+from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -70,9 +70,15 @@ class AggregatePlan:
 
 @dataclass(frozen=True, slots=True)
 class StaticAggregatePlan:
-    """Typed shape for one recursively lowered static initializer."""
+    """Typed shape for one recursively lowered static initializer.
 
-    field_types: tuple[TypeExpr, ...] | None
+    ``element_types`` holds each source element's slot type, or is ``None``
+    for an array or collection initializer; ``padding`` holds the members a
+    record or tuple initializer leaves to be zero-initialized.
+    """
+
+    element_types: tuple[TypeExpr | None, ...] | None
+    padding: tuple[TypeExpr, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,10 +380,13 @@ class CollectionLowerer:
             struct_name = canonical.base.removeprefix("struct ")
             declaration = self._analyzed.struct_table.get(struct_name)
             if declaration is not None and not declaration.is_forward:
+                slots = TypeSystem.initializer_slots(
+                    self._analyzed.initializer_slot_plans, self._analyzed, declaration, node
+                )
                 return AggregatePlan(
                     source=node,
                     c_type=self._types.render(node_type),
-                    field_names=tuple(field.name for field in declaration.fields[: len(node.elements)]),
+                    field_names=tuple(slot.member.name for slot in slots.slots),
                 )
             if canonical.base == "Tuple":
                 return AggregatePlan(
@@ -423,8 +432,27 @@ class CollectionLowerer:
         node_type = self._session.type_of(node)
         self._reject_shallow_initializer(node, node_type, provenance)
         canonical = self._types.canonical_type(node_type)
-        field_types = self._aggregate_field_types(canonical)
-        return StaticAggregatePlan(field_types=tuple(field_types) if field_types is not None else None)
+        declaration = self._static_record(canonical)
+        if declaration is not None and isinstance(node, BraceInitializer):
+            plan = TypeSystem.initializer_slots(
+                self._analyzed.initializer_slot_plans, self._analyzed, declaration, node
+            )
+            slot_types = {id(slot.element): slot.type for slot in plan.slots}
+            members = TypeSystem.record_members(declaration)
+            last = max((TypeSystem.member_position(members, slot.path[0]) for slot in plan.slots), default=-1)
+            return StaticAggregatePlan(
+                element_types=tuple(slot_types.get(id(element)) for element in node.elements),
+                padding=tuple(member.type for member in members[last + 1 :]),
+            )
+        if canonical is not None and self._is_static_tuple(canonical):
+            arguments = tuple(canonical.generic_args)
+            return StaticAggregatePlan(
+                element_types=tuple(
+                    arguments[index] if index < len(arguments) else None for index in range(len(node.elements))
+                ),
+                padding=arguments[len(node.elements) :],
+            )
+        return StaticAggregatePlan(element_types=None)
 
     def materialize_static(
         self,
@@ -432,26 +460,26 @@ class CollectionLowerer:
         elements: list[IRExpr],
     ) -> IRInitializerList:
         """Materialize a static aggregate from already lowered elements."""
-        if plan.field_types is not None and elements:
-            elements.extend(
-                self._zero_static_initializer(field_type) for field_type in plan.field_types[len(elements) :]
-            )
+        if plan.element_types is not None and elements:
+            elements.extend(self._zero_static_initializer(member_type) for member_type in plan.padding)
         return IRInitializerList(elements=elements)
 
-    def _aggregate_field_types(self, type_expr):
+    def _static_record(self, type_expr):
+        """The complete record a by-value static initializer target names."""
         if type_expr is None or type_expr.pointer_depth > 0 or type_expr.is_array:
             return None
-        struct_name = type_expr.base.removeprefix("struct ")
-        declaration = self._analyzed.struct_table.get(struct_name)
-        if declaration is not None and not declaration.is_forward:
-            return [field.type for field in declaration.fields]
-        if type_expr.base == "Tuple":
-            return list(type_expr.generic_args)
-        return None
+        declaration = self._analyzed.struct_table.get(type_expr.base.removeprefix("struct "))
+        return declaration if declaration is not None and not declaration.is_forward else None
+
+    @staticmethod
+    def _is_static_tuple(type_expr) -> bool:
+        return type_expr.pointer_depth == 0 and not type_expr.is_array and type_expr.base == "Tuple"
 
     def _zero_static_initializer(self, type_expr):
         canonical = self._types.canonical_type(type_expr)
-        if canonical and (canonical.is_array or self._aggregate_field_types(canonical) is not None):
+        if canonical and (
+            canonical.is_array or self._static_record(canonical) is not None or self._is_static_tuple(canonical)
+        ):
             return IRInitializerList(elements=[])
         return IRLiteral(text="0")
 
