@@ -1,6 +1,7 @@
 """``python3 -m tools.qualification``: ingest evidence, render the report, gate skips.
 
-report        render the support/coverage report from raw inputs and ledgers;
+report        render the support/coverage report from raw inputs and ledgers,
+              with the UI catalog's section (--no-ui-catalog omits it);
               with --denominators, fail when a frozen inventory slot is missing
 ingest        copy raw inputs under the qualification root and write a ledger
 denominators  check the frozen inventory denominators against their sources
@@ -29,7 +30,7 @@ from tools.qualification.adapters import (
 )
 from tools.qualification.bundle import LedgerBundle
 from tools.qualification.denominators import MANIFEST as DENOMINATORS
-from tools.qualification.denominators import DenominatorManifest
+from tools.qualification.denominators import REPO, DenominatorManifest
 from tools.qualification.report import QualificationReport
 from tools.qualification.schema import (
     Budget,
@@ -98,6 +99,20 @@ class QualificationCommand:
                     nargs="?",
                     const=DENOMINATORS,
                     help="count against frozen inventory denominators (default: the tracked manifest)",
+                )
+                command.add_argument(
+                    "--ui-catalog",
+                    type=Path,
+                    default=REPO,
+                    metavar="CHECKOUT",
+                    help="render the UI catalog of this checkout (default: this one)",
+                )
+                command.add_argument(
+                    "--no-ui-catalog",
+                    dest="ui_catalog",
+                    action="store_const",
+                    const=None,
+                    help="report only the named inputs, without the UI catalog's section",
                 )
             else:
                 command.add_argument("--run", help="run id (default: a UTC timestamp)")
@@ -238,10 +253,22 @@ class QualificationCommand:
 
     @staticmethod
     def report(arguments: argparse.Namespace, records: list[LedgerRecord]) -> int:
-        if not records:
-            raise LedgerSchemaError("nothing to report: name raw inputs, --ledger or --all-ledgers")
+        if not records and arguments.ui_catalog is None:
+            raise LedgerSchemaError("nothing to report: name raw inputs, --ledger, --all-ledgers or --ui-catalog")
         denominators = DenominatorManifest.load(arguments.denominators) if arguments.denominators else None
-        report = QualificationReport(records, denominators)
+        catalog = None
+        if arguments.ui_catalog is not None:
+            # Imported here: the catalog parses stdlib sources with the reference compiler, which
+            # the other commands (tiers, skip-gate on the CI plan jobs) never need.
+            from tools.qualification.ui_catalog import UICatalog
+
+            try:
+                catalog = UICatalog(arguments.ui_catalog)
+            except (ValueError, KeyError) as error:
+                # A malformed shard, amendment or package manifest: the catalog cannot load, which is
+                # not the same as a catalog that loads with problems (exit 1).
+                raise LedgerSchemaError(f"ui catalog {arguments.ui_catalog}: {error}") from error
+        report = QualificationReport(records, denominators, catalog)
         text = report.render_json() if arguments.format == "json" else report.render_markdown()
         if arguments.output is not None:
             arguments.output.parent.mkdir(parents=True, exist_ok=True)
