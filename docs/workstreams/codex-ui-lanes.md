@@ -357,6 +357,8 @@ This is the Stage 30 critical path, about 6 h.
 
 ### Task 2: macOS and Linux shell lane
 
+**Open defect for this lane (`CX-UIA-11`).** `src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]` fails intermittently with `X Error of failed request: BadWindow (invalid Window parameter)`, major opcode 18 (`X_ChangeProperty`), when `make test-native-gui` runs four workers on one Xvfb display in the cloud container. It passed 24 of 24 runs alone and failed in two of two four-worker gates (batches 17 and 19); GitHub's runners have not hit it. A property is being set on a window that is already gone, which is a race in the Linux SDL provider or its test program, not load. Root-cause it in `CX-UIA-11` with a reproduction that forces the interleaving, and fix it; never mark it flaky or skip it.
+
 #### B1. CX-UIA-09: shell fixture and harness (about 10 h, start now)
 It has no dependencies and heads UI1 → UI2.
 
