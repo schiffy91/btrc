@@ -1,5 +1,5 @@
 #pragma once
-#include "../../../src/stdlib/Tray/Linux/DBus.h"
+#include "../../../../../stdlib/Tray/Linux/DBus.h"
 #include <stdlib.h>
 /* Same DBusError bitfield boundary as Tray/Linux, now opening the actual
  * accessibility bus supplied by org.a11y.Bus.GetAddress. No tree lives in C. */

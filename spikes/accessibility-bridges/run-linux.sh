@@ -9,7 +9,7 @@ case "$frontend" in
   selfhost) compiler=("${2:?path to current-main btrcc}") ;;
   *) exit 2 ;;
 esac
-"${compiler[@]}" --no-cache spikes/accessibility-bridges/linux/src/Main.btrc -o "$out/Program.c" > "$out/compile.log" 2>&1
+"${compiler[@]}" --no-cache src/tests/native/gui/accessibility/spike_linux/src/Main.btrc -o "$out/Program.c" > "$out/compile.log" 2>&1
 cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 "$out/Program.c" -o "$out/Program" \
   $(pkg-config --cflags --libs dbus-1) -lm -lpthread > "$out/link.log" 2>&1
 tools/ui/headless-session.sh --x11 -- python3 spikes/accessibility-bridges/linux/capture.py \

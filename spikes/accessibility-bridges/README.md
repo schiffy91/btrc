@@ -1,9 +1,11 @@
 # Accessibility bridge feasibility prototype
 
 CX-UIB-07. This branch is pushed without a PR and is never merged. Production
-stdlib/compiler/workflow files are unchanged. The only file outside this spike
-folder is the throwaway `test_native_ui_accessibility_spike.py`, collected by
-`make test-native-gui`'s existing glob on macOS.
+stdlib/compiler/workflow files are unchanged. The Linux native fixture lives in
+`src/tests/native/gui/accessibility/spike_linux/` so the repository audits its
+direct imports. The throwaway `test_native_ui_accessibility_spike.py` is collected
+by `make test-native-gui`'s existing glob on macOS. Both remain on this never-merge
+branch.
 
 ## Linux
 
@@ -21,7 +23,9 @@ nix develop --command bash spikes/accessibility-bridges/run-linux.sh selfhost PA
 ```
 
 Use a compiler built from the same main source and pinned development shell.
-The captured trees in `evidence/` identify their frontend. Three wire objects
+The captured trees in `evidence/` identify their frontend and preserve the
+original `eb5e94ed` evidence and paths. Fresh executions write trees under
+`build/accessibility-spike/{reference,selfhost}/`. Three wire objects
 are **not full AT-SPI support**: this experiment has no registry embedding,
 state/parent/component interfaces, actions, notifications, focus changes,
 screen-reader navigation or production ownership stress tests. The button name
