@@ -1,3 +1,4 @@
+# No [platform] name needed a btrc stdlib self-declaration to count as declared.
 [[platform_targets]]
 target = "android-x86_64"
 unavailable_functions = [
@@ -262,7 +263,6 @@ unavailable_functions = [
   "setwgroups_np",
   "sigblock",
   "siggetmask",
-  "significand",
   "significandf",
   "significandl",
   "sigreturn",
@@ -543,7 +543,6 @@ unavailable_macros = [
   "GETSIGSINFO_PLATFORM_BINARY",
   "HTONLL",
   "HUGE",
-  "ICMP6_FILTER",
   "ICMPV6CTL_ND6_ONLINKNSRFC4861",
   "IFTODT",
   "ILL_NOOP",
@@ -1259,9 +1258,6 @@ unavailable_macros = [
   "WCOREFLAG",
   "X_TLOSS",
   "htonll",
-  "major",
-  "makedev",
-  "minor",
   "ntohll",
   "pseudo_AF_HDRCMPLT",
   "pseudo_AF_KEY",
@@ -1270,8 +1266,6 @@ unavailable_macros = [
   "pseudo_AF_XTP",
   "ru_first",
   "ru_last",
-  "sa_handler",
-  "sa_sigaction",
   "sigmask",
   "st_birthtime",
   "sv_onstack",

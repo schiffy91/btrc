@@ -1,3 +1,5 @@
+# glibc floor: 2.31 (zig's default for x86_64-linux-gnu).
+# Declared by a btrc stdlib source at file scope, so counted as declared: environ.
 [[platform_targets]]
 target = "linux-x86_64"
 unavailable_functions = [
@@ -6,8 +8,11 @@ unavailable_functions = [
   "accessx_np",
   "add_profil",
   "addr2ascii",
+  "arc4random",
   "arc4random_addrandom",
+  "arc4random_buf",
   "arc4random_stir",
+  "arc4random_uniform",
   "ascii2addr",
   "atexit_b",
   "bindresvport_sa",
@@ -400,7 +405,6 @@ unavailable_macros = [
   "HTONLL",
   "HTONS",
   "HUGE",
-  "ICMP6_FILTER",
   "ICMPV6CTL_ND6_ONLINKNSRFC4861",
   "ILL_NOOP",
   "IN6ADDR_INTFACELOCAL_ALLNODES_INIT",
@@ -826,7 +830,6 @@ unavailable_macros = [
   "MAC_OS_X_VERSION_10_7",
   "MAC_OS_X_VERSION_10_8",
   "MAC_OS_X_VERSION_10_9",
-  "MAXFLOAT",
   "MCAST_UNDEFINED",
   "MDMBUF",
   "MSG_EOF",
@@ -1095,11 +1098,7 @@ unavailable_macros = [
   "WAKEMON_SET_DEFAULTS",
   "WORD_BIT",
   "X_TLOSS",
-  "environ",
   "htonll",
-  "major",
-  "makedev",
-  "minor",
   "ntohll",
   "pseudo_AF_HDRCMPLT",
   "pseudo_AF_KEY",
@@ -1109,6 +1108,8 @@ unavailable_macros = [
   "ru_first",
   "ru_last",
   "st_birthtime",
+  "strlcat",
+  "strlcpy",
   "sv_onstack",
   "timevalcmp",
   "w_coredump",
@@ -1127,7 +1128,6 @@ unavailable_objects = [
   "FILESEC_OWNER",
   "FILESEC_UUID",
   "UUID_NULL",
-  "environ",
   "getdate_err",
   "in6addr_linklocal_allnodes",
   "in6addr_linklocal_allrouters",
@@ -1253,4 +1253,4 @@ unavailable_typedefs = [
   "uuid_string_t",
   "uuid_t",
 ]
-source = "the flake's glibc headers (host clang), --target=x86_64-unknown-linux-gnu, extracted 2026-10-04 by tools/hosted_platform.py"
+source = "zig 0.16.0 bundled x86_64-linux-gnu headers, glibc 2.31 floor, --target=x86_64-unknown-linux-gnu, extracted 2026-10-04 by tools/hosted_platform.py"

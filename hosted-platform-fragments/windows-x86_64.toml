@@ -1,3 +1,4 @@
+# No [platform] name needed a btrc stdlib self-declaration to count as declared.
 [[platform_targets]]
 target = "windows-x86_64"
 unavailable_functions = [
@@ -2581,10 +2582,7 @@ unavailable_macros = [
   "sigfillset",
   "sigismember",
   "sigmask",
-  "st_atime",
   "st_birthtime",
-  "st_ctime",
-  "st_mtime",
   "stpcpy",
   "stpncpy",
   "strlcat",
