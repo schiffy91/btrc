@@ -38,6 +38,9 @@ declarations = [
 source = "IFontFace.btrc"
 owner = "IFontFace"
 decision = "btrc-D068 (16185609): FontFace.btrc renamed to IFontFace.btrc"
+scope = "in-scope"
+links = ["N44", "UI5", "N49", "UI9"]
+reason = "GUI exports IFontFace, and the public Font constructor accepts it. Both methods remain pending until a reviewed release."
 declarations = [
   "FontMetrics metrics();",
   "FontGlyph? glyph(int codepoint, bool render);",
@@ -48,3 +51,8 @@ id = "GUI.rasterText"
 decision = "btrc-D056"
 replacement = "GUI.rasterizeText"
 reason = "Unused facade removed; keep its frozen operation slots until a reviewed release re-freezes the denominator."
+
+[[outside_interfaces]]
+id = "ActionMailbox.IQueuedAction"
+decision = "CX-UIA-02: explicit exported-module interface scope"
+reason = "Internal action-mailbox dispatch seam; it is outside the portable I*.btrc interface inventory and belongs in GUIModules surface review."

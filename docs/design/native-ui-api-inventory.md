@@ -395,6 +395,8 @@ source changes here until the next release re-freezes them.
   `rasterizeText` and `capture`.
 - 2026-10-01 (btrc-D056): `GUI.rasterText` was removed; it had no caller in
   btrc or BTRSmith. Use `GUI.rasterizeText`.
+- btrc-D068 (`16185609`): `FontFace.btrc` was renamed to `IFontFace.btrc`,
+  bringing `IFontFace.metrics` and `IFontFace.glyph` into the `I*.btrc` scope.
 - 2026-10-01 (btrc-D033, btrc-D055, btrc-D056): the provider-only mounting
   paths are gone. `MacOSApplication` lost its embedded pump (`nextEvent`,
   `dispatchEvent`, `updateWindows`, `waitForEvents`, `pumpEvents`); every macOS
