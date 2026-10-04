@@ -1,0 +1,557 @@
+# CX-UIA-04: operation source classification and assertion-scoped shared UI0 evidence.
+# Inherited IView/IContainer operations keep their declaring-owner shards (CX-UIA-03).
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-04-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:36:56Z"
+runner = "linux-devcontainer"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+runner = "github-linux"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+runner = "github-macos"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[[operations]]
+id = "ISelect.isEnabled"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "ISelect.isItemEnabled"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "ISelect.itemCount"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "ISelect.selectedIndex"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: LinuxGUIControls.btrc: setItems([Alpha,Beta,Gamma],0) supplies the popup; selecting its third item with synthetic pointer input yields selectedIndex() == 2."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: LinuxGUIControls.btrc: setItems([Alpha,Beta,Gamma],0) supplies the popup; selecting its third item with synthetic pointer input yields selectedIndex() == 2."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "ISelect.selectedTitle"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "ISelect.setEnabled"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "ISelect.setFont"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeControlSizing.btrc: 20-point selection ink is contained, 24-point is rejected and 13-point fitting height is restored."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[reference-False]", "src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[reference-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeControlSizing.btrc: 20-point selection ink is contained, 24-point is rejected and 13-point fitting height is restored."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-False]", "src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: LinuxGUIControls.btrc: size above SelectTypography.maximumSize() is rejected with the exact 20-point limit error; this assertion is validation coverage, not font-ink sizing."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: LinuxGUIControls.btrc: size above SelectTypography.maximumSize() is rejected with the exact 20-point limit error; this assertion is validation coverage, not font-ink sizing."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "ISelect.setItemEnabled"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "ISelect.setItems"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: LinuxGUIControls.btrc: setItems([Alpha,Beta,Gamma],0) supplies the popup; selecting its third item with synthetic pointer input yields selectedIndex() == 2."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: LinuxGUIControls.btrc: setItems([Alpha,Beta,Gamma],0) supplies the popup; selecting its third item with synthetic pointer input yields selectedIndex() == 2."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "ISelect.setSelectedIndex"
+owner = "ISelect"
+links = ["N05", "N19", "UI2", "UI4", "E02", "E13", "E15", "E23", "E33", "E39"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider"
+note = "src/stdlib/GUI/MacOS/MacOSSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected. Assertion: NativeSelect.btrc: duplicate titles remain index-distinct; item flags, selected index/title and enabled state round-trip; invalid replacement preserves the previous items."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+[operations.linux.reference]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.linux.selfhost]
+implementation = "custom"
+parity = "adapted"
+configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
+note = "src/stdlib/GUI/Linux/LinuxSelect.btrc: source implements this operation. Selection is index-only, including duplicate titles; there are no stable item keys or typed selection-change callbacks. Fonts above 20 points are rejected."
+evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
+run = "cx-uia-04-source"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"

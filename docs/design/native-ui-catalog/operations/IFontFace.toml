@@ -1,0 +1,131 @@
+# CX-UIA-04: operation source classification and assertion-scoped shared UI0 evidence.
+# Inherited IView/IContainer operations keep their declaring-owner shards (CX-UIA-03).
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-04-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:36:56Z"
+runner = "linux-devcontainer"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+runner = "github-linux"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+runner = "github-macos"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+
+[[operations]]
+id = "IFontFace.glyph"
+owner = "IFontFace"
+links = ["N44", "UI5", "N49", "UI9"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Optional FreeType provider with a real font; owned IFontFace snapshots"
+note = "src/stdlib/GUI/FreeType/FreeTypeFace.btrc: source implements this operation. Pending IDs from the IFontFace rename/scope amendment. FreeType returns owned metrics/glyph snapshots with signed pitch and a 64MiB glyph bound; overlapping glyph calls and allocation-fault paths remain unqualified. Assertion: test_native_font_runtime.py snapshot=True source: actual FreeTypeFace.metrics().heightFixed() > 0; rendered accented glyph has nonzero dimensions and measurement advance equals rendering advance."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[reference-True-False]", "src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[reference-True-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Optional FreeType provider with a real font; owned IFontFace snapshots"
+note = "src/stdlib/GUI/FreeType/FreeTypeFace.btrc: source implements this operation. Pending IDs from the IFontFace rename/scope amendment. FreeType returns owned metrics/glyph snapshots with signed pitch and a 64MiB glyph bound; overlapping glyph calls and allocation-fault paths remain unqualified. Assertion: test_native_font_runtime.py snapshot=True source: actual FreeTypeFace.metrics().heightFixed() > 0; rendered accented glyph has nonzero dimensions and measurement advance equals rendering advance."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[selfhost-True-False]", "src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[selfhost-True-True]"]
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Optional FreeType provider with a real font; owned IFontFace snapshots"
+note = "src/stdlib/GUI/FreeType/FreeTypeFace.btrc: source implements this operation. Pending IDs from the IFontFace rename/scope amendment. FreeType returns owned metrics/glyph snapshots with signed pitch and a 64MiB glyph bound; overlapping glyph calls and allocation-fault paths remain unqualified. Assertion: test_native_font_runtime.py snapshot=True source: actual FreeTypeFace.metrics().heightFixed() > 0; rendered accented glyph has nonzero dimensions and measurement advance equals rendering advance."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[reference-True-False]", "src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[reference-True-True]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Optional FreeType provider with a real font; owned IFontFace snapshots"
+note = "src/stdlib/GUI/FreeType/FreeTypeFace.btrc: source implements this operation. Pending IDs from the IFontFace rename/scope amendment. FreeType returns owned metrics/glyph snapshots with signed pitch and a 64MiB glyph bound; overlapping glyph calls and allocation-fault paths remain unqualified. Assertion: test_native_font_runtime.py snapshot=True source: actual FreeTypeFace.metrics().heightFixed() > 0; rendered accented glyph has nonzero dimensions and measurement advance equals rendering advance."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[selfhost-True-False]", "src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[selfhost-True-True]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+
+[[operations]]
+id = "IFontFace.metrics"
+owner = "IFontFace"
+links = ["N44", "UI5", "N49", "UI9"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Optional FreeType provider with a real font; owned IFontFace snapshots"
+note = "src/stdlib/GUI/FreeType/FreeTypeFace.btrc: source implements this operation. Pending IDs from the IFontFace rename/scope amendment. FreeType returns owned metrics/glyph snapshots with signed pitch and a 64MiB glyph bound; overlapping glyph calls and allocation-fault paths remain unqualified. Assertion: test_native_font_runtime.py snapshot=True source: actual FreeTypeFace.metrics().heightFixed() > 0; rendered accented glyph has nonzero dimensions and measurement advance equals rendering advance."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[reference-True-False]", "src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[reference-True-True]"]
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Optional FreeType provider with a real font; owned IFontFace snapshots"
+note = "src/stdlib/GUI/FreeType/FreeTypeFace.btrc: source implements this operation. Pending IDs from the IFontFace rename/scope amendment. FreeType returns owned metrics/glyph snapshots with signed pitch and a 64MiB glyph bound; overlapping glyph calls and allocation-fault paths remain unqualified. Assertion: test_native_font_runtime.py snapshot=True source: actual FreeTypeFace.metrics().heightFixed() > 0; rendered accented glyph has nonzero dimensions and measurement advance equals rendering advance."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[selfhost-True-False]", "src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[selfhost-True-True]"]
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Optional FreeType provider with a real font; owned IFontFace snapshots"
+note = "src/stdlib/GUI/FreeType/FreeTypeFace.btrc: source implements this operation. Pending IDs from the IFontFace rename/scope amendment. FreeType returns owned metrics/glyph snapshots with signed pitch and a 64MiB glyph bound; overlapping glyph calls and allocation-fault paths remain unqualified. Assertion: test_native_font_runtime.py snapshot=True source: actual FreeTypeFace.metrics().heightFixed() > 0; rendered accented glyph has nonzero dimensions and measurement advance equals rendering advance."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[reference-True-False]", "src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[reference-True-True]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Optional FreeType provider with a real font; owned IFontFace snapshots"
+note = "src/stdlib/GUI/FreeType/FreeTypeFace.btrc: source implements this operation. Pending IDs from the IFontFace rename/scope amendment. FreeType returns owned metrics/glyph snapshots with signed pitch and a 64MiB glyph bound; overlapping glyph calls and allocation-fault paths remain unqualified. Assertion: test_native_font_runtime.py snapshot=True source: actual FreeTypeFace.metrics().heightFixed() > 0; rendered accented glyph has nonzero dimensions and measurement advance equals rendering advance."
+evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
+run = "cx-uia-04-source"
+regression = ["src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[selfhost-True-False]", "src/tests/python/test_native_font_runtime.py::test_freetype_unique_setup[selfhost-True-True]"]
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
+run = "cx-uia-04-source"
