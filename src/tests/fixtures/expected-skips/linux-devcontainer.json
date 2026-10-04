@@ -304,6 +304,18 @@
         "windows"
       ],
       "note": "windows.yml runs test_artifact_reparse.py beside test_artifact_storage.py."
+    },
+    {
+      "id": "ui-shell-macos-only",
+      "files": [
+        "src/tests/python/test_native_ui_shell_macos.py"
+      ],
+      "reason": "^requires macOS AppKit native shell$",
+      "category": "platform",
+      "covered_by": [
+        "macos-hosted"
+      ],
+      "note": "CX-UIA-09 shell requires its host provider; both frontends and sanitizer modes run on the named stand-in."
     }
   ]
 }
