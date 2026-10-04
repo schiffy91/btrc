@@ -62,3 +62,16 @@ def test_macos_diagnostics_preserve_timeout_and_continue(tmp_path, monkeypatch):
     assert observations[1]["stderr"] == "survivor before timeout"
     assert (tmp_path / "diagnostic-ax-0-wheel-1/stdout").read_text() == "partial stdout"
     assert (tmp_path / "diagnostic-ax-0-wheel-0/stderr").read_text() == "provider survivor"
+
+
+def test_shell_acceptance_cannot_inherit_disabled_native_probes(monkeypatch):
+    from src.tests.python import native_ui_shell_fixtures as shell
+
+    ambient = {"BTRC_UI_SHELL_NO_AX": "1", "BTRC_UI_SHELL_NO_SCROLL": "1", "KEEP_RUNNER_SETTING": "yes"}
+    monkeypatch.setattr(shell, "apple_environment", lambda: ambient)
+    monkeypatch.setattr(shell, "provider_environment", lambda sanitized: ambient)
+    acceptance = shell.shell_environment(False)
+    assert "BTRC_UI_SHELL_NO_AX" not in acceptance
+    assert "BTRC_UI_SHELL_NO_SCROLL" not in acceptance
+    assert acceptance["KEEP_RUNNER_SETTING"] == "yes"
+    assert ambient["BTRC_UI_SHELL_NO_SCROLL"] == "1"

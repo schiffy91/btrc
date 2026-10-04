@@ -48,8 +48,12 @@ SYMBOLS = (
 
 
 def shell_environment(sanitized):
-    environment = apple_environment() if sys.platform == "darwin" else provider_environment(sanitized)
-    return {**environment, "ASAN_OPTIONS": "detect_leaks=0", "UBSAN_OPTIONS": "halt_on_error=1"}
+    base = apple_environment() if sys.platform == "darwin" else provider_environment(sanitized)
+    environment = {**base, "ASAN_OPTIONS": "detect_leaks=0", "UBSAN_OPTIONS": "halt_on_error=1"}
+    # Only the separately recorded A/B processes may disable native probes.
+    for diagnostic in ("BTRC_UI_SHELL_NO_AX", "BTRC_UI_SHELL_NO_SCROLL"):
+        environment.pop(diagnostic, None)
+    return environment
 
 
 def transpile(source, generated, plan, frontend, request, target):
