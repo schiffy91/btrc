@@ -1,0 +1,36 @@
+manifest-version = 1
+[package]
+name = "accessibilitySpike"
+[[native.pkg-config]]
+name = "dbus-1"
+modules = ["Main"]
+os = ["linux"]
+[[native.bindings]]
+module = "Main"
+header = "Bridge.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"DBusConnection", "DBusMessage", "DBusMessageIter", "spikeOpenBus",
+	"btrcDBusOpenSessionBus", "btrcDBusOwnName", "btrcDBusCallSucceeds", "btrcDBusAddMatch",
+	"dbus_bus_get_unique_name", "dbus_message_get_path", "dbus_message_get_interface", "dbus_message_get_member",
+	"btrcDBusAppendString", "btrcDBusAppendInt32", "btrcDBusAppendUInt32", "btrcDBusAppendBool",
+	"btrcDBusReadString", "btrcDBusReadInt32",
+	"dbus_connection_set_exit_on_disconnect", "dbus_connection_close", "dbus_connection_unref",
+	"dbus_connection_read_write", "dbus_connection_pop_message", "dbus_connection_send", "dbus_connection_flush",
+	"dbus_message_new_method_call", "dbus_message_new_method_return", "dbus_message_new_error", "dbus_message_new_signal",
+	"dbus_message_unref", "dbus_message_get_type", "dbus_message_get_no_reply", "dbus_message_is_signal",
+	"dbus_message_iter_init_append", "dbus_message_iter_init", "dbus_message_iter_next", "dbus_message_iter_get_arg_type", "dbus_message_iter_recurse",
+	"dbus_message_iter_open_container", "dbus_message_iter_close_container",
+	"DBUS_MESSAGE_TYPE_METHOD_CALL", "DBUS_TYPE_ARRAY", "DBUS_TYPE_DICT_ENTRY", "DBUS_TYPE_OBJECT_PATH", "DBUS_TYPE_STRING",
+	"DBUS_TYPE_STRUCT", "DBUS_TYPE_VARIANT"
+]
+read-only-borrows = [
+	"dbus_message_new_method_call.bus_name", "dbus_message_new_method_call.path", "dbus_message_new_method_call.iface", "dbus_message_new_method_call.method",
+	"dbus_message_new_signal.path", "dbus_message_new_signal.iface", "dbus_message_new_signal.name",
+	"dbus_message_new_error.error_name", "dbus_message_new_error.error_message",
+	"dbus_message_iter_open_container.contained_signature",
+	"dbus_message_is_signal.iface", "dbus_message_is_signal.signal_name",
+	"btrcDBusOwnName.name", "btrcDBusAppendString.value", "btrcDBusAddMatch.rule"
+]
+os = ["linux"]

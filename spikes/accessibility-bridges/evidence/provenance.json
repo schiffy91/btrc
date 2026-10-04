@@ -1,0 +1,24 @@
+{
+  "base": "f4317455de1e567d4d6290139e5ba28fbada7d0c",
+  "date_utc": "2026-10-04",
+  "host": "Linux x86_64 cloud; pinned Nix shell; Xvfb/private accessibility bus",
+  "frontends": [
+    "reference",
+    "selfhost"
+  ],
+  "passed": 2,
+  "skipped": 0,
+  "failed": 0,
+  "meaning": "Each program compiled to strict C11 and served three live AT-SPI wire nodes; client read roles/names/children and orderly process exit0. Partial interface only.",
+  "macos": "Collected two frontend cases locally; no Apple execution or AX trust claim yet.",
+  "source_sha256": {
+    "README.md": "aa42a9a7c8e4fe60121d3f9073ecc8620afa4d1bac8a5da32f92084f68b84bcd",
+    "run-linux.sh": "053ca993df8db4a389786190673e4c9f940c4a1669107090acb2edfaea0ea293",
+    "macos/Bridge.h": "7ff9df65ce76af5b2da065f525e99781c806e3ca8e9502e9864682aa12189228",
+    "linux/Bridge.h": "f43385719edfd78edb79a541beb55db342d62380773bbc4d2f5d1cbf491c784d",
+    "linux/btrc.toml": "840cdd0addad2e8ca943fb75323608a789ab1c853d63bb95f02aca31f45a5585",
+    "linux/btrc.lock": "bba1c6dbe91d6160fadefb0ee4cc489d8d452bef4c947c234aff6bee0eea6083",
+    "linux/capture.py": "81262e13c307f300c541b5c4769582bfbc905c24d2f843ae3f0c44dbb3a20c4e",
+    "linux/src/Main.btrc": "35a8701297e2119fe9ac22368a888a0ec40640872a8b5aa1d4cf90d0a864adb2"
+  }
+}

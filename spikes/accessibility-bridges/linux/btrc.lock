@@ -1,0 +1,1 @@
+{"manifest-hash":"bb1d73c9904c8df094333ef6570cfafd90df3cac1c971344010a2e3824658511","packages":[{"dependencies":{},"manifest-hash":"840cdd0addad2e8ca943fb75323608a789ab1c853d63bb95f02aca31f45a5585","name":"accessibilitySpike","source":{"path":"."}}],"root":"accessibilitySpike","schema":3}

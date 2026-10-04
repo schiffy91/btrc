@@ -1,0 +1,28 @@
+{
+  "transport": "actual org.a11y.Bus",
+  "server": "btrc executable",
+  "registry_embedded": false,
+  "full_atspi_contract": false,
+  "tree": {
+    "path": "/org/a11y/atspi/accessible/root",
+    "name": "BTRC accessibility window",
+    "role": 23,
+    "role_name": "frame",
+    "children": [
+      {
+        "path": "/org/a11y/atspi/accessible/button",
+        "name": "Native contract button",
+        "role": 43,
+        "role_name": "push button",
+        "children": []
+      },
+      {
+        "path": "/org/a11y/atspi/accessible/virtual",
+        "name": "Virtual GPU child",
+        "role": 29,
+        "role_name": "label",
+        "children": []
+      }
+    ]
+  }
+}

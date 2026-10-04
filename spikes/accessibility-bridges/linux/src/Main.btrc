@@ -1,0 +1,100 @@
+import Library.Strings;
+
+class AccessibleSpike {
+	class string text(const char* value) { return value == null ? "" : Strings.copy((char*)value); }
+
+	class string path(int index) {
+		if (index == 0) { return "/org/a11y/atspi/accessible/root"; }
+		if (index == 1) { return "/org/a11y/atspi/accessible/button"; }
+		return "/org/a11y/atspi/accessible/virtual";
+	}
+
+	class string name(int index) {
+		if (index == 0) { return "BTRC accessibility window"; }
+		if (index == 1) { return "Native contract button"; }
+		return "Virtual GPU child";
+	}
+
+	class void reference(DBusMessageIter* parent, string bus, string path) {
+		DBusMessageIter record;
+		dbus_message_iter_open_container(parent, DBUS_TYPE_STRUCT, null, &record);
+		btrcDBusAppendString(&record, DBUS_TYPE_STRING, bus);
+		btrcDBusAppendString(&record, DBUS_TYPE_OBJECT_PATH, path);
+		dbus_message_iter_close_container(parent, &record);
+	}
+
+	class DBusMessage* answer(DBusMessage* request, string bus) {
+		string path = AccessibleSpike.text(dbus_message_get_path(request));
+		int index = -1;
+		for (int candidate = 0; candidate < 3; candidate++) {
+			if (path.equals(AccessibleSpike.path(candidate))) { index = candidate; }
+		}
+		if (index < 0) { return dbus_message_new_error(request, "org.freedesktop.DBus.Error.UnknownObject", "Unknown accessible"); }
+		string iface = AccessibleSpike.text(dbus_message_get_interface(request));
+		string member = AccessibleSpike.text(dbus_message_get_member(request));
+		DBusMessage* reply = dbus_message_new_method_return(request);
+		DBusMessageIter output;
+		dbus_message_iter_init_append(reply, &output);
+		if (iface.equals("org.a11y.atspi.Accessible") && member.equals("GetChildren")) {
+			DBusMessageIter children;
+			dbus_message_iter_open_container(&output, DBUS_TYPE_ARRAY, "(so)", &children);
+			if (index == 0) {
+				AccessibleSpike.reference(&children, bus, AccessibleSpike.path(1));
+				AccessibleSpike.reference(&children, bus, AccessibleSpike.path(2));
+			}
+			dbus_message_iter_close_container(&output, &children);
+		} else if (iface.equals("org.a11y.atspi.Accessible") && member.equals("GetRole")) {
+			btrcDBusAppendUInt32(&output, index == 0 ? 23u : (index == 1 ? 43u : 29u));
+		} else if (iface.equals("org.a11y.atspi.Accessible") && member.equals("GetRoleName")) {
+			btrcDBusAppendString(&output, DBUS_TYPE_STRING, index == 0 ? "frame" : (index == 1 ? "push button" : "label"));
+		} else if (iface.equals("org.freedesktop.DBus.Properties") && member.equals("Get")) {
+			DBusMessageIter input;
+			dbus_message_iter_init(request, &input);
+			string requestedInterface = AccessibleSpike.text(btrcDBusReadString(&input));
+			dbus_message_iter_next(&input);
+			string property = AccessibleSpike.text(btrcDBusReadString(&input));
+			if (!requestedInterface.equals("org.a11y.atspi.Accessible") || !property.equals("Name")) {
+				dbus_message_unref(reply);
+				return dbus_message_new_error(request, "org.freedesktop.DBus.Error.UnknownProperty", "Spike exports Name only");
+			}
+			DBusMessageIter variant;
+			dbus_message_iter_open_container(&output, DBUS_TYPE_VARIANT, "s", &variant);
+			btrcDBusAppendString(&variant, DBUS_TYPE_STRING, AccessibleSpike.name(index));
+			dbus_message_iter_close_container(&output, &variant);
+		} else {
+			dbus_message_unref(reply);
+			return dbus_message_new_error(request, "org.freedesktop.DBus.Error.UnknownMethod", "Partial feasibility interface");
+		}
+		return reply;
+	}
+}
+
+int main() {
+	DBusConnection* connection = spikeOpenBus();
+	if (connection == null) { return 2; }
+	dbus_connection_set_exit_on_disconnect(connection, 0u);
+	if (!btrcDBusOwnName(connection, "org.btrc.AccessibilitySpike")) { return 3; }
+	string bus = AccessibleSpike.text(dbus_bus_get_unique_name(connection));
+	bool done = false;
+	for (int tick = 0; tick < 300 && !done; tick++) {
+		if (!dbus_connection_read_write(connection, 100)) { break; }
+		DBusMessage* message = dbus_connection_pop_message(connection);
+		while (message != null) {
+			if (dbus_message_get_type(message) == DBUS_MESSAGE_TYPE_METHOD_CALL) {
+				bool quit = AccessibleSpike.text(dbus_message_get_interface(message)).equals("org.btrc.Spike") && AccessibleSpike.text(dbus_message_get_member(message)).equals("Quit");
+				DBusMessage* reply = quit ? dbus_message_new_method_return(message) : AccessibleSpike.answer(message, bus);
+				if (quit) { done = true; }
+				if (reply != null) {
+					dbus_connection_send(connection, reply, null);
+					dbus_message_unref(reply);
+				}
+			}
+			dbus_message_unref(message);
+			message = dbus_connection_pop_message(connection);
+		}
+		dbus_connection_flush(connection);
+	}
+	dbus_connection_close(connection);
+	dbus_connection_unref(connection);
+	return 0;
+}
