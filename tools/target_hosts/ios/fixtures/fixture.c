@@ -44,6 +44,10 @@ int main(int argc, char **argv) {
         if (fputc(character, stdout) == EOF) { return 4; }
     }
     if (ferror(stdin)) { return 4; }
+#elif FIXTURE_MODE == 11
+    return 124;
+#elif FIXTURE_MODE == 12
+    return 137;
 #else
 #error Unknown FIXTURE_MODE
 #endif

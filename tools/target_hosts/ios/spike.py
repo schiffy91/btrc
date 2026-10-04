@@ -13,7 +13,20 @@ from tools.target_hosts.ios.executor import ExecutionRequest, IOSSimulatorExecut
 
 
 class SimulatorSpike:
-    cases = ("stdout", "stderr", "exit3", "abort", "timeout", "large", "argv", "env", "cwd", "stdin")
+    cases = (
+        "stdout",
+        "stderr",
+        "exit3",
+        "abort",
+        "timeout",
+        "large",
+        "argv",
+        "env",
+        "cwd",
+        "stdin",
+        "exit124",
+        "exit137",
+    )
     target = "ios-aarch64-simulator"
     root = Path(__file__).resolve().parent
     flags = ("-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror")
@@ -95,7 +108,7 @@ class SimulatorSpike:
             assert not result.timed_out and result.exit_status is None and result.signal == 6
         else:
             assert not result.timed_out and result.signal is None
-            assert result.exit_status == (3 if name == "exit3" else 0)
+            assert result.exit_status == {"exit3": 3, "exit124": 124, "exit137": 137}.get(name, 0)
 
     @classmethod
     def run(cls, bundle: Path, output: Path, *, device_class: str, mode: str) -> None:

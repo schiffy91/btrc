@@ -18,9 +18,10 @@ branded `local-host-check-only` and rejected by simulator `prepare`.
   `ios-aarch64-simulator` is accepted. No registry or runner-core edit is made.
 - `app/`: strict C11/POSIX main wrapper and Info.plist declaring minimum iOS
   17.0, `UIDeviceFamily [1,2]` and an ad-hoc-signed simulator executable.
-- `fixtures/fixture.c`: ten separately built programs for stdout, stderr,
+- `fixtures/fixture.c`: twelve separately built programs for stdout, stderr,
   exit 3, abort, timeout ignoring TERM, 1 MiB output, argv, environment, cwd,
-  and binary stdin (including NUL/non-UTF-8 bytes).
+  binary stdin (including NUL/non-UTF-8 bytes), and ordinary exits 124/137
+  (distinct from timeout and signal outcomes).
 - `spike.py`: build and run CLI, byte/status assertions and machine-readable
   per-fixture outputs/provenance.
 - `test_executor.py`: isolated local process and fake-inventory tests, outside
@@ -68,8 +69,13 @@ so these are direct host POSIX signals, not attempts to run a second `kill`
 executable inside a stalled simulator. The wrapper attempts a private session;
 when its group is isolated the signal targets that group. Only after native
 child cleanup does the parent reap/kill a stuck local simctl client. Killing
-the simctl client alone is not a timeout proof. A fixture can escape a process
-group by creating another session; descendant/daemon containment is not claimed.
+the simctl client alone is not a timeout proof. **This spike accepts only
+fixtures that do not create child processes.** Cleanup verification covers the
+direct process only and is recorded as `cleanup_scope=direct-process-only`.
+Group signaling is best effort; it does not verify surviving same-group children
+after the leader exits, or descendants that create another session. Those
+programs need additional containment/whole-group proof before full corpus
+integration; none of the hand-written fixtures creates a child.
 The C timeout fixture ignores TERM so tests prove the KILL path.
 
 The execution deadline starts after the launch command returns; host commands
@@ -129,13 +135,13 @@ python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results
 
 Build uses `xcrun --sdk iphonesimulator clang -target
 arm64-apple-ios17.0-simulator` and the strict C11 flags, then
-`codesign --force --sign -` on each bundle. The matrix is ten fixtures × two
-modes × two device classes, 40 assertions; all modes must pass before the host
+`codesign --force --sign -` on each bundle. The matrix is twelve fixtures × two
+modes × two device classes, 48 assertions; all modes must pass before the host
 spike's runtime acceptance is ticked. A job should upload `build/ios-results`
 even on failure, plus Xcode/runtime inventory and stdout/stderr of the CLI.
 Unavailable iPad/runtime/tooling is a recorded blocker, not a substituted iPhone
 pass. Stop at the first failing case in each run; summaries set complete=false
-unless all ten fixtures passed.
+unless all twelve fixtures passed.
 
 Use the existing pinned action revisions and lane trigger policy: push and PR
 to main with paths for this directory and the workflow itself, plus dispatch.

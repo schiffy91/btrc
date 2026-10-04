@@ -137,6 +137,8 @@ class IOSSimulatorExecutor:
                 if not self.host.alive(identity[0]):
                     return False, identity, first_identity_s
             if not terminal and launcher is not None and launcher.poll() is not None:
+                if (directory / "exit_status").exists() or (directory / "signal_status").exists():
+                    continue
                 raise SimulatorError("simctl spawn exited without a test-host result")
             if not terminal and identity and not self.host.alive(identity[0]):
                 if (directory / "exit_status").exists() or (directory / "signal_status").exists():
@@ -243,6 +245,7 @@ class IOSSimulatorExecutor:
                     launch_command_s=launch_duration,
                     simctl_spawn_status=launcher_status,
                     timeout_kill_verified=timed_out,
+                    cleanup_scope="direct-process-only",
                     process_group_isolated=identity[1] if identity else False,
                 )
                 return ExecutionResult(

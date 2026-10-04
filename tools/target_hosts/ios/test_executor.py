@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -204,6 +205,24 @@ class ExecutorProcessTests(unittest.TestCase):
                 with self.subTest(identity=identity), self.assertRaises(SimulatorError):
                     self.executor("spawn")._identity(directory)
         self.assertFalse(self.host.signals)
+
+    def test_status_published_during_exit_observation_is_collected(self):
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "process").write_text("12345 12345\n")
+
+            def finish_process():
+                (directory / "exit_status").write_text("0\n")
+                return 0
+
+            executor = IOSSimulatorExecutor(host=SimpleNamespace(alive=lambda _pid: False))
+            timed_out, identity, _latency = executor._wait(
+                directory, 0.1, SimpleNamespace(poll=finish_process), launched_at=time.monotonic()
+            )
+            self.assertFalse(timed_out)
+            self.assertEqual(identity, (12345, True))
 
 
 class SimulatorInventoryTests(unittest.TestCase):
