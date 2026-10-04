@@ -65,6 +65,8 @@ APPLE_OPERATING_SYSTEMS = ("ios", "macos")
 # §1.3 checks the predefined values against the iOS SDK's <TargetConditionals.h>.
 IOS_SDK = "iphoneos"
 APPLE_TARGET_NAME = re.compile(r"TARGET_(?:OS_[A-Z0-9_]+|IPHONE_SIMULATOR)\Z")
+# Predefined by clang on Apple targets but never by GCC.
+CLANG_ONLY = frozenset({"__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__"})
 
 _DEFINE = re.compile(r"#define ([A-Za-z_][A-Za-z0-9_]*) (.*)\Z")
 _INTEGER = re.compile(r"([0-9]+)[uUlL]*\Z")
@@ -224,7 +226,11 @@ def test_host_gcc_agrees_on_its_own_target() -> None:
         for row in TARGET_ROWS
         if row.compiler_host and (row.operating_system, row.architecture) == (host.operating_system, host.architecture)
     )
-    _assert_agrees(label, _predefines([HOST_GCC]))
+    # GCC predefines none of clang's Apple-only names: the TARGET_OS_* set
+    # (clang's -fdefine-target-os-macros) and __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__.
+    # test_clang_defines_exactly_the_selected_table_rows checks those on every row.
+    names = {name for name in _checked_names() if name not in CLANG_ONLY and not APPLE_TARGET_NAME.match(name)}
+    _assert_agrees(label, _predefines([HOST_GCC]), names)
 
 
 @pytest.mark.parametrize("label", _apple_labels())
