@@ -540,7 +540,18 @@ class UICatalog:
             prior = old.classification or Classification()
             notes = [text for text in (prior.note, new.classification.note) if text]
             classification = replace(prior, note="\n".join(notes) or None)
-        if old.evidence is not None and new.evidence is not None:
+        # A source audit is not an observation, so an observation recorded against the same tree
+        # supersedes inventory evidence regardless of clock order. Every other overwrite, inventory
+        # over an observation included, must not go back in time.
+        audit_superseded = (
+            old.provenance is not None
+            and new.provenance is not None
+            and old.provenance.source == "inventory"
+            and new.provenance.source not in (None, "inventory")
+            and old.provenance.btrc_revision is not None
+            and old.provenance.btrc_revision == new.provenance.btrc_revision
+        )
+        if old.evidence is not None and new.evidence is not None and not audit_superseded:
             before = old.provenance.recorded_at if old.provenance else None
             after = new.provenance.recorded_at if new.provenance else None
             if before and after and datetime.datetime.fromisoformat(after) < datetime.datetime.fromisoformat(before):
