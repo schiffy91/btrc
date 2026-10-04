@@ -328,6 +328,16 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - Only the 10 remaining qualifying-column tests stay red on Linux, plus `NativeAudioSessionOwner`, which needs a real audio device.
     - `CL-UIA-03`: 3,479 BTRSmith call sites map to the catalog with 0 unmapped; all 115 GUI operations and 38 cases are classified.
     - The BTRSmith CI pull request (`CL-R-37`) still waits: the qualifying-column tests keep its runs red, and every run bills minutes.
+- **Batch 30 (2026-10-04): the native-shell fixture and the rest of the focused GUI gate.** Two Codex code PRs passed a reviewer and an adversarial verifier with no blocking finding.
+  - `CX-UIA-09` (PR #40), the UI1 shell fixture: one portable `NativeShell.btrc` scene drives a window, a field, a button, a scroll view of 50 labels and a GPU view through 100 open and close cycles and 100 fresh-process restores. Probes count the provider-created objects, which must reach zero on every cycle.
+    - On macOS, an AppKit probe tracks provider objects separately from AppKit-private views, and four AX/wheel A/B processes must also pass.
+    - On Linux, an SDL probe runs under X11.
+    - The Windows row asserts the exact "no provider" message.
+    - CI, macOS (native-gui 252 passed, all four macOS shell rows run) and Windows were green on head `517032a`.
+    - Wayland: 8 of 9 passed. Restore 56 timed out inside libdecor's GTK plugin. That case and the X11 BadWindow race go to `CX-UIA-11`.
+    - The four macOS shell rows add time to the macOS unit shard.
+  - `CX-UIA-01` (PR #33), the rest of the UI0 focused gate: the agent runbook, `tools/ui/codex-setup.sh`, and a coverage test that every native GUI test is in `NATIVE_GUI_TESTS`. It passes with #40's new shell tests on the merged tree.
+  - Locally, the skip-ledger tests fail when `TMPDIR` lies inside the checkout, because their node ids become repository-relative. The batch gates now keep `TMPDIR` under `~/.cache`.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
