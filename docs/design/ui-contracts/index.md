@@ -9,11 +9,23 @@ land atomically with that diff through `CL-UIA-14`.
 | Draft | Packet | Review boundary |
 | --- | --- | --- |
 | [Control events](ui2-control-events.md) | CX-UIA-18 | Text, keyed selection, range interaction and scrolling; E01–E03, E33–E34 |
-| `ui2-executor.md` (sibling draft) | CX-UIA-19 | Worker publication, bounded queues, fair dispatch and the host-owned loop; E04, E24, E30, E40 |
-| `ui2-lifecycle.md` (sibling draft) | CX-UIA-20 | Close transactions, ordered mutation, interaction eligibility and final release; E29, E31, E35, E39, E42, E46 |
+| [Executor](ui2-executor.md) | CX-UIA-19 | Worker publication, bounded queues, fair dispatch and the host-owned loop; E04, E24, E30, E40 |
+| [Lifecycle](ui2-lifecycle.md) | CX-UIA-20 | Close transactions, ordered mutation, interaction eligibility and final release; E29, E31, E35, E39, E42, E46 |
 
-The siblings may arrive in separate PRs. Their operation spellings and shared
-event rules must be reconciled before any portable interface changes. IView,
+The three drafts landed together in batch 20. `CL-UIA-13` reconciles their
+operation spellings and shared event rules (two known conflicts: whether a
+terminal result's capacity is reserved per interaction, and what text
+eligibility loss cancels) before any portable interface changes.
+
+The Stage 34 pre-drafts for UI4–UI9 live beside these in
+[`../native-ui-contracts/`](../native-ui-contracts/), as their packets name it:
+[UI4 controls](../native-ui-contracts/ui4-controls.md) (CX-UIB-01),
+[UI5 layout](../native-ui-contracts/ui5-layout.md) and
+[UI8 accessibility](../native-ui-contracts/ui8-accessibility.md) (CX-UIB-02);
+`CL-UIB-02` reviews them. The per-platform native-shell notes for Win32, UIKit
+(with iPadOS) and Android Views are in
+[`../native-ui-shells/`](../native-ui-shells/) (CX-UIA-13), which `CL-UIA-12`
+reviews. IView,
 IWindow and App.btrc remain a single approved writer chain; these separate
 Markdown drafts do not claim those files.
 
