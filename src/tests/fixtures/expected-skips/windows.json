@@ -42,6 +42,30 @@
         "linux-devcontainer"
       ],
       "note": "Windows has no mkfifo; the special-file rejection runs on the POSIX unit shards."
+    },
+    {
+      "id": "ui-shell-macos-only",
+      "files": [
+        "src/tests/python/test_native_ui_shell_macos.py"
+      ],
+      "reason": "^requires macOS AppKit native shell$",
+      "category": "platform",
+      "covered_by": [
+        "macos-hosted"
+      ],
+      "note": "CX-UIA-09 shell requires its host provider; both frontends and sanitizer modes run on the named stand-in."
+    },
+    {
+      "id": "ui-shell-linux-only",
+      "files": [
+        "src/tests/python/test_native_ui_shell_linux.py"
+      ],
+      "reason": "^requires Linux SDL native shell$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "CX-UIA-09 shell requires its host provider; both frontends and sanitizer modes run on the named stand-in."
     }
   ]
 }
