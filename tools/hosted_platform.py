@@ -9,16 +9,14 @@ never runs this tool; its output is reviewed and copied into the spec.
 
 For one row the extractor builds a probe translation unit. The probe opens
 with the C emitter's prologue defines and includes the hosted prologue
-headers (the emitter's fixed list and ``btrc_rt.h``'s hosted list), the btrc
-GPU runtime header, and the platform header families that hosted btrc
-sources reach (``PROBE_HEADERS``), each behind ``__has_include`` so a header a
-row lacks is simply absent. The row's real C toolchain preprocesses it with
-exactly the row's build flags:
+headers (the emitter's fixed list and ``btrc_rt.h``'s hosted list) and the
+platform header families that hosted btrc sources reach (``PROBE_HEADERS``),
+each behind ``__has_include`` so a header a row lacks is simply absent. The
+row's real C toolchain preprocesses it with exactly the row's build flags:
 
-- ``linux-*`` on a host of the same architecture: the flake's ``clang`` with
-  the row's ``target_arguments`` (glibc from the flake);
-- ``linux-*`` on another architecture: ``zig cc -target <zig_target>.<glibc>``,
-  zig's bundled glibc headers pinned to the host glibc release;
+- ``linux-*``: ``zig cc -target <zig_target>``, as the release build does
+  (``Makefile``), so the glibc floor is zig's default for that target (2.31
+  in zig 0.16.0), recorded in the fragment;
 - ``windows-*`` (``zig-mingw``): ``zig cc -target <zig_target>`` with zig's
   ``any-windows-any`` (MinGW-w64) headers plus ``-I src/runtime/windows
   -include src/runtime/windows/btrc_win_compat.h`` (``Makefile`` WIN_COMPAT);
@@ -33,16 +31,22 @@ Macros come from the preprocessor's ``-E -dD`` output. Declarations come from
 preprocessed unit, so zig rows are read by the same parser as clang rows.
 (The native header reader has no names-only mode yet; the design names this
 AST route as its fallback.) An identifier counts as declared for a kind when
-the unit declares it as that kind or defines it as a macro, since either makes
-the name usable in C. A declaration marked ``unavailable`` does not count; on
-the xcrun rows the text AST dump also supplies ``API_UNAVAILABLE(<os>)``,
-whose platform the JSON dump omits. Names in btrc's own namespace
-(``RUNTIME_PREFIXES``) are never listed: the runtime is ported, not filtered.
+the unit declares it as anything (a function, object, tag, typedef,
+enumerator or struct member) or defines it as a macro, since either makes the
+name usable in C. A name every declaration of which is marked ``unavailable``
+is not declared; on the xcrun rows the text AST dump also supplies
+``API_UNAVAILABLE(<os>)``, whose platform the JSON dump omits.
+
+Two kinds of name are never listed. btrc's own namespace
+(``RUNTIME_PREFIXES``) is ported, not filtered; names the btrc GPU runtime
+headers declare are read on the host, best effort. A ``[platform]`` name that a
+btrc stdlib source declares itself at file scope (``extern char** environ;``)
+counts as declared on every extracted row, because the C library exports it,
+except on the conservative MSVC row; each fragment names them.
 
 ``windows-aarch64-msvc`` (``windows-sdk``) is runner-bound. Its table is the
 conservative copy §2.3 prescribes: ``windows-aarch64``'s list plus every
-``[platform]`` name the MSVC toolchain cannot be shown to declare (MinGW-w64's
-own POSIX additions, winpthreads and the btrc compat overlay; see
+``[platform]`` name the MSVC toolchain cannot be shown to declare (see
 ``conservative_msvc``), with ``source = "conservative copy pending runner
 extraction"``. It can only refuse too much, never too little.
 
@@ -58,14 +62,13 @@ import bisect
 import datetime
 import json
 import os
-import platform
 import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +171,9 @@ PROBE_HEADERS = (
     "sys/sendfile.h",
     "sys/statfs.h",
     "sys/vfs.h",
+    "sys/sysmacros.h",
+    "netinet/icmp6.h",
+    "values.h",
     "sys/reboot.h",
     "sys/swap.h",
     "uuid/uuid.h",
@@ -222,8 +228,9 @@ PROBE_HEADERS = (
 )
 
 # The btrc GPU runtime headers (btrc_rt.h's BTRC_RT_GPU_HEADER and its
-# siblings). The runtime is ported, never filtered (§2.2), so their names are
-# read once on the host and count as declared on every row.
+# siblings). The runtime is ported, never filtered (§2.2): the names declared
+# under src/runtime/gpu are read once on the host, best effort, and count as
+# declared on every row.
 GPU_RUNTIME_HEADERS = ("btrc_gpu_compute_internal.h", "btrc_gpu_compute_singleton.h", "btrc_gpu_async.h")
 
 # The ISO C11 library headers, minus <threads.h>, which UCRT gained late. Every name a
@@ -290,11 +297,11 @@ CONSERVATIVE_SOURCE = "conservative copy pending runner extraction"
 # checked against what each extracted row declares, not against [platform].
 SPOT_CHECKS = (
     ("GetFileAttributesA", frozenset({"linux", "android", "macos", "ios"}), False),
-    # glibc 2.36 added the arc4random family to <stdlib.h>; the flake's glibc
-    # (2.42) declares it, so it is available on linux-gnu, not refused.
-    ("arc4random_uniform", frozenset({"linux", "android", "macos", "ios"}), True),
-    # bionic (NDK r29) declares no explicit_bzero at any API level.
+    # glibc added the arc4random family in 2.36, above the rows' 2.31 floor.
+    ("arc4random_uniform", frozenset({"linux"}), False),
+    ("arc4random_uniform", frozenset({"android", "macos", "ios"}), True),
     ("explicit_bzero", frozenset({"linux"}), True),
+    # bionic (NDK r29) declares no explicit_bzero at any API level.
     ("explicit_bzero", frozenset({"android"}), False),
     ("getrandom", frozenset({"android"}), True),
     ("posix_spawn", frozenset({"android"}), True),
@@ -324,8 +331,18 @@ XCRUN_LABELS = ("macos-x86_64", "macos-aarch64", "ios-aarch64", "ios-aarch64-sim
 _LINEMARKER = re.compile(r'^#\s*(?:line\s+)?\d+\s+"((?:[^"\\]|\\.)*)"')
 _DEFINE = re.compile(r"^#\s*define\s+([A-Za-z_]\w*)")
 _UNDEF = re.compile(r"^#\s*undef\s+([A-Za-z_]\w*)")
-_ZIG_LIB_DIR = re.compile(r'\.lib_dir\s*=\s*"([^"]+)"')
-_DECLARATION_KINDS = frozenset({"FunctionDecl", "VarDecl", "RecordDecl", "EnumDecl", "TypedefDecl", "EnumConstantDecl"})
+_GLIBC = re.compile(r"^#\s*define\s+__GLIBC_MINOR__\s+(\d+)", re.MULTILINE)
+_STDLIB_EXTERN = re.compile(r"^extern\b[^;{]*?\b([A-Za-z_]\w*)\s*(?:\(|\[|;)", re.MULTILINE)
+_CATEGORIES = {
+    "FunctionDecl": "function",
+    "VarDecl": "object",
+    "RecordDecl": "tag",
+    "EnumDecl": "tag",
+    "TypedefDecl": "typedef",
+    "EnumConstantDecl": "enumerator",
+    "FieldDecl": "field",
+    "IndirectFieldDecl": "field",
+}
 _TEXT_DECLARATION = re.compile(
     r"^[|`]-(?:FunctionDecl|VarDecl|RecordDecl|EnumDecl|TypedefDecl) 0x[0-9a-f]+ "
     r"(?:parent 0x[0-9a-f]+ )?(?:prev 0x[0-9a-f]+ )?<(?:[^<>]|<[^<>]*>)*> (?P<rest>.*)$"
@@ -337,7 +354,6 @@ _TEXT_LOCATION = re.compile(r"^(?:<invalid sloc>|\S+) ")
 _TEXT_FLAGS = frozenset(
     {"implicit", "used", "referenced", "invalid", "struct", "union", "enum", "definition", "extern", "static", "inline"}
 )
-_MACHINES = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}
 
 
 class HostedPlatformError(RuntimeError):
@@ -361,10 +377,12 @@ class ProbeNames:
 
     files: dict[str, frozenset[str]]
     """Every declared identifier (declarations and macros) -> its declaring headers."""
-    declarations: frozenset[str]
-    """Identifiers with a C declaration, not only a macro."""
+    categories: dict[str, frozenset[str]]
+    """Declared identifiers -> how C declares them: function, object, tag, typedef, enumerator, field."""
     imported: frozenset[str]
     """Declarations marked dllimport: exports of a CRT or system DLL."""
+    glibc: str = ""
+    """The glibc release the headers select (``2.31``), or ``""``."""
 
 
 @dataclass(frozen=True)
@@ -376,8 +394,8 @@ class PlatformExtraction:
     files: dict[str, frozenset[str]]
     unavailable: dict[str, tuple[str, ...]]
     source: str
-    declarations: frozenset[str] = frozenset()
     imported: frozenset[str] = frozenset()
+    notes: tuple[str, ...] = field(default=())
 
 
 class HostedPlatformExtractor:
@@ -395,10 +413,12 @@ class HostedPlatformExtractor:
         date: str | None = None,
         runtime_declared: frozenset[str] | None = None,
         iso_c_declared: frozenset[str] | None = None,
+        stdlib_declared: frozenset[str] | None = None,
         timeout: int = 900,
     ) -> None:
         self._runtime = runtime_declared
         self._iso_c = iso_c_declared
+        self._stdlib = stdlib_declared
         self.repo = repo
         self.platform_names = platform_names if platform_names is not None else PLATFORM_NAMES
         self.rows = {row.label: row for row in rows}
@@ -467,25 +487,8 @@ class HostedPlatformExtractor:
             raise HostedPlatformError(f"{what} failed ({result.returncode}):\n{result.stderr.strip()[-4000:]}")
         return result.stdout
 
-    def zig_lib_dir(self) -> Path:
-        match = _ZIG_LIB_DIR.search(self._run([self.zig(), "env"], "zig env"))
-        if match is None:
-            raise HostedPlatformError("zig env reported no lib_dir")
-        return Path(match.group(1))
-
     def zig_version(self) -> str:
         return self._run([self.zig(), "version"], "zig version").strip()
-
-    def host_glibc(self) -> str:
-        """The host glibc release (``2.42``), read from the flake clang's headers."""
-        text = self._run(
-            ["clang", "-std=c11", "-E", "-dM", "-include", "features.h", "-x", "c", os.devnull], "host glibc"
-        )
-        major = re.search(r"#define __GLIBC__ (\d+)", text)
-        minor = re.search(r"#define __GLIBC_MINOR__ (\d+)", text)
-        if major is None or minor is None:
-            raise HostedPlatformError("the host compiler does not use glibc")
-        return f"{major.group(1)}.{minor.group(1)}"
 
     def ndk_sysroot(self) -> Path:
         if self.ndk_home is None:
@@ -507,10 +510,6 @@ class HostedPlatformExtractor:
                 return match.group(1)
         return "unknown revision"
 
-    @staticmethod
-    def host_architecture() -> str:
-        return _MACHINES.get(platform.machine().lower(), "")
-
     # --- probe plans ---
 
     def plan(self, row: GeneratedTargetRow) -> ProbePlan:
@@ -518,17 +517,9 @@ class HostedPlatformExtractor:
         flags = self._common_flags()
         kind = row.sysroot_kind
         if kind == "none" and row.operating_system == "linux":
-            if platform.system() == "Linux" and self.host_architecture() == row.architecture:
-                # The wrapped clang on PATH: its nix wrapper supplies the flake's glibc.
-                command = ("clang", *row.target_arguments, *flags)
-                return ProbePlan(command, self._parser(row), "the flake's glibc headers (host clang)")
-            glibc = self.host_glibc()
-            command = (self.zig(), "cc", "-target", f"{row.zig_target}.{glibc}", *flags)
-            return ProbePlan(
-                command,
-                self._parser(row),
-                f"zig {self.zig_version()} bundled {row.zig_target} glibc {glibc} headers",
-            )
+            # The unversioned target, as the release build passes it: zig's default glibc floor.
+            command = (self.zig(), "cc", "-target", row.zig_target, *flags)
+            return ProbePlan(command, self._parser(row), f"zig {self.zig_version()} bundled {row.zig_target} headers")
         if kind == "zig-mingw":
             overlay = self.repo / "src" / "runtime" / "windows"
             compat = ["-I", str(overlay), "-include", str(overlay / "btrc_win_compat.h")]
@@ -587,6 +578,12 @@ class HostedPlatformExtractor:
         return macros
 
     @staticmethod
+    def glibc_release(text: str) -> str:
+        """The glibc release (``2.31``) an ``-E -dD`` dump selects, or ``""``."""
+        minors = _GLIBC.findall(text)
+        return f"2.{minors[-1]}" if minors else ""
+
+    @staticmethod
     def presumed_files(preprocessed: bytes) -> tuple[list[int], list[str]]:
         """Byte offsets at which a linemarker changes the presumed file, and each file."""
         offsets: list[int] = []
@@ -611,20 +608,24 @@ class HostedPlatformExtractor:
         return offset if isinstance(offset, int) else None
 
     @classmethod
-    def parse_ast(cls, document: dict[str, Any], preprocessed: bytes) -> tuple[dict[str, set[str]], set[str]]:
-        """File-scope names declared in a preprocessed unit -> their presumed declaring files.
+    def parse_ast(
+        cls, document: dict[str, Any], preprocessed: bytes
+    ) -> tuple[dict[str, set[str]], dict[str, set[str]], set[str]]:
+        """File-scope names declared in a preprocessed unit.
 
         *document* is clang's ``-ast-dump=json`` of *preprocessed*. Every
         location is inside that one file, so a declaration's header is the
         linemarker in force at its byte offset. Functions, objects, struct,
-        union and enum tags, typedefs and enumerators are read; function
-        bodies are not entered, but nested tags are (C gives them file scope).
-        A name with a declaration marked ``unavailable`` is not declared.
-        Also returns the names with a ``dllimport`` declaration."""
+        union and enum tags, typedefs, enumerators and struct members are read;
+        function bodies are not entered, but struct and enum bodies are (C
+        gives nested tags file scope). A declaration marked ``unavailable``
+        is skipped, so a name is declared while any declaration of it is not.
+        Returns name -> declaring files, name -> categories, and the names
+        with a ``dllimport`` declaration."""
         offsets, files = cls.presumed_files(preprocessed)
         found: dict[str, set[str]] = {}
+        categories: dict[str, set[str]] = {}
         imported: set[str] = set()
-        refused: set[str] = set()
         stack: list[Any] = list(reversed(document.get("inner", [])))
         while stack:
             node = stack.pop()
@@ -632,42 +633,44 @@ class HostedPlatformExtractor:
                 continue
             kind = node.get("kind", "")
             name = node.get("name")
-            if kind in _DECLARATION_KINDS and name and not node.get("isImplicit"):
+            category = _CATEGORIES.get(kind)
+            if category is not None and name and not node.get("isImplicit"):
                 attributes = {child.get("kind") for child in node.get("inner", []) if isinstance(child, dict)}
                 if "UnavailableAttr" in attributes:
-                    refused.add(name)
                     continue
                 if "DLLImportAttr" in attributes:
                     imported.add(name)
                 offset = cls._offset(node.get("loc"))
                 index = bisect.bisect_right(offsets, offset) - 1 if offset is not None else -1
                 found.setdefault(name, set()).add(files[index] if index >= 0 else "")
+                categories.setdefault(name, set()).add(category)
             if kind in {"RecordDecl", "EnumDecl"}:
                 stack.extend(reversed(node.get("inner", [])))
-        for name in refused:
-            found.pop(name, None)
-        return found, imported - refused
+        return found, categories, imported
 
     @staticmethod
     def unavailable_on(text_dump: str, platforms: tuple[str, ...]) -> set[str]:
         """Top-level names that clang's text AST dump marks ``Unavailable`` on *platforms*.
 
         The JSON dump omits an ``AvailabilityAttr``'s platform, so Apple's
-        ``API_UNAVAILABLE(ios)`` is read from the text dump instead."""
-        refused: set[str] = set()
+        ``API_UNAVAILABLE(ios)`` is read from the text dump instead. A name is
+        returned only when every top-level declaration of it is so marked."""
+        available: set[str] = set()
+        unavailable: set[str] = set()
         current = ""
-        for line in text_dump.splitlines():
+        marked = False
+        for line in [*text_dump.splitlines(), "`-"]:
             declaration = _TEXT_DECLARATION.match(line)
-            if declaration:
-                current = HostedPlatformExtractor._text_name(declaration.group("rest"))
-                continue
-            if line[:2] in {"|-", "`-"}:
-                current = ""
+            if declaration or line[:2] in {"|-", "`-"}:
+                if current:
+                    (unavailable if marked else available).add(current)
+                current = HostedPlatformExtractor._text_name(declaration.group("rest")) if declaration else ""
+                marked = False
                 continue
             attribute = _TEXT_UNAVAILABLE.match(line)
             if attribute and current and attribute.group("platform") in platforms:
-                refused.add(current)
-        return refused
+                marked = True
+        return unavailable - available
 
     @staticmethod
     def _text_name(rest: str) -> str:
@@ -681,27 +684,13 @@ class HostedPlatformExtractor:
             return token if token.isidentifier() else ""
         return ""
 
-    @staticmethod
-    def merge(
-        declarations: dict[str, set[str]], macros: dict[str, str], imported: set[str] | None = None
-    ) -> ProbeNames:
-        """Every declared identifier (declarations and macros) with its declaring files.
+    def unavailable(self, declared: frozenset[str]) -> dict[str, tuple[str, ...]]:
+        """``[platform] - declared`` for each of the five kinds, outside btrc's own namespace.
 
         One identifier set serves all five kinds: a name the unit declares as
         anything is usable in C, and a kind mismatch (``realpath`` is a
         function on glibc and a macro under the Windows overlay) must not make
         the table stricter than the C compile."""
-        files = {name: set(paths) for name, paths in declarations.items()}
-        for name, path in macros.items():
-            files.setdefault(name, set()).add(path)
-        return ProbeNames(
-            {name: frozenset(paths) for name, paths in files.items()},
-            frozenset(declarations),
-            frozenset(imported or ()),
-        )
-
-    def unavailable(self, declared: frozenset[str]) -> dict[str, tuple[str, ...]]:
-        """``[platform] - declared`` for each of the five kinds, outside btrc's own namespace."""
         return {
             kind: tuple(
                 sorted(name for name in self.platform_names[kind] - declared if not name.startswith(RUNTIME_PREFIXES))
@@ -715,28 +704,52 @@ class HostedPlatformExtractor:
         """Preprocess *source* (default: the probe) with *plan*; return what it declares."""
         probe = scratch / "probe.c"
         probe.write_text(self.probe_source() if source is None else source)
-        macros = self.parse_macros(self._run([*plan.preprocessor, "-E", "-dD", str(probe)], "probe macros"))
+        defines = self._run([*plan.preprocessor, "-E", "-dD", str(probe)], "probe macros")
+        macros = self.parse_macros(defines)
         preprocessed = scratch / "probe.i"
         preprocessed.write_text(self._run([*plan.preprocessor, "-E", str(probe)], "probe preprocess"))
         parse = [*plan.parser, "-std=c11", "-w", "-x", "cpp-output", "-fsyntax-only", "-fno-color-diagnostics"]
         dump = self._run([*parse, "-Xclang", "-ast-dump=json", str(preprocessed)], "probe AST")
-        found, imported = self.parse_ast(json.loads(dump), preprocessed.read_bytes())
+        found, categories, imported = self.parse_ast(json.loads(dump), preprocessed.read_bytes())
         if plan.availability_platforms:
             text = self._run([*parse, "-Xclang", "-ast-dump", str(preprocessed)], "probe availability")
             for name in self.unavailable_on(text, plan.availability_platforms):
                 found.pop(name, None)
+                categories.pop(name, None)
                 imported.discard(name)
-        return self.merge(found, macros, imported)
+        files = {name: set(paths) for name, paths in found.items()}
+        for name, path in macros.items():
+            files.setdefault(name, set()).add(path)
+        return ProbeNames(
+            {name: frozenset(paths) for name, paths in files.items()},
+            {name: frozenset(kinds) for name, kinds in categories.items()},
+            frozenset(imported),
+            self.glibc_release(defines),
+        )
 
     def runtime_declared(self) -> frozenset[str]:
-        """Names the btrc GPU runtime headers declare, read once with the host clang."""
+        """Names declared under ``src/runtime/gpu`` by the GPU runtime headers, best effort.
+
+        They are read once with the host clang (``webgpu.h`` from the dev shell
+        or ``GPU_CFLAGS``); when that fails the set is empty, which loses
+        nothing that ``RUNTIME_PREFIXES`` does not already exclude."""
         if self._runtime is None:
-            include = ["-I", str(self.repo / "src" / "runtime" / "gpu")]
-            include += shlex.split(os.environ.get("GPU_CFLAGS", ""))
+            gpu = self.repo / "src" / "runtime" / "gpu"
+            include = ["-I", str(gpu), *shlex.split(os.environ.get("GPU_CFLAGS", ""))]
             plan = ProbePlan(("clang", *self._common_flags(), *include), ("clang",), "host")
             source = "".join(f'#include "{header}"\n' for header in GPU_RUNTIME_HEADERS)
-            with tempfile.TemporaryDirectory(prefix="hosted-platform-runtime-") as directory:
-                self._runtime = frozenset(self.read_probe(plan, Path(directory), source).files)
+            try:
+                with tempfile.TemporaryDirectory(prefix="hosted-platform-runtime-") as directory:
+                    files = self.read_probe(plan, Path(directory), source).files
+            except HostedPlatformError as error:
+                print(f"warning: GPU runtime names not read: {error}", file=sys.stderr)
+                files = {}
+            prefix = gpu.resolve().as_posix() + "/"
+            self._runtime = frozenset(
+                name
+                for name, paths in files.items()
+                if any(Path(path).resolve().as_posix().startswith(prefix) for path in paths)
+            )
         return self._runtime
 
     def iso_c_declared(self) -> frozenset[str]:
@@ -748,16 +761,41 @@ class HostedPlatformExtractor:
                 self._iso_c = frozenset(self.read_probe(plan, Path(directory), source).files)
         return self._iso_c
 
+    def stdlib_declared(self) -> frozenset[str]:
+        """``[platform]`` names a btrc stdlib source declares itself at file scope."""
+        if self._stdlib is None:
+            platform_names = set().union(*self.platform_names.values())
+            names: set[str] = set()
+            for path in sorted((self.repo / "src" / "stdlib").rglob("*.btrc")):
+                names.update(_STDLIB_EXTERN.findall(path.read_text(errors="replace")))
+            self._stdlib = frozenset(names & platform_names)
+        return self._stdlib
+
     def extract(self, label: str) -> PlatformExtraction:
         row = self.row(label)
         plan = self.plan(row)
         with tempfile.TemporaryDirectory(prefix="hosted-platform-") as directory:
             names = self.read_probe(plan, Path(directory))
-        declared = frozenset(names.files) | self.runtime_declared()
+        probed = frozenset(names.files) | self.runtime_declared()
+        self_declared = self.stdlib_declared() - probed
+        declared = probed | self_declared
         arguments = " ".join(row.target_arguments)
-        source = f"{plan.description}, {arguments}, extracted {self.date} by tools/hosted_platform.py"
+        description = plan.description
+        notes: list[str] = []
+        if row.operating_system == "linux":
+            description += f", glibc {names.glibc or 'unknown'} floor"
+            notes.append(f"glibc floor: {names.glibc or 'unknown'} (zig's default for {row.zig_target}).")
+        if self_declared:
+            notes.append(
+                "Declared by a btrc stdlib source at file scope, so counted as declared: "
+                + ", ".join(sorted(self_declared))
+                + "."
+            )
+        else:
+            notes.append("No [platform] name needed a btrc stdlib self-declaration to count as declared.")
+        source = f"{description}, {arguments}, extracted {self.date} by tools/hosted_platform.py"
         return PlatformExtraction(
-            label, declared, names.files, self.unavailable(declared), source, names.declarations, names.imported
+            label, declared, names.files, self.unavailable(declared), source, names.imported, tuple(notes)
         )
 
     @staticmethod
@@ -784,42 +822,55 @@ class HostedPlatformExtractor:
     ) -> PlatformExtraction:
         """The runner-bound MSVC row, which may only refuse too much (§2.3).
 
-        It is *windows*' (the gnu sibling's) list plus every name the sibling
-        declares that the MSVC toolchain cannot be shown to declare. A name
-        stays available only when
-        - ISO C11 declares it (``iso_c_declared``): UCRT is the row's C library;
-        - the Windows API declares it: ``<windows.h>`` (*sdk_files*) declares it
-          in headers the sibling's CRT probe never reaches;
-        - or its declaration is ``dllimport``, an export of the CRT DLL that
-          UCRT also exports;
-        - or it is only a macro, defined in a CRT header that UCRT shares.
-        So MinGW-w64's own POSIX additions to shared CRT headers (``mkstemp``,
-        ``strtok_r``, ``strcasecmp``), winpthreads and the compat overlay are
-        refused, and so are the old POSIX spellings UCRT keeps (``access``,
-        ``getpid``) until the runner extraction replaces this table."""
+        It is *windows*' (the gnu sibling's) list plus every name the MSVC
+        toolchain cannot be shown to declare, kind by kind. A name stays
+        available for a kind only when
+        - the Windows API declares it: ``<windows.h>`` (*sdk_files*) declares
+          it only in headers that are neither the sibling's CRT headers nor
+          MinGW-w64-only;
+        - or the sibling declares it in a header UCRT shares (not MinGW-w64,
+          winpthreads or the overlay only) and either ISO C11 declares it
+          (``iso_c_declared``), or the kind is a function or object whose
+          declaration is ``dllimport``, a CRT DLL export.
+        Everything else is refused: MinGW-w64's own POSIX additions to shared
+        CRT headers (``mkstemp``, ``strtok_r``, ``PATH_MAX``, ``S_ISDIR``),
+        winpthreads, the compat overlay, a stdlib self-declaration, and the
+        old POSIX spellings UCRT keeps (``access``, ``O_RDONLY``), until the
+        runner extraction replaces this table."""
         overlay = (self.repo / "src" / "runtime" / "windows").resolve()
         crt_files = {path for paths in windows.files.values() for path in paths if not self.mingw_only(path, overlay)}
-        sdk_api = {name for name, paths in sdk_files.items() if paths and paths.isdisjoint(crt_files)}
+        sdk_api = {
+            name
+            for name, paths in sdk_files.items()
+            if paths and paths.isdisjoint(crt_files) and not any(self.mingw_only(path, overlay) for path in paths)
+        }
         iso_c = self.iso_c_declared()
 
-        def kept(name: str, paths: frozenset[str]) -> bool:
-            if name in iso_c or name in sdk_api or name in windows.imported:
+        def kept(name: str, kind: str) -> bool:
+            if name in sdk_api:
                 return True
-            if name in windows.declarations:
+            if not any(not self.mingw_only(path, overlay) for path in windows.files.get(name, ())):
                 return False
-            return bool(paths) and not any(self.mingw_only(path, overlay) for path in paths)
+            return name in iso_c or (kind in {"functions", "objects"} and name in windows.imported)
 
-        refused = {name for name, paths in windows.files.items() if not kept(name, paths)}
         unavailable = {
             kind: tuple(
                 sorted(
-                    set(windows.unavailable[kind])
-                    | {name for name in self.platform_names[kind] & refused if not name.startswith(RUNTIME_PREFIXES)}
+                    name
+                    for name in self.platform_names[kind]
+                    if not name.startswith(RUNTIME_PREFIXES)
+                    and (name in windows.unavailable[kind] or not kept(name, kind))
                 )
             )
             for kind in KINDS
         }
-        return PlatformExtraction(label, windows.declared - refused, {}, unavailable, CONSERVATIVE_SOURCE)
+        declared = frozenset(
+            name
+            for name in windows.declared
+            if name.startswith(RUNTIME_PREFIXES) or any(kept(name, kind) for kind in KINDS)
+        )
+        notes = ("btrc stdlib self-declarations are not counted on this conservative row.",)
+        return PlatformExtraction(label, declared, {}, unavailable, CONSERVATIVE_SOURCE, notes=notes)
 
     def extract_all(self, labels: list[str]) -> dict[str, PlatformExtraction]:
         """Extract *labels*; a ``windows-sdk`` row is derived from its gnu sibling."""
@@ -842,9 +893,11 @@ class HostedPlatformExtractor:
     # --- output ---
 
     @staticmethod
-    def fragment(extraction: PlatformExtraction) -> str:
-        """The ``[[platform_targets]]`` TOML table for one row."""
-        lines = ["[[platform_targets]]", f'target = "{extraction.label}"']
+    def fragment(extraction: PlatformExtraction, failures: tuple[str, ...] = ()) -> str:
+        """The ``[[platform_targets]]`` TOML table for one row, its notes as leading comments."""
+        lines = [f"# {note}" for note in extraction.notes]
+        lines += [f"# spot check failed: {failure}" for failure in failures]
+        lines += ["[[platform_targets]]", f'target = "{extraction.label}"']
         for kind in KINDS:
             names = extraction.unavailable[kind]
             if not names:
@@ -856,16 +909,16 @@ class HostedPlatformExtractor:
         lines.append(f"source = {json.dumps(extraction.source)}")
         return "\n".join(lines) + "\n"
 
-    def spot_check(self, extractions: dict[str, PlatformExtraction]) -> list[str]:
-        """Failures of ``SPOT_CHECKS`` on the extracted rows (an empty list passes)."""
-        failures = []
+    def spot_check(self, extractions: dict[str, PlatformExtraction]) -> dict[str, list[str]]:
+        """Failures of ``SPOT_CHECKS`` per extracted row (no entry passes)."""
+        failures: dict[str, list[str]] = {}
         for name, systems, expected in SPOT_CHECKS:
             for label, extraction in sorted(extractions.items()):
                 if self.row(label).operating_system not in systems:
                     continue
                 if (name in extraction.declared) != expected:
                     state = "available" if expected else "unavailable"
-                    failures.append(f"{name} should be {state} on {label}")
+                    failures.setdefault(label, []).append(f"{name} should be {state} on {label}")
         return failures
 
 
@@ -884,15 +937,17 @@ def main(argv: list[str] | None = None) -> int:
     except HostedPlatformError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
+    failures = extractor.spot_check(extractions)
     arguments.output.mkdir(parents=True, exist_ok=True)
     for label, extraction in extractions.items():
         path = arguments.output / f"{label}.toml"
-        path.write_text(extractor.fragment(extraction))
+        path.write_text(extractor.fragment(extraction, tuple(failures.get(label, ()))))
         sizes = ", ".join(f"{kind}={len(extraction.unavailable[kind])}" for kind in KINDS)
         print(f"{label}: {sizes} -> {path}")
-    failures = extractor.spot_check(extractions)
-    for failure in failures:
-        print(f"spot check: {failure}", file=sys.stderr)
+    for label_failures in failures.values():
+        for failure in label_failures:
+            print(f"spot check failed: {failure}", file=sys.stderr)
+    print(f"spot checks: {'failed' if failures else 'passed'}")
     return 1 if failures else 0
 
 
