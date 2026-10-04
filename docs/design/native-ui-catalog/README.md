@@ -102,7 +102,10 @@ evidence shards carry no classification but a note. Evidence can be updated by
 several files; last evidence wins
 without replacing implementation/owner/regression. Evidence notes append to
 the classification note. Replacing newer evidence with an older timestamp is
-a check failure, even if the later record would otherwise pass.
+a check failure, even if the later record would otherwise pass. The one
+exception is a source audit: evidence whose provenance `source` is `inventory`
+is not an observation, so evidence from another source recorded against the
+same `btrc_revision` supersedes it regardless of clock order.
 
 Evidence shards accept only UI records and `test` records. Their only allowed
 classification field is `note`. They cannot introduce IDs, variants, or
