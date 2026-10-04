@@ -67,6 +67,7 @@ int main() {
     assert compiled.returncode == 0, compiled.stderr
 
     def runner(command, **kwargs):
+        kwargs.setdefault("timeout", C_COMPILE_TIMEOUT)
         command = list(command)
         if "-o" in command and "-c" not in command:
             command.append(str(bridge_object))
