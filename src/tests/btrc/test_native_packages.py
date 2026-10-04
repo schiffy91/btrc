@@ -827,7 +827,8 @@ def test_selfhost_versioned_manifest_infers_the_host_target(
         assert result.returncode == 0, result.stderr
         plans.append(json.loads(plan.read_text(encoding="utf-8")))
     assert plans[0] == plans[1]
-    assert plans[0]["target"] == PackageTarget.parse(None).as_dict()
+    host = PackageTarget.parse(None)
+    assert plans[0]["target"] == {"arch": host.architecture, "os": host.operating_system}
 
 
 def test_selfhost_strict_manifest_rejects_arbitrary_build_fields(

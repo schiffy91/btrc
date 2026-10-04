@@ -27,7 +27,7 @@ class FrontendInspectionCommand {
 		self.sourceFiles = FeSourceFileReader();
 	}
 
-	private string usage() { return "usage: frontend [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--target OS-ARCH] <file.btrc>"; }
+	private string usage() { return "usage: frontend [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--target OS-ARCH[-ENV]] <file.btrc>\n" + "--target selects one of " + Strings.join(FePackageTarget.labels(), ", ") + "; default: this host"; }
 
 	public int run(int argc, char** argv) {
 		if (argc < 2) {
@@ -38,6 +38,8 @@ class FrontendInspectionCommand {
 		bool includeStdlib = true;
 		bool strictImports = true;
 		string target = "";
+		bool targetGiven = false;
+		bool targetRepeated = false;
 		int argumentIndex = 1;
 		while (argumentIndex < argc) {
 			string option = Strings.copy(argv[argumentIndex]);
@@ -50,9 +52,11 @@ class FrontendInspectionCommand {
 			} else if (option.equals("--target")) {
 				argumentIndex++;
 				if (argumentIndex >= argc) {
-					Console.error("--target requires OS-ARCH");
+					Console.error("--target requires OS-ARCH[-ENV]");
 					return 1;
 				}
+				if (targetGiven) { targetRepeated = true; }
+				targetGiven = true;
 				target = Strings.copy(argv[argumentIndex]);
 			} else {
 				break;
@@ -64,6 +68,25 @@ class FrontendInspectionCommand {
 			return 1;
 		}
 
+		/* As in btrcc: the target is checked after the arguments and before
+		 * the input is read. */
+		if (targetRepeated) {
+			Console.error("error: --target may be specified only once");
+			return 1;
+		}
+		FePackageTarget selected = FePackageTarget.host();
+		if (targetGiven) {
+			try {
+				selected = FePackageTarget.parse(target);
+			} catch (string error) {
+				Console.error("error: " + error);
+				return 1;
+			}
+		} else if (!selected.known()) {
+			Console.error("error: " + FePackageTarget.unknownHostMessage());
+			return 1;
+		}
+		target = selected.label();
 		string path = Strings.copy(argv[argumentIndex]);
 		string source = self.sourceFiles.readRequired(path);
 		BtrccRuntimePaths runtimePaths = BtrccRuntimePaths(Strings.copy(argv[0]));
