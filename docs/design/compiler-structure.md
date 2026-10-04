@@ -174,7 +174,7 @@ src/compiler/python/
     generated.py                  # generated hosted-ABI data
     native_generated.py           # ASDL-generated native-header semantic data
     declarations.py              # hosted ABI value declarations
-    hosted.py                    # HostedAbiRepository
+    hosted.py                    # HostedAbiRepository, TargetRepository, TargetSelectionError
     freestanding.py              # FreestandingRuntime
 
   ir/

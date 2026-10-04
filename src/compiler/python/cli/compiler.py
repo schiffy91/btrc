@@ -78,8 +78,10 @@ class CompilerCommand:
         )
         parser.add_argument(
             "--target",
-            metavar="OS-ARCH",
-            help="Select native package predicates (for example linux-x86_64 or macos-arm64)",
+            action="append",
+            metavar="OS-ARCH[-ENV]",
+            help=f"Compile for one target: {', '.join(Compiler.target_labels())} "
+            "(x64 and arm64 are accepted architecture aliases; default: this host)",
         )
         emit_group = parser.add_mutually_exclusive_group()
         emit_group.add_argument("--emit-tokens", action="store_true", help="Print token stream")
@@ -204,6 +206,18 @@ class CompilerCommand:
         if result.message:
             print(result.message)
 
+    def _selected_target(self, requested: list[str] | None) -> str:
+        """The canonical target label, checked after arguments and before any input is read."""
+
+        if requested is not None and len(requested) > 1:
+            print("error: --target may be specified only once", file=self._diagnostics.stderr)
+            raise SystemExit(1)
+        selected = Compiler.select_target(requested[0] if requested else None)
+        if not isinstance(selected, str):
+            print(f"error: {selected.message}", file=self._diagnostics.stderr)
+            raise SystemExit(1)
+        return selected
+
     def run(self, argv: Sequence[str] | None = None) -> int:
         self._configure_process()
         parser = self.argument_parser()
@@ -215,7 +229,8 @@ class CompilerCommand:
         if args.build_stdlib is not None:
             if not self.compiler.stdlib_archive_available:
                 parser.error("--build-stdlib requires a configured stdlib archive repository")
-            self._complete_action(self.compiler.build_stdlib_archive(args.build_stdlib, args.target))
+            target = self._selected_target(args.target)
+            self._complete_action(self.compiler.build_stdlib_archive(args.build_stdlib, target))
             return 0
         if not args.input:
             parser.error("the following arguments are required: input")
@@ -225,6 +240,7 @@ class CompilerCommand:
             parser.error("--jobs requires --module-units")
         if args.jobs is not None and not 1 <= args.jobs <= 64:
             parser.error("--jobs requires a worker count from 1 to 64")
+        target = self._selected_target(args.target)
 
         output = self._requested_output(args)
         out_path = None if output is not CompilerOutput.C else self._file_io.output_path(args.input, args.output)
@@ -246,7 +262,7 @@ class CompilerCommand:
             units_prefix=args.emit_units,
             module_units=args.module_units,
             module_jobs=args.jobs or ForkedModuleUnitWorkers.suggested_count(),
-            target=args.target,
+            target=target,
         )
 
         result = self.compiler.compile(input_source, args.input, options)

@@ -3683,6 +3683,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 - Makefile (hotspot: :128-129 --target windows-x86_64 for dist/btrcc-windows.c; per-row identity check for the portable dist/btrcc.c)
 - src/tests/btrc/test_target_data_model.py (new)
 - src/tests/btrc/test_preprocessor_conditionals.py (extended)
+- environment-aware macro selection, deferred from `CL-P1-04` (integrator, batch 29): src/compiler/python/frontend/sources.py `ConditionalEnvironment` (`every_target` builds rows with `PackageTarget.from_row`, `label`, `_selected`) and src/compiler/btrc/frontend/Resolver.btrc `FeConditionalEnvironment` (an environment field, `everyTarget`, `label`, `selected`), so ios-aarch64, ios-aarch64-simulator and windows-aarch64-msvc select their own rows; then `_M_ARM64` joins targets.toml (its comment names this commit)
 
 **Must not touch**
 
@@ -3696,7 +3697,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 2. btrc: Constants.btrc, Literals.btrc (via Operators.btrc:138-142 and NativeImports.btrc:1530) take the row's sizeofLong, threaded through the analyzer context that CompilerPipeline fills. All three sites change in this commit, so the two compilers never split on literal typing.
 3. Widths contract in test_hosted_abi_contract.py gains __SIZEOF_LONG__ vs for_target for every row.
 4. test_target_data_model.py: for linux-x86_64, windows-x86_64 and windows-aarch64-msvc, the 'long' out-of-range refusal, the cast-range checks and the typing of 3000000000 are identical in both compilers and follow the row, not the host.
-5. test_preprocessor_conditionals.py: per-target selection over all 11 rows; TARGET_OS_IPHONE and __ANDROID_API__ >= 29 select; #define TARGET_OS_IPHONE 1 is refused with M3's message.
+5. test_preprocessor_conditionals.py: per-target selection over all 11 rows; TARGET_OS_IPHONE and __ANDROID_API__ >= 29 select; #define TARGET_OS_IPHONE 1 is refused with M3's message. The rows must select by environment: today ios-aarch64 gets TARGET_OS_EMBEDDED=0 and __APPLE_EMBEDDED_SIMULATOR__=1, ios-aarch64-simulator gets TARGET_OS_SIMULATOR=0 and TARGET_IPHONE_SIMULATOR=0, and windows-aarch64-msvc gets __MINGW32__, __MINGW64__, __SEH__ and __STDC__=1. Pin the correct value of each in both compilers. This commit lands before the Stage 24 sub-batch 1 gate.
 6. Makefile: generate dist/btrcc-windows.c with --target windows-x86_64. The release gate regenerates dist/btrcc.c for each of the four LP64 desktop rows and requires byte identity; any row that differs gets its own C file.
 
 **Acceptance**

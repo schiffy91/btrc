@@ -249,7 +249,8 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CX-UIB-03`…`06` | Codex | `codex/cx-uib-03`…`06` (PRs #30, #31, #32, #44) | — | pre-drafts and the collection-model findings integrated in batch 21 (`docs/design/native-ui-contracts/`); `CL-UIB-02` reviews them |
 | `CX-P2-01`, `02`, `03` | Codex | `codex/cx-p2-01`…`03` (PRs #37, #39, #36) | — | designs integrated in batch 21 (`docs/design/{windows-os-services,http-transport,mobile-storage}.md`); `CL-P2-01` approves them |
 | `CX-UIA-12` | Codex | `codex/cx-uia-12` (PR #38; spike `codex/cx-uia-12-spike`, never merged) | — | findings integrated in batch 21 (`docs/design/linux-gtk4-feasibility.md`); `CL-UIA-12` reviews them |
-| `CX-UIA-09`, `CX-UIA-01`, `CX-UIB-07` | Codex | `codex/cx-uia-09` (#40), `codex/cx-uia-01` (#33), `codex/cx-uib-07` (#42) | their packets' paths | returned for fixes in batch 21 (see each PR); `CX-UIB-07` waits on macOS run 37172345932 |
+| `CX-UIA-09`, `CX-UIA-01` | Codex | `codex/cx-uia-09` (#40), `codex/cx-uia-01` (#33) | — | integrated in batch 30 (the UI1 shell fixture; the UI0 focused-gate runbook, setup script and coverage test) |
+| `CX-UIB-07` | Codex | `codex/cx-uib-07` (#42), prototype `codex/cx-uib-07-spike` | its findings doc | open: macOS run 37217909473 on the repaired prototype refused `(void*)surface.nativeView()` in both compilers (the probe's parameter is not declared a read-only borrow); see the PR |
 | `CX-UIA-30`, `CX-UIA-04` | Codex | `codex/cx-uia-30` (#45), `codex/cx-uia-04` (#46) | — | case map (470 slots) and operation map B integrated in batch 23; cells stay implemented-unverified until the evidence follow-up |
 | `CX-UIA-03` | Codex | `codex/cx-uia-03` (#47) | — | operation map A integrated in batch 24 (81 frozen ids, 15 pending factories; `GUI.rasterText` retired); cells implemented-unverified until the evidence follow-up |
 | `CX-P1-02` | Codex | `codex/cx-p1-02` (#41) | — | `platform-adaptations.md` integrated in batch 23 for the owner's sign-off; its 58-cell `platform-inventory.toml` patch (PR body) and the `platform-parity.md` totals wait for that sign-off |
@@ -265,7 +266,7 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-REQ-04` | Claude | `stage18/req04-formatter-indent` | — | integrated in batch 15 |
 | `CL-UIA-21` | Claude | `stage30/headless-gui-shell` | — | integrated in batch 13 (`tools/ui/headless-session.sh` and `test_headless_session.py` included) |
 | `CL-R-02` | Claude | `stage5/runbook-kit` | — | integrated in batch 13 |
-| `CL-R-01` | Claude | BTRSmith `stage4/pin-bump` (`49a23af`) | BTRSmith `flake.nix`, `flake.lock`, `src/**`, `tests/**`, `tools/**`, `make/**`, `docs/Handoff.md` | Linux done; waits for `MAC-R-01` |
+| `CL-R-01` | Claude | BTRSmith `stage4/pin-bump` (`8204b8a`) | BTRSmith `flake.nix`, `flake.lock`, `src/**`, `tests/**`, `tools/**`, `make/**`, `docs/Handoff.md` | Linux done (the three named failures and two flaky tests fixed; the btrc input follows a branch URL, lock unchanged); waits for `MAC-R-01` |
 | `CL-C-03` | Claude | `stage16/c4-spec` | — | integrated in batch 14 |
 | `CL-C-05`, `CL-C-06` | Claude | `stage16/c4-python`, then `stage16/c4-conditionals` (the one paired commit) | — | C4 integrated in batch 19 (the paired construct commit plus the ten review fixes); Stage 24 (`CL-P1-03`) and C2 may start |
 | `CL-P1-01` | Claude | `stage22/doc-closeout` | — | integrated in batch 14 |
@@ -277,6 +278,8 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-R-05` | Claude | `stage6/spikes-preset` (spikes `spike/stage6-*`, never merged) | — | preset integrated in batch 18; its rehearsal runs with `--stand-in` in the cloud; the measurements are `MAC-R-03`'s |
 | `CL-REQ-05`, `CL-REQ-06` | Claude | `stage18/req05-lambda-capture`, `stage18/req06-scope-capture` | — | integrated in batch 19; REQ-06's deferred parity gaps (enum-constant shadowing, `class int* p = &Box.x`, first-error order, `CFunction` in `@realtime`) await a packet |
 | `CL-P1-03` | Claude | `stage24/targets-schema` | — | integrated in batch 22 (Stage 24 commit 1a: targets.toml schema 2, 11 rows); `CL-P1-04` (commit 1b) is next and must first call `architectureAliases()`/`defaultEnvironments()` and drop them from the structure test's definition-only list |
+| `CL-P1-04` | Claude | `stage24/target-owner` | — | integrated in batch 29 (one target owner per compiler); environment-aware macro selection moved to `CL-P1-05`, which waits for `CL-C-08` (shared analyzer files) |
+| `CL-P1-07` | Claude | `stage24/hosted-platform-extractor` (fragments on never-merge `stage24/hosted-platform-fragments`) | `tools/hosted_platform.py`, its test | returned in batch 28 (the conservative MSVC table refused too little); lane fixing |
 | `CL-REQ-07` | Claude | `stage18/req07-module-unit-staleness` | — | integrated in batch 22 (SB-D1…D8 fixed, plus a stale `__LINE__`/`__FILE__` default) |
 | `CL-R-23` | Claude | `stage10/host-manifests` | — | integrated in batch 16; `adapters.py` does not yet carry `host_manifest` into the ledger records |
 | `CL-R-04` | Claude | `stage6/stageb-spec` | — | integrated in batch 16 (docs only); its defects SB-D1…D8 wait for the C4 landing, and SB-D9 is `CL-REQ-05` |

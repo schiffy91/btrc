@@ -262,6 +262,18 @@
       "category": "platform",
       "covered_by": [],
       "note": "platform-target-contract.md §1.3 pins Apple clang's TARGET_OS_* set and the iOS SDK's <TargetConditionals.h> to the acceptance Mac's Xcode 27A266a; a hosted image carries another Xcode, whose predefined TARGET_OS_* set may differ. MAC-P1-05 runs both checks on the acceptance Mac; a hosted platform rule cannot name that host in covered_by, so the report shows them uncovered here."
+    },
+    {
+      "id": "ui-shell-linux-only",
+      "files": [
+        "src/tests/python/test_native_ui_shell_linux.py"
+      ],
+      "reason": "^requires Linux SDL native shell$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "CX-UIA-09 shell requires its host provider; both frontends and sanitizer modes run on the named stand-in."
     }
   ]
 }

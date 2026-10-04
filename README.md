@@ -652,7 +652,7 @@ root. `btrcpy`, `btrcc`, and the LSP keep package maps isolated per invocation
 or workspace, so one project's manifest cannot leak into another project.
 Native package tables can declare validated C, C++, Objective-C, and
 Objective-C++ units plus headers, includes, defines, frameworks, pkg-config
-requirements, and platform predicates. `--target OS-ARCH --emit-link-plan
+requirements, and platform predicates. `--target OS-ARCH[-ENV] --emit-link-plan
 PATH` emits the canonical plan for Make, Nix, or CMake to consume; manifests
 cannot inject flags, commands, or shell fragments. `btrcc` requires the target
 explicitly for every version-1 manifest and fails closed when it is omitted;
