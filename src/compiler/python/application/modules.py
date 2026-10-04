@@ -34,7 +34,7 @@ from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
 from .results import CompilerOptions
 
-_RECORD_SCHEMA = 5
+_RECORD_SCHEMA = 6
 # The unit that defines every runtime helper of a module-unit program; a
 # group's unit is named for its path hash and so never takes this name.
 RUNTIME_UNIT_NAME = "unit-runtime"
@@ -96,6 +96,11 @@ class ModuleUnitRecord:
     # proof has checked, the calls that proof left for the program to resolve.
     realtime_roots: tuple[str, ...]
     realtime_proofs: Mapping[str, tuple[str, ...]]
+    # Every other group whose declaration bodies or source positions the unit
+    # copied, with that group's source digest when it was lowered: a kernel's
+    # WGSL, an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__`
+    # position. None of them is in the program interface.
+    consulted_sources: Mapping[str, str] = field(default_factory=dict)
 
     @staticmethod
     def _effect_json(effect: FunctionEffect) -> dict:
@@ -150,6 +155,7 @@ class ModuleUnitRecord:
                 "helpers": list(self.helpers),
                 "realtime-roots": list(self.realtime_roots),
                 "realtime-proofs": {name: sorted(callees) for name, callees in self.realtime_proofs.items()},
+                "consulted-sources": dict(self.consulted_sources),
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -177,6 +183,7 @@ class ModuleUnitRecord:
                 "helpers",
                 "realtime-roots",
                 "realtime-proofs",
+                "consulted-sources",
             }
             if not isinstance(value, dict) or set(value) != expected or value["schema"] != _RECORD_SCHEMA:
                 return None
@@ -189,7 +196,10 @@ class ModuleUnitRecord:
                 if not isinstance(value[name], dict):
                     return None
             proofs = value["realtime-proofs"]
-            if not isinstance(proofs, dict):
+            sources = value["consulted-sources"]
+            if not isinstance(proofs, dict) or not isinstance(sources, dict):
+                return None
+            if not all(isinstance(digest, str) for digest in sources.values()):
                 return None
             names = value["helpers"], value["realtime-roots"], value["exports"], *proofs.values()
             if any(not isinstance(items, list) or not all(isinstance(item, str) for item in items) for items in names):
@@ -213,6 +223,7 @@ class ModuleUnitRecord:
                 helpers=tuple(value["helpers"]),
                 realtime_roots=tuple(value["realtime-roots"]),
                 realtime_proofs={name: tuple(callees) for name, callees in proofs.items()},
+                consulted_sources=dict(sources),
             )
         except (ValueError, RecursionError):
             return None
@@ -628,6 +639,13 @@ class SharedDeclarations:
                 names.add(node.name)
         return names
 
+    def order(self) -> list[str]:
+        """Every entry's kind and names, in the shared order."""
+        return [
+            f"{field_name}:{','.join(sorted(self._provided(field_name, declaration)))}"
+            for field_name, declaration in self._entries
+        ]
+
     def configure_native_headers(self, declarations: Iterable[object]) -> None:
         """Record the C names each native binding header declares.
 
@@ -786,7 +804,7 @@ class ModuleUnitCompiler:
         return {name: digest.hexdigest() for name, digest in digests.items()}, counts
 
     @staticmethod
-    def _program_facts_digest(analyzed, facts: ProgramLoweringFacts) -> str:
+    def _program_facts_digest(analyzed, facts: ProgramLoweringFacts, shared: SharedDeclarations) -> str:
         digest = hashlib.sha256()
 
         def add(value: object) -> None:
@@ -798,6 +816,13 @@ class ModuleUnitCompiler:
             return sorted(ProgramInterface.canonical(instance) for instance in instances)
 
         add(bool(facts.uses_trycatch))
+        # A unit takes the shared declarations it uses in their program order,
+        # and lowers its specializations in discovery order; other groups'
+        # bodies can move both (tuple, span and atomic shapes are discovered
+        # in bodies).
+        add(shared.order())
+        add([view.symbol for view in facts.class_views or ()])
+        add([view.symbol for view in facts.method_views or ()])
         add({name: type_args(instances) for name, instances in analyzed.generic_instances.items()})
         add(
             {
@@ -858,7 +883,7 @@ class ModuleUnitCompiler:
         program_setjmp = self.setjmp_functions(program_unit)
         program_releases = IROptimizer.releases_cyclable_values(program_unit)
         interface = ProgramInterface().digest(analyzed.program.declarations)
-        program_digest = self._program_facts_digest(analyzed, facts)
+        program_digest = self._program_facts_digest(analyzed, facts, shared)
         group_sources, group_lines = self._group_sources(source, groups)
         context = json.dumps(
             {
@@ -885,6 +910,12 @@ class ModuleUnitCompiler:
             state = _GroupState(name, identity, lines=group_lines.get(name, 0))
             payload = store.load_module_unit(identity, input_path)
             state.record = ModuleUnitRecord.from_json(payload, name) if payload is not None else None
+            # A unit that copied another group's bodies or positions is exact
+            # only while that group's source is unchanged.
+            if state.record is not None and any(
+                group_sources.get(group) != digest for group, digest in state.record.consulted_sources.items()
+            ):
+                state.record = None
             states.append(state)
 
         lowering = (analyzed, filename, options, source_map, groups, facts)
@@ -1002,6 +1033,11 @@ class ModuleUnitCompiler:
                     helpers=reply["helpers"],
                     realtime_roots=state.realtime_roots,
                     realtime_proofs={name: tuple(sorted(callees)) for name, callees in state.realtime_proofs.items()},
+                    consulted_sources={
+                        group: group_sources[group]
+                        for group in reply["sources"]
+                        if group != state.name and group in group_sources
+                    },
                 )
                 store.store_module_unit(state.key, record.to_json(), input_path)
                 state.record = record
@@ -1634,7 +1670,7 @@ class ModuleUnitWorker:
 
     def _finish(self, group: str, unit: IRModule, setjmp_functions: frozenset[str], request: dict) -> dict:
         """Optimize and emit the unit with the program facts the owner settled."""
-        _analyzed, _filename, options, _source_map, _groups, _facts = self._lowering
+        analyzed, _filename, options, _source_map, groups, _facts = self._lowering
         unit.realtime_safe_externals.update(request["realtime_safe"])
         if request["reset"]:
             self._solved = {}
@@ -1650,10 +1686,17 @@ class ModuleUnitWorker:
         )
         if kept:
             self._shared.trim_native_includes(unit)
+        # The groups whose bodies or positions the unit copied; the WGSL of
+        # each kernel it dispatches is built from the kernel's body.
+        sources = set(unit.consulted_sources)
+        for kernel in unit.gpu_kernels:
+            sources.add(getattr(analyzed.function_table.get(kernel.name), "source_file", None))
+        consulted = {groups.group_of(source) for source in sources if isinstance(source, str) and source}
         return {
             "kept": kept,
             "text": CEmitter().emit_module_unit(unit) if kept else "",
             "exports": tuple(sorted(function.name for function in unit.function_defs if not function.is_static)),
             "entry": any(function.name in {"main", "btrc_main"} for function in unit.function_defs),
             "helpers": helpers,
+            "sources": tuple(sorted(consulted - {CompilationGroups.PROGRAM})),
         }

@@ -216,7 +216,48 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     The macOS dispatch then caught one stale lexer-contract site, which the integrator fixed.
   - `stage18/req05-lambda-capture` and `stage18/req06-scope-capture` (`CL-REQ-05`/`06`): btrcc no longer drops a lambda or spawn capture whose name matches a global (SB-D9: printed 9 or 10 where 5 was right). Captures follow the scope chain; realtime locals are typed by lexical scope. Static address constants must name file scope, and field initializers never see constructor parameters (both paired). A refused spawn capture now reports at the spawn in both compilers, which closed a pinned divergence. Four older parity gaps are recorded for a later packet.
   - Gate: zero warnings on the three self-host entries; `boundary-check` 287 of 311; 13,199 passed with 0 failures in the broad suite; the bootstrap fixed point in 16 minutes. `make test-native-gui` again hit the intermittent `BadWindow` race in `test_linux_gui_controls[True-python]` under four workers on one Xvfb display (passes alone, absent on GitHub runners); it is filed against `CX-UIA-11` in `codex-ui-lanes.md`.
-  - With C4 on `main`, Stage 24 starts under the owner's §7 Q2 approval: `CL-P1-03` (targets.toml schema 2 with the iOS and Android rows) and `CL-REQ-07` (the module-unit staleness defects SB-D1…D8) run as lanes. Probing it found nine defects on `main`: eight incremental-build staleness cases (SB-D1…D8), which wait for the C4 landing because they touch the module-unit owners, and one btrcc miscompile (SB-D9: an unimported module's same-named global shadows a lambda capture), which `CL-REQ-05` fixes.
+  - With C4 on `main`, Stage 24 starts under the owner's §7 Q2 approval: `CL-P1-03` (targets.toml schema 2 with the iOS and Android rows) and `CL-REQ-07` (the module-unit staleness defects SB-D1…D8) run as lanes.
+  - Push CI on `f431745` was green on all three workflows.
+- **Batch 20 (2026-10-04): Codex's first UI wave.** Codex opened eight draft PRs; a review workflow (one reviewer each, an adversarial verifier on the two code PRs) passed seven.
+  - PR #22 (`CX-UIA-02` follow-up): `tools/qualification/ui_catalog.py` loads the catalog's per-packet shards (`families.toml`, `operations/`, `cases/`, `surface/`, `evidence/`, `amendments/`), checks admission and the frozen, pending and retired partitions, and reports them. `families.toml` seeds the 300 family cells from the 2026-09-21 matrix (P 48, C 15, M 237). `IFontFace` is in scope (N44, N49). The integrator fixed two defects before the file became a Claude hotspot: later releases got no placeholder slots, and `--kind surface` selected nothing. `ui_catalog check`: 1,620/470/300 frozen, 17 pending ids (170 slots), `GUI.rasterText` retired (10 slots). Catalog wave 2 (`CX-UIA-03`, `04`, `30`, `05`) now branches from `main`.
+  - Docs drafts:
+    - the UI2 contract drafts `CX-UIA-18`/`19`/`20` in `docs/design/ui-contracts/`, which `CL-UIA-13` reviews;
+    - the UI4, UI5 and UI8 pre-drafts `CX-UIB-01`/`02` in `docs/design/native-ui-contracts/`, which `CL-UIB-02` reviews;
+    - the Win32, UIKit (with iPadOS) and Android Views shell notes `CX-UIA-13` in `docs/design/native-ui-shells/`.
+    The reviewers' minor points are on each PR for those approvals. The UI2 index now links the other two directories.
+  - PR #26 (`CX-C-01`) went back to Codex: its unit shard was red (two untimed subprocess calls), and `--btrsmith` silently moved the measurements to BTRSmith main's gate clone instead of the D9 copy.
+- **Batch 21 (2026-10-04): Codex's second wave, docs.** A second review round passed eight of eleven PRs:
+  - the UI6, UI7 and UI9 pre-drafts and the runtime-probe contract (`CX-UIB-03`/`04`/`05`) and the collection data-model findings (`CX-UIB-06`), which `CL-UIB-02` reviews;
+  - the Windows OS-services, native HTTP transport and mobile storage designs (`CX-P2-01`/`02`/`03`), which `CL-P2-01` approves;
+  - the GTK4/WebGPU pre-spike findings (`CX-UIA-12`).
+
+  Three went back to Codex:
+  - `CX-UIA-09`'s native-shell fixture passes on Linux (X11 and Wayland, both frontends, plain and sanitized) but fails all four macOS rows on a native-handle count after close, its unit shard is red, and its fresh-process restore check cannot fail;
+  - `CX-UIA-01` pushed only the runbook;
+  - `CX-UIB-07` needs the macOS run the integrator dispatched (37172345932).
+
+  Codex's CI policy now requires the whole unit shard before any code push.
+- **Batch 22 (2026-10-04): Stage 24 commit 1a; module-unit staleness.**
+  - `stage24/targets-schema` (`CL-P1-03`, Stage 24 commit 1a, no behaviour change): `targets.toml` schema 2 holds the 11 target rows of `platform-target-contract.md` §1.2, including iOS, the iOS simulator and Android, with every column (triples, sizes, sysroot kinds, compiler host, Objective-C, frameworks). It also holds the §1.3 predefined-macro rows (`TARGET_OS_*`, `__ANDROID__`, MinGW). `TargetManifest` enforces every §1.1 rule with one failing fixture each, and the target rows are regenerated in both compilers. clang 21's `-dM` output matches the table for all 11 rows. The `_M_ARM64` row and the `TARGET_OS_*` refusals wait for commits 1b and 1c. CI caught two new generated accessors with no caller yet; the structure test lists them until `CL-P1-04` calls them.
+  - `stage18/req07-module-unit-staleness` (`CL-REQ-07`): the eight staleness defects CL-R-04 found (SB-D1…D8) are fixed in both compilers. Module-unit builds now rebuild a dependent group when it depends on any of these that changed:
+    - a `@gpu` kernel's body;
+    - an inherited `__del__` and its `#line`;
+    - a debug default-argument helper;
+    - a "never returns" body fact (validation re-asks the answers it relied on);
+    - the import order;
+    - shared tuple, span and atomic declaration order;
+    - instance discovery order.
+
+    A stale `__LINE__`/`__FILE__` default is fixed too. Clean output is unchanged. The keys are coarser than the spec's per-body digests: sound, but they relower more, which is left to `CL-R-18`. CI caught one crash, on members lowered without the frontend, which the integrator fixed.
+  - Gate: three zero-warning self-host entries; `boundary-check` 287 of 311; 13,398 passed with 0 failures in the broad suite; `make test-native-gui` 101 passed with 0 failures (four ALSA skips are this container's); the bootstrap fixed point in 16 minutes.
+- **Batch 23 (2026-10-04): the UI case map and operation map B.** A third review round passed four Codex PRs and returned three:
+  - `CX-UIA-30` classifies all 470 ui-case slots. The baselines are E40 Linux partial, and E46 and E47 missing.
+  - `CX-UIA-04` classifies the 80 frozen operation ids of the controls, layout, image and font owners, plus the two pending `IFontFace` ids. Windows, iOS and Android are missing or unavailable.
+  - Both keep macOS and Linux cells implemented-unverified: Codex's token cannot download the shared UI0 JUnit artifacts, and the reviewers confirmed every named regression passed in them. Promoting the evidence is a follow-up. `ui_catalog check --strict` passes for both scopes.
+  - `CX-P1-02`'s `platform-adaptations.md` is ready for the owner's sign-off. Its 58 inventory cells wait for that sign-off.
+  - The iOS, Android and Windows test-host spikes (`CX-P1-04`/`05`/`06`) went back: none committed its workflow, because Codex followed the integrator's over-broad "no CI workflows" wording, now corrected in `codex-ui-lanes.md`. The reviewers also found that Android app mode cannot work with real adb and that the iOS spawn timeout leaks its child.
+  - The C2 schema commit (`CL-C-07`) started as a lane. D27 keeps Stage 24 commit 1b from running beside it; the C track is the longer path to the new-platform shells.
+- **Batch 24 (2026-10-04): UI operation map A.** `CX-UIA-03` classifies the 81 frozen operation ids of the application, window, view, container, handler, GPU-view, picker and GUI facade owners, plus the 15 pending `IApplication` factories; `GUI.rasterText` stays retired. With `CX-UIA-04` and `CX-UIA-30`, all 1,610 live operation slots and 470 case slots are now classified (macOS and Linux implemented-unverified pending the evidence follow-up; Windows, iOS and Android missing or unavailable). `CX-UIA-05` (the broader surface) and `CX-UIA-07` (the documentation reconcile) remain in Stage 30. Probing it found nine defects on `main`: eight incremental-build staleness cases (SB-D1…D8), which wait for the C4 landing because they touch the module-unit owners, and one btrcc miscompile (SB-D9: an unimported module's same-named global shadows a lambda capture), which `CL-REQ-05` fixes.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.

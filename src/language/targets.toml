@@ -1,72 +1,317 @@
-# Compilation targets shared by both compilers (PLAN.md D21). Generated
-# catalogs are data-only; edit this file. PLAN.md Stage 24 adds ios and
-# android rows, environments, triples, sysroots and data models.
-schema_version = 1
+# Compilation targets shared by both compilers (PLAN.md D21; Stage 24's
+# docs/design/platform-target-contract.md). Generated catalogs are data-only;
+# edit this file. A row is one artifact identity: OS, architecture,
+# environment, deployment minimum, clang triple, data model and sysroot rule.
+schema_version = 2
 
-# One row per (operating_system, architecture); six today.
+[aliases]
+# Architecture spellings accepted beside the canonical ones.
+architectures = { arm64 = "aarch64", x64 = "x86_64" }
+# The environment a label without an environment suffix means.
+default_environments = { linux = "gnu", windows = "gnu" }
+
+# One row per target, in label order. The label is OS-ARCH, plus -ENVIRONMENT
+# when the environment is not the OS's default; the generator checks it. The
+# triple is clang's cc1 form (`-###`), with the deployment minimum in it;
+# target_arguments are the clang arguments. Every value was read from clang
+# 21.1.8 (`-dM -E`, `-###`).
 [[targets]]
+label = "android-aarch64"
+operating_system = "android"
+architecture = "aarch64"
+environment = ""
+minimum_version = "29"
+triple = "aarch64-unknown-linux-android29"
+triple_aliases = ["aarch64-linux-android29"]
+zig_target = ""
+target_arguments = ["--target=aarch64-unknown-linux-android29"]
+sizeof_pointer = 8
+sizeof_long = 8
+sizeof_wchar_t = 4
+sizeof_long_double = 16
+char_signed = false
+wchar_signed = false
+sysroot_kind = "ndk"
+sysroot_name = ""
+compiler_host = false
+objective_c = false
+frameworks = false
+
+[[targets]]
+label = "android-x86_64"
+operating_system = "android"
+architecture = "x86_64"
+environment = ""
+minimum_version = "29"
+triple = "x86_64-unknown-linux-android29"
+triple_aliases = ["x86_64-linux-android29"]
+zig_target = ""
+target_arguments = ["--target=x86_64-unknown-linux-android29"]
+sizeof_pointer = 8
+sizeof_long = 8
+sizeof_wchar_t = 4
+sizeof_long_double = 16
+char_signed = true
+wchar_signed = true
+sysroot_kind = "ndk"
+sysroot_name = ""
+compiler_host = false
+objective_c = false
+frameworks = false
+
+[[targets]]
+label = "ios-aarch64"
+operating_system = "ios"
+architecture = "aarch64"
+environment = ""
+minimum_version = "17.0"
+triple = "arm64-apple-ios17.0.0"
+triple_aliases = ["arm64-apple-ios17.0"]
+zig_target = ""
+target_arguments = ["--target=arm64-apple-ios17.0.0"]
+sizeof_pointer = 8
+sizeof_long = 8
+sizeof_wchar_t = 4
+sizeof_long_double = 8
+char_signed = true
+wchar_signed = true
+sysroot_kind = "xcrun"
+sysroot_name = "iphoneos"
+compiler_host = false
+objective_c = true
+frameworks = true
+
+[[targets]]
+label = "ios-aarch64-simulator"
+operating_system = "ios"
+architecture = "aarch64"
+environment = "simulator"
+minimum_version = "17.0"
+triple = "arm64-apple-ios17.0.0-simulator"
+triple_aliases = ["arm64-apple-ios17.0-simulator"]
+zig_target = ""
+target_arguments = ["--target=arm64-apple-ios17.0.0-simulator"]
+sizeof_pointer = 8
+sizeof_long = 8
+sizeof_wchar_t = 4
+sizeof_long_double = 8
+char_signed = true
+wchar_signed = true
+sysroot_kind = "xcrun"
+sysroot_name = "iphonesimulator"
+compiler_host = false
+objective_c = true
+frameworks = true
+
+[[targets]]
+label = "linux-aarch64"
+operating_system = "linux"
+architecture = "aarch64"
+environment = "gnu"
+minimum_version = ""
+triple = "aarch64-unknown-linux-gnu"
+triple_aliases = ["aarch64-linux-gnu"]
+zig_target = "aarch64-linux-gnu"
+target_arguments = ["--target=aarch64-unknown-linux-gnu"]
+sizeof_pointer = 8
+sizeof_long = 8
+sizeof_wchar_t = 4
+sizeof_long_double = 16
+char_signed = false
+wchar_signed = false
+sysroot_kind = "none"
+sysroot_name = ""
+compiler_host = true
+objective_c = false
+frameworks = false
+
+[[targets]]
+label = "linux-x86_64"
 operating_system = "linux"
 architecture = "x86_64"
+environment = "gnu"
+minimum_version = ""
+triple = "x86_64-unknown-linux-gnu"
+triple_aliases = ["x86_64-linux-gnu"]
+zig_target = "x86_64-linux-gnu"
+target_arguments = ["--target=x86_64-unknown-linux-gnu"]
+sizeof_pointer = 8
+sizeof_long = 8
+sizeof_wchar_t = 4
+sizeof_long_double = 16
+char_signed = true
+wchar_signed = true
+sysroot_kind = "none"
+sysroot_name = ""
+compiler_host = true
+objective_c = false
+frameworks = false
 
 [[targets]]
-operating_system = "linux"
+label = "macos-aarch64"
+operating_system = "macos"
 architecture = "aarch64"
+environment = ""
+minimum_version = "14.0"
+triple = "arm64-apple-macosx14.0.0"
+triple_aliases = ["aarch64-apple-macosx14.0.0", "arm64-apple-macosx14.0"]
+zig_target = ""
+target_arguments = ["--target=arm64-apple-macosx14.0.0"]
+sizeof_pointer = 8
+sizeof_long = 8
+sizeof_wchar_t = 4
+sizeof_long_double = 8
+char_signed = true
+wchar_signed = true
+sysroot_kind = "xcrun"
+sysroot_name = "macosx"
+compiler_host = true
+objective_c = true
+frameworks = true
 
 [[targets]]
+label = "macos-x86_64"
 operating_system = "macos"
 architecture = "x86_64"
+environment = ""
+minimum_version = "14.0"
+triple = "x86_64-apple-macosx14.0.0"
+triple_aliases = ["x86_64-apple-macosx14.0"]
+zig_target = ""
+target_arguments = ["--target=x86_64-apple-macosx14.0.0"]
+sizeof_pointer = 8
+sizeof_long = 8
+sizeof_wchar_t = 4
+sizeof_long_double = 16
+char_signed = true
+wchar_signed = true
+sysroot_kind = "xcrun"
+sysroot_name = "macosx"
+compiler_host = true
+objective_c = true
+frameworks = true
 
 [[targets]]
-operating_system = "macos"
+label = "windows-aarch64"
+operating_system = "windows"
 architecture = "aarch64"
+environment = "gnu"
+minimum_version = ""
+triple = "aarch64-w64-windows-gnu"
+triple_aliases = ["aarch64-w64-mingw32"]
+zig_target = "aarch64-windows-gnu"
+target_arguments = ["--target=aarch64-w64-windows-gnu"]
+sizeof_pointer = 8
+sizeof_long = 4
+sizeof_wchar_t = 2
+sizeof_long_double = 8
+char_signed = true
+wchar_signed = false
+sysroot_kind = "zig-mingw"
+sysroot_name = ""
+compiler_host = true
+objective_c = false
+frameworks = false
 
 [[targets]]
+label = "windows-aarch64-msvc"
+operating_system = "windows"
+architecture = "aarch64"
+environment = "msvc"
+minimum_version = ""
+triple = "aarch64-pc-windows-msvc19.40.0"
+triple_aliases = []
+zig_target = "aarch64-windows-msvc"
+target_arguments = ["--target=aarch64-pc-windows-msvc19.40.0"]
+sizeof_pointer = 8
+sizeof_long = 4
+sizeof_wchar_t = 2
+sizeof_long_double = 8
+char_signed = true
+wchar_signed = false
+sysroot_kind = "windows-sdk"
+sysroot_name = ""
+compiler_host = false
+objective_c = false
+frameworks = false
+
+[[targets]]
+label = "windows-x86_64"
 operating_system = "windows"
 architecture = "x86_64"
-
-[[targets]]
-operating_system = "windows"
-architecture = "aarch64"
+environment = "gnu"
+minimum_version = ""
+triple = "x86_64-w64-windows-gnu"
+triple_aliases = ["x86_64-w64-mingw32"]
+zig_target = "x86_64-windows-gnu"
+target_arguments = ["--target=x86_64-w64-windows-gnu"]
+sizeof_pointer = 8
+sizeof_long = 4
+sizeof_wchar_t = 2
+sizeof_long_double = 16
+char_signed = true
+wchar_signed = false
+sysroot_kind = "zig-mingw"
+sysroot_name = ""
+compiler_host = true
+objective_c = false
+frameworks = false
 
 # Target predefined macros (D20): with a file's own earlier #defines, the only
-# names #if evaluates. Values are gcc's and clang's at -std=c11. An omitted
-# selector selects every value; environments stays empty until Stage 24.
+# names #if evaluates. Values are clang's at -std=c11 for each row's triple.
+# An omitted selector selects every value; "" in environments names the empty
+# environment. The data-model and deployment macros (__SIZEOF_LONG__,
+# __SIZEOF_WCHAR_T__, __SIZEOF_LONG_DOUBLE__, __LP64__, _LP64,
+# __CHAR_UNSIGNED__, __WCHAR_UNSIGNED__, __ANDROID_API__,
+# __ANDROID_MIN_SDK_VERSION__ and the __ENVIRONMENT_*_VERSION_MIN_REQUIRED__
+# names) are derived from the row columns and may not appear here.
 
 # Operating system.
 [[predefined_macros]]
 name = "__ELF__"
 value = 1
-operating_systems = ["linux"]
+operating_systems = ["android", "linux"]
 
 [[predefined_macros]]
 name = "__linux"
 value = 1
-operating_systems = ["linux"]
+operating_systems = ["android", "linux"]
 
 [[predefined_macros]]
 name = "__linux__"
 value = 1
-operating_systems = ["linux"]
+operating_systems = ["android", "linux"]
 
 [[predefined_macros]]
 name = "__unix"
 value = 1
-operating_systems = ["linux"]
+operating_systems = ["android", "linux"]
 
 [[predefined_macros]]
 name = "__unix__"
 value = 1
-operating_systems = ["linux"]
+operating_systems = ["android", "linux"]
+
+[[predefined_macros]]
+name = "__ANDROID__"
+value = 1
+operating_systems = ["android"]
 
 [[predefined_macros]]
 name = "__APPLE__"
 value = 1
-operating_systems = ["macos"]
+operating_systems = ["ios", "macos"]
 
 [[predefined_macros]]
 name = "__MACH__"
 value = 1
-operating_systems = ["macos"]
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "__APPLE_EMBEDDED_SIMULATOR__"
+value = 1
+operating_systems = ["ios"]
+environments = ["simulator"]
 
 [[predefined_macros]]
 name = "_WIN32"
@@ -77,6 +322,25 @@ operating_systems = ["windows"]
 name = "_WIN64"
 value = 1
 operating_systems = ["windows"]
+
+# The MinGW ABI: these name the gnu environment, not a toolchain version.
+[[predefined_macros]]
+name = "__MINGW32__"
+value = 1
+operating_systems = ["windows"]
+environments = ["gnu"]
+
+[[predefined_macros]]
+name = "__MINGW64__"
+value = 1
+operating_systems = ["windows"]
+environments = ["gnu"]
+
+[[predefined_macros]]
+name = "__SEH__"
+value = 1
+operating_systems = ["windows"]
+environments = ["gnu"]
 
 # Architecture.
 [[predefined_macros]]
@@ -107,25 +371,22 @@ architectures = ["aarch64"]
 [[predefined_macros]]
 name = "__arm64"
 value = 1
-operating_systems = ["macos"]
+operating_systems = ["ios", "macos"]
 architectures = ["aarch64"]
 
 [[predefined_macros]]
 name = "__arm64__"
 value = 1
-operating_systems = ["macos"]
+operating_systems = ["ios", "macos"]
 architectures = ["aarch64"]
 
-# Plain char is unsigned only on linux-aarch64 (AAPCS64; Apple and Windows
-# keep it signed).
-[[predefined_macros]]
-name = "__CHAR_UNSIGNED__"
-value = 1
-operating_systems = ["linux"]
-architectures = ["aarch64"]
+# _M_ARM64 (windows, aarch64, msvc) joins when the compilers select by
+# environment (Stage 24 commit 1b, platform-target-contract.md §1.3): until
+# then they read rows by operating system and architecture only, and it
+# would read 1 on windows-aarch64 (gnu), where clang leaves it undefined.
 
-# Sizes shared by every target. The data model (__SIZEOF_LONG__,
-# __SIZEOF_WCHAR_T__, __LP64__, _LP64) waits for Stage 24's columns.
+# Sizes shared by every target. char, short, int and long long are pinned
+# across rows; the data model comes from the row columns.
 [[predefined_macros]]
 name = "__CHAR_BIT__"
 value = 8
@@ -154,8 +415,8 @@ value = 8
 name = "__SIZEOF_PTRDIFF_T__"
 value = 8
 
-# Byte order. clang and gcc spell __BYTE_ORDER__ as __ORDER_LITTLE_ENDIAN__;
-# the table holds its value.
+# Byte order. clang spells __BYTE_ORDER__ as __ORDER_LITTLE_ENDIAN__; the
+# table holds its value.
 [[predefined_macros]]
 name = "__ORDER_LITTLE_ENDIAN__"
 value = 1234
@@ -172,19 +433,166 @@ value = 3412
 name = "__BYTE_ORDER__"
 value = 1234
 
-# The language standard btrc emits.
+# The language standard btrc emits. clang does not define __STDC__ for the
+# msvc environment, so #if __STDC__ reads 0 there, as in C.
 [[predefined_macros]]
 name = "__STDC__"
 value = 1
+environments = ["", "gnu", "simulator"]
 
 [[predefined_macros]]
 name = "__STDC_VERSION__"
 value = 201112
 
+# <TargetConditionals.h> names that clang predefines for every Darwin triple
+# and for no other. clang defines each one on every macos and ios row, so a
+# name has a value-1 row and value-0 rows covering the rest of those rows.
+[[predefined_macros]]
+name = "TARGET_IPHONE_SIMULATOR"
+value = 1
+operating_systems = ["ios"]
+environments = ["simulator"]
+
+[[predefined_macros]]
+name = "TARGET_IPHONE_SIMULATOR"
+value = 0
+operating_systems = ["ios", "macos"]
+environments = [""]
+
+[[predefined_macros]]
+name = "TARGET_OS_DRIVERKIT"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_EMBEDDED"
+value = 1
+operating_systems = ["ios"]
+environments = [""]
+
+[[predefined_macros]]
+name = "TARGET_OS_EMBEDDED"
+value = 0
+operating_systems = ["ios"]
+environments = ["simulator"]
+
+[[predefined_macros]]
+name = "TARGET_OS_EMBEDDED"
+value = 0
+operating_systems = ["macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_IOS"
+value = 1
+operating_systems = ["ios"]
+
+[[predefined_macros]]
+name = "TARGET_OS_IOS"
+value = 0
+operating_systems = ["macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_IPHONE"
+value = 1
+operating_systems = ["ios"]
+
+[[predefined_macros]]
+name = "TARGET_OS_IPHONE"
+value = 0
+operating_systems = ["macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_LINUX"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_MAC"
+value = 1
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_MACCATALYST"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_NANO"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_OSX"
+value = 1
+operating_systems = ["macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_OSX"
+value = 0
+operating_systems = ["ios"]
+
+[[predefined_macros]]
+name = "TARGET_OS_SIMULATOR"
+value = 1
+operating_systems = ["ios"]
+environments = ["simulator"]
+
+[[predefined_macros]]
+name = "TARGET_OS_SIMULATOR"
+value = 0
+operating_systems = ["ios", "macos"]
+environments = [""]
+
+[[predefined_macros]]
+name = "TARGET_OS_TV"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_UEFI"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_UIKITFORMAC"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_UNIX"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_VISION"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_WATCH"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_WIN32"
+value = 0
+operating_systems = ["ios", "macos"]
+
+[[predefined_macros]]
+name = "TARGET_OS_WINDOWS"
+value = 0
+operating_systems = ["ios", "macos"]
+
 [conditionals]
 # Reserved names that no target defines: #if reads 0 and defined() reads 0.
-undefined_macro_names = ["__ANDROID__", "__cplusplus"]
-# Set by C headers or C compiler flags, never by btrc: #if refuses them.
+undefined_macro_names = ["__cplusplus"]
+# Set by C headers or C compiler flags, never by btrc: #if refuses them and
+# sources cannot #define or #undef them (M4). clang predefines no
+# TARGET_CPU_*, TARGET_RT_* or TARGET_OS_BRIDGE name. The TARGET_OS_* and
+# TARGET_IPHONE_SIMULATOR names listed here are also rows, which #if reads
+# first; they stay listed only so that #define and #undef keep refusing them
+# until M3 refuses every predefined name (platform-target-contract.md §1.3,
+# Stage 24 commit 1c), which removes them from this list.
 foreign_macro_names = [
   "NDEBUG",
   "TARGET_CPU_ARM",

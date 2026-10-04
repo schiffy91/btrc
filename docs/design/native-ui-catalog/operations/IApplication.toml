@@ -1,0 +1,1017 @@
+# CX-UIA-03: source classification and assertion map; execution evidence is separate.
+# Missing providers stay missing on both frontends; candidate regression IDs are not passes.
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-03-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:43:34Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "linux-devcontainer"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-linux"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-macos"
+
+[[operations]]
+id = "IApplication.close"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.close. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(application.pollClose() == CALLBACK_CANCELLATION_PENDING && ApplicationProbe.liveViews() == 1L); Stuck-subtree scenario then releases holdClose and asserts application.close() == CALLBACK_CANCELLATION_COMPLETE; preserves pending owner until completion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.close. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(application.pollClose() == CALLBACK_CANCELLATION_PENDING && ApplicationProbe.liveViews() == 1L); Stuck-subtree scenario then releases holdClose and asserts application.close() == CALLBACK_CANCELLATION_COMPLETE; preserves pending owner until completion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.close. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(result == CALLBACK_CANCELLATION_COMPLETE); Quit.run invokes GUI.requestQuit; initial GUI.run reports a stuck subtree, then GUI.close completes after release. GUI methods delegate to IApplication. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.close. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(result == CALLBACK_CANCELLATION_COMPLETE); Quit.run invokes GUI.requestQuit; initial GUI.run reports a stuck subtree, then GUI.close completes after release. GUI methods delegate to IApplication. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createButton"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N11", "UI4"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createButton. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(button.fittingWidth() > 0.0 && button.fittingHeight() > 0.0); A-GUI NG40 factory; NG47 positive fitting dimensions, NG58 exact title; NG272–273 preinitialize rejection; NG27–28 late creation rejected; NG84–86/276 wrong-thread rejection. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createButton. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(button.fittingWidth() > 0.0 && button.fittingHeight() > 0.0); A-GUI NG40 factory; NG47 positive fitting dimensions, NG58 exact title; NG272–273 preinitialize rejection; NG27–28 late creation rejected; NG84–86/276 wrong-thread rejection. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createButton. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(button.fittingWidth() > 40.0 && button.fittingHeight() > 20.0); L-controls C189 factory; C232 fittingWidth>40/height>20; C103 action count==1 after input. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createButton. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(button.fittingWidth() > 40.0 && button.fittingHeight() > 20.0); L-controls C189 factory; C232 fittingWidth>40/height>20; C103 action count==1 after input. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createColumn"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N24", "UI5"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createColumn. Assertion candidate in src/tests/native/gui/NativeStacks.btrc: assert(column.childAt(0) == field && row.childAt(0) == apply); A-Stacks NS15 factory; NS28/37 invoke StackProbe.verifyLayout; StackProbe.m:25–27 require NSStackView, vertical orientation, 2 arranged children; NS39 child identity. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createColumn. Assertion candidate in src/tests/native/gui/NativeStacks.btrc: assert(column.childAt(0) == field && row.childAt(0) == apply); A-Stacks NS15 factory; NS28/37 invoke StackProbe.verifyLayout; StackProbe.m:25–27 require NSStackView, vertical orientation, 2 arranged children; NS39 child identity. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createColumn. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createColumn. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createContainer"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N03", "N24", "UI2", "UI5"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createContainer. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(FactoryProbe.observeViews() == 4); A-GUI NG38–39 factory; NG65 native observed view count==4; NG73–75 recursive/detached ownership closure. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createContainer. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(FactoryProbe.observeViews() == 4); A-GUI NG38–39 factory; NG65 native observed view count==4; NG73–75 recursive/detached ownership closure. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createContainer. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(native != null); L-shutdown S39 factory; S40–41 non-null ILinuxView cast; S61 root and stuck child closed after eventual completion. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createContainer. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(native != null); L-shutdown S39 factory; S40–41 non-null ILinuxView cast; S61 root and stuck child closed after eventual completion. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createGPUView"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N47", "UI9"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[reference-Portable-False]", "src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[reference-Portable-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createGPUView. Assertion candidate in src/tests/native/gui/webgpu_child/Portable.btrc: assert(rejected && view.isOpen()); REQUIRE consumer=Portable; never use Main nodes. G P106 factory; P111 initial pollClose==NOT_REQUESTED; P114 attached close rejects while open; P119–121 completed teardown plus GPU zero-claim assertions. Positive drawing/readback as above. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-False]", "src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createGPUView. Assertion candidate in src/tests/native/gui/webgpu_child/Portable.btrc: assert(rejected && view.isOpen()); REQUIRE consumer=Portable; never use Main nodes. G P106 factory; P111 initial pollClose==NOT_REQUESTED; P114 attached close rejects while open; P119–121 completed teardown plus GPU zero-claim assertions. Positive drawing/readback as above. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createGPUView. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); L-reparent R83 factory; R35–36 frame/present assertions, R52/R68 blue/green output and R93 completed journey. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createGPUView. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); L-reparent R83 factory; R35–36 frame/present assertions, R52/R68 blue/green output and R93 completed journey. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createGrid"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N24", "UI5"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGrid-native grid layout, resizing-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createGrid. Assertion candidate in src/tests/native/gui/NativeGrid.btrc: assert(inputFrame.size.width > 400.0 && inputFrame.size.height > 20.0); A-Grid factory107; native frame assertions52–54 width/height and x/y alignment; nested grid81 then85 native child width>100;87/90 completed subtree close. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGrid-native grid layout, resizing-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createGrid. Assertion candidate in src/tests/native/gui/NativeGrid.btrc: assert(inputFrame.size.width > 400.0 && inputFrame.size.height > 20.0); A-Grid factory107; native frame assertions52–54 width/height and x/y alignment; nested grid81 then85 native child width>100;87/90 completed subtree close. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createGrid. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createGrid. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createImageView"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N20", "UI4"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createImageView. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE && !view.isOpen()); A-GUI NG252 factory, NG258–259 rejects closed handle, NG261 asserts view closed on GUI.close. A-Panel creates image view84, nested teardown55 asserts closed. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createImageView. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE && !view.isOpen()); A-GUI NG252 factory, NG258–259 rejects closed handle, NG261 asserts view closed on GUI.close. A-Panel creates image view84, nested teardown55 asserts closed. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createImageView. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(imageView.fittingWidth() == 4.0); L-controls C210 factory; C212 fittingWidth==4 with handle; C153 captured artwork green, C157 closed-handle no green, C159 null-handle fittingWidth==0. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createImageView. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(imageView.fittingWidth() == 4.0); L-controls C210 factory; C212 fittingWidth==4 with handle; C153 captured artwork green, C157 closed-handle no green, C159 null-handle fittingWidth==0. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createLabel"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N14", "UI4"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeLabels-native label ellipsis-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeLabels-native label ellipsis-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createLabel. Assertion candidate in src/tests/native/gui/NativeLabels.btrc: assert(label.isVisible() && label.isOpen()); A-Labels factory101; assertion105 open/visible; assertion66 original text and scale; 68–78 wrapping/ellipsis/ink postconditions. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeLabels-native label ellipsis-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeLabels-native label ellipsis-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createLabel. Assertion candidate in src/tests/native/gui/NativeLabels.btrc: assert(label.isVisible() && label.isOpen()); A-Labels factory101; assertion105 open/visible; assertion66 original text and scale; 68–78 wrapping/ellipsis/ink postconditions. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createLabel. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createLabel. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createLevelIndicator"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N21", "UI4"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeLevelIndicator-native level value-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeLevelIndicator-native level value-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createLevelIndicator. Assertion candidate in src/tests/native/gui/NativeLevelIndicator.btrc: assert(level.value() == 0.0); A-Level factory42;45 initial value0;47 value1;49 value.45;52 out-of-range rejection preserves.45;54–55 invalid factory thresholds rejected. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeLevelIndicator-native level value-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeLevelIndicator-native level value-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createLevelIndicator. Assertion candidate in src/tests/native/gui/NativeLevelIndicator.btrc: assert(level.value() == 0.0); A-Level factory42;45 initial value0;47 value1;49 value.45;52 out-of-range rejection preserves.45;54–55 invalid factory thresholds rejected. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createLevelIndicator. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createLevelIndicator. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createPanel"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N03", "N24", "UI2", "UI5"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativePanel-rounded child clipping-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createPanel. Assertion candidate in src/tests/native/gui/NativePanel.btrc: assert(rounded.pixel(100 * scale, 150 * scale).blue > 60); A-Panel factory71; pixel assertions42–44 rounded corners,48 square,49 green; invalid radius52; subtree closure54–55. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createPanel. Assertion candidate in src/tests/native/gui/NativePanel.btrc: assert(rounded.pixel(100 * scale, 150 * scale).blue > 60); A-Panel factory71; pixel assertions42–44 rounded corners,48 square,49 green; invalid radius52; subtree closure54–55. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createPanel. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(pixel.red > 150 && pixel.green < 100 && pixel.blue < 100); L-controls C188/205 factories; C147–150 captured card red pixel. Limited visible fill integration, not exact rounded-corner assertion. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createPanel. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(pixel.red > 150 && pixel.green < 100 && pixel.blue < 100); L-controls C188/205 factories; C147–150 captured card red pixel. Limited visible fill integration, not exact rounded-corner assertion. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createProgressIndicator"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N21", "UI4"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createProgressIndicator. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(!indicator.isRunning()); A-Progress factory70; initial !isRunning76; callback27 running,30 comparable images and changedPixels>0,35 stopped. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createProgressIndicator. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(!indicator.isRunning()); A-Progress factory70; initial !isRunning76; callback27 running,30 comparable images and changedPixels>0,35 stopped. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createProgressIndicator. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createProgressIndicator. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createRow"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N24", "UI5"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createRow. Assertion candidate in src/tests/native/gui/NativeStacks.btrc: assert(column.childAt(0) == field && row.childAt(0) == apply); A-Stacks NS12–13 negative spacing rejected; NS16 factory; NS28/37 invoke StackProbe.verifyLayout, whose native assertions in StackProbe.m:30–32 require NSStackView, horizontal orientation, 2 arranged children; NS39 child identity. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeStacks-recursive native layout preserves editing and undo across resize-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createRow. Assertion candidate in src/tests/native/gui/NativeStacks.btrc: assert(column.childAt(0) == field && row.childAt(0) == apply); A-Stacks NS12–13 negative spacing rejected; NS16 factory; NS28/37 invoke StackProbe.verifyLayout, whose native assertions in StackProbe.m:30–32 require NSStackView, horizontal orientation, 2 arranged children; NS39 child identity. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createRow. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createRow. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createScrollView"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N26", "UI6"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-False-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-True-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-False-python]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-True-python]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createScrollView. Assertion candidate in src/tests/native/gui/MacOSScrollViewConformance.btrc: assert(scroll.childCount() == 1 && scroll.childAt(0) == field); REQUIRE scrolling=True (node prefix scroll-), not field-. Both consumer_first False/True variants exercise the same factory. Exact selector map in report. `test_btrc_text_field_and_scroll_view_appkit` dynamically selects MacOSScrollViewConformance.btrc with `scrolling=True` (driver115,131–133). Factory21/33; assertion29 childCount/childAt,38 nested offset80,48 fractional offset125.5,53 max1300 clamp,55–59 zero clamp,62 wheel movement,74–75 closed subtree,85–88 worker factory rejection. Also `test_macos_view_capture_owns_native_pixels`: ViewCapture.btrc82 factory,53–55 scrollTo changes owned TIFF bytes; Python645–646 asserts pinned header unchanged and content pixels moved. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-False-True-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[scroll-True-True-selfhost]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createScrollView. Assertion candidate in src/tests/native/gui/MacOSScrollViewConformance.btrc: assert(scroll.childCount() == 1 && scroll.childAt(0) == field); REQUIRE scrolling=True (node prefix scroll-), not field-. Both consumer_first False/True variants exercise the same factory. Exact selector map in report. `test_btrc_text_field_and_scroll_view_appkit` dynamically selects MacOSScrollViewConformance.btrc with `scrolling=True` (driver115,131–133). Factory21/33; assertion29 childCount/childAt,38 nested offset80,48 fractional offset125.5,53 max1300 clamp,55–59 zero clamp,62 wheel movement,74–75 closed subtree,85–88 worker factory rejection. Also `test_macos_view_capture_owns_native_pixels`: ViewCapture.btrc82 factory,53–55 scrollTo changes owned TIFF bytes; Python645–646 asserts pinned header unchanged and content pixels moved. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createScrollView. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._scroll.scrollOffset() > 100.0); L-controls C195 factory; C133 scroll offsetY>100 after wheel input. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createScrollView. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._scroll.scrollOffset() > 100.0); L-controls C195 factory; C133 scroll offsetY>100 after wheel input. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createSelect"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N19", "UI4"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSelect-native selection, duplicate titles-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createSelect. Assertion candidate in src/tests/native/gui/NativeSelect.btrc: assert(select.itemCount() == 0 && select.selectedIndex() == -1 && select.selectedTitle().isEmpty()); A-Select factory42;45 initial empty/-1/empty title;47 items, selection and duplicate title projection. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSelect-native selection, duplicate titles-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createSelect. Assertion candidate in src/tests/native/gui/NativeSelect.btrc: assert(select.itemCount() == 0 && select.selectedIndex() == -1 && select.selectedTitle().isEmpty()); A-Select factory42;45 initial empty/-1/empty title;47 items, selection and duplicate title projection. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createSelect. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._select.selectedIndex() == 2); L-controls C191 factory; C124 selectedIndex==2 after keyboard input. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createSelect. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._select.selectedIndex() == 2); L-controls C191 factory; C124 selectedIndex==2 after keyboard input. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createSlider"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N18", "UI4"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSlider-native slider, stepped tracking-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSlider-native slider, stepped tracking-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createSlider. Assertion candidate in src/tests/native/gui/NativeSlider.btrc: assert(slider.value() == 50.0); A-Slider factory118;121/124/126 values;129 53 quantizes50;134–135 reversed bounds rejected;136–138 continuous .375 retained. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSlider-native slider, stepped tracking-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSlider-native slider, stepped tracking-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createSlider. Assertion candidate in src/tests/native/gui/NativeSlider.btrc: assert(slider.value() == 50.0); A-Slider factory118;121/124/126 values;129 53 quantizes50;134–135 reversed bounds rejected;136–138 continuous .375 retained. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createSlider. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._slider.value() > 40.0 && self._slider.value() < 80.0); L-controls C194 factory; C130 synthetic tracking yields value strictly between40 and80. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createSlider. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._slider.value() > 40.0 && self._slider.value() < 80.0); L-controls C194 factory; C130 synthetic tracking yields value strictly between40 and80. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createTextField"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N15", "UI4"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createTextField. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(field.text().equals(\"音楽 🎸\")); A-GUI NG41 factory; NG50 exact Unicode text; NG54 owned snapshot text. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createTextField. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(field.text().equals(\"音楽 🎸\")); A-GUI NG41 factory; NG50 exact Unicode text; NG54 owned snapshot text. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createTextField. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._field.text().equals(\"hello\")); L-controls C190 factory; C112 entered text equals `hello`. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createTextField. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._field.text().equals(\"hello\")); L-controls C190 factory; C112 entered text equals `hello`. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.createWindow"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "N02", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createWindow. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(self._application.isRunning() && self._window.isOpen());  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.createWindow. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(self._application.isRunning() && self._window.isOpen());  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createWindow. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(native != null); L-controls C185 factory, C187 asserts non-null ILinuxWindow cast; L-reparent R93 proves two-window journey; shutdown exercised separately. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.createWindow. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(native != null); L-controls C185 factory, C187 asserts non-null ILinuxWindow cast; L-reparent R93 proves two-window journey; shutdown exercised separately. GUI.btrc forwards this exact factory to GUIApplicationSlot.require(); this assertion exercises the application factory through that facade. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. GUI facade forwards this factory to the selected application; direct provider construction alone does not test application ownership."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.isRunning"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.isRunning. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(self._application.isRunning() && self._window.isOpen());  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.isRunning. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(self._application.isRunning() && self._window.isOpen());  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.isRunning. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.isRunning. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.pollClose"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.pollClose. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(application.pollClose() == CALLBACK_CANCELLATION_PENDING && ApplicationProbe.liveViews() == 1L); Stuck-subtree scenario then releases holdClose and asserts application.close() == CALLBACK_CANCELLATION_COMPLETE; preserves pending owner until completion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.pollClose. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(application.pollClose() == CALLBACK_CANCELLATION_PENDING && ApplicationProbe.liveViews() == 1L); Stuck-subtree scenario then releases holdClose and asserts application.close() == CALLBACK_CANCELLATION_COMPLETE; preserves pending owner until completion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.pollClose. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.pollClose. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.post"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N04", "UI2"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.post. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(workDelivered == (scheduled ? 2048 : (failedWork || modal ? 1 : 0))); Scheduled work recursively posts 2048 items; separate scenarios check bounded capacity, cancellation and failure. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.post. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(workDelivered == (scheduled ? 2048 : (failedWork || modal ? 1 : 0))); Scheduled work recursively posts 2048 items; separate scenarios check bounded capacity, cancellation and failure. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.post. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); Journey.run reaches step16 through repeated GUI.post(self); GUI.run delegates to LinuxApplication.run. This covers serialized UI-thread delivery, not worker-safe publication. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.post. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); Journey.run reaches step16 through repeated GUI.post(self); GUI.run delegates to LinuxApplication.run. This covers serialized UI-thread delivery, not worker-safe publication. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.postAfter"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N04", "UI2"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeDelayedWork-native delayed work cancellation, bounded capacity and orderly shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeDelayedWork-native delayed work cancellation, bounded capacity and orderly shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.postAfter. Assertion candidate in src/tests/native/gui/NativeDelayedWork.btrc: assert(delivered == expectedDelivered && destroyed == expectedDestroyed); GUI.postAfter delegates to the selected IApplication; seven driver scenarios cover recursive delivery, cancellation, capacity, invalid delays, quit, close-before-run and failure. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeDelayedWork-native delayed work cancellation, bounded capacity and orderly shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeDelayedWork-native delayed work cancellation, bounded capacity and orderly shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.postAfter. Assertion candidate in src/tests/native/gui/NativeDelayedWork.btrc: assert(delivered == expectedDelivered && destroyed == expectedDestroyed); GUI.postAfter delegates to the selected IApplication; seven driver scenarios cover recursive delivery, cancellation, capacity, invalid delays, quit, close-before-run and failure. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.postAfter. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); ReparentJourney reschedules through GUI.postAfter(0.001,self) until a green frame is captured on the second device; deadline bounds completion, but delay accuracy/cancellation are not asserted. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.postAfter. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); ReparentJourney reschedules through GUI.postAfter(0.001,self) until a green frame is captured on the second device; deadline bounds completion, but delay accuracy/cancellation are not asserted. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.requestQuit"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.requestQuit. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(!application.isRunning() && !ApplicationProbe.hasDelegate()); The driver executes portable/native quit, before-run, work-failure, modal and stuck-subtree scenarios; assertion after application.run(). Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.requestQuit. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(!application.isRunning() && !ApplicationProbe.hasDelegate()); The driver executes portable/native quit, before-run, work-failure, modal and stuck-subtree scenarios; assertion after application.run(). Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.requestQuit. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(result == CALLBACK_CANCELLATION_COMPLETE); Quit.run invokes GUI.requestQuit; initial GUI.run reports a stuck subtree, then GUI.close completes after release. GUI methods delegate to IApplication. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.requestQuit. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(result == CALLBACK_CANCELLATION_COMPLETE); Quit.run invokes GUI.requestQuit; initial GUI.run reports a stuck subtree, then GUI.close completes after release. GUI methods delegate to IApplication. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IApplication.run"
+owner = "IApplication"
+implementation = "implemented"
+links = ["N01", "UI1"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.run. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(!application.isRunning() && !ApplicationProbe.hasDelegate()); The driver executes portable/native quit, before-run, work-failure, modal and stuck-subtree scenarios; assertion after application.run(). Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplication.run. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(!application.isRunning() && !ApplicationProbe.hasDelegate()); The driver executes portable/native quit, before-run, work-failure, modal and stuck-subtree scenarios; assertion after application.run(). Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.run. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); Journey.run reaches step16 through repeated GUI.post(self); GUI.run delegates to LinuxApplication.run. This covers serialized UI-thread delivery, not worker-safe publication. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
+note = "Source: src/stdlib/GUI/Linux/LinuxApplication.btrc; operation IApplication.run. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); Journey.run reaches step16 through repeated GUI.post(self); GUI.run delegates to LinuxApplication.run. This covers serialized UI-thread delivery, not worker-safe publication. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
