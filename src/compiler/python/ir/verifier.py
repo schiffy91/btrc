@@ -298,9 +298,15 @@ class IRVerifier:
             if not isinstance(declaration.is_union, bool):
                 raise TypeError("IRStructForward.is_union requires bool")
         for struct in self.module.struct_defs:
+            if not isinstance(struct.is_union, bool):
+                raise TypeError("IRStructDef.is_union requires bool")
             if not struct.name:
-                raise ValueError("an untagged IRStructDef is legal only as an anonymous member's record")
-            self._validate_record(struct, plain=GpuDispatchNames.is_uniforms_record(struct.name))
+                raise ValueError("an untagged record is legal only as an anonymous member")
+            self._validate_record(
+                struct.fields,
+                fam_allowed=not struct.is_union,
+                plain=GpuDispatchNames.is_uniforms_record(struct.name),
+            )
         for tagged in self.module.tagged_union_defs:
             for variant in tagged.variants:
                 for value in variant.fields:
@@ -309,39 +315,36 @@ class IRVerifier:
             for value in declaration.fields:
                 self._validate_plain_field(value, "Objective-C")
 
-    def _validate_record(self, struct: IRStructDef, *, plain: bool) -> None:
-        if not isinstance(struct.is_union, bool):
-            raise TypeError("IRStructDef.is_union requires bool")
+    def _validate_record(self, fields: list[IRStructField], *, fam_allowed: bool, plain: bool) -> None:
+        """One record's members; a flexible array member only in a named struct."""
+
         named_before = False
-        last = len(struct.fields) - 1
-        for index, value in enumerate(struct.fields):
+        last = len(fields) - 1
+        for index, value in enumerate(fields):
             if not isinstance(value, IRStructField):
-                raise TypeError("IRStructDef.fields requires IRStructField")
+                raise TypeError("a record's fields require IRStructField")
             if plain:
                 self._validate_plain_field(value, "GPU")
             facets = (
                 value.array_size is not None,
                 value.is_unsized_array,
                 value.bit_width is not None,
-                value.record is not None,
+                value.record_fields is not None,
             )
             if sum(facets) > 1:
                 raise ValueError(f"IRStructField '{value.name}' combines array, bit-field or record shapes")
-            if value.name == "" and value.bit_width is None and value.record is None:
+            if value.name == "" and value.bit_width is None and value.record_fields is None:
                 raise ValueError("an unnamed IRStructField must be a bit-field or an anonymous member")
             keyword = value.c_type.text if isinstance(value.c_type, CType) else ""
-            if (value.record is not None) != (keyword in ("struct", "union")):
+            if (value.record_fields is not None) != (keyword in ("struct", "union")):
                 raise ValueError("an IRStructField record requires the C type 'struct' or 'union', and only it")
-            if value.record is not None:
-                record = value.record
-                if not isinstance(record, IRStructDef) or record.name or not record.fields or value.name:
-                    raise ValueError("an anonymous member is an unnamed field holding an untagged, non-empty record")
-                if record.is_union != (keyword == "union"):
-                    raise ValueError("an anonymous member's keyword must match its record")
-                self._validate_record(record, plain=plain)
+            if value.record_fields is not None:
+                if not isinstance(value.record_fields, list) or not value.record_fields or value.name:
+                    raise ValueError("an anonymous member is an unnamed field holding a non-empty record")
+                self._validate_record(value.record_fields, fam_allowed=False, plain=plain)
             if value.is_unsized_array is not True and value.is_unsized_array is not False:
                 raise TypeError("IRStructField.is_unsized_array requires bool")
-            if value.is_unsized_array and (struct.is_union or not struct.name or index != last or not named_before):
+            if value.is_unsized_array and (not fam_allowed or index != last or not named_before):
                 raise ValueError(
                     "a flexible array member must be the last field of a named struct, after a named field"
                 )
@@ -353,11 +356,11 @@ class IRVerifier:
                     raise ValueError("only an unnamed bit-field may have width 0")
                 if keyword.removeprefix("const ") not in self._BIT_FIELD_TYPES:
                     raise ValueError(f"bit-field '{value.name}' requires an int or bool C type, got '{keyword}'")
-            named_before = named_before or bool(value.name) or value.record is not None
+            named_before = named_before or bool(value.name) or value.record_fields is not None
 
     @staticmethod
     def _validate_plain_field(value: IRStructField, owner: str) -> None:
-        if value.record is not None or value.is_unsized_array or value.bit_width is not None or not value.name:
+        if value.record_fields is not None or value.is_unsized_array or value.bit_width is not None or not value.name:
             raise ValueError(f"{owner} fields cannot be anonymous members, flexible arrays or bit-fields")
 
     def validate_type_declarations(self) -> None:

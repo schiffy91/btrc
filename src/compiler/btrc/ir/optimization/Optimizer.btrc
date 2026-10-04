@@ -715,8 +715,8 @@ class IROptimizer {
 			self.scanTextForKnownNames(field.cType, typeNames, types);
 			self.collectStructRefsNode(field.arraySize, typeNames, types);
 			self.collectEnumValueRefs(field.arraySize, valueNames, values);
-			IRStructDef? record = field.record;
-			if (record != null) { self.collectFieldRefs(record.fields, typeNames, valueNames, types, values); }
+			Vector<IRStructField>? record = field.recordFields;
+			if (record != null) { self.collectFieldRefs(record, typeNames, valueNames, types, values); }
 		}
 	}
 
@@ -1414,8 +1414,8 @@ class IRTypeDeclarationPlanner {
 		for field in fields {
 			out.push(field.cType);
 			IRTypeDeclarationPlanner.expressionTypes(field.arraySize, out);
-			IRStructDef? record = field.record;
-			if (record != null) { IRTypeDeclarationPlanner.fieldTypes(record.fields, out); }
+			Vector<IRStructField>? record = field.recordFields;
+			if (record != null) { IRTypeDeclarationPlanner.fieldTypes(record, out); }
 		}
 	}
 

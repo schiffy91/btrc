@@ -147,11 +147,11 @@ class RuntimeReferenceCollector {
 	}
 
 	/* A record's fields, including those of its anonymous members. */
-	private void collectStructFields(IRStructDef definition, Map<string, bool> used) {
-		for field in definition.fields {
+	private void collectStructFields(Vector<IRStructField> fields, Map<string, bool> used) {
+		for field in fields {
 			self.collectTypeProviderReferences(field.cType, used);
 			self.collectNode(field.arraySize, used);
-			IRStructDef? record = field.record;
+			Vector<IRStructField>? record = field.recordFields;
 			if (record != null) { self.collectStructFields(record, used); }
 		}
 	}
@@ -268,7 +268,7 @@ class RuntimeReferenceCollector {
 
 		int structIndex = 0;
 		while (structIndex < module.structDefs.len) {
-			self.collectStructFields(module.structDefs.get(structIndex), used);
+			self.collectStructFields(module.structDefs.get(structIndex).fields, used);
 			structIndex = structIndex + 1;
 		}
 

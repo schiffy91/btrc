@@ -46,8 +46,8 @@ def _field(c_type: str, name: str, **facets) -> IRStructField:
     return IRStructField(c_type=CType(c_type), name=name, **facets)
 
 
-def _record(*fields: IRStructField, is_union: bool = False) -> IRStructDef:
-    return IRStructDef(name="", fields=list(fields), is_union=is_union)
+def _record(*fields: IRStructField) -> list[IRStructField]:
+    return list(fields)
 
 
 def _module(*structs: IRStructDef, globals_: tuple[IRGlobalDecl, ...] = ()) -> IRModule:
@@ -66,7 +66,7 @@ def _shapes_module() -> IRModule:
         name="Value",
         fields=[
             _field("int", "kind"),
-            _field("union", "", record=_record(_field("int", "integer"), _field("double", "real"), is_union=True)),
+            _field("union", "", record_fields=_record(_field("int", "integer"), _field("double", "real"))),
         ],
     )
     number = IRStructDef(name="Number", fields=[_field("int", "i"), _field("float", "f")], is_union=True)
@@ -171,25 +171,25 @@ def _struct(*fields: IRStructField, name: str = "S", is_union: bool = False) -> 
         (_struct(_field("int", "a", array_size=IRLiteral("2"), bit_width=3)), "combines"),
         (_struct(_field("int", "n"), _field("int", "a", is_unsized_array=True, bit_width=3)), "combines"),
         (_struct(_field("int", "")), "unnamed IRStructField"),
-        (_struct(_field("int", "", record=_record(_field("int", "x")))), "record requires"),
+        (_struct(_field("int", "", record_fields=_record(_field("int", "x")))), "record requires"),
         (_struct(_field("struct", "s")), "record requires"),
-        (_struct(_field("struct", "u", record=_record(_field("int", "x")))), "anonymous member"),
-        (_struct(_field("struct", "", record=_record())), "anonymous member"),
-        (_struct(_field("struct", "", record=IRStructDef(name="T", fields=[_field("int", "x")]))), "anonymous member"),
-        (_struct(_field("union", "", record=_record(_field("int", "x")))), "keyword must match"),
+        (_struct(_field("struct", "u", record_fields=_record(_field("int", "x")))), "anonymous member"),
+        (_struct(_field("struct", "", record_fields=_record())), "anonymous member"),
         (_struct(_field("int", "data", is_unsized_array=True), _field("int", "n")), "flexible array"),
         (_struct(_field("int", "data", is_unsized_array=True)), "flexible array"),
         (_struct(_field("int", "n"), _field("int", "data", is_unsized_array=True), is_union=True), "flexible array"),
         (
             _struct(
-                _field("struct", "", record=_record(_field("int", "n"), _field("int", "d", is_unsized_array=True)))
+                _field(
+                    "struct", "", record_fields=_record(_field("int", "n"), _field("int", "d", is_unsized_array=True))
+                )
             ),
             "flexible array",
         ),
         (_struct(_field("char", "c", bit_width=3)), "int or bool C type"),
         (_struct(_field("int", "c", bit_width=0)), "width 0"),
         (_struct(_field("int", "c", bit_width=-1)), "non-negative"),
-        (_struct(_field("int", "x"), name=""), "untagged IRStructDef"),
+        (_struct(_field("int", "x"), name=""), "untagged record"),
         (_struct(_field("int", "x", bit_width=3), name="__gpu_dispatch_1_uniforms_type"), "GPU"),
         (_struct(_field("int", "", bit_width=3), _field("int", "d", is_unsized_array=True)), "flexible array"),
     ],
@@ -212,7 +212,7 @@ def test_tagged_union_payloads_hold_plain_fields_only() -> None:
     [
         _field("int", "x", bit_width=3),
         _field("int", "x", is_unsized_array=True),
-        _field("struct", "u", record=_record(_field("int", "x"))),
+        _field("struct", "u", record_fields=_record(_field("int", "x"))),
     ],
 )
 def test_objective_c_adapters_refuse_c2_field_shapes(value: IRStructField) -> None:

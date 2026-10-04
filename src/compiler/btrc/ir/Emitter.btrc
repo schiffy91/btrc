@@ -331,7 +331,7 @@ class CEmitter {
 			self.validateSelectorIdentifier(field.name);
 			if (field.cType.isEmpty() || field.cType == "void") { throw "Objective-C field requires a non-void type"; }
 			if (fields.has(field.name) || field.name == "self" || field.name == "_cmd" || field.name == "isa") { throw "Objective-C fields require distinct non-reserved names"; }
-			if (field.arraySize != null || field.isUnsizedArray || field.bitWidth >= 0 || field.record != null) { throw "Objective-C adapter array fields require a fixed native layout"; }
+			if (field.arraySize != null || field.isUnsizedArray || field.bitWidth >= 0 || field.recordFields != null) { throw "Objective-C adapter array fields require a fixed native layout"; }
 			fields.put(field.name, true);
 			self.line(self.qualifyVolatileObjectType(field.cType, field.isVolatile || field.effectiveIsVolatile) + " " + field.name + ";");
 		}
@@ -520,7 +520,7 @@ class CEmitter {
 	/* One member declarator. A record field (an anonymous member) spans
 	 * several lines and is emitted by emitStructFields, never here. */
 	private string structFieldDeclaration(IRStructField field) {
-		if (field.record != null) { self.shapeError("an anonymous member must be emitted inline with its record"); }
+		if (field.recordFields != null) { self.shapeError("an anonymous member must be emitted inline with its record"); }
 		string suffix = "";
 		if (field.arraySize != null) {
 			suffix = "[" + self.expr(field.arraySize) + "]";
@@ -535,23 +535,23 @@ class CEmitter {
 	}
 
 	private void emitStruct(IRStructDef s) {
-		if (s.name.isEmpty()) { self.shapeError("an untagged IRStructDef is legal only as an anonymous member's record"); }
-		self.validateRecordShape(s, s.name.startsWith("__btrc_gpu_") && s.name.endsWith("_uniforms"));
+		if (s.name.isEmpty()) { self.shapeError("an untagged record is legal only as an anonymous member"); }
+		self.validateRecordShape(s.fields, !s.isUnion, s.name.startsWith("__btrc_gpu_") && s.name.endsWith("_uniforms"));
 		if (s.packAlignment > 0) {
 			self.line("#pragma pack(push, " + Strings.fromInt(s.packAlignment) + ")");
 		}
 		string keyword = s.isUnion ? "union" : "struct";
 		self.line(f"{keyword} {s.name} {{");
-		self.emitStructFields(s);
+		self.emitStructFields(s.fields);
 		self.line("};");
 		if (s.packAlignment > 0) { self.line("#pragma pack(pop)"); }
 		self.line("");
 	}
 
-	private void emitStructFields(IRStructDef s) {
+	private void emitStructFields(Vector<IRStructField> fields) {
 		self.indent = self.indent + 1;
-		for field in s.fields {
-			IRStructDef? record = field.record;
+		for field in fields {
+			Vector<IRStructField>? record = field.recordFields;
 			if (record != null) {
 				self.line(field.cType + " {");
 				self.emitStructFields(record);
@@ -567,28 +567,27 @@ class CEmitter {
 	 * of an array bound, a flexible array member, a bit-field width and an
 	 * anonymous member's record; unnamed fields are bit-fields or anonymous
 	 * members; GPU dispatch records hold plain named fields only. */
-	private void validateRecordShape(IRStructDef s, bool plain) {
+	private void validateRecordShape(Vector<IRStructField> fields, bool famAllowed, bool plain) {
 		bool namedBefore = false;
 		int index = 0;
-		while (index < s.fields.len) {
-			IRStructField field = s.fields.get(index);
+		while (index < fields.len) {
+			IRStructField field = fields.get(index);
 			if (plain) { self.validatePlainField(field, "GPU"); }
 			int facets = 0;
 			if (field.arraySize != null) { facets = facets + 1; }
 			if (field.isUnsizedArray) { facets = facets + 1; }
 			if (field.bitWidth >= 0) { facets = facets + 1; }
-			if (field.record != null) { facets = facets + 1; }
+			if (field.recordFields != null) { facets = facets + 1; }
 			if (facets > 1) { self.shapeError(f"IRStructField '{field.name}' combines array, bit-field or record shapes"); }
-			if (field.name.isEmpty() && field.bitWidth < 0 && field.record == null) { self.shapeError("an unnamed IRStructField must be a bit-field or an anonymous member"); }
+			if (field.name.isEmpty() && field.bitWidth < 0 && field.recordFields == null) { self.shapeError("an unnamed IRStructField must be a bit-field or an anonymous member"); }
 			bool keywordType = field.cType == "struct" || field.cType == "union";
-			IRStructDef? record = field.record;
+			Vector<IRStructField>? record = field.recordFields;
 			if ((record != null) != keywordType) { self.shapeError("an IRStructField record requires the C type 'struct' or 'union', and only it"); }
 			if (record != null) {
-				if (!record.name.isEmpty() || record.fields.len == 0 || !field.name.isEmpty()) { self.shapeError("an anonymous member is an unnamed field holding an untagged, non-empty record"); }
-				if (record.isUnion != (field.cType == "union")) { self.shapeError("an anonymous member's keyword must match its record"); }
-				self.validateRecordShape(record, plain);
+				if (record.len == 0 || !field.name.isEmpty()) { self.shapeError("an anonymous member is an unnamed field holding a non-empty record"); }
+				self.validateRecordShape(record, false, plain);
 			}
-			if (field.isUnsizedArray && (s.isUnion || s.name.isEmpty() || index != s.fields.len - 1 || !namedBefore)) { self.shapeError("a flexible array member must be the last field of a named struct, after a named field"); }
+			if (field.isUnsizedArray && (!famAllowed || index != fields.len - 1 || !namedBefore)) { self.shapeError("a flexible array member must be the last field of a named struct, after a named field"); }
 			if (field.bitWidth >= 0) {
 				if (field.bitWidth == 0 && !field.name.isEmpty()) { self.shapeError("only an unnamed bit-field may have width 0"); }
 				if (!CEmitter.bitFieldType(field.cType)) { self.shapeError(f"bit-field '{field.name}' requires an int or bool C type, got '{field.cType}'"); }
@@ -605,7 +604,7 @@ class CEmitter {
 	}
 
 	private void validatePlainField(IRStructField field, string owner) {
-		if (field.record != null || field.isUnsizedArray || field.bitWidth >= 0 || field.name.isEmpty()) { self.shapeError(owner + " fields cannot be anonymous members, flexible arrays or bit-fields"); }
+		if (field.recordFields != null || field.isUnsizedArray || field.bitWidth >= 0 || field.name.isEmpty()) { self.shapeError(owner + " fields cannot be anonymous members, flexible arrays or bit-fields"); }
 	}
 
 	private void shapeError(string message) {

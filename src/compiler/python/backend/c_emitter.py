@@ -59,6 +59,7 @@ from ..ir.nodes import (
     IRStmt,
     IRStmtExpr,
     IRStructDef,
+    IRStructField,
     IRStructForward,
     IRSwitch,
     IRTaggedUnionDef,
@@ -1090,19 +1091,19 @@ class CEmitter:
             self._line(f"#pragma pack(push, {struct.pack_alignment})")
         keyword = "union" if struct.is_union else "struct"
         self._line(f"{keyword} {struct.name} {{")
-        self._emit_struct_fields(struct)
+        self._emit_struct_fields(struct.fields)
         self._line("};")
         if struct.pack_alignment is not None:
             self._line("#pragma pack(pop)")
         self._line("")
 
-    def _emit_struct_fields(self, struct: IRStructDef):
+    def _emit_struct_fields(self, fields: list[IRStructField]):
         self._indent += 1
-        for field in struct.fields:
-            if field.record is not None:
+        for field in fields:
+            if field.record_fields is not None:
                 # An anonymous member: its untagged record is emitted inline.
                 self._line(f"{field.c_type} {{")
-                self._emit_struct_fields(field.record)
+                self._emit_struct_fields(field.record_fields)
                 self._line("};")
                 continue
             if field.array_size is not None:

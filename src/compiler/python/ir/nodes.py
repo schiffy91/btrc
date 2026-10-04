@@ -530,9 +530,11 @@ class IRStructField(IRNode):
 
     At most one of ``array_size``, ``is_unsized_array`` (a flexible array
     member, ``T name[];``), ``bit_width`` (a folded bit-field width,
-    ``T name : w;``) and ``record`` (an anonymous member, whose untagged
-    definition is emitted inline and whose ``c_type`` is its keyword) is set;
-    IRVerifier checks the shape.
+    ``T name : w;``) and ``record_fields`` (an anonymous member: an unnamed
+    field whose ``c_type`` is the keyword ``struct`` or ``union`` and whose
+    untagged record's members are emitted inline) is set; IRVerifier checks
+    the shape. The members sit on the field itself rather than in an
+    ``IRStructDef``, so a record and its fields never retain each other.
     """
 
     c_type: CType
@@ -540,7 +542,7 @@ class IRStructField(IRNode):
     array_size: IRExpr = None
     is_volatile: bool = False
     effective_is_volatile: bool = False
-    record: IRStructDef | None = None
+    record_fields: list[IRStructField] | None = None
     is_unsized_array: bool = False
     bit_width: int | None = None
 
@@ -623,7 +625,7 @@ class IRObjectiveCClass(IRNode):
                 value.array_size is not None
                 or value.is_unsized_array
                 or value.bit_width is not None
-                or value.record is not None
+                or value.record_fields is not None
             ):
                 raise ValueError("Objective-C adapter array fields require a fixed native layout")
             names.add(value.name)
