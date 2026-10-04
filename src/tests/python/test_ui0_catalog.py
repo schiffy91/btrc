@@ -22,7 +22,14 @@ import pytest
 
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.syntax.ast.generated import ClassDecl, InterfaceDecl, MethodDecl
+from src.compiler.python.syntax.ast.generated import (
+    ClassDecl,
+    EnumDecl,
+    InterfaceDecl,
+    MethodDecl,
+    RichEnumDecl,
+)
+from tools.qualification import ui_catalog
 from tools.qualification.denominators import Denominator, DenominatorManifest
 from tools.qualification.report import QualificationReport
 from tools.qualification.schema import Frontend, LedgerDocument, LedgerSchemaError, Platform, Subject, SubjectKind
@@ -174,19 +181,28 @@ def source_ids():
     }
 
 
-def verify_catalog(records):
-    denominators = DenominatorManifest.load().by_kind()
+def ui_manifest(manifest=None):
+    """The UI releases in force: every ui-operation, ui-case and family-cell entry of denominators.toml."""
+
+    manifest = manifest or DenominatorManifest.load()
+    return DenominatorManifest([denominator for denominator in manifest.denominators if denominator.kind in KINDS])
+
+
+def verify_catalog(records, manifest=None):
+    """Recompute the base release from source, then check the records against every release in force."""
+
+    manifest = ui_manifest(manifest)
+    base = manifest.by_kind()
     counts = Counter(record.subject.key for record in records)
-    expected = set()
     for kind, identifiers in source_ids().items():
-        denominator = denominators[kind]
-        assert denominator.drift() == []
+        denominator = base[kind]
         assert denominator.release == amendments()["release"]
         frontends = (None,) if kind is SubjectKind.FAMILY_CELL else FRONTENDS
         assert denominator.platforms == PLATFORMS
         assert denominator.frontends == (() if kind is SubjectKind.FAMILY_CELL else FRONTENDS)
-        assert len(identifiers) == denominator.frozen_ids
-        assert Denominator.digest(identifiers) == denominator.frozen_digest
+        drift = f"{kind.value} source ids drifted from release {denominator.release}"
+        assert len(identifiers) == denominator.frozen_ids, drift
+        assert Denominator.digest(identifiers) == denominator.frozen_digest, drift
         slots = {
             Subject(kind=kind, id=identifier, platform=platform, frontend=frontend).key
             for identifier in identifiers
@@ -194,7 +210,9 @@ def verify_catalog(records):
             for frontend in frontends
         }
         assert len(slots) == denominator.frozen_slots
-        expected.update(slots)
+        assert slots == denominator.slot_keys()
+    assert manifest.drift() == []
+    expected = set().union(*(manifest.slot_keys(kind) for kind in KINDS))
     assert counts.keys() == expected, (
         f"catalog slot drift: missing={sorted(expected - counts.keys())}, extra={sorted(counts.keys() - expected)}"
     )
@@ -221,8 +239,10 @@ def test_surface_counts_explain_the_frozen_release_delta():
     }
     assert methods.keys() - frozen_methods.keys() == added
     assert frozen_methods.keys() - methods.keys() == {row["id"] for row in amendments()["removals"]}
-    assert len(files) == len(frozen_files | {row["source"] for row in amendments()["additions"]})
-    assert len(owners) == len(frozen_owners.keys() | {row["owner"] for row in amendments()["additions"]})
+    assert files == frozen_files | {row["source"] for row in amendments()["additions"]}
+    assert owners.keys() == frozen_owners.keys() | {row["owner"] for row in amendments()["additions"]}
+    # The older PLAN count the frozen checklist reproduces: 19 interface files and 24 interfaces, plus GUI.
+    assert (len(frozen_files) - 1, len(frozen_owners) - 1) == (19, 24)
 
 
 @pytest.mark.parametrize(
@@ -277,11 +297,23 @@ def test_focused_gate_rejects_file_and_owner_drift(mutation):
 def test_catalog_covers_the_recomputed_frozen_denominators():
     records = UICatalog().frozen_records
     verify_catalog(records)
+    manifest = ui_manifest()
     assert Counter(record.subject.kind for record in records) == {
-        SubjectKind.UI_OPERATION: 1620,
-        SubjectKind.UI_CASE: 470,
-        SubjectKind.FAMILY_CELL: 300,
+        kind: len(manifest.slot_keys(kind)) for kind in manifest.kinds()
     }
+
+
+def test_the_ui_releases_in_force_are_pinned():
+    # A reviewed re-freeze (CL-UIA-24) adds a release beside these and updates this pin in the
+    # same change; nothing else may move the counts the catalog is checked against.
+    assert sorted(
+        (denominator.kind.value, denominator.release, denominator.frozen_ids, denominator.frozen_slots)
+        for denominator in ui_manifest().denominators
+    ) == [
+        ("family-cell", "ui0-source-inventory-2026-09-21", 60, 300),
+        ("ui-case", "ui0-source-inventory-2026-09-21", 47, 470),
+        ("ui-operation", "ui0-source-inventory-2026-09-21", 162, 1620),
+    ]
 
 
 @pytest.mark.parametrize("mutation", ["added", "removed", "renamed"])
@@ -298,7 +330,7 @@ def test_case_source_drift_cannot_change_the_frozen_denominator(tmp_path, monkey
     roadmap = tmp_path / "roadmap.md"
     roadmap.write_text(text, encoding="utf-8")
     monkeypatch.setitem(globals(), "ROADMAP", roadmap)
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="ui-case source ids drifted from release"):
         verify_catalog(UICatalog().frozen_records)
 
 
@@ -308,14 +340,12 @@ def test_unclassified_slots_remain_unrecorded_in_the_report():
     records = [
         replace(record, classification=None, evidence=None, measurement=None) for record in UICatalog().frozen_records
     ]
-    manifest = DenominatorManifest(
-        [denominator for denominator in DenominatorManifest.load().denominators if denominator.kind in KINDS]
-    )
+    manifest = ui_manifest()
     report = QualificationReport(records, manifest)
     assert report.problems() == []
     assert all(row["missing_slots"] == 0 and row["undeclared"] == 0 for row in report.denominator_rows())
     assert sum(row["unrecorded"] for row in report.evidence_rows()) == sum(
-        denominator.frozen_slots for denominator in manifest.denominators
+        len(manifest.slot_keys(kind)) for kind in manifest.kinds()
     )
     assert all(row["passed"] == 0 and row["unavailable"] == 0 for row in report.evidence_rows())
 
@@ -450,25 +480,45 @@ def classified_operation(identifier="IWindow.isOpen"):
         "surface/Unknown.toml",
         "evidence/Uppercase.toml",
         "amendments/UPPER.toml",
+        "amendments/CL-UIA-24.toml",
+        "amendments/cl-uia.toml",
+        "amendments/xx-uia-01.toml",
     ],
 )
 def test_shard_layout_rejects_unknown_paths(catalog_directory, relative):
     write_shard(catalog_directory, relative, records=[])
-    with pytest.raises(LedgerSchemaError):
+    with pytest.raises(LedgerSchemaError, match=r"unknown catalog (file|directory)"):
         UICatalog(directory=catalog_directory)
 
 
+@pytest.mark.parametrize("packet", ["cx-uia-05", "cl-uia-24", "cl-uib-14a", "mac-c-01"])
+def test_amendment_files_are_named_for_any_packet(catalog_directory, packet):
+    path = catalog_directory / "amendments" / f"{packet}.toml"
+    path.parent.mkdir()
+    path.write_text('release = "ui0-source-inventory-2026-09-21"\n', encoding="utf-8")
+    assert UICatalog(directory=catalog_directory).problems() == []
+
+
 @pytest.mark.parametrize(
-    "mutation", ["foreign-owner", "unknown-id", "variant", "retired", "wrong-kind", "duplicate-record"]
+    ("mutation", "reason"),
+    [
+        ("foreign-owner", "foreign owner IButton.setTitle"),
+        ("unknown-id", "unknown id IWindow.notDeclared"),
+        ("variant", "UI slots cannot carry a variant"),
+        ("retired", "retired id cannot be classified or evidenced"),
+        ("wrong-kind", "foreign subject kind"),
+        ("duplicate-record", "duplicate slot ui-operation IWindow.isOpen linux reference"),
+    ],
 )
-def test_operation_admission_rejects_invalid_slots(catalog_directory, mutation):
+def test_operation_admission_rejects_invalid_slots(catalog_directory, mutation, reason):
     record = classified_operation()
     if mutation == "foreign-owner":
         record["subject"]["id"] = "IButton.setTitle"
     elif mutation == "unknown-id":
         record["subject"]["id"] = "IWindow.notDeclared"
     elif mutation == "variant":
-        record["subject"].update(platform="ios", variant="simulator")
+        # A real target slice, so the ledger schema accepts it and the catalog's own rule decides.
+        record["subject"].update(platform="ios", variant="arm64-simulator")
     elif mutation == "retired":
         record["subject"]["id"] = "GUI.rasterText"
     elif mutation == "wrong-kind":
@@ -479,12 +529,19 @@ def test_operation_admission_rejects_invalid_slots(catalog_directory, mutation):
         f"operations/{filename}.toml",
         records=[record] * (2 if mutation == "duplicate-record" else 1),
     )
-    with pytest.raises(LedgerSchemaError):
+    with pytest.raises(LedgerSchemaError, match=reason):
         UICatalog(directory=catalog_directory)
 
 
-@pytest.mark.parametrize("mutation", ["out-of-range", "overlap", "reversed"])
-def test_case_shards_reject_bad_ranges(catalog_directory, mutation):
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("out-of-range", "case id outside filename range: E25"),
+        ("overlap", "invalid or overlapping case range: cases/E25-E47.toml"),
+        ("reversed", "invalid or overlapping case range: cases/E47-E25.toml"),
+    ],
+)
+def test_case_shards_reject_bad_ranges(catalog_directory, mutation, reason):
     record = operation("E25", kind="ui-case")
     if mutation == "out-of-range":
         write_shard(catalog_directory, "cases/E01-E24.toml", records=[record])
@@ -493,17 +550,41 @@ def test_case_shards_reject_bad_ranges(catalog_directory, mutation):
         write_shard(catalog_directory, "cases/E25-E47.toml", records=[record])
     else:
         write_shard(catalog_directory, "cases/E47-E25.toml", records=[record])
-    with pytest.raises(LedgerSchemaError):
+    with pytest.raises(LedgerSchemaError, match=reason):
         UICatalog(directory=catalog_directory)
 
 
-@pytest.mark.parametrize("mutation", ["evidence-classification", "classification-twice"])
-def test_evidence_cannot_reclassify_an_owner_slot(catalog_directory, mutation):
+def test_evidence_cannot_reclassify_an_owner_slot(catalog_directory):
+    write_shard(catalog_directory, "operations/IWindow.toml", records=[classified_operation()])
+    write_shard(catalog_directory, "evidence/ui1-linux.toml", records=[classified_operation()])
+    with pytest.raises(LedgerSchemaError, match="evidence shard classification may contain only note"):
+        UICatalog(directory=catalog_directory)
+
+
+@pytest.mark.parametrize(
+    ("second", "reason"),
+    [
+        ("operations/IButton.toml", "foreign owner IWindow.isOpen"),
+        ("cases/E01-E30.toml", "overlapping case range: cases/E01-E30.toml"),
+        ("families.toml", "foreign subject kind"),
+    ],
+)
+def test_the_layout_gives_each_slot_one_classification_writer(catalog_directory, second, reason):
+    # No merge-time duplicate check exists: a second file that could classify the same slot
+    # is refused by the layout itself, before any classification is merged.
     record = classified_operation()
-    if mutation == "classification-twice":
+    if second.startswith("cases/"):
+        record = operation("E01", kind="ui-case", classification={"implementation": "missing", "parity": "missing"})
+        write_shard(catalog_directory, "cases/E01-E24.toml", records=[record])
+    else:
         write_shard(catalog_directory, "operations/IWindow.toml", records=[record])
-    write_shard(catalog_directory, "evidence/ui1-linux.toml", records=[record])
-    with pytest.raises(LedgerSchemaError):
+    if second == "families.toml":
+        families = tomllib.loads((catalog_directory / "families.toml").read_text(encoding="utf-8"))
+        families["records"].append(record)
+        write_shard(catalog_directory, second, **families)
+    else:
+        write_shard(catalog_directory, second, records=[record])
+    with pytest.raises(LedgerSchemaError, match=reason):
         UICatalog(directory=catalog_directory)
 
 
@@ -517,7 +598,7 @@ def test_seed_slot_set_is_immutable(catalog_directory, tmp_path, mutation):
     else:
         document["records"].append(operation("IApplication.createButton"))
     seed = write_shard(tmp_path, "seed.toml", **document)
-    with pytest.raises(LedgerSchemaError):
+    with pytest.raises(LedgerSchemaError, match="tampered seed slot set"):
         UICatalog(directory=catalog_directory, seed=seed)
 
 
@@ -606,25 +687,107 @@ def test_exported_surface_can_admit_a_new_owner_and_optional_shards(catalog_dire
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    ("overrides", "reason"),
     [
-        {"module": "GUI.NotExported"},
-        {"symbol": "NotExported"},
-        {"kind": "interface"},
-        {"disposition": "legacy", "reason": "Retained only for compatibility"},
-        {"disposition": "out-of-scope", "operations": []},
-        {"unexpected": "field"},
+        ({"module": "GUI.NotExported"}, "surface module is not exported: GUI.NotExported"),
+        ({"symbol": "NotExported"}, "surface symbol/kind does not match GUI.Font.NotExported"),
+        ({"kind": "interface"}, "surface symbol/kind does not match GUI.Font.Font"),
+        (
+            {"module": "GUI.IFontFace", "symbol": "IFontFace", "kind": "interface", "operations": []},
+            "GUI.IFontFace belongs to the UI0 interface catalog",
+        ),
+        ({"module": "GUI.GUI", "symbol": "GUI", "operations": []}, "GUI.GUI belongs to the UI0 interface catalog"),
+        ({"disposition": "legacy", "reason": "Retained only for compatibility"}, "only a family proposes operations"),
+        ({"disposition": "out-of-scope", "reason": "Not portable", "operations": []}, "only a family proposes"),
+        ({"disposition": "out-of-scope", "operations": None}, r"reason: required"),
+        ({"disposition": "retained"}, "unknown surface disposition retained"),
+        ({"links": ["not a link"]}, "is not an N-ID"),
+        ({"operations": ["Font.bad-id"]}, "invalid proposed operation id Font.bad-id"),
+        ({"operations": ["TextRun.measure"]}, "proposed operation has a foreign owner: TextRun.measure"),
+        ({"unexpected": "field"}, r"unknown field\(s\) unexpected"),
     ],
 )
-def test_surface_rejects_unexported_or_invalid_proposals(catalog_directory, overrides):
-    write_shard(
-        catalog_directory,
-        "surface/GUIModules.toml",
-        schema="btrc.ui-catalog.surface/1",
-        symbols=[surface_font(**overrides)],
-    )
-    with pytest.raises(LedgerSchemaError):
+def test_surface_rejects_unexported_or_invalid_proposals(catalog_directory, overrides, reason):
+    row = {key: value for key, value in surface_font(**overrides).items() if value is not None}
+    write_shard(catalog_directory, "surface/GUIModules.toml", schema="btrc.ui-catalog.surface/1", symbols=[row])
+    with pytest.raises(LedgerSchemaError, match=reason):
         UICatalog(directory=catalog_directory)
+
+
+def surface_rows():
+    """Every exported class, interface and enum each surface stem covers, read independently of the loader.
+
+    GUIModules covers GUI's exports outside the UI0 interface catalog: I*.btrc and the GUI facade.
+    """
+
+    kinds = {ClassDecl: "class", InterfaceDecl: "interface", EnumDecl: "enum", RichEnumDecl: "richenum"}
+    rows = {}
+    for stem, package in (("GUIModules", "GUI"), ("App", "App"), ("UI", "UI"), ("Tray", "Tray")):
+        root = REPO / "src/stdlib" / package
+        for export in tomllib.loads((root / "btrc.toml").read_text(encoding="utf-8"))["package"]["exports"]:
+            if stem == "GUIModules" and (export == "GUI" or export.split(".")[-1].startswith("I")):
+                continue
+            source = root.joinpath(*export.split(".")).with_suffix(".btrc").read_text(encoding="utf-8")
+            rows.setdefault(stem, []).extend(
+                {"module": f"{package}.{export}", "symbol": declaration.name, "kind": kinds[type(declaration)]}
+                for declaration in parse(source)
+                if type(declaration) in kinds
+            )
+    return rows
+
+
+def write_surface(directory, rows):
+    for stem, symbols in rows.items():
+        write_shard(directory, f"surface/{stem}.toml", schema="btrc.ui-catalog.surface/1", symbols=symbols)
+
+
+def test_surface_kind_strict_fails_on_an_export_without_a_row(catalog_directory, monkeypatch, capsys):
+    write_surface(catalog_directory, {"GUIModules": [surface_font()]})
+    monkeypatch.setattr(ui_catalog, "UICatalog", lambda: UICatalog(directory=catalog_directory))
+    expected = sorted(f"{row['module']}.{row['symbol']}" for symbols in surface_rows().values() for row in symbols)
+    assert {"GUI.Font.Font", "GUI.ActionMailbox.IQueuedAction", "App.App.AppKeyCode", "Tray.TrayModel.Tray"} <= set(
+        expected
+    )
+    assert not {"GUI.GUI.GUI", "GUI.IFontFace.FontMetrics", "GUI.Raster.GUIRasterPixels"} & set(expected)
+    without_row = [name for name in expected if name != "GUI.Font.Font"]
+    assert sorted(UICatalog(directory=catalog_directory).unclassified_surface()) == without_row
+    assert ui_catalog.main(["check", "--strict", "--kind", "surface"]) == 1
+    checked = capsys.readouterr()
+    assert sorted(line.removeprefix("unclassified surface symbol: ") for line in checked.err.splitlines()) == (
+        without_row
+    )
+    # The proposal is pending; its unclassified operation slots are not surface problems.
+    assert "pending: 1 ids / 10 slots" in checked.out
+    assert f"surface: 1 rows; {len(expected) - 1} of {len(expected)} exported symbols have no row" in checked.out
+    assert ui_catalog.main(["check", "--kind", "surface"]) == 0
+    assert "pending: 1 ids / 10 slots" in capsys.readouterr().out
+
+
+def test_surface_kind_strict_passes_when_every_export_has_a_row(catalog_directory, monkeypatch, capsys):
+    rows = surface_rows()
+    for row in (row for symbols in rows.values() for row in symbols):
+        if row["symbol"] == "Font":
+            row.update(surface_font())
+        else:
+            row.update(disposition="out-of-scope", links=["UI0"], reason="Fixture disposition")
+    write_surface(catalog_directory, rows)
+    monkeypatch.setattr(ui_catalog, "UICatalog", lambda: UICatalog(directory=catalog_directory))
+    assert ui_catalog.main(["check", "--strict", "--kind", "surface"]) == 0
+    checked = capsys.readouterr()
+    assert checked.err == ""
+    assert "pending: 1 ids / 10 slots" in checked.out
+    total = sum(map(len, rows.values()))
+    assert f"surface: {total} rows; 0 of {total} exported symbols have no row" in checked.out
+    assert ui_catalog.main(["report", "--format", "json", "--kind", "surface"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["partitions"]["pending"] == {"ids": 1, "slots": 10}
+    assert report["partitions"]["frozen"] == {"ids": 0, "slots": 0}
+    assert {(row["partition"], row["kind"]) for row in report["counts"]} == {("pending", "ui-operation")}
+    assert report["unclassified_surface"] == [] and report["unclassified"] == {}
+    assert len(report["surface"]) == total
+    # The proposed slots are still ui-operation slots: their own owner's strict check sees them.
+    assert ui_catalog.main(["check", "--strict", "--owner", "Font"]) == 1
+    assert capsys.readouterr().err.count("unclassified: ui-operation Font.pendingMeasure") == 10
 
 
 def test_two_packets_compact_shards_merge_and_expand_both_frontends(catalog_directory):
@@ -688,17 +851,20 @@ def test_two_packets_compact_shards_merge_and_expand_both_frontends(catalog_dire
 
 
 @pytest.mark.parametrize(
-    "cell",
+    ("cell", "reason"),
     [
-        {"evidence": {"status": "passed", "observed": "failed"}},
-        {"evidence": {"status": "passed", "covered_by": ["macos"]}},
-        {"implementation": "missing", "evidence": {"status": "passed"}},
-        {"evidence": {"status": "unrecognized"}},
+        ({"evidence": {"status": "passed", "observed": "failed"}}, "passed evidence cannot record an observed"),
+        ({"evidence": {"status": "passed", "covered_by": ["macos"]}}, "covered_by belongs only to unavailable"),
+        (
+            {"implementation": "missing", "evidence": {"status": "passed"}},
+            "a slot whose implementation is missing cannot be passed",
+        ),
+        ({"evidence": {"status": "unrecognized"}}, "'unrecognized' is not one of"),
     ],
 )
-def test_compact_cells_enforce_ledger_cross_field_invariants(catalog_directory, cell):
+def test_compact_cells_enforce_ledger_cross_field_invariants(catalog_directory, cell, reason):
     write_shard(catalog_directory, "operations/IWindow.toml", operations=[{"id": "IWindow.isOpen", "linux": cell}])
-    with pytest.raises(LedgerSchemaError):
+    with pytest.raises(LedgerSchemaError, match=reason):
         UICatalog(directory=catalog_directory)
 
 
@@ -883,8 +1049,18 @@ reason = "Fixture exercises optional replacement"
         verify_surface(changed_sources)
 
 
-@pytest.mark.parametrize("mutation", ["unknown-field", "no-decision", "invalid-declaration", "duplicate-id"])
-def test_amendment_validation_rejects_unreviewed_or_ambiguous_additions(catalog_directory, mutation):
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("unknown-field", r"unknown field\(s\) typo"),
+        ("no-decision", "decision: required"),
+        ("invalid-declaration", "invalid amendment declaration"),
+        ("duplicate-id", "duplicate operation in amendment"),
+        ("invalid-link", "'IFixture' is not an N-ID"),
+        ("empty-links", "links: expected at least one entry"),
+    ],
+)
+def test_amendment_validation_rejects_unreviewed_or_ambiguous_additions(catalog_directory, mutation, reason):
     row = {"source": "IFixture.btrc", "owner": "IFixture", "decision": "fixture", "declarations": ["void run();"]}
     if mutation == "unknown-field":
         row["typo"] = "ignored"
@@ -892,14 +1068,47 @@ def test_amendment_validation_rejects_unreviewed_or_ambiguous_additions(catalog_
         del row["decision"]
     elif mutation == "invalid-declaration":
         row["declarations"] = ["not valid syntax"]
-    else:
+    elif mutation == "duplicate-id":
         row["declarations"].append("void run(int value);")
-    path = write_shard(
-        catalog_directory, "amendments/cx-uia-99.toml", release="ui0-source-inventory-2026-09-21", additions=[row]
-    )
-    path.write_text(path.read_text().split("\n", 1)[1], encoding="utf-8")
-    with pytest.raises(LedgerSchemaError):
+    else:
+        row["links"] = ["N44", "IFixture"] if mutation == "invalid-link" else []
+    write_amendment(catalog_directory, additions=[row])
+    with pytest.raises(LedgerSchemaError, match=reason):
         UICatalog(directory=catalog_directory)
+
+
+def write_amendment(directory, **sections):
+    """A per-packet amendment file: the base release plus the given sections, without a ledger schema."""
+
+    path = write_shard(directory, "amendments/cx-uia-99.toml", release="ui0-source-inventory-2026-09-21", **sections)
+    path.write_text(path.read_text().split("\n", 1)[1], encoding="utf-8")
+    return path
+
+
+def test_amendment_links_are_accepted_when_they_name_roadmap_ids(catalog_directory):
+    row = {"source": "IFixture.btrc", "owner": "IFixture", "decision": "fixture", "declarations": ["void run();"]}
+    write_amendment(catalog_directory, additions=[{**row, "links": ["N44", "UI5", "E03"]}])
+    assert "IFixture.run" in {record.subject.id for record in UICatalog(directory=catalog_directory).pending_records}
+
+
+@pytest.mark.parametrize(
+    ("replacement", "reason"),
+    [
+        ("IWindow.isOpen", None),
+        ("IWindow.notDeclared", "IWindow.show names a replacement that is not an admissible operation"),
+        ("GUI.rasterText", "IWindow.show names a replacement that is not an admissible operation: GUI.rasterText"),
+        ("IWindow.show", "IWindow.show names a replacement that is not an admissible operation: IWindow.show"),
+    ],
+)
+def test_a_removal_replacement_must_be_an_admissible_live_operation(catalog_directory, replacement, reason):
+    removal = {"id": "IWindow.show", "decision": "fixture", "reason": "Fixture removal", "replacement": replacement}
+    write_amendment(catalog_directory, removals=[removal])
+    if reason is None:
+        catalog = UICatalog(directory=catalog_directory)
+        assert {record.subject.id for record in catalog.retired_records} == {"GUI.rasterText", "IWindow.show"}
+    else:
+        with pytest.raises(LedgerSchemaError, match=reason):
+            UICatalog(directory=catalog_directory)
 
 
 @pytest.mark.parametrize("outcome", ["passed", "failed", "skipped", "missing", "no-regression"])
@@ -989,15 +1198,16 @@ def test_evidence_jsonl_supports_test_records_and_last_evidence(catalog_director
 
 
 def test_cli_strict_and_json_report_observe_selected_scope(catalog_directory, monkeypatch, capsys):
-    from tools.qualification import ui_catalog
-
     monkeypatch.setattr(ui_catalog, "UICatalog", lambda: UICatalog(directory=catalog_directory))
     assert ui_catalog.main(["check", "--strict", "--kind", "family-cell"]) == 0
     checked = capsys.readouterr()
     assert "300/300" in checked.out
-    assert "0 undeclared" in checked.out
+    assert "0 missing, 0 undeclared" in checked.out
+    assert "surface:" not in checked.out and "duplicate" not in checked.out
     assert ui_catalog.main(["check", "--strict", "--owner", "IWindow"]) == 1
-    assert "unclassified" in capsys.readouterr().err
+    listed = capsys.readouterr().err.splitlines()
+    assert "unclassified: ui-operation IWindow.isOpen android selfhost" in listed
+    assert all(line.startswith("unclassified: ui-operation IWindow") and "<" not in line for line in listed)
     assert ui_catalog.main(["report", "--format", "json", "--kind", "family-cell"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["partitions"]["frozen"]["slots"] == 300
@@ -1006,6 +1216,18 @@ def test_cli_strict_and_json_report_observe_selected_scope(catalog_directory, mo
     assert sum(row.get("partial", 0) for row in report["counts"]) == 48
     assert sum(row.get("custom", 0) for row in report["counts"]) == 15
     assert sum(row.get("missing", 0) for row in report["counts"]) == 237
+
+
+def test_check_summary_computes_missing_and_undeclared_slots(catalog_directory):
+    # Admission keeps both at zero; the summary still counts them from the merged records.
+    catalog = UICatalog(directory=catalog_directory)
+    assert catalog.summary()[-1] == "0 missing, 0 undeclared"
+    catalog.declared_records = [
+        *catalog.declared_records[1:],
+        UICatalog.identity(("ui-operation", "Ghost.operation", "linux", "reference", "")),
+    ]
+    assert catalog.summary()[-1] == "1 missing, 1 undeclared"
+    assert any("slots are outside" in problem for problem in catalog.problems())
 
 
 def test_evidence_shard_requires_provenance(catalog_directory):
@@ -1064,3 +1286,98 @@ def test_later_denominator_release_admits_ids_without_mutating_the_seed(catalog_
     assert catalog.problems() == []
     assert len([row for row in catalog.frozen_records if row.subject.id == identifiers[0]]) == later.frozen_slots
     assert not any(row.subject.id == identifiers[0] for row in catalog.pending_records)
+
+
+@pytest.mark.parametrize(
+    ("kind", "identifiers", "shard", "table"),
+    [
+        (
+            SubjectKind.UI_OPERATION,
+            ("FutureOwner.layout", "FutureOwner.measure"),
+            "operations/FutureOwner",
+            "operations",
+        ),
+        (SubjectKind.UI_CASE, ("E48", "E49"), "cases/E48-E49", "cases"),
+    ],
+)
+def test_a_partially_covered_later_release_keeps_its_uncovered_slots_unclassified(
+    catalog_directory, monkeypatch, capsys, kind, identifiers, shard, table
+):
+    base = DenominatorManifest.load()
+    later = replace(
+        ui_manifest(base).by_kind()[kind],
+        release="fixture-later-release",
+        ids=identifiers,
+        frozen_ids=len(identifiers),
+        frozen_slots=len(identifiers) * len(PLATFORMS) * len(FRONTENDS),
+        frozen_digest=Denominator.digest(identifiers),
+        source="inline list",
+    )
+    manifest = DenominatorManifest([*base.denominators, later])
+    # The shard writes one cell of one id: the other 19 declared slots have no file at all.
+    cell = {"reference": {"evidence": {"status": "implemented-unverified"}}}
+    write_shard(
+        catalog_directory,
+        f"{shard}.toml",
+        **{table: [{"id": identifiers[0], "implementation": "partial", "linux": cell}]},
+    )
+    catalog = UICatalog(directory=catalog_directory, manifest=manifest)
+    assert catalog.problems() == []
+    declared = later.slot_keys()
+    covered = (kind.value, identifiers[0], "linux", "reference", "")
+    assert {row.subject.key for row in catalog.frozen_records} >= declared
+    assert not declared & {row.subject.key for row in catalog.pending_records}
+    later_unclassified = {row.subject.key for row in catalog.unclassified() if row.subject.id in identifiers}
+    assert later_unclassified == declared - {covered}
+    owners = sorted({identifier.split(".")[0] for identifier in identifiers})
+    assert {row.subject.key for row in catalog.unclassified(owner=owners)} == declared - {covered}
+    # The CLI counts the release, passes `check`, and lists every uncovered slot under --strict in plain words.
+    monkeypatch.setattr(ui_catalog, "UICatalog", lambda: UICatalog(directory=catalog_directory, manifest=manifest))
+    assert ui_catalog.main(["check"]) == 0
+    expected = len(manifest.slot_keys(kind))
+    assert f"{kind.value}: {expected:,}/{expected:,} frozen slots" in capsys.readouterr().out
+    assert ui_catalog.main(["check", "--strict", *(f"--owner={owner}" for owner in owners)]) == 1
+    listed = capsys.readouterr().err.splitlines()
+    assert sorted(listed) == sorted(f"unclassified: {UICatalog.slot_name(key)}" for key in declared - {covered})
+    assert f"unclassified: {kind.value} {identifiers[1]} android selfhost" in listed
+    assert not any("<" in line for line in listed)
+
+
+def test_junit_check_reads_only_ui_slots(catalog_directory, tmp_path):
+    run = {
+        "source": "fixture",
+        "recorded_at": "2026-10-03T12:00:00+00:00",
+        "runner": "linux-devcontainer",
+        "btrc_revision": "fixture-revision",
+    }
+    node = "src/tests/python/test_ui0_catalog.py::test_fixture"
+    write_shard(
+        catalog_directory,
+        "operations/IWindow.toml",
+        operations=[
+            {
+                "id": "IWindow.isOpen",
+                "implementation": "partial",
+                "regression": [node],
+                "linux": {"reference": {"evidence": {"status": "passed"}, "run": "ui0-linux-fixture"}},
+            }
+        ],
+        runs={"ui0-linux-fixture": run},
+    )
+    # A passing test record whose provenance is the run's: it carries no regression of its own.
+    test_record = {
+        "subject": {"kind": "test", "id": node, "platform": "linux", "frontend": "reference"},
+        "evidence": {"status": "passed"},
+    }
+    write_shard(catalog_directory, "evidence/ui1-linux.toml", provenance=run, records=[test_record])
+    junit = tmp_path / "fixture.xml"
+    junit.write_text(
+        '<testsuite><testcase classname="src.tests.python.test_ui0_catalog" name="test_fixture"/></testsuite>',
+        encoding="utf-8",
+    )
+    catalog = UICatalog(directory=catalog_directory)
+    assert any(
+        row.subject.kind is SubjectKind.TEST and row.provenance == catalog.runs["ui0-linux-fixture"]
+        for row in catalog.records
+    )
+    assert catalog.problems(junit={"ui0-linux-fixture": junit}) == []
