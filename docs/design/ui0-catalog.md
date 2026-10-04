@@ -5,14 +5,16 @@ The shard follow-up (`CX-UIA-02`) keeps the seed byte-identical and adds
 Shards live beside the seed under `native-ui-catalog/`: `families.toml`,
 `operations/<Owner>.toml`, `cases/E<first>-E<last>.toml`,
 `surface/{GUIModules,App,UI,Tray}.toml`, `evidence/<kebab-name>.toml|.jsonl`,
-`amendments/<packet-id>.toml`, and `hosts.toml`. The directory README records
-ownership; an unrecognized file is an error. Each operation or case has one
-classification writer, while later evidence shards may update its evidence.
+`amendments/<packet-id-lowercase>.toml`, and `hosts.toml`. The directory README
+records ownership; an unrecognized file is an error. Each operation or case has
+one classification writer, while later evidence shards may update its evidence.
 
 Three partitions keep source changes separate from a frozen release:
 
-- **Frozen:** the declared operation, case and family slots. Retired slots
-  retain their place in these denominators.
+- **Frozen:** the operation, case and family slots of every UI release in
+  force. Each operation or case slot has a record even when no shard writes
+  it, so an omitted slot is unclassified, not missing. Retired slots retain
+  their place in these denominators.
 - **Pending:** amendment additions and reviewed surface proposals that no
   denominator release yet declares. They receive the same platform/frontend
   coverage as operations but never increase the frozen counts.
@@ -110,11 +112,15 @@ explicit ID design rather than overwriting a catalog row.
 
 The [shard contract](native-ui-catalog/README.md) defines all admitted files,
 compact fields, writer ownership and CLI filters. The loader rejects unknown
-files, foreign owners, overlapping case ranges, variants on UI slots, duplicate
-classifications, undeclared IDs, evidence reclassification, and mutations to
-the seed slot set. Evidence is applied in ledger order, independently of the
-classification; an older timestamp overwriting newer evidence fails `check`.
+files, foreign owners, overlapping case ranges, variants on UI slots, a slot
+repeated within one file, undeclared IDs, evidence reclassification, and
+mutations to the seed slot set; together these leave each slot one
+classification writer. Evidence is applied in ledger order, independently of
+the classification; an older timestamp overwriting newer evidence fails `check`.
 `--junit RUN=PATH` checks passing records against their named regression tests.
+`check --strict --kind surface` fails on an exported class, interface or enum
+that has no surface row, and counts the operations surface rows propose as
+pending.
 
 The family seed has 48 partial, 15 custom and 237 missing cells, with no runtime
 evidence. Tests pin the original grid independently of the evolving roadmap;

@@ -2,8 +2,8 @@
 
 The sibling `../native-ui-catalog.toml` is an immutable identity seed.
 `python3 -m tools.qualification.ui_catalog check` loads it and this directory.
-Unknown paths, symlinks, duplicate classifications and undeclared slots fail
-admission. A directory may contain only the files below; empty declared
+Unknown paths, symlinks, a slot repeated within one file and undeclared IDs
+fail admission. A directory may contain only the files below; empty declared
 directories are allowed. `hosts.toml` is validated by its own host packet.
 
 | Path | Format / admission | Packet |
@@ -18,7 +18,7 @@ directories are allowed. `hosts.toml` is validated by its own host packet.
 | `evidence/ui1-linux.toml` | ledger/1 evidence, tests and notes | CX-UIA-11 |
 | UI2 `operations/<Owner>.toml` | same owner rules; claim exact filenames in the PR | CX-UIA-21 |
 | UI3 `operations/<Owner>.toml` | same owner rules; claim exact filenames in the PR | CX-UIA-25 |
-| `amendments/cx-<group>-<number>.toml` | reviewed source-amendment grammar | named packet |
+| `amendments/<packet-id-lowercase>.toml` (`cx-uia-05.toml`, `cl-uia-24.toml`, `mac-c-01.toml`) | reviewed source-amendment grammar | named packet |
 | `evidence/<lowercase-kebab-name>.toml` or `.jsonl` | ledger/1; future evidence packets claim their exact filename | named packet |
 | `README.md` | this admission and ownership reference; never parsed as data | CX-UIA-02 |
 
@@ -34,8 +34,16 @@ An operation or case is **classified** only when its merged record has both
 only `implementation`. The family seed records source state with no evidence:
 48 partial, 15 custom and 237 missing. A source classification is not a pass.
 
-The frozen releases retain 1,620 operation slots, 470 case slots and 300 family
-cells. IDs admitted by amendments or `family` surface proposals are **pending**
+The **frozen** slots are those of every ui-operation, ui-case and family-cell
+release `tools/qualification/denominators.toml` declares. Today that is the one
+2026-09-21 release: 1,620 operation slots, 470 case slots and 300 family cells.
+Every operation and case slot of every release in force has a record even when
+no file writes it: the seed gives its own release's identities, and the loader
+gives a later release's slots the same bare identity. An omitted slot is
+therefore unclassified, never missing. `families.toml` writes every family cell
+itself, so a family cell it omits fails `check` as missing.
+
+IDs admitted by amendments or `family` surface proposals are **pending**
 until a denominator release declares them. Pending IDs have ten slots (five
 platforms × two frontends), even before a writer supplies classifications.
 They are checked and reported but excluded from frozen denominator counts.
@@ -87,8 +95,11 @@ and `device_class = "iPad"`, never an `ipados` inventory family.
 ## Merge order and evidence
 
 Order is seed, families, sorted operations, sorted cases, then sorted evidence
-files. One slot has at most one classification writer and appears at most
-once in a file. Evidence can be updated by several files; last evidence wins
+files. A slot appears at most once in a file. It has at most one
+classification writer by layout: an operation can only be in its owner's file,
+case ranges are disjoint, family cells live only in `families.toml`, and
+evidence shards carry no classification but a note. Evidence can be updated by
+several files; last evidence wins
 without replacing implementation/owner/regression. Evidence notes append to
 the classification note. Replacing newer evidence with an older timestamp is
 a check failure, even if the later record would otherwise pass.
@@ -107,18 +118,32 @@ Surface documents have `schema = "btrc.ui-catalog.surface/1"` and one
 `reason` (required except for `family`). Dispositions are `family`, `legacy`,
 `provider-internal`, and `out-of-scope`. The module must be in its package's
 `btrc.toml` exports and the symbol/kind must occur in the parsed source.
-`GUIModules` excludes `I*.btrc`. Only `family` rows may add an `operations`
-list; each `Owner.method` must belong to that row's symbol. Such proposals
-admit the owner's operation shard but do not claim an implementation.
+`GUIModules` covers GUI's exported modules outside the UI0 interface catalog,
+so it excludes `I*.btrc` and the `GUI.btrc` facade, whose methods are
+operations. Only `family` rows may add an `operations` list; each
+`Owner.method` must belong to that row's symbol. Such proposals admit the
+owner's operation shard but do not claim an implementation.
+
+An exported symbol is **classified** on the surface when it has a row. Every
+top-level class, interface and enum of a module a stem covers needs one row;
+structs and typedefs need none. `check --strict --kind surface` fails on each
+such symbol without a row, and an invalid row fails admission in every
+command. `--kind surface` also selects the operation IDs that `family` rows
+propose, so `check` and `report` count them in their partitions (pending until
+a release declares them). Their slots are still ui-operation slots, classified
+in the owner's shard and checked by `--strict --owner <Owner>` or
+`--kind ui-operation`, never by `--kind surface`.
 
 The base `../ui0-source-amendments.toml` and sorted `amendments/*.toml` share
 one release. `[[additions]]` has `source`, `owner`, `decision`, `declarations`,
 optional `parent`, `scope`, `links`, and `reason`. Signatures are parsed through
-the reference parser. `scope = "out-of-scope"` requires a reason and excludes
+the reference parser; `links` are N-IDs, E-IDs or milestones, as in a ledger
+classification. `scope = "out-of-scope"` requires a reason and excludes
 the IDs from pending slots, without excluding them from source drift checks.
 `[[changes]]` carries `id`, `decision`, `frozen`, and `current`; a changed
 signature keeps its identity. `[[removals]]` has `id`, `decision`, `reason`,
-and optional `replacement`. `[[outside_interfaces]]` lists `id`, `decision`,
+and optional `replacement`, an admissible operation that is not itself
+retired. `[[outside_interfaces]]` lists `id`, `decision`,
 and `reason` for exported GUI interfaces outside `I*.btrc`; today that is
 `ActionMailbox.IQueuedAction`. `[current]` records the reviewed source counts.
 
@@ -128,13 +153,20 @@ and `reason` for exported GUI interfaces outside `I*.btrc`; today that is
 nix develop --command python3 -m tools.qualification.ui_catalog check
 nix develop --command python3 -m tools.qualification.ui_catalog check --strict --owner IWindow
 nix develop --command python3 -m tools.qualification.ui_catalog check --strict --kind ui-case --junit RUN=results.xml
+nix develop --command python3 -m tools.qualification.ui_catalog check --strict --kind surface
 nix develop --command python3 -m tools.qualification.ui_catalog report --format json
 nix develop --command python3 -m tools.qualification.ui_catalog report --kind family-cell
 ```
 
 `--owner` and `--kind` may repeat. Admission and denominator validation always
 check the entire catalog; filters scope strict classification and the report.
-`--junit RUN=PATH` requires every passing cell of that named run to cite
-regression node IDs that passed in the supplied XML via `JUnitAdapter`.
-Unknown run names fail. Both commands exit 1 on problems. Reports give counts
-per partition/kind/platform/frontend and unclassified slots per owner.
+No `--kind` means every kind, the surface included. A surface symbol's owner
+is its symbol name. `--junit RUN=PATH` requires every passing UI cell of that
+named run to cite regression node IDs that passed in the supplied XML via
+`JUnitAdapter`; `test` records are evidence for those cells, not cells.
+Unknown run names fail. Both commands exit 1 on problems. `check` prints the
+frozen slots per kind against every release in force, the selected pending and
+retired partitions, the surface rows and exported symbols without one, and the
+missing and undeclared slots it counted. Reports give counts per
+partition/kind/platform/frontend, unclassified slots per owner, and the
+exported symbols without a surface row.

@@ -45,8 +45,18 @@ REPO = Path(__file__).resolve().parents[2]
 PLATFORMS = (Platform.MACOS, Platform.LINUX, Platform.WINDOWS, Platform.IOS, Platform.ANDROID)
 FRONTENDS = (Frontend.REFERENCE, Frontend.SELFHOST)
 UI_KINDS = (SubjectKind.UI_OPERATION, SubjectKind.UI_CASE, SubjectKind.FAMILY_CELL)
+# Every declared slot of these kinds has an identity record, as the seed gives
+# its own: a slot no file writes is unclassified, never missing. families.toml
+# writes every family cell itself, so a family cell it omits stays missing.
+IDENTITY_KINDS = (SubjectKind.UI_OPERATION, SubjectKind.UI_CASE)
+# The `--kind` value that selects the surface inventory rather than a ledger kind.
+SURFACE = "surface"
 SURFACE_SCHEMA = "btrc.ui-catalog.surface/1"
 SURFACE_STEMS = {"GUIModules": "GUI", "App": "App", "UI": "UI", "Tray": "Tray"}
+SURFACE_DISPOSITIONS = ("family", "legacy", "provider-internal", "out-of-scope")
+# The exported declarations that each need a surface row (struct and typedef do not).
+SURFACE_KINDS = ("class", "interface", "enum", "richenum")
+OPERATION_ID = re.compile(r"[A-Z][A-Za-z0-9]*\.[A-Za-z][A-Za-z0-9]*")
 # Data, rather than permissive recursive ledger discovery: unknown paths fail.
 LAYOUT = {
     "families.toml": r"families\.toml",
@@ -54,7 +64,8 @@ LAYOUT = {
     "cases": r"cases/E[0-9]{2}-E[0-9]{2}\.toml",
     "surface": r"surface/(?:GUIModules|App|UI|Tray)\.toml",
     "evidence": r"evidence/[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.(?:toml|jsonl)",
-    "amendments": r"amendments/cx-[a-z0-9]+-[0-9]+\.toml",
+    # <packet-id-lowercase>.toml: CL-, CX- or MAC-, the group, and the number with an optional letter.
+    "amendments": r"amendments/(?:cl|cx|mac)-[a-z0-9]+-[0-9]+[a-z]?\.toml",
     "hosts.toml": r"hosts\.toml",
     "README.md": r"README\.md",
 }
@@ -106,11 +117,15 @@ class CatalogAmendments:
                             raise LedgerSchemaError(f"{path}: invalid addition scope")
                         if row.get("scope") == "out-of-scope":
                             item.text("reason", required=True)
+                        if "links" in row:
+                            Classification.from_mapping({"links": row["links"]}, f"{path}.{section}")
                         self.methods(row)
                     else:
                         item.text("id", required=True)
                         if section in ("removals", "outside_interfaces"):
                             item.text("reason", required=True)
+                        if section == "removals":
+                            item.text("replacement")
                         if section == "changes":
                             for key in ("frozen", "current"):
                                 signature = item.text(key, required=True)
@@ -178,6 +193,9 @@ class UICatalog:
         self.record_runs = {}
         self._problems = []
         self.surface = []
+        self.proposals = set()
+        self._modules = {}
+        self._exports = None
         self._frozen_keys = set().union(*(entry.slot_keys() for entry in self.manifest.denominators))
         self.admissible = {kind: {key[1] for key in self._frozen_keys if key[0] == kind} for kind in UI_KINDS}
         seed_records = LedgerDocument.load(self.seed)
@@ -196,16 +214,20 @@ class UICatalog:
                 raise LedgerSchemaError(f"retired id is undeclared: {identifier}")
         for path in self.paths.get("surface", []):
             self.load_surface(path)
+        self.check_replacements()
         self._pending_keys = {
             Subject(kind=kind, id=identifier, platform=platform, frontend=frontend).key
-            for kind in (SubjectKind.UI_OPERATION, SubjectKind.UI_CASE)
+            for kind in IDENTITY_KINDS
             for identifier in self.admissible[kind]
             for platform in PLATFORMS
             for frontend in FRONTENDS
         } - self._frozen_keys
         merged = {record.subject.key: record for record in seed_records}
-        for key in sorted(self._pending_keys):
-            merged[key] = LedgerRecord(Subject(SubjectKind(key[0]), key[1], Platform(key[2]), Frontend(key[3])))
+        # The seed holds only its own release. Every other operation/case slot a release in
+        # force declares, and every pending slot, starts from the same bare identity.
+        identities = {key for key in self._frozen_keys if key[0] in IDENTITY_KINDS} | self._pending_keys
+        for key in sorted(identities - merged.keys()):
+            merged[key] = self.identity(key)
         for key, record in list(merged.items()):
             if record.subject.kind == SubjectKind.UI_OPERATION and record.subject.id in self.retirements:
                 merged[key] = replace(
@@ -214,7 +236,9 @@ class UICatalog:
                         implementation=Implementation.RETIRED, decision=self.retirements[record.subject.id]["decision"]
                     ),
                 )
-        writers = {}
+        # One classification writer per slot follows from the layout, not from a merge-time
+        # check: an operation's only file is its owner's, case ranges are disjoint, family
+        # cells live in families.toml, and evidence shards may carry only a note.
         for category in ("families.toml", "operations", "cases", "evidence"):
             for path in self.paths.get(category, []):
                 records, run_names = self.load_records(path, category)
@@ -223,14 +247,9 @@ class UICatalog:
                     updates_evidence = record.evidence is not None
                     key = record.subject.key
                     if key in seen:
-                        raise LedgerSchemaError(f"{path}: duplicate slot {key}")
+                        raise LedgerSchemaError(f"{path}: duplicate slot {self.slot_name(key)}")
                     seen.add(key)
                     self.admit(record, path, category)
-                    classification = record.classification
-                    if classification is not None and category != "evidence":
-                        if key in writers:
-                            raise LedgerSchemaError(f"classification duplicated in {writers[key]} and {path}: {key}")
-                        writers[key] = path
                     old = merged.get(key)
                     if old is not None:
                         record = self.merge(old, record, category, path)
@@ -243,6 +262,12 @@ class UICatalog:
         self.frozen_records = [record for record in self.records if record.subject.key in self._frozen_keys]
         self.pending_records = [record for record in self.records if record.subject.key in self._pending_keys]
         self.retired_records = [record for record in self.records if self.retired(record)]
+        # Every UI record outside the pending partition: the releases count it as present or undeclared.
+        self.declared_records = [
+            record
+            for record in self.records
+            if record.subject.kind in UI_KINDS and record.subject.key not in self._pending_keys
+        ]
 
     def layout(self):
         if not self.directory.is_dir():
@@ -285,6 +310,77 @@ class UICatalog:
         if any(record.classification or record.evidence or record.measurement for record in records):
             raise LedgerSchemaError("the seed contains identities only; write dispositions in shards")
 
+    def check_replacements(self):
+        """A removal's replacement names an admissible operation that is not itself retired."""
+
+        for identifier, row in self.retirements.items():
+            replacement = row.get("replacement")
+            if replacement is not None and (
+                replacement not in self.admissible[SubjectKind.UI_OPERATION] or replacement in self.retirements
+            ):
+                raise LedgerSchemaError(
+                    f"retired id {identifier} names a replacement that is not an admissible operation: {replacement}"
+                )
+
+    @staticmethod
+    def identity(key):
+        """The bare identity record of one slot, exactly as the seed records its own."""
+
+        kind, identifier, platform, frontend, variant = key
+        return LedgerRecord(
+            Subject(
+                SubjectKind(kind),
+                identifier,
+                Platform(platform),
+                Frontend(frontend) if frontend else None,
+                variant=variant or None,
+            )
+        )
+
+    @staticmethod
+    def interface_module(stem, export):
+        """Whether a GUI export is one of the UI0 interface catalog's files: I*.btrc or the GUI facade."""
+
+        return stem == "GUIModules" and (export == "GUI" or export.split(".")[-1].startswith("I"))
+
+    def surface_modules(self, stem):
+        """The exported modules a surface stem covers, as `{package}.{module}` -> source path."""
+
+        package = SURFACE_STEMS[stem]
+        root = self.repo / "src/stdlib" / package
+        exports = tomllib.loads((root / "btrc.toml").read_text(encoding="utf-8"))["package"]["exports"]
+        modules = {}
+        for export in exports:
+            source = root.joinpath(*export.split(".")).with_suffix(".btrc")
+            if not self.interface_module(stem, export) and source.is_file():
+                modules[f"{package}.{export}"] = source
+        return modules
+
+    def declarations(self, source):
+        if source not in self._modules:
+            try:
+                parsed = Parser(Lexer(source.read_text(encoding="utf-8")).tokenize()).parse().declarations
+            except (LexerError, ParseError) as error:
+                raise LedgerSchemaError(f"invalid exported module {source}: {error}") from error
+            self._modules[source] = parsed
+        return self._modules[source]
+
+    @staticmethod
+    def declaration_kind(declaration):
+        return type(declaration).__name__.removesuffix("Decl").lower()
+
+    def surface_exports(self):
+        """Every exported class, interface and enum the surface stems cover: (module, symbol) -> stem."""
+
+        if self._exports is None:
+            self._exports = {}
+            for stem in SURFACE_STEMS:
+                for module, source in self.surface_modules(stem).items():
+                    for declaration in self.declarations(source):
+                        if self.declaration_kind(declaration) in SURFACE_KINDS:
+                            self._exports[module, declaration.name] = stem
+        return self._exports
+
     def load_surface(self, path):
         document = tomllib.loads(path.read_text(encoding="utf-8"))
         fields = FieldReader(document, str(path), ("schema", "symbols"))
@@ -293,9 +389,7 @@ class UICatalog:
         rows = document.get("symbols", [])
         if not isinstance(rows, list):
             raise LedgerSchemaError(f"{path}: symbols must be an array of tables")
-        package = SURFACE_STEMS[path.stem]
-        root = self.repo / "src/stdlib" / package
-        exports = tomllib.loads((root / "btrc.toml").read_text(encoding="utf-8"))["package"]["exports"]
+        modules = self.surface_modules(path.stem)
         seen = {(row["module"], row["symbol"]) for row in self.surface}
         for row in rows:
             item = FieldReader(
@@ -303,36 +397,32 @@ class UICatalog:
             )
             module, symbol = item.text("module", required=True), item.text("symbol", required=True)
             kind, disposition = item.text("kind", required=True), item.text("disposition", required=True)
-            if disposition not in ("family", "legacy", "provider-internal", "out-of-scope"):
+            if disposition not in SURFACE_DISPOSITIONS:
                 raise LedgerSchemaError(f"{path}: unknown surface disposition {disposition}")
             if disposition != "family":
                 item.text("reason", required=True)
                 if "operations" in row:
                     raise LedgerSchemaError(f"{path}: only a family proposes operations")
             Classification.from_mapping({"links": row.get("links", [])}, str(path))
-            if not module.startswith(f"{package}.") or module[len(package) + 1 :] not in exports:
+            if module not in modules:
+                package, _, export = module.partition(".")
+                if package == SURFACE_STEMS[path.stem] and self.interface_module(path.stem, export):
+                    raise LedgerSchemaError(f"{path}: {module} belongs to the UI0 interface catalog, not GUIModules")
                 raise LedgerSchemaError(f"{path}: surface module is not exported: {module}")
-            if path.stem == "GUIModules" and module.split(".")[-1].startswith("I"):
-                raise LedgerSchemaError(f"{path}: GUIModules excludes I*.btrc")
-            source = self.repo / "src/stdlib" / Path(*module.split("."))
-            source = source.with_suffix(".btrc")
-            try:
-                declarations = Parser(Lexer(source.read_text(encoding="utf-8")).tokenize()).parse().declarations
-            except (LexerError, ParseError) as error:
-                raise LedgerSchemaError(f"{path}: invalid exported module: {error}") from error
-            matched = [decl for decl in declarations if getattr(decl, "name", None) == symbol]
-            if len(matched) != 1 or type(matched[0]).__name__.removesuffix("Decl").lower() != kind:
+            matched = [decl for decl in self.declarations(modules[module]) if getattr(decl, "name", None) == symbol]
+            if len(matched) != 1 or self.declaration_kind(matched[0]) != kind:
                 raise LedgerSchemaError(f"{path}: surface symbol/kind does not match {module}.{symbol}")
             if (module, symbol) in seen:
                 raise LedgerSchemaError(f"{path}: duplicate surface symbol {module}.{symbol}")
             seen.add((module, symbol))
             operations = item.texts("operations") or ()
             for identifier in operations:
-                if not re.fullmatch(r"[A-Z][A-Za-z0-9]*\.[A-Za-z][A-Za-z0-9]*", identifier):
+                if not OPERATION_ID.fullmatch(identifier):
                     raise LedgerSchemaError(f"{path}: invalid proposed operation id {identifier}")
                 if identifier.split(".")[0] != symbol:
                     raise LedgerSchemaError(f"{path}: proposed operation has a foreign owner: {identifier}")
             self.admissible[SubjectKind.UI_OPERATION].update(operations)
+            self.proposals.update(operations)
             self.surface.append(row)
 
     def load_records(self, path, category):
@@ -454,7 +544,9 @@ class UICatalog:
             before = old.provenance.recorded_at if old.provenance else None
             after = new.provenance.recorded_at if new.provenance else None
             if before and after and datetime.datetime.fromisoformat(after) < datetime.datetime.fromisoformat(before):
-                self._problems.append(f"{path}: stale evidence overwrite for {new.subject.key}: {after} < {before}")
+                self._problems.append(
+                    f"{path}: stale evidence overwrite for {self.slot_name(new.subject.key)}: {after} < {before}"
+                )
         return LedgerRecord(
             subject=new.subject if new.subject.group or new.subject.title else old.subject,
             classification=classification,
@@ -462,6 +554,16 @@ class UICatalog:
             measurement=new.measurement if new.evidence is not None else new.measurement or old.measurement,
             provenance=new.provenance if new.evidence is not None else old.provenance or new.provenance,
         )
+
+    @staticmethod
+    def slot_name(key):
+        """A slot key as plain words, for example `ui-operation IWindow.isOpen linux reference`."""
+
+        return " ".join(str(part) for part in key if part)
+
+    @staticmethod
+    def scope(values):
+        return (values,) if isinstance(values, str) else tuple(values)
 
     @staticmethod
     def retired(record):
@@ -473,33 +575,58 @@ class UICatalog:
             return False
         return record.subject.kind == SubjectKind.FAMILY_CELL or record.evidence is not None
 
-    @staticmethod
-    def selected(record, owner=(), kind=()):
-        if isinstance(owner, str):
-            owner = (owner,)
-        if isinstance(kind, str):
-            kind = (kind,)
-        return (not kind or record.subject.kind in kind) and (
+    def selected(self, record, owner=(), kind=()):
+        """Whether a record is in scope. `surface` selects the operation ids family surface rows propose."""
+
+        owner, kind = self.scope(owner), self.scope(kind)
+        proposed = (
+            SURFACE in kind and record.subject.kind == SubjectKind.UI_OPERATION and record.subject.id in self.proposals
+        )
+        return (not kind or record.subject.kind in kind or proposed) and (
             not owner
             or record.subject.id.split(".")[0] in owner
             or (record.classification is not None and record.classification.owner in owner)
         )
 
     def unclassified(self, owner=(), kind=()):
+        """Unclassified, non-retired UI slots of the selected owners and ledger kinds.
+
+        `surface` adds no slot here. A proposed id's slots are ui-operation slots,
+        classified by its owner's shard; the surface's own gaps are `unclassified_surface`.
+        """
+
+        kind = self.scope(kind)
         return [
             record
             for record in self.records
             if record.subject.kind in UI_KINDS
-            and self.selected(record, owner, kind)
+            and (not kind or record.subject.kind in kind)
+            and self.selected(record, owner)
             and not self.retired(record)
             and not self.classified(record)
         ]
 
+    def unclassified_surface(self, owner=()):
+        """Exported classes, interfaces and enums of the selected owners with no surface row."""
+
+        owner = self.scope(owner)
+        rows = {(row["module"], row["symbol"]) for row in self.surface}
+        return [
+            f"{module}.{symbol}"
+            for module, symbol in sorted(self.surface_exports())
+            if (module, symbol) not in rows and (not owner or symbol in owner)
+        ]
+
     def problems(self, strict=False, owner=(), kind=(), junit=None):
+        owner, kind = self.scope(owner), self.scope(kind)
         tests = [record for record in self.records if record.subject.kind == SubjectKind.TEST]
-        problems = [*self._problems, *QualificationReport([*self.frozen_records, *tests], self.manifest).problems()]
+        problems = [*self._problems, *QualificationReport([*self.declared_records, *tests], self.manifest).problems()]
         if strict:
-            problems.extend(f"unclassified: {record.subject.key}" for record in self.unclassified(owner, kind))
+            problems.extend(
+                f"unclassified: {self.slot_name(record.subject.key)}" for record in self.unclassified(owner, kind)
+            )
+            if not kind or SURFACE in kind:
+                problems.extend(f"unclassified surface symbol: {name}" for name in self.unclassified_surface(owner))
         for run, path in (junit or {}).items():
             if run not in self.runs:
                 problems.append(f"unknown JUnit run: {run}")
@@ -508,7 +635,8 @@ class UICatalog:
             passed = {record.subject.id for record in outcomes if record.evidence.status == EvidenceStatus.PASSED}
             for record in self.records:
                 if (
-                    not self.selected(record, owner, kind)
+                    record.subject.kind not in UI_KINDS
+                    or not self.selected(record, owner, kind)
                     or not record.evidence
                     or record.evidence.status != EvidenceStatus.PASSED
                 ):
@@ -520,19 +648,56 @@ class UICatalog:
                     continue
                 regression = record.classification.regression if record.classification else None
                 if not regression or not set(regression) <= passed:
-                    problems.append(f"{record.subject.key}: regression node ids did not pass JUnit run {run}")
+                    problems.append(
+                        f"{self.slot_name(record.subject.key)}: regression node ids did not pass JUnit run {run}"
+                    )
         return problems
 
+    def partitions(self, owner=(), kind=()):
+        """The selected frozen, pending and retired records."""
+
+        return {
+            name: [record for record in records if self.selected(record, owner, kind)]
+            for name, records in (
+                ("frozen", self.frozen_records),
+                ("pending", self.pending_records),
+                ("retired", self.retired_records),
+            )
+        }
+
+    @staticmethod
+    def partition_size(records):
+        return {"ids": len({(record.subject.kind, record.subject.id) for record in records}), "slots": len(records)}
+
+    def summary(self, owner=(), kind=()):
+        """The `check` lines: frozen coverage per kind, the selected partitions, the surface, and the releases' gaps."""
+
+        owner, kind = self.scope(owner), self.scope(kind)
+        lines = []
+        for each in UI_KINDS:
+            actual = sum(record.subject.kind == each for record in self.frozen_records)
+            lines.append(f"{each}: {actual:,}/{len(self.manifest.slot_keys(each)):,} frozen slots")
+        for name, records in self.partitions(owner, kind).items():
+            if name != "frozen":
+                size = self.partition_size(records)
+                lines.append(f"{name}: {size['ids']} ids / {size['slots']} slots")
+        if not kind or SURFACE in kind:
+            rows = sum(not owner or row["symbol"] in owner for row in self.surface)
+            exports = sum(not owner or symbol in owner for _, symbol in self.surface_exports())
+            unclassified = len(self.unclassified_surface(owner))
+            lines.append(f"surface: {rows} rows; {unclassified} of {exports} exported symbols have no row")
+        coverage = QualificationReport(self.declared_records, self.manifest).coverage_rows()
+        missing = sum(row["missing_slots"] for row in coverage)
+        undeclared = sum(row["undeclared"] for row in coverage)
+        lines.append(f"{missing} missing, {undeclared} undeclared")
+        return lines
+
     def report(self, owner=(), kind=()):
+        owner, kind = self.scope(owner), self.scope(kind)
         counts = defaultdict(Counter)
-        partitions = {"frozen": self.frozen_records, "pending": self.pending_records, "retired": self.retired_records}
         partition_rows = {}
-        for partition, records in partitions.items():
-            chosen = [record for record in records if self.selected(record, owner, kind)]
-            partition_rows[partition] = {
-                "ids": len({(record.subject.kind, record.subject.id) for record in chosen}),
-                "slots": len(chosen),
-            }
+        for partition, chosen in self.partitions(owner, kind).items():
+            partition_rows[partition] = self.partition_size(chosen)
             if partition == "retired":
                 continue
             for record in chosen:
@@ -560,6 +725,7 @@ class UICatalog:
         unclassified = defaultdict(list)
         for record in self.unclassified(owner, kind):
             unclassified[record.subject.id.split(".")[0]].append(list(record.subject.key))
+        surface = not kind or SURFACE in kind
         return {
             "partitions": partition_rows,
             "counts": rows,
@@ -572,9 +738,8 @@ class UICatalog:
                     for record in self.retired_records
                 )
             ],
-            "surface": [
-                row for row in self.surface if (not kind or "surface" in kind) and (not owner or row["symbol"] in owner)
-            ],
+            "surface": [row for row in self.surface if surface and (not owner or row["symbol"] in owner)],
+            "unclassified_surface": self.unclassified_surface(owner) if surface else [],
             "problems": self.problems(),
         }
 
@@ -605,6 +770,12 @@ class UICatalog:
             lines.append(f"Retired: {retired['id']} ({retired['decision']})")
         lines.append("\nUnclassified slots per owner:")
         lines.extend(f"- {owner}: {len(slots)}" for owner, slots in report["unclassified"].items())
+        kind = self.scope(kind)
+        if not kind or SURFACE in kind:
+            lines.append(f"\nSurface rows: {len(report['surface'])}")
+            lines.append("Exported symbols without a surface row, per package:")
+            packages = Counter(name.split(".")[0] for name in report["unclassified_surface"])
+            lines.extend(f"- {package}: {count}" for package, count in sorted(packages.items()))
         return "\n".join(lines)
 
 
@@ -613,7 +784,7 @@ def main(argv=None):
     parser.add_argument("command", choices=("check", "report"))
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--owner", action="append", default=[])
-    parser.add_argument("--kind", choices=(*UI_KINDS, "surface"), action="append", default=[])
+    parser.add_argument("--kind", choices=(*UI_KINDS, SURFACE), action="append", default=[])
     parser.add_argument("--junit", action="append", default=[], metavar="RUN=PATH")
     parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
     args = parser.parse_args(argv)
@@ -635,19 +806,7 @@ def main(argv=None):
                 else catalog.render_markdown(args.owner, args.kind)
             )
         else:
-            for kind in UI_KINDS:
-                actual = sum(record.subject.kind == kind for record in catalog.frozen_records)
-                expected = len(catalog.manifest.slot_keys(kind))
-                print(f"{kind}: {actual:,}/{expected:,} frozen slots")
-            for name in ("pending", "retired"):
-                summary = catalog.report(args.owner, args.kind)["partitions"][name]
-                print(f"{name}: {summary['ids']} ids / {summary['slots']} slots")
-            print("0 duplicate (admission enforced)")
-            undeclared = sum(
-                row["undeclared"]
-                for row in QualificationReport(catalog.frozen_records, catalog.manifest).denominator_rows()
-            )
-            print(f"{undeclared} undeclared")
+            print("\n".join(catalog.summary(args.owner, args.kind)))
         for problem in problems:
             print(problem, file=sys.stderr)
         return int(bool(problems))
