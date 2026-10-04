@@ -1,0 +1,22 @@
+{
+  "base": "f4317455de1e567d4d6290139e5ba28fbada7d0c",
+  "date_utc": "2026-10-04",
+  "host": "Linux x86_64 cloud; pinned GCC15.2.0/Nix shell",
+  "compiler_frontends": [
+    "reference",
+    "selfhost"
+  ],
+  "exit_status": {
+    "reference": 0,
+    "selfhost": 0
+  },
+  "sanitizers": "address,undefined; detect_leaks=1; fno-sanitize-recover=all; no suppressions",
+  "passed": 2,
+  "skipped": 0,
+  "failed": 0,
+  "source_sha256": {
+    "run.sh": "bf59990d18cdefbb40d15243dc76bab10e945ed5b6c9797b0e2d8629caeed14c",
+    "README.md": "753dfa140127474c216bc90cbb118afb916ae119539363512dfe8dd53dd95ea0",
+    "Collections.btrc": "a612a627c6a909840ae0ece84854c609e9adc200b2c65e516ce7175aa8a3571e"
+  }
+}

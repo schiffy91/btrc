@@ -1,0 +1,257 @@
+import Library.Vector;
+import Library.Map;
+
+#include <assert.h>
+
+int liveRows = 0;
+int liveCells = 0;
+int peakCells = 0;
+int bindCount = 0;
+int staleRejected = 0;
+
+class Row<T> {
+	public int key;
+	public T payload;
+	public int revision = 1;
+	public bool deleted = false;
+	public Row(int key, T payload) { self.key = key; self.payload = payload; liveRows++; }
+
+	public void __del__() { liveRows--; }
+}
+
+interface KeyedSource {
+	int count();
+	int keyAt(int position);
+	int revisionOf(int key);
+}
+
+class Source implements KeyedSource {
+	public Map<int, Row<int>> rows = {};
+	public Vector<int> order = [];
+	public int revision = 1;
+	public bool filtered = false;
+	public Source() {
+		for (int key = 0; key < 100000; key++) {
+			self.rows.put(key, new Row<int>(key, key * 7));
+			self.order.push(key);
+		}
+	}
+
+	public int count() { return self.order.len; }
+
+	public int keyAt(int position) { return self.order.get(position); }
+
+	public int revisionOf(int key) { return self.rows.get(key).revision; }
+
+	public bool eligible(int key) { return self.rows.has(key) && !self.rows.get(key).deleted && (!self.filtered || key % 3 != 0); }
+
+	public bool batch(int base, int next, Vector<int> deletes, bool descending, bool filter) {
+		if (base != self.revision || next != base + 1) { return false; }
+		Map<int, bool> seen = {};
+		for key in deletes {
+			if (!self.rows.has(key) || self.rows.get(key).deleted || seen.has(key)) { return false; }
+			seen.put(key, true);
+		}
+		for key in deletes { self.rows.get(key).deleted = true; }
+		self.filtered = filter;
+		Vector<int> nextOrder = [];
+		for (int key = 0; key < 100000; key++) { if (self.eligible(key)) { nextOrder.push(key); } }
+		// Real comparator-driven stable sort, not a precomputed reverse snapshot.
+		if (descending) { nextOrder.sortBy((int a, int b) => a > b); }
+		self.order = nextOrder;
+		self.revision = next;
+		return true;
+	}
+
+	public void update(int key) { self.rows.get(key).payload++; self.rows.get(key).revision++; }
+}
+
+class Selection {
+	public int anchor;
+	public int active;
+	public Selection(int key) { self.anchor = key; self.active = key; }
+
+	public void reconcile(Vector<int> prior, Source source) {
+		if (!source.eligible(self.active)) {
+			int position = -1;
+			for (int i = 0; i < prior.len; i++) { if (prior.get(i) == self.active) { position = i; break; } }
+			int replacement = -1;
+			for (int i = position + 1; i < prior.len; i++) {
+				if (source.eligible(prior.get(i))) { replacement = prior.get(i); break; }
+			}
+			if (replacement < 0) {
+				for (int i = position - 1; i >= 0; i--) {
+					if (source.eligible(prior.get(i))) { replacement = prior.get(i); break; }
+				}
+			}
+			if (replacement < 0 && source.count() > 0) { replacement = source.keyAt(0); }
+			self.active = replacement;
+		}
+		if (!source.rows.has(self.anchor) || source.rows.get(self.anchor).deleted) { self.anchor = self.active; }
+	}
+}
+
+class Cell {
+	public int key = -1;
+	public int revision = -1;
+	public int generation = 0;
+	public bool wanted = false;
+	public Cell? peer;
+	public Cell() { self.peer = null; liveCells++; if (liveCells > peakCells) { peakCells = liveCells; } }
+
+	public void bind(int key, int revision) {
+		self.key = key; self.revision = revision; self.generation++; bindCount++;
+	}
+
+	public void unbind() { self.key = -1; self.revision = -1; self.generation++; }
+
+	public bool deliver(int key, int generation) {
+		if (!self.wanted || key != self.key || generation != self.generation) { staleRejected++; return false; }
+		return true;
+	}
+
+	public void __del__() { liveCells--; }
+}
+
+class CellPool {
+	public Vector<Cell> cells = [];
+	public int viewport = 20;
+	public CellPool() { for (int i = 0; i < 60; i++) { self.cells.push(new Cell()); } }
+
+	public void present(KeyedSource source, int start) {
+		int first = start - self.viewport;
+		if (first < 0) { first = 0; }
+		int end = start + 2 * self.viewport;
+		if (end > source.count()) { end = source.count(); }
+		// Mark all retained keys before recycling anything: a sort must not evict
+		// an unchanged key just because it occurs later in the new order.
+		for cell in self.cells {
+			cell.wanted = false;
+			for (int pos = first; pos < end; pos++) {
+				if (cell.key == source.keyAt(pos)) { cell.wanted = true; break; }
+			}
+		}
+		for cell in self.cells { if (!cell.wanted && cell.key >= 0) { cell.unbind(); } }
+		for (int pos = first; pos < end; pos++) {
+			int key = source.keyAt(pos);
+			Cell? existing = null;
+			for cell in self.cells { if (cell.key == key) { existing = cell; break; } }
+			if (existing != null) {
+				if (existing.revision != source.revisionOf(key)) { existing.bind(key, source.revisionOf(key)); }
+			} else {
+				for cell in self.cells {
+					if (!cell.wanted) { cell.bind(key, source.revisionOf(key)); cell.wanted = true; break; }
+				}
+			}
+		}
+		assert(liveCells <= 3 * 20 + 2);
+		for (int pos = first; pos < end; pos++) {
+			int found = 0;
+			for cell in self.cells { if (cell.key == source.keyAt(pos) && cell.wanted) { found++; } }
+			assert(found == 1);
+		}
+	}
+}
+
+int main() {
+	int unchangedBinds = 0;
+	int offscreenBinds = 0;
+	int oneItemBinds = 0;
+	int sortBinds = 0;
+	int filterBinds = 0;
+	int deleteBinds = 0;
+	{
+		var source = new Source();
+		KeyedSource interfaceSource = source;
+		var selection = new Selection(43);
+		var pool = new CellPool();
+		assert(source.count() == 100000 && liveRows == 100000);
+		pool.present(interfaceSource, 40);
+		int before = bindCount;
+		pool.present(interfaceSource, 40);
+		unchangedBinds = bindCount - before;
+		assert(unchangedBinds == 0);
+		source.update(99999);
+		pool.present(interfaceSource, 40);
+		offscreenBinds = bindCount - before;
+		assert(offscreenBinds == 0);
+		source.update(43);
+		pool.present(interfaceSource, 40);
+		oneItemBinds = bindCount - before;
+		assert(oneItemBinds == 1);
+		Cell oldCell = pool.cells.get(0);
+		int oldKey = oldCell.key;
+		int oldGeneration = oldCell.generation;
+		assert(oldCell.deliver(oldKey, oldGeneration));
+		for (int step = 0; step < 100; step++) { pool.present(interfaceSource, 100 + step * 31); }
+		assert(!oldCell.deliver(oldKey, oldGeneration));
+		before = bindCount;
+		Vector<int> none = [];
+		assert(source.batch(1, 2, none, true, false));
+		assert(source.keyAt(0) == 99999);
+		for (int i = 0; i < 100000; i++) { assert(source.keyAt(i) == 99999 - i); }
+		// Same 60 keys in reversed order: retained cells must not bind again.
+		pool.present(interfaceSource, 96811);
+		sortBinds = bindCount - before;
+		assert(sortBinds == 0);
+		pool.present(interfaceSource, 40);
+		assert(selection.active == 43 && selection.anchor == 43);
+		before = bindCount;
+		Vector<int> prior = source.order;
+		assert(source.batch(2, 3, none, true, true));
+		selection.reconcile(prior, source);
+		var hiddenSelection = new Selection(42);
+		hiddenSelection.reconcile(prior, source);
+		assert(hiddenSelection.active == 41 && hiddenSelection.anchor == 42);
+		assert(source.count() == 66666);
+		pool.present(interfaceSource, 40);
+		filterBinds = bindCount - before;
+		assert(selection.active == 43);
+		before = bindCount;
+		prior = source.order;
+		Vector<int> deletes = [43, 99950];
+		assert(source.batch(3, 4, deletes, true, true));
+		selection.reconcile(prior, source);
+		// Prior order is descending; 42 is filtered, so successor is key41.
+		assert(selection.active == 41 && selection.anchor == 41 && source.count() == 66664);
+		pool.present(interfaceSource, 40);
+		deleteBinds = bindCount - before;
+		Vector<int> duplicate = [1, 1];
+		int count = source.count();
+		assert(!source.batch(4, 5, duplicate, false, false));
+		assert(source.revision == 4 && source.count() == count && !source.rows.get(1).deleted);
+		assert(!source.batch(2, 3, none, false, false));
+		before = bindCount;
+		pool.present(interfaceSource, 40);
+		assert(bindCount == before);
+		Cell retired = pool.cells.get(0);
+		int retiredKey = retired.key;
+		int retiredGeneration = retired.generation;
+		pool.viewport = 0;
+		pool.present(interfaceSource, 40);
+		assert(!retired.deliver(retiredKey, retiredGeneration));
+		pool.viewport = 5;
+		pool.present(interfaceSource, 40);
+		assert(liveCells == 60); // Retained high-water capacity, counted honestly.
+		prior = source.order;
+		Vector<int> all = [];
+		for (int key = 0; key < 100000; key++) { if (!source.rows.get(key).deleted) { all.push(key); } }
+		assert(source.batch(4, 5, all, false, false));
+		selection.reconcile(prior, source);
+		assert(selection.active == -1 && selection.anchor == -1 && source.count() == 0);
+		selection.reconcile(source.order, source);
+		assert(selection.active == -1 && selection.anchor == -1);
+		pool.present(interfaceSource, 0);
+		{
+			var repopulated = new Source();
+			selection.reconcile(source.order, repopulated);
+			assert(selection.active == 0 && selection.anchor == 0);
+		}
+		// Deliberately form a cycle in two retained cells before scope teardown.
+		pool.cells.get(0).peer = pool.cells.get(1);
+		pool.cells.get(1).peer = pool.cells.get(0);
+	}
+	assert(liveRows == 0 && liveCells == 0);
+	print(f"rows=100000 viewport_max=20 peak_cells={peakCells} binds={bindCount} unchanged={unchangedBinds} offscreen={offscreenBinds} one_item={oneItemBinds} sort={sortBinds} filter={filterBinds} delete={deleteBinds} stale_rejected={staleRejected} rows_after={liveRows} cells_after={liveCells}");
+	return 0;
+}
