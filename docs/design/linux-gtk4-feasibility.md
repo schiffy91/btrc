@@ -109,7 +109,13 @@ and **zero frames**. Their process exit status is not evidence of a working GPU
 route. Search the same pinned headers with:
 
 ```bash
-nix develop --command bash -c 'rg -ni "dmabuf|dma_buf|external.memory|export.*texture" "$(pkg-config --variable=includedir wgpu-native)"'
+nix develop --command bash -c '
+  for flag in $(pkg-config --cflags-only-I wgpu-native); do
+    rg -ni "dmabuf|dma_buf|external.memory|export.*texture" "${flag#-I}/webgpu.h" "${flag#-I}/wgpu.h"
+    status=$?
+    if [ "$status" -gt 1 ]; then exit "$status"; fi
+  done
+'
 ```
 
 An empty search is supporting inspection, not a general impossibility claim
