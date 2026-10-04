@@ -9,9 +9,11 @@ import os
 import platform
 import shlex
 import struct
-import subprocess
 import sys
+import sysconfig
 from pathlib import Path
+
+from tools.windows_toolchain.process_runner import run as run_process
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "aarch64-windows-gnu"
@@ -52,10 +54,14 @@ class Evidence:
 
     def run(self, args: list[str | Path], name: str, *, timeout: int = 3600) -> bytes:
         command = list(map(str, args))
-        result = subprocess.run(command, cwd=ROOT, env=self.environment, capture_output=True, timeout=timeout)
+        result = run_process(command, cwd=ROOT, env=self.environment, timeout=timeout)
         (self.output / f"{name}.stdout").write_bytes(result.stdout)
         (self.output / f"{name}.stderr").write_bytes(result.stderr)
-        self.report["steps"].append({"name": name, "argv": command, "exit_code": result.returncode})
+        self.report["steps"].append(
+            {"name": name, "argv": command, "exit_code": result.returncode, "timed_out": result.timed_out}
+        )
+        if result.timed_out:
+            raise RuntimeError(f"{name} timed out after {timeout}s; partial stdout/stderr retained")
         if result.returncode:
             raise RuntimeError(f"{name} exited {result.returncode}; see {self.output / (name + '.stderr')}")
         return result.stdout
@@ -87,13 +93,33 @@ class Evidence:
         self.report["compiler"] = pe_arm64(binary)
         return binary
 
-    def native(self, cross: Path) -> None:
-        if platform.system() != "Windows" or platform.machine().lower() not in {"arm64", "aarch64"}:
+    def verify_cross(self, path: Path) -> None:
+        data = path.read_bytes()
+        summary = json.loads(data)
+        required = {
+            "status": "passed",
+            "mode": "cross",
+            "host_system": "Linux",
+            "native_execution": "not-run",
+            "revision": self.report["revision"],
+            "zig_version": "0.16.0",
+        }
+        if any(summary.get(key) != value for key, value in required.items()):
+            raise RuntimeError("cross summary must identify a passing Linux cross-build at this source revision")
+        for field in ("sha256", "machine", "bytes"):
+            if summary.get("compiler", {}).get(field) != self.report["cross_compiler"][field]:
+                raise RuntimeError(f"cross artifact differs from its Linux manifest: {field}")
+        self.report["cross_summary_sha256"] = hashlib.sha256(data).hexdigest()
+        self.report["cross_source_revision"] = summary["revision"]
+
+    def native(self, cross: Path, cross_summary: Path) -> None:
+        if platform.system() != "Windows" or sysconfig.get_platform() != "win-arm64":
             raise RuntimeError("native evidence requires ARM64 Python on an actual ARM64 Windows host")
         if cross.resolve() == self.output / "btrcc.exe":
             raise RuntimeError("cross artifact must be separate from the native output directory")
         self.report["native_execution"] = "running"
         self.report["cross_compiler"] = pe_arm64(cross)
+        self.verify_cross(cross_summary)
         native = self.build()
         sample = ROOT / "src/tests/strings/BracesInCodeGen.btrc"
         cross_c = self.run([cross, sample], "cross-sample")
@@ -128,10 +154,14 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=ROOT / "build/windows-toolchain")
     parser.add_argument("--zig", default="zig")
     parser.add_argument("--cross", type=Path)
+    parser.add_argument("--cross-summary", type=Path)
     args = parser.parse_args()
     if args.mode in {"native", "pe"} and args.cross is None:
         parser.error("--cross is required for native or pe")
+    if args.mode == "native" and args.cross_summary is None:
+        parser.error("--cross-summary is required for native provenance")
     evidence = Evidence(args.out, args.zig)
+    evidence.report["mode"] = args.mode
     try:
         if args.mode == "pe":
             evidence.report["compiler"] = pe_arm64(args.cross)
@@ -140,7 +170,7 @@ def main() -> int:
             if args.mode == "cross":
                 evidence.build()
             else:
-                evidence.native(args.cross.resolve())
+                evidence.native(args.cross.resolve(), args.cross_summary.resolve())
         evidence.report["status"] = "passed"
         return 0
     except Exception as error:

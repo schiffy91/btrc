@@ -2,6 +2,7 @@ param(
     [string]$OutputDirectory = "build/windows-toolchain-msvc",
     [string]$WgpuArchive,
     [string]$Vswhere,
+    [string]$PythonExecutable = "python",
     [switch]$FunctionsOnly
 )
 Set-StrictMode -Version Latest
@@ -25,28 +26,35 @@ function Assert-ArchiveDigest([string]$Path) {
 
 function Invoke-Bounded([string]$File, [string[]]$Arguments, [int]$TimeoutSeconds = 120,
                         [int[]]$AllowedExitCodes = @(0)) {
+    $resultPath = [IO.Path]::GetTempFileName()
     $start = [System.Diagnostics.ProcessStartInfo]::new()
-    $start.FileName = $File
+    $start.FileName = $PythonExecutable
+    $start.WorkingDirectory = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
     $start.UseShellExecute = $false
-    $start.RedirectStandardOutput = $true
-    $start.RedirectStandardError = $true
-    foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
+    # Python owns the command Job/process group and pipe draining. This wrapper
+    # inherits no command output pipes that an orphan could keep open.
+    foreach ($argument in @('-m', 'tools.windows_toolchain.process_runner', '--output', $resultPath,
+                             '--timeout', $TimeoutSeconds.ToString(), '--', $File) + $Arguments) {
+        $start.ArgumentList.Add($argument)
+    }
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $start
     try {
-        if (-not $process.Start()) { throw "Could not start $File" }
-        $stdout = $process.StandardOutput.ReadToEndAsync()
-        $stderr = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        if (-not $process.Start()) { throw "Could not start process owner for $File" }
+        if (-not $process.WaitForExit(($TimeoutSeconds + 30) * 1000)) {
             $process.Kill($true)
-            if (-not $process.WaitForExit(10000)) { throw "$File could not be reaped after timeout" }
-            throw "$File timed out after $TimeoutSeconds seconds"
+            if (-not $process.WaitForExit(10000)) { throw 'Process owner could not be reaped' }
+            throw "Process owner timed out for $File"
         }
-        $output = $stdout.GetAwaiter().GetResult()
-        $errors = $stderr.GetAwaiter().GetResult()
-        if ($process.ExitCode -notin $AllowedExitCodes) { throw "$File exited $($process.ExitCode): $errors" }
-        return [pscustomobject]@{ stdout = $output; stderr = $errors; exit_code = $process.ExitCode }
-    } finally { $process.Dispose() }
+        $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+        if ($process.ExitCode -ne 0) { throw $result.error }
+        if ($result.timed_out) { throw "$File timed out; partial output: $($result.stdout) $($result.stderr)" }
+        if ($result.returncode -notin $AllowedExitCodes) { throw "$File exited $($result.returncode): $($result.stderr)" }
+        return [pscustomobject]@{ stdout = $result.stdout; stderr = $result.stderr; exit_code = $result.returncode }
+    } finally {
+        $process.Dispose()
+        Remove-Item -LiteralPath $resultPath -ErrorAction SilentlyContinue
+    }
 }
 
 if ($FunctionsOnly) { return }

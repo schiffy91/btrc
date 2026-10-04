@@ -31,17 +31,25 @@ cross-build is not bootstrap or Windows execution evidence.
 
 ## Native Windows ARM64
 
+Native commands require the canonical `WindowsJob` launch gate from
+CX-P1-06/PR #43 to be integrated at `tools.target_hosts.windows.executor`.
+They fail with that prerequisite if it is absent. This packet reuses that
+owner instead of supplying another Windows process implementation. Python
+captures partial output on timeout and owns Linux process groups; Windows
+commands run inside the canonical kill-on-close Job, including descendants.
+The PowerShell probe calls this same owner and never drains unbounded pipes.
+
 Use ARM64 Python 3.13 and native ARM64 PowerShell 7. Install the pinned ARM64
 Windows Zig archive on PATH. Download the Linux cross-built compiler artifact
 into a separate directory; the native command rejects an output path that
 would overwrite it.
 
 ```powershell
-python -m tools.windows_toolchain.arm64 native --cross cross/btrcc.exe --out build/windows-arm64-native
+python -m tools.windows_toolchain.arm64 native --cross cross/btrcc.exe --cross-summary cross/summary.json --out build/windows-arm64-native
 pwsh -NoProfile -File tools/windows_toolchain/msvc_probe.ps1 -WgpuArchive downloads/wgpu-windows-aarch64-msvc-release.zip
 ```
 
-The native command builds its own compiler, compares its sample C bytes with
+The native command first validates the Linux cross summary's host, mode, source revision, binary size/machine/hash, and ARM64 Python process architecture. It then builds its own compiler, compares its sample C bytes with
 the Linux cross-built compiler's output, runs the compiled sample against its
 golden, and invokes the repository's existing three-stage bootstrap test.
 A skipped bootstrap cannot produce passing evidence. Each bootstrap stage
