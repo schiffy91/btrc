@@ -11,7 +11,9 @@ MSVC CRT execution and wgpu callback evidence require a Windows ARM64 runner.
 `aee38316ee4111717900f45dd3130145c39289e105541d737eb8c5ed653c78ef`.
 The wgpu-native 27.0.4.0 Windows ARM64 MSVC digest comes from
 `nix/wgpu-native-prebuilt.nix` (CL-P1-02). Verify each downloaded archive before
-extracting it. The scripts never choose an unpinned compiler or GPU release.
+extracting it. The installer must verify the Zig archive digest before adding
+it to PATH; the helper validates its reported version. The PowerShell probe
+verifies the wgpu archive digest itself.
 
 ## Linux cross-build
 
