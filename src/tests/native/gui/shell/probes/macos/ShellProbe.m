@@ -95,7 +95,13 @@ void shellProbeScroll(void) {
 }
 void shellProbeClose(void) {
     @autoreleasepool {
-        [window() performClose:nil];
+        NSWindow *target = window();
+        /* Editing/AX/scrolling may create private descendants after Observe.
+         * Snapshot again before teardown without taking owning references. */
+        observePrivate(target.contentView);
+        if ([target.firstResponder isKindOfClass:NSView.class])
+            observePrivate((NSView *)target.firstResponder);
+        [target performClose:nil];
     }
 }
 int shellProbeFocus(void) {
