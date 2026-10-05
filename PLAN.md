@@ -401,6 +401,20 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - plans retain their record and initializer, and the per-element plan lookup is O(n²), for later performance work;
     - folding object-like source macros was not done.
   - The LSP test `test_server_hardening.py::test_uncached_feature_compute_serializes_with_validation` fails intermittently on this commit and on its parent. It is not this change.
+- **Batch 34 (2026-10-05): Linux SDL shell evidence, and a macOS skip-gate fix.**
+  - **Fix pushed first (`3078b3d1`).** Batch 33's macOS run failed its skip gate: CL-C-08's two `strtold` platform-divergence tests skip off Linux x86-64, and the lane never ran macOS CI. Both macOS expected-skip manifests now expect them (`c2-strtold-platform-divergence`, covered by `linux-devcontainer`). `CL-REQ-09` removes the tests and the rule.
+  - `CX-UIA-11` (PR #55) records the Linux SDL native-shell proof in `native-ui-catalog/evidence/ui1-linux.toml`. A reviewer and an adversarial verifier found nothing blocking.
+    - X11 passes 4 of 4 rows. Wayland passes 3 of 4: selfhost with sanitizers times out at restore 61. The bounded `LibdecorPending` probe traces that to a libdecor 0.2.5 dispatch stall, and the PR files a dependency request.
+    - The X11 clipboard crash (`BadWindow`, opcode 18) is reproduced by `ClipboardRequestor`: SDL writes to a requestor window that has already been destroyed. The fix goes to the pinned SDL dependency. Per-worker Xvfb displays are an integrator-side mitigation to weigh.
+    - E40 is real: the Linux provider's `pumpEvents` drops the 4,097th queued event (keys, key release, committed text and close) in both compilers. 4,095 and 4,096 events pass; 4,097 and 8,193 fail. The reproduction stays on the never-merge branch `codex/cx-uia-11-e40-repro` (`bbe4f56e`) until `CX-UIA-23` repairs the provider (D24).
+    - Follow-ups for Codex on the PR:
+      - The E40 records put prose in `observed`, which should hold the outcome word (`failed`), so the generic ledger rollup does not count them as failed. The catalog's own counts are unaffected.
+      - The probes are manual and never built in CI.
+      - `LibdecorPending` arms its watchdog only around the dispatch call.
+      - Both probes put required calls inside `assert()`.
+      - The accessibility "dump" is a fixed probe string, not an AT-SPI tree.
+  - `CX-UIA-10` (PR #54, macOS AppKit accessibility and key-view evidence) was returned. Its hosted evidence is genuine and the TOML matches it value for value. But the AX gate passes without the Commit button, because the window's close, zoom and minimise widgets and the scroller parts also report `AXButton`, and `identity()` never maps an `NSCell` to its `controlView`.
+  - `CL-REQ-08` (btrcc tuple typedefs for tuple types spelled only at file scope) was returned. It fixes 11 of 16 failing programs and its default output is safe. But under `--no-dce` it now emits unsubstituted generic tuple structs (`struct btrc_Tuple_U_char { U _0; … }`). The lane will also walk generic instances' method signatures and bodies under substitution, which Python already does. On merge it needs one `GENERIC_WALK` line in the record-member contract.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
