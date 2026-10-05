@@ -435,6 +435,32 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - Captured streams have no size cap.
     - The gate shares the host console.
     - The receipt checks btrcc's hash but not that the source revision matches the checkout.
+- **Batch 36 (2026-10-05): macOS accessibility evidence and trusted evidence routes.** Batch 35's push CI is green on all four workflows: CI, macOS, Windows, and Host Windows (16/16 native on x64 and ARM64).
+  - `CX-UIA-10` (PR #54, round 2). The round-1 blocker is fixed:
+    - `ShellProbe.m` maps each `NSCell` to its `controlView`;
+    - `summarize_macos_shell` requires the fixture's field, button (titled Commit) and scroll nodes by identity;
+    - a negative case removes only the Commit button from a tree that keeps the window's own `AXButton` widgets and scroller parts.
+    - **Mutation checks:** reverting the gate fails four tests. On the real hosted trees, the old validator accepts a tree without the button and the new one rejects it.
+    - **Other fixes:** the probe now records the application-active and key-window state before each Tab. All 300 contexts were inactive, so Tab delivery stays unproven and is recorded as such. Private survivors are bounded at one, and the records use exact pytest node ids.
+    - **Integrator commit:** applied the PR's verified promotion patch, so the four test records now cite the fixed-gate run (artifact 11354918053, merge `25a160f7`). The verifier checked every promoted value against the downloaded artifact.
+    - **Follow-ups:** identity mutations for field and scroll; `ax_exposed` still compares raw views; the slot keys carry frontend and variant values the JUnit adapter does not emit.
+  - `CX-UIA-06` follow-up (PR #56) binds the UI evidence routes to trusted runners and devices, and fixes the four problems from batch 32. A reviewer found nothing blocking.
+  - **Returned:**
+    - `CX-P1-03` (PR #53). Nothing has run on `windows-11-arm`, and it duplicates `tools/target_hosts/windows` (a second, weaker Windows process owner). It must build on main's host. The integrator will add `windows-arm64.yml`, already drafted and contract-checked, when integrating.
+    - `CL-P2-01` round 3 of `CX-P2-01` (PR #52). The round-2 blocker is mostly resolved: a sibling supervisor image, a leaf build with its digest bound into the consumer, and a trusted path. Four new blockers, each confirmed by a verifier:
+      - the supervisor's side of READY/COMMIT/ACK has no runtime API or wire format;
+      - Daemon now needs two tokens, but the Unix control record holds one;
+      - mandatory breakaway fails under the repository's own Windows executor, whose job omits `BREAKAWAY_OK`;
+      - the "wrong-machine" PE rule is undefined and would refuse executables Windows runs under emulation.
+    - `CL-P2-01` round 3 of `CX-P2-02` (PR #51). Both round-2 blockers are resolved on the request side. Eight confirmed blockers remain, mostly on the response side:
+      - HEAD, 204 and 304 have no response rule;
+      - interim 1xx responses are undeclared;
+      - duplicate `Location` fields are followed differently by each provider;
+      - WinHTTP's 64 KB raw header limit fires before the portable bound;
+      - libcurl's threaded resolver blocks cancellation during DNS;
+      - Android drops a cancel that arrives before connect;
+      - `Proxy-Authorization` is routed differently per provider;
+      - the default `Content-Type` differs per provider.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
