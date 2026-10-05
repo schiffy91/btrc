@@ -939,9 +939,10 @@ class CallValidator {
 		if (self.state.analyzed.structTable.has(name)) {
 			Node structure = self.state.analyzed.structTable.get(name);
 			if (!structure.isForward) {
+				Vector<Node> structureFields = SemanticTypeSystem.recordFields(structure);
 				int fieldIndex = 0;
-				while (fieldIndex < structure.fields().len) {
-					if (self.macroTypeBoundaryImpl(structure.fields().get(fieldIndex).type, typeParams, nested)) {
+				while (fieldIndex < structureFields.len) {
+					if (self.macroTypeBoundaryImpl(structureFields.get(fieldIndex).type, typeParams, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;

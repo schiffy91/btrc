@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from src.compiler.python.abi.native_generated import NativeAlias, NativeEnumType, NativeQualifiedType
 from src.compiler.python.analyzer.storage import StorageModel
+from src.compiler.python.analyzer.types import TypeSystem
 from src.compiler.python.frontend.native_imports import (
     NativeActionProjection,
     NativeDelegateProjection,
@@ -2488,12 +2489,12 @@ class FunctionLowerer:
             declared.add(name)
             # The analyzer has validated by-value layouts. Preserve the same
             # dependency-first order as the self-hosted native declaration owner.
-            for field in record.fields:
+            for field in TypeSystem.record_fields(record):
                 if not field.type.pointer_depth and field.type.base in records:
                     append_record(records[field.type.base])
             fields = [
                 IRStructField(c_type=CType(text=self._types.render(field.type)), name=field.name)
-                for field in record.fields
+                for field in TypeSystem.record_declarators(record)
             ]
             for unit in (module, native):
                 unit.struct_forwards.append(IRStructForward(name=name))
@@ -2524,7 +2525,7 @@ class FunctionLowerer:
                         field.type, IRFieldAccess(obj=value, field=field.name), to_native=to_native
                     ),
                 )
-                for field in record.fields
+                for field in TypeSystem.record_fields(record)
             ],
         )
 

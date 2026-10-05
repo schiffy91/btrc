@@ -339,6 +339,9 @@ class CallableValueSemantics {
 		return declaration;
 	}
 
+	/* The slot plan of a record initializer (the initializer-slot owner). */
+	public SemanticInitializerPlan recordInitializerSlots(Node declaration, Node value) { return SemanticTypeSystem.initializerSlots(declaration, value, self.analysis); }
+
 	private bool typeContainsManagedSeen(Node? typeExpr, CallableBoundaryContext context, Map<string, bool> active) {
 		Node? canonicalType = self.canonicalType(typeExpr, context);
 		if (canonicalType == null) { return false; }
@@ -366,9 +369,10 @@ class CallableValueSemantics {
 		} else {
 			Node? declaration = self.structDeclaration(canonical);
 			if (declaration != null) {
+				Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
 				int index = 0;
-				while (!contains && index < declaration.fields().len) {
-					contains = self.typeContainsManagedSeen(declaration.fields().get(index).type, context, active);
+				while (!contains && index < declarationFields.len) {
+					contains = self.typeContainsManagedSeen(declarationFields.get(index).type, context, active);
 					index = index + 1;
 				}
 			}
@@ -419,12 +423,10 @@ class CallableValueSemantics {
 			}
 			Node? declaration = self.structDeclaration(canonical);
 			if (declaration != null) {
-				int index = 0;
-				while (index < value.elements().len && index < declaration.fields().len) {
-					if (self.valueRequiresEnvironment(declaration.fields().get(index).type, value.elements().get(index), context)) {
+				for slot in self.recordInitializerSlots(declaration, value).slots {
+					if (self.valueRequiresEnvironment(slot.type, slot.element, context)) {
 						return true;
 					}
-					index = index + 1;
 				}
 				return false;
 			}
@@ -517,12 +519,10 @@ class CallableBoundaryPolicy {
 			}
 			Node? declaration = self.values.structDeclaration(canonical);
 			if (declaration != null) {
-				int index = 0;
-				while (index < value.elements().len && index < declaration.fields().len) {
-					if (self.unsafeValue(declaration.fields().get(index).type, value.elements().get(index), context)) {
+				for slot in self.values.recordInitializerSlots(declaration, value).slots {
+					if (self.unsafeValue(slot.type, slot.element, context)) {
 						return true;
 					}
-					index = index + 1;
 				}
 				return false;
 			}
