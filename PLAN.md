@@ -502,7 +502,7 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - The clipboard probe compiles in CI.
     - Reference-frontend rows drop the btrcc `compiler_digest`.
     - `LibdecorPending` is still not compiled in CI, because `libdecor-0.pc` is missing from the dev shell; a request is filed.
-  - **Integrator action.** Tagged `bbe4f56e` as `evidence/cx-uia-11-e40-repro`. The E40 reproduction records cite it, so the evidence stays verifiable after the never-merge branch goes.
+  - **Integrator action.** Kept `bbe4f56e` reachable on the branch `evidence/cx-uia-11-e40-repro` (the proxy refuses tags). The E40 reproduction records cite it, so the evidence stays verifiable after the never-merge branch goes.
   - **Main CI.** Linux CI on batch 37 (`dd434efb`) was cancelled twice before any test ran ("job was not acquired by Runner of type hosted"). After the one re-run allowed, a fresh `ci.yml` dispatch (37379709059) is the gate. Windows passed.
   - `CL-C-09` (unions) went back with ten blockers, each confirmed by a verifier:
     - The alias rows let `Vector<struct P>` and `Vector<P>` diverge between the compilers. Python accepts them and emits two C types; btrcc refuses. Tuples spelled with a tag regress the same way, and so do function pointers that mix the two spellings.
