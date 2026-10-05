@@ -1,0 +1,63 @@
+import ./layout/flexible_array_layout.c
+// The layout of structs with flexible array members (C row 13) follows C11
+// 6.7.2.1p18: the size as if the member were omitted, plus trailing padding
+// that counts the element's alignment. Each struct here is compared with a C
+// mirror (layout/flexible_array_layout.c) that returns sizeof and offsetof
+// as size_t; test_c_aggregate_layout.py builds it under gcc and clang.
+#include <assert.h>
+#include <stdlib.h>
+
+extern size_t mirrorIntsSize(void);
+extern size_t mirrorIntsOffset(void);
+extern size_t mirrorCharDoublesSize(void);
+extern size_t mirrorCharDoublesOffset(void);
+extern size_t mirrorTailSize(void);
+extern size_t mirrorTailOffset(void);
+extern size_t mirrorPairsSize(void);
+extern size_t mirrorPairsOffset(void);
+extern size_t mirrorPointersSize(void);
+extern size_t mirrorPointersOffset(void);
+
+struct Ints { int count; int data[]; };
+
+struct CharDoubles { char c; double d[]; };
+
+struct Tail { double x; char c; char d[]; };
+
+struct Pair { short a; long long b; };
+
+struct Pairs { char tag; struct Pair items[]; };
+
+struct Pointers { char tag; void* items[]; };
+
+// The member's offset within an allocated object, which btrc measures
+// through the decayed member because it has no offsetof.
+size_t offsetIn(void* object, void* member) { return (size_t)((char*)member - (char*)object); }
+
+void check(string name, size_t size, size_t expectedSize, size_t offset, size_t expectedOffset) {
+	if (size != expectedSize || offset != expectedOffset) {
+		print(f"FAIL: {name} has size {size} and offset {offset}; C has {expectedSize} and {expectedOffset}");
+		exit(1);
+	}
+}
+
+int main() {
+	struct Ints* ints = (struct Ints*)calloc((size_t)1, sizeof(struct Ints) + sizeof(int));
+	struct CharDoubles* doubles = (struct CharDoubles*)calloc((size_t)1, sizeof(struct CharDoubles) + sizeof(double));
+	struct Tail* tail = (struct Tail*)calloc((size_t)1, sizeof(struct Tail) + (size_t)1);
+	struct Pairs* pairs = (struct Pairs*)calloc((size_t)1, sizeof(struct Pairs) + sizeof(struct Pair));
+	struct Pointers* pointers = (struct Pointers*)calloc((size_t)1, sizeof(struct Pointers) + sizeof(void*));
+	assert(ints != null && doubles != null && tail != null && pairs != null && pointers != null);
+	check("Ints", sizeof(struct Ints), mirrorIntsSize(), offsetIn(ints, ints->data), mirrorIntsOffset());
+	check("CharDoubles", sizeof(struct CharDoubles), mirrorCharDoublesSize(), offsetIn(doubles, doubles->d), mirrorCharDoublesOffset());
+	check("Tail", sizeof(struct Tail), mirrorTailSize(), offsetIn(tail, tail->d), mirrorTailOffset());
+	check("Pairs", sizeof(struct Pairs), mirrorPairsSize(), offsetIn(pairs, pairs->items), mirrorPairsOffset());
+	check("Pointers", sizeof(struct Pointers), mirrorPointersSize(), offsetIn(pointers, pointers->items), mirrorPointersOffset());
+	free(ints);
+	free(doubles);
+	free(tail);
+	free(pairs);
+	free(pointers);
+	print("PASS: flexible array member layout matches C");
+	return 0;
+}

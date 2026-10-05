@@ -61,7 +61,7 @@ from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build
             "result type cannot contain an unsized array",
         ),
         (
-            "struct Payload { int[] values; }; int main() { Thread<Payload> worker = null; return 0; }",
+            "struct Payload { int count; int values[]; }; int main() { Thread<Payload> worker = null; return 0; }",
             "result type cannot contain an unsized array",
         ),
         (

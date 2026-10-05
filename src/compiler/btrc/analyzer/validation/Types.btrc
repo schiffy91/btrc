@@ -821,6 +821,51 @@ class TypeValidator {
 		return self.realtimePodInner(typeExpr, visiting);
 	}
 
+	/* The struct with a flexible array member that typeExpr stores by value
+	 * (directly or as array storage), or "". */
+	public string flexibleArrayStruct(Node? typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null || canonical.pointerDepth > 0) { return ""; }
+		string name = SemanticTypeSystem.resolvedStructName(canonical, self.state.analyzed);
+		if (name == "" || SemanticTypeSystem.flexibleArrayField(self.state.analyzed.structTable.get(name)) == null) { return ""; }
+		return name;
+	}
+
+	/* r13: a struct with a flexible array member exists only behind a pointer,
+	 * so no object, parameter, return, record, tuple, payload or generic
+	 * argument may hold one by value. */
+	public void validateFlexibleArrayValue(Node? typeExpr, string subject, Node site) {
+		string name = self.flexibleArrayStruct(typeExpr);
+		if (name != "") {
+			TypeValidator.fail(subject + " uses struct '" + name + "' with a flexible array member by value; use a pointer", site);
+		}
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null || canonical.pointerDepth > 0) { return; }
+		int index = 0;
+		while (index < canonical.genericArgs().len) {
+			self.validateFlexibleArrayValue(canonical.genericArgs().get(index), "Generic argument " + Strings.fromInt(index + 1) + " of " + subject, site);
+			index = index + 1;
+		}
+	}
+
+	/* A complete plain C flexible-array element: realtime POD, a function
+	 * pointer or a fixed array of these. Managed elements are refused for
+	 * now; relaxing to the shallow-aggregate rule later stays compatible. */
+	public bool flexibleArrayElement(Node? typeExpr) {
+		Node? element = self.resolveAliases(typeExpr);
+		if (element == null) { return true; }
+		if (element.isArray && element.arraySize != null && !element.isNullable) {
+			return self.flexibleArrayElement(TypeShape.withoutOuterArray(element));
+		}
+		if (element.base == "__fn_ptr" && element.pointerDepth == 0 && !element.isNullable) { return true; }
+		if (element.pointerDepth == 0) {
+			string name = SemanticTypeSystem.resolvedStructName(element, self.state.analyzed);
+			// The by-value checks report incomplete and flexible-array elements.
+			if (name != "" && (self.state.analyzed.structTable.get(name).isForward || self.flexibleArrayStruct(element) != "")) { return true; }
+		}
+		return self.realtimePod(element);
+	}
+
 	public bool runtimeTypeBase(string base) { return base == "Array" || base == "List" || base == "Map" || base == "Atomic" || base == "MemoryOrder" || base == "Mutex" || base == "Set" || base == "Span" || base == "Thread" || base == "Tuple" || base == "Vector" || base == "__fn_ptr" || base == "__realtime_fn_ptr"; }
 
 	public bool knownDeclarationType(Node typeExpr) {

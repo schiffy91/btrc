@@ -571,6 +571,7 @@ class DeclarationValidator {
 			Node member = declaration.members().get(index);
 			if (member.kind == NK_FIELD_DECL) {
 				self.types.validateDeclaredType(member.type, "Field '" + declaration.name + "." + member.name + "'", "stable_field", member);
+				self.types.validateFlexibleArrayValue(member.type, "Field '" + declaration.name + "." + member.name + "'", member);
 				self.types.rejectRuntimeInterfaceType(member.type, member);
 				self.controlFlow.validateArrayBound(member.type, "Field '" + declaration.name + "." + member.name + "'", "field", member, fieldVars);
 				Node? canonicalField = self.types.resolveAliases(member.type);
@@ -618,6 +619,7 @@ class DeclarationValidator {
 				self.validateCallableBody(member, declaration);
 			} else if (member.kind == NK_PROPERTY_DECL) {
 				self.types.validateDeclaredType(member.type, "Property '" + declaration.name + "." + member.name + "'", "field", member);
+				self.types.validateFlexibleArrayValue(member.type, "Property '" + declaration.name + "." + member.name + "'", member);
 				self.types.rejectRuntimeInterfaceType(member.type, member);
 				Node? canonicalProperty = self.types.resolveAliases(member.type);
 				if (canonicalProperty != null && canonicalProperty.isArray && canonicalProperty.arraySize != null) {
@@ -756,6 +758,15 @@ class DeclarationValidator {
 			self.types.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
 			self.types.rejectRuntimeInterfaceType(parameter.type, parameter);
 			typeIndex = typeIndex + 1;
+		}
+		if (callable.bodyNode != null) {
+			string owner = classDeclaration == null ? callable.name : classDeclaration.name + "." + callable.name;
+			if (!callable.isConstructor) {
+				self.types.validateFlexibleArrayValue(declaredReturnType, "Return type of '" + owner + "'", callable);
+			}
+			for parameter in callable.params() {
+				self.types.validateFlexibleArrayValue(parameter.type, "Parameter '" + owner + "." + parameter.name + "'", parameter);
+			}
 		}
 		self.state.typeParams = signaturePreviousParams;
 		Node? previousReturn = self.state.returnType;
@@ -932,5 +943,58 @@ class DeclarationValidator {
 		return ordered;
 	}
 
-	public void validateStructLayouts(Node program) { DeclarationValidator.orderedStructDefinitions(program, self.state.analyzed.structTable); }
+	public void validateStructLayouts(Node program) {
+		self.validateFlexibleArrayAggregates(program);
+		DeclarationValidator.orderedStructDefinitions(program, self.state.analyzed.structTable);
+	}
+
+	/* r13: no struct field or rich-enum payload holds a struct with a flexible
+	 * array member by value, and each flexible array member is placed and
+	 * typed as C11 6.7.2.1p3 and p18 require. */
+	private void validateFlexibleArrayAggregates(Node program) {
+		for declaration in program.declarations() {
+			if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
+				for field in SemanticTypeSystem.recordFields(declaration) {
+					self.types.validateFlexibleArrayValue(field.type, "Struct field '" + declaration.name + "." + field.name + "'", field);
+				}
+				self.validateFlexibleArrayMembers(declaration);
+			} else if (declaration.kind == NK_RICH_ENUM_DECL) {
+				for variant in declaration.variants() {
+					for parameter in variant.params() {
+						self.types.validateFlexibleArrayValue(parameter.type, "Rich-enum payload '" + declaration.name + "." + variant.name + "." + parameter.name + "'", parameter);
+					}
+				}
+			}
+		}
+	}
+
+	/* One flexible array member, last, after a named member, directly in the
+	 * struct's body, holding complete plain C elements. */
+	private void validateFlexibleArrayMembers(Node declaration) {
+		Vector<Node> members = SemanticTypeSystem.recordMembers(declaration);
+		Vector<Node> declarators = SemanticTypeSystem.recordDeclarators(declaration);
+		int index = 0;
+		while (index < members.len) {
+			Node member = members.get(index);
+			if (member.kind == NK_ANONYMOUS_MEMBER) {
+				Node? nested = SemanticTypeSystem.flexibleArrayField(member);
+				if (nested != null) {
+					TypeValidator.fail("Flexible array member '" + nested.name + "' must be declared directly in a struct, not in an anonymous member", nested);
+				}
+			} else if (SemanticTypeSystem.flexibleArrayMember(member)) {
+				string label = "'" + declaration.name + "." + member.name + "'";
+				if (!SemanticTypeSystem.sameNode(member, declarators.get(declarators.len - 1))) {
+					TypeValidator.fail("Flexible array member " + label + " must be the last field of struct '" + declaration.name + "'", member);
+				}
+				if (index == 0) {
+					TypeValidator.fail("Flexible array member " + label + " needs a named field before it", member);
+				}
+				Node element = TypeShape.withoutOuterArray(member.type);
+				if (!self.types.flexibleArrayElement(element)) {
+					TypeValidator.fail("Flexible array member " + label + " cannot hold managed type '" + self.types.formatType(element) + "'", member);
+				}
+			}
+			index = index + 1;
+		}
+	}
 }

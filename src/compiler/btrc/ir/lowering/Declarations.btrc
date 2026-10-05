@@ -2744,11 +2744,16 @@ class DeclarationLowerer {
 		int i = 0;
 		while (i < declarators.len) {
 			Node f = declarators.get(i);
-			if (f.type != null && f.type.isArray && f.type.arraySize != null) {
+			bool flexible = SemanticTypeSystem.flexibleArrayMember(f);
+			if (f.type != null && f.type.isArray && (f.type.arraySize != null || flexible)) {
 				Node baseType = TypeShape.withoutOuterArray(f.type);
 				Map<string, Node> empty = {};
 				IRStructField field = IRStructField(self.cTypes.lower(baseType), f.name);
-				field.arraySize = self.expressions.lowerExpr(f.type.arraySize, empty, callableFlow);
+				if (flexible) {
+					field.isUnsizedArray = true;
+				} else {
+					field.arraySize = self.expressions.lowerExpr(f.type.arraySize, empty, callableFlow);
+				}
 				field.isVolatile = f.type.isVolatile;
 				field.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(f.type, self.analyzed.typedefTable);
 				sd.fields.push(field);

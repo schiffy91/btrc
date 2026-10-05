@@ -660,6 +660,7 @@ class ControlFlowValidator {
 		self.ownership.validateMutexPayloadsInType(preliminaryType, declaration);
 		self.storage.validateThreadVariableOwner(declaration, preliminaryType, self.state.owner == "");
 		self.storage.validateVariableStorage(declaration, self.state.owner == "", vars);
+		self.types.validateFlexibleArrayValue(preliminaryType, (self.state.owner == "" ? "Global '" : "Variable '") + declaration.name + "'", declaration);
 		self.types.rejectRuntimeInterfaceType(declaration.type, declaration);
 		self.expressions.contextualizeGenericConstructor(declaration.type, declaration.initializer, vars);
 		self.prepareExpression(declaration.initializer, vars);

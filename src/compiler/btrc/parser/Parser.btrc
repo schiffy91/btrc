@@ -650,6 +650,12 @@ class Parser {
 		Node ftype = self.parseType();
 		Node specifier = Parser.declaratorSpecifier(ftype);
 		Node declarator = self.parseDeclaratorName(ftype);
+		if (specifier.isArray) {
+			// P1: the AST cannot tell `T[] name` from `T name[]`, which
+			// declares a flexible array member in a struct body.
+			Token nameTok = Parser.declaratorNameToken(declarator);
+			self.failAt(f"Struct field '{nameTok.value}' cannot use the 'T[] name' spelling; declare a flexible array member as 'T {nameTok.value}[]' or a pointer as 'T* {nameTok.value}'", nameTok);
+		}
 		int first = fields.len;
 		self.parseDeclarators(fields, declarator.type, Parser.declaratorNameToken(declarator), start, specifier, false, true);
 		self.expect("SEMICOLON");

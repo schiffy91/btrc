@@ -337,6 +337,15 @@ class ExpressionAnalyzer:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
+        flexible_member = self.aggregates.flexible_array_target(operand)
+        if flexible_member is not None:
+            self.session.error(
+                f"Cannot take the address of flexible array member '{flexible_member}'; "
+                "use the member itself or an element's address",
+                expression.line,
+                expression.col,
+            )
+            return
         if self._is_native_constant(operand):
             self.session.error(
                 f"Native constant '{operand.name}' is a value and has no address", expression.line, expression.col
@@ -604,6 +613,15 @@ class ExpressionAnalyzer:
         if canonical_target is not None and canonical_target.base == "Atomic" and canonical_target.pointer_depth == 0:
             self.session.error(
                 "Atomic<T> owner cannot be assigned or copied; use Atomic.init/store on stable storage",
+                expression.line,
+                expression.col,
+            )
+            return
+        flexible_struct = self.aggregates.flexible_array_struct(canonical_target)
+        if flexible_struct is not None:
+            # C11 6.7.2.1p25 copies only the members before the flexible array.
+            self.session.error(
+                f"Struct '{flexible_struct}' with a flexible array member cannot be assigned or copied",
                 expression.line,
                 expression.col,
             )
@@ -926,6 +944,10 @@ class ExpressionAnalyzer:
 
     def _validate_cast_expr(self, expression) -> None:
         if not self.types.validate_cast_target_name(expression):
+            return
+        if self.aggregates.reject_flexible_array_value(
+            expression.target_type, "Cast target", expression.line, expression.col
+        ):
             return
         target = self.types.canonical_type(expression.target_type)
         source = self.types.canonical_type(self._infer_type(expression.expr))

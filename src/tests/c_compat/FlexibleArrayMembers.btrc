@@ -1,0 +1,114 @@
+// Flexible array members (C row 13, C11 6.7.2.1p18). A struct whose last
+// member is `T name[]` has C's layout and exists only behind a pointer to
+// allocated storage; docs/known-language-gaps.md lists what btrc refuses.
+#include <assert.h>
+#include <stdlib.h>
+
+struct Buffer { int count; int data[]; };
+
+struct Point { int x; int y; };
+
+struct Path { size_t length; struct Point points[]; };
+
+struct Names { int count; char* items[]; };
+
+struct Handlers { int count; CFunction<int, int> steps[]; };
+
+typedef int[] Values;
+
+// A typedef never makes a flexible array member: Values stays a pointer.
+struct Slice { int length; Values values; };
+
+int twice(int value) { return value * 2; }
+
+int square(int value) { return value * value; }
+
+struct Buffer* makeBuffer(int count) {
+	struct Buffer* buffer = (struct Buffer*)calloc((size_t)1, sizeof(struct Buffer) + (size_t)count * sizeof(int));
+	if (buffer == null) { return null; }
+	buffer->count = count;
+	return buffer;
+}
+
+int sum(int* values, int count) {
+	int total = 0;
+	for (int i = 0; i < count; i++) {
+		total += values[i];
+	}
+	return total;
+}
+
+int main() {
+	// The size counts every member but the flexible array.
+	assert(sizeof(struct Buffer) == sizeof(int));
+	struct Buffer* buffer = makeBuffer(4);
+	assert(buffer != null);
+	for (int i = 0; i < buffer->count; i++) {
+		buffer->data[i] = i * i;
+	}
+	assert(buffer->data[3] == 9);
+	assert(sizeof(*buffer) == sizeof(struct Buffer));
+	// The member decays to a pointer to its first element.
+	int* first = buffer->data;
+	int* third = &buffer->data[2];
+	assert(*first == 0 && *third == 4);
+	assert(sum(buffer->data, buffer->count) == 14);
+	// Growth reallocates with the same size expression.
+	struct Buffer* grown = (struct Buffer*)realloc(buffer, sizeof(struct Buffer) + (size_t)8 * sizeof(int));
+	assert(grown != null);
+	buffer = grown;
+	for (int i = 4; i < 8; i++) {
+		buffer->data[i] = i * i;
+	}
+	buffer->count = 8;
+	assert(sum(buffer->data, buffer->count) == 140);
+	free(buffer);
+	print("PASS: flexible array member");
+
+	struct Path* path = (struct Path*)calloc((size_t)1, sizeof(struct Path) + (size_t)3 * sizeof(struct Point));
+	assert(path != null);
+	path->length = 3;
+	for (int i = 0; i < 3; i++) {
+		path->points[i].x = i;
+		path->points[i].y = 10 * i;
+	}
+	struct Point* last = &path->points[2];
+	assert(last->x == 2 && path->points[1].y == 10);
+	free(path);
+	print("PASS: struct elements");
+
+	struct Names* names = (struct Names*)calloc((size_t)1, sizeof(struct Names) + (size_t)2 * sizeof(char*));
+	assert(names != null);
+	names->count = 2;
+	names->items[0] = "left";
+	names->items[1] = "right";
+	print(f"{names->items[0]} {names->items[1]}");
+	free(names);
+
+	struct Handlers* handlers = (struct Handlers*)calloc((size_t)1, sizeof(struct Handlers) + (size_t)2 * sizeof(CFunction<int, int>));
+	assert(handlers != null);
+	handlers->count = 2;
+	handlers->steps[0] = twice;
+	handlers->steps[1] = square;
+	int value = 3;
+	for (int i = 0; i < handlers->count; i++) {
+		value = handlers->steps[i](value);
+	}
+	assert(value == 36);
+	free(handlers);
+	print("PASS: pointer elements");
+
+	// Pointer arithmetic on the struct pointer steps by sizeof(struct Buffer).
+	struct Buffer* pair = (struct Buffer*)calloc((size_t)2, sizeof(struct Buffer));
+	assert(pair != null);
+	struct Buffer* second = pair + 1;
+	second->count = 7;
+	assert(pair[1].count == 7);
+	free(pair);
+
+	int storage[2] = {5, 6};
+	struct Slice slice = {2, storage};
+	assert(sizeof(struct Slice) > sizeof(int) && slice.values[1] == 6);
+	print("PASS: typedef arrays stay pointers");
+	return 0;
+}

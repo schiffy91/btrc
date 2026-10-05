@@ -536,6 +536,10 @@ class ExpressionValidator {
 
 	public void validateUnary(Node expression, Map<string, Node> vars) {
 		if (expression.op == "&") {
+			string flexibleMember = self.storage.flexibleArrayTarget(expression.operand, vars);
+			if (flexibleMember != "") {
+				TypeValidator.fail("Cannot take the address of flexible array member '" + flexibleMember + "'; use the member itself or an element's address", expression);
+			}
 			self.storage.validateNativeGlobalAddress(expression.operand, vars, expression);
 			bool addressable = self.storage.isLifetimeStableStorage(expression.operand, vars) || (expression.operand.kind == NK_IDENTIFIER && (self.state.analyzed.funcNames.has(expression.operand.name) || self.sourceRuntimeSymbols.helper(expression.operand.name)));
 			if (!addressable) {
@@ -983,6 +987,7 @@ class ExpressionValidator {
 		} else if (expression.kind == NK_CAST_EXPR) {
 			self.types.rejectRuntimeInterfaceType(expression.targetType, expression);
 			self.validateExpr(expression.expr,  vars);
+			self.types.validateFlexibleArrayValue(expression.targetType, "Cast target", expression);
 			self.rejectThreadValueEscape(expression.expr, "cast", vars);
 			self.validatePointerIntegerCast(expression,  vars);
 			Node? source = self.types.resolveAliases(self.types.inferType(expression.expr, vars));
@@ -995,6 +1000,10 @@ class ExpressionValidator {
 		} else if (expression.kind == NK_SIZEOF_EXPR) {
 			if (expression.operand != null && expression.operand.kind == NK_SIZEOF_EXPR_OP) {
 				self.validateExpr(expression.operand.expr,  vars);
+				string flexibleMember = self.storage.flexibleArrayTarget(expression.operand.expr, vars);
+				if (flexibleMember != "") {
+					TypeValidator.fail("sizeof cannot be applied to flexible array member '" + flexibleMember + "'", expression);
+				}
 			}
 		} else if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
 			self.validateExprList(expression.elements(),  vars);

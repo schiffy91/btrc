@@ -451,6 +451,10 @@ class StatementAnalyzer:
             self.session.error(f"{subject} must initialize its Thread<T> owner", declaration.line, declaration.col)
         if not (type_expr.is_extern and declaration.initializer is None):
             self.aggregates.validate_complete_aggregate_use(type_expr, subject, declaration.line, declaration.col)
+        else:
+            # C11 accepts `extern struct S g;` for a struct with a flexible
+            # array member; btrc keeps such a struct behind a pointer.
+            self.aggregates.reject_flexible_array_value(type_expr, subject, declaration.line, declaration.col)
         bound_context = "global" if is_global else "static" if type_expr.is_static else "local"
         self._validate_array_bound(type_expr, subject, bound_context)
         if type_expr.is_extern and declaration.initializer is not None:

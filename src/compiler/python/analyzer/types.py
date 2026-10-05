@@ -1142,6 +1142,27 @@ class TypeSystem:
         return path[-1] if path is not None else None
 
     @classmethod
+    def is_flexible_array_member(cls, member) -> bool:
+        """Whether a record member is declared ``T name[]`` (C11 6.7.2.1p18).
+
+        P1 refuses the ``T[] name`` spelling in record bodies, so an unsized
+        array on a ``FieldDef``'s own type is always this declarator; a
+        typedef never makes one. Placement is validated separately."""
+        return (
+            isinstance(member, FieldDef)
+            and member.type is not None
+            and member.type.is_array
+            and member.type.array_size is None
+        )
+
+    @classmethod
+    def flexible_array_member(cls, record) -> FieldDef | None:
+        """The flexible array member of a complete record, or ``None``."""
+        if record is None or record.is_forward:
+            return None
+        return next((field for field in cls.record_fields(record) if cls.is_flexible_array_member(field)), None)
+
+    @classmethod
     def complete_member_record(cls, member_type, tables):
         """The complete record a by-value member type names, for designator
         chains; ``tables`` carries ``struct_table`` and ``typedef_table``."""

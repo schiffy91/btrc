@@ -40,13 +40,22 @@ def test_generic_class_multiple_type_params():
 
 
 def test_struct_with_array_fields():
-    # Struct fields support both sized `data[16]` and unsized `flags[]` arrays.
-    src = "struct Buffer { int data[16]; int flags[]; int n; };\nint main() { return 0; }"
+    # Struct fields support sized `data[16]` arrays and a trailing flexible
+    # array member `flags[]` (C11 6.7.2.1p18).
+    src = "struct Buffer { int n; int data[16]; int flags[]; };\nint main() { return 0; }"
     prog = parse(src)
     buf = next(d for d in prog.declarations if isinstance(d, StructDecl))
     assert len(buf.fields) == 3
-    assert buf.fields[0].type.is_array and buf.fields[0].type.array_size is not None
-    assert buf.fields[1].type.is_array
+    assert buf.fields[1].type.is_array and buf.fields[1].type.array_size is not None
+    assert buf.fields[2].type.is_array and buf.fields[2].type.array_size is None
+
+
+def test_struct_field_refuses_type_position_array():
+    # P1: `T[] name` in a struct body would be indistinguishable from the
+    # flexible array member `T name[]` in the AST.
+    with pytest.raises(ParseError, match="cannot use the 'T\\[\\] name' spelling") as error:
+        parse("struct Buffer { int count; int[] data; };")
+    assert (error.value.line, error.value.col) == (1, 34)
 
 
 def test_top_level_array_declarator():

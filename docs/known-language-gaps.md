@@ -64,6 +64,10 @@ C-compatibility table in `docs/design/plan-reference.md`.
 | Row | C source | btrc's rule | Diagnostic |
 |-----|----------|-------------|------------|
 | 4 | `char s[3] = "abc";` — the exact fit | A narrow string literal initializes a `char`, `signed char` or `unsigned char` array: `char s[] = "abc"` takes four elements and `char s[4] = "abc"` holds the terminator (`c_compat/CharArrayStringInit.btrc`, locals, statics, globals and struct-field elements). C drops the terminator silently when the literal exactly fills the bound; btrc refuses it (D20). Extents count bytes: a UTF-8 character or universal character name is its encoded length. Only a literal initializes a char array: an f-string or a `string` value is refused, and wide literals wait for row 16. A bound the front end cannot evaluate, such as a C preprocessor macro or a `sizeof`, is left to the C compiler, whose strict flags may or may not catch the exact fit (gcc 15 refuses it; C11 itself allows it). | `String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty` |
+| 13 | `struct Buffer b;`, `static struct Buffer b;`, `struct Buffer g;` for a struct with a flexible array member | A struct whose last member is a flexible array member (`int data[];`) exists only behind a pointer to allocated or C-provided storage (`c_compat/FlexibleArrayMembers.btrc`). C11 accepts an object of the struct, whose member then has no elements; btrc refuses every by-value use: objects, parameters, returns, casts, records, tuples, rich-enum payloads and generic arguments. `sizeof(struct Buffer)` and `sizeof(*p)` stay allowed. | `Variable 'b' uses struct 'Buffer' with a flexible array member by value; use a pointer` (`Global 'g'` at file scope) |
+| 13 | `extern struct Buffer g;` | The same rule refuses an external object of the struct, which C11 6.7.2.1p18 permits. | `Global 'g' uses struct 'Buffer' with a flexible array member by value; use a pointer` |
+| 13 | `*a = *b;` for two `struct Buffer*` | C11 6.7.2.1p25 copies only the members before the flexible array member, which is rarely what the code meant; btrc refuses the whole-object copy. Copy the members and elements explicitly, or `memcpy` with the allocated size. | `Struct 'Buffer' with a flexible array member cannot be assigned or copied` |
+| 13 | `struct S { int n; int[] data; };` | `int[] data` is btrc's pointer-valued array spelling, and in a struct body the AST cannot tell it from the flexible array member `int data[]` (P1). Write `int data[]` for C's layout or `int* data` for a pointer; a typedef (`typedef int[] Values;`) still declares a pointer-valued field. | `Struct field 'data' cannot use the 'T[] name' spelling; declare a flexible array member as 'T data[]' or a pointer as 'T* data'` |
 | 18 | `#if UNKNOWN` (C reads 0) | btrc evaluates `#if`, `#ifdef`, `#ifndef` and `#elif` per file before lexing, against the selected target's predefined macros (`src/language/targets.toml`) and the file's own earlier `#define`s (D20, `c_compat/PreprocessorConditionals.btrc`). An evaluated identifier that is neither is an error, never C's silent 0; test it with `defined(X)`. An unevaluated operand (`0 && X`) is never read. | `Identifier 'UNKNOWN' in #if is not a macro defined earlier in this file or a target macro; test it with defined(UNKNOWN)` |
 | 18 | `#ifdef __GNUC__`, `#if __LINE__` | A reserved name (`_` prefix) that is not a target macro names the C implementation btrc cannot see. | `'__GNUC__' is reserved for the C implementation and is not a btrc target macro; #if cannot test it` |
 | 18 | `#if PATH_MAX`, `#ifdef NDEBUG`, `#if bool` | A hosted-ABI name, a `foreign_macro_names` entry, a `btrc_`/`BTRC_` name or a package's `[[native.defines]]` name is set by headers or compiler flags, which `#if` runs before. | `'PATH_MAX' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it` (a package define names its package) |
@@ -245,6 +249,52 @@ freshly owned value in it is refused (`caller-owned temporary cannot be stored
 in a shallow aggregate`). `goto` is not part of the grammar yet (PLAN.md Stage
 20), so a jump into a VLA's scope cannot be written; Stage 20's negative
 fixtures must cover it.
+
+## Flexible array members (C row 13)
+
+A struct member `T name[]` that is the last member, follows a named member and
+sits directly in a named struct's body is a C11 flexible array member (FAM):
+`struct Buffer { int count; int data[]; };` emits exactly that declaration,
+and its layout is C's (`c_compat/FlexibleArrayLayout.btrc` compares `sizeof`
+and the member offset with a C mirror under gcc and clang). Elements are
+complete plain C values: scalars, enums, raw and function pointers, structs
+without a FAM and fixed arrays of these; managed elements are refused for now.
+
+A FAM struct exists only behind a pointer. Allocate it with the size of the
+struct plus the elements, check the result and free it; no runtime helper is
+involved:
+
+```btrc
+struct Buffer* b = (struct Buffer*)calloc((size_t)1, sizeof(struct Buffer) + (size_t)n * sizeof(int));
+if (b == null) { return 1; }
+b->count = n;
+b->data[0] = 7;
+free(b);
+```
+
+Growth uses `realloc` with the same size expression. `p->data[i]` is an
+element lvalue, `p->data` decays to `T*`, `&p->data[i]` and pointer
+arithmetic on `struct Buffer*` work, and `for x in p->data` is refused because
+the member has no provable capacity. These are refused, with the same
+diagnostic in both compilers (`btrc/test_flexible_array_member_contract.py`):
+
+| Case | Diagnostic |
+|------|------------|
+| not the last member | `Flexible array member 'Buffer.data' must be the last field of struct 'Buffer'` |
+| no named member before it | `Flexible array member 'Buffer.data' needs a named field before it` |
+| inside an anonymous member | `Flexible array member 'data' must be declared directly in a struct, not in an anonymous member` |
+| a managed element | `Flexible array member 'Buffer.items' cannot hold managed type 'string'` |
+| a by-value use (object, parameter, return, cast, record or class field, tuple, rich-enum payload, generic argument) | `Parameter 'f.b' uses struct 'Buffer' with a flexible array member by value; use a pointer` |
+| a whole-object copy or assignment | `Struct 'Buffer' with a flexible array member cannot be assigned or copied` |
+| `sizeof(p->data)` | `sizeof cannot be applied to flexible array member 'Buffer.data'` |
+| `&p->data` | `Cannot take the address of flexible array member 'Buffer.data'; use the member itself or an element's address` |
+| assigning the member | `Array object 'int[]' is not assignable` |
+| `new Buffer()` | `new requires a class type, got 'Buffer'` |
+
+A typedef never makes a FAM: `typedef int[] Values;` and a `Values data;`
+field keep btrc's pointer-valued array. Sizing with `offsetof` waits for btrc
+`offsetof`, and a native struct's incomplete-array field is still refused by
+the importer.
 
 ## Adjacent string literals (C row 5)
 
