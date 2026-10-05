@@ -1,7 +1,7 @@
 # HTTP transport and Browser ownership draft
 
-Status: **Revision 3, approval pending**, CX-P2-02; source baseline
-`0214f3d8df9e0744e9656b32d3773755249b7e34` (2026-10-05). This document
+Status: **Revision 4, approval pending**, CX-P2-02; source baseline
+`45416fd069665bf48e0b3000c4aafd1889cb55e2` (2026-10-05). This document
 proposes the Stage 26 interface freeze. It changes no production interface,
 provider, build input, trust store or qualification result. CL-P2-01 must review
 and approve it and record the decision in PLAN.md before implementation.
@@ -65,7 +65,7 @@ are an error. The original validation order and literal strings are:
 | 8 | Sum of header line lengths exceeds 65,536 | `HTTP headers are too large` |
 | 9 | Non-null body's strlen exceeds maxRequestBytes | `request body is too large` |
 
-### Revision 3 request admission (before any provider I/O)
+### Revision 4 request admission (before any provider I/O)
 
 The table above records the old implementation, not the new admission set.
 The following changes are deliberate, versioned rejections on **every target**,
@@ -76,7 +76,7 @@ zero bytes, and string bodies retain their existing strlen boundary.
 | Order | Admitted input / additional rejection | Literal error |
 | --- | --- | --- |
 | 1 | Exact uppercase GET, HEAD, POST, PUT, DELETE, OPTIONS or PATCH only; retain token/64-byte check first. TRACE, CONNECT, extension methods and lowercase spellings are rejected, not rewritten. | `invalid HTTP method` |
-| 2 | Generic ASCII RFC 3986 URI syntax, valid percent escapes and length ≤8,192 only. Do not apply HTTP authority or userinfo rules here. | `invalid URL` |
+| 2 | Generic ASCII RFC 3986 URI/reference syntax, valid percent escapes and length ≤8,192 only. A syntactically valid scheme-less reference passes this row and fails row 3; malformed syntax fails here. Do not apply HTTP authority or userinfo rules here. | `invalid URL` |
 | 3 | Scheme http or https, compared case-insensitively; other syntactically valid schemes retain this error. | `unsupported URL scheme` |
 | 3a | HTTP authority, host, port, initial-fragment prohibition and canonical path/query rules below. | `invalid URL` |
 | 4–6 | Existing limit and null-header checks, unchanged and in their existing order. | Existing literals above |
@@ -89,7 +89,7 @@ zero bytes, and string bodies retain their existing strlen boundary.
 | 10 | Additive options: maxRedirects must be 0…20; then check provider capabilities and pre-cancellation, in that order. | `invalid HTTP redirect limit`; capability/pre-cancellation use the typed mappings below |
 
 The reserved names are Host, Content-Length, Transfer-Encoding, Connection,
-Keep-Alive, Proxy-Connection, TE, Trailer, Upgrade, Expect and Accept-Encoding.
+Keep-Alive, Proxy-Connection, Proxy-Authorization, TE, Trailer, Upgrade, Expect and Accept-Encoding.
 The provider emits `Accept-Encoding: identity`; it owns authority/framing and
 hop-by-hop headers. A caller's `Expect:` suppression or Host override is rejected,
 not silently stripped. The client-only ASCII rule does not narrow server-side
@@ -105,6 +105,25 @@ not the `Name:` form that removes a header). Exact field-value assertions below
 compare this canonical value. OWS normalization and duplicate-name rejection
 are versioned changes too; a provider unable to preserve an admitted value
 returns unsupported before I/O rather than silently omitting it.
+After caller validation and before capability admission, the facade, for both
+string and Bytes calls, inserts `Content-Type: application/x-www-form-urlencoded`
+only when the payload is nonempty and the caller supplied no Content-Type.
+This explicitly preserves the old `--data-binary` default. An explicit value,
+including a present empty field, is preserved; empty/null payload with no field
+means **absent**, not `Content-Type:`. Providers neither invent a media type nor
+substitute an empty field to suppress their defaults. libcurl uses its suppression
+form for an absent field and its semicolon form for a present empty field;
+interim curl uses the corresponding distinct header arguments. Apple uses no
+body object for a zero-length payload where needed. A provider that cannot send
+the selected state returns HTTP_FAILURE_UNSUPPORTED before I/O. In particular,
+HttpURLConnection inserts a default for every body-permitting method: empty
+POST/PUT/PATCH/DELETE/OPTIONS with an absent Content-Type are unsupported on the
+known Android implementation, even with doOutput false. An explicit caller
+Content-Type can make that request representable; do not add one silently.
+The synthesized default does not consume the caller-header aggregate allowance;
+its constant bounded storage is included in provider overhead. Wire fixtures
+cover all seven methods × zero/nonzero payload × absent/empty/explicit field.
+
 The response maximum retains the old upper bound even after the process marker
 and its 64-byte capture reserve disappear, until a reviewed API revision.
 
@@ -180,19 +199,30 @@ HTTP depends downward on Bytes, Timer and native provider bindings, not App,
 GUI or a compiler-import module that would introduce a reverse dependency.
 No global TLS settings or process signal handlers are changed. The btrc layer never retries a failed request, including an uncertain POST.
 Native connection-reuse retries must be disabled or independently qualified;
-providers use fresh transactions/connections when needed to prevent replay.
-A stale keep-alive POST fixture must prove one server observation, or block
-that provider's acceptance.
+providers use fresh transactions/connections where public APIs permit. Android
+HttpURLConnection has no complete per-client retry/pool isolation control; that
+profile does not qualify a no-replay requirement; applications requiring it
+cannot select that profile until an approved provider amendment supplies it. A stale keep-alive POST fixture must prove one server
+observation for a no-replay-qualified profile, or block that capability's acceptance.
 Linux explicitly follows libcurl's standard proxy environment variables,
 with no credential values in diagnostics; Windows uses
-WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY. Other rows use OS policy. Hermetic fixture
+WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY. Apple native rows use OS policy; interim MacOS curl uses curl proxy environment
+variables, not macOS system proxy settings. Android uses its platform policy. Hermetic fixture
 connections select direct routing through a test-only capability;
 production proxy behavior is therefore a documented adaptation per provider;
 proxy selection is recorded in diagnostics without credentials. Hermetic tests
 select direct connections explicitly, with proxy environment variables removed.
-Automatic cookie persistence and credential dialogs are disabled; callers pass
-explicit headers. These explicit cross-provider policies require approval where
-they differ from a platform default or ambient curl configuration.
+Native Linux/Windows/Apple transactions disable automatic cookie persistence
+and credential dialogs; callers pass explicit origin credentials. Proxy credentials
+are not accepted as caller headers. Android cannot isolate process-global
+ResponseCache, CookieHandler, Authenticator or the platform connection pool
+through HttpURLConnection: setUseCaches(false), disable user interaction and
+set explicit Cookie headers, but do not replace any process-global handler.
+This is a named ambient-state adaptation, not a claim of complete isolation.
+An application requiring isolated cookie/auth/pool state cannot qualify that
+provider profile; no unstated per-request isolation option is invented here. Qualification must record interference with installed global
+handlers and possible SDK retries; no exactly-once server-observation claim is
+made for that unisolated profile. These policy differences require approval.
 
 ### One portable URL parser and origin identity
 
@@ -212,7 +242,7 @@ do not repair the URL again. Credentials never come from userinfo.
 
 | Input | Frozen proposal / common two-frontend and every-provider case |
 |---|---|
-| Generic syntax / scheme | Row 2 recognizes a generic RFC 3986 URI, including `file:///etc/passwd`, `mailto:a@example.test`, `javascript:alert(1)` and `ftp://u@h`. All four reach row 3 and fail with `unsupported URL scheme`, not HTTP authority/userinfo validation. |
+| Generic syntax / scheme | Row 2 recognizes a generic RFC 3986 URI/reference; valid `example.test/path`, `/relative` and `//host/path` fail row 3 with `unsupported URL scheme`, while invalid escapes fail row 2. Scheme-bearing examples include `file:///etc/passwd`, `mailto:a@example.test`, `javascript:alert(1)` and `ftp://u@h`. All four reach row 3 and fail with `unsupported URL scheme`, not HTTP authority/userinfo validation. |
 | HTTP authority | Row 3a: lowercase scheme and DNS host; authority required; absent port means 80/443; explicit decimal port must be 1–65535 |
 | Userinfo | reject with `invalid URL`; deliberate versioned change from curl's implicit Basic authentication |
 | Fragment/backslash/control | Initial fragments fail at 3a. Strip a redirect Location's fragment before resolving/transmitting (RFC 9110 §10.2.2); a fragment-only redirect resolves to the same resource and consumes a hop. Reject backslashes, raw whitespace and controls; no native-parser repair. |
@@ -245,6 +275,56 @@ framing headers are byte-identical to HTTP/1.1. Any provider that changes a
 caller field's semantics must reject that capability before I/O and record the
 adaptation; silently joining/dropping fields is not parity.
 
+### Final responses and body framing
+
+A transport outcome succeeds only with the first final status **200…599**.
+Every parsed status must first be in 100…599; missing/malformed/out-of-range
+status is HTTP_FAILURE_INVALID_STATUS. Informational 100 and 102…199 are
+interim header blocks, not outcomes or redirect targets: consume them until the
+final response within the original deadline. 101 is an unsupported protocol
+switch and fails INVALID_STATUS; this client never upgrades. Bound the total
+interim header bytes per hop to 65,536 as well as the final block when the SDK
+exposes them. Apple/Android may hide interim blocks and allocate them internally;
+the provider enforces the delivered final-header bound and total deadline but
+cannot promise an unobservable interim-byte or SDK-memory bound. This is a
+resource adaptation; hard interim-header bounds are an unsupported qualification
+capability on such profiles, not a passing hidden-headers fixture. These resource
+and isolation profiles are qualification facts, not unnamed request options.
+
+For HEAD, or final status 204/304, return the final status, empty bodyBytes and
+empty error; Content-Length is metadata, not a body allocation/rejection trigger.
+Do not wait for or read a message body, including when the advertised length
+exceeds maxResponseBytes. For HEAD libcurl must set CURLOPT_NOBODY, and interim
+curl uses `--head`, not merely `--request HEAD`. Its header output goes to the
+bounded header channel, never the legacy body/status channel. For all other
+responses decode transfer framing once, require declared Content-Length bytes
+or successful chunked termination, and fail a truncated body with
+HTTP_FAILURE_TRUNCATED_BODY (legacy exit 18). A successful EOF alone is sufficient
+only for a close-delimited body. WinHTTP checks delivered length for identity
+Content-Length responses and requires its SDK's successful end-of-message for
+chunked responses; an error before that point is not success. On a provider
+that decodes content coding, compare the native framing receipt, not a decoded
+byte count, with the encoded Content-Length. SDKs hiding raw framing must prove
+truncation reporting with the raw endpoint; otherwise that capability stays
+unqualified rather than inventing a second parser over decoded bytes.
+
+**Android informational-response adaptation:** the reviewed HttpURLConnection
+implementation skips 100 only, caches 102/103 as its response and exposes no
+public operation to advance to the real final response. Repeating
+getResponseCode or parsing getInputStream as another HTTP response is forbidden.
+If it exposes a non-101 informational status, return HTTP_FAILURE_UNSUPPORTED,
+status zero and empty body, after I/O, with the observed code diagnostic; do not
+retry the request or report that 1xx as success. The 103→200 fixture therefore
+expects this declared unsupported outcome on that profile, not a false common
+200 result. A fully conforming Android final-response capability remains blocked
+until CL-P2-01 approves an amended Q9 provider choice or qualifies an SDK that
+actually consumes all interim responses. Q9 still selects HttpURLConnection;
+this draft neither adds a private OkHttp dependency nor silently selects Cronet.
+The alternative is an explicitly assigned client owned by the provider, with
+public checked JNI APIs, dependency/version policy, independent trust/proxy/
+cookie/retry qualification and amended packet scope. That alternative is a new
+approval decision, not permission to use hidden Android implementation classes.
+
 ### Bounds, redirects and deadlines
 
 Request snapshots are bounded before starting native work. Response bytes are
@@ -255,7 +335,13 @@ but cannot replace incremental enforcement for chunked, absent, lying or decoded
 lengths. Bound headers separately in the provider: proposed 65,536 response
 header bytes per hop, measured as reconstructed `name: value\r\n` byte
 strings (including repeated values), with a distinct HTTP_FAILURE_HEADER_TOO_LARGE
-failure. This is not a raw wire-byte bound on Apple/Android header maps. This new response-header bound needs explicit CL-P2-01 approval.
+failure. This is not a raw wire-byte bound on Apple/Android header maps. Those SDKs may
+allocate/parse the entire header block before exposing it: the reconstructed
+limit bounds accepted/application-retained headers, not SDK peak header memory.
+That resource adaptation must be recorded and exercised with large headers;
+applications requiring a hard pre-allocation header bound cannot qualify those
+profiles without an approved provider change. No bounded-header-memory claim applies to hidden SDK buffers.
+This new response-header bound needs explicit CL-P2-01 approval.
 
 Transfer framing is decoded once. Accept-Encoding is provider-owned and every
 provider sends identity. Disable optional decoding in libcurl and WinHTTP;
@@ -268,28 +354,44 @@ in diagnostics; the API does not promise equal body bytes for a server ignoring
 identity. Test this divergence and each provider's incremental limit explicitly.
 It is not an unresolved freeze decision or permission to accept caller gzip.
 No provider may buffer an unbounded
-response before enforcing the limit (including an NSURLSession completion-only
+response body before enforcing the limit (including an NSURLSession completion-only
 data task). Streaming delegates/read callbacks enforce bounds during receipt.
-Retained memory is O(maxResponseBytes + bounded headers/buffers), not an exact
+Application-retained memory is O(maxResponseBytes + bounded headers/buffers),
+subject to the stated SDK-owned header/interim allocation exception, not an exact
 capacity promise: Bytes may geometrically allocate. Never mutate Bytes or a
 compiler-import module to claim an exact bound; an exact-capacity API would be
 a CL-P1-20 request with its bootstrap gate. Request Bytes are copied into native
 provider-owned storage before concurrent access; Bytes itself remains mutable.
 Retain only a bounded body and separately bounded native read buffers;
-headers and diagnostic buffers also have independent bounds.
+headers and diagnostic buffers also have independent application bounds, with
+the Apple/Android pre-delivery header-allocation exception above.
 
 maxRedirects = 0 means no follow. An explicit positive value admits at most that
 many additional requests; proposed range 0…20, invalid values rejected before
 I/O. Exhaustion is HTTP_FAILURE_REDIRECT_LIMIT, not the last redirect reported as success.
 All hops share the original deadline and protocol allowlist. The portable policy
 resolves relative Location values, rejects malformed locations, strips sensitive
-Authorization/Cookie/Proxy-Authorization headers on an origin change, and rejects
+Authorization/Cookie headers on an origin change, and rejects
 HTTPS-to-HTTP downgrade. With following enabled: 303 becomes GET except HEAD;
 301/302 convert POST to GET; 307/308 preserve method and bytes. Remove body
 framing headers (Content-Length and Transfer-Encoding) when discarding the body.
+Track whether Content-Type was facade-synthesized: remove that default when a
+redirect discards the body, but preserve an originally caller-supplied field,
+including present empty. Recompute synthesis for each hop's actual payload.
 Derive Host/authority from each canonical hop. The provider-owned header
 validation applies to both no-follow and following requests; no caller Host
 or framing override survives admission.
+Before following, require exactly one uncoalesced Location field. Two or more,
+even identical values, produce HTTP_FAILURE_REDIRECT_REJECTED before a second
+request; never pick first/last, split commas or treat an empty value as absent.
+If the SDK exposes only a dictionary/coalesced value and cannot prove original
+multiplicity, its positive-maxRedirects capability is unsupported **before the
+initial I/O**. In particular NSURLSession header maps are not proof of duplicate
+absence; a qualified raw/native multiplicity mechanism or a changed provider is
+required to enable its redirect option. No-follow still returns the original
+redirect status/body without following; it does not need Location selection.
+Tests include identical and conflicting duplicates, separate fields versus a
+single URI containing a comma, and no second server observation on rejection.
 Replay uses the immutable bounded payload, never asks a caller to regenerate
 a stream. Preserve the Location
 response without following when maxRedirects is zero. Disable native automatic
@@ -313,6 +415,13 @@ A pre-cancelled request starts no I/O. Reuse the existing
 the duration of perform; no new IO type or compiler-import edit is needed.
 CL-P2-01 must reconcile mobile-storage.md's former IO placeholder to this named
 owner before its consumers implement the shared cancellation choice.
+Retain the managed cancellation reference on the perform caller's owning
+executor before starting native work; release it on that same executor. Workers
+receive only a fully initialized native request copy and native atomic state via
+a mutex/event handoff (release publish, acquire consume). They never retain,
+release or read the managed token across threads; R1 native reference counts and
+callback admission use their qualified atomic protocol. Native completion is
+published back through the same synchronization before constructing managed Bytes.
 The flag does not itself wake or close anything. The non-UI perform controller
 checks requested() before admission and at most every **100 ms** while waiting,
 then invokes the provider's native abort action. Managed token access stays on
@@ -343,24 +452,34 @@ behavior must be measured before promising this as a universal latency SLA.
 For blocking JNI I/O, disconnect/close and finite read/connect timeouts need a
 retained R1 native owner; do not share a JNIEnv between threads. Obtain each
 thread's JNIEnv only from the src/stdlib/Java thread key, never direct attach or
-detach. DNS that cannot be interrupted (InetAddress or synchronous libcurl)
+detach. DNS that cannot be interrupted (InetAddress, synchronous libcurl or libcurl
+with the threaded resolver)
 runs on a provider-owned native worker. The caller's monotonic wait can expire,
 but retained native work is quarantined until actual quiescence. Bound admission
 of such outstanding workers; timeout cannot allow unbounded orphan work.
 
 | Provider | Observation, abort and sole cleanup owner |
 | --- | --- |
-| Linux | The perform controller owns the multi/easy handles; curl_multi_poll waits at most min(remaining budget, 100 ms), then the controller reads requested(). It removes the easy handle to abort and alone performs easy/multi cleanup after callbacks return. curl_multi_wakeup is optional for an already-qualified native wake source, never an action falsely attributed to a stored flag. A resolver fallback retains its separate R1 worker until it actually exits. |
+| Linux | The c-ares-qualified perform controller owns multi/easy handles, polls at ≤100 ms and alone removes/cleans them after callbacks return. ASYNCHDNS alone is insufficient: threaded-resolver remove/cleanup can join getaddrinfo. Any blocking/threaded profile puts the **entire** multi/easy transaction, including abort/remove/cleanup, on one bounded quarantinable native worker. The caller polls native state, selects cancel/deadline and returns without joining; only that worker ever touches/frees its curl handles. No cleanup call runs on the bounded caller path. |
 | Apple | The perform controller polls its event at ≤100 ms and enqueues task cancel/session invalidation to the serial delegate owner. That owner serializes delegate entry and teardown; final didBecomeInvalidWithError establishes drain. R2 callback/data references release on the qualified release executor; R1 session/buffer ownership releases once after that drain. The controller never frees a task from under a callback. |
 | Windows | The async WinHTTP controller waits on a native event at ≤100 ms. It alone calls WinHttpCloseHandle on request, connection and session, including cancellation. Callback storage and buffers remain until all registered HANDLE_CLOSING notifications and already-entered callbacks drain, as detailed below. |
-| Android | A blocking native I/O worker owns the input/output/error streams and closes each exactly once in its finally path. A distinct native cancellation controller, signaled by perform's ≤100 ms token poll, alone calls disconnect() on the connection; it never closes the worker's streams concurrently. Each Java call uses its thread-key JNIEnv. The retained native R1 cleanup owner alone deletes connection/stream global refs after both worker and controller quiesce; each thread deletes its own JNI local refs. If disconnect cannot release blocked I/O promptly, bounded quarantine retains those owners, never a freed global ref or an unbounded new worker. |
+| Android | One native I/O worker owns all Java calls, streams and connection; it alone closes streams and calls disconnect in finally. The perform controller mirrors cancellation into synchronized native terminal state at ≤100 ms and never calls disconnect concurrently with a worker mutating non-volatile httpEngine. Blocking calls run with remaining-budget timeouts; on cancel/deadline the caller returns while the bounded native worker is quarantined until it exits. Native R1 ownership and Java refs remain valid throughout. Worker-local JNI refs release on that worker; retained global refs release exactly once on the qualified Java cleanup owner after worker drain. |
 
-The Android normal-completion path also signals the same cancellation controller
-to disconnect once; the I/O worker does not become a second connection closer.
-The native controller/cleanup service must be explicitly qualified by CL-P2-09,
-including failure/timeout cleanup on the Java release thread. If this ownership
-cannot be supplied, Android HTTP remains blocked; a shared JNIEnv or arbitrary
-cross-thread ARC is not a substitute.
+Android's worker acquire-checks native cancellation/terminal state before each
+network-capable call (including connect, getOutputStream, getResponseCode and
+getInputStream) and after every blocking step. Under one native admission mutex,
+a cancel/deadline that wins before the worker commits the next step prevents
+that step from starting. A step already admitted is in flight: cancellation
+cannot promise it has no remote side effects, but no later upload/read/redirect
+step may be admitted. A disconnect before httpEngine exists is never treated as
+an effective abort. The worker's publication of completed connection setup and
+its final result uses release/acquire or the same mutex; there is no unguarded
+cross-thread Java field access. Test cancellation before worker start, at the
+start-admission barrier, during DNS/connect and immediately after connect;
+pre-admission cancellation yields zero server observations. On drain it closes
+streams, disconnects once, and releases references exactly once. CL-P2-09 must
+qualify this native worker/cleanup handoff; no shared JNIEnv or cross-thread ARC.
+
 
 ## Error normalization and compatibility
 
@@ -380,12 +499,14 @@ URL credentials or response bodies in failure diagnostics.
 | TLS handshake failure other than verification | HTTP_FAILURE_TLS_HANDSHAKE | `curl failed (exit 35)` |
 | Cancellation | HTTP_FAILURE_CANCELLED | `curl failed (exit 42)` (new reachable outcome) |
 | Redirect exhaustion | HTTP_FAILURE_REDIRECT_LIMIT | `curl failed (exit 47)` (opt-in only) |
-| Rejected redirect: malformed/non-http/userinfo target or HTTPS downgrade | HTTP_FAILURE_REDIRECT_REJECTED | `curl failed (exit 3)` (opt-in only; proposed normalization) |
+| Rejected redirect: malformed/non-http/userinfo target, duplicate Location when following, or HTTPS downgrade | HTTP_FAILURE_REDIRECT_REJECTED | `curl failed (exit 3)` (opt-in only; proposed normalization) |
 | Receive / send failure | HTTP_FAILURE_RECEIVE / HTTP_FAILURE_SEND | `curl failed (exit 56)` / `curl failed (exit 55)` |
-| Invalid/missing final status | HTTP_FAILURE_INVALID_STATUS | `curl returned an invalid HTTP status` |
+| Truncated Content-Length/chunked body | HTTP_FAILURE_TRUNCATED_BODY | `curl failed (exit 18)` |
+| OS network policy denial (ATS/Android cleartext/permission), distinct from HTTP 401/403 | HTTP_FAILURE_POLICY_DENIED | proposed `curl failed (exit 1002)` |
+| Invalid/missing final status, libcurl CURLE_WEIRD_SERVER_REPLY (8) or CURLE_UNSUPPORTED_PROTOCOL (1) after admitted HTTP URL | HTTP_FAILURE_INVALID_STATUS | `curl returned an invalid HTTP status` |
 | Incremental body limit | HTTP_FAILURE_RESPONSE_TOO_LARGE | `response body is too large` |
 | New header bound / local provider failure | HTTP_FAILURE_HEADER_TOO_LARGE / HTTP_FAILURE_PROVIDER | Proposed codes 1001 / 2; 1001 deliberately avoids size-code 63; approval required |
-| Admitted representation not preservable by the selected SDK, or additive capability unavailable on interim MacOS | HTTP_FAILURE_UNSUPPORTED | `curl failed (exit 4)` if reachable through a string request; typed Bytes outcome retains code 4. Interim MacOS additive calls have no existing string equivalent. |
+| Admitted representation/capability not preservable by the selected SDK, exposed non-final Android 1xx, or additive capability unavailable on interim MacOS | HTTP_FAILURE_UNSUPPORTED | `curl failed (exit 4)` if reachable through a string request; typed Bytes outcome retains code 4. Interim MacOS additive calls have no existing string equivalent. |
 
 HTTP status errors are not transport failures. Distinguish 401/403 from local OS
 permission denial. A native error unknown to the common taxonomy stays
@@ -396,7 +517,7 @@ testing extend the reviewed mapping, not ad hoc per-provider text.
 There is a real legacy ambiguity: capture overflow (ChildProcess code 125) maps
 to `response body is too large`, while curl's own --max-filesize failure can
 produce `curl failed (exit 63)`, including streaming overflow in curl ≥8.4.
-Revision 3 versions a common normalization: **every** declared or incremental
+Revision 4 versions a common normalization: **every** declared or incremental
 body-limit failure becomes `response body is too large` and
 HTTP_FAILURE_RESPONSE_TOO_LARGE, including legacy curl exit 63 and capture 125.
 There is no per-provider split based on when Content-Length became known.
@@ -413,21 +534,26 @@ have neither cancellation nor redirect options, so codes 42/47 and redirect
 rejection are only new typed requestBytes outcomes (with compatibility codes).
 This draft introduces no unnamed string-options adapter or overload.
 
-TLS reason sources: libcurl verify-result plus CURLcode; Apple NSURLError and
+TLS reason sources: the pinned OpenSSL libcurl backend's verify-result plus CURLcode; Apple NSURLError and
 SecTrust result; WinHTTP secure-failure flags (invalid CA/CN/date); Android
 certificate exception/cause through checked JNI. If the platform cannot
 reliably distinguish a cause, HTTP_TLS_UNKNOWN preserves the native domain/code;
-never classify by localized exception text.
+never classify by localized exception text. Across all providers, among reliably
+reported reasons choose HOSTNAME, then VALIDITY, then TRUST, then UNKNOWN;
+retain all native flags/causes. Unreported reasons are not inferred. Revoked
+certificates are TRUST; revocation-check infrastructure failure without a known
+verification reason is UNKNOWN. This rule does not promise identical diagnostic
+precision when an SDK exposes only one or an undifferentiated cause.
 
 ## Native providers
 
 | Target / packet | Provider obligations |
 | --- | --- |
-| Linux / CX-P2-09 | libcurl >=7.85.0, linked using `pkg-config libcurl`; initialize once behind a once guard, never call curl_global_cleanup from the provider. Use multi with ≤100 ms curl_multi_poll, controller cancellation, CURLOPT_NOSIGNAL=1 and CURL_VERSION_ASYNCHDNS or the bounded quarantined resolver-worker fallback. CURLOPT_PROTOCOLS_STR/http,https, explicit redirect policy, write callback limits and total remaining timeout. Keep peer verification enabled and hostname verification at 2. Use the system CA bundle; no bundled private production roots or curl process. |
+| Linux / CX-P2-09 | libcurl >=7.85.0 with pinned OpenSSL 3.x and c-ares, linked using `pkg-config libcurl`; initialize once behind a once guard, never call curl_global_cleanup from the provider. Use multi with ≤100 ms curl_multi_poll, controller cancellation, CURLOPT_NOSIGNAL=1 and verified c-ares version metadata, or the whole-transaction bounded quarantine fallback (including threaded ASYNCHDNS). CURLOPT_PROTOCOLS_STR/http,https, explicit redirect policy, write callback limits and total remaining timeout. Keep peer verification enabled and hostname verification at 2. Use the system CA bundle; no bundled private production roots or curl process. |
 | macOS / CX-P2-09 | Ephemeral NSURLSession with no URLCache, cookie store or credential store and a private serial delegate queue and incremental data delegate, bounded native buffer, task cancel and explicit redirect delegate policy. Synchronous worker wrapper waits independently of that queue. Default OS trust/hostname evaluation; no accept-all challenge handler. Interop requires CL-P2-07/Stage 29 or an approved native-only transaction. Invalidate the session on every path; didBecomeInvalidWithError is final quiescence. ATS stays enabled for unbundled executables; blocked cleartext is an explicit policy adaptation until an approved packaged-host exception exists. |
 | iOS / CX-P2-11 | Separate IOS module over NSURLSession, sharing portable HTTP policy only; same bounds/cancel/TLS behavior as macOS. No process spawning, no UI-thread wait, no assumption that suspension preserves a live request. ATS remains enabled; cleartext fixture exceptions belong to the test host only. |
 | Windows / CX-P2-10 | **WINHTTP_FLAG_ASYNC only**, Schannel, in a static-inline HTTP/Windows transaction header. A single native status callback and retained native context drive bounded reads; the perform controller is the sole WinHttpCloseHandle caller. The state machine and final HANDLE_CLOSING drain below are mandatory, not an optional async alternative. Explicit redirects, escape-disable flags and total remaining deadline; no certificate-ignore flags. |
-| Android / CX-P2-12 | HttpURLConnection/HttpsURLConnection through CL-P2-09 JNI; exact admitted method/body rules above, fixed-length output only on permitted methods, bounded input/error-stream reads (HTTP 4xx body is valid), finite timeouts plus total deadline, redirects disabled for portable handling. Default TrustManager and hostname verifier. Separate I/O stream owner and disconnect controller as above; JNIEnv only through the Java thread key, exactly-once ref release. INTERNET required; no release cleartext opt-in. |
+| Android / CX-P2-12 | HttpURLConnection/HttpsURLConnection through CL-P2-09 JNI; exact admitted method/body rules above, fixed-length output only on permitted methods, bounded input/error-stream reads (HTTP 4xx body is valid), finite timeouts plus total deadline, redirects disabled for portable handling. Default TrustManager and hostname verifier. Single Java I/O/disconnect owner and native cancellation handoff/quarantine as above; JNIEnv only through the Java thread key, exactly-once ref release. INTERNET required; no release cleartext opt-in. |
 
 Linux's static-inline HTTP/Linux header supplies typed curl setters and C
 write/header/xferinfo callbacks into bounded native buffers and native
@@ -448,10 +574,12 @@ that terminates the process fails acceptance and needs a concrete request.
 Pin HTTP/1.1 where supported; record negotiated protocol where NSURLSession
 cannot force it. Suppress optional Expect: 100-continue on all providers; a stack
 that cannot do so must be classified and approved before claiming parity.
-No provider adds an application User-Agent; documented platform-inserted values
+The facade supplies no default User-Agent. Interim curl explicitly suppresses
+its `curl/<version>` User-Agent when absent, preserving an explicitly supplied
+field. Native providers suppress defaults where public APIs permit; documented platform-inserted values
 must be recorded as an adaptation rather than promised identical. Explicit
-Authorization/Cookie headers must be proved with automatic credential/cookie
-stores disabled; native reserved-header interference blocks that row's parity.
+Authorization/Cookie headers must be proved with the row's actual cookie/credential isolation profile; Android ambient
+handlers and SDK retries remain declared limitations, not disabled features.
 
 Platform API references for implementation review:
 [libcurl easy options](https://curl.se/libcurl/c/curl_easy_setopt.html),
@@ -478,25 +606,38 @@ explicitly forbids that synchronous-request race.
    REQUEST_ERROR and WINHTTP_CALLBACK_FLAG_HANDLES (for HANDLE_CLOSING), with
    a non-NULL context on each registered handle. Never unregister the callback
    before the closing drain. Failure to establish callback/context
-   ownership aborts setup before network I/O; handles with no registered
-   callback/no submitted work are closed by this same owner without awaiting
-   a notification they cannot produce.
-2. The non-UI perform controller issues async send/receive/read/write operations
+   ownership aborts setup before network I/O. **Every handle on which a callback
+   and non-NULL context were established awaits HANDLE_CLOSING, even if no I/O
+   was ever submitted or a later setup step failed.** Only a handle for which
+   those notification prerequisites were never established closes without
+   awaiting an impossible notification; that exception cannot release storage
+   still referenced by another registered handle.
+2. Before sending, set WINHTTP_OPTION_MAX_RESPONSE_HEADER_SIZE to 131,072 bytes
+   on the request (and verify option success), above the 65,536 reconstructed
+   limit plus ordinary framing/status overhead. The portable reconstructed
+   check still rejects limit+1. Map ERROR_WINHTTP_HEADER_SIZE_OVERFLOW (12182)
+   to HTTP_FAILURE_HEADER_TOO_LARGE, not an unknown provider failure. The native
+   128-KiB raw cap is an additional Windows resource adaptation for excessive
+   wire whitespace/status/framing overhead; it is not the portable byte measure.
+   Test reconstructed 65,535/65,536/65,537 with normal framing and a separate
+   raw-overflow case, including an interim block. Option failure is a setup
+   failure before I/O and follows the same registered-handle drain.
+3. The non-UI perform controller issues async send/receive/read/write operations
    serially. At most one bounded read or write buffer is in flight for a request;
    it remains owned until the matching completion/error and final drain. Use
    async-safe output arguments (for example NULL for ReadData's byte-count
    pointer); never hand WinHTTP a pointer into an expired caller stack.
-3. The callback copies bounded status/error data into native synchronized state
+4. The callback copies bounded status/error data into native synchronized state
    and signals a native event. It neither invokes managed application code nor
    closes handles nor recursively starts another read. Immediate API failure
    and callback completion both enter the same terminal-decision state machine;
    synchronous callback delivery during an async API call must also be safe.
-4. The controller waits for min(remaining deadline, 100 ms), observes the token,
+5. The controller waits for min(remaining deadline, 100 ms), observes the token,
    and drives the next operation. WinHttpSetTimeouts uses the remaining budget
    for SDK phase limits; the controller enforces the total deadline. A short
    receive timeout is **not** used as resumable polling, because it kills the
    request. Completion/deadline/cancel each stop admission of further I/O.
-5. The controller is the **only** WinHttpCloseHandle caller. It closes request,
+6. The controller is the **only** WinHttpCloseHandle caller. It closes request,
    connection and session once, leaf first. Each registered handle has its own
    closing flag and pending callback count. Retain R1/context/read/write buffers
    until HANDLE_CLOSING has arrived for every registered handle **and** all
@@ -514,12 +655,48 @@ HTTP_FAILURE_TLS_HANDSHAKE. Native error domain/code and flags stay diagnostic.
 No localized string matching or certificate-ignore flags are allowed.
 See [status callback](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nc-winhttp-winhttp_status_callback),
 [WinHttpOpenRequest flags](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpopenrequest)
+[WinHTTP options](https://learn.microsoft.com/en-us/windows/win32/winhttp/option-flags)
 and [WinHttpReadData](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpreaddata).
+
+### Linux resolver, TLS and revocation profiles
+
+CL-P2-04 pins libcurl's OpenSSL 3.x TLS backend and c-ares, records exact versions
+and verifies curl_version_info's ares metadata. CURL_VERSION_ASYNCHDNS can also
+mean the threaded resolver and is not sufficient. Removing an easy handle or
+cleaning up a threaded-resolver transaction can join getaddrinfo; all those
+operations therefore belong to the quarantined worker, never the caller's
+bounded cancellation path. CURLOPT_QUICK_EXIT is not assumed at the 7.85 floor
+(it arrived in 7.87) and is not a license to leak resolver resources. Admission
+has a fixed configured bound on live/quarantined workers and native buffers;
+when full return HTTP_FAILURE_PROVIDER before I/O, do not create another worker.
+Tests hold DNS completion past cancel/deadline and prove prompt caller return,
+no new provider-admitted steps after cancellation, bounded saturation and eventual one-time
+cleanup. An already-admitted blocking libcurl call may continue internally
+when DNS returns before the worker regains control, so cancellation is not proof
+of zero remote side effects. No subsequent provider operation is admitted.
+The c-ares profile is separately qualified for nonblocking removal and any
+stronger wire-observation claim.
+
+Linux requires TLS ≥1.2, peer/hostname verification, and explicit CAINFO/CAPATH
+from trusted installation configuration for the system store. Do not let
+SSL_CERT_FILE, SSL_CERT_DIR or CURL_CA_BUNDLE select a caller-controlled alternate
+store implicitly; record effective paths without private material. OpenSSL
+X509_V_ERR codes are the source of Linux verification reasons. Backend changes
+require a new mapping/qualification, not reuse of numeric OpenSSL results.
+
+Revocation is an explicit adaptation: Linux does not enable online OCSP/CRL
+fetching or mandatory stapling; Windows enables WINHTTP_ENABLE_SSL_REVOCATION
+and records unknown/offline failures; Apple uses unmodified OS SecTrust policy;
+Android uses the default platform TrustManager's policy, without an added CRL/
+OCSP implementation. Thus a revoked certificate need not fail on every provider.
+Fixtures record each profile's configured/observed stance; they do not claim
+uniform revocation protection or disable a platform check to force equality.
 
 ### SDK constraints and target classification
 
-Android's method allowlist and GET→POST rewrite come from
-[AOSP HttpURLConnectionImpl](https://android.googlesource.com/platform/external/okhttp/+/refs/heads/main/okhttp/src/main/java/com/squareup/okhttp/internal/huc/HttpURLConnectionImpl.java)
+Android's method allowlist and GET→POST rewrite are described by the review
+against AOSP; the corresponding public upstream source is
+[upstream HttpURLConnectionImpl](https://github.com/square/okhttp/blob/parent-2.7.5/okhttp-urlconnection/src/main/java/com/squareup/okhttp/internal/huc/HttpURLConnectionImpl.java)
 and [HttpMethod](https://android.googlesource.com/platform/external/okhttp/+/refs/heads/main/okhttp/src/main/java/com/squareup/okhttp/internal/http/HttpMethod.java).
 [Headers](https://android.googlesource.com/platform/external/okhttp/+/refs/heads/main/okhttp/src/main/java/com/squareup/okhttp/Headers.java)
 also documents Android's UTF-8 behavior; that is why client header admission is
@@ -527,7 +704,12 @@ ASCII, not an unsupported claim that Java rejects every high byte. Apple GET
 bodies can fail with NSURLErrorDataLengthExceedsMaximum (-1103); rejecting them
 portably is preferable to a changed verb or provider-dependent result. Record
 the actual SDK/OS revisions in the wire test evidence, not just these moving
-source links.
+source links. The upstream [Http1xStream](https://github.com/square/okhttp/blob/parent-2.7.5/okhttp/src/main/java/com/squareup/okhttp/internal/http/Http1xStream.java)
+loops only on HTTP_CONTINUE; HttpURLConnectionImpl inserts Content-Type for
+HttpMethod.permitsRequestBody and makes pre-engine disconnect a no-op. These
+source constraints motivate the explicit Android limitations above, not a claim
+that every current SDK has been executed. CL-P2-09 must pin and verify its actual
+SDK implementation before qualifying a capability.
 
 `windows-aarch64-msvc` exists in targets.toml, but ModuleProvider currently
 filters only OS/architecture and NativeBindingResolver accepts Windows GNU
@@ -627,7 +809,15 @@ network permission has not been established; use the app's permission-aware
 network provider` (one line in the API). CL-P2-01 must approve that temporary
 PERMISSION_PENDING diagnostic and classify the server regression; it is not
 a denial or an assertion that the OS always requires a runtime INTERNET prompt.
-All four Unix rows compile without a mobile SDK; none leaves an import missing.
+The shared Unix policy uses target predefined macros from targets.toml, not
+runtime host probing: test `__ANDROID__` first (it also defines `__linux__`),
+then the derived `__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__`, then
+`__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__`, then `__linux__`. These select
+PERMISSION_PENDING, OS_RESTRICTED, desktop allow and desktop allow respectively;
+unknown targets fail closed. No invented Platform.OS API or TargetConditionals
+SDK import is required. Both frontends qualify this against the Stage-24 target
+macro owner before the shared policy lands. All four
+Unix rows compile without a mobile SDK; none leaves an import missing.
 The iOS/Android server cells must describe these restrictions rather than claim
 an active listener. No HTTPServerStartPolicy imports HTTPClient or HTTPTransport.
 
@@ -688,19 +878,21 @@ devices require their own reachable fixture arrangement and separate evidence.
 
 | Case | Required assertion |
 | --- | --- |
-| HTTP-METHOD-* | All seven admitted methods, each with empty and nonempty input; GET/HEAD nonempty rejected before endpoint observation. TRACE/CONNECT/lowercase/extension methods rejected in row-1 order. Raw endpoint asserts actual method/body, especially Android GET never becoming POST. |
-| HTTP-URL-* | ASCII pchar/query punctuation, percent escapes and unreserved/dot canonicalization, escaped slash/percent/UTF-8, absent versus empty query; raw bracket/brace/quote/high-byte rejection, all authority/origin cases above. Generic file/mailto/javascript/ftp inputs retain scheme-error precedence. Native encoded target and raw endpoint request-target match the portable result; native reparsing that cannot preserve it returns unsupported before I/O. |
-| HTTP-HEADER-* | Each mixed-case reserved name including Accept-Encoding, high-byte rejection, edge SP/HTAB normalization, internal whitespace, present empty field, duplicate names and multiply-invalid ordering. Server compares canonical caller value octets and sees exactly identity coding; characterize platform-generated headers separately. |
+| HTTP-STATUS-* | HEAD with large advertised Content-Length and no body completes promptly; 204/304 with zero response limit return final status and empty body; interim100/102/103 then200, multiple interims, only-interim EOF/deadline, invalid99/600 and101. Native-qualified profiles return final200, Android known103 profile returns declared unsupported status0 without replay. Interim MacOS curl uses --head and its bounded header channel. |
+| HTTP-CONTENT-TYPE-* | All method/body combinations compare absent versus present-empty versus explicit/default wire fields. Facade default is emitted once for nonempty bodies; empty body with absent field remains absent on capable profiles, Android body-permitting cases reject before endpoint observation. Explicit empty never means suppression. |
+| HTTP-METHOD-* | All seven admitted methods, each with empty and nonempty input; GET/HEAD nonempty rejected before endpoint observation. TRACE/CONNECT/lowercase/extension methods rejected in row-1 order. Raw endpoint asserts actual method/body for each admitted capability; known unsupported combinations assert zero server observation. Android GET never becomes POST. |
+| HTTP-URL-* | ASCII pchar/query punctuation, percent escapes and unreserved/dot canonicalization, escaped slash/percent/UTF-8, absent versus empty query; raw bracket/brace/quote/high-byte rejection, all authority/origin cases above. Generic file/mailto/javascript/ftp and valid scheme-less inputs retain scheme-error precedence. Native encoded target and raw endpoint request-target match the portable result; native reparsing that cannot preserve it returns unsupported before I/O. |
+| HTTP-HEADER-* | Each mixed-case reserved name including Accept-Encoding and Proxy-Authorization, high-byte rejection, edge SP/HTAB normalization, internal whitespace, present empty field, duplicate names and multiply-invalid ordering. Server compares canonical caller value octets and sees exactly identity coding; characterize platform-generated headers separately. Reserved Proxy-Authorization never reaches either CONNECT or origin; mixed-case rejection occurs at7a. |
 | Text and arbitrary bytes | Every admitted body-capable method and Bytes echo including NUL/non-UTF8; empty, exact-limit and limit-plus-one payloads; server byte response arrives intact. |
 | HTTP errors | 404/500 return body/status with empty transport error; ok() false. |
 | URL/header policy | Every canonical URL case above; every reserved name in mixed case; conflicting framing; credential/cookie transport; default User-Agent and Expect policy. |
-| Redirects | Default no-follow; each status/method rule; exact hop limit and overflow; loop; relative and fragment-only Location; cross-origin credential stripping; malformed/scheme/userinfo/downgrade rejection has typed REDIRECT_REJECTED/code 3. |
-| Limits/framing | Declared and streaming overflow; chunked/unknown length; zero limit; fragmented header/body; no giant prebuffer; both old curl63/capture125 paths normalize to the same size string. Unsolicited gzip fixture explicitly expects Apple's decoded and other providers' encoded bytes, with limits applied to the delivered representation. |
-| Time | Slow/blackholed resolver, slow headers, slow upload and drip-fed body cannot reset total deadline; blocked send times out; no retries of uncertain POST, including stale keep-alive reuse. |
-| Cancellation | Before admission, during connect/read/upload, and completion race; one terminal outcome, bounded observation, resources drained, late callback safe. |
-| TLS | Trusted valid leaf succeeds; wrong hostname, expired and untrusted leaves fail independently with verification enabled; HTTP cleartext cannot masquerade as TLS success. |
-| Failures | Refused connection, deterministic DNS failure through an isolated resolver fixture or injected native resolution failure, truncated response, invalid status, OS permission state; stable categories and legacy strings. |
-| Cleanup | Repeated success/failure/cancel cycles leave no request handles, sockets, JNI refs, native buffers, certificate-store entries or named capture files. Windows callback-at-close, setup failure, cancellation while read/write is pending, late callback and HANDLE_CLOSING-before-callback-return cases prove no second closer/use-after-free. Winsock listener stop while an accepted connection waits proves independent event ownership. |
+| Redirects | Default no-follow; each status/method rule, including removal of a synthesized Content-Type on POST→GET while preserving an explicit caller field; exact hop limit and overflow; loop; relative and fragment-only Location; cross-origin credential stripping; malformed/scheme/userinfo/downgrade/duplicate-Location rejection has typed REDIRECT_REJECTED/code3. Identical and differing duplicate fields are both rejected; one Location containing a comma is not split. Apple no-multiplicity profile rejects positive maxRedirects before initial I/O. |
+| Limits/framing | Declared and streaming overflow; chunked/unknown length; zero limit; fragmented header/body; no giant prebuffer; both old curl63/capture125 paths normalize to the same size string. Header 65535/65536/65537 and WinHTTP128-KiB raw-overflow/12182 cases verify the two distinct measures; header/interim memory on Apple/Android is an adaptation, not a hard-limit pass. Unsolicited gzip fixture explicitly expects Apple's decoded and other providers' encoded bytes, with limits applied to the delivered representation. |
+| Time | Slow/blackholed resolver, slow headers, slow upload and drip-fed body cannot reset total deadline; blocked send times out; no retries of uncertain POST on qualified profiles, including stale keep-alive reuse; Android ambient-pool profile is explicitly not no-replay-qualified. c-ares and threaded-resolver/quarantine profiles separately test DNS held beyond cancel, saturation and eventual cleanup. |
+| Cancellation | Before admission, worker-start and per-operation barriers, during DNS/connect/read/upload, immediately after connect and completion race; one terminal outcome, bounded caller observation, resources drained, late callback safe. Android cancellation winning the start transition starts no I/O; admitted in-flight calls may finish in bounded quarantine but no next operation starts. |
+| TLS | Trusted valid leaf succeeds; wrong hostname, expired and untrusted leaves fail independently with verification enabled; HTTP cleartext cannot masquerade as TLS success. Verify pinned Linux backend/CA-path policy and TLS 1.2 minimum, cross-provider hostname→validity→trust→unknown precedence when several reasons are exposed, and declared revocation differences without universal revoked-certificate assertions. |
+| Failures | Refused connection, deterministic DNS failure through an isolated resolver fixture or injected native resolution failure, truncated Content-Length and missing final chunk map TRUNCATED_BODY/18; invalid status and curl1/8 map INVALID_STATUS; ATS/cleartext/permission policy maps POLICY_DENIED/1002. HTTP401/403 remain responses. Verify stable categories and legacy strings. |
+| Cleanup | Repeated success/failure/cancel cycles leave no request handles, sockets, JNI refs, native buffers, certificate-store entries or named capture files. Windows callback-at-close, callback/context-registered setup failure before submitted I/O, cancellation while read/write is pending, late callback and HANDLE_CLOSING-before-callback-return cases prove no second closer/use-after-free. Winsock listener stop while an accepted connection waits proves independent event ownership. |
 
 Http, HttpUtil and HttpParseEdges retain pure parsing/utility assertions;
 HttpFramingSafety retains validation and smuggling regressions; HttpParseBytes
@@ -744,7 +936,7 @@ remain working; do not create an unconfigured MacOS row or silently skip that
 previously supported surface. That temporary provider preserves current
 subprocess transaction/status/body channel beneath the approved versioned
 facade admission, size-error normalization and explicit `-q`/`--globoff`/
-`--path-as-is`/identity-header policy. Its bounded header/body capture must also
+`--path-as-is`/identity-header/explicit Content-Type/User-Agent suppression/HEAD policy. Its bounded header/body capture must also
 enforce the new response-header bound; configuration whose required capture
 size cannot be represented safely returns unsupported before I/O rather than
 overflowing the old maxResponseBytes+64 arithmetic. This temporary capture
@@ -787,7 +979,7 @@ provider landing. iOS/Android server restrictions from the hook landing need
 their own operation reason cells, including Q7's pending approval. None of
 this is final Stage-26 acceptance or a successful runtime substitute.
 
-Case IDs are stable by family: HTTP-METHOD-*, HTTP-URL-*, HTTP-HEADER-*, HTTP-BYTES-*,
+Case IDs are stable by family: HTTP-STATUS-*, HTTP-CONTENT-TYPE-*, HTTP-METHOD-*, HTTP-URL-*, HTTP-HEADER-*, HTTP-BYTES-*,
 HTTP-REDIRECT-*, HTTP-LIMIT-*, HTTP-TIME-*, HTTP-CANCEL-*, HTTP-TLS-*,
 HTTP-FAILURE-* and HTTP-CLEANUP-*, with explicit frontend/provider parameters.
 Implementation freezes the expanded case list/count before its first run; this
@@ -831,12 +1023,15 @@ accepted-input set or ambient curl behavior:
 | Method/body admission | Seven exact uppercase methods; reject TRACE/CONNECT/extensions/lowercase and nonempty GET/HEAD at the stated validation positions |
 | URI admission | Initial fragments, backslashes, raw whitespace/control/non-ASCII, invalid path/query characters, IDN/escaped hosts, non-canonical numeric IPv4 and IPv6 zones rejected; generic non-HTTP schemes retain row-3 precedence |
 | URI canonicalization | Unreserved percent escapes decoded, dot segments removed, other escapes uppercase/preserved; absent/empty query retained; redirect fragment stripped |
-| Headers | ASCII client values, portable edge-OWS trim, no repeated caller names, all reserved names including Host/Expect/Accept-Encoding; original line lengths still drive request aggregate limit |
+| Headers | ASCII client values, portable edge-OWS trim, no repeated caller names, all reserved names including Host/Expect/Accept-Encoding/Proxy-Authorization; original line lengths still drive request aggregate limit |
+| Content-Type | Facade inserts legacy form default for nonempty payload only when caller field absent; explicit empty differs from absent. Android empty body-permitting methods with absent field are unsupported before I/O; no SDK may invent a different wire field. This makes former implicit curl behavior explicit and versions provider capability differences. |
+| Final responses | Final 200–599 only; HEAD/204/304 have no body; 101 invalid, exposed Android102/103 unsupported after I/O pending provider amendment. Body truncation maps18; 1xx never masquerades as success. |
+| Redirect selection | Duplicate Location rejected before following; SDKs unable to expose original multiplicity refuse positive maxRedirects before initial I/O. No comma/first/last heuristics. |
 | Content coding | Always identity; Apple unsolicited-coding decode is explicit and delivered bytes determine its limits; no false all-provider encoded-body equality |
-| Bounds/errors | New 65,536 reconstructed response-header cap (smaller than curl's roughly 100 KiB header limit); codes 1001/2/4/3, total deadline28 rather than child124, all size63/125 normalized to the size string; new option/body/header literal errors |
+| Bounds/errors | New 65,536 reconstructed response-header cap (smaller than curl's roughly 100 KiB header limit); codes 1001/1002/18/2/4/3; Windows 128-KiB native raw cap is additional, Apple/Android hidden header/interim buffers not bounded by reconstructed cap; total deadline28 rather than child124, all size 63/125 normalized to the size string; new option/body/header literal errors |
 | Cancellation/options | Existing BackgroundJobCancellation owner, bounded poll and named native abort/closers; typed requestBytes options only, no unstated string overload |
-| Legacy MacOS | `-q` first disables curlrc; globbing disabled and portable path policy preserved; identity header and finite capture constraints are explicit; native-only new APIs unsupported |
-| Provider policies | OS proxy differences, Apple ATS/protocol/default-header behavior, system trust and no automatic cookie/credential/replay policy remain documented adaptations requiring their fixtures |
+| Legacy MacOS | `-q` first disables curlrc; globbing disabled and portable path policy preserved; identity header, explicit Content-Type, User-Agent suppression, HEAD --head and finite capture constraints are explicit; native-only new APIs unsupported |
+| Provider policies | OS proxy differences, Apple ATS/protocol/default-header behavior, pinned Linux TLS/c-ares profile, platform revocation stances, Android global cookie/auth/pool and retry limitations remain documented adaptations requiring their fixtures |
 | Build/interim availability | Linux facade imports need native reader/triple/sysroot and libcurl; missing mobile/Windows transport makes the aggregate facade fail at compile time; direct server imports remain possible with explicit start-policy restrictions |
 | Target/server ownership | MSVC missing unless separately qualified; selected HTTPServerStartPolicy and complete interim Unix rows; CX-P2-11/12 depend on CX-P2-10; Android interim permission-pending and iOS Q7 restriction are not listener success |
 
@@ -852,8 +1047,8 @@ CX-P2-09…12 implementation edits a compiler-import module or runtime asset.
 These concrete requests block implementation until assigned and integrated:
 
 ```text
-REQUEST(CL-P2-01): Re-review the complete versioned-break table, portable wire admission and mandatory async WinHTTP model.
-Expected / actual: Record HTTPURLTarget and HTTPServerStartPolicy ownership/rows, rejection ordering, error codes (header 1001, provider 2, unsupported 4, redirect rejected 3; size63 normalized), 65,536-byte reconstructed header bound, redirect range0–20, token registry, existing BackgroundJobCancellation reuse and Q1/Q3/Q7/Q9/Q15 assumptions plus AS14 re-check set in PLAN.md. Reconcile mobile-storage's IO placeholder. Exact interface spelling freezes at the CX-P2-09 seam merge before Windows/iOS/Android providers begin.
+REQUEST(CL-P2-01): Re-review revision 4 response rules, explicit provider capability limits and the complete versioned-break table.
+Expected / actual: Record HTTPURLTarget and HTTPServerStartPolicy ownership/target-macro rows, final 200–599/bodyless/interim rules, request Content-Type policy, duplicate-Location rejection, Android response-discovered unsupported 1xx and absent-Content-Type limitations, Apple redirect/header-memory capability limits, rejection ordering, error codes (header 1001, policy 1002, truncated 18, provider 2, unsupported 4, redirect-rejected 3; size 63 normalized), 65,536-byte reconstructed header bound, redirect range0–20, token registry, existing BackgroundJobCancellation reuse and Q1/Q3/Q7/Q9/Q15 assumptions plus AS14 re-check set in PLAN.md. Reconcile mobile-storage's IO placeholder. Exact interface spelling freezes at the CX-P2-09 seam merge before Windows/iOS/Android providers begin.
 Blocks: Provider work; current draft is unapproved.
 Workaround: Existing client remains until this seam and its dependencies pass.
 
@@ -864,7 +1059,7 @@ Blocks: Any native HTTPTransport import; no known-red intermediate landing.
 Workaround: None; native suites supplement rather than replace corpus coverage.
 
 REQUEST(CL-P2-04): Provide libcurl >=7.85.0 development/pkg-config inputs and pinned openssl fixture tooling on every executing host.
-Expected / actual: System trust, ASYNCHDNS and native reader/target/sysroot inputs recorded and documented for Linux facade consumers. Test-CA private keys generated in their executing job and never uploaded/shared; no runtime curl executable dependency.
+Expected / actual: Pin OpenSSL 3.x and c-ares with exact version metadata, TLS >=1.2, explicit trusted system CA paths and the stated revocation policy. ASYNCHDNS alone does not prove bounded cleanup; synchronous/threaded alternatives require whole-transaction quarantine including remove/cleanup. Native reader/target/sysroot inputs recorded for Linux facade consumers. Test-CA private keys generated in their executing job and never uploaded/shared; no runtime curl executable dependency.
 Blocks: Linux transport build. Workaround: none.
 
 REQUEST(CL-REQ): Add data-only Windows native import-library declarations and environment-aware target support in shared spec, both compilers, native_plan and harnesses.
@@ -882,8 +1077,8 @@ Blocks: MacOS half of CX-P2-09 and CX-P2-11, after CL-C-40 unless Q48 changes. S
 Workaround: Retain the explicit MacOS curl provider and existing string/corpus coverage; new native-only capabilities remain unsupported. No macOS curl-free claim, handwritten compiler lowering or cross-thread ARC.
 
 REQUEST(CL-P2-09): Supply checked HttpURLConnection JNI calls and Java thread-key ownership.
-Expected / actual: Checked method/doOutput/fixed-length/disconnect APIs, exact wire admission, separate stream worker and sole disconnect controller, own-thread local-ref release and one retained R1 cleanup owner for global refs after both drain. No direct attach/detach, shared JNIEnv or Java callbacks; retained native state survives deadline/quiescence.
-Blocks: CX-P2-12. Workaround: none; Q9 chooses HttpURLConnection, not Cronet.
+Expected / actual: Checked method/doOutput/fixed-length/disconnect APIs, exact wire admission, single Java I/O/stream/disconnect worker, synchronized native per-operation admission/cancellation, own-thread local-ref release and one retained R1 cleanup owner for global refs after worker drain. No direct attach/detach, shared JNIEnv, cross-thread disconnect or Java callbacks; retained native state survives deadline/quiescence. Stock HttpURLConnection does not qualify all-1xx consumption, absent Content-Type on empty body-permitting methods, hard native header-memory bounds or per-client cookie/auth/pool isolation. Do not implement hidden API access to fake them.
+Blocks: CX-P2-12 full parity. Workaround: only the explicitly approved restricted capability profile; Q9 chooses HttpURLConnection, not Cronet. A provider-owned public client alternative requires CL-P2-01 approval, dependency ownership and amended scope before implementation.
 
 REQUEST(CX-P1-09 / CL-P1-17): Confirm per-run public test-CA and network-security-config injection into the Android debug APK.
 Expected / actual: The executing host generates keys locally; only the public CA enters the test APK, with no release override. Current host capability is unconfirmed; classify Android TLS-trust cases unavailable until it exists.
