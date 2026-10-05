@@ -149,8 +149,11 @@ static NSDictionary *controls(NSWindow *target) {
     return result;
 }
 static NSString *identity(id object, NSDictionary *views) {
+    /* AppKit exposes text fields and buttons through their NSCell. Compare
+     * the cell's actual control owner, never its role or localized label. */
+    id control = [object isKindOfClass:NSCell.class] ? [(NSCell *)object controlView] : object;
     for (NSString *name in views)
-        if (object == views[name]) return name;
+        if (control == views[name]) return name;
     /* AppKit edits an NSTextField through its window-owned field editor. */
     if ([object isKindOfClass:NSTextView.class] && [(NSTextView *)object isFieldEditor] &&
         [(NSTextView *)object delegate] == views[@"field"]) return @"field";
@@ -211,7 +214,14 @@ static NSDictionary *keyViews(NSWindow *target, NSDictionary *views) {
     BOOL fieldAccepted = [target makeFirstResponder:views[@"field"]];
     NSMutableArray *traversal = [NSMutableArray arrayWithObject:responderIdentity(target.firstResponder, views)];
     NSMutableArray *classes = [NSMutableArray arrayWithObject:responderClass(target.firstResponder)];
+    NSMutableArray *tabContext = [NSMutableArray array];
     for (int turn = 0; turn < 3; turn++) {
+        /* Record delivery preconditions without changing global keyboard or
+         * activation settings. These observations are not a delivery receipt. */
+        [tabContext addObject:@{
+            @"application_active": @([NSApplication.sharedApplication isActive]),
+            @"window_key": @([target isKeyWindow])
+        }];
         key(@"\t", 48);
         [traversal addObject:responderIdentity(target.firstResponder, views)];
         [classes addObject:responderClass(target.firstResponder)];
@@ -235,6 +245,7 @@ static NSDictionary *keyViews(NSWindow *target, NSDictionary *views) {
         @"method": @"NSEvent Tab through NSApplication.sendEvent; unchanged native key-view loop",
         @"full_keyboard_access": @([NSApplication.sharedApplication isFullKeyboardAccessEnabled]),
         @"field_accepted": @(fieldAccepted), @"tab_order": traversal, @"responder_classes": classes,
+        @"tab_context": tabContext,
         @"controls": native, @"gpu_make_first_responder": @(gpuAccepted),
         @"gpu_responder": gpuResponder, @"restored": @(restored)
     };

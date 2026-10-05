@@ -23,7 +23,11 @@ def _ax_nodes(tree):
     while pending:
         node = pending.pop()
         assert isinstance(node, dict) and not node.get("truncated") and not node.get("cycle"), node
-        assert set(("role", "label", "value", "focused", "frame", "children")) <= node.keys(), node
+        assert (
+            set(("fixture_id", "native_class", "role", "label", "value", "focused", "frame", "children")) <= node.keys()
+        ), node
+        assert node["fixture_id"] in {*CONTROL_IDS, "other"}
+        assert isinstance(node["native_class"], str) and node["native_class"]
         assert node["role"] is None or isinstance(node["role"], str)
         assert node["label"] is None or isinstance(node["label"], str)
         assert node["value"] is None or type(node["value"]) in {str, bool, int, float}
@@ -45,7 +49,11 @@ def summarize_macos_shell(observations):
     assert observations["fresh_process_restores"] == 100
     teardown = observations["teardown"]
     assert len(teardown) == 100
-    assert all(len(row) == 3 and int(row[0]) == int(row[2]) == 0 and int(row[1]) >= 0 for row in teardown)
+    # AppKit retains one private helper in the genuine hosted baseline. That
+    # bounded allowance must never hide one additional survivor per cycle.
+    assert all(len(row) == 3 and int(row[0]) == int(row[2]) == 0 and 0 <= int(row[1]) <= 1 for row in teardown)
+    assert type(observations["private_objects"]) is int
+    assert observations["private_objects"] == int(teardown[-1][1])
     probes = observations["probes"]
     assert len(probes) == 100
     key_views, gpu_status, subviews = [], [], []
@@ -56,8 +64,12 @@ def summarize_macos_shell(observations):
         assert probe["provider_objects"] == 57
         assert type(probe["subview_total"]) is int and probe["subview_total"] >= 56
         nodes = _ax_nodes(probe["accessibility"])
-        roles = {node["role"] for node in nodes}
-        assert {"AXTextField", "AXButton", "AXScrollArea"} <= roles, roles
+        for identity, role in (("field", "AXTextField"), ("button", "AXButton"), ("scroll", "AXScrollArea")):
+            assert any(node["fixture_id"] == identity and node["role"] == role for node in nodes), (identity, role)
+        assert any(
+            node["fixture_id"] == "button" and node["role"] == "AXButton" and node["label"] == "Commit"
+            for node in nodes
+        ), "The fixture's Commit button is absent from the accessibility tree"
         controls = probe["native_controls"]
         assert [control["fixture_id"] for control in controls] == list(CONTROL_IDS)
         for control in controls:
@@ -67,6 +79,9 @@ def summarize_macos_shell(observations):
         keys = probe["key_views"]
         assert keys["field_accepted"] is keys["restored"] is True
         assert type(keys["full_keyboard_access"]) is bool
+        assert len(keys["tab_context"]) == 3
+        for context in keys["tab_context"]:
+            assert type(context["application_active"]) is type(context["window_key"]) is bool
         assert len(keys["tab_order"]) == 4 and keys["tab_order"][0] == "field"
         assert all(name in {*CONTROL_IDS, "other"} for name in keys["tab_order"])
         assert len(keys["responder_classes"]) == 4
@@ -91,8 +106,11 @@ def summarize_macos_shell(observations):
             }
         )
         subviews.append(probe["subview_total"])
-    traversed = all(keys["tab_order"] == list(CONTROL_IDS) for keys in key_views)
-    focusable = all(row["direct_focus"] and row["tab_reached"] for row in gpu_status)
+    delivery_context = all(
+        context["application_active"] and context["window_key"] for keys in key_views for context in keys["tab_context"]
+    )
+    traversed = delivery_context and all(keys["tab_order"] == list(CONTROL_IDS) for keys in key_views)
+    focusable = delivery_context and all(row["direct_focus"] and row["tab_reached"] for row in gpu_status)
     return {
         "schema": "btrc.ui1.macos-shell/1",
         "cycles": 100,
@@ -113,7 +131,10 @@ def summarize_macos_shell(observations):
             "cycles": key_views,
         },
         "gpu_focusability": {"status": "passed" if focusable else "gap", "cycles": gpu_status},
-        "limits": "In-process AppKit observations; no external AX trust, VoiceOver, physical GPU timing or provider fix.",
+        "limits": (
+            "In-process AppKit observations; Tab activation/key-window context is not a delivery acknowledgement "
+            "or a causal explanation for unchanged focus. No external AX trust, VoiceOver, physical GPU timing or provider fix."
+        ),
     }
 
 
@@ -139,11 +160,29 @@ def test_macos_native_shell(tmp_path, request, frontend, sanitized, record_prope
 
 
 def _observation_fixture():
-    def node(role):
-        return {"role": role, "label": None, "value": "", "focused": False, "frame": [0, 0, 100, 20], "children": []}
+    def node(role, identity="other", native_class="NSView", label=None):
+        return {
+            "fixture_id": identity,
+            "native_class": native_class,
+            "role": role,
+            "label": label,
+            "value": "",
+            "focused": False,
+            "frame": [0, 0, 100, 20],
+            "children": [],
+        }
 
     tree = node("AXWindow")
-    tree["children"] = [node(role) for role in ("AXTextField", "AXButton", "AXScrollArea")]
+    tree["children"] = [
+        node("AXTextField", "field", "NSTextFieldCell"),
+        node("AXButton", "button", "NSButtonCell", "Commit"),
+        node("AXScrollArea", "scroll", "NSScrollView"),
+        *[node("AXButton", native_class="NSAccessibilityScrollerPart") for _ in range(4)],
+        *[
+            node("AXButton", native_class=name)
+            for name in ("_NSThemeCloseWidgetCell", "_NSThemeZoomWidgetCell", "_NSThemeWidgetCell")
+        ],
+    ]
     controls = [
         {
             "fixture_id": name,
@@ -158,6 +197,7 @@ def _observation_fixture():
         "field_accepted": True,
         "restored": True,
         "full_keyboard_access": False,
+        "tab_context": [{"application_active": True, "window_key": True} for _ in range(3)],
         "tab_order": ["field", "button", "scroll", "field"],
         "responder_classes": ["NSTextView", "NSButton", "NSClipView", "NSTextView"],
         "gpu_make_first_responder": False,
@@ -190,9 +230,9 @@ def _observation_fixture():
         "native_handles": 0,
         "live_registrations": 0,
         "fresh_process_restores": 100,
-        "teardown": [["0", "3", "0"] for _ in range(100)],
+        "teardown": [["0", "1", "0"] for _ in range(100)],
         "probes": [copy.deepcopy(probe) for _ in range(100)],
-        "private_objects": 3,
+        "private_objects": 1,
     }
 
 
@@ -200,7 +240,7 @@ def test_macos_shell_observation_keeps_native_gaps_and_private_objects_explicit(
     report = summarize_macos_shell(_observation_fixture())
     assert report["key_view_traversal"]["status"] == report["gpu_focusability"]["status"] == "gap"
     assert report["provider_survivors"] == report["registration_survivors"] == 0
-    assert report["private_objects"] == 3
+    assert report["private_objects"] == 1
     assert len(report["gpu_focusability"]["cycles"]) == len(report["teardown"]) == 100
 
 
@@ -208,14 +248,22 @@ def test_macos_shell_observation_keeps_native_gaps_and_private_objects_explicit(
     "defect",
     [
         "missing_field",
+        "missing_scroll",
+        "wrong_control_identity",
+        "wrong_control_role",
+        "wrong_button_label",
         "missing_value",
         "truncated",
         "nan_frame",
         "provider_leak",
         "callback_leak",
+        "private_survivor_growth",
+        "private_summary_mismatch",
         "partial_cycles",
         "missing_gpu",
         "inconsistent_focus",
+        "missing_tab_context",
+        "invalid_tab_context",
     ],
 )
 def test_macos_shell_observation_rejects_incomplete_or_contradictory_proof(defect):
@@ -223,6 +271,14 @@ def test_macos_shell_observation_rejects_incomplete_or_contradictory_proof(defec
     probe = observed["probes"][37]
     if defect == "missing_field":
         probe["accessibility"]["children"].pop(0)
+    elif defect == "missing_scroll":
+        probe["accessibility"]["children"].pop(2)
+    elif defect == "wrong_control_identity":
+        probe["accessibility"]["children"][1]["fixture_id"] = "other"
+    elif defect == "wrong_control_role":
+        probe["accessibility"]["children"][1]["role"] = "AXGroup"
+    elif defect == "wrong_button_label":
+        probe["accessibility"]["children"][1]["label"] = "Unrelated"
     elif defect == "missing_value":
         del probe["accessibility"]["value"]
     elif defect == "truncated":
@@ -233,11 +289,41 @@ def test_macos_shell_observation_rejects_incomplete_or_contradictory_proof(defec
         observed["teardown"][37][0] = "1"
     elif defect == "callback_leak":
         observed["teardown"][37][2] = "1"
+    elif defect == "private_survivor_growth":
+        observed["teardown"] = [["0", str(cycle + 1), "0"] for cycle in range(100)]
+        observed["private_objects"] = 100
+    elif defect == "private_summary_mismatch":
+        observed["private_objects"] = 0
     elif defect == "partial_cycles":
         observed["probes"].pop()
     elif defect == "missing_gpu":
         probe["native_controls"].pop()
     elif defect == "inconsistent_focus":
         probe["key_views"]["gpu_make_first_responder"] = True
+    elif defect == "missing_tab_context":
+        probe["key_views"]["tab_context"].pop()
+    elif defect == "invalid_tab_context":
+        probe["key_views"]["tab_context"][0]["window_key"] = "true"
     with pytest.raises(AssertionError):
         summarize_macos_shell(observed)
+
+
+def test_macos_shell_observation_rejects_missing_commit_among_window_and_scroller_buttons():
+    observed = _observation_fixture()
+    tree = observed["probes"][37]["accessibility"]
+    tree["children"] = [node for node in tree["children"] if node["fixture_id"] != "button"]
+    buttons = [node for node in _ax_nodes(tree) if node["role"] == "AXButton"]
+    assert len(buttons) == 7 and all(node["fixture_id"] == "other" for node in buttons)
+    with pytest.raises(AssertionError):
+        summarize_macos_shell(observed)
+
+
+@pytest.mark.parametrize("context_field", ["application_active", "window_key"])
+def test_macos_shell_observation_keeps_inactive_tab_context_a_gap(context_field):
+    observed = _observation_fixture()
+    for probe in observed["probes"]:
+        probe["key_views"].update(tab_order=list(CONTROL_IDS), gpu_make_first_responder=True, gpu_responder="gpu")
+    assert summarize_macos_shell(observed)["key_view_traversal"]["status"] == "passed"
+    observed["probes"][37]["key_views"]["tab_context"][1][context_field] = False
+    report = summarize_macos_shell(observed)
+    assert report["key_view_traversal"]["status"] == report["gpu_focusability"]["status"] == "gap"
