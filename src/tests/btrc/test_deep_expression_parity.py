@@ -6,7 +6,10 @@ lowering a left-associative chain of about 950 terms; it now runs its pipeline
 on a 512 MiB thread (``BtrccCompilerStack``). The reference compiler's budget is
 its recursion limit, and past it the compiler reports a diagnostic instead of a
 traceback. Each program is generated here, at depths the old stack could not
-reach, and must produce the same C through both compilers and run correctly.
+reach, and must produce the same C through both compilers. The emitted C nests
+as deeply as the source, past what some host C compilers accept (macOS clang
+crashes on 2,000 nested parentheses), so the C is built and run at a depth
+every host compiler handles.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ REPO = Path(__file__).resolve().parents[3]
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="requires the POSIX self-host driver")
 
 DEPTH = 2000
+RUN_DEPTH = 200
 TOO_DEEP_DIAGNOSTIC = "error: expression or declaration nested too deeply to compile"
 
 
@@ -62,25 +66,37 @@ def _selfhost(btrcc: Path, source: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.parametrize(("shape", "expression"), [("left-chain", _left_chain), ("right-nested", _right_nested)])
-def test_deep_expression_compiles_identically_in_both_compilers(
-    immutable_btrcc: Path, tmp_path: Path, shape: str, expression
-) -> None:
+SHAPES = [("left-chain", _left_chain), ("right-nested", _right_nested)]
+
+
+def _compile_both(btrcc: Path, tmp_path: Path, shape: str, source_text: str) -> str:
     source = tmp_path / "Deep.btrc"
-    source.write_text(_program(expression(DEPTH)))
+    source.write_text(source_text)
     reference_c = tmp_path / "reference.c"
 
-    selfhost = _selfhost(immutable_btrcc, source)
+    selfhost = _selfhost(btrcc, source)
     reference = _reference(source, reference_c, tmp_path)
 
     assert selfhost.returncode == 0, f"{shape}: btrcc exited {selfhost.returncode}: {selfhost.stderr[-2000:]}"
     assert reference.returncode == 0, f"{shape}: {reference.stderr[-2000:]}"
     assert selfhost.stdout == reference_c.read_text(), f"{shape}: the compilers' C diverged"
+    return selfhost.stdout
+
+
+@pytest.mark.parametrize(("shape", "expression"), SHAPES)
+def test_deep_expression_compiles_identically_in_both_compilers(
+    immutable_btrcc: Path, tmp_path: Path, shape: str, expression
+) -> None:
+    _compile_both(immutable_btrcc, tmp_path, shape, _program(expression(DEPTH)))
+
+
+@pytest.mark.parametrize(("shape", "expression"), SHAPES)
+def test_nested_expression_runs_with_its_value(immutable_btrcc: Path, tmp_path: Path, shape: str, expression) -> None:
     generated = tmp_path / "selfhost.c"
-    generated.write_text(selfhost.stdout)
-    strict_build_and_run(generated, tmp_path / "deep")
-    run = subprocess.run([str(tmp_path / "deep")], capture_output=True, text=True, timeout=30)
-    assert run.stdout == f"{DEPTH}\n"
+    generated.write_text(_compile_both(immutable_btrcc, tmp_path, shape, _program(expression(RUN_DEPTH))))
+    strict_build_and_run(generated, tmp_path / "nested")
+    run = subprocess.run([str(tmp_path / "nested")], capture_output=True, text=True, timeout=30)
+    assert run.stdout == f"{RUN_DEPTH}\n"
 
 
 def test_reference_compiler_reports_exhausted_recursion_as_a_diagnostic(tmp_path: Path) -> None:
