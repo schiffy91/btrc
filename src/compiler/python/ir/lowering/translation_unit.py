@@ -991,7 +991,9 @@ class TranslationUnitLowerer:
     def _names_type_parameter(type_expr: TypeExpr, parameters: frozenset[str]) -> bool:
         if type_expr.base in parameters:
             return True
-        return any(TranslationUnitLowerer._names_type_parameter(argument, parameters) for argument in type_expr.generic_args)
+        return any(
+            TranslationUnitLowerer._names_type_parameter(argument, parameters) for argument in type_expr.generic_args
+        )
 
     def _collect_tuple_types(
         self,

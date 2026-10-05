@@ -152,6 +152,28 @@ int main() {
 """,
         "7\n",
     ),
+    "InstanceInferredGenericCall": (
+        """class Box<T> {
+	public T value;
+
+	public Box(T v) { self.value = v; }
+
+	public (T, U) pairWith<U>(U other) { return (self.value, other); }
+
+	public int use() {
+		var p = self.pairWith('c');
+		return (int)p._1;
+	}
+}
+
+int main() {
+	Box<int> b = new Box<int>(3);
+	print(f"{b.use()}");
+	return 0;
+}
+""",
+        "99\n",
+    ),
     "ImportedInstanceBody": (
         """import "Holder.btrc";
 
