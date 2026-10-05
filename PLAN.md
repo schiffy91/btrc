@@ -415,6 +415,26 @@ Each stage records its exit evidence here as it closes; measurements and commit 
       - The accessibility "dump" is a fixed probe string, not an AT-SPI tree.
   - `CX-UIA-10` (PR #54, macOS AppKit accessibility and key-view evidence) was returned. Its hosted evidence is genuine and the TOML matches it value for value. But the AX gate passes without the Commit button, because the window's close, zoom and minimise widgets and the scroller parts also report `AXButton`, and `identity()` never maps an `NSCell` to its `controlView`.
   - `CL-REQ-08` (btrcc tuple typedefs for tuple types spelled only at file scope) was returned. It fixes 11 of 16 failing programs and its default output is safe. But under `--no-dce` it now emits unsubstituted generic tuple structs (`struct btrc_Tuple_U_char { U _0; … }`). The lane will also walk generic instances' method signatures and bodies under substitution, which Python already does. On merge it needs one `GENERIC_WALK` line in the record-member contract.
+- **Batch 35 (2026-10-05): the Windows native test host, its workflow, and a VS Code Windows cleanup fix.**
+  - **Fix pushed first (`ae63edaf`).** Windows CI on batch 34 failed `Windows command-script servers launch through an owned process`: a command script's descendant outlived the language-server session. `ProcessTree` gave `taskkill /T /F` the whole 1 s stop budget. When taskkill overran it on a loaded runner, the extension killed taskkill mid-walk and then killed only the direct child, and Windows does not reparent orphans. The test's 5.3 s duration matched that path. Now a taskkill still running at the deadline finishes in the background and keeps ownership of the tree; if it fails later, the root is killed once. Four fake-host tests cover every outcome on every platform, and the slow-taskkill test fails on the old code. The extension's typecheck and suite pass: 77, with 2 Windows-only skips.
+  - `CX-P1-06` (PR #43): Codex's native Windows test host. A reviewer and a security and robustness reviewer found nothing blocking; the diff stays inside `tools/target_hosts/windows/`.
+    - **Executor:** a gated Python launcher is assigned to a kill-on-close Job Object before it starts the target. It records byte streams and maps NTSTATUS crash codes.
+    - **Bundle builder:** two C fixtures and two corpus programs, through both compilers, for x64 and ARM64. That is six PE executables and 16 cases, with a receipt that binds btrcc's SHA-256 to its compiler inputs.
+    - **Checker:** it relocates the bundle through paths with spaces and non-ASCII characters, requires the runner's native machine to match the PE, and checks tree death independently.
+    - Its portable suite passes 48 of 48 and the skip gate is clean.
+    - None of its three acceptance items could run before this batch, and the PR correctly leaves them unchecked.
+  - The integrator added `.github/workflows/host-windows.yml`, the PR's REQUEST (Codex may not edit workflows). It is a lane workflow on `push`/`pull_request` path filters plus `workflow_dispatch`, and `test_ci_workflow_contracts.py` passes 72 of 72.
+    - **`bundle` job (`ubuntu-latest`):** the portable tests and skip gate, `make btrcc`, the provenance receipt, then both cross-built bundles as artifacts.
+    - **`native` job:** runs each bundle on `windows-latest` (x64) and `windows-11-arm` (ARM64), never emulated.
+    - Its first run on this push is the packet's native evidence.
+  - Follow-ups for Codex before `CL-P1-17` freezes the protocol or `CX-P1-07` runs the corpus:
+    - The status file and `request.json` sit in the target's own cwd, so a program can forge its exit status.
+    - `prepare()` is not atomic.
+    - Admission pins only case names, programs and policies; argv, expected outcomes, deadlines and the executable mapping come unchecked from the manifest.
+    - Executable admission ignores the file extension.
+    - Captured streams have no size cap.
+    - The gate shares the host console.
+    - The receipt checks btrcc's hash but not that the source revision matches the checkout.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
