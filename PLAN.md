@@ -494,6 +494,24 @@ Each stage records its exit evidence here as it closes; measurements and commit 
       - `new G<struct S>()` and `sizeof` of generic or tuple operands are accepted, and their C fails strict C11;
       - Python refuses hosted-ABI element types such as `uint8_t`;
       - a FAM struct named `T` or `K` breaks valid generic code, including stdlib `Map`.
+- **Batch 38 (2026-10-05): Linux shell evidence follow-up.**
+  - `CX-UIA-11` follow-up (PR #57). A reviewer found nothing blocking, and every batch-34 follow-up is fixed or disclosed:
+    - The 18 E40 records now say `failed` in `observed`, and their detail moved to `reason`. The generic ledger rollup now counts 21 Linux failures instead of 3.
+    - `LibdecorPending` arms its watchdog before connecting.
+    - Both SDK probes use an NDEBUG-safe `REQUIRE` instead of `assert()`.
+    - The clipboard probe compiles in CI.
+    - Reference-frontend rows drop the btrcc `compiler_digest`.
+    - `LibdecorPending` is still not compiled in CI, because `libdecor-0.pc` is missing from the dev shell; a request is filed.
+  - **Integrator action.** Tagged `bbe4f56e` as `evidence/cx-uia-11-e40-repro`. The E40 reproduction records cite it, so the evidence stays verifiable after the never-merge branch goes.
+  - **Main CI.** Linux CI on batch 37 (`dd434efb`) was cancelled twice before any test ran ("job was not acquired by Runner of type hosted"). After the one re-run allowed, a fresh `ci.yml` dispatch (37379709059) is the gate. Windows passed.
+  - `CL-C-09` (unions) went back with ten blockers, each confirmed by a verifier:
+    - The alias rows let `Vector<struct P>` and `Vector<P>` diverge between the compilers. Python accepts them and emits two C types; btrcc refuses. Tuples spelled with a tag regress the same way, and so do function pointers that mix the two spellings.
+    - btrcc skips the wrong-keyword check on `new`'s generic arguments.
+    - Identity-typedef diagnostics diverge.
+    - A tag reference is matched against every top-level name, so a function named `timeval` forces an import for `struct timeval`. Main accepted those programs.
+    - Union diagnostic wording differs between the compilers.
+    - btrcc drops the second element of a union brace initializer passed as an argument or assigned.
+  - `CL-P1-05` (Stage 24 commit 1c, plus environment-aware macro selection) started on `stage24/target-data-model`.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
