@@ -707,6 +707,18 @@ class ExpressionValidator {
 		}
 	}
 
+	/* A lambda's parameters and its declared or inferred result are by value,
+	 * so none may be a struct with a flexible array member. */
+	private void validateFlexibleArrayLambda(Node expression, Map<string, Node> vars) {
+		for parameter in expression.params() {
+			self.types.validateFlexibleArrayValue(parameter.type, "Lambda parameter '" + parameter.name + "'", parameter);
+		}
+		Node? lambdaType = self.types.inferType(expression, vars);
+		if (lambdaType != null && lambdaType.genericArgs().len > 0) {
+			self.types.validateFlexibleArrayValue(lambdaType.genericArgs().get(0), "Lambda return type", expression);
+		}
+	}
+
 	public LambdaValidationPlan planLambda(Node expression, Map<string, Node> vars) {
 		LambdaValidationPlan plan = LambdaValidationPlan();
 		self.names.validateLambdaNames(expression);
@@ -1023,6 +1035,7 @@ class ExpressionValidator {
 				TypeValidator.fail("Lambda expressions are not supported inside generic declarations", expression);
 			}
 			self.validateLambda(expression,  vars);
+			self.validateFlexibleArrayLambda(expression, vars);
 		} else if (expression.kind == NK_SPAWN_EXPR) {
 			if (self.state.typeParams.len > 0 && (expression.fn == null || expression.fn.kind != NK_LAMBDA_EXPR)) {
 				TypeValidator.fail("spawn expressions are not supported inside generic declarations", expression);

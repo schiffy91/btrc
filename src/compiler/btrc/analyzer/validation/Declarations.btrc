@@ -759,14 +759,13 @@ class DeclarationValidator {
 			self.types.rejectRuntimeInterfaceType(parameter.type, parameter);
 			typeIndex = typeIndex + 1;
 		}
-		if (callable.bodyNode != null) {
-			string owner = classDeclaration == null ? callable.name : classDeclaration.name + "." + callable.name;
-			if (!callable.isConstructor) {
-				self.types.validateFlexibleArrayValue(declaredReturnType, "Return type of '" + owner + "'", callable);
-			}
-			for parameter in callable.params() {
-				self.types.validateFlexibleArrayValue(parameter.type, "Parameter '" + owner + "." + parameter.name + "'", parameter);
-			}
+		// A prototype passes and returns by value as a definition does.
+		string owner = classDeclaration == null ? callable.name : classDeclaration.name + "." + callable.name;
+		if (!callable.isConstructor) {
+			self.types.validateFlexibleArrayValue(declaredReturnType, "Return type of '" + owner + "'", callable);
+		}
+		for parameter in callable.params() {
+			self.types.validateFlexibleArrayValue(parameter.type, "Parameter '" + owner + "." + parameter.name + "'", parameter);
 		}
 		self.state.typeParams = signaturePreviousParams;
 		Node? previousReturn = self.state.returnType;

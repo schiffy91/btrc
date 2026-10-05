@@ -65,6 +65,51 @@ REFUSALS = [
         id="generic-argument-of-field",
     ),
     pytest.param(
+        BUFFER + "class Box<T> { public T v; }\nint main() { Box<struct Buffer>? b = null; return 0; }",
+        (BY_VALUE.format("Generic argument 1 of Variable 'b'"), 3, 14),
+        id="generic-class-argument-behind-a-reference",
+    ),
+    pytest.param(
+        BUFFER + "class Box<T> { public T v; }\nclass K { public Box<struct Buffer>? b; }\nint main() { return 0; }",
+        (BY_VALUE.format("Generic argument 1 of Field 'K.b'"), 3, 11),
+        id="generic-class-argument-of-field",
+    ),
+    pytest.param(
+        BUFFER + "extern int f(struct Buffer b);\nint main() { return 0; }",
+        (BY_VALUE.format("Parameter 'f.b'"), 2, 14),
+        id="prototype-parameter",
+    ),
+    pytest.param(
+        BUFFER + "struct Buffer make();\nint main() { return 0; }",
+        (BY_VALUE.format("Return type of 'make'"), 2, 1),
+        id="prototype-return",
+    ),
+    pytest.param(
+        BUFFER + "interface I { int f(struct Buffer b); }\nint main() { return 0; }",
+        (BY_VALUE.format("Parameter 'I.f.b'"), 2, 21),
+        id="interface-parameter",
+    ),
+    pytest.param(
+        BUFFER + "abstract class A { public abstract int f(struct Buffer b); }\nint main() { return 0; }",
+        (BY_VALUE.format("Parameter 'A.f.b'"), 2, 42),
+        id="abstract-method-parameter",
+    ),
+    pytest.param(
+        BUFFER + "int main() { struct Buffer* p = null; int c = (() => *p)().count; return c; }",
+        (BY_VALUE.format("Lambda return type"), 2, 48),
+        id="lambda-inferred-return",
+    ),
+    pytest.param(
+        BUFFER + "int main() { var f = (struct Buffer b) => b.count; return 0; }",
+        (BY_VALUE.format("Lambda parameter 'b'"), 2, 23),
+        id="lambda-parameter",
+    ),
+    pytest.param(
+        BUFFER + "int main() { struct Buffer* p = null; var t = spawn(() => *p); return 0; }",
+        (BY_VALUE.format("Lambda return type"), 2, 53),
+        id="spawn-result",
+    ),
+    pytest.param(
         BUFFER + "int f(struct Buffer b) { return b.count; }\nint main() { return 0; }",
         (BY_VALUE.format("Parameter 'f.b'"), 2, 7),
         id="by-value-parameter",
@@ -203,6 +248,24 @@ ACCEPTED = [
         }
         """,
         id="typedef-array-field-stays-a-pointer",
+    ),
+    pytest.param(
+        """
+        #include <assert.h>
+        #include <stdlib.h>
+        struct Slots { int count; int? values[]; };
+        int main() {
+            int seven = 7;
+            struct Slots* slots = (struct Slots*)calloc((size_t)1, sizeof(struct Slots) + sizeof(int*));
+            if (slots == null) { return 1; }
+            slots->values[0] = &seven;
+            int? value = slots->values[0];
+            assert(value != null && *value == 7);
+            free(slots);
+            return 0;
+        }
+        """,
+        id="nullable-pointer-elements",
     ),
 ]
 

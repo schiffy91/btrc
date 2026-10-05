@@ -21,6 +21,7 @@ from src.compiler.python.syntax.ast.generated import (
     FStringLiteral,
     FunctionDecl,
     Identifier,
+    InterfaceDecl,
     IntLiteral,
     ListLiteral,
     MapLiteral,
@@ -423,8 +424,25 @@ class AggregateAnalyzer:
                     graph[declaration.name].update(self._value_aggregate_names(parameter.type))
         elif isinstance(declaration, FunctionDecl) and declaration.body:
             self._validate_callable_complete_types(declaration, declaration.name)
+        elif isinstance(declaration, FunctionDecl):
+            self._reject_flexible_array_signature(declaration, declaration.name)
         elif isinstance(declaration, ClassDecl):
             self._validate_class_complete_types(declaration)
+        elif isinstance(declaration, InterfaceDecl):
+            for method in declaration.methods:
+                self._reject_flexible_array_signature(method, f"{declaration.name}.{method.name}")
+
+    def _reject_flexible_array_signature(self, declaration, owner) -> None:
+        """A prototype passes and returns by value as a definition does, so a
+        bodyless signature refuses a struct with a flexible array member too."""
+        if not getattr(declaration, "is_constructor", False):
+            self.reject_flexible_array_value(
+                declaration.return_type, f"Return type of '{owner}'", declaration.line, declaration.col
+            )
+        for parameter in declaration.params:
+            self.reject_flexible_array_value(
+                parameter.type, f"Parameter '{owner}.{parameter.name}'", parameter.line, parameter.col
+            )
 
     def _validate_flexible_array_members(self, declaration) -> None:
         """r13: one flexible array member, last, after a named member, directly
@@ -480,6 +498,13 @@ class AggregateAnalyzer:
             return self._is_flexible_array_element(self.types.canonical_type(self._array_element_type(element)))
         if element.base == "__fn_ptr" and element.pointer_depth == 0 and not element.is_nullable:
             return True
+        if element.is_nullable and element.pointer_depth > 0:
+            # A nullable raw or function pointer is a plain C pointer.
+            return (
+                element.base != "string"
+                and element.base not in self.index.class_table
+                and element.base not in self.index.interface_table
+            )
         name = element.base.removeprefix("struct ")
         if element.pointer_depth == 0 and self.index.struct_table.get(name) is not None:
             if self.index.struct_table[name].is_forward or self.flexible_array_struct(element) is not None:
@@ -508,8 +533,10 @@ class AggregateAnalyzer:
                 f"{subject} uses struct '{name}' with a flexible array member by value; use a pointer", line, col
             )
             return True
+        # A generic argument is by-value storage even behind a class
+        # reference or a pointer: Box<S>* still names a Box that holds an S.
         canonical = self.types.canonical_type(type_expr)
-        if canonical is None or canonical.pointer_depth > 0:
+        if canonical is None:
             return False
         return any(
             self.reject_flexible_array_value(argument, f"Generic argument {index + 1} of {subject}", line, col)
@@ -546,6 +573,8 @@ class AggregateAnalyzer:
                 )
             elif isinstance(member, MethodDecl) and member.body:
                 self._validate_callable_complete_types(member, f"{declaration.name}.{member.name}")
+            elif isinstance(member, MethodDecl):
+                self._reject_flexible_array_signature(member, f"{declaration.name}.{member.name}")
 
     def validate_complete_aggregate_use(self, type_expr, subject, line=0, col=0, *, sizeof=False) -> bool:
         # sizeof(struct S) is the one by-value use of a struct with a

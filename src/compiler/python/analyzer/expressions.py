@@ -942,6 +942,20 @@ class ExpressionAnalyzer:
         self.session.error(f"Duplicate {kind} name '{name}' in the same scope", line, col)
         return False
 
+    def _reject_flexible_array_lambda(self, expression) -> None:
+        """A lambda's parameters and its declared or inferred result are by
+        value, so none may be a struct with a flexible array member."""
+        for parameter in expression.params:
+            if self.aggregates.reject_flexible_array_value(
+                parameter.type, f"Lambda parameter '{parameter.name}'", parameter.line, parameter.col
+            ):
+                return
+        lambda_type = self._infer_type(expression)
+        if lambda_type is not None and lambda_type.generic_args:
+            self.aggregates.reject_flexible_array_value(
+                lambda_type.generic_args[0], "Lambda return type", expression.line, expression.col
+            )
+
     def _validate_cast_expr(self, expression) -> None:
         if not self.types.validate_cast_target_name(expression):
             return
@@ -2066,6 +2080,7 @@ class ExpressionAnalyzer:
                 )
             if id(expr) not in self.session.lambda_body_facts:
                 self.session.error("Lambda body was not prepared by statement analysis", expr.line, expr.col)
+            self._reject_flexible_array_lambda(expr)
         elif isinstance(expr, NewExpr):
             # A re-analysed tree already carries the implicit class pointer.
             written_depth = expr.type.pointer_depth - int(getattr(expr.type, "auto_upgraded", False))

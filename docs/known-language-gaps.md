@@ -257,8 +257,9 @@ sits directly in a named struct's body is a C11 flexible array member (FAM):
 `struct Buffer { int count; int data[]; };` emits exactly that declaration,
 and its layout is C's (`c_compat/FlexibleArrayLayout.btrc` compares `sizeof`
 and the member offset with a C mirror under gcc and clang). Elements are
-complete plain C values: scalars, enums, raw and function pointers, structs
-without a FAM and fixed arrays of these; managed elements are refused for now.
+complete plain C values: scalars, enums, raw and function pointers (nullable
+ones too), structs without a FAM and fixed arrays of these; managed elements
+are refused for now.
 
 A FAM struct exists only behind a pointer. Allocate it with the size of the
 struct plus the elements, check the result and free it; no runtime helper is
@@ -284,11 +285,11 @@ diagnostic in both compilers (`btrc/test_flexible_array_member_contract.py`):
 | no named member before it | `Flexible array member 'Buffer.data' needs a named field before it` |
 | inside an anonymous member | `Flexible array member 'data' must be declared directly in a struct, not in an anonymous member` |
 | a managed element | `Flexible array member 'Buffer.items' cannot hold managed type 'string'` |
-| a by-value use (object, parameter, return, cast, record or class field, tuple, rich-enum payload, generic argument) | `Parameter 'f.b' uses struct 'Buffer' with a flexible array member by value; use a pointer` |
+| a by-value use (object, parameter or return of a definition, prototype, interface method or lambda, cast, record or class field, tuple, rich-enum payload, generic argument, also behind a class reference or pointer as in `Box<struct Buffer>?`) | `Parameter 'f.b' uses struct 'Buffer' with a flexible array member by value; use a pointer` |
 | a whole-object copy or assignment | `Struct 'Buffer' with a flexible array member cannot be assigned or copied` |
 | `sizeof(p->data)` | `sizeof cannot be applied to flexible array member 'Buffer.data'` |
 | `&p->data` | `Cannot take the address of flexible array member 'Buffer.data'; use the member itself or an element's address` |
-| assigning the member | `Array object 'int[]' is not assignable` |
+| assigning the member from an array | `Array object 'int[]' is not assignable` (from a pointer, btrcc reports `Cannot assign 'int*' to 'int[]'` first, as it does for a fixed array member) |
 | `new Buffer()` | `new requires a class type, got 'Buffer'` |
 
 A typedef never makes a FAM: `typedef int[] Values;` and a `Values data;`

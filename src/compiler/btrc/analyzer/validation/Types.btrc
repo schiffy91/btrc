@@ -839,8 +839,10 @@ class TypeValidator {
 		if (name != "") {
 			TypeValidator.fail(subject + " uses struct '" + name + "' with a flexible array member by value; use a pointer", site);
 		}
+		// A generic argument is by-value storage even behind a class reference
+		// or a pointer: Box<S>* still names a Box that holds an S.
 		Node? canonical = self.resolveAliases(typeExpr);
-		if (canonical == null || canonical.pointerDepth > 0) { return; }
+		if (canonical == null) { return; }
 		int index = 0;
 		while (index < canonical.genericArgs().len) {
 			self.validateFlexibleArrayValue(canonical.genericArgs().get(index), "Generic argument " + Strings.fromInt(index + 1) + " of " + subject, site);
@@ -858,6 +860,10 @@ class TypeValidator {
 			return self.flexibleArrayElement(TypeShape.withoutOuterArray(element));
 		}
 		if (element.base == "__fn_ptr" && element.pointerDepth == 0 && !element.isNullable) { return true; }
+		if (element.isNullable && element.pointerDepth > 0) {
+			// A nullable raw or function pointer is a plain C pointer.
+			return element.base != "string" && !self.state.analyzed.isClass(element.base) && !self.state.analyzed.isGenericClass(element.base) && !self.state.analyzed.isInterface(element.base);
+		}
 		if (element.pointerDepth == 0) {
 			string name = SemanticTypeSystem.resolvedStructName(element, self.state.analyzed);
 			// The by-value checks report incomplete and flexible-array elements.
@@ -1046,6 +1052,11 @@ class TypeValidator {
 						Node parameter = method.params().get(parameterIndex);
 						self.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
 						parameterIndex = parameterIndex + 1;
+					}
+					string owner = declaration.name + "." + method.name;
+					self.validateFlexibleArrayValue(method.returnType, "Return type of '" + owner + "'", method);
+					for parameter in method.params() {
+						self.validateFlexibleArrayValue(parameter.type, "Parameter '" + owner + "." + parameter.name + "'", parameter);
 					}
 					methodIndex = methodIndex + 1;
 				}
