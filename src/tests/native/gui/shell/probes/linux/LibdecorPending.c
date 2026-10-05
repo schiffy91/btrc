@@ -19,14 +19,18 @@
 } while (0)
 
 static volatile sig_atomic_t delivered;
+static volatile sig_atomic_t phase; /* 0: setup, 1: dispatch, 2: cleanup. */
 
 static void expired(int signal_number) {
     (void)signal_number;
     const char pending[] = "FAIL: callback delivered; libdecor dispatch still blocked\n";
     const char absent[] = "ERROR: callback not delivered\n";
-    if (delivered) (void)write(STDERR_FILENO, pending, sizeof(pending) - 1);
+    const char cleanup[] = "ERROR: dispatch returned; cleanup timed out\n";
+    int dispatch_blocked = phase == 1 && delivered;
+    if (dispatch_blocked) (void)write(STDERR_FILENO, pending, sizeof(pending) - 1);
+    else if (phase == 2) (void)write(STDERR_FILENO, cleanup, sizeof(cleanup) - 1);
     else (void)write(STDERR_FILENO, absent, sizeof(absent) - 1);
-    _exit(delivered ? 1 : 2);
+    _exit(dispatch_blocked ? 1 : 2);
 }
 
 static void done(void *data, struct wl_callback *callback, uint32_t serial) {
@@ -68,8 +72,11 @@ int main(int argc, char **argv) {
     REQUIRE(poll(&descriptor, 1, 1000) == 1);
     REQUIRE(wl_display_read_events(display) == 0);
     REQUIRE(!delivered);
+    phase = 1;
     alarm(3);
     int count = libdecor_dispatch(decor, timeout);
+    phase = 2;
+    alarm(3); /* A cleanup stall is an error, not the dispatch reproduction. */
     printf("dispatch returned %d; callback delivered=%d\n", count, (int)delivered);
     libdecor_unref(decor);
     wl_display_disconnect(display);
