@@ -627,14 +627,21 @@ class TranslationUnitLowerer:
         *,
         skip_generic_methods: bool,
     ) -> None:
-        """Collect explicit and inferred types owned by one declaration view."""
-        for type_expr in TranslationUnitLowerer._declaration_types(declaration):
-            self._collect_tuple_types(type_expr, seen)
+        """Collect explicit and inferred types owned by one declaration view.
+
+        A generic interface's parameters, and a generic method's own parameters
+        outside its specialization, stay unbound: a shape naming one is never a
+        concrete tuple, so it is not recorded.
+        """
+        unbound = frozenset(declaration.generic_params) if isinstance(declaration, InterfaceDecl) else frozenset()
+        for type_expr, parameters in TranslationUnitLowerer._declaration_types(declaration):
+            self._collect_tuple_types(type_expr, seen, unbound | parameters)
         self._collect_ast_tuple_types(
             declaration,
             seen,
             set(),
             skip_generic_methods=skip_generic_methods,
+            unbound=unbound,
         )
 
     def _collect_ast_tuple_types(
@@ -644,6 +651,7 @@ class TranslationUnitLowerer:
         visited: set[int],
         *,
         skip_generic_methods: bool,
+        unbound: frozenset[str] = frozenset(),
     ) -> None:
         """Walk one AST-owned value without crossing into another generic view."""
         if value is None or isinstance(value, (str, bytes, int, float, bool)):
@@ -655,23 +663,25 @@ class TranslationUnitLowerer:
             return
         visited.add(identity)
         if isinstance(value, TypeExpr):
-            self._collect_tuple_types(value, seen)
+            self._collect_tuple_types(value, seen, unbound)
             if value.array_size is not None:
                 self._collect_ast_tuple_types(
                     value.array_size,
                     seen,
                     visited,
                     skip_generic_methods=skip_generic_methods,
+                    unbound=unbound,
                 )
             return
         if is_dataclass(value):
-            self._collect_tuple_types(self._session.type_of(value), seen)
+            self._collect_tuple_types(self._session.type_of(value), seen, unbound)
             for field in fields(value):
                 self._collect_ast_tuple_types(
                     getattr(value, field.name),
                     seen,
                     visited,
                     skip_generic_methods=skip_generic_methods,
+                    unbound=unbound,
                 )
             return
         if isinstance(value, dict):
@@ -686,6 +696,7 @@ class TranslationUnitLowerer:
                 seen,
                 visited,
                 skip_generic_methods=skip_generic_methods,
+                unbound=unbound,
             )
 
     @staticmethod
@@ -949,45 +960,65 @@ class TranslationUnitLowerer:
 
     @staticmethod
     def _declaration_types(declaration):
+        """Yield each signature type with the method type parameters it may name."""
+        unbound: frozenset[str] = frozenset()
         if isinstance(declaration, FunctionDecl):
-            yield declaration.return_type
-            yield from (parameter.type for parameter in declaration.params)
+            yield declaration.return_type, unbound
+            yield from ((parameter.type, unbound) for parameter in declaration.params)
         elif isinstance(declaration, ClassDecl):
             for member in declaration.members:
                 if isinstance(member, (FieldDecl, PropertyDecl)):
-                    yield member.type
+                    yield member.type, unbound
                 elif isinstance(member, MethodDecl):
-                    yield member.return_type
-                    yield from (parameter.type for parameter in member.params)
+                    parameters = frozenset(member.generic_params)
+                    yield member.return_type, parameters
+                    yield from ((parameter.type, parameters) for parameter in member.params)
         elif isinstance(declaration, InterfaceDecl):
             for method in declaration.methods:
-                yield method.return_type
-                yield from (parameter.type for parameter in method.params)
+                yield method.return_type, unbound
+                yield from ((parameter.type, unbound) for parameter in method.params)
         elif isinstance(declaration, StructDecl):
-            yield from (field.type for field in TypeSystem.record_fields(declaration))
+            yield from ((field.type, unbound) for field in TypeSystem.record_fields(declaration))
         elif isinstance(declaration, RichEnumDecl):
             for variant in declaration.variants:
-                yield from (parameter.type for parameter in variant.params)
+                yield from ((parameter.type, unbound) for parameter in variant.params)
         elif isinstance(declaration, TypedefDecl):
-            yield declaration.original
+            yield declaration.original, unbound
         elif isinstance(declaration, VarDeclStmt) and declaration.type is not None:
-            yield declaration.type
+            yield declaration.type, unbound
 
-    def _collect_tuple_types(self, type_expr, seen: dict[str, list[TypeExpr]]) -> None:
+    @staticmethod
+    def _names_type_parameter(type_expr: TypeExpr, parameters: frozenset[str]) -> bool:
+        if type_expr.base in parameters:
+            return True
+        return any(
+            TranslationUnitLowerer._names_type_parameter(argument, parameters) for argument in type_expr.generic_args
+        )
+
+    def _collect_tuple_types(
+        self,
+        type_expr,
+        seen: dict[str, list[TypeExpr]],
+        unbound: frozenset[str] = frozenset(),
+    ) -> None:
         if type_expr is None:
             return
         type_expr = self._types.resolve_active_type(type_expr)
         if type_expr is None:
             return
         for argument in type_expr.generic_args:
-            self._collect_tuple_types(argument, seen)
+            self._collect_tuple_types(argument, seen, unbound)
         if type_expr.base == "Span" and len(type_expr.generic_args) == 1:
             symbol = self._type_identity.generic_symbol("Span", type_expr.generic_args)
             self._span_types.setdefault(symbol, type_expr.generic_args[0])
         if type_expr.base == "Atomic" and len(type_expr.generic_args) == 1:
             symbol = self._type_identity.generic_symbol("Atomic", type_expr.generic_args)
             self._atomic_types.setdefault(symbol, type_expr.generic_args[0])
-        if type_expr.base == "Tuple" and type_expr.generic_args:
+        if (
+            type_expr.base == "Tuple"
+            and type_expr.generic_args
+            and not (unbound and TranslationUnitLowerer._names_type_parameter(type_expr, unbound))
+        ):
             seen.setdefault(
                 self._type_identity.generic_symbol("Tuple", type_expr.generic_args), list(type_expr.generic_args)
             )

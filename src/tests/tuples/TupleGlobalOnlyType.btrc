@@ -1,0 +1,40 @@
+#include <assert.h>
+
+/* Each tuple shape below is spelled only at file scope (or only inside a
+ * sizeof operand), so its typedef must come from the global declarations. */
+static (int, int) staticPair = {1, 2};
+(long, bool) globalPair = {5, true};
+static ((short, short), char) nestedPair = {{3, 4}, 'n'};
+static (int, double) staticTable[2] = {{1, 1.5}, {2, 2.5}};
+static int tupleSize = (int)sizeof((char, long));
+
+typedef (unsigned, unsigned) Span2;
+static Span2 aliasPair = {7, 8};
+
+struct Holder {
+	(char, char) letters;
+};
+static struct Holder holder = {{'a', 'b'}};
+
+class Box<T> {
+	public T value;
+}
+static Box<(float, int)>? box = null;
+
+int main() {
+	assert(staticPair._0 == 1 && staticPair._1 == 2);
+	assert(globalPair._0 == 5 && globalPair._1);
+	assert(nestedPair._0._0 == 3 && nestedPair._0._1 == 4 && nestedPair._1 == 'n');
+	var rows = staticTable;
+	assert(rows->_0 == 1 && (rows + 1)->_1 == 2.5);
+	assert(tupleSize == (int)sizeof((char, long)));
+	assert(aliasPair._0 == 7 && aliasPair._1 == 8);
+	assert(holder.letters._0 == 'a' && holder.letters._1 == 'b');
+	assert((int)sizeof((unsigned char, short)) > 0);
+	box = new Box<(float, int)>();
+	box.value._1 = 9;
+	assert(box.value._1 == 9);
+	print(f"{staticPair._0 + staticPair._1} {globalPair._0} {nestedPair._0._1} {aliasPair._1} {holder.letters._1}");
+	print("PASS: test_tuple_global_only_type");
+	return 0;
+}
