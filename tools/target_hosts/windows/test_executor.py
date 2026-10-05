@@ -13,11 +13,20 @@ import time
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from .bundle import digest, pe_machine
-from .check import verify
+from . import check as check_module
+from .bundle import (
+    CORPUS,
+    digest,
+    pe_machine,
+    record_compiler_provenance,
+    run_build_command,
+    verify_compiler_provenance,
+)
+from .check import validate_cases, verify
 from .executor import Accounting, ExecutionRequest, ExecutionResult, ExtendedLimits, WindowsNativeExecutor
 
 
@@ -115,7 +124,7 @@ def test_gate_assignment_precedes_target_release_and_binary_transport(bundle):
     assert transport.spec["env"]["BTRC_PROBE"] == "space value"
     assert result.stdout == b"out\0\xff" and result.stderr == b"err\0\xfe"
     assert not Path(transport.spec["cwd"]).exists()
-    assert result.exit_status == 0 and result.provenance["job_empty"]
+    assert result.exit_status == 0
 
 
 @pytest.mark.parametrize("status", [3, 124, 137, 255])
@@ -139,7 +148,7 @@ def test_timeout_terminates_entire_job_before_draining_pipes(bundle):
     termination = transport.events.index("terminate")
     assert transport.events[termination : termination + 3] == ["terminate", "communicate", "terminate"]
     assert result.timed_out and result.exit_status is None and result.signal is None
-    assert result.provenance["job_empty"] and transport.events[-1] == "close"
+    assert transport.events[-1] == "close"
 
 
 def test_assignment_failure_kills_unreleased_gate_and_closes_handles(bundle):
@@ -176,16 +185,24 @@ def test_invalid_request_never_spawns(bundle, execution_request):
     assert transport.events == []
 
 
-@pytest.mark.parametrize("change", ["digest", "architecture", "escape", "schema"])
+@pytest.mark.parametrize(
+    "change", ["digest", "architecture", "target-label", "unknown-target", "program-machine", "escape", "schema"]
+)
 def test_bundle_admission_rejects_corruption_and_path_escape(bundle, change):
     manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
     if change == "digest":
         (bundle / "probe.exe").write_bytes((bundle / "probe.exe").read_bytes() + b"corrupted")
     elif change == "architecture":
         manifest["pe_machine"] = 0xAA64
+    elif change == "target-label":
+        manifest["target"] = "windows-aarch64"
+    elif change == "unknown-target":
+        manifest["target"] = "windows-unknown"
+    elif change == "program-machine":
+        manifest["programs"]["probe"]["pe_machine"] = 0xAA64
     elif change == "escape":
         manifest["programs"]["probe"]["executable"] = "../outside.exe"
-        (bundle.parent / "outside.exe").write_bytes(b"outside")
+        (bundle.parent / "outside.exe").write_bytes((bundle / "probe.exe").read_bytes())
     else:
         manifest["schema"] = "unknown"
     (bundle / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -264,10 +281,14 @@ class RealPipeTransport(Transport):
 import json, pathlib, subprocess, sys, time
 spec = json.loads(pathlib.Path(sys.argv[1]).read_text())
 child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
-pathlib.Path(sys.argv[2]).write_text(str(child.pid))
+ready = pathlib.Path(sys.argv[2])
+ready.with_suffix('.tmp').write_text(str(child.pid))
+ready.with_suffix('.tmp').replace(ready)
 print('real output', flush=True)
 if sys.argv[3] == 'normal':
-    pathlib.Path(spec['status']).write_text('0')
+    status = pathlib.Path(spec['status'])
+    status.with_suffix('.tmp').write_text('0')
+    status.with_suffix('.tmp').replace(status)
 else:
     time.sleep(60)
 """
@@ -325,7 +346,7 @@ def test_target_return_with_descendant_holding_real_pipe_is_not_timeout(bundle):
     assert result.exit_status == 0 and not result.timed_out
     assert result.stdout == b"real output\n"
     assert time.monotonic() - started < 2
-    assert transport.child_pid > 0
+    assert_process_dead(transport.child_pid)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="real pipe stand-in uses POSIX groups; native proof is check.py")
@@ -337,14 +358,223 @@ def test_infrastructure_error_terminates_real_pipe_holder_and_preserves_original
     assert "injected accounting failure" in caught.value.__notes__[0]
     assert time.monotonic() - started < 2
     assert transport.process.poll() is not None
-    assert transport.child_pid > 0
+    assert_process_dead(transport.child_pid)
     assert transport.events[-1] == "close"
 
 
-def test_setup_time_uses_request_deadline_and_stdin_does_not_block_pipe(bundle, monkeypatch):
+def test_setup_time_uses_request_deadline_and_stdin_does_not_block_pipe(bundle):
     transport = Transport()
-    clock = iter([0, 2, 2])
-    monkeypatch.setattr("tools.target_hosts.windows.executor.time.monotonic", lambda: next(clock))
-    result = executor(bundle, transport).run(ExecutionRequest("probe", stdin=b"x" * 300000, timeout_s=1))
+    times = iter([0, 2])
+    # The injected clock belongs to this executor only; repeated reads are stable.
+    host = WindowsNativeExecutor(job_factory=lambda: transport, spawn=transport.spawn, clock=lambda: next(times, 2))
+    host.prepare(bundle, "unit-test clock")
+    result = host.run(ExecutionRequest("probe", stdin=b"x" * 300000, timeout_s=1))
     assert result.timed_out
     assert len(transport.input) == 300000
+
+
+def assert_process_dead(pid):
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        status = Path(f"/proc/{pid}/stat")
+        try:
+            if status.read_text().split(") ", 1)[1].split()[0] == "Z":
+                return  # Exited, awaiting the host's reaper; cannot hold a pipe.
+        except FileNotFoundError:
+            pass
+        time.sleep(0.01)
+    raise AssertionError(f"portable fixture process {pid} survived cleanup")
+
+
+def test_success_inside_caller_exception_does_not_hide_cleanup_failure(bundle):
+    class CleanupFailure(Transport):
+        def close(self):
+            super().close()
+            raise RuntimeError("cleanup failure on otherwise successful run")
+
+    try:
+        raise KeyError("caller exception")
+    except KeyError:
+        with pytest.raises(RuntimeError, match="cleanup failure on otherwise successful run"):
+            executor(bundle, CleanupFailure()).run(ExecutionRequest("probe"))
+
+
+def test_target_launch_failure_preserves_exact_native_error(bundle):
+    class LaunchFailure(Transport):
+        def communicate(self, data=None, timeout=None):
+            Path(self.spec["launch_error"]).write_text(
+                json.dumps(
+                    {
+                        "stage": "CreateProcessW",
+                        "winerror": 193,
+                        "errno": 8,
+                        "message": "not a valid Win32 application",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return super().communicate(data, timeout)
+
+    with pytest.raises(RuntimeError, match="CreateProcessW: winerror=193 errno=8: not a valid Win32 application"):
+        executor(bundle, LaunchFailure(gate_failure=True)).run(ExecutionRequest("probe"))
+
+
+def acceptance_manifest():
+    cases = [
+        {"name": name, "program": "probe"}
+        for name in (
+            "binary-streams",
+            "large-binary-stdin",
+            "exit-3",
+            "exit-124",
+            "exit-137",
+            "argv-quoting",
+            "environment",
+            "isolated-cwd",
+            "access-violation",
+            "deadline",
+        )
+    ]
+    cases += [
+        {"name": name, "program": "tree", "stdout_policy": "tree-pids"}
+        for name in ("tree-deadline", "tree-parent-return")
+    ]
+    cases += [
+        {
+            "name": f"{Path(source).name}-{frontend}",
+            "program": f"{Path(source).name}-{frontend}",
+            "frontend": frontend,
+            "stdout_policy": "lf",
+        }
+        for source in CORPUS
+        for frontend in ("python", "selfhost")
+    ]
+    return {"cases": cases}
+
+
+def test_acceptance_requires_every_exact_case_once():
+    manifest = acceptance_manifest()
+    assert len(validate_cases(manifest)) == 16
+    for index in range(16):
+        with pytest.raises(ValueError, match="case set mismatch"):
+            validate_cases({"cases": manifest["cases"][:index] + manifest["cases"][index + 1 :]})
+    for cases in ([], manifest["cases"][:5], manifest["cases"] + [manifest["cases"][0]]):
+        with pytest.raises(ValueError, match="case set mismatch"):
+            validate_cases({"cases": cases})
+    for value in ({}, {"cases": None}, {"cases": [{}]}, {"cases": "cases"}):
+        with pytest.raises(ValueError, match="complete named case list"):
+            validate_cases(value)
+
+
+@pytest.mark.parametrize("change", ["program", "frontend", "policy", "tree"])
+def test_acceptance_case_names_cannot_mask_missing_evidence(change):
+    manifest = acceptance_manifest()
+    if change == "program":
+        manifest["cases"][-1]["program"] = "probe"
+    elif change == "frontend":
+        manifest["cases"][-1]["frontend"] = "python"
+    elif change == "policy":
+        manifest["cases"][-1]["stdout_policy"] = "bytes"
+    else:
+        manifest["cases"][10]["stdout_policy"] = "bytes"
+    with pytest.raises(ValueError):
+        validate_cases(manifest)
+
+
+def test_compiler_receipt_binds_binary_and_source_inputs(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, timeout=10)
+    source = tmp_path / "src/compiler/input.c"
+    source.parent.mkdir(parents=True)
+    source.write_text("source")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, timeout=10)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        cwd=tmp_path,
+        check=True,
+        timeout=10,
+    )
+    compiler = tmp_path / "btrcc"
+    compiler.write_bytes(b"binary")
+    receipt = tmp_path / "receipt.json"
+    recorded = record_compiler_provenance(compiler, receipt, root=tmp_path)
+    assert verify_compiler_provenance(compiler, receipt, root=tmp_path) == recorded
+    compiler.write_bytes(b"wrong binary")
+    with pytest.raises(ValueError, match="does not match its build receipt"):
+        verify_compiler_provenance(compiler, receipt, root=tmp_path)
+    compiler.write_bytes(b"binary")
+    source.write_text("different source")
+    with pytest.raises(ValueError, match="source inputs do not match"):
+        verify_compiler_provenance(compiler, receipt, root=tmp_path)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="bundle producer uses the Linux build host")
+def test_bundle_command_timeout_kills_descendant_pipe_holder(tmp_path):
+    ready = tmp_path / "child.pid"
+    script = "import pathlib,subprocess,sys,time; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); pathlib.Path(sys.argv[1]).write_text(str(p.pid)); time.sleep(60)"
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_build_command([sys.executable, "-c", script, str(ready)], cwd=tmp_path, capture=True, timeout_s=0.5)
+    assert ready.is_file()
+    assert_process_dead(int(ready.read_text()))
+
+
+@pytest.mark.parametrize("truncated", [True, False])
+def test_native_checker_reports_manifest_and_launch_failures(tmp_path, monkeypatch, truncated):
+    manifest = acceptance_manifest()
+    manifest["target"] = "windows-x86_64"
+    for case in manifest["cases"]:
+        case.update({"argv": [], "timeout_s": 10})
+    if truncated:
+        manifest["cases"] = []
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    report = tmp_path.parent / (tmp_path.name + "-report.json")
+
+    class FailedExecutor:
+        def prepare(self, *args):
+            pass
+
+        def run(self, *args):
+            raise OSError("target launch rejected")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(check_module, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(check_module, "WindowsNativeExecutor", FailedExecutor)
+    with pytest.raises((ValueError, OSError)):
+        check_module.check(tmp_path, report, "portable checker test")
+    outcome = json.loads(report.read_text())
+    assert outcome["passed"] == 0 and outcome["failed"] == 1 and not outcome["complete"]
+    assert len(outcome["results"]) == (0 if truncated else 1)
+    if not truncated:
+        assert outcome["results"][0]["error"] == "OSError: target launch rejected"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="bundle producer uses the Linux build host")
+@pytest.mark.parametrize("status", [0, 7])
+def test_returned_bundle_wrapper_cannot_leave_file_writer_alive(tmp_path, status):
+    ready = tmp_path / "child.pid"
+    script = "import pathlib,subprocess,sys; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); pathlib.Path(sys.argv[1]).write_text(str(p.pid)); sys.exit(int(sys.argv[2]))"
+    command = [sys.executable, "-c", script, str(ready), str(status)]
+    with (tmp_path / "generated.c").open("wb") as output:
+        if status:
+            with pytest.raises(subprocess.CalledProcessError) as caught:
+                run_build_command(command, cwd=tmp_path, stdout=output, capture=False, timeout_s=5)
+            assert caught.value.returncode == status
+        else:
+            run_build_command(command, cwd=tmp_path, stdout=output, capture=False, timeout_s=5)
+    assert_process_dead(int(ready.read_text()))

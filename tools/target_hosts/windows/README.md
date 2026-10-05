@@ -14,11 +14,22 @@ compiler from the same source revision:
 ```sh
 export BTRC_TEST_RUNNER=linux-devcontainer
 nix develop --command make NIX= btrcc
+nix develop --command python3 -m tools.target_hosts.windows.bundle --record-compiler-provenance bin/btrcc.provenance.json
 nix develop --command python3 -m tools.target_hosts.windows.bundle --target windows-x86_64 --output build/windows-host-x64
 nix develop --command python3 -m tools.target_hosts.windows.bundle --target windows-aarch64 --output build/windows-host-arm64
 ```
 
-`--btrcc /absolute/path/to/btrcc` selects a separately built compiler. Both
+`--btrcc /absolute/path/to/btrcc --compiler-receipt /absolute/path/to/receipt.json`
+selects a separately built compiler. If that binary is relocated outside its
+checkout or installation tree, set `BTRC_HOME="$PWD/src"` in the source-matched
+checkout so it can locate the grammar and standard library.
+Record its receipt immediately after building
+it from the stated checkout; never generate a receipt to relabel an unknown binary.
+The receipt binds the binary SHA-256, full build-source revision and a digest of
+tracked compiler/spec/runtime/stdlib/generator input contents. Bundle construction
+requires both the binary and source-input digests to match; tool-only branch
+changes may reuse a source-identical compiler. This is retained build provenance,
+not a cryptographic attestation of who performed the build. Both
 bundles use `zig cc` with the existing Windows workflow's exact strict flags:
 `-std=c11 -O2 -Wall -Wextra -Werror -pedantic`, the Windows runtime include
 directory and forced `btrc_win_compat.h`, and `-lm`. Targets are
@@ -28,7 +39,7 @@ Each bundle contains six PE executables: two strict C11 fixtures and the
 existing `BracesInCodeGen` and `PathWindowsLexical` corpus programs compiled
 through both Python and self-hosted frontends with explicit `--target`.
 No corpus program is edited. The manifest records the source revision,
-self-hosted compiler digest, Zig version, flags, executable digests, PE
+self-hosted compiler build receipt, Zig version, flags, executable digests, PE
 machine values, and 16 execution cases with arguments, deadlines, expected
 stdout/stderr digests and expected process outcomes.
 
@@ -51,10 +62,15 @@ needs confirmation.
 
 The checker copies the bundle to a path containing spaces and a Greek lambda,
 then runs every case from a different temporary working directory with those
-characters. Byte streams remain bytes: fixtures cover NUL and non-UTF-8
+characters. Admission requires the exact 16 unique case identities, including both
+tree cases and all four corpus/frontend cases, their corresponding programs and
+evidence policies. Empty/truncated manifests cannot yield a successful report.
+Failures retain incomplete status, actual pass/fail counts and an error row for
+the failing execution; fail-fast does not imply the unexecuted cases passed. Byte streams remain bytes: fixtures cover NUL and non-UTF-8
 output, 256 KiB binary stdin, arguments with quoting/empty/trailing-backslash
-cases, environment, working directory, ordinary exits 3/124/137, a real
-access violation, deadline expiry, and a three-generation process tree.
+cases, environment, working directory, ordinary exits 3/124/137, a raised
+EXCEPTION_ACCESS_VIOLATION status (not a hardware memory fault), deadline expiry,
+and a three-generation process tree.
 The tree also has a normal-return case: its parent waits until its grandchild
 is running, then returns while both descendants still hold the output pipes.
 The two corpus programs use an explicit CRLF-to-LF stdout comparison, matching
@@ -65,13 +81,17 @@ normalize fixture streams.
 ## Process ownership and the assignment race
 
 Each request creates a Job Object with
-`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Assigning an already running target
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION`. Assigning an already running target
 after `Popen` normally leaves a window in which that target can spawn an
 unowned child. Here `Popen` starts a Python launch gate waiting on a uniquely
 named event. The host assigns the gate to the job before releasing the event;
 only then can the gate create the target. The target and descendants inherit
 the job, and breakaway is not enabled. A failure to assign kills the unreleased
-gate. Job handles are not inherited by the gate or target.
+gate. Job handles are not inherited by the gate or target. The gate uses the
+base Python interpreter rather than a venv redirector, and sets inherited error
+mode flags to suppress system/GP-fault/open-file dialogs for all target programs,
+including corpus executables. Exact CreateProcessW failures retain winerror,
+errno and message in an atomic error record, distinct from a target exit.
 
 Timeouts use `TerminateJobObject`, drain the captured pipes, and query job
 accounting until no active processes remain. Normal returns also terminate
@@ -81,7 +101,7 @@ includes setup time. Stdin uses a binary temporary file, avoiding Windows
 `communicate`'s synchronous stdin write blocking beyond that deadline.
 Handles close before the working directory is removed.
 The tree fixture prints the PIDs of its parent, child and grandchild; the
-checker requires all three generations, verifies job accounting is empty,
+checker requires all three generations; the executor queries job accounting until empty,
 then independently checks that each observed PID is dead. This is an
 execution assertion, not evidence supplied by a portable mock.
 
@@ -103,15 +123,26 @@ nix develop --command ruff check tools/target_hosts/windows
 nix develop --command ruff format --check tools/target_hosts/windows
 ```
 
+Build commands have finite deadlines; the Linux producer terminates the
+compiler process group after success, failure or timeout before a bounded pipe
+drain. Metadata subprocesses also have finite deadlines.
+
 The portable suite exercises admission failures, binary transport, launch
 ordering, timeout cleanup, normal and crash statuses, and the tree-evidence
 checker using a fake transport. It does not exercise Windows APIs.
 Two portable tests also create actual POSIX descendants holding inherited
 pipes to exercise normal-return and error cleanup; these remain stand-in
-transport checks, not Windows process evidence.
+transport checks, not Windows process evidence. Their status/ready files publish
+atomically and tests assert descendants are terminated (an exited Linux zombie
+awaiting the host reaper is distinguished from a live process). Executor-clock
+injection is local to the instance; tests do not replace process-global clocks.
+Cleanup exceptions are suppressed only when this invocation itself raised a
+primary error, never merely because its caller is handling another exception.
 
-In the Linux cloud container, both architecture bundles compiled successfully:
-12 PE executables, including four Python and four self-hosted corpus outputs.
+Current repair Linux build evidence: both architecture bundles compiled
+successfully with validated compiler receipts from matching source inputs:
+12 PE executables, including four Python and four self-hosted corpus outputs,
+and 16 declared execution cases per architecture.
 All PE machine checks passed. Native execution, actual Job Object behavior,
 tree cleanup and corpus golden matches remain unverified until hosted Windows
 runs complete. No Wine or Linux mock result is counted as native evidence.

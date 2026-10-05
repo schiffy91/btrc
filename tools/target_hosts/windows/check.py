@@ -11,7 +11,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .bundle import digest
+from .bundle import CORPUS, digest
 from .executor import ExecutionRequest, WindowsNativeExecutor
 
 
@@ -39,8 +39,6 @@ def verify(case, result, *, dead_check=assert_dead):
     for field in ("exit_status", "signal", "timed_out"):
         if getattr(result, field) != case[field]:
             raise AssertionError(f"{case['name']}: {field} expected {case[field]!r}, got {getattr(result, field)!r}")
-    if not result.provenance["job_empty"]:
-        raise AssertionError("executor did not verify an empty job")
     stdout = result.stdout
     policy = case.get("stdout_policy", "bytes")
     if policy == "tree-pids":
@@ -60,52 +58,105 @@ def verify(case, result, *, dead_check=assert_dead):
         raise AssertionError(f"{case['name']}: stderr digest mismatch ({result.stderr[:200]!r})")
 
 
+def validate_cases(manifest):
+    """Refuse partial evidence before executing any native acceptance case."""
+    expected = {
+        "binary-streams": "probe",
+        "large-binary-stdin": "probe",
+        "exit-3": "probe",
+        "exit-124": "probe",
+        "exit-137": "probe",
+        "argv-quoting": "probe",
+        "environment": "probe",
+        "isolated-cwd": "probe",
+        "access-violation": "probe",
+        "deadline": "probe",
+        "tree-deadline": "tree",
+        "tree-parent-return": "tree",
+    }
+    corpus = {f"{Path(source).name}-{frontend}": frontend for source in CORPUS for frontend in ("python", "selfhost")}
+    expected.update({name: name for name in corpus})
+    cases = manifest.get("cases")
+    if not isinstance(cases, list) or not all(
+        isinstance(case, dict) and isinstance(case.get("name"), str) for case in cases
+    ):
+        raise ValueError("Windows acceptance manifest requires the complete named case list")
+    names = [case["name"] for case in cases]
+    if len(names) != len(set(names)) or set(names) != set(expected):
+        raise ValueError(
+            f"Windows acceptance case set mismatch: missing={sorted(set(expected) - set(names))}, unexpected={sorted(set(names) - set(expected))}, duplicates={len(names) - len(set(names))}"
+        )
+    for case in cases:
+        name = case["name"]
+        if case.get("program") != expected[name]:
+            raise ValueError(f"{name}: acceptance program identity mismatch")
+        if name in corpus and (case.get("frontend") != corpus[name] or case.get("stdout_policy") != "lf"):
+            raise ValueError(f"{name}: corpus frontend or golden comparison policy mismatch")
+        if name.startswith("tree-") and case.get("stdout_policy") != "tree-pids":
+            raise ValueError(f"{name}: missing process-tree survivor evidence")
+    return cases
+
+
 def check(bundle, report, label):
     if sys.platform != "win32":
         raise RuntimeError("native Windows is required; Linux mocks are not execution evidence")
     bundle, report = Path(bundle).resolve(), Path(report).resolve()
     rows = []
-    with tempfile.TemporaryDirectory(prefix="btrc bundle λ ") as directory:
-        relocated = Path(directory) / "programs with spaces"
-        shutil.copytree(bundle, relocated)
-        executor = WindowsNativeExecutor()
-        try:
-            executor.prepare(relocated, label)
-            for case in executor.manifest["cases"]:
-                result = executor.run(
-                    ExecutionRequest(
-                        case["program"],
-                        tuple(case["argv"]),
-                        bytes.fromhex(case.get("stdin_hex", "")),
-                        case.get("env", {}),
-                        case["timeout_s"],
-                    )
-                )
-                row = {
-                    "name": case["name"],
-                    "frontend": case.get("frontend", "C fixture"),
-                    "passed": False,
-                    "stdout_sha256": digest(result.stdout),
-                    "stderr_sha256": digest(result.stderr),
-                    "exit_status": result.exit_status,
-                    "signal": result.signal,
-                    "timed_out": result.timed_out,
-                    "duration_s": result.duration_s,
-                    "provenance": result.provenance,
-                }
-                rows.append(row)
-                try:
-                    verify(case, result)
-                    row["passed"] = True
-                finally:
-                    report.parent.mkdir(parents=True, exist_ok=True)
-                    report.write_text(
-                        json.dumps({"target": executor.manifest["target"], "results": rows}, indent=2) + "\n",
-                        encoding="utf-8",
-                    )
-        finally:
-            executor.close()
-    print(json.dumps({"passed": len(rows), "failed": 0, "skipped": 0, "report": str(report)}))
+    outcome = {"results": rows, "complete": False, "passed": 0, "failed": 0, "skipped": 0}
+    try:
+        manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+        cases = validate_cases(manifest)
+        outcome["target"] = manifest["target"]
+        outcome["expected"] = len(cases)
+        with tempfile.TemporaryDirectory(prefix="btrc bundle λ ") as directory:
+            relocated = Path(directory) / "programs with spaces"
+            shutil.copytree(bundle, relocated)
+            executor = WindowsNativeExecutor()
+            try:
+                executor.prepare(relocated, label)
+                for case in cases:
+                    row = {"name": case["name"], "frontend": case.get("frontend", "C fixture"), "passed": False}
+                    rows.append(row)
+                    try:
+                        result = executor.run(
+                            ExecutionRequest(
+                                case["program"],
+                                tuple(case["argv"]),
+                                bytes.fromhex(case.get("stdin_hex", "")),
+                                case.get("env", {}),
+                                case["timeout_s"],
+                            )
+                        )
+                        row.update(
+                            {
+                                "stdout_sha256": digest(result.stdout),
+                                "stderr_sha256": digest(result.stderr),
+                                "exit_status": result.exit_status,
+                                "signal": result.signal,
+                                "timed_out": result.timed_out,
+                                "duration_s": result.duration_s,
+                                "provenance": result.provenance,
+                            }
+                        )
+                        verify(case, result)
+                        row["passed"] = True
+                    except BaseException as error:
+                        row["error"] = f"{type(error).__name__}: {error}"
+                        raise
+            finally:
+                executor.close()
+        outcome["complete"] = True
+    except BaseException as error:
+        outcome["error"] = f"{type(error).__name__}: {error}"
+        raise
+    finally:
+        outcome["passed"] = sum(row["passed"] for row in rows)
+        outcome["failed"] = sum(not row["passed"] for row in rows) or int("error" in outcome)
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(json.dumps(outcome, indent=2) + "\n", encoding="utf-8")
+    print(
+        json.dumps({key: outcome[key] for key in ("passed", "failed", "skipped", "complete")} | {"report": str(report)})
+    )
 
 
 def main(argv=None):

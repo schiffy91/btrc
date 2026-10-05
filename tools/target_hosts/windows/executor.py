@@ -22,9 +22,9 @@ from pathlib import Path
 from typing import ClassVar
 
 if __package__:
-    from .bundle import digest, pe_machine
+    from .bundle import TARGETS, digest, pe_machine
 else:
-    from bundle import digest, pe_machine
+    from bundle import TARGETS, digest, pe_machine
 
 
 class BasicLimits(ctypes.Structure):
@@ -73,13 +73,16 @@ class WindowsJob:
             raise RuntimeError("Windows Job Objects require native Windows execution")
         self.api = self.bind()
         self.name = f"Local\\btrc-host-{uuid.uuid4().hex}"
+        self.event = None
         self.job = self.api.CreateJobObjectW(None, None)
+        self.require(self.job)
         self.event = self.api.CreateEventW(None, True, False, self.name)
-        if not self.job or not self.event:
+        if not self.event:
+            code = ctypes.get_last_error()
             self.close()
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise ctypes.WinError(code)
         limits = ExtendedLimits()
-        limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        limits.basic.flags = 0x2000 | 0x400  # KILL_ON_JOB_CLOSE | DIE_ON_UNHANDLED_EXCEPTION
         try:
             self.require(self.api.SetInformationJobObject(self.job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
         except BaseException:
@@ -102,6 +105,8 @@ class WindowsJob:
             "CloseHandle": ([handle], boolean),
             "WaitForSingleObject": ([handle, dword], dword),
             "ExitProcess": ([dword], None),
+            "GetErrorMode": ([], dword),
+            "SetErrorMode": ([dword], dword),
         }
         for name, (arguments, result) in signatures.items():
             function = getattr(api, name)
@@ -154,9 +159,29 @@ class WindowsJob:
         finally:
             api.CloseHandle(event)
         specification = json.loads(Path(request).read_text(encoding="utf-8"))
-        process = subprocess.run(
-            specification["command"], cwd=specification["cwd"], env=specification["env"], check=False
-        )
+        # The assigned Job Object and parent deadline bound this wait, including
+        # target descendants. Its error mode is inherited by every target.
+        api.SetErrorMode(api.GetErrorMode() | 0x0001 | 0x0002 | 0x8000)
+        try:
+            process = subprocess.run(
+                specification["command"], cwd=specification["cwd"], env=specification["env"], check=False
+            )
+        except OSError as error:
+            failure = Path(specification["launch_error"])
+            temporary = failure.with_suffix(".tmp")
+            temporary.write_text(
+                json.dumps(
+                    {
+                        "stage": "CreateProcessW",
+                        "message": str(error),
+                        "winerror": getattr(error, "winerror", None),
+                        "errno": error.errno,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            temporary.replace(failure)
+            raise
         status_file = Path(specification["status"])
         temporary = status_file.with_suffix(".tmp")
         temporary.write_text(str(process.returncode & 0xFFFFFFFF), encoding="ascii")
@@ -196,8 +221,8 @@ class WindowsNativeExecutor:
         0xC0000409: (6, "fail-fast"),
     }
 
-    def __init__(self, *, job_factory=WindowsJob, spawn=subprocess.Popen):
-        self.job_factory, self.spawn = job_factory, spawn
+    def __init__(self, *, job_factory=WindowsJob, spawn=subprocess.Popen, clock=time.monotonic):
+        self.job_factory, self.spawn, self.clock = job_factory, spawn, clock
         self.bundle = None
 
     def prepare(self, bundle_dir, label):
@@ -205,11 +230,15 @@ class WindowsNativeExecutor:
         self.manifest = json.loads((self.bundle / "manifest.json").read_text(encoding="utf-8"))
         if self.manifest.get("schema") != "btrc.windows-host-bundle/1":
             raise ValueError("unsupported Windows host bundle schema")
+        target = self.manifest.get("target")
+        if target not in TARGETS or self.manifest.get("pe_machine") != TARGETS[target][1]:
+            raise ValueError("bundle target label and PE machine must identify the same supported architecture")
         self.programs = self.manifest["programs"]
         for record in self.programs.values():
             executable = self.artifact(record["executable"])
             if (
                 digest(executable.read_bytes()) != record["sha256"]
+                or record.get("pe_machine") != self.manifest["pe_machine"]
                 or pe_machine(executable) != self.manifest["pe_machine"]
             ):
                 raise ValueError("bundle executable digest or PE machine does not match its manifest")
@@ -255,15 +284,17 @@ class WindowsNativeExecutor:
             "\0" in key + value or "=" in key for key, value in request.env.items()
         ):
             raise ValueError("arguments and environment must be representable by CreateProcessW")
-        started = time.monotonic()
+        started = self.clock()
         executable = self.artifact(self.programs[request.program_id]["executable"])
         with tempfile.TemporaryDirectory(prefix="btrc host λ ") as directory:
             job = self.job_factory()
             process = None
             timed_out = False
+            original_error = None
             try:
                 configuration = Path(directory) / "request.json"
                 status_file = Path(directory) / "status.txt"
+                launch_error_file = Path(directory) / "launch-error.json"
                 configuration.write_text(
                     json.dumps(
                         {
@@ -271,6 +302,7 @@ class WindowsNativeExecutor:
                             "cwd": directory,
                             "env": {**os.environ, **request.env},
                             "status": str(status_file),
+                            "launch_error": str(launch_error_file),
                         },
                         ensure_ascii=False,
                     ),
@@ -281,7 +313,7 @@ class WindowsNativeExecutor:
                 with stdin_path.open("rb") as stdin_file:
                     process = self.spawn(
                         [
-                            sys.executable,
+                            getattr(sys, "_base_executable", sys.executable),
                             str(Path(__file__).resolve()),
                             "--gate",
                             job.name,
@@ -296,7 +328,7 @@ class WindowsNativeExecutor:
                 job.assign(process)
                 job.release()
                 while True:
-                    remaining = request.timeout_s - (time.monotonic() - started)
+                    remaining = request.timeout_s - (self.clock() - started)
                     if status_file.is_file() or remaining <= 0:
                         timed_out = not status_file.is_file()
                         job.terminate()
@@ -308,6 +340,12 @@ class WindowsNativeExecutor:
                     except subprocess.TimeoutExpired:
                         pass
                 if not timed_out and not status_file.is_file():
+                    if launch_error_file.is_file():
+                        failure = json.loads(launch_error_file.read_text(encoding="utf-8"))
+                        raise RuntimeError(
+                            f"Windows target launch failed at {failure['stage']}: "
+                            f"winerror={failure['winerror']} errno={failure['errno']}: {failure['message']}"
+                        )
                     raise RuntimeError("Windows launch gate failed before reporting the target status")
                 job.terminate()  # Also clean descendants of a program that returned normally.
                 job.wait_empty()
@@ -321,11 +359,13 @@ class WindowsNativeExecutor:
                     stdout,
                     stderr,
                     timed_out,
-                    time.monotonic() - started,
-                    {**self.provenance, "ntstatus": f"0x{status:08x}", "crash": name, "job_empty": True},
+                    self.clock() - started,
+                    {**self.provenance, "ntstatus": f"0x{status:08x}", "crash": name},
                 )
+            except BaseException as error:
+                original_error = error
+                raise
             finally:
-                original_error = sys.exception()
                 cleanup_errors = []
                 # Kill descendants before draining pipes, including on errors.
                 # An unassigned gate must also be killed explicitly.
