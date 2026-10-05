@@ -1,0 +1,115 @@
+name: Host Windows
+
+# CX-P1-06's native Windows test host (tools/target_hosts/windows). A Linux job
+# cross-builds two bundles, x64 and ARM64, from the pinned dev shell: six PE
+# executables each (two C fixtures, and two corpus programs through both
+# compilers) and the 16 execution cases. Each bundle then runs natively on a
+# hosted runner of its own architecture, never under emulation: the checker
+# refuses a bundle whose PE machine differs from the runner's native machine.
+# windows-latest is Server 2025, stand-in evidence for the Windows 11 x64 slice.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/host-windows.yml
+      - tools/target_hosts/windows/**
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/host-windows.yml
+      - tools/target_hosts/windows/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels the run it supersedes; runs on main
+# queue rather than cancel.
+concurrency:
+  group: host-windows-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BTRC_TEST_RUNNER: linux-devcontainer
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Portable host tests
+        run: |
+          nix develop --command python3 -m pytest -p src.tests.conftest tools/target_hosts/windows/test_executor.py -q -rs --skip-report=build/skip-report-host-windows.json
+          nix develop --command python3 -m tools.qualification skip-gate build/skip-report-host-windows.json
+      - name: Build btrcc and record its provenance
+        # The receipt binds the binary just built to this checkout, so record it
+        # before anything else can touch bin/.
+        run: |
+          nix develop --command make NIX= btrcc
+          nix develop --command python3 -m tools.target_hosts.windows.bundle --record-compiler-provenance bin/btrcc.provenance.json
+      - name: Cross-build the x64 and ARM64 bundles
+        run: |
+          nix develop --command python3 -m tools.target_hosts.windows.bundle --target windows-x86_64 --output build/windows-host-x64
+          nix develop --command python3 -m tools.target_hosts.windows.bundle --target windows-aarch64 --output build/windows-host-arm64
+      - name: Upload the x64 bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-host-x64
+          path: build/windows-host-x64
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload the ARM64 bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-host-arm64
+          path: build/windows-host-arm64
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-host-windows-bundle
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  native:
+    needs: bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x64
+          - runner: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-host-${{ matrix.arch }}
+          path: build/windows-host-${{ matrix.arch }}
+      - name: Run the 16 cases natively
+        run: python -m tools.target_hosts.windows.check --bundle build/windows-host-${{ matrix.arch }} --report build/windows-host-${{ matrix.arch }}-results.json --label ${{ matrix.runner }}
+      - name: Retain the results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-host-${{ matrix.arch }}-results
+          path: build/windows-host-${{ matrix.arch }}-results.json
+          if-no-files-found: warn
+          retention-days: 30
