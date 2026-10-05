@@ -461,6 +461,39 @@ Each stage records its exit evidence here as it closes; measurements and commit 
       - Android drops a cancel that arrives before connect;
       - `Proxy-Authorization` is routed differently per provider;
       - the default `Content-Type` differs per provider.
+- **Batch 37 (2026-10-05): btrcc tuple typedefs.**
+  - **What it fixes.** `CL-REQ-08` (`stage18/req08-static-tuple-typedef`, round 2) fixes a btrcc bug: btrcc dropped the typedef of a tuple type spelled only at file scope, while Python handled every case. Affected positions:
+    - globals and statics, including nested tuples and arrays of tuples;
+    - typedef targets and struct fields;
+    - `sizeof` and cast operands, C-for initializers, property bodies, lambda captures, enum values and array sizes.
+
+    Before the fix, btrcc's C failed to compile for 11 of 16 repro programs.
+  - **Round 1 was returned.** Under `--no-dce` it emitted unsubstituted generic tuple structs (`struct btrc_Tuple_U_char { U _0; … }`).
+  - **Round 2** adds `TupleShapeScan`:
+    - btrcc skips generic class, method and interface bodies, and walks each instance (`classPlans`/`methodPlans`) under its substitution and instance context, as Python's class and method views do;
+    - neither compiler records a shape that still names an unbound type parameter.
+
+    Generic instances' method signatures, bodies and field initializers now get their typedefs: those valid programs used to emit C that does not compile, while Python's compiled. The record-member contract lists the collector's child walk as a `GENERIC_WALK`.
+  - **Evidence:**
+    - `test_tuple_typedef_parity.py`: 18 cases, each with and without `--no-dce`, with identical C and run under strict gcc and clang;
+    - three new corpus programs;
+    - CI 37315573953 and macOS 37315578714 green on `5556e2cf`;
+    - bootstrap fixed point; corpus 1,976 passed.
+  - **Integrator review.** A second adversarial review found nothing blocking in round 2. These pre-existing gaps remain, each needing its own packet:
+    - btrcc infers tuple shapes only for unannotated `var` initializers, with an empty variable map, so tuples first met as an expression's type get no typedef;
+    - under `--no-dce`, btrcc emits uncalled generic-instance methods, which fail `-Werror=unused-function`;
+    - btrcc cannot infer generic-method arguments inside f-strings or nested generic calls;
+    - polymorphic recursion through a tuple hangs both analyzers;
+    - btrcc accepts a global `var` tuple, which Python rejects;
+    - both compilers reject indexing an array of tuples;
+    - `sizeof(arrayVariable)` parses as a type.
+  - **Returned the same day:**
+    - `CL-REQ-09`: Python's new exact-rounding `float_value` crashes past 4,300 digits and hangs on `0e99999999f`;
+    - `CL-C-13`: six blockers, all confirmed by a verifier:
+      - a ternary copy of a FAM struct is accepted and memory-unsafe, as are list-literal elements of FAM type;
+      - `new G<struct S>()` and `sizeof` of generic or tuple operands are accepted, and their C fails strict C11;
+      - Python refuses hosted-ABI element types such as `uint8_t`;
+      - a FAM struct named `T` or `K` breaks valid generic code, including stdlib `Map`.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.

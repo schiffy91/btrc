@@ -1,0 +1,40 @@
+/* Each tuple shape below names a type parameter, so it becomes concrete only
+ * in a generic class or generic method instance. */
+class Box<T> {
+	public T value;
+	public int width = (int)sizeof((T, char));
+
+	public Box(T v) { self.value = v; }
+
+	public(T, T) both() { return (self.value, self.value); }
+
+	public int second() {
+		(T, int) pair = {self.value, 5};
+		return pair._1 + (int)sizeof((T, short)) - (int)sizeof((T, short));
+	}
+}
+
+class Wrapper {
+	public (U, int) wrap<U>(U a) {
+		(U, int) result = {a, 7};
+		return result;
+	}
+
+	public int width<U>(U value) { return (int)sizeof((U, char)); }
+}
+
+interface Pairing<T> {
+	(T, int) pairUp(T value);
+}
+
+int main() {
+	Box<int> numbers = new Box<int>(3);
+	Box<char> letters = new Box<char>('a');
+	Box<short> shorts = new Box<short>(2);
+	Wrapper wrapper = new Wrapper();
+	short small = 4;
+	(short, int) wrapped = wrapper.wrap(small);
+	print(f"{numbers.both()._0} {letters.second()} {shorts.width > 0} {wrapped._1}");
+	print("PASS: test_tuple_generic_instance_type");
+	return 0;
+}
