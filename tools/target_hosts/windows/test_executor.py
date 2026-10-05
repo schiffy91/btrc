@@ -17,9 +17,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from . import bundle as bundle_module
 from . import check as check_module
+from . import executor as executor_module
 from .bundle import (
-    CORPUS,
+    acceptance_cases,
     digest,
     pe_machine,
     record_compiler_provenance,
@@ -27,7 +29,15 @@ from .bundle import (
     verify_compiler_provenance,
 )
 from .check import validate_cases, verify
-from .executor import Accounting, ExecutionRequest, ExecutionResult, ExtendedLimits, WindowsNativeExecutor
+from .executor import (
+    Accounting,
+    BoundedOutput,
+    ExecutionRequest,
+    ExecutionResult,
+    ExtendedLimits,
+    WindowsNativeExecutor,
+    merged_environment,
+)
 
 
 @pytest.fixture
@@ -108,7 +118,9 @@ class Transport:
 
 
 def executor(bundle, transport):
-    host = WindowsNativeExecutor(job_factory=lambda: transport, spawn=transport.spawn)
+    host = WindowsNativeExecutor(
+        job_factory=lambda: transport, spawn=transport.spawn, capture_factory=lambda process: process
+    )
     host.prepare(bundle, "unit-test transport")
     return host
 
@@ -366,7 +378,12 @@ def test_setup_time_uses_request_deadline_and_stdin_does_not_block_pipe(bundle):
     transport = Transport()
     times = iter([0, 2])
     # The injected clock belongs to this executor only; repeated reads are stable.
-    host = WindowsNativeExecutor(job_factory=lambda: transport, spawn=transport.spawn, clock=lambda: next(times, 2))
+    host = WindowsNativeExecutor(
+        job_factory=lambda: transport,
+        spawn=transport.spawn,
+        clock=lambda: next(times, 2),
+        capture_factory=lambda process: process,
+    )
     host.prepare(bundle, "unit-test clock")
     result = host.run(ExecutionRequest("probe", stdin=b"x" * 300000, timeout_s=1))
     assert result.timed_out
@@ -424,36 +441,16 @@ def test_target_launch_failure_preserves_exact_native_error(bundle):
 
 
 def acceptance_manifest():
-    cases = [
-        {"name": name, "program": "probe"}
-        for name in (
-            "binary-streams",
-            "large-binary-stdin",
-            "exit-3",
-            "exit-124",
-            "exit-137",
-            "argv-quoting",
-            "environment",
-            "isolated-cwd",
-            "access-violation",
-            "deadline",
-        )
-    ]
-    cases += [
-        {"name": name, "program": "tree", "stdout_policy": "tree-pids"}
-        for name in ("tree-deadline", "tree-parent-return")
-    ]
-    cases += [
-        {
-            "name": f"{Path(source).name}-{frontend}",
-            "program": f"{Path(source).name}-{frontend}",
-            "frontend": frontend,
-            "stdout_policy": "lf",
-        }
-        for source in CORPUS
-        for frontend in ("python", "selfhost")
-    ]
-    return {"cases": cases}
+    cases = acceptance_cases()
+    return {
+        "cases": cases,
+        "programs": {case["program"]: {"executable": f"{case['program']}.exe"} for case in cases},
+        "toolchain": {
+            "source_revision": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=bundle_module.ROOT, text=True, timeout=10
+            ).strip()
+        },
+    }
 
 
 def test_acceptance_requires_every_exact_case_once():
@@ -536,8 +533,6 @@ def test_bundle_command_timeout_kills_descendant_pipe_holder(tmp_path):
 def test_native_checker_reports_manifest_and_launch_failures(tmp_path, monkeypatch, truncated):
     manifest = acceptance_manifest()
     manifest["target"] = "windows-x86_64"
-    for case in manifest["cases"]:
-        case.update({"argv": [], "timeout_s": 10})
     if truncated:
         manifest["cases"] = []
     (tmp_path / "manifest.json").write_text(json.dumps(manifest))
@@ -555,11 +550,11 @@ def test_native_checker_reports_manifest_and_launch_failures(tmp_path, monkeypat
 
     monkeypatch.setattr(check_module, "sys", SimpleNamespace(platform="win32"))
     monkeypatch.setattr(check_module, "WindowsNativeExecutor", FailedExecutor)
-    with pytest.raises((ValueError, OSError)):
+    with pytest.raises((ValueError, RuntimeError)):
         check_module.check(tmp_path, report, "portable checker test")
     outcome = json.loads(report.read_text())
-    assert outcome["passed"] == 0 and outcome["failed"] == 1 and not outcome["complete"]
-    assert len(outcome["results"]) == (0 if truncated else 1)
+    assert outcome["passed"] == 0 and outcome["failed"] == (1 if truncated else 16) and not outcome["complete"]
+    assert len(outcome["results"]) == (0 if truncated else 16)
     if not truncated:
         assert outcome["results"][0]["error"] == "OSError: target launch rejected"
 
@@ -578,3 +573,430 @@ def test_returned_bundle_wrapper_cannot_leave_file_writer_alive(tmp_path, status
         else:
             run_build_command(command, cwd=tmp_path, stdout=output, capture=False, timeout_s=5)
     assert_process_dead(int(ready.read_text()))
+
+
+def test_failed_prepare_keeps_only_previous_verified_bundle(bundle, tmp_path):
+    host = executor(bundle, Transport())
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    manifest["programs"]["probe"]["sha256"] = "0" * 64
+    (rejected / "probe.exe").write_bytes((bundle / "probe.exe").read_bytes())
+    (rejected / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError):
+        host.prepare(rejected, "must not become provenance")
+    assert host.bundle == bundle and host.provenance["label"] == "unit-test transport"
+    assert host.run(ExecutionRequest("probe")).exit_status == 0
+    fresh = WindowsNativeExecutor()
+    with pytest.raises(ValueError):
+        fresh.prepare(rejected, "rejected")
+    with pytest.raises(RuntimeError, match="prepare a bundle"):
+        fresh.run(ExecutionRequest("probe"))
+
+
+def test_image_changed_after_prepare_never_spawns(bundle):
+    transport = Transport()
+    host = executor(bundle, transport)
+    image = bytearray((bundle / "probe.exe").read_bytes())
+    image[-1] ^= 1  # Same length and still a valid PE; only the digest detects it.
+    (bundle / "probe.exe").write_bytes(image)
+    with pytest.raises(ValueError, match="digest changed"):
+        host.run(ExecutionRequest("probe"))
+    assert "spawn" not in transport.events
+
+
+@pytest.mark.parametrize("filename", ["probe.cmd", "probe.bat", "other.exe"])
+def test_executable_mapping_and_extension_cannot_select_another_launcher(bundle, filename):
+    (bundle / filename).write_bytes((bundle / "probe.exe").read_bytes())
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    manifest["programs"]["probe"]["executable"] = filename
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="exact program name"):
+        executor(bundle, Transport())
+
+
+def test_target_cwd_cannot_forge_control_files_or_read_host_environment(bundle, monkeypatch):
+    class CwdForger(Transport):
+        def spawn(self, command, **kwargs):
+            result = super().spawn(command, **kwargs)
+            cwd = Path(self.spec["cwd"])
+            assert set(cwd.iterdir()) == set()
+            assert Path(command[-1]).parent != cwd
+            assert Path(self.spec["status"]).parent != cwd
+            assert "PRIVATE_HOST_VALUE" not in self.spec["env"]
+            for filename in ("status.txt", "launch-error.json", "request.json", "stdin.bin"):
+                (cwd / filename).write_text("forged")
+            return result
+
+    monkeypatch.setenv("PRIVATE_HOST_VALUE", "not serialized")
+    result = executor(bundle, CwdForger()).run(ExecutionRequest("probe"))
+    assert result.exit_status == 0 and not result.timed_out
+
+
+def test_windows_environment_override_replaces_different_case():
+    assert merged_environment({"Path": "host", "Temp": "temp"}, {"PATH": "target", "tEmP": "new"}) == {
+        "PATH": "target",
+        "TEMP": "new",
+    }
+
+
+def test_temporary_cleanup_failure_retains_finished_result(bundle, monkeypatch):
+    real = executor_module.shutil.rmtree
+    retained = []
+
+    def fail(path):
+        retained.append(path)
+        raise PermissionError("busy directory")
+
+    monkeypatch.setattr(executor_module.shutil, "rmtree", fail)
+    try:
+        result = executor(bundle, Transport()).run(ExecutionRequest("probe"))
+        assert result.exit_status == 0
+        assert "busy directory" in result.provenance["cleanup_warnings"][0]
+    finally:
+        for path in retained:
+            real(path)
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_bounded_capture_stops_unlimited_output_without_retaining_over_budget(stream):
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            f"import os,time; os.write({1 if stream == 'stdout' else 2}, b'x'*131072); time.sleep(30)",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    captured = BoundedOutput(process, limit=4096)
+    try:
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                captured.communicate(timeout=0.05)
+            except subprocess.TimeoutExpired:
+                assert time.monotonic() < deadline
+                continue
+            except RuntimeError as error:
+                assert stream in str(error) and "exceeded 4096" in str(error)
+                break
+            raise AssertionError("unlimited writer unexpectedly completed")
+        assert all(len(buffer) <= 4096 for buffer in captured.buffers)
+    finally:
+        process.kill()
+        with suppress(RuntimeError):
+            captured.communicate(timeout=5)
+        assert not any(thread.is_alive() for thread in captured.threads)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("argv", ["exit", "0"]),
+        ("exit_status", 1),
+        ("exit_status", False),
+        ("signal", 11),
+        ("timed_out", True),
+        ("timeout_s", 100),
+        ("expected_stdout_sha256", digest(b"forged")),
+        ("expected_stderr_sha256", digest(b"forged")),
+        ("stdin_hex", "ff"),
+        ("env", {"PATH": "forged"}),
+        ("stdout_policy", "lf"),
+    ],
+)
+def test_case_admission_pins_every_execution_and_expectation_field(field, value):
+    for index in range(16):
+        manifest = acceptance_manifest()
+        if json.dumps(manifest["cases"][index].get(field)) == json.dumps(value):
+            continue
+        manifest["cases"][index][field] = value
+        with pytest.raises(ValueError, match="acceptance inputs"):
+            validate_cases(manifest)
+
+
+def test_case_admission_recomputes_goldens_and_checks_checkout_revision(tmp_path):
+    manifest = acceptance_manifest()
+    manifest["cases"][-1]["expected_stdout_sha256"] = digest(b"counterfeit golden")
+    with pytest.raises(ValueError, match="golden digests"):
+        validate_cases(manifest)
+    manifest = acceptance_manifest()
+    manifest["toolchain"]["source_revision"] = "0" * 40
+    with pytest.raises(ValueError, match="checkout revision"):
+        validate_cases(manifest)
+    manifest = acceptance_manifest()
+    manifest["programs"]["probe"]["executable"] = "other.exe"
+    with pytest.raises(ValueError, match="executable mapping"):
+        validate_cases(manifest)
+
+
+@pytest.mark.parametrize("target", list(bundle_module.TARGETS))
+def test_builder_manifest_roundtrips_complete_validator_with_stubbed_compilers(tmp_path, monkeypatch, target):
+    compiler = tmp_path / "btrcc"
+    compiler.write_bytes(b"stub")
+    monkeypatch.setattr(bundle_module, "verify_compiler_provenance", lambda *args, **kwargs: {})
+    machine = bundle_module.TARGETS[target][1]
+    root = tmp_path / "checkout"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=10)
+    for source in bundle_module.CORPUS:
+        program = root / f"src/tests/{source}.btrc"
+        program.parent.mkdir(parents=True, exist_ok=True)
+        program.write_text("stub program")
+        golden = program.parent / "expected" / f"{program.stem}.stdout"
+        golden.parent.mkdir(exist_ok=True)
+        golden.write_bytes(b"line one\r\nline two\r\n")
+    commit_fixture(root, "stub corpus")
+
+    def run(command, *, cwd, stdout=None, capture=False, **kwargs):
+        if command == ["zig", "version"]:
+            return b"stub-zig\n"
+        if command[:2] == ["zig", "cc"]:
+            data = bytearray(128)
+            data[:2] = b"MZ"
+            struct.pack_into("<I", data, 0x3C, 64)
+            data[64:68] = b"PE\0\0"
+            struct.pack_into("<H", data, 68, machine)
+            Path(command[command.index("-o") + 1]).write_bytes(data)
+        elif stdout is not None:
+            stdout.write(b"/* stub C */")
+        else:
+            Path(command[command.index("-o") + 1]).write_text("/* stub C */")
+
+    monkeypatch.setattr(bundle_module, "run_build_command", run)
+    manifest = bundle_module.build(tmp_path / "output", target, compiler, root=root)
+    assert len(validate_cases(manifest, root=root)) == 16
+    assert manifest["cases"][-1]["expected_stdout_sha256"] == digest(b"line one\nline two\n")
+    assert len(manifest["programs"]) == 6
+
+
+def commit_fixture(root, message):
+    subprocess.run(["git", "add", "."], cwd=root, check=True, timeout=10)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            message,
+        ],
+        cwd=root,
+        check=True,
+        timeout=10,
+    )
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True, timeout=10).strip()
+
+
+def test_receipt_requires_real_matching_revision_and_reports_dirty_inputs(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=10)
+    source = root / "src/compiler/input.c"
+    source.parent.mkdir(parents=True)
+    source.write_text("original input")
+    original = commit_fixture(root, "original")
+    compiler, receipt = tmp_path / "btrcc", tmp_path / "receipt.json"
+    compiler.write_bytes(b"compiler")
+    record = record_compiler_provenance(compiler, receipt, root=root)
+    assert record["source_tree_dirty"] is False and record["source_inputs_dirty"] is False
+    (root / "README.md").write_text("docs only")
+    commit_fixture(root, "docs only")
+    assert verify_compiler_provenance(compiler, receipt, root=root) == record
+    tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=root, text=True, timeout=10).strip()
+    for revision in ("f" * 40, "x" * 40, tree):
+        receipt.write_text(json.dumps({**record, "source_revision": revision}))
+        with pytest.raises(ValueError, match="revision"):
+            verify_compiler_provenance(compiler, receipt, root=root)
+    source.write_text("modified input")
+    for staged in (False, True):
+        if staged:
+            subprocess.run(["git", "add", str(source)], cwd=root, check=True, timeout=10)
+        dirty = record_compiler_provenance(compiler, receipt, root=root)
+        assert dirty["source_tree_dirty"] is True and dirty["source_inputs_dirty"] is True
+        with pytest.raises(ValueError, match="committed compiler inputs"):
+            verify_compiler_provenance(compiler, receipt, root=root)
+    commit_fixture(root, "different compiler inputs")
+    changed = record_compiler_provenance(compiler, receipt, root=root)
+    receipt.write_text(json.dumps({**changed, "source_revision": original}))
+    with pytest.raises(ValueError, match="different compiler inputs"):
+        verify_compiler_provenance(compiler, receipt, root=root)
+
+
+def test_windows_gate_launch_detaches_from_harness_console(bundle, monkeypatch):
+    class ConsoleTransport(Transport):
+        def spawn(self, command, **kwargs):
+            assert kwargs["creationflags"] == 0x00000008 | 0x00000200
+            return super().spawn(command, **kwargs)
+
+    host = executor(bundle, ConsoleTransport())
+    monkeypatch.setattr(executor_module, "sys", SimpleNamespace(platform="win32", executable=sys.executable))
+    assert host.run(ExecutionRequest("probe")).exit_status == 0
+
+
+@pytest.mark.skipif(os.name != "posix", reason="real pipe stand-in uses POSIX groups; native proof is check.py")
+@pytest.mark.parametrize("mode", ["return", "sleep"])
+def test_real_target_cwd_control_collisions_do_not_forge_exit_or_timeout(bundle, mode):
+    class CollisionTransport(RealPipeTransport):
+        def spawn(self, command, **kwargs):
+            self.spec = json.loads(Path(command[-1]).read_text())
+            self.ready = Path(command[-1]).parent / "ready.pid"
+            target = "import pathlib,time,sys; [pathlib.Path(n).write_text('not-an-int') for n in ('status.txt','launch-error.json','request.json','stdin.bin')]; time.sleep(60 if sys.argv[1]=='sleep' else 0); sys.exit(3)"
+            gate = """
+import json,pathlib,subprocess,sys
+spec=json.loads(pathlib.Path(sys.argv[1]).read_text())
+child=subprocess.Popen([sys.executable,'-c',sys.argv[2],sys.argv[3]],cwd=spec['cwd'])
+ready=pathlib.Path(sys.argv[4]); ready.with_suffix('.tmp').write_text(str(child.pid)); ready.with_suffix('.tmp').replace(ready)
+status=child.wait()
+pathlib.Path(spec['status']).write_text(str(status))
+sys.exit(status)
+"""
+            self.process = subprocess.Popen(
+                [sys.executable, "-c", gate, command[-1], target, mode, str(self.ready)],
+                start_new_session=True,
+                **kwargs,
+            )
+            return self
+
+    transport = CollisionTransport()
+    result = executor(bundle, transport).run(ExecutionRequest("probe", timeout_s=2))
+    assert result.timed_out == (mode == "sleep")
+    assert result.exit_status == (None if mode == "sleep" else 3)
+    assert_process_dead(transport.child_pid)
+
+
+def test_checker_collects_assertion_and_launch_failure_while_later_cases_run(tmp_path, monkeypatch):
+    manifest = acceptance_manifest()
+    manifest["target"] = "windows-x86_64"
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    calls = []
+
+    class MixedExecutor:
+        def prepare(self, *args):
+            pass
+
+        def run(self, request):
+            calls.append(request)
+            if len(calls) == 8:
+                raise OSError("middle launch error")
+            return ExecutionResult(0, None, b"", b"", False, 0.01, {})
+
+        def close(self):
+            pass
+
+    def mixed_verify(case, result):
+        if case["name"] == manifest["cases"][0]["name"]:
+            raise AssertionError("first case mismatch")
+
+    monkeypatch.setattr(check_module, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(check_module, "WindowsNativeExecutor", MixedExecutor)
+    monkeypatch.setattr(check_module, "verify", mixed_verify)
+    report = tmp_path / "results.json"
+    with pytest.raises(RuntimeError, match="all collected results"):
+        check_module.check(tmp_path, report, "portable mixed failures")
+    result = json.loads(report.read_text())
+    assert len(calls) == len(result["results"]) == 16
+    assert result["passed"] == 14 and result["failed"] == 2 and not result["complete"]
+
+
+def test_bounded_capture_handles_simultaneous_stdout_and_stderr_flood():
+    script = """
+import os,threading,time
+threads=[threading.Thread(target=os.write,args=(fd,b'x'*131072)) for fd in (1,2)]
+for thread in threads: thread.start()
+for thread in threads: thread.join()
+time.sleep(30)
+"""
+    process = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    capture = BoundedOutput(process, limit=4096)
+    try:
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                capture.communicate(timeout=0.05)
+            except subprocess.TimeoutExpired:
+                assert time.monotonic() < deadline
+                continue
+            except RuntimeError as error:
+                assert "exceeded 4096" in str(error)
+                break
+            raise AssertionError("both-stream flood unexpectedly completed")
+        assert all(len(buffer) <= 4096 for buffer in capture.buffers)
+    finally:
+        process.kill()
+        with suppress(RuntimeError):
+            capture.communicate(timeout=5)
+        assert not any(thread.is_alive() for thread in capture.threads)
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt, SystemExit])
+def test_checker_does_not_turn_interrupts_into_ordinary_case_failures(tmp_path, monkeypatch, interrupt):
+    manifest = acceptance_manifest()
+    manifest["target"] = "windows-x86_64"
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    calls = []
+
+    class InterruptedExecutor:
+        def prepare(self, *args):
+            pass
+
+        def run(self, *args):
+            calls.append(1)
+            raise interrupt("stop")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(check_module, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(check_module, "WindowsNativeExecutor", InterruptedExecutor)
+    report = tmp_path / "report.json"
+    with pytest.raises(interrupt):
+        check_module.check(tmp_path, report, "interrupted")
+    result = json.loads(report.read_text())
+    assert len(calls) == 1 and not result["complete"] and result["failed"] == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlink admission fixture uses the Linux bundle producer")
+@pytest.mark.parametrize("suffix", [".cmd", ".bat"])
+def test_canonical_exe_symlink_cannot_resolve_to_batch_launcher(bundle, suffix):
+    launcher = bundle / ("launcher" + suffix)
+    (bundle / "probe.exe").rename(launcher)
+    (bundle / "probe.exe").symlink_to(launcher.name)
+    transport = Transport()
+    with pytest.raises(ValueError, match=r"\.exe extension"):
+        executor(bundle, transport)
+    assert transport.events == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="real pipe stand-in uses POSIX groups; native proof is check.py")
+@pytest.mark.parametrize("timeout", [False, True])
+def test_production_capture_integrates_with_executor_and_descendant_cleanup(bundle, timeout):
+    class ProductionCaptureTransport(RealPipeTransport):
+        @property
+        def stdout(self):
+            return self.process.stdout
+
+        @property
+        def stderr(self):
+            return self.process.stderr
+
+        def wait(self, timeout):
+            self.returncode = self.process.wait(timeout=timeout)
+            if self.ready.exists():
+                self.child_pid = int(self.ready.read_text())
+            return self.returncode
+
+    transport = ProductionCaptureTransport(fail_communication=timeout)
+    host = WindowsNativeExecutor(job_factory=lambda: transport, spawn=transport.spawn)
+    host.prepare(bundle, "real portable pipes with production capture")
+    result = host.run(ExecutionRequest("probe", timeout_s=2))
+    assert result.timed_out == timeout
+    assert result.stdout == b"real output\n"
+    assert result.exit_status == (None if timeout else 0)
+    assert transport.process.stdout.closed and transport.process.stderr.closed
+    assert_process_dead(transport.child_pid)

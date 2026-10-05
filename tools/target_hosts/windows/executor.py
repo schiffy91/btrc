@@ -12,11 +12,14 @@ import ctypes
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
@@ -164,7 +167,10 @@ class WindowsJob:
         api.SetErrorMode(api.GetErrorMode() | 0x0001 | 0x0002 | 0x8000)
         try:
             process = subprocess.run(
-                specification["command"], cwd=specification["cwd"], env=specification["env"], check=False
+                specification["command"],
+                cwd=specification["cwd"],
+                env=merged_environment(os.environ, specification["env"]),
+                check=False,
             )
         except OSError as error:
             failure = Path(specification["launch_error"])
@@ -211,6 +217,76 @@ class ExecutionResult:
     provenance: dict
 
 
+OUTPUT_LIMIT_BYTES = 1024 * 1024  # Per stream, independent of the target deadline.
+
+
+class BoundedOutput:
+    """Drain both pipes concurrently while retaining at most a fixed byte budget."""
+
+    def __init__(self, process, limit=OUTPUT_LIMIT_BYTES):
+        self.process, self.limit = process, limit
+        self.buffers = [bytearray(), bytearray()]
+        self.errors = []
+        self.threads = []
+        for index, stream in enumerate((process.stdout, process.stderr)):
+            thread = threading.Thread(target=self.read, args=(index, stream), daemon=True)
+            self.threads.append(thread)
+            thread.start()
+
+    def read(self, index, stream):
+        try:
+            while chunk := stream.read(65536):
+                available = self.limit - len(self.buffers[index])
+                self.buffers[index].extend(chunk[:available])
+                if len(chunk) > available:
+                    raise RuntimeError(
+                        f"Windows target {'stdout' if index == 0 else 'stderr'} exceeded {self.limit} bytes"
+                    )
+        except Exception as error:
+            self.errors.append(error)
+        finally:
+            stream.close()
+
+    def communicate(self, timeout):
+        deadline = time.monotonic() + timeout
+        try:
+            self.process.wait(timeout=timeout)
+            for thread in self.threads:
+                thread.join(max(0, deadline - time.monotonic()))
+            if any(thread.is_alive() for thread in self.threads):
+                raise subprocess.TimeoutExpired("Windows output drain", timeout)
+        finally:
+            if self.errors:
+                raise self.errors[0]
+        return tuple(bytes(buffer) for buffer in self.buffers)
+
+
+def merged_environment(base, overrides):
+    # Windows names are case-insensitive; an override must replace, not coexist.
+    return {key.upper(): value for mapping in (base, overrides) for key, value in mapping.items()}
+
+
+@contextmanager
+def execution_workspace():
+    directory = tempfile.mkdtemp(prefix="btrc host λ ")
+    warnings = []
+    primary = None
+    try:
+        yield Path(directory), warnings
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        try:
+            shutil.rmtree(directory)
+        except OSError as error:
+            message = f"Windows temporary workspace cleanup failed at {directory}: {error}"
+            if primary is not None:
+                primary.add_note(message)
+            else:
+                warnings.append(message)
+
+
 class WindowsNativeExecutor:
     CRASHES: ClassVar = {
         0xC0000005: (11, "access-violation"),
@@ -221,25 +297,30 @@ class WindowsNativeExecutor:
         0xC0000409: (6, "fail-fast"),
     }
 
-    def __init__(self, *, job_factory=WindowsJob, spawn=subprocess.Popen, clock=time.monotonic):
+    def __init__(
+        self, *, job_factory=WindowsJob, spawn=subprocess.Popen, clock=time.monotonic, capture_factory=BoundedOutput
+    ):
         self.job_factory, self.spawn, self.clock = job_factory, spawn, clock
+        self.capture_factory = capture_factory
         self.bundle = None
 
     def prepare(self, bundle_dir, label):
-        self.bundle = Path(bundle_dir).resolve()
-        self.manifest = json.loads((self.bundle / "manifest.json").read_text(encoding="utf-8"))
-        if self.manifest.get("schema") != "btrc.windows-host-bundle/1":
+        bundle = Path(bundle_dir).resolve()
+        manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+        if manifest.get("schema") != "btrc.windows-host-bundle/1":
             raise ValueError("unsupported Windows host bundle schema")
-        target = self.manifest.get("target")
-        if target not in TARGETS or self.manifest.get("pe_machine") != TARGETS[target][1]:
+        target = manifest.get("target")
+        if target not in TARGETS or manifest.get("pe_machine") != TARGETS[target][1]:
             raise ValueError("bundle target label and PE machine must identify the same supported architecture")
-        self.programs = self.manifest["programs"]
-        for record in self.programs.values():
-            executable = self.artifact(record["executable"])
+        programs = manifest["programs"]
+        for name, record in programs.items():
+            if record["executable"] != f"{name}.exe" or Path(name).name != name:
+                raise ValueError("bundle executable mapping must be the exact program name plus .exe")
+            executable = self.artifact(record["executable"], bundle=bundle)
             if (
                 digest(executable.read_bytes()) != record["sha256"]
-                or record.get("pe_machine") != self.manifest["pe_machine"]
-                or pe_machine(executable) != self.manifest["pe_machine"]
+                or record.get("pe_machine") != manifest["pe_machine"]
+                or pe_machine(executable) != manifest["pe_machine"]
             ):
                 raise ValueError("bundle executable digest or PE machine does not match its manifest")
         if sys.platform == "win32":
@@ -257,21 +338,26 @@ class WindowsNativeExecutor:
                     api.GetCurrentProcess(), ctypes.byref(process_machine), ctypes.byref(native_machine)
                 )
             )
-            if native_machine.value != self.manifest["pe_machine"]:
+            if native_machine.value != manifest["pe_machine"]:
                 raise ValueError(
                     "bundle architecture must match native Windows hardware; emulated target runs are not evidence"
                 )
-        self.provenance = {
+        provenance = {
             "executor": "windows-native",
             "device": os.environ.get("COMPUTERNAME", "unrecorded"),
             "os_build": str(sys.getwindowsversion()) if sys.platform == "win32" else "unit-test transport",
-            "toolchain": self.manifest.get("toolchain", {}),
+            "toolchain": manifest.get("toolchain", {}),
             "label": label,
         }
 
-    def artifact(self, relative):
-        path = (self.bundle / relative).resolve()
-        if not path.is_file() or not path.is_relative_to(self.bundle):
+        self.bundle, self.manifest, self.programs, self.provenance = bundle, manifest, programs, provenance
+
+    def artifact(self, relative, *, bundle=None):
+        bundle = self.bundle if bundle is None else bundle
+        path = (bundle / relative).resolve()
+        if Path(relative).suffix.lower() != ".exe" or path.suffix.lower() != ".exe":
+            raise ValueError("bundle executables must use the .exe extension")
+        if not path.is_file() or not path.is_relative_to(bundle):
             raise ValueError("bundle executable must be an existing file inside the bundle")
         return path
 
@@ -281,26 +367,31 @@ class WindowsNativeExecutor:
         if request.cwd_policy != "isolated" or not math.isfinite(request.timeout_s) or request.timeout_s <= 0:
             raise ValueError("use isolated cwd and a positive finite deadline")
         if any("\0" in value for value in request.argv) or any(
-            "\0" in key + value or "=" in key for key, value in request.env.items()
+            not key or "\0" in key + value or "=" in key for key, value in request.env.items()
         ):
             raise ValueError("arguments and environment must be representable by CreateProcessW")
         started = self.clock()
         executable = self.artifact(self.programs[request.program_id]["executable"])
-        with tempfile.TemporaryDirectory(prefix="btrc host λ ") as directory:
+        with execution_workspace() as (workspace, cleanup_warnings):
+            directory = workspace / "target cwd"
+            directory.mkdir()
+            control = workspace / "control"
+            control.mkdir()
             job = self.job_factory()
             process = None
+            capture = None
             timed_out = False
             original_error = None
             try:
-                configuration = Path(directory) / "request.json"
-                status_file = Path(directory) / "status.txt"
-                launch_error_file = Path(directory) / "launch-error.json"
+                configuration = control / "request.json"
+                status_file = control / "status.txt"
+                launch_error_file = control / "launch-error.json"
                 configuration.write_text(
                     json.dumps(
                         {
                             "command": [str(executable), *request.argv],
-                            "cwd": directory,
-                            "env": {**os.environ, **request.env},
+                            "cwd": str(directory),
+                            "env": request.env,
                             "status": str(status_file),
                             "launch_error": str(launch_error_file),
                         },
@@ -308,9 +399,11 @@ class WindowsNativeExecutor:
                     ),
                     encoding="utf-8",
                 )
-                stdin_path = Path(directory) / "stdin.bin"
+                stdin_path = control / "stdin.bin"
                 stdin_path.write_bytes(request.stdin)
                 with stdin_path.open("rb") as stdin_file:
+                    if digest(executable.read_bytes()) != self.programs[request.program_id]["sha256"]:
+                        raise ValueError("bundle executable digest changed after prepare")
                     process = self.spawn(
                         [
                             getattr(sys, "_base_executable", sys.executable),
@@ -320,22 +413,24 @@ class WindowsNativeExecutor:
                             "--request",
                             str(configuration),
                         ],
-                        cwd=directory,
+                        cwd=str(directory),
                         stdin=stdin_file,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
+                        creationflags=(0x00000008 | 0x00000200) if sys.platform == "win32" else 0,
                     )
+                capture = self.capture_factory(process)
                 job.assign(process)
                 job.release()
                 while True:
                     remaining = request.timeout_s - (self.clock() - started)
-                    if status_file.is_file() or remaining <= 0:
-                        timed_out = not status_file.is_file()
+                    if process.poll() is not None or remaining <= 0:
+                        timed_out = process.poll() is None
                         job.terminate()
-                        stdout, stderr = process.communicate(timeout=10)
+                        stdout, stderr = capture.communicate(timeout=10)
                         break
                     try:
-                        stdout, stderr = process.communicate(timeout=min(0.05, remaining))
+                        stdout, stderr = capture.communicate(timeout=min(0.05, remaining))
                         break
                     except subprocess.TimeoutExpired:
                         pass
@@ -349,9 +444,7 @@ class WindowsNativeExecutor:
                     raise RuntimeError("Windows launch gate failed before reporting the target status")
                 job.terminate()  # Also clean descendants of a program that returned normally.
                 job.wait_empty()
-                status = (
-                    (process.returncode & 0xFFFFFFFF) if timed_out else int(status_file.read_text(encoding="ascii"))
-                )
+                status = process.returncode & 0xFFFFFFFF  # The gate preserves the actual target exit code.
                 signal, name = self.CRASHES.get(status, (None, None))
                 return ExecutionResult(
                     None if timed_out or signal else status,
@@ -360,7 +453,12 @@ class WindowsNativeExecutor:
                     stderr,
                     timed_out,
                     self.clock() - started,
-                    {**self.provenance, "ntstatus": f"0x{status:08x}", "crash": name},
+                    {
+                        **self.provenance,
+                        "ntstatus": f"0x{status:08x}",
+                        "crash": name,
+                        "cleanup_warnings": cleanup_warnings,
+                    },
                 )
             except BaseException as error:
                 original_error = error
@@ -373,7 +471,7 @@ class WindowsNativeExecutor:
                 if process is not None:
                     actions += [
                         lambda: process.kill() if process.poll() is None else None,
-                        lambda: process.communicate(timeout=10),
+                        lambda: capture.communicate(timeout=10) if capture is not None else process.wait(timeout=10),
                     ]
                 actions += [job.wait_empty, job.close]
                 for action in actions:
