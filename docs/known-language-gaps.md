@@ -48,6 +48,19 @@ second tuple access must currently use a parenthesized intermediate—
 `value._1._0` is intentionally not accepted by the lexer. The equivalent
 separate local binding is also supported.
 
+Expression nesting has no language limit; each compiler's stack budget sets
+it. Every stage walks an expression recursively, and compile time grows
+quadratically with a left-associative chain: `k + k + … + k` of 5,000 terms
+takes about 9 seconds in `btrcc` and two minutes in the reference compiler.
+`btrcc`'s Unix entries run the whole compile on a 512 MiB thread
+(`BtrccCompilerStack` in `cli/Driver.btrc`), about 60,000 levels of such a
+chain; the main thread's 8 MiB stack used to end near 950. The Windows entry
+still runs on the main thread. The reference compiler's recursion limit (40,000
+frames) ends between 5,000 and 20,000 levels, and past it the compiler reports
+`expression or declaration nested too deeply to compile`, so the two compilers
+can disagree only past 5,000 levels. `btrc/test_deep_expression_parity.py`
+checks 2,000 levels in both compilers.
+
 Exceptions carry string messages. A catch may be untyped or bind `string`; a
 different catch annotation is rejected explicitly. The stdlib error classes
 are ordinary values and do not introduce typed exception payloads.

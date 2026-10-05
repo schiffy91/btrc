@@ -142,6 +142,17 @@ class ExpressionValidator {
 
 	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
+	/* A literal names no symbol, so it needs no import of its own; but an
+	 * inferred binding or a for-in iterable materializes it as a Vector or a
+	 * Map, whose class some module of the program must declare. */
+	public void rejectUndeclaredCollectionLiteral(Node? expression) {
+		if (expression == null || (expression.kind != NK_LIST_LITERAL && expression.kind != NK_MAP_LITERAL)) { return; }
+		string collection = expression.kind == NK_LIST_LITERAL ? "Vector" : "Map";
+		if (self.state.analyzed.isClass(collection) || self.state.analyzed.isGenericClass(collection)) { return; }
+		string kind = expression.kind == NK_LIST_LITERAL ? "List" : "Map";
+		TypeValidator.fail(kind + " literal needs the " + collection + " class; add 'import Library." + collection + ";'", expression);
+	}
+
 	public bool gpuArrayResultCall(Node? expression, Map<string, Node> vars) {
 		if (expression == null || expression.kind != NK_CALL_EXPR || expression.callee == null || expression.callee.kind != NK_IDENTIFIER) {
 			return false;

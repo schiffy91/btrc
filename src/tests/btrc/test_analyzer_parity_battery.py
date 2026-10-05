@@ -221,6 +221,33 @@ INVALID_PROBES = (
         'int main() {\n  int a = 1;\n  string s = f"x {a} \\n {a +* 2}";\n  return 0;\n}\n',
         GpuDiagnostic("Unary operator '*' is not defined for 'int'", 3, 29),
     ),
+    # A literal names no symbol, but an inferred binding or a for-in iterable
+    # materializes it as a collection some module must declare.
+    ParityProbe(
+        "list-literal-for-in-without-vector",
+        "int main() {\n\tint total = 0;\n\tfor x in [1, 2, 3] {\n\t\ttotal += x;\n\t}\n\treturn total;\n}\n",
+        GpuDiagnostic("List literal needs the Vector class; add 'import Library.Vector;'", 3, 11),
+    ),
+    ParityProbe(
+        "list-literal-parallel-for-without-vector",
+        "int main() {\n\tparallel for x in [1, 2, 3] {\n\t\tint y = x;\n\t}\n\treturn 0;\n}\n",
+        GpuDiagnostic("List literal needs the Vector class; add 'import Library.Vector;'", 2, 20),
+    ),
+    ParityProbe(
+        "list-literal-var-without-vector",
+        "int main() {\n\tvar values = [1, 2, 3];\n\treturn 0;\n}\n",
+        GpuDiagnostic("List literal needs the Vector class; add 'import Library.Vector;'", 2, 15),
+    ),
+    ParityProbe(
+        "map-literal-for-in-without-map",
+        'int main() {\n\tint total = 0;\n\tfor key in {"a": 1} {\n\t\ttotal += 1;\n\t}\n\treturn total;\n}\n',
+        GpuDiagnostic("Map literal needs the Map class; add 'import Library.Map;'", 3, 13),
+    ),
+    ParityProbe(
+        "map-literal-var-without-map",
+        'int main() {\n\tvar counts = {"a": 1};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map literal needs the Map class; add 'import Library.Map;'", 2, 15),
+    ),
 )
 
 VALID_PROBES = (

@@ -1,0 +1,31 @@
+// A `var` bound to a map literal infers Map<K, V> from its first entry, inside
+// a lambda whose locals come from an overloaded operator and at function scope.
+import Library.Map;
+import Library.Strings;
+
+class Vec2 {
+	public int x;
+	public int y;
+	public Vec2(int x, int y) {
+		self.x = x;
+		self.y = y;
+	}
+
+	public Vec2 __add__(Vec2 other) { return Vec2(self.x + other.x, self.y + other.y); }
+}
+
+int main() {
+	var sum = (int k) => {
+		Vec2 a = Vec2(1, 2);
+		Vec2 b = Vec2(3, k);
+		Vec2 v = a + b;
+		var m = {"x": v.x, "y": v.y};
+		return m.get("x") * 100 + m.get("y");
+	};
+	print(sum(5));
+
+	var counts = {"apples": 3};
+	counts.put("pears", 4);
+	print(counts.get("apples") + counts.get("pears"));
+	return 0;
+}

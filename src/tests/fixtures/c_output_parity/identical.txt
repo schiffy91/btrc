@@ -428,6 +428,7 @@ functions/LambdaCaptureString.btrc
 functions/LambdaCaptureValueSemantics.btrc
 functions/LambdaGlobals.btrc
 functions/LambdaIife.btrc
+functions/LambdaInferredMapLiteral.btrc
 functions/LambdaNested.btrc
 functions/LambdaNoParams.btrc
 functions/LambdaStringReturn.btrc

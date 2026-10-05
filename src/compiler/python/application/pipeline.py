@@ -756,7 +756,16 @@ class CompilationPipeline:
         if options.output is CompilerOutput.AST:
             return self._result(source, options, profile, tokens=parsed.tokens, program=program)
 
-        analyzed = self.analyze(program, profile)
+        try:
+            analyzed = self.analyze(program, profile)
+        except RecursionError as error:
+            return self._result(
+                source,
+                options,
+                profile,
+                failure=self.failure_for(error),
+                split_source_spaces=split_source_spaces,
+            )
         common = {
             "tokens": parsed.tokens,
             "program": program,
@@ -793,7 +802,7 @@ class CompilationPipeline:
                     profile=profile,
                     timed=self._timed,
                 )
-            except CodegenError as error:
+            except (CodegenError, RecursionError) as error:
                 return self._result(source, options, profile, failure=self.failure_for(error), **common)
             return self._result(
                 source,
@@ -847,7 +856,7 @@ class CompilationPipeline:
                 c_source, c_units = units[0], tuple(units[1:])
             else:
                 c_source = self.emit(module, profile)
-        except (CodegenError, StdlibArchiveError) as error:
+        except (CodegenError, StdlibArchiveError, RecursionError) as error:
             return self._result(source, options, profile, failure=self.failure_for(error), **common)
         return self._result(
             source,

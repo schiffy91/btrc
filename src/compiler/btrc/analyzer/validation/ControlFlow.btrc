@@ -428,6 +428,7 @@ class ControlFlowValidator {
 			}
 		} else {
 			self.validateExpression(statement.iterable,  vars);
+			self.expressions.rejectUndeclaredCollectionLiteral(statement.iterable);
 			iterableType = self.types.inferType(statement.iterable,  vars);
 			if (iterableType == null) {
 				TypeValidator.fail("Cannot determine a for-in iterable protocol", statement);
@@ -689,6 +690,7 @@ class ControlFlowValidator {
 			if (declaration.initializer.kind == NK_BRACE_INITIALIZER) {
 				TypeValidator.fail("Cannot infer array storage for 'var' from " + "a brace initializer; use an explicit array declaration", declaration);
 			}
+			self.expressions.rejectUndeclaredCollectionLiteral(declaration.initializer);
 			if (actual == null) {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
 			}

@@ -252,7 +252,7 @@ src/compiler/btrc/
   Compiler.btrc                   # public Compiler application object
 
   cli/
-    Driver.btrc                   # BtrccDriver, command line, paths, output
+    Driver.btrc                   # BtrccDriver, command line, paths, output; Unix compile stack
     WindowsMain.btrc              # Windows host composition without Unix SDK scanning
     MacOSMain.btrc                # Native macOS host with SDK-backed artifact hashing
 

@@ -1877,6 +1877,56 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	public void __del__() { self.close(); }
 }
 
+#if !defined(_WIN32)
+#include <pthread.h>
+
+/* The program a Unix entry runs on the compiler stack, with its arguments. */
+struct BtrccCompilerStackCall {
+	CFunction<int, int, char**> program;
+	int argc;
+	char** argv;
+};
+
+/* Runs a Unix entry's whole program on one thread with a large stack.
+ *
+ * Every compiler stage walks the tree recursively, so the main thread's
+ * default stack (8 MiB on Linux and macOS) bounds how deeply an expression may
+ * nest: a left-associative chain of about 950 terms exhausted it during
+ * lowering. The reservation is address space; only the pages a compile touches
+ * are committed, so an ordinary compile's peak memory is unchanged. The thread
+ * ends the process with the program's status, exactly as returning from main
+ * would, so the main thread never resumes BTRC code. If the thread cannot be
+ * created, the program runs on the main thread as before. */
+class BtrccCompilerStack {
+	class size_t reservedBytes() { return (size_t)536870912; }
+
+	class void* entry(void* raw) {
+		struct BtrccCompilerStackCall* call = (struct BtrccCompilerStackCall*)raw;
+		CFunction<int, int, char**> program = call->program;
+		exit(program(call->argc, call->argv));
+		return null;
+	}
+
+	class int run(CFunction<int, int, char**> program, int argc, char** argv) {
+		struct BtrccCompilerStackCall call;
+		call.program = program;
+		call.argc = argc;
+		call.argv = argv;
+		pthread_attr_t attributes;
+		if (pthread_attr_init(&attributes) != 0) { return program(argc, argv); }
+		pthread_t handle = (pthread_t)0;
+		CFunction<void*, void*> threadEntry = BtrccCompilerStack.entry;
+		bool started = pthread_attr_setstacksize(&attributes, BtrccCompilerStack.reservedBytes()) == 0 && pthread_create(&handle, &attributes, threadEntry, &call) == 0;
+		pthread_attr_destroy(&attributes);
+		if (!started) { return program(argc, argv); }
+		void* ignored = null;
+		pthread_join(handle, &ignored);
+		/* The thread exits the process; reaching here means it could not. */
+		return 1;
+	}
+}
+#endif
+
 /* Command-line application owner for the production self-hosted compiler. */
 class BtrccDriver {
 	private BtrccCommandLine commandLine;

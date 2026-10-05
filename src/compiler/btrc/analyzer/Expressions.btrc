@@ -665,17 +665,25 @@ class ExpressionTypeResolver {
 			if (node.elements().len > 0) {
 				Node? et = self.inferSpecializationType(node.elements().get(0), a, operators, varTypes);
 				if (et != null) {
-					Node elementType = et;
-					if ((a.isClass(et.base) || a.isGenericClass(et.base) || a.isInterface(et.base)) && et.pointerDepth == 0) {
-						elementType = SemanticTypeSystem.classReference(et);
-					}
-					Node u = Node();
-					u.kind = NK_TYPE_EXPR;
-					u.base = "Vector";
 					Vector<Node> ga = [];
-					ga.push(elementType);
-					u.genericArgsStorage = ga;
-					return u;
+					ga.push(self.collectionLiteralArgument(et, a));
+					return self.collectionLiteralType("Vector", ga);
+				}
+			}
+			return null;
+		}
+		if (node.kind == NK_MAP_LITERAL) {
+			/* Mirrors the reference compiler: the first entry's key and value
+			 * types name the literal's Map specialization. */
+			if (node.entries().len > 0) {
+				Node first = node.entries().get(0);
+				Node? kt = self.inferSpecializationType(first.key, a, operators, varTypes);
+				Node? vt = self.inferSpecializationType(first.valueNode, a, operators, varTypes);
+				if (kt != null && vt != null) {
+					Vector<Node> ga = [];
+					ga.push(self.collectionLiteralArgument(kt, a));
+					ga.push(self.collectionLiteralArgument(vt, a));
+					return self.collectionLiteralType("Map", ga);
 				}
 			}
 			return null;
@@ -759,6 +767,22 @@ class ExpressionTypeResolver {
      * alias naming the value itself, but retain aliases nested in generic
      * arguments so IR symbol selection agrees with generic-instance collection. */
 	private Node? inferSpecializationTypeUnmemoized(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) { return SemanticTypeSystem.resolveOuterTypedefType(self.inferTypeRawMemoized(node, a, operators, varTypes), a.typedefTable); }
+
+	/* A collection literal stores class values by reference. */
+	private Node collectionLiteralArgument(Node inferred, Analyzed a) {
+		if ((a.isClass(inferred.base) || a.isGenericClass(inferred.base) || a.isInterface(inferred.base)) && inferred.pointerDepth == 0) {
+			return SemanticTypeSystem.classReference(inferred);
+		}
+		return inferred;
+	}
+
+	private Node collectionLiteralType(string base, Vector<Node> arguments) {
+		Node u = Node();
+		u.kind = NK_TYPE_EXPR;
+		u.base = base;
+		u.genericArgsStorage = arguments;
+		return u;
+	}
 
 	/* Infer the __fn_ptr(ret, params...) TypeExpr for a lambda expression so that
      * `var f = lambda` declares `f` with the right typedef'd C type. The return
