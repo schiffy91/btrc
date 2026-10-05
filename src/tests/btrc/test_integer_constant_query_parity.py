@@ -83,6 +83,18 @@ BATTERY = (
     ConstantProbe("unsigned-cast-wrap", "(unsigned char)300", 44),
     ConstantProbe("unsigned-cast-beyond-llong", "(unsigned long long)-1", CANNOT_EVALUATE),
     ConstantProbe("float-cast", "(int)2.9", 2),
+    # A floating literal converts at its C type (C11 6.4.4.2p4): an unsuffixed
+    # one is a double, so 2^53 + 1 rounds to 2^53 and 2^64 - 1 to 2^64.
+    ConstantProbe("float-cast-beyond-53-bits", "(long long)9007199254740993.0", 9007199254740992),
+    ConstantProbe("float-cast-beyond-double", "(unsigned long long)18446744073709551615.0", NOT_CONSTANT),
+    ConstantProbe("float-cast-beyond-every-integer", "(unsigned long long)1e300", NOT_CONSTANT),
+    # C11 6.6p6 admits a floating constant only as a cast's immediate operand;
+    # here it is the operand of unary minus.
+    ConstantProbe("float-cast-negated", "(int)-0.5", NOT_CONSTANT),
+    # An f literal is a float, rounded once from its decimal spelling.
+    ConstantProbe("float-suffix-cast", "(int)2.5f", 2),
+    ConstantProbe("float-suffix-rounds-to-float", "(long long)16777217.0f", 16777216),
+    ConstantProbe("float-suffix-rounds-once", "(long long)16777217.000000001f", 16777218),
     ConstantProbe("enum-member", "Color.GREEN", 1),
     ConstantProbe("variable", "x", NOT_CONSTANT),
 )
@@ -216,33 +228,15 @@ KNOWN_DIVERGENCES = {
     ),
 }
 
-# Divergences no switch probe reaches, or that depend on the platform:
+# Divergences no switch probe reaches:
 # - an unsupported binary operator over an operand btrc cannot evaluate:
 #   btrc answers "cannot evaluate", Python "not a constant";
 # - the cast-range tables are separate (btrc ConstantValidator.integralCastRange,
-#   Python NumericLiteralSemantics._type_limits); nothing compares them;
-# - float-literal casts: btrc converts with strtold (80-bit on Linux x86-64,
-#   double on macOS arm64), Python and gcc/clang with double. On Linux x86-64
-#   `(unsigned long long)18446744073709551615.0` is "cannot evaluate" in btrc and
-#   "not a constant" in Python, and `(long long)9007199254740993.0` is
-#   9007199254740993 in btrc and 9007199254740992 in Python; on macOS arm64
-#   both compilers agree.
-PLATFORM_DIVERGENCES = {
-    "float-cast-beyond-double": (
-        _CASE_PAIR.format(prefix="", label="(unsigned long long)18446744073709551615.0"),
-        _REFUSED,
-        None,
-    ),
-    # Python folds the cast to 9007199254740992 (a double), so the second
-    # label duplicates it; btrc's 80-bit strtold keeps 9007199254740993.
-    "float-cast-beyond-53-bits": (
-        _CASE_PAIR.replace("{label}: break;\n        case {label}", "{first}: break;\n        case {second}").format(
-            prefix="", first="(long long)9007199254740993.0", second="9007199254740992"
-        ),
-        _DUPLICATE,
-        None,
-    ),
-}
+#   Python NumericLiteralSemantics._type_limits); nothing compares them.
+
+# Neither lexer reads a long double (L) or a hexadecimal floating literal; both
+# refuse the spelling before any constant is evaluated.
+UNLEXED_FLOAT_LITERALS = ("1.5L", "0x1p53")
 
 
 @pytest.mark.parametrize("name", sorted(KNOWN_DIVERGENCES))
@@ -252,12 +246,8 @@ def test_recorded_integer_constant_divergences_still_hold(harness: ConstantHarne
     assert (reference.message, selfhost.message) == (python, btrc)
 
 
-@pytest.mark.skipif(
-    not (sys.platform.startswith("linux") and os.uname().machine == "x86_64"),
-    reason="btrc's strtold is 80-bit only on Linux x86-64",
-)
-@pytest.mark.parametrize("name", sorted(PLATFORM_DIVERGENCES))
-def test_recorded_platform_divergences_still_hold(harness: ConstantHarness, name: str) -> None:
-    program, python, btrc = PLATFORM_DIVERGENCES[name]
-    reference, selfhost = harness.compile(program)
-    assert (reference.message, selfhost.message) == (python, btrc)
+@pytest.mark.parametrize("literal", UNLEXED_FLOAT_LITERALS)
+def test_both_compilers_refuse_an_unlexed_float_literal(harness: ConstantHarness, literal: str) -> None:
+    reference, selfhost = harness.compile(_program(f"(long long){literal}", "1"))
+    assert selfhost == reference
+    assert reference == Outcome(f"Invalid numeric literal '{literal}'", 5, reference.col)

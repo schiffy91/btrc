@@ -6,6 +6,7 @@ import math
 import struct
 from collections.abc import Callable, Iterable, Mapping, Set
 from dataclasses import dataclass, replace
+from fractions import Fraction
 from types import MappingProxyType
 from typing import ClassVar
 
@@ -200,6 +201,32 @@ class NumericLiteralSemantics:
     @staticmethod
     def float_type(raw: str) -> str:
         return "float" if raw.endswith(("f", "F")) else "double"
+
+    @staticmethod
+    def float_value(raw: str) -> float:
+        """Return a floating literal's value at its C type (C11 6.4.4.2p4).
+
+        A float literal rounds once, from its decimal spelling, to binary32.
+        Rounding through the double would round twice, so the nearest binary32
+        neighbour of that double is chosen against the exact decimal value.
+        """
+        body = raw.rstrip("fF")
+        value = float(body)
+        if body == raw:
+            return value
+        try:
+            bits = struct.unpack("=I", struct.pack("=f", value))[0]
+        except OverflowError:
+            return math.inf
+        exact = Fraction(body)
+        candidates = []
+        for neighbour in (bits - 1, bits, bits + 1):
+            if neighbour < 0:
+                continue
+            candidate = struct.unpack("=f", struct.pack("=I", neighbour))[0]
+            if math.isfinite(candidate):
+                candidates.append((abs(Fraction(candidate) - exact), neighbour & 1, candidate))
+        return min(candidates)[2]
 
     def has_integral_range(self, target_base: str) -> bool:
         """Whether constant conversion to ``target_base`` has known bounds."""
@@ -1338,6 +1365,10 @@ class TypeSystem:
     def float_literal_type(self, raw: str) -> TypeExpr:
         """Decode a floating literal suffix into its semantic type."""
         return TypeExpr(base=self._numeric_literals.float_type(raw))
+
+    def float_literal_value(self, raw: str) -> float:
+        """Decode a floating literal at its C type."""
+        return self._numeric_literals.float_value(raw)
 
     def has_integral_range(self, target_base: str) -> bool:
         """Whether constant conversion to ``target_base`` has known bounds."""
