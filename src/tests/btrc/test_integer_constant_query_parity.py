@@ -95,6 +95,13 @@ BATTERY = (
     ConstantProbe("float-suffix-cast", "(int)2.5f", 2),
     ConstantProbe("float-suffix-rounds-to-float", "(long long)16777217.0f", 16777216),
     ConstantProbe("float-suffix-rounds-once", "(long long)16777217.000000001f", 16777218),
+    # Long spellings and huge exponents stay cheap: no integer is built from them.
+    ConstantProbe("float-suffix-5000-digit-significand", f"(int)1{'0' * 5000}e-5000f", 1),
+    ConstantProbe("float-suffix-5000-digit-fraction", f"(int)1.{'0' * 5000}1f", 1),
+    ConstantProbe("float-suffix-4400-digit-significand", f"(int){'1' * 4400}e-4399f", 1),
+    ConstantProbe("bool-float-suffix-5000-digit-significand", f"(bool)1{'0' * 5000}e-5000f", 1),
+    ConstantProbe("float-suffix-zero-huge-exponent", "(int)0e99999999f", 0),
+    ConstantProbe("float-suffix-long-midpoint", f"(long long)16777217.{'0' * 5000}1f", 16777218),
     ConstantProbe("enum-member", "Color.GREEN", 1),
     ConstantProbe("variable", "x", NOT_CONSTANT),
 )

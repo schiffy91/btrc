@@ -6,7 +6,7 @@ import math
 import struct
 from collections.abc import Callable, Iterable, Mapping, Set
 from dataclasses import dataclass, replace
-from fractions import Fraction
+from decimal import Decimal
 from types import MappingProxyType
 from typing import ClassVar
 
@@ -207,26 +207,28 @@ class NumericLiteralSemantics:
         """Return a floating literal's value at its C type (C11 6.4.4.2p4).
 
         A float literal rounds once, from its decimal spelling, to binary32.
-        Rounding through the double would round twice, so the nearest binary32
-        neighbour of that double is chosen against the exact decimal value.
+        Rounding through the double differs only when the double lands exactly
+        on a binary32 midpoint; then the exact decimal decides the side.
         """
         body = raw.rstrip("fF")
         value = float(body)
         if body == raw:
             return value
         try:
-            bits = struct.unpack("=I", struct.pack("=f", value))[0]
+            narrowed = struct.unpack("=f", struct.pack("=f", value))[0]
         except OverflowError:
             return math.inf
-        exact = Fraction(body)
-        candidates = []
-        for neighbour in (bits - 1, bits, bits + 1):
-            if neighbour < 0:
-                continue
-            candidate = struct.unpack("=f", struct.pack("=I", neighbour))[0]
-            if math.isfinite(candidate):
-                candidates.append((abs(Fraction(candidate) - exact), neighbour & 1, candidate))
-        return min(candidates)[2]
+        if narrowed == value:
+            return value
+        bits = struct.unpack("=I", struct.pack("=f", narrowed))[0]
+        neighbour = struct.unpack("=f", struct.pack("=I", bits + 1 if narrowed < value else bits - 1))[0]
+        if not math.isfinite(neighbour) or value != (narrowed + neighbour) / 2:
+            return narrowed
+        # Decimal compares the spelling exactly without building its integer.
+        exact = Decimal(body)
+        if exact == Decimal(value):
+            return narrowed
+        return max(narrowed, neighbour) if exact > Decimal(value) else min(narrowed, neighbour)
 
     def has_integral_range(self, target_base: str) -> bool:
         """Whether constant conversion to ``target_base`` has known bounds."""
