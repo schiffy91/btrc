@@ -1090,6 +1090,8 @@ class TypeSystem:
             enum_names=index.enum_table,
         )
         self._index_protocols = IndexedProtocolResolver(self._type_identity, index.class_table)
+        # One report per wrong tag site: declared types are walked more than once.
+        self._reported_tags: set[tuple[str, int, int]] = set()
 
     # Record members (C11 6.7.2.1). Every walk over a struct's or union's
     # members goes through these class methods; the record-member contract
@@ -1462,7 +1464,10 @@ class TypeSystem:
             return True
         message = self.tag_keyword_mismatch(type_expr.base)
         if message is not None:
-            self.session.error(message, type_expr.line or line, type_expr.col or col)
+            site = (message, type_expr.line or line, type_expr.col or col)
+            if site not in self._reported_tags:
+                self._reported_tags.add(site)
+                self.session.error(*site)
             return False
         return not arguments or all(
             self.validate_tag_keyword(argument, type_expr.line or line, type_expr.col or col)
@@ -2146,12 +2151,7 @@ class TypeSystem:
             return None
         if canonical.is_array and not canonical.is_nullable and canonical.array_size is not None:
             canonical = self.strip_outer_storage(canonical, array=True)
-        # A class or collection is written without the reference `*` it is
-        # upgraded with, so the message names the type as written.
-        written = type_expr
-        if getattr(type_expr, "auto_upgraded", False) and type_expr.pointer_depth:
-            written = replace(type_expr, pointer_depth=type_expr.pointer_depth - 1)
-        managed = ("managed", self.format_type(written))
+        managed = ("managed", self.format_written_type(type_expr))
         if canonical.base == "__realtime_fn_ptr":
             return ("realtime",)
         if canonical.base == "__fn_ptr":
@@ -2176,7 +2176,7 @@ class TypeSystem:
             ):
                 return managed
             return None
-        if canonical.generic_args or canonical.base in _RUNTIME_TYPE_BASES:
+        if canonical.generic_args or (canonical.base in _RUNTIME_TYPE_BASES and canonical.base != "MemoryOrder"):
             return managed
         if (
             canonical.base == "string"
@@ -2299,6 +2299,7 @@ class TypeSystem:
         generic-instance collection and body validation; this pass establishes
         only the order-independent type context they consume.
         """
+        self._reported_tags.clear()
         for decl in self.session.declarations(program):
             if isinstance(decl, FunctionDecl):
                 for param in decl.params:
@@ -2466,6 +2467,22 @@ class TypeSystem:
         if t.pointer_depth and (t.base in self.index.class_table or t.base in self.index.interface_table):
             t = replace(t, pointer_depth=t.pointer_depth - 1)
         return self.format_type(t)
+
+    def format_written_type(self, t) -> str:
+        """Format a type as its source spells it: a class or collection without
+        the reference ``*`` it is upgraded with, a nullable reference as
+        ``T?``, generic arguments likewise."""
+        result = "const " if t.is_const else ""
+        result += {"__fn_ptr": "CFunction", "__realtime_fn_ptr": "RealtimeFunction"}.get(t.base, t.base)
+        if t.generic_args:
+            result += "<" + ", ".join(self.format_written_type(a) for a in t.generic_args) + ">"
+        upgraded = t.is_nullable or getattr(t, "auto_upgraded", False)
+        result += "*" * max(t.pointer_depth - int(upgraded), 0)
+        if t.is_nullable:
+            result += "?"
+        if t.is_array:
+            result += "[]"
+        return result
 
     def format_type(self, t) -> str:
         """Format a TypeExpr for error messages."""

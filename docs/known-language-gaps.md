@@ -254,10 +254,11 @@ record, so `union T*` and `T*` are one type.
 A program that spells a btrc record or enum with its tag (`struct Point`,
 `union Number`, `enum Color`) under strict imports must import the module
 that declares it, as for the bare name (`enum Color` for a btrc enum is
-otherwise the enum-tag row's work). A tag reference is matched against every
-top-level name, although C keeps tags in their own namespace: a module that
-declares a function `stat` would make `struct stat` need its import. No
-source in the tree collides today.
+otherwise the enum-tag row's work). As in C, a tag names only a type: a
+module that declares a function `timeval` does not make `struct timeval`
+need its import. A source record's tag and its bare name are one type
+everywhere, generic and tuple arguments and `CFunction` signatures included:
+`Vector<struct P>` is `Vector<P>`.
 
 ## Variable-length arrays (C row 23)
 

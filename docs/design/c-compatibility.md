@@ -595,7 +595,7 @@ The main session lands two serial commits before the lanes fork: the schema comm
   - the wrong-keyword validator;
   - both import reference collectors counting `struct X`, `union X` and `enum X` as references to `X` for strict imports. Today Python `ImportReferenceCollector` records the whole spelled base, so `struct X` requires no import.
 
-  The enum lane registers enums on the same owner. Alias keys contain a space, so they never collide with a source name and claim no name. No consumer iterates the alias index; a contract test checks this. Generic instance identity does not resolve aliases, so the rows change no instance or symbol.
+  The enum lane registers enums on the same owner. Alias keys contain a space, so they never collide with a source name and claim no name. No consumer iterates the alias index; a contract test checks this. Generic instance identity does not resolve aliases. **Landed with r09:** after registration, each compiler's `DeclarationRegistry` rewrites every written `struct P` or `union P` that names a source record with that keyword to the bare `P`, in every type position (generic, tuple and `CFunction` arguments included). `Vector<struct P>` and `Vector<P>` are therefore one instance, one assignability rule and one lowering in both compilers. The instance identity of `OwnedBuffer<struct X>` changes to `OwnedBuffer<X>`, and its mangled C symbols change with it. SDK record tags and wrong-keyword tags keep their written spelling. An identity typedef (`typedef struct P P;`) keeps its original, so the name-claim diagnostic is unchanged until r08 accepts the form.
 
 ### Conventions both parsers keep identical
 
@@ -774,7 +774,7 @@ The main session lands two serial commits before the lanes fork: the schema comm
   - a quoted `#include "…"` of a non-`.btrc` target.
 
   A system `#include <…>` is not evidence. 1,100 of the 1,203 test sources contain an `#include` (1,096 of them a system one), so counting it would disable the rule, and a system enum reaches btrc through a native import anyway. The fact is computed from the file's own source, so module units compute it identically. `basics/InteropCEnumBaseType.btrc` stays green through its `.c` import.
-- **Generic instance identity** keeps the written spelling, as it already does for `OwnedBuffer<struct X>` in `stdlib/Audio/RealtimeAudioRouter.btrc` and `tests/memory/OwnedBuffer.btrc`. `Vector<enum Color>` and `Vector<Color>` are two instances, just as `OwnedBuffer<struct P>` and `OwnedBuffer<P>` are today.
+- **Generic instance identity** keeps the written spelling of an enum tag: `Vector<enum Color>` and `Vector<Color>` are two instances. A record tag is different: since r09 the registry rewrites a source record's `struct P`/`union P` to `P` in every type position, so `OwnedBuffer<struct P>` and `OwnedBuffer<P>` are one instance. The enum lane decides whether enum tags follow the same rule.
 - **Tag ownership.** A btrc enum owns the C tag of its name. C has one tag namespace, and Apple SDK tags are PascalCase (`struct CGPoint`). A btrc enum whose name equals a record or enum tag registered by a native import is therefore refused at the enum. A clash with a header btrc does not read is reported by the C compiler, as for any tag.
 
 #### r12 bit-fields
@@ -1393,7 +1393,7 @@ Stage 18 exits when `c_compat/TwoDimensionalArrays.btrc` passes through both com
 | r12's new `@gpu` message is unreachable | Accepted. Dropped; the existing type refusal is pinned. |
 | Keeping the bit width as a source expression forces new reference collectors | Accepted, as a folded `int`: a width is never a run-time value, unlike the outer array extent that `IRTypedefDef.array_size` may carry. |
 | Three lanes add independent `IRStructField` facets | Accepted. One shape invariant in the schema commit. |
-| Generic identity of `Vector<enum Color>` | Neither proposal adopted. Draft normalization would be a third identity rule. Refusing tag spellings as generic arguments would break `OwnedBuffer<struct X>` in the stdlib. The written spelling stays the identity, as today. |
+| Generic identity of `Vector<enum Color>` | Neither proposal adopted. Draft normalization would be a third identity rule. Refusing tag spellings as generic arguments would break `OwnedBuffer<struct X>` in the stdlib. The written spelling stays the identity, as today. **Revised in r09 review:** keeping record tags as written made `(struct P, int)`, `Vector<struct P>` and `CFunction<int, struct P*>` incompatible with their bare spellings in one compiler and miscompiled in the other. Both registries now rewrite source record tags to the bare name before analysis, so the record case has one identity. Enum tags are unchanged. |
 | btrc emits typedefs before struct definitions | Accepted. A separate parity commit opens Stage 18, with its own fixed point; the Python planner completes array typedef contexts. |
 | The for-in row view needs a dereference rule at every use site | Accepted as a refusal: for-in and parallel `for` over rank≥2 arrays are refused. |
 | The layout harness compares `long` with `size_t` | Accepted. Mirrors return `size_t`; pointer differences are cast explicitly. |

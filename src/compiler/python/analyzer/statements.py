@@ -2187,6 +2187,9 @@ class StatementAnalyzer:
         stmt.type = self.types.upgrade_class_type(stmt.type)
         self.generics.collect_type_instances(stmt.type)
         if stmt.initializer:
+            # A wrong tag anywhere in the declared type is reported before the
+            # initializer is checked against it, as btrcc does.
+            self.types.validate_tag_keyword(stmt.type, stmt.line, stmt.col)
             self.expressions.contextualize_ternary_literals(stmt.initializer, stmt.type)
             boundary = self.gpu.array_initializer_boundary(stmt.initializer, stmt.type)
             with self.session.gpu_result_context(boundary):

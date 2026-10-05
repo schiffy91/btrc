@@ -117,7 +117,7 @@ class SemanticValidator {
 				}
 			} else if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
 				for field in SemanticTypeSystem.recordFields(declaration) {
-					self.controlFlow.validateArrayBound(field.type, "struct field '" + declaration.name + "." + field.name + "'", "field", field, globals);
+					self.controlFlow.validateArrayBound(field.type, SemanticTypeSystem.recordKeyword(declaration) + " field '" + declaration.name + "." + field.name + "'", "field", field, globals);
 				}
 			} else if (declaration.kind == NK_RICH_ENUM_DECL) {
 				for variant in declaration.variants() {

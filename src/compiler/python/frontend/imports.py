@@ -413,6 +413,14 @@ _NAMED_DECLS = (
 )
 _REFERENCE_DECLS = _NAMED_DECLS + (ast.PreprocessorDirective,)
 _C_TAG_KEYWORDS = frozenset(("struct", "union", "enum"))
+_TYPE_DECLS = (
+    ast.ClassDecl,
+    ast.InterfaceDecl,
+    ast.StructDecl,
+    ast.EnumDecl,
+    ast.RichEnumDecl,
+    ast.TypedefDecl,
+)
 
 
 class FrontendVisibilityError(Exception):
@@ -428,6 +436,8 @@ class ImportReference:
     name: str
     line: int
     col: int
+    # A C tag (`struct X`) names only a type: C keeps tags in their own namespace.
+    tag: bool = False
 
 
 @dataclass(frozen=True)
@@ -462,12 +472,12 @@ class ImportReferenceCollector:
     def _bound(self, name: str) -> bool:
         return any(name in frame for frame in self.scope)
 
-    def add(self, name: str, line: int, col: int, *, typename: bool = False) -> None:
+    def add(self, name: str, line: int, col: int, *, typename: bool = False, tag: bool = False) -> None:
         if not name or name in self.generic_params:
             return
         if not typename and self._bound(name):
             return
-        self.refs.append(ImportReference(name, line or 1, col or 1))
+        self.refs.append(ImportReference(name, line or 1, col or 1, tag))
 
     def _in_frame(self, names: Iterable[str], *nodes) -> None:
         self.scope.append(set(names))
@@ -497,8 +507,8 @@ class ImportReferenceCollector:
             # `struct X`, `union X` and `enum X` name the declaration `X`
             # (its C tag alias), so they need X's import like `X` does.
             keyword, _, tag = node.base.partition(" ")
-            name = tag if keyword in _C_TAG_KEYWORDS and tag and " " not in tag else node.base
-            self.add(name, node.line, node.col, typename=True)
+            tagged = keyword in _C_TAG_KEYWORDS and bool(tag) and " " not in tag
+            self.add(tag if tagged else node.base, node.line, node.col, typename=True, tag=tagged)
             for argument in node.generic_args:
                 self.visit(argument)
             self.visit(node.array_size)
@@ -676,6 +686,20 @@ class ImportVisibilityChecker:
             if name not in members
         ]
 
+    def _value_only_names(self) -> set[str]:
+        """Names the program declares only as values (functions, globals,
+        enum constants), never as types: a C tag cannot name them."""
+        values: set[str] = set()
+        types: set[str] = set()
+        for declaration in self.program.declarations:
+            if isinstance(declaration, _TYPE_DECLS):
+                types.add(self._decl_name(declaration))
+            elif isinstance(declaration, (ast.FunctionDecl, ast.VarDeclStmt)):
+                values.add(declaration.name)
+            if isinstance(declaration, ast.EnumDecl):
+                values.update(value.name for value in declaration.values)
+        return values - types
+
     def _references(self, declaration) -> list[ImportReference]:
         if isinstance(declaration, ast.PreprocessorDirective):
             return self._macro_references(declaration)
@@ -708,6 +732,7 @@ class ImportVisibilityChecker:
         """Return structured references hidden by missing imports."""
 
         symbol_files = self._symbol_files()
+        value_names = self._value_only_names()
         reachable_cache: dict[str, set[str]] = {}
         failures: list[ImportVisibilityFailure] = []
         canonical_active = SourceDependencyGraph.canonical_file(active_file) if active_file is not None else None
@@ -745,6 +770,8 @@ class ImportVisibilityChecker:
                     declaration,
                     reference,
                 ):
+                    continue
+                if reference.tag and reference.name in value_names:
                     continue
                 declaring = symbol_files.get(reference.name)
                 if not declaring or declaring & reachable:

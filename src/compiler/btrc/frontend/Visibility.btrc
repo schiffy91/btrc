@@ -22,11 +22,14 @@ class FeImportReference {
 	public string name;
 	public int line;
 	public int col;
+	/* A C tag (`struct X`) names only a type: C keeps tags in their own namespace. */
+	public bool tag;
 
 	public FeImportReference(string name, int line, int col) {
 		self.name = name;
 		self.line = line > 0 ? line : 1;
 		self.col = col > 0 ? col : 1;
+		self.tag = false;
 	}
 }
 
@@ -67,10 +70,12 @@ class FeImportReferenceCollector {
 		return false;
 	}
 
-	public void add(string name, int line, int col, bool typeName) {
+	public void add(string name, int line, int col, bool typeName, bool tag = false) {
 		if (name == null || name.isEmpty() || self.genericParameters.has(name)) { return; }
 		if (!typeName && self.isBound(name)) { return; }
-		self.references.push(FeImportReference(name, line, col));
+		FeImportReference reference = FeImportReference(name, line, col);
+		reference.tag = tag;
+		self.references.push(reference);
 	}
 
 	public void pushScope(Vector<string> names) {
@@ -138,7 +143,8 @@ class FeImportReferenceCollector {
 		if (node.kind == NK_TYPE_EXPR) {
 			// `struct X`, `union X` and `enum X` name the declaration `X`
 			// (its C tag alias), so they need X's import like `X` does.
-			self.add(FeImportReferenceCollector.taggedName(node.base), node.line, node.col, true);
+			string tagged = FeImportReferenceCollector.taggedName(node.base);
+			self.add(tagged, node.line, node.col, true, tagged != node.base);
 			self.visitList(node.genericArgs());
 			self.visit(node.arraySize);
 			return;
@@ -425,6 +431,31 @@ class FeImportVisibilityChecker {
 		}
 	}
 
+	/* Names the program declares only as values (functions, globals, enum
+	 * constants), never as types: a C tag cannot name them. */
+	private Map<string, bool> valueOnlyNames() {
+		Map<string, bool> values = {};
+		Map<string, bool> types = {};
+		for declaration in self.program.declarations() {
+			int kind = declaration.kind;
+			if (kind == NK_CLASS_DECL || kind == NK_INTERFACE_DECL || kind == NK_STRUCT_DECL || kind == NK_ENUM_DECL || kind == NK_RICH_ENUM_DECL) {
+				types.put(declaration.name, true);
+			} else if (kind == NK_TYPEDEF_DECL) {
+				types.put(declaration.alias, true);
+			} else if (kind == NK_FUNCTION_DECL || kind == NK_VAR_DECL_STMT) {
+				values.put(declaration.name, true);
+			}
+			if (kind == NK_ENUM_DECL) {
+				for value in declaration.values() { values.put(value.name, true); }
+			}
+		}
+		Map<string, bool> result = {};
+		for name in values.keys() {
+			if (!types.has(name)) { result.put(name, true); }
+		}
+		return result;
+	}
+
 	private Map<string, Vector<string>> localSymbolFiles() {
 		Map<string, Vector<string>> symbols = {};
 		for imported in self.resolved.nativeDeclarations {
@@ -566,6 +597,7 @@ class FeImportVisibilityChecker {
 		}
 		self.stdlibSymbols.mergeInto(symbols);
 		Vector<FeVisibilityDiagnostic> diagnostics = [];
+		Map<string, bool> valueNames = self.valueOnlyNames();
 		int declarationIndex = 0;
 		while (declarationIndex < self.program.declarations().len) {
 			Node declaration = self.program.declarations().get(declarationIndex);
@@ -601,6 +633,7 @@ class FeImportVisibilityChecker {
 				if (seen.has(key)) { continue; }
 				seen.put(key, true);
 				if (!symbols.has(reference.name)) { continue; }
+				if (reference.tag && valueNames.has(reference.name)) { continue; }
 				if (self.compilerStdlibSource(sourceFile) && self.compilerImplicitSymbols.has(reference.name)) {
 					continue;
 				}

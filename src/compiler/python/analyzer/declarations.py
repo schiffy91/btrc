@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import replace
+from dataclasses import fields, replace
 
 from src.compiler.python.abi.declarations import AbiType
 from src.compiler.python.abi.hosted import HOSTED_ABI
@@ -765,6 +765,8 @@ C11_RESERVED_NAMES = frozenset(
         "_Thread_local",
     }
 )
+# Generated AST nodes, the only values the record-tag walk descends into.
+_AST_MODULE = TypeExpr.__module__
 _PUBLIC_NATIVE_BINDINGS = frozenset({"btrc_gpu_available"})
 MAGIC_METHOD_SIGNATURES = {
     "__add__": (1, None),
@@ -1281,6 +1283,61 @@ class DeclarationRegistry:
             elif isinstance(declaration, VarDeclStmt):
                 top_level.register_global(declaration)
         inheritance.resolve(pre_resolved_classes)
+        self.normalize_record_tags(program)
+
+    def normalize_record_tags(self, program: Program) -> None:
+        """Spell every source record's C tag as the record's name (C row 9).
+
+        btrc emits ``typedef struct P P;`` for every source record, so
+        ``struct P`` and ``P`` are one C type. Rewriting the written tag, in
+        every type position (generic and tuple arguments and ``CFunction``
+        signatures included), makes them one btrc type too: one generic
+        instance, one assignability rule and one lowering. A tag of another
+        kind stays for the wrong-keyword refusal, an SDK record keeps its
+        written spelling, and an identity typedef (``typedef struct P P;``)
+        keeps its original for the name-claim diagnostic.
+        """
+        stack: list = list(self.session.declarations(program))
+        while stack:
+            node = stack.pop()
+            if isinstance(node, list):
+                stack.extend(node)
+                continue
+            if type(node).__module__ != _AST_MODULE:
+                continue
+            if isinstance(node, TypeExpr):
+                self._normalize_record_tag(node)
+            elif isinstance(node, TypedefDecl) and self._identity_typedef(node):
+                stack.extend(node.original.generic_args)
+                continue
+            for member in fields(node):
+                value = getattr(node, member.name)
+                if isinstance(value, list) or type(value).__module__ == _AST_MODULE:
+                    stack.append(value)
+
+    def _normalize_record_tag(self, type_expr: TypeExpr) -> None:
+        keyword, _, name = type_expr.base.partition(" ")
+        if keyword not in ("struct", "union") or not name or " " in name:
+            return
+        record = self.index.struct_table.get(name)
+        if (
+            record is not None
+            and TypeSystem.record_keyword(record) == keyword
+            and not isinstance(getattr(record, "source_file", None), NativeHeaderSource)
+        ):
+            type_expr.base = name
+
+    @staticmethod
+    def _identity_typedef(declaration: TypedefDecl) -> bool:
+        original = declaration.original
+        return (
+            original is not None
+            and original.base != declaration.alias
+            and TypeSystem.record_tag_name(original.base) == declaration.alias
+            and not original.pointer_depth
+            and not original.is_array
+            and not original.generic_args
+        )
 
     @staticmethod
     def _build_definition_index(program: Program) -> dict[str, tuple[object, str]]:

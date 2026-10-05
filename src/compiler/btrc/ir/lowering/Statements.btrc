@@ -482,7 +482,7 @@ class StatementLowerer {
 			Node? declType = node.type;
 			if (declType != null) { declType = self.cTypes.resolveBodyType(declType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0); }
 			if (declType == null && node.initializer != null) {
-				declType = self.expressions.inferredDeclarationType(node.initializer, varTypes);
+				declType = self.expressions.resolvedExpressionType(node.initializer, varTypes);
 			}
 			CallableBoundaryContext initializerCallableContext = callableFlow.boundaryContext(varTypes, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 			bool initializerCallableUnsafe = callableFlow.persistentStorageUnsafe(declType, node.initializer, self.callableValues, initializerCallableContext);

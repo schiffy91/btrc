@@ -155,6 +155,29 @@ class TypeValidator {
 		return result;
 	}
 
+	/* Format a type as its source spells it: a nullable reference as `T?`,
+	 * generic arguments likewise. */
+	public string formatWrittenType(Node? typeExpr) {
+		if (typeExpr == null) { return "<unknown>"; }
+		string result = typeExpr.isConst ? "const " : "";
+		if (typeExpr.base == "__fn_ptr") { result = result + "CFunction"; } else if (typeExpr.base == "__realtime_fn_ptr") { result = result + "RealtimeFunction"; } else { result = result + typeExpr.base; }
+		if (typeExpr.genericArgs().len > 0) {
+			result = result + "<";
+			int index = 0;
+			for argument in typeExpr.genericArgs() {
+				if (index > 0) { result = result + ", "; }
+				result = result + self.formatWrittenType(argument);
+				index = index + 1;
+			}
+			result = result + ">";
+		}
+		int stars = typeExpr.pointerDepth - (typeExpr.isNullable ? 1 : 0);
+		while (stars > 0) { result = result + "*"; stars = stars - 1; }
+		if (typeExpr.isNullable) { result = result + "?"; }
+		if (typeExpr.isArray) { result = result + "[]"; }
+		return result;
+	}
+
 	public string formatType(Node? typeExpr) {
 		if (typeExpr == null) { return "<unknown>"; }
 		string result = typeExpr.isConst ? "const " : "";
@@ -563,7 +586,10 @@ class TypeValidator {
 		}
 	}
 
-	public void validateTypedInitializer(Node? expected, Node? initializer, string subject, Map<string, Node> variables) {
+	public void validateTypedInitializer(Node? expected, Node? initializer, string subject, Map<string, Node> variables, Node? site = null) {
+		if (expected != null && initializer != null && initializer.kind == NK_BRACE_INITIALIZER) {
+			self.validateRecordInitializerArity(expected, initializer, subject, site != null ? site : initializer);
+		}
 		if (expected == null || initializer == null || self.contextualAggregateInitializer(initializer)) {
 			return;
 		}
@@ -573,6 +599,21 @@ class TypeValidator {
 			string hint = subject == "Assignment" ? TypeValidator.commaTupleHint(initializer, expected) : "";
 			TypeValidator.fail(subject + " expects '" + self.formatType(expected) + "' but got '" + self.formatType(actual) + "'" + hint, initializer);
 		}
+	}
+
+	/* A brace list passed or assigned as a record has no more elements than
+	 * the record has positional slots (one for a union), as in a declaration. */
+	public void validateRecordInitializerArity(Node expected, Node initializer, string subject, Node site) {
+		Node? canonical = self.resolveAliases(expected);
+		if (canonical == null || canonical.pointerDepth != 0 || canonical.isArray || !self.state.analyzed.structTable.has(canonical.base)) { return; }
+		Node declaration = self.state.analyzed.structTable.get(canonical.base);
+		if (declaration.isForward) { return; }
+		SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(declaration, initializer, self.state.analyzed);
+		if (plan.excess == 0) { return; }
+		if (declaration.isUnion) {
+			TypeValidator.fail("Union '" + declaration.name + "' initializer has " + Strings.fromInt(initializer.elements().len) + " elements; a positional union initializer sets only the first member (use a designator such as {.f = ...})", initializer);
+		}
+		TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + declaration.name + "' has " + Strings.fromInt(plan.capacity) + " fields", site);
 	}
 
 	public Node? richEnumVariant(string enumName, string variantName) {
@@ -882,8 +923,7 @@ class TypeValidator {
 		if (resolved == null) { return plain; }
 		Node canonical = resolved;
 		if (canonical.isArray && !canonical.isNullable && canonical.arraySize != null) { canonical = TypeShape.withoutOuterArray(canonical); }
-		/* The message names the member's type as written. */
-		Vector<string> managed = ["managed", self.formatType(typeExpr)];
+		Vector<string> managed = ["managed", self.formatWrittenType(typeExpr)];
 		if (canonical.base == "__realtime_fn_ptr") {
 			Vector<string> realtime = ["realtime"];
 			return realtime;
@@ -904,7 +944,7 @@ class TypeValidator {
 			if (reference) { return managed; }
 			return plain;
 		}
-		if (canonical.genericArgs().len > 0 || self.runtimeTypeBase(canonical.base) || reference || self.state.analyzed.isRichEnum(canonical.base)) { return managed; }
+		if (canonical.genericArgs().len > 0 || (self.runtimeTypeBase(canonical.base) && canonical.base != "MemoryOrder") || reference || self.state.analyzed.isRichEnum(canonical.base)) { return managed; }
 		string name = canonical.base;
 		if (visiting.has(name) || !self.state.analyzed.structTable.has(name)) { return plain; }
 		Node declaration = self.state.analyzed.structTable.get(name);

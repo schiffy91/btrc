@@ -1014,6 +1014,7 @@ class ExpressionValidator {
 		} else if (expression.kind == NK_F_STRING_LITERAL) {
 			self.validateFStringParts(expression.parts(),  vars);
 		} else if (expression.kind == NK_NEW_EXPR) {
+			self.types.validateTagKeyword(expression.type, expression);
 			self.contextualizeNewGenericConstructors(expression,  vars);
 			self.validateExprList(expression.args(),  vars);
 			self.validateNew(expression,  vars);

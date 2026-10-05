@@ -809,6 +809,7 @@ VLA_DIVERGENT_REFUSALS = [
 ]
 
 
+BOX = "class Box<T> { public T value; public Box(T value) { self.value = value; } }\n"
 UNION_PLAIN = "; a union cannot tell which member is live, so its members must be plain C values"
 MAIN_LINE = "\nint main() { return 0; }"
 
@@ -1010,6 +1011,111 @@ RECORD_REFUSALS = [
             39,
         ),
         id="r09-union-f-string",
+    ),
+    # The wrong keyword in `new`'s type and its nested arguments.
+    pytest.param(
+        "struct P { int x; };\n" + BOX + "int main() { var b = new Box<union P*>(null); return 0; }",
+        ("'union P' does not name a union: 'P' is a struct", 3, 30),
+        id="r09-wrong-keyword-new",
+    ),
+    pytest.param(
+        "struct P { int x; };\n" + BOX + "int main() { var b = new Box<enum P>(0); return 0; }",
+        ("'enum P' does not name an enum: 'P' is a struct", 3, 30),
+        id="r09-wrong-keyword-new-enum",
+    ),
+    pytest.param(
+        "struct P { int x; };\n" + BOX + "int main() { var b = new Box<Box<union P*>>(null); return 0; }",
+        ("'union P' does not name a union: 'P' is a struct", 3, 34),
+        id="r09-wrong-keyword-new-nested",
+    ),
+    pytest.param(
+        "union U { int x; };\n" + BOX + "int main() { var b = new Box<struct U*>(null); return 0; }",
+        ("'struct U' does not name a struct: 'U' is a union", 3, 30),
+        id="r09-wrong-keyword-new-union",
+    ),
+    # A wrong tag inside an initialized local's type is reported first.
+    pytest.param(
+        "struct P { int x; };\nint main() { (int, union P*) t = (1, null); return 0; }",
+        ("'union P' does not name a union: 'P' is a struct", 2, 20),
+        id="r09-wrong-keyword-tuple-local",
+    ),
+    pytest.param(
+        "struct P { int x; };\nint main() { CFunction<int, union P*> f = null; return 0; }",
+        ("'union P' does not name a union: 'P' is a struct", 2, 29),
+        id="r09-wrong-keyword-cfunction-local",
+    ),
+    # An identity typedef keeps the name-claim diagnostic until r08 accepts it.
+    pytest.param(
+        "struct P { int x; };\ntypedef struct P P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 18),
+        id="r09-identity-typedef-after",
+    ),
+    pytest.param(
+        "typedef struct P P;\nstruct P { int x; };" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both typedef and struct", 2, 8),
+        id="r09-identity-typedef-before",
+    ),
+    pytest.param(
+        "union U { int x; };\ntypedef union U U;" + MAIN_LINE,
+        ("Top-level name 'U' is declared as both union and typedef", 2, 17),
+        id="r09-identity-typedef-union",
+    ),
+    # A managed member is named as written.
+    pytest.param(
+        "class Box { public int v; }\nunion U { CFunction<int, Box> f; int i; };" + MAIN_LINE,
+        ("Union 'U' member 'f' cannot hold managed type 'CFunction<int, Box>'" + UNION_PLAIN, 2, 31),
+        id="r09-union-callback-class-argument",
+    ),
+    pytest.param(
+        "class Box { public int v; }\nunion U { CFunction<Box, int> f; int i; };" + MAIN_LINE,
+        ("Union 'U' member 'f' cannot hold managed type 'CFunction<Box, int>'" + UNION_PLAIN, 2, 31),
+        id="r09-union-callback-class-result",
+    ),
+    pytest.param(
+        "class Box { public int v; }\nunion U { (int, Box) f; int i; };" + MAIN_LINE,
+        ("Union 'U' member 'f' cannot hold managed type 'Tuple<int, Box>'" + UNION_PLAIN, 2, 22),
+        id="r09-union-tuple-class",
+    ),
+    pytest.param(
+        "class Box { public int v; }\nunion U { Box? b; int i; };" + MAIN_LINE,
+        ("Union 'U' member 'b' cannot hold managed type 'Box?'" + UNION_PLAIN, 2, 16),
+        id="r09-union-nullable-class",
+    ),
+    pytest.param(
+        "union U { int n; char data[0]; };" + MAIN_LINE,
+        ("Array bound for union field 'U.data' must be positive", 1, 28),
+        id="r09-union-array-bound",
+    ),
+    # A brace list passed or assigned as a record has at most its slots.
+    pytest.param(
+        "union U { int a; float b; double c; };\nint take(U u) { return u.a; }\nint main() { return take({1, 2}); }",
+        (
+            "Union 'U' initializer has 2 elements; a positional union initializer sets only the first member "
+            "(use a designator such as {.f = ...})",
+            3,
+            26,
+        ),
+        id="r09-union-argument-two-elements",
+    ),
+    pytest.param(
+        "union U { int a; float b; double c; };\nint main() { U u; u = {1, 2}; return u.a; }",
+        (
+            "Union 'U' initializer has 2 elements; a positional union initializer sets only the first member "
+            "(use a designator such as {.f = ...})",
+            2,
+            23,
+        ),
+        id="r09-union-assignment-two-elements",
+    ),
+    pytest.param(
+        "struct S { int a; };\nint take(S s) { return s.a; }\nint main() { return take({1, 2}); }",
+        ("Argument 's' to 'take()' has 2 initializer elements but struct 'S' has 1 fields", 3, 26),
+        id="r09-struct-argument-excess",
+    ),
+    pytest.param(
+        "struct S { int a; };\nint main() { S s; s = {1, 2}; return s.a; }",
+        ("Assignment has 2 initializer elements but struct 'S' has 1 fields", 2, 19),
+        id="r09-struct-assignment-excess",
     ),
     pytest.param(
         "union U { int i; };\nint main() { U* p = new U(); return 0; }",

@@ -1,0 +1,84 @@
+import Library.Vector;
+
+#include <assert.h>
+
+// C row 9: a source record's tag and its name are one type everywhere: in
+// tuples, generic arguments, CFunction signatures, typedefs and fields.
+// `Vector<struct P>` is `Vector<P>`, one instance.
+struct P {
+	int x;
+};
+
+union Number {
+	int integer;
+	float real;
+};
+
+class Box<T> {
+	public T value;
+	public Box(T value) { self.value = value; }
+}
+
+int takeTagP(struct P* p) { return p->x; }
+
+int takeP(P* p) { return p->x; }
+
+int takeValue(P p) { return p.x; }
+
+typedef int (*Reader)(struct P*);
+
+struct Readers {
+	int (*read)(struct P*);
+};
+
+(struct P, int) pairOf(P p, int n) { return (p, n); }
+
+int sumPair((struct P, int) pair) { return pair._0.x + pair._1; }
+
+Vector<union Number> numbers(int first) {
+	Vector<union Number> values = [];
+	Number number = {first};
+	values.push(number);
+	return values;
+}
+
+int firstNumber(Vector<Number> values) { return values.get(0).integer; }
+
+int run(Reader reader, P* p) { return reader(p); }
+
+int main() {
+	P p = {7};
+	(struct P, int) tagged = (p, 1);
+	(P, int) bare = tagged;
+	var inferred = (p, 2);
+	(struct P, int) fromVar = inferred;
+	(struct P*, int) pointed = (&p, 3);
+	assert(sumPair(tagged) == 8 && sumPair((p, 2)) == 9 && sumPair(pairOf(p, 4)) == 11);
+	assert(bare._0.x == 7 && fromVar._1 == 2 && pointed._0->x == 7);
+	bool pick = true;
+	(struct P, int) chosen = pick ? (p, 5) : (p, 6);
+	assert(chosen._1 == 5);
+
+	Vector<(struct P, int)> pairs = [];
+	pairs.push((p, 1));
+	Vector<struct P> tags = [];
+	tags.push(p);
+	Vector<P> names = tags;
+	assert(pairs.get(0)._0.x == 7 && names.get(0).x == 7);
+	Box<struct P> box = new Box<P>(p);
+	assert(box.value.x == 7);
+
+	Vector<Number> values = numbers(9);
+	Vector<union Number> copied = values.copy();
+	assert(firstNumber(copied) == 9);
+
+	int (*fromTag)(struct P*) = takeTagP;
+	int (*toBare)(P*) = fromTag;
+	int (*fromBare)(struct P*) = takeP;
+	CFunction<int, P*> callback = takeTagP;
+	CFunction<int, struct P> byValue = takeValue;
+	Readers readers = {takeP};
+	assert(toBare(&p) + fromBare(&p) + callback(&p) + byValue(p) + run(takeP, &p) + readers.read(&p) == 42);
+	print("PASS: record tags and names are one type");
+	return 0;
+}

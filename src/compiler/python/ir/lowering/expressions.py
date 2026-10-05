@@ -2249,10 +2249,7 @@ class ExpressionLowerer:
             else self._ownership.assignment_target_operands(node.target, provenance)
         )
         if target_nodes:
-            # The result temporary has the canonical type, as its operands do
-            # (and as btrcc types it): `struct T* r` assigned through `p->next`
-            # declares a `T*` result.
-            result_type = self._types.canonical_type(self._session.type_of(node))
+            result_type = self._session.type_of(node)
             rhs_supplies_result = self._ownership.assignment_rhs_supplies_owned_result(node, provenance)
             result_is_owned = self._ownership.owns_result(node, provenance=provenance)
             sequenced = self._sequence_operands(

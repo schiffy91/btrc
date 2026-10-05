@@ -242,12 +242,6 @@ class SemanticTypeSystem {
 	/* The keyword as a diagnostic's first word. */
 	class string recordKeywordTitle(Node record) { return record.isUnion ? "Union" : "Struct"; }
 
-	/* Whether base spells a source (not SDK) record by its C tag. */
-	class bool sourceRecordTag(string base, Analyzed analyzed) {
-		string tagName = SemanticTypeSystem.recordTagName(base);
-		return tagName != base && analyzed.structTable.has(tagName) && !analyzed.isNativeDeclaration(analyzed.structTable.get(tagName));
-	}
-
 	/* The record a by-value base names: `struct S` and `union U` name S and
 	 * U. A canonical base already went through the tag alias rows; this
 	 * reads one that may not have. */
@@ -556,14 +550,6 @@ class SemanticTypeSystem {
 		int index = 0;
 		while (index < current.genericArgs().len) {
 			Node argument = current.genericArgs().get(index);
-			/* A tag argument stays as written: generic instance identity is
-			 * the written spelling, so OwnedBuffer<struct X> is not
-			 * OwnedBuffer<X> (the tag alias rows resolve only outer types). */
-			if (SemanticTypeSystem.recordTagName(argument.base) != argument.base || argument.base.startsWith("enum ")) {
-				args.push(argument);
-				index = index + 1;
-				continue;
-			}
 			Node? resolved = SemanticTypeSystem.resolveTypedefType(argument, typedefs);
 			if (resolved == null) {
 				SemanticTypeSystem.typedefSemanticFail("Invalid null generic type", typeExpr != null ? typeExpr : current);

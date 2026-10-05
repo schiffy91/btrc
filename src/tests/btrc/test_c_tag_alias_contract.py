@@ -155,3 +155,25 @@ def test_a_tag_needs_its_declarations_import(
     if accepted:
         for result in _compile_pair(semantic_btrcc, tmp_path / "imported", head, body):
             assert result.returncode == 0, result.stderr
+
+
+def test_a_tag_never_names_a_function(semantic_btrcc: Path, tmp_path: Path) -> None:
+    """C keeps tags in their own namespace: `struct timeval` from a system
+    header does not need the module that declares a function `timeval`."""
+
+    (tmp_path / "Defs.btrc").write_text("int timeval(int a) { return a; }\n", encoding="utf-8")
+    (tmp_path / "Leaf.btrc").write_text(
+        "#include <sys/time.h>\nint leaf() { struct timeval tv; tv.tv_sec = 0; return (int)tv.tv_sec; }\n",
+        encoding="utf-8",
+    )
+    main = tmp_path / "Main.btrc"
+    main.write_text("import ./Defs.btrc;\nimport ./Leaf.btrc;\nint main() { return leaf() + timeval(0); }\n")
+    environment = {**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")}
+    for command in (
+        [sys.executable, "-m", "src.compiler.python.main", str(main), "--no-cache", "-o", str(tmp_path / "r.c")],
+        [str(semantic_btrcc), str(main), "--no-cache"],
+    ):
+        result = subprocess.run(
+            command, cwd=REPO, env=environment, capture_output=True, text=True, timeout=TRANSPILE_TIMEOUT
+        )
+        assert result.returncode == 0, result.stderr

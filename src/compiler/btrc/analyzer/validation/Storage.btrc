@@ -1456,7 +1456,7 @@ class StorageValidator {
 				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target), expression);
 			}
 			if (!gpuTargetHasCapacity && !genericNull) {
-				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars);
+				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars, expression);
 				self.validateCharArrayElements(target, expression.valueNode, vars);
 			}
 		}

@@ -88,7 +88,6 @@ class DeclarationRegistry {
 				if (!self.analyzed.structTable.has(d.name) || !d.isForward) {
 					self.analyzed.structTable.put(d.name, d);
 				}
-				self.aliasTag(d);
 			} else if (d.kind == NK_VAR_DECL_STMT) {
 				/* Module-level variable: record its type in the global scope so self.analyzed
         * bare identifier referencing it resolves during inference. An
@@ -103,7 +102,53 @@ class DeclarationRegistry {
 			}
 			i = i + 1;
 		}
+		/* Tag rows wait for every typedef: a typedef sharing a record's name
+		 * is the name-claim diagnostic, never a tag-to-typedef cycle. */
+		for declaration in program.declarations() {
+			if (declaration.kind == NK_STRUCT_DECL && !self.analyzed.typedefTable.has(declaration.name)) { self.aliasTag(declaration); }
+		}
+		self.normalizeRecordTags(program);
 		self.indexAnalyzedMembers(self.analyzed);
+	}
+
+	/* Spell every source record's C tag as the record's name (C row 9).
+	 * btrc emits `typedef struct P P;` for every source record, so `struct
+	 * P` and `P` are one C type. Rewriting the written tag, in every type
+	 * position (generic and tuple arguments and CFunction signatures
+	 * included), makes them one btrc type too: one generic instance, one
+	 * assignability rule and one lowering. A tag of another kind stays for
+	 * the wrong-keyword refusal, an SDK record keeps its written spelling,
+	 * and an identity typedef (`typedef struct P P;`) keeps its original for
+	 * the name-claim diagnostic. */
+	public void normalizeRecordTags(Node program) {
+		Vector<Node> stack = [];
+		for declaration in program.declarations() { stack.push(declaration); }
+		Vector<Node> children = [];
+		while (stack.len > 0) {
+			Node node = stack.pop();
+			if (node.kind == NK_TYPE_EXPR) {
+				self.normalizeRecordTag(node);
+			} else if (node.kind == NK_TYPEDEF_DECL && DeclarationRegistry.identityTypedef(node)) {
+				for argument in node.original.genericArgs() { stack.push(argument); }
+				continue;
+			}
+			children.clear();
+			AstStructure.children(node, children);
+			for child in children { stack.push(child); }
+		}
+	}
+
+	private void normalizeRecordTag(Node typeExpr) {
+		string name = SemanticTypeSystem.recordTagName(typeExpr.base);
+		if (name == typeExpr.base || name.contains(" ") || !self.analyzed.structTable.has(name)) { return; }
+		Node record = self.analyzed.structTable.get(name);
+		if (SemanticTypeSystem.recordKeyword(record) + " " + name == typeExpr.base && !self.analyzed.isNativeDeclaration(record)) { typeExpr.base = name; }
+	}
+
+	class bool identityTypedef(Node declaration) {
+		Node? original = declaration.original;
+		if (original == null) { return false; }
+		return SemanticTypeSystem.recordTagName(original.base) == declaration.alias && original.base != declaration.alias && original.pointerDepth == 0 && !original.isArray && original.genericArgs().len == 0;
 	}
 
 	/* Immutable exact-name indexes for semantic and lowering member queries. */

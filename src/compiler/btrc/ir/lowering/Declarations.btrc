@@ -3935,6 +3935,8 @@ class DeclarationLowerer {
 
 	public void emitForwardDecls(Node prog, IRModule m) {
 		Vector<IRFunctionDecl> functionDeclarations = [];
+		/* One typedef per record: a forward and its definition share it. */
+		Map<string, bool> forwardedRecords = {};
 		int i = 0;
 		while (i < prog.declarations().len) {
 			Node d = prog.declarations().get(i);
@@ -3956,7 +3958,8 @@ class DeclarationLowerer {
                  * tests ClassDecl OR StructDecl). Only classes get _destroy. */
 				IRStructForward forward = IRStructForward(d.name);
 				forward.isUnion = d.kind == NK_STRUCT_DECL && d.isUnion;
-				m.structForwards.push(forward);
+				if (d.kind != NK_STRUCT_DECL || !forwardedRecords.has(d.name)) { m.structForwards.push(forward); }
+				if (d.kind == NK_STRUCT_DECL) { forwardedRecords.put(d.name, true); }
 				if (d.kind == NK_CLASS_DECL && d.genericParams().len == 0) {
 					IRFunctionDecl destroyDeclaration = IRFunctionDecl(d.name + "_destroy", "void", false);
 					destroyDeclaration.params.push(IRParam("void*", "object"));
