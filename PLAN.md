@@ -216,7 +216,191 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     The macOS dispatch then caught one stale lexer-contract site, which the integrator fixed.
   - `stage18/req05-lambda-capture` and `stage18/req06-scope-capture` (`CL-REQ-05`/`06`): btrcc no longer drops a lambda or spawn capture whose name matches a global (SB-D9: printed 9 or 10 where 5 was right). Captures follow the scope chain; realtime locals are typed by lexical scope. Static address constants must name file scope, and field initializers never see constructor parameters (both paired). A refused spawn capture now reports at the spawn in both compilers, which closed a pinned divergence. Four older parity gaps are recorded for a later packet.
   - Gate: zero warnings on the three self-host entries; `boundary-check` 287 of 311; 13,199 passed with 0 failures in the broad suite; the bootstrap fixed point in 16 minutes. `make test-native-gui` again hit the intermittent `BadWindow` race in `test_linux_gui_controls[True-python]` under four workers on one Xvfb display (passes alone, absent on GitHub runners); it is filed against `CX-UIA-11` in `codex-ui-lanes.md`.
-  - With C4 on `main`, Stage 24 starts under the owner's §7 Q2 approval: `CL-P1-03` (targets.toml schema 2 with the iOS and Android rows) and `CL-REQ-07` (the module-unit staleness defects SB-D1…D8) run as lanes. Probing it found nine defects on `main`: eight incremental-build staleness cases (SB-D1…D8), which wait for the C4 landing because they touch the module-unit owners, and one btrcc miscompile (SB-D9: an unimported module's same-named global shadows a lambda capture), which `CL-REQ-05` fixes.
+  - With C4 on `main`, Stage 24 starts under the owner's §7 Q2 approval: `CL-P1-03` (targets.toml schema 2 with the iOS and Android rows) and `CL-REQ-07` (the module-unit staleness defects SB-D1…D8) run as lanes.
+  - Push CI on `f431745` was green on all three workflows.
+- **Batch 20 (2026-10-04): Codex's first UI wave.** Codex opened eight draft PRs; a review workflow (one reviewer each, an adversarial verifier on the two code PRs) passed seven.
+  - PR #22 (`CX-UIA-02` follow-up): `tools/qualification/ui_catalog.py` loads the catalog's per-packet shards (`families.toml`, `operations/`, `cases/`, `surface/`, `evidence/`, `amendments/`), checks admission and the frozen, pending and retired partitions, and reports them. `families.toml` seeds the 300 family cells from the 2026-09-21 matrix (P 48, C 15, M 237). `IFontFace` is in scope (N44, N49). The integrator fixed two defects before the file became a Claude hotspot: later releases got no placeholder slots, and `--kind surface` selected nothing. `ui_catalog check`: 1,620/470/300 frozen, 17 pending ids (170 slots), `GUI.rasterText` retired (10 slots). Catalog wave 2 (`CX-UIA-03`, `04`, `30`, `05`) now branches from `main`.
+  - Docs drafts:
+    - the UI2 contract drafts `CX-UIA-18`/`19`/`20` in `docs/design/ui-contracts/`, which `CL-UIA-13` reviews;
+    - the UI4, UI5 and UI8 pre-drafts `CX-UIB-01`/`02` in `docs/design/native-ui-contracts/`, which `CL-UIB-02` reviews;
+    - the Win32, UIKit (with iPadOS) and Android Views shell notes `CX-UIA-13` in `docs/design/native-ui-shells/`.
+    The reviewers' minor points are on each PR for those approvals. The UI2 index now links the other two directories.
+  - PR #26 (`CX-C-01`) went back to Codex: its unit shard was red (two untimed subprocess calls), and `--btrsmith` silently moved the measurements to BTRSmith main's gate clone instead of the D9 copy.
+- **Batch 21 (2026-10-04): Codex's second wave, docs.** A second review round passed eight of eleven PRs:
+  - the UI6, UI7 and UI9 pre-drafts and the runtime-probe contract (`CX-UIB-03`/`04`/`05`) and the collection data-model findings (`CX-UIB-06`), which `CL-UIB-02` reviews;
+  - the Windows OS-services, native HTTP transport and mobile storage designs (`CX-P2-01`/`02`/`03`), which `CL-P2-01` approves;
+  - the GTK4/WebGPU pre-spike findings (`CX-UIA-12`).
+
+  Three went back to Codex:
+  - `CX-UIA-09`'s native-shell fixture passes on Linux (X11 and Wayland, both frontends, plain and sanitized) but fails all four macOS rows on a native-handle count after close, its unit shard is red, and its fresh-process restore check cannot fail;
+  - `CX-UIA-01` pushed only the runbook;
+  - `CX-UIB-07` needs the macOS run the integrator dispatched (37172345932).
+
+  Codex's CI policy now requires the whole unit shard before any code push.
+- **Batch 22 (2026-10-04): Stage 24 commit 1a; module-unit staleness.**
+  - `stage24/targets-schema` (`CL-P1-03`, Stage 24 commit 1a, no behaviour change): `targets.toml` schema 2 holds the 11 target rows of `platform-target-contract.md` §1.2, including iOS, the iOS simulator and Android, with every column (triples, sizes, sysroot kinds, compiler host, Objective-C, frameworks). It also holds the §1.3 predefined-macro rows (`TARGET_OS_*`, `__ANDROID__`, MinGW). `TargetManifest` enforces every §1.1 rule with one failing fixture each, and the target rows are regenerated in both compilers. clang 21's `-dM` output matches the table for all 11 rows. The `_M_ARM64` row and the `TARGET_OS_*` refusals wait for commits 1b and 1c. CI caught two new generated accessors with no caller yet; the structure test lists them until `CL-P1-04` calls them.
+  - `stage18/req07-module-unit-staleness` (`CL-REQ-07`): the eight staleness defects CL-R-04 found (SB-D1…D8) are fixed in both compilers. Module-unit builds now rebuild a dependent group when it depends on any of these that changed:
+    - a `@gpu` kernel's body;
+    - an inherited `__del__` and its `#line`;
+    - a debug default-argument helper;
+    - a "never returns" body fact (validation re-asks the answers it relied on);
+    - the import order;
+    - shared tuple, span and atomic declaration order;
+    - instance discovery order.
+
+    A stale `__LINE__`/`__FILE__` default is fixed too. Clean output is unchanged. The keys are coarser than the spec's per-body digests: sound, but they relower more, which is left to `CL-R-18`. CI caught one crash, on members lowered without the frontend, which the integrator fixed.
+  - Gate: three zero-warning self-host entries; `boundary-check` 287 of 311; 13,398 passed with 0 failures in the broad suite; `make test-native-gui` 101 passed with 0 failures (four ALSA skips are this container's); the bootstrap fixed point in 16 minutes.
+- **Batch 23 (2026-10-04): the UI case map and operation map B.** A third review round passed four Codex PRs and returned three:
+  - `CX-UIA-30` classifies all 470 ui-case slots. The baselines are E40 Linux partial, and E46 and E47 missing.
+  - `CX-UIA-04` classifies the 80 frozen operation ids of the controls, layout, image and font owners, plus the two pending `IFontFace` ids. Windows, iOS and Android are missing or unavailable.
+  - Both keep macOS and Linux cells implemented-unverified: Codex's token cannot download the shared UI0 JUnit artifacts, and the reviewers confirmed every named regression passed in them. Promoting the evidence is a follow-up. `ui_catalog check --strict` passes for both scopes.
+  - `CX-P1-02`'s `platform-adaptations.md` is ready for the owner's sign-off. Its 58 inventory cells wait for that sign-off.
+  - The iOS, Android and Windows test-host spikes (`CX-P1-04`/`05`/`06`) went back: none committed its workflow, because Codex followed the integrator's over-broad "no CI workflows" wording, now corrected in `codex-ui-lanes.md`. The reviewers also found that Android app mode cannot work with real adb and that the iOS spawn timeout leaks its child.
+  - The C2 schema commit (`CL-C-07`) started as a lane. D27 keeps Stage 24 commit 1b from running beside it; the C track is the longer path to the new-platform shells.
+- **Batch 24 (2026-10-04): UI operation map A.** `CX-UIA-03` classifies the 81 frozen operation ids of the application, window, view, container, handler, GPU-view, picker and GUI facade owners, plus the 15 pending `IApplication` factories; `GUI.rasterText` stays retired. With `CX-UIA-04` and `CX-UIA-30`, all 1,610 live operation slots and 470 case slots are now classified (macOS and Linux implemented-unverified pending the evidence follow-up; Windows, iOS and Android missing or unavailable). `CX-UIA-05` (the broader surface) and `CX-UIA-07` (the documentation reconcile) remain in Stage 30. Probing it found nine defects on `main`: eight incremental-build staleness cases (SB-D1…D8), which wait for the C4 landing because they touch the module-unit owners, and one btrcc miscompile (SB-D9: an unimported module's same-named global shadows a lambda capture), which `CL-REQ-05` fixes.
+  - The macOS run on `a6fec5e5` failed `test_host_gcc_agrees_on_its_own_target`: clang predefines `__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__` on Apple targets, and GCC never does. `bfa950e2` leaves that clang-only name out of the host-GCC comparison; CI, macOS and Windows passed on it.
+  - `CL-R-37` (BTRSmith `stage38/btrsmith-ci`, `6658536`) proved the Linux workflows: a warm run bills 50–57 minutes and a cold one about 250, and proving them cost about 1,041 Linux-equivalent minutes on the private repository. They are not green yet. Three product failures on BTRSmith's current tree (`PlayerAudioReconfiguration`, `sqlite_album_catalog`, a silent library smoke) belong to `CL-R-01`. The draft PR waits for those fixes, because every push to it would bill a failing run. The owner should check the plan's minutes against D26 before it opens.
+- **Batch 25 (2026-10-04): the C2 schema commit.** `stage17/c2-schema` (`CL-C-07`) is the one serial schema commit for C2 aggregates and the Stage 18 array dimensions. It adds the ASDL, `Node`, IR and grammar forms, and the shape invariant. Both parsers still refuse every new form, so no program's behaviour changes; the C2 lanes from `CL-C-08` turn them on.
+  - `sizeof(Node)` stays 760 bytes, and the self-host peak RSS moved by +0.007%.
+  - Two AST boundary records were re-captured, because `TypeExpr` now carries inner array extents and outer pointers for C2 and r17.
+  - `test_c2_ir_shape.py` (36 tests) pins the new IR shape. The designation constructor waits on the structure test's definition-only list for its first caller.
+  - The reviewers' two blocking findings were fixed before the merge: the Python GPU struct rule, and btrc's setjmp pointer flow through designations.
+  - One deviation from the spec: the record type rides on the field (`IRStructField.record_fields` / `recordFields`) instead of a record typed as `IRStructDef`, which would have made a retained-collaborator cycle. `c-compatibility.md` records it.
+  - Deferred to r17: the inner-extent differences between `strip_outer_storage` and `withoutOuterArray`, the compound-literal kind-range check, and the child-walk order.
+  - Gate: the lane ran the whole suite (python 5,941 passed, btrc 4,946 passed, corpus 1,970 passed), three zero-warning self-host entries and the bootstrap fixed point. Its CI run 37195841711 passed the full matrix on the same tree. The integrator re-ran codegen, lint, format, diff and boundary checks.
+  - Next: `CL-P1-04` (Stage 24 commit 1b) may now run beside `CL-C-08`, but never beside `CL-C-23`.
+- **Batch 26 (2026-10-04): the bucket-2 checkpoint script and the UI0 evidence.**
+  - Codex's `CX-C-01` (PR #26) adds `tools/bench/scripts/ccompat_checkpoint.sh`, the one command behind `MAC-C-02` and `MAC-C-09`. It builds both revisions, takes the alternating instruction samples and the quiet-gated budget runs, runs the batch gate, and publishes the BTRSmith pin only after a GREEN gate on a clean `main`. Every failure records RED. The fix round closed all ten earlier findings, and the reviewer and verifier found nothing blocking. Their minor notes all fail closed and go back to Codex as a follow-up.
+  - One finding is the plan's, not Codex's: BTRSmith pins btrc by commit inside its flake input URL, so a flake.lock-only bump can never move it. `CL-R-01` moves the input to a branch URL with the lock unchanged.
+  - UI0 evidence: Codex's token cannot download CI artifacts, so the integrator promoted the shared UI0 runs (CI 37171132726, macOS 37171133887, both on `1645699f`, 0 failures). 438 operation cells are now passed, 130 on Linux and 308 on macOS across both frontends; 382 are frozen and 56 pending. Every listed regression passed. The 142 case cells whose component tests passed stay partial on purpose, because the case shards record component coverage only. The 274 operation cells with no listed regression stay implemented-unverified.
+  - The run headers carry the workflows' creation times, which predate the source audits, so the loader now lets an observation supersede an inventory audit of the same `btrc_revision` regardless of clock order. Every other older-over-newer overwrite still fails.
+- **Batch 27 (2026-10-04): the Stage 26 design reviews (`CL-P2-01`, first round).** Two adversarial reviewers and one parity reviewer read each Codex design. A verifier then tried to refute every blocking finding. None of the three is approved yet; the findings are posted on the Codex PRs, and Codex revises each in a docs-only PR.
+  - `windows-os-services.md` (`CX-P2-01`, PR #37), 7 blocking findings:
+    - SDK-reader bindings inside btrcc's own import closure break the Windows btrcc build, and they add a second process-launch owner;
+    - first providers on IO, Process and FileSystem with only a Windows filter make those imports fail on iOS, Android and windows-aarch64-msvc;
+    - nothing can link `ole32` or `bcrypt`;
+    - the 128-bit Windows file identity does not fit the 64-bit device/inode carrier that the traversal and lock checks rely on;
+    - the named-pipe endpoint and identity protocol is unspecified;
+    - executable resolution is unspecified, so `CreateProcessW`'s search order and its implicit `cmd.exe` reopen shell injection;
+    - a tag-blind reparse refusal breaks ordinary Windows 11 folders, and `:` can select an alternate data stream.
+  - `http-transport.md` (`CX-P2-02`, PR #39), 5 blocking findings:
+    - loading HTTPClient pulls in a native transport, which breaks the HTTP corpus and `test-c11`;
+    - redirect and credential origin checks run in portable code that has no URL parser;
+    - `HTTPServer.start` has no channel for the diagnostics the design requires;
+    - there is no client request-header policy;
+    - the Windows test-CA fixture cannot run unattended on a hosted runner.
+  - `mobile-storage.md` (`CX-P2-03`, PR #36), 1 blocking finding: appending to `FileSystemErrorKind`, or a mobile branch in the root resolver, changes btrcc's own C on every host. The design routes that to a Codex packet under a gate weaker than WORKSTREAMS §3.4.
+  - The reviews list 19, 12 and 13 requests to Claude (link plans, launch seam, harness changes, the URL parser and others). They become scope for `CL-P2-02`, `03`, `04` and `14` when the designs are approved.
+  - Assumed adaptation defaults are listed on each PR, because the owner's sign-off on `platform-adaptations.md` is still pending.
+- **Batch 28 (2026-10-04): the UI catalog in the qualification report.** `stage30/ui0-report` finishes `CL-UIA-24` step 4 and `CL-UIA-05` step 5.
+  - The 2026-09-21 family-cell release now reads its ids from `native-ui-catalog/families.toml`, with the same 60 ids and the same digest (132b05e6…), which the reviewer recomputed.
+  - `make qualification-report` renders a UI catalog section from the catalog's own counts: per kind the frozen, pending and retired partitions, classified slots and evidence statuses per platform and frontend, retired operations, and surface rows. With the catalog present, the UI denominators are counted once, by the catalog.
+  - The reviewer and the verifier found nothing blocking. The integrator fixed two minor defects they found, each with a test that fails without the fix: a custom `--denominators` manifest's UI releases were silently dropped, and a malformed stdlib package manifest ended in a traceback instead of exit 2.
+  - Behaviour change: with no skip reports, `make qualification-report` now exits 0 and renders the catalog section; before, it exited 2 with "nothing to report".
+  - A planning note for a second family-cell release: families.toml is now both the base release's source and the only classification shard, so the base must be re-pointed to a `{list}` first.
+  - `CL-P1-07` (the hosted-platform extractor) went back to its lane. Its conservative windows-aarch64-msvc table kept MinGW-only POSIX macros and `struct timezone` available, which breaks §2.3's "only refuse too much" rule. The integrator also decided:
+    - stdlib-declared names such as `environ` count as declared wherever the libc exports them;
+    - the Linux rows use zig's default glibc floor, not the host's;
+    - struct members count as declared.
+  - Codex's repaired accessibility prototype (`CX-UIB-07`) got its one native macOS run: 37217909473.
+- **Batch 29 (2026-10-04): Stage 24 commit 1b, one target owner per compiler.** `stage24/target-owner` (`CL-P1-04`) adds `TargetRepository` in Python and `FePackageTarget` in btrc, both over the generated target rows.
+  - Both compilers accept the same 30 spellings (11 labels plus the `x64`/`arm64` and `-gnu` aliases) and reject everything else with the same §1.5 message, at the same point: arguments, then target, then input.
+  - Host inference returns only compiler-host rows. `--target ""` and a repeated `--target` are errors. Release names come from the compiler-host rows, which adds `windows-arm64`. btrcc keys its caches by the canonical label, so old entries go unused but are never misread.
+  - `architectureAliases()` and `defaultEnvironments()` now have callers.
+  - CI, macOS and Windows passed on the lane head, and the lane ran the bootstrap and three zero-warning self-host transpiles. Two reviewers and a verifier found nothing blocking.
+  - Deferred to `CL-P1-05`, whose packet now owns it: both compilers still choose macro rows by operating system and architecture only. So the three newly accepted non-host rows get wrong `#if` values:
+    - `ios-aarch64` gets `TARGET_OS_EMBEDDED=0` and `__APPLE_EMBEDDED_SIMULATOR__`;
+    - `ios-aarch64-simulator` gets `TARGET_OS_SIMULATOR=0`;
+    - `windows-aarch64-msvc` gets the MinGW macros.
+
+    Nothing reaches this today. No source branches on those macros, and nothing selects those rows by default. 1c must land before the sub-batch 1 gate.
+  - The integrator corrected the targets.toml comment to name 1c and updated three docs that still said `--target OS-ARCH`. Minor follow-ups are listed in the review:
+    - the help text hard-codes the alias list;
+    - btrc hard-codes the predicate vocabulary;
+    - a non-UTF-8 `--target` gives a Python traceback;
+    - argparse accepts `--target=X` where btrcc does not;
+    - link plans drop the environment until schema 5.
+  - `btrc-format` no longer removes the space after `;` when a `for` clause opens with `(`. BTRSmith's lane reported it.
+  - BTRSmith (`CL-R-01`, `stage4/pin-bump` `8204b8a`):
+    - The three Linux failures were out-of-date tests and a make recipe that hid the binary's exit status; none was a btrc defect.
+    - Two flaky harness tests were also fixed: ToneRealtimeProcessor, and the AsyncLibraryScanReconfiguration cancel race.
+    - The btrc input now follows a branch URL with the lock unchanged.
+    - Only the 10 remaining qualifying-column tests stay red on Linux, plus `NativeAudioSessionOwner`, which needs a real audio device.
+    - `CL-UIA-03`: 3,479 BTRSmith call sites map to the catalog with 0 unmapped; all 115 GUI operations and 38 cases are classified.
+    - The BTRSmith CI pull request (`CL-R-37`) still waits: the qualifying-column tests keep its runs red, and every run bills minutes.
+- **Batch 30 (2026-10-04): the native-shell fixture and the rest of the focused GUI gate.** Two Codex code PRs passed a reviewer and an adversarial verifier with no blocking finding.
+  - `CX-UIA-09` (PR #40), the UI1 shell fixture: one portable `NativeShell.btrc` scene drives a window, a field, a button, a scroll view of 50 labels and a GPU view through 100 open and close cycles and 100 fresh-process restores. Probes count the provider-created objects, which must reach zero on every cycle.
+    - On macOS, an AppKit probe tracks provider objects separately from AppKit-private views, and four AX/wheel A/B processes must also pass.
+    - On Linux, an SDL probe runs under X11.
+    - The Windows row asserts the exact "no provider" message.
+    - CI, macOS (native-gui 252 passed, all four macOS shell rows run) and Windows were green on head `517032a`.
+    - Wayland: 8 of 9 passed. Restore 56 timed out inside libdecor's GTK plugin. That case and the X11 BadWindow race go to `CX-UIA-11`.
+    - The four macOS shell rows add time to the macOS unit shard.
+  - `CX-UIA-01` (PR #33), the rest of the UI0 focused gate: the agent runbook, `tools/ui/codex-setup.sh`, and a coverage test that every native GUI test is in `NATIVE_GUI_TESTS`. It passes with #40's new shell tests on the merged tree.
+  - Locally, the skip-ledger tests fail when `TMPDIR` lies inside the checkout, because their node ids become repository-relative. The batch gates now keep `TMPDIR` under `~/.cache`.
+- **Batch 31 (2026-10-04): the hosted-platform extractor, and the first approved Stage 26 design.**
+  - `CL-P1-07` (`stage24/hosted-platform-extractor`) adds `tools/hosted_platform.py` (`HostedPlatformExtractor`) and its test. It produces the seven Linux, MinGW and NDK unavailability fragments that `CL-P1-08` copies into `hosted_abi.toml`. They are on the never-merge branch `stage24/hosted-platform-fragments` (`1020307`).
+  - Two review rounds sent it back:
+    - **Round 1.** The conservative `windows-aarch64-msvc` table kept MinGW-only POSIX macros and `struct timezone` available.
+    - **Round 2.** It also kept the dllimport objects `daylight` and `tzname`, and the Apple text dump missed inherited availability.
+  - The final rule keeps a name on the MSVC row only if ISO C11 declares it in a UCRT-shared header, or the Windows API declares it as the same kind. Over-refusal is allowed until the runner extraction. A verifier mutation-tested both fixes.
+  - Integrator decisions:
+    - `environ` counts as declared through the stdlib's own `extern` on every row but MSVC;
+    - the Linux rows use zig's default glibc floor (2.31);
+    - struct members count as declared;
+    - a name is refused only if every declaration is unavailable.
+  - Integrator corrections to `platform-target-contract.md` §2.2, §2.3 and §2.5 and to the `CL-P1-07`/`08` packets:
+    - bionic r29 has no `explicit_bzero` at any API level;
+    - it declares the C11 `<threads.h>` names at API 29 as static inlines;
+    - the probe and the declared rule are written down;
+    - `CL-P1-08` gains the MSVC must-refuse names and `environ`.
+  - Hand-off to `CL-P1-08`: the ISO set comes from the host's libc, so the extractor must run on a Linux host. A Darwin host would reopen the leak. Run the ISO probe through zig with a fixed Linux target, or refuse a non-Linux host, before anyone reruns it.
+  - `CL-P2-01` round 2 reviewed Codex's three revisions at `854f33f`, `3d962e0` and `eb8a6e9` with a resolution check, a fresh adversarial review and a verifier:
+    - `mobile-storage.md` (`CX-P2-03`, PR #50): approved under the standing design-approval rule and merged in this batch. The round-1 blocker is resolved: btrcc-C-changing pieces now go to Claude landings under the full §3.4 gate. Its 11 non-blocking items and 10 requests to Claude are on the PR; the requests become scope for `CL-P2-14` and the storage landing. It assumes adaptation defaults that wait for the owner's sign-off on `platform-adaptations.md`.
+    - `windows-os-services.md` (`CX-P2-01`, PR #52): all seven round-1 blockers are resolved:
+      - the btrcc import closure reads no headers;
+      - an 11-row provider matrix;
+      - a system-library request;
+      - a 192-bit file identity;
+      - the named-pipe protocol;
+      - executable resolution that refuses batch files;
+      - the reparse grammar.
+
+      One new blocker remains: the Daemon supervisor executable has no build, bundle or trusted-location mechanism.
+    - `http-transport.md` (`CX-P2-02`, PR #51): all five round-1 blockers are resolved. Two new blockers:
+      - the frozen client validation lets providers send different requests, and Android silently turns a GET with a body into a POST;
+      - the Windows row cancels synchronous WinHTTP requests with `WinHttpCloseHandle`, which Microsoft forbids.
+- **Batch 32 (2026-10-04): the UI evidence host map and the 100,000-record fixture.** Two Codex code PRs passed a reviewer and an adversarial verifier with no blocking finding.
+  - `CX-UIA-06` (PR #49) adds `native-ui-catalog/hosts.toml` (schema `btrc.ui-hosts/1`), its validator test, and `tools/ui/linux-desktop-check.sh`. The routes map each platform's UI evidence to a hosted runner, an owner device or a stand-in.
+    - The data is correct today, but the validator can be fooled. It accepts a physical Windows route pointed at the owner's Mac, because runner and `device_id` are not tied to the platform and the stand-in check trusts the route's own `kind`.
+    - Codex's follow-up must tie them together, and fix three more problems:
+      - the Android owner-emulator and GitHub iOS simulator blockers are wrong;
+      - the runner ids differ from the qualification ledger's (`github-linux` against `linux-devcontainer`);
+      - recording `MAC-UIA-01` will need a probe field.
+  - `CX-UIB-08` (PR #48) adds `CollectionRecords.btrc`: a deterministic 100,000-record generator with a frozen digest (3,974,541 bytes, `37f91c9b…`), checked through both compilers.
+    - After the edit schedule, 989 sort keys repeat. Titles have only 8 distinct strings.
+    - `CX-UIB-28` must pick a tie-break, or richer titles, before it consumes the digest.
+  - `CX-P1-03` (PR #53, the Windows ARM64 lane) went back to Codex:
+    - its workflow is missing, so none of its five acceptance items is met;
+    - every native path depends on unintegrated PR #43;
+    - its VsDevCmd capture quotes `cmd.exe` arguments wrongly and fails on a real runner.
+- **Batch 33 (2026-10-05): the C2 shared owners.** `CL-C-08` (`stage17/c2-shared-owners`) lands the one commit every C2 construct lane builds on. Two review rounds sent it back. The first added the union zero-fill guard, the divergence record and stricter contract scans. The second, test-only, closed the last gap in the record scan.
+  - **Record members.** `TypeSystem` and `SemanticTypeSystem` own every read of a record's members: its declarators, its direct members, its named members flattened through anonymous members with their member paths, and its fields. 33 btrc and 21 Python struct-field walks, the LSP's `symbols.py` among them, now go through the owner. `test_record_member_owner_contract.py` scans both compilers for raw member-list reads. The Python scan trusts no receiver name. A subscript, a slice or an `in` test counts, because a `StructDecl`'s list supports all three. Only `.get/.items/.keys/.values` reads, which a list lacks, are exempt, and every other read is listed with its reason and count.
+  - **Initializer slots.** `plan_initializer_slots`/`planInitializerSlots` maps each brace element to a member path: positional order, a union's first member, an anonymous member as one braced slot, and designator chains. The analyzers record the plan; every reader goes through the owner, which re-plans identically what validation never saw (generic bodies, replayed module units). Static zero-fill moved into the owners and pads no union member. `test_initializer_slot_owner_contract.py` rejects a method that pairs elements with members outside the owner, including through a returned list or a slice.
+  - **Integer constants.** Both compilers already answered "not a constant", "a constant btrc cannot evaluate" or a value. The Python evaluator now follows btrc's `long long` rule for overflow, shifts and casts. `test_integer_constant_query_parity.py` checks 37 probes. It pins five known divergences (`errno`, a lowercase source macro, `(Color)1`, `7 / 0` in a case label, `enum Other { X = RED }`), plus two Linux-only ones from btrc reading float literals with `strtold`. `CL-REQ-09` removes the two Linux-only ones.
+  - **Evidence.**
+    - No accepted program changes: a verifier found byte-identical C for 262 struct-heavy corpus programs through both compilers.
+    - CI 37243013814 green on `55f9fa5`. One `c11-clang-O2` runner was lost before any test ran and was re-run once.
+    - Bootstrap fixed point; zero-warning transpiles of all three entries.
+    - The lane ran the corpus through both compilers: 1,970 passed.
+    - The integrator re-ran lint, format, the codegen and boundary checks, the transpiles and the contract tests on the merged tree: 352 passed.
+    - Peak RSS of btrcc compiling itself: 2,556,668 → 2,562,752 KiB (+0.24%, inside the 0.3% gate). The verifier traced the growth to about 260 more lines of compiled input, not to the recorded plans: btrc's own sources declare no struct.
+  - **Hand-offs:**
+    - r10 owns the C11 6.7.9p17 continuation rule and the constant query for designated index steps;
+    - r08 and r10 must handle `AnonymousMember` where Python reads `member.type` (`collections.py` `plan_brace`/`plan_static`, `aggregates.py`, `classes.py`, btrc `staticInitializerPadding`);
+    - plans retain their record and initializer, and the per-element plan lookup is O(n²), for later performance work;
+    - folding object-like source macros was not done.
+  - The LSP test `test_server_hardening.py::test_uncached_feature_compute_serializes_with_validation` fails intermittently on this commit and on its parent. It is not this change.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.

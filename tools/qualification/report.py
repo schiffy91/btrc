@@ -22,6 +22,13 @@ An inventory slot that names its regression tests takes its current evidence
 from them: the latest result of each test on the slot's platform family,
 preferring a run through the slot's own frontend. Hand-entered evidence that
 says otherwise is counted as *disagrees*.
+
+Given the UI catalog (`UICatalog`, the seed ledger and its shards), the report
+adds its section: per UI kind the frozen, pending and retired partitions;
+classified, unclassified and retired slots and evidence statuses per
+partition, kind, platform and frontend; the retired operations with their
+decisions; and the surface rows. The catalog's own merge and counting produce
+every number, and its problems are the report's problems.
 """
 
 from __future__ import annotations
@@ -30,7 +37,7 @@ import json
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tools.qualification.denominators import DenominatorManifest
 from tools.qualification.schema import (
@@ -49,6 +56,10 @@ from tools.qualification.schema import (
     SubjectKind,
 )
 from tools.qualification.statistics import SampleStatistics
+
+if TYPE_CHECKING:
+    # ui_catalog imports this module, so the catalog type is named for annotations only.
+    from tools.qualification.ui_catalog import UICatalog
 
 _FAILED = frozenset({"failed", "error"})
 type SlotKey = tuple[str, str, str, str, str]
@@ -196,9 +207,22 @@ class QualificationReport:
     )
     GROUP = ("kind", "platform", "frontend", "variant")
 
-    def __init__(self, records: Iterable[LedgerRecord], denominators: DenominatorManifest | None = None) -> None:
+    def __init__(
+        self,
+        records: Iterable[LedgerRecord],
+        denominators: DenominatorManifest | None = None,
+        ui_catalog: UICatalog | None = None,
+    ) -> None:
         self.rollup = LedgerRollup(records)
+        if ui_catalog is not None and denominators is not None:
+            # The catalog counts the UI releases against its own merged records, so the ledger is
+            # not also counted against them: its UI slots live in the catalog, not in these records.
+            covered = set(ui_catalog.manifest.kinds())
+            denominators = DenominatorManifest(
+                [denominator for denominator in denominators.denominators if denominator.kind not in covered]
+            )
         self.denominators = denominators
+        self.ui_catalog = UICatalogSection(ui_catalog) if ui_catalog is not None else None
         # Tables gain a retired column only when the ledger retires a slot, so a ledger without
         # retirements reports exactly as before the disposition existed.
         self.retires = any(state.retired for state in self.rollup.slots.values())
@@ -454,9 +478,12 @@ class QualificationReport:
             state.subject.kind.value for state in self.rollup.slots.values() if state.retired and state.current
         )
         problems += [f"{kind}: {count} retired slots carry evidence" for kind, count in sorted(retired.items())]
+        if self.ui_catalog is not None:
+            problems += [f"ui catalog: {problem}" for problem in self.ui_catalog.problems()]
         return problems
 
     def to_json(self) -> dict[str, Any]:
+        catalog = {"ui_catalog": self.ui_catalog.to_json()} if self.ui_catalog is not None else {}
         return {
             "records": len(self.rollup.records),
             "slots": len(self.rollup.slots),
@@ -469,6 +496,7 @@ class QualificationReport:
             "measurements": self.measurement_rows(),
             "unavailable": self.unavailable_rows(),
             "provenance": self.provenance_rows(),
+            **catalog,
             "problems": self.problems(),
         }
 
@@ -536,9 +564,63 @@ class QualificationReport:
         if provenance:
             rows = [{"host": f"P{index}", **mapping} for index, mapping in enumerate(provenance, start=1)]
             lines += ["", "## Provenance", "", *self._table(("host", *Provenance.FIELDS), rows)]
+        if self.ui_catalog is not None:
+            lines += self._ui_catalog_markdown(self.ui_catalog)
         if problems := self.problems():
             lines += ["", "## Problems", "", *(f"- {problem}" for problem in problems)]
         return "\n".join(lines) + "\n"
+
+    def _ui_catalog_markdown(self, section: UICatalogSection) -> list[str]:
+        partitions = section.partition_rows()
+        totals = {name: sum(row[f"{name}_slots"] for row in partitions) for name in section.PARTITIONS}
+        partition_columns = tuple(f"{name}_{unit}" for name in section.PARTITIONS for unit in ("ids", "slots"))
+        statuses = tuple(status.value for status in section.STATUSES)
+        lines = [
+            "",
+            "## UI catalog",
+            "",
+            f"The UI0 seed ledger and its shards: {totals['frozen']} frozen and {totals['pending']} pending "
+            f"slots, {totals['retired']} of them retired. Frozen slots are the releases in force; pending slots "
+            "are admitted operations no release declares yet; a retired slot keeps its partition and resolves by "
+            "its decision.",
+            "",
+            "### Partitions",
+            "",
+            *self._table(("kind", *partition_columns), partitions),
+            "",
+            "### Classification",
+            "",
+            *self._table(
+                (*section.GROUP, "slots", "classified", "unclassified", "retired"), section.classification_rows()
+            ),
+            "",
+            "### Evidence status",
+            "",
+            *self._table((*section.GROUP, "slots", *statuses, "unrecorded"), section.evidence_rows()),
+        ]
+        if retired := section.summary["retired"]:
+            lines += ["", "### Retired operations", "", *self._table(("id", "decision"), retired)]
+        surface = section.surface_rows()
+        unclassified = section.summary["unclassified_surface"]
+        exported = len(section.catalog.surface_exports())
+        lines += [
+            "",
+            "### Surface",
+            "",
+            f"{len(surface)} surface rows; {len(unclassified)} of {exported} exported symbols have no row.",
+        ]
+        if surface:
+            rows = [
+                {**row, "operations": ", ".join(row["operations"]), "links": ", ".join(row["links"])} for row in surface
+            ]
+            columns = ("module", "symbol", "kind", "disposition", "operations", "links", "reason")
+            lines += ["", *self._table(columns, rows)]
+        if unclassified:
+            packages = Counter(name.split(".")[0] for name in unclassified)
+            rows = [{"package": package, "symbols": count} for package, count in sorted(packages.items())]
+            lines += ["", "Exported symbols without a surface row, per package:", ""]
+            lines += self._table(("package", "symbols"), rows)
+        return lines
 
     @staticmethod
     def _number(value: float | None) -> str:
@@ -555,5 +637,85 @@ class QualificationReport:
             return text.replace("|", "\\|")
 
         header = "| " + " | ".join(column.replace("_", " ") for column in columns) + " |"
-        rule = "|" + "|".join("---:" if all(isinstance(row.get(c), int) for row in rows) else "---" for c in columns)
+        numeric = [c for c in columns if rows and all(isinstance(row.get(c), int) for row in rows)]
+        rule = "|" + "|".join("---:" if c in numeric else "---" for c in columns)
         return [header, rule + "|", *("| " + " | ".join(cell(row.get(c)) for c in columns) + " |" for row in rows)]
+
+
+class UICatalogSection:
+    """The UI catalog's rows of the report, read from the catalog's own partitions and counts."""
+
+    PARTITIONS = ("frozen", "pending", "retired")
+    STATUSES = QualificationReport.STATUSES
+    GROUP = ("partition", "kind", "platform", "frontend")
+
+    def __init__(self, catalog: UICatalog) -> None:
+        self.catalog = catalog
+        self.summary = catalog.report()
+
+    def partition_rows(self) -> list[dict[str, Any]]:
+        """Each UI kind's frozen, pending and retired ids and slots."""
+
+        rows = []
+        for kind in (SubjectKind.UI_OPERATION, SubjectKind.UI_CASE, SubjectKind.FAMILY_CELL):
+            partitions = self.catalog.partitions(kind=kind)
+            row: dict[str, Any] = {"kind": kind.value}
+            for name in self.PARTITIONS:
+                size = self.catalog.partition_size(partitions[name])
+                row[f"{name}_ids"], row[f"{name}_slots"] = size["ids"], size["slots"]
+            rows.append(row)
+        return rows
+
+    def _group(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {name: row[name] or None for name in self.GROUP}
+
+    def classification_rows(self) -> list[dict[str, Any]]:
+        """Classified, unclassified and retired slots per partition, kind, platform and frontend."""
+
+        return [
+            {
+                **self._group(row),
+                "slots": row["slots"],
+                **{name: row.get(name, 0) for name in ("classified", "unclassified", "retired")},
+            }
+            for row in self.summary["counts"]
+        ]
+
+    def evidence_rows(self) -> list[dict[str, Any]]:
+        """Evidence statuses per partition, kind, platform and frontend; a live slot without one is unrecorded."""
+
+        rows = []
+        for row in self.summary["counts"]:
+            statuses = {status.value: row.get(f"evidence:{status.value}", 0) for status in self.STATUSES}
+            unrecorded = row["slots"] - sum(statuses.values()) - row.get("retired", 0)
+            rows.append({**self._group(row), "slots": row["slots"], **statuses, "unrecorded": unrecorded})
+        return rows
+
+    def surface_rows(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "module": row["module"],
+                "symbol": row["symbol"],
+                "kind": row["kind"],
+                "disposition": row["disposition"],
+                "operations": list(row.get("operations", [])),
+                "links": list(row.get("links", [])),
+                "reason": row.get("reason"),
+            }
+            for row in self.summary["surface"]
+        ]
+
+    def problems(self) -> list[str]:
+        return list(self.summary["problems"])
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "partitions": self.partition_rows(),
+            "classification": self.classification_rows(),
+            "evidence": self.evidence_rows(),
+            "retired": self.summary["retired"],
+            "surface": self.surface_rows(),
+            "exported_symbols": len(self.catalog.surface_exports()),
+            "unclassified_surface": self.summary["unclassified_surface"],
+            "problems": self.problems(),
+        }

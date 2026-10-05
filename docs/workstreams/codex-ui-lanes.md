@@ -6,6 +6,13 @@ D27 and WORKSTREAMS.md §2–§3. Where it and `docs/workstreams/codex.md` disag
 it into codex.md. Claude rewrites it whenever the lanes change; read the version on `origin/main` before each new
 packet.
 
+## Corrections (2026-10-04)
+
+- **Lane workflows are yours.** The goal text the owner pasted said never to edit "CI-workflow files". That was the integrator's wording, and it was too broad. Only `.github/workflows/{ci,macos,windows,release}.yml` are Claude's. A packet's own lane workflow (`host-android.yml`, `host-ios.yml`, `host-windows.yml`, `windows-arm64.yml`, …) is that packet's owned path. Commit it in the lane-workflow class (CI policy, item 8). If the token lacks the `workflows` permission, commit it as `ci/proposed/<name>.yml` instead, and Claude installs and dispatches it.
+- **Evidence artifacts.** Codex's token gets HTTP 403 on `gh run download` for the shared UI0 runs. Claude can download them. Until the token can, leave cells implemented-unverified and say so in the PR, as `CX-UIA-03`, `04` and `30` did. Claude promotes the evidence in a follow-up. If your environment can read artifacts, cite the `[runs.ui0-*]` headers in the cells. The first promotion landed on `main` 2b33cdaa (`evidence/ui0-junit-2026-10-04.toml`, 438 operation cells).
+- **Three Stage 26 designs returned (2026-10-04).** `CL-P2-01` reviewed `windows-os-services.md` (`CX-P2-01`), `http-transport.md` (`CX-P2-02`) and `mobile-storage.md` (`CX-P2-03`). All three need a revision: 7, 5 and 1 blocking findings. The findings, resolutions, assumed adaptation defaults and the requests to Claude are posted on PRs #37, #39 and #36. Revise each design in a new docs-only PR (`codex/cx-p2-0N-r2`). The docs tier is uncapped. These revisions come before any `CX-P2-04…16` provider code, which waits for the approval.
+- **`CX-C-01` follow-up.** PR #26 is integrated. Its five minor follow-ups, posted on the PR, go in one small PR.
+
 ## Where each platform stands
 
 Only UI0's serial foundation has landed: PR #21's catalog seed and drift gate (`b7aa53f`, batch 11), the focused
@@ -85,6 +92,7 @@ the seed ledger) before `CX-UIA-05` integrates; and reviews the drafts that gate
    - **When it rises:** Claude raises the cap to two once CL-R-50 (path-selective lane tier) lands and the first lane run's runner-minutes are recorded.
 3. **Before every push:**
    - the packet's acceptance commands pass locally;
+   - for any branch that adds or changes Python, shell or btrc files: the whole unit shard passes locally (`nix develop --command make NIX= test-unit`), not only your new tests. Three of the first ten Codex code pushes went red on `test_subprocess_timeouts.py` alone: every waited `subprocess` call in `src/tests/**` and `tools/bench/**` passes `timeout=` (use `src/tests/process_limits.py`). A macOS-facing change also needs the macOS `native-gui` job green before hand-back, and if a fixture cannot pass there, say so instead of handing back;
    - `git diff --name-only origin/main...HEAD` lists only owned paths (plus any `fragment:`/`derived:` commits). A stacked packet diffs against its base branch instead.
 4. **Push budget: at most four pushes per packet.** That is the claim, the final commit and two fixes.
    - Claim with your first real commit.

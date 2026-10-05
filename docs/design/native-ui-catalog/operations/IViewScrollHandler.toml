@@ -1,0 +1,65 @@
+# CX-UIA-03: source classification and assertion map; execution evidence is separate.
+# Missing providers stay missing on both frontends; candidate regression IDs are not passes.
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-03-source]
+source = "inventory"
+recorded_at = "2026-10-04T02:43:34Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "linux-devcontainer"
+
+[runs.ui0-linux-37171132726]
+source = "junit"
+recorded_at = "2026-10-04T02:27:55Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-linux"
+
+[runs.ui0-macos-37171133887]
+source = "junit"
+recorded_at = "2026-10-04T02:27:57Z"
+btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
+runner = "github-macos"
+
+[[operations]]
+id = "IViewScrollHandler.scroll"
+owner = "IViewScrollHandler"
+implementation = "implemented"
+links = ["N08", "N26", "UI3"]
+[operations.macos.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[reference-False]", "src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[reference-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSViewInput.btrc; operation IViewScrollHandler.scroll. Assertion candidate in src/tests/native/gui/NativePointer.btrc: assert(event.phase == APP_SCROLL_CHANGED && event.momentumPhase == APP_SCROLL_BEGAN); Also asserts logical coordinates, precise deltaX/deltaY, shift modifier and callback count for view and panel. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.macos.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+regression = ["src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[selfhost-False]", "src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[selfhost-True]"]
+note = "Source: src/stdlib/GUI/MacOS/MacOSViewInput.btrc; operation IViewScrollHandler.scroll. Assertion candidate in src/tests/native/gui/NativePointer.btrc: assert(event.phase == APP_SCROLL_CHANGED && event.momentumPhase == APP_SCROLL_BEGAN); Also asserts logical coordinates, precise deltaX/deltaY, shift modifier and callback count for view and panel. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+[operations.linux.reference]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "partial"
+note = "Source: src/stdlib/GUI/Linux/LinuxView.btrc; operation IViewScrollHandler.scroll. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. LinuxWindow dispatchWheel constructs precise=false and phase/momentumPhase=APP_SCROLL_NONE; built-in scrolling is not an assertion of the public callback."
+[operations.linux.selfhost]
+run = "cx-uia-03-source"
+evidence = { status = "implemented-unverified" }
+implementation = "partial"
+note = "Source: src/stdlib/GUI/Linux/LinuxView.btrc; operation IViewScrollHandler.scroll. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. LinuxWindow dispatchWheel constructs precise=false and phase/momentumPhase=APP_SCROLL_NONE; built-in scrolling is not an assertion of the public callback."
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.android]
+implementation = "missing"
+parity = "missing"
+run = "cx-uia-03-source"
+evidence = { status = "unavailable", covered_by = [] }
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."

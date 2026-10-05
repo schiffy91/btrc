@@ -828,7 +828,7 @@ class ExpressionAnalyzer:
         if name in seen:
             return False
         seen.add(name)
-        for field in declaration.fields:
+        for field in self.types.record_fields(declaration):
             field_type = self.types.canonical_type(field.type)
             if field_type is None:
                 continue
@@ -1498,7 +1498,8 @@ class ExpressionAnalyzer:
             struct_name = obj_type.base.removeprefix("struct ")
             struct_decl = self.index.struct_table.get(struct_name)
             if struct_decl:
-                field_type = next((field.type for field in struct_decl.fields if field.name == expr.field), None)
+                member = self.types.record_member(struct_decl, expr.field)
+                field_type = member.type if member is not None else None
                 return self._const_member_type(obj_type, field_type)
         return None
 
@@ -1514,15 +1515,26 @@ class ExpressionAnalyzer:
             return replace(field_type, is_const=True)
         return field_type
 
+    # Every evaluated integer constant is a C ``long long``, as in btrc's
+    # ConstantValidator: an operation whose result leaves that range is not a
+    # constant expression, and a value only an unsigned type can hold is a
+    # constant btrc cannot evaluate.
+    _LLONG_MIN = -(1 << 63)
+    _LLONG_MAX = (1 << 63) - 1
+
     def integer_constant_expression(
         self, expression, *, enum_owner=None, allowed_enum_members=()
     ) -> tuple[bool, int | None]:
+        """The one integer-constant query, with three answers: ``(False, None)``
+        for an expression that is not an integer constant expression, ``(True,
+        None)`` for a constant btrc cannot evaluate (``sizeof``, a C macro, a
+        value beyond ``long long``), and ``(True, value)``."""
         allowed = frozenset(allowed_enum_members)
         return self._integer_constant_node(expression, enum_owner, allowed)
 
     def _integer_constant_node(self, expression, enum_owner, allowed):
         if isinstance(expression, IntLiteral):
-            return (True, expression.value)
+            return (True, expression.value if expression.value <= self._LLONG_MAX else None)
         if isinstance(expression, BoolLiteral):
             return (True, int(expression.value))
         if isinstance(expression, CharLiteral):
@@ -1550,16 +1562,16 @@ class ExpressionAnalyzer:
             if target is None:
                 return (False, None)
             if isinstance(expression.expr, FloatLiteral):
-                return (True, self.types.convert_integral_literal(expression.expr.value, target.base))
+                return self._converted_constant(expression.expr.value, target.base)
             valid, value = self._integer_constant_node(expression.expr, enum_owner, allowed)
             if not valid or value is None:
                 return (valid, value)
-            return (True, self.types.convert_integral_literal(value, target.base))
+            return self._converted_constant(value, target.base)
         if isinstance(expression, UnaryExpr) and expression.op in {"+", "-", "~", "!"}:
             valid, value = self._integer_constant_node(expression.operand, enum_owner, allowed)
             if not valid or value is None:
                 return (valid, None)
-            return (True, self._apply_constant_unary(expression.op, value))
+            return self._apply_constant_unary(expression.op, value)
         if isinstance(expression, BinaryExpr):
             if expression.op not in {
                 "+",
@@ -1665,22 +1677,42 @@ class ExpressionAnalyzer:
     def _character_constant_value(self, raw):
         return LiteralDecoder.decode_character(raw)
 
-    @staticmethod
-    def _apply_constant_unary(operator, value):
-        return {"+": lambda: value, "-": lambda: -value, "~": lambda: ~value, "!": lambda: int(not value)}[operator]()
+    def _converted_constant(self, value, target_base):
+        """Convert a constant as a cast does: a value outside a known target
+        range is not a constant, and one beyond ``long long`` (or a target
+        without known bounds) cannot be evaluated."""
+        converted = self.types.convert_integral_literal(value, target_base)
+        if converted is None:
+            return (not self.types.has_integral_range(target_base), None)
+        if not self._LLONG_MIN <= converted <= self._LLONG_MAX:
+            return (True, None)
+        return (True, converted)
 
-    @staticmethod
-    def _apply_constant_binary(operator, left, right):
-        if operator in {"/", "%"} and right == 0:
+    @classmethod
+    def _apply_constant_unary(cls, operator, value):
+        if operator == "-" and value == cls._LLONG_MIN:
+            return (False, None)
+        return (
+            True,
+            {"+": lambda: value, "-": lambda: -value, "~": lambda: ~value, "!": lambda: int(not value)}[operator](),
+        )
+
+    @classmethod
+    def _apply_constant_binary(cls, operator, left, right):
+        if operator in {"/", "%"} and (right == 0 or (left == cls._LLONG_MIN and right == -1)):
             return (False, None)
         if operator in {"<<", ">>"} and (not 0 <= right < 64):
             return (False, None)
+        if operator == "<<" and (left < 0 or left > cls._LLONG_MAX >> right):
+            return (False, None)
+        if operator == ">>" and left < 0:
+            return (True, None)
         if operator == "/":
             quotient = abs(left) // abs(right)
             value = -quotient if (left < 0) != (right < 0) else quotient
             return (True, value)
         if operator == "%":
-            _, quotient = ExpressionAnalyzer._apply_constant_binary("/", left, right)
+            _, quotient = cls._apply_constant_binary("/", left, right)
             return (True, left - quotient * right)
         operations = {
             "+": lambda: left + right,
@@ -1701,9 +1733,12 @@ class ExpressionAnalyzer:
             "||": lambda: int(bool(left) or bool(right)),
         }
         try:
-            return (True, operations[operator]())
+            value = operations[operator]()
         except (KeyError, OverflowError):
             return (False, None)
+        if not cls._LLONG_MIN <= value <= cls._LLONG_MAX:
+            return (False, None)
+        return (True, value)
 
     @staticmethod
     def _is_optional_value_expression(expression) -> bool:

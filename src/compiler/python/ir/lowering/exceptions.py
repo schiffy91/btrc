@@ -22,6 +22,7 @@ from src.compiler.python.ir.nodes import (
     IRCommaExpr,
     IRCompoundLiteral,
     IRDeref,
+    IRDesignation,
     IRDoWhile,
     IRExpr,
     IRExprStmt,
@@ -339,7 +340,9 @@ class _MutationCollector:
                 child = getattr(value, field.name)
                 items = child if isinstance(child, (list, tuple)) else (child,)
                 for item in items:
-                    self._expression(item, bound)
+                    # IRCompoundLiteral entries are (name, value) pairs.
+                    for element in item if isinstance(item, tuple) else (item,):
+                        self._expression(element, bound)
 
     def _declaration(self, declaration, bound) -> None:
         self._expression(declaration.array_size, bound)
@@ -628,6 +631,11 @@ class PointerFlow:
             _, current = self._expression(value.obj, state)
             _, current = self._expression(value.index, current)
             return (self.result.record_origins(value, ()), current)
+        if isinstance(value, IRDesignation):
+            # A designator's index is a folded literal; the value carries the origins.
+            _, current = self._expression(value.index, state)
+            origins, current = self._expression(value.value, current)
+            return (self.result.record_origins(value, origins), current)
         if isinstance(value, (IRInitializerList, IRCompoundLiteral)):
             origins: set[PointerOrigin] = set()
             current = state
@@ -895,7 +903,9 @@ class _QualifierSafety:
                 child = getattr(value, field.name)
                 if isinstance(child, (list, tuple)):
                     for item in child:
-                        self._expression(item, visible, parent=value, field_name=field.name)
+                        # IRCompoundLiteral entries are (name, value) pairs.
+                        for element in item if isinstance(item, tuple) else (item,):
+                            self._expression(element, visible, parent=value, field_name=field.name)
                 else:
                     self._expression(child, visible, parent=value, field_name=field.name)
 

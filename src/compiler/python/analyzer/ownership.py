@@ -122,7 +122,8 @@ class CallableValueSemantics:
                 return zip(expected.generic_args, value.elements)
             declaration = self.struct_declaration(expected)
             if declaration is not None:
-                return zip((field.type for field in declaration.fields), value.elements)
+                plan = self.types.initializer_slots(self.session.initializer_slot_plans, self.index, declaration, value)
+                return ((slot.type, slot.element) for slot in plan.slots)
         if isinstance(value, TupleLiteral) and expected.base == "Tuple":
             return zip(expected.generic_args, value.elements)
         if isinstance(value, MapLiteral) and expected.base == "Map" and (len(expected.generic_args) == 2):
@@ -1016,7 +1017,7 @@ class OwnershipAnalyzer:
         fields = []
         declaration = self.index.struct_table.get(name)
         if declaration and (not declaration.is_forward):
-            fields.extend((field.type, nested) for field in declaration.fields)
+            fields.extend((field.type, nested) for field in self.types.record_fields(declaration))
         rich_enum = self.index.rich_enum_table.get(name)
         if rich_enum:
             for variant in rich_enum.variants:

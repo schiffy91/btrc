@@ -8,7 +8,7 @@ import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from ..runtime.generated import GeneratedRuntimeHelperRow
@@ -295,6 +295,9 @@ class IRFieldAccess(IRExpr):
     arrow: bool = False
     array_storage_root: str = ""
     array_storage_known: bool = False
+    # A bit-field member (C2/r12): never addressable, so the verifier refuses
+    # an address rooted at it after optimization.
+    bit_field: bool = False
 
 
 @dataclass
@@ -343,10 +346,29 @@ class IRInitializerList(IRExpr):
 
 @dataclass
 class IRCompoundLiteral(IRExpr):
-    """Typed C compound literal with named field initializers."""
+    """Typed C compound literal with field initializers.
+
+    An entry named ``""`` is positional (array and scalar literals); its value
+    may be an :class:`IRDesignation`.
+    """
 
     c_type: CType = None
     fields: list[tuple[str, IRExpr]] = field(default_factory=list)
+
+
+@dataclass
+class IRDesignation(IRExpr):
+    """One designated initializer, ``.field = value`` or ``[index] = value``.
+
+    Lowering normalizes a designator chain to one step, so exactly one of
+    ``field`` and ``index`` (a folded :class:`IRLiteral`) is set. It appears
+    only as an :class:`IRInitializerList` element or as the value of a
+    positional :class:`IRCompoundLiteral` entry.
+    """
+
+    field: str = ""
+    index: IRExpr = None
+    value: IRExpr = None
 
 
 @dataclass
@@ -391,9 +413,10 @@ class IRStmtExpr(IRExpr):
 
 @dataclass
 class IRStructForward(IRNode):
-    """A ``typedef struct Name Name`` declaration."""
+    """A ``typedef struct Name Name`` (or ``union``) declaration."""
 
     name: str
+    is_union: bool = False
 
 
 @dataclass
@@ -503,22 +526,35 @@ class IRMacroUndef(IRNode):
 
 @dataclass
 class IRStructField(IRNode):
-    """A field in a C struct."""
+    """A field in a C struct or union.
+
+    At most one of ``array_size``, ``is_unsized_array`` (a flexible array
+    member, ``T name[];``), ``bit_width`` (a folded bit-field width,
+    ``T name : w;``) and ``record_fields`` (an anonymous member: an unnamed
+    field whose ``c_type`` is the keyword ``struct`` or ``union`` and whose
+    untagged record's members are emitted inline) is set; IRVerifier checks
+    the shape. The members sit on the field itself rather than in an
+    ``IRStructDef``, so a record and its fields never retain each other.
+    """
 
     c_type: CType
     name: str
     array_size: IRExpr = None
     is_volatile: bool = False
     effective_is_volatile: bool = False
+    record_fields: list[IRStructField] | None = None
+    is_unsized_array: bool = False
+    bit_width: int | None = None
 
 
 @dataclass
 class IRStructDef(IRNode):
-    """A C struct definition."""
+    """A C struct or union definition."""
 
     name: str
     fields: list[IRStructField] = field(default_factory=list)
     pack_alignment: int | None = None
+    is_union: bool = False
 
 
 @dataclass
@@ -585,7 +621,12 @@ class IRObjectiveCClass(IRNode):
                 raise ValueError("Objective-C field requires an identifier")
             if value.name in names or value.name in {"self", "_cmd", "isa"}:
                 raise ValueError("Objective-C fields require distinct non-reserved names")
-            if value.array_size is not None:
+            if (
+                value.array_size is not None
+                or value.is_unsized_array
+                or value.bit_width is not None
+                or value.record_fields is not None
+            ):
                 raise ValueError("Objective-C adapter array fields require a fixed native layout")
             names.add(value.name)
         if not isinstance(self.methods, list) or any(
@@ -908,7 +949,17 @@ class IRGpuKernel(IRStmt):
 class GpuDispatchNames(IRNode):
     """Names derived from the IR-assigned dispatch-site prefix."""
 
+    # The fresh-temporary stem of every dispatch-site prefix, and the role of
+    # the uniforms record each site declares.
+    STEM: ClassVar[str] = "__gpu_dispatch"
+    UNIFORMS_ROLE: ClassVar[str] = "uniforms_type"
+
     prefix: str
+
+    @classmethod
+    def is_uniforms_record(cls, name: str) -> bool:
+        """Whether a struct name is a dispatch site's GPU uniforms record."""
+        return name.startswith(f"{cls.STEM}_") and name.endswith(f"_{cls.UNIFORMS_ROLE}")
 
     def __post_init__(self) -> None:
         if not self.prefix:
@@ -1036,6 +1087,14 @@ class IRModule(IRNode):
     # renumbers them per function. Bookkeeping only, so never traversed or
     # rendered in a canonical IR dump.
     temporary_names: set[str] = field(
+        default_factory=set, repr=False, compare=False, metadata={"ir_traverse": False, "ir_render": False}
+    )
+    # Source files whose declarations' bodies or positions this unit copied:
+    # an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__` position. A
+    # module unit reused across builds depends on those files' groups; a
+    # native stamp keeps its type, so it maps to the program unit.
+    # Bookkeeping only.
+    consulted_sources: set[str] = field(
         default_factory=set, repr=False, compare=False, metadata={"ir_traverse": False, "ir_render": False}
     )
     preprocessor_decls: list[IRInclude | IRMacroDef | IRMacroUndef] = field(default_factory=list)

@@ -147,6 +147,9 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
         ("TypeIdentity", "symbolComponent"),
         # Called by the stdlib worker pool through IWorkerRequestHandler.
         ("ModuleUnitWorker", "handle"),
+        # The C2 schema commit (CL-C-07) defines IRK_DESIGNATION's constructor;
+        # the r10 designated-initializer lowering is its first caller. Remove then.
+        ("IRNode", "designation"),
     }
 )
 

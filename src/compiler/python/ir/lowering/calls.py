@@ -159,11 +159,9 @@ class DefaultArgumentLoweringContext:
         """Apply the active default parameter's concrete type substitutions."""
         return self._type_state.resolve(type_expr)
 
-    def predefined_identifier(self, node) -> str | None:
-        """Freeze a predefined identifier at its declaration site."""
+    def _declaration_position(self, node) -> tuple[str, int]:
+        """The file and line a predefined identifier freezes, at its declaration site."""
         declaration = self._state.get().declaration
-        if declaration is None:
-            return None
         source_file = declaration.source_file
         source_line = node.line or 0
         if declaration.source_map is not None:
@@ -174,6 +172,14 @@ class DefaultArgumentLoweringContext:
             if mapped is not None:
                 mapped_file, source_line = mapped
                 source_file = source_file or mapped_file
+        return source_file, source_line
+
+    def predefined_identifier(self, node) -> str | None:
+        """Freeze a predefined identifier at its declaration site."""
+        declaration = self._state.get().declaration
+        if declaration is None:
+            return None
+        source_file, source_line = self._declaration_position(node)
         if node.name == "__func__":
             return json.dumps(declaration.function_name)
         if node.name == "__LINE__":
@@ -181,6 +187,12 @@ class DefaultArgumentLoweringContext:
         if node.name == "__FILE__" and source_file:
             return json.dumps(source_file)
         return None
+
+    def positioned_source(self, node) -> str | None:
+        """The file whose positions a predefined identifier copies, or None."""
+        if self._state.get().declaration is None or node.name not in {"__LINE__", "__FILE__"}:
+            return None
+        return self._declaration_position(node)[0] or None
 
 
 @dataclass(frozen=True)
@@ -695,8 +707,6 @@ class CallableStorageBoundary:
             return False
         seen = seen | {key}
         if expected.is_array:
-            from src.compiler.python.analyzer.types import TypeSystem
-
             return self._type_contains_managed_callback(
                 TypeSystem.strip_outer_storage(expected, array=True), provenance, seen
             )
@@ -714,7 +724,10 @@ class CallableStorageBoundary:
         declaration = provenance.struct_declaration(expected)
         return bool(
             declaration is not None
-            and any(self._type_contains_managed_callback(field.type, provenance, seen) for field in declaration.fields)
+            and any(
+                self._type_contains_managed_callback(field.type, provenance, seen)
+                for field in TypeSystem.record_fields(declaration)
+            )
         )
 
 
@@ -1163,7 +1176,10 @@ class CallableProvenance:
                 return tuple(zip(expected.generic_args, value.elements))
             declaration = self.struct_declaration(expected)
             if declaration is not None:
-                return tuple(zip((field.type for field in declaration.fields), value.elements))
+                plan = TypeSystem.initializer_slots(
+                    self._analyzed.initializer_slot_plans, self._analyzed, declaration, value
+                )
+                return tuple((slot.type, slot.element) for slot in plan.slots)
         if isinstance(value, TupleLiteral) and expected.base == "Tuple":
             return tuple(zip(expected.generic_args, value.elements))
         if isinstance(value, MapLiteral) and expected.base == "Map" and len(expected.generic_args) == 2:

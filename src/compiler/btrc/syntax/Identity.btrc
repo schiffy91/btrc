@@ -36,6 +36,7 @@ class AstStructure {
 		if (node.original != null) { out.push(node.original); }
 		if (node.genericArgsStorage != null) { for child in node.genericArgsStorage { out.push(child); } }
 		if (node.arraySize != null) { out.push(node.arraySize); }
+		if (node.elementsStorage != null) { for child in node.elementsStorage { out.push(child); } }
 		if (node.type != null) { out.push(node.type); }
 		if (node.default_ != null) { out.push(node.default_); }
 		if (node.initializer != null) { out.push(node.initializer); }
@@ -69,7 +70,6 @@ class AstStructure {
 		if (node.trueExpr != null) { out.push(node.trueExpr); }
 		if (node.falseExpr != null) { out.push(node.falseExpr); }
 		if (node.target != null) { out.push(node.target); }
-		if (node.elementsStorage != null) { for child in node.elementsStorage { out.push(child); } }
 		if (node.entriesStorage != null) { for child in node.entriesStorage { out.push(child); } }
 		if (node.partsStorage != null) { for child in node.partsStorage { out.push(child); } }
 		if (node.capturesStorage != null) { for child in node.capturesStorage { out.push(child); } }
@@ -230,6 +230,7 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "fields=" + self.canonNodeList(node.fields(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_forward=" + self.canonBool(node.isForward);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_union=" + self.canonBool(node.isUnion);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
@@ -293,12 +294,14 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "pointer_depth=" + self.canonInt(node.pointerDepth);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_array=" + self.canonBool(node.isArray);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "array_size=" + self.canonNode(node.arraySize, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_const=" + self.canonBool(node.isConst);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_nullable=" + self.canonBool(node.isNullable);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "nullable_outer_depth=" + self.canonInt(node.nullableOuterDepth);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_static=" + self.canonBool(node.isStatic);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_extern=" + self.canonBool(node.isExtern);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_volatile=" + self.canonBool(node.isVolatile);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "array_pointer_depth=" + self.canonInt(node.arrayPointerDepth);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
@@ -388,6 +391,14 @@ class AstCanonicalRenderer {
 			string out = "(FieldDef";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.valueNode, d + 1);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
+			return out + ")";
+		} else if (node.kind == NK_ANONYMOUS_MEMBER) {
+			string out = "(AnonymousMember";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_union=" + self.canonBool(node.isUnion);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "fields=" + self.canonNodeList(node.fields(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
@@ -678,6 +689,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_BRACE_INITIALIZER) {
 			string out = "(BraceInitializer";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements(), d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "entries=" + self.canonNodeList(node.entries(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
@@ -728,6 +740,13 @@ class AstCanonicalRenderer {
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
+		} else if (node.kind == NK_COMPOUND_LITERAL) {
+			string out = "(CompoundLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "target_type=" + self.canonNode(node.targetType, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "initializer=" + self.canonNode(node.initializer, d + 1);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
+			return out + ")";
 		} else if (node.kind == NK_SIZEOF_TYPE) {
 			string out = "(SizeofType";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
@@ -761,6 +780,22 @@ class AstCanonicalRenderer {
 			string out = "(Capture";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_DESIGNATION) {
+			string out = "(Designation";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "parts=" + self.canonNodeList(node.parts(), d + 1);
+			return out + ")";
+		} else if (node.kind == NK_FIELD_DESIGNATOR) {
+			string out = "(FieldDesignator";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "field=" + self.canonStr(node.field);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
+			return out + ")";
+		} else if (node.kind == NK_INDEX_DESIGNATOR) {
+			string out = "(IndexDesignator";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "index=" + self.canonNode(node.index, d + 1);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
 		}
 		return "(Unknown)";
@@ -941,11 +976,12 @@ class TypeIdentity {
 		return out.toString();
 	}
 
-	/* Whether `encode` captures the whole type: it omits array-size
-	 * expressions (and source positions), so a type carrying one anywhere is
-	 * not encodable. */
+	/* Whether `encode` captures the whole type: it omits array extents,
+	 * outer pointers to arrays (and source positions), so a type carrying one
+	 * anywhere is not encodable. */
 	class bool encodable(Node typeExpr) {
 		if (typeExpr.kind != NK_TYPE_EXPR || typeExpr.arraySize != null) { return false; }
+		if ((typeExpr.elementsStorage?.len ?? 0) > 0 || typeExpr.arrayPointerDepth != 0) { return false; }
 		for argument in typeExpr.genericArgs() {
 			if (!TypeIdentity.encodable(argument)) { return false; }
 		}

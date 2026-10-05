@@ -59,6 +59,7 @@ enum ValidationFactKind {
 	VALIDATION_REALTIME_EDGE = 11,
 	VALIDATION_BOUNDED_LOOP = 12,
 	VALIDATION_WARNING = 13,
+	VALIDATION_DIVERGENCE = 14,
 };
 
 /* The per-declaration analysis passes a record covers, in program order:
@@ -82,7 +83,10 @@ enum ValidationPhase {
  * the callable key, `member` the category, `detail` the operation) or an edge
  * (`member` is the target key), each at the site `node`, and its bounded-loop
  * proofs (`node` is the C-for statement). A warning carries its message in
- * `detail` and its site in `node`. */
+ * `detail` and its site in `node`. A "never returns" answer body validation
+ * relied on carries its question in `detail` (the kind), `name` (the class)
+ * and `member` (the callable), its answer in `parameter` (1 or 0), and the
+ * call in `node`. */
 class ValidationFact {
 	public int kind;
 	public Node? node;
@@ -146,6 +150,42 @@ interface IValidationRecords {
 	Vector<ValidationFact>? recordedInstance(Node template, string section);
 	bool journalsInstance(Node template);
 	bool finishInstance(Node template, string section, ValidationJournal journal);
+}
+
+/* Where one brace element of a record initializer lands (C11 6.7.9p17).
+ * path runs from a direct member of the current record, through any anonymous
+ * members, to the initialized member; a designator chain may continue it
+ * through nested records' members and through array elements, whose step is
+ * the IndexDesignator itself. type is the declared type of the initialized
+ * object, or null for an anonymous member, which takes its own braces. */
+class SemanticInitializerSlot {
+	public Node element;
+	public Vector<Node> path;
+	public Node? type;
+
+	public SemanticInitializerSlot(Node element, Vector<Node> path, Node? type) {
+		self.element = element;
+		self.path = path;
+		self.type = type;
+	}
+
+	/* The initialized member: a FieldDef or an AnonymousMember. */
+	public Node member() { return self.path.get(self.path.len - 1); }
+}
+
+/* Every brace element of one record initializer mapped to its slot, in source
+ * order. capacity is the number of positional slots the record offers, and
+ * excess counts elements that found no slot. */
+class SemanticInitializerPlan {
+	public Vector<SemanticInitializerSlot> slots;
+	public int capacity;
+	public int excess;
+
+	public SemanticInitializerPlan(Vector<SemanticInitializerSlot> slots, int capacity, int excess) {
+		self.slots = slots;
+		self.capacity = capacity;
+		self.excess = excess;
+	}
 }
 
 class Analyzed {
@@ -380,6 +420,11 @@ class Analyzed {
      * expression. IR generation uses this to fail closed if an invalid VLA
      * initializer somehow bypasses validation. */
 	public Map<string, bool> constantArrayBoundKeys;
+	/* Record brace-initializer identity -> its slot plan, recorded by
+	 * ExpressionValidator.validateStructInitializer. A replayed module-unit
+	 * record installs none; SemanticTypeSystem.initializerSlots plans such an
+	 * initializer again, identically. */
+	public Map<string, SemanticInitializerPlan> initializerPlans;
 	/* The program's source-macro namespace, installed by validation; lowering
 	 * decodes a string constant's extent through it. */
 	public SourceMacroNamespace? sourceMacros = null;
@@ -432,6 +477,7 @@ class Analyzed {
 		self.genericConstructorIndex = {};
 		self.arrayIterationCapacityKeys = {};
 		self.constantArrayBoundKeys = {};
+		self.initializerPlans = {};
 		self.realtimeBoundedLoopKeys = {};
 	}
 

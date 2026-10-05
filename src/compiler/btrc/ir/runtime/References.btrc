@@ -146,6 +146,16 @@ class RuntimeReferenceCollector {
 		if (provider != "") { used.put(provider, true); }
 	}
 
+	/* A record's fields, including those of its anonymous members. */
+	private void collectStructFields(Vector<IRStructField> fields, Map<string, bool> used) {
+		for field in fields {
+			self.collectTypeProviderReferences(field.cType, used);
+			self.collectNode(field.arraySize, used);
+			Vector<IRStructField>? record = field.recordFields;
+			if (record != null) { self.collectStructFields(record, used); }
+		}
+	}
+
 	private void collectNode(IRNode? node, Map<string, bool> used) {
 		if (node == null) { return; }
 		if (node.callee != "" && !used.has(node.callee) && self.catalog.has(node.callee)) {
@@ -258,14 +268,7 @@ class RuntimeReferenceCollector {
 
 		int structIndex = 0;
 		while (structIndex < module.structDefs.len) {
-			IRStructDef definition = module.structDefs.get(structIndex);
-			int fieldIndex = 0;
-			while (fieldIndex < definition.fields.len) {
-				IRStructField field = definition.fields.get(fieldIndex);
-				self.collectTypeProviderReferences(field.cType, used);
-				self.collectNode(field.arraySize, used);
-				fieldIndex = fieldIndex + 1;
-			}
+			self.collectStructFields(module.structDefs.get(structIndex).fields, used);
 			structIndex = structIndex + 1;
 		}
 

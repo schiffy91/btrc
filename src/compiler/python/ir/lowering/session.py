@@ -130,6 +130,11 @@ class LoweringSession:
         self.module.temporary_names.add(name)
         return name
 
+    def consult_source(self, source_file: object) -> None:
+        """Note a file whose declaration body or source positions this unit copies."""
+        if isinstance(source_file, str) and source_file:
+            self.module.consulted_sources.add(source_file)
+
     def fresh_lambda_id(self) -> int:
         self.lambda_counter += 1
         return self.lambda_counter

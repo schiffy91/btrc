@@ -6,12 +6,12 @@ import os
 
 from lsprotocol import types as lsp
 
+from src.compiler.python.analyzer.types import TypeSystem
 from src.compiler.python.syntax.ast.generated import (
     ClassDecl,
     EnumDecl,
     EnumValue,
     FieldDecl,
-    FieldDef,
     FunctionDecl,
     InterfaceDecl,
     MethodDecl,
@@ -211,9 +211,7 @@ class SymbolProvider:
                 if decl_range is None or decl_selection is None:
                     continue
                 field_children: list[lsp.DocumentSymbol] = []
-                for fd in decl.fields:
-                    if not isinstance(fd, FieldDef):
-                        continue
+                for fd in TypeSystem.record_fields(decl):
                     fd_selection = self._selection_range(result, fd)
                     if fd_selection is None:
                         continue

@@ -1207,6 +1207,10 @@ class SetjmpEffectAnalysis {
 		} else if (value.kind == IRK_INDEX) {
 			self.flowExpression(flow, value.obj);
 			self.flowExpression(flow, value.index);
+		} else if (value.kind == IRK_DESIGNATION) {
+			/* The index is a folded literal; the designated value carries the origins. */
+			self.flowExpression(flow, value.index);
+			flow.result.addOrigins(origins, self.flowExpression(flow, value.value));
 		} else if (value.kind == IRK_INITIALIZER_LIST || value.kind == IRK_COMPOUND_LITERAL) {
 			int index = 0;
 			while (index < value.args().len) {

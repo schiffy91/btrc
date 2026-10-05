@@ -616,6 +616,11 @@ class ClassLowerer:
         dtor = cls_info.methods.get("__del__")
         hook = None
         if dtor and dtor.body:
+            # The hook copies the body of the nearest `__del__`, an ancestor's
+            # when the class has none of its own.
+            # `source_file` is a declaration attribute the frontend also stamps
+            # on class members; a member lowered without the frontend has none.
+            self._session.consult_source(getattr(dtor, "source_file", None))
             provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
             self._session.function_declarations = []
             previous_return_type = self._session.current_return_type
@@ -1160,10 +1165,8 @@ class ClassLowerer:
             return
         provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
         fields = []
-        for f in decl.fields:
+        for f in TypeSystem.record_declarators(decl):
             if f.type and f.type.is_array and f.type.array_size:
-                from src.compiler.python.analyzer.types import TypeSystem
-
                 base_type = TypeSystem.strip_outer_storage(f.type, array=True)
                 fields.append(
                     IRStructField(

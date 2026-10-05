@@ -8,10 +8,10 @@
 # The three UI0 denominators come from the 2026-09-21 source inventory (btrc
 # 4e5c982). The ui-operation and ui-case ids are read from the UI0 seed
 # ledger, docs/design/native-ui-catalog.toml, which holds exactly that
-# release's ui-operation and ui-case slots (moved off the Markdown checklists by CL-UIA-24 with the
-# same ids and sha256). The family-cell ids still come from the N-rows of
-# native-ui-parity.md until docs/design/native-ui-catalog/families.toml
-# lands. A kind may hold several releases, one entry each; a re-freeze is a
+# release's ui-operation and ui-case slots, and the family-cell ids from its
+# families shard, docs/design/native-ui-catalog/families.toml. CL-UIA-24 moved
+# all three off the Markdown checklists of native-ui-parity.md with the same
+# ids and sha256. A kind may hold several releases, one entry each; a re-freeze is a
 # new reviewed entry beside the old one, and every entry here is in force.
 # P0's operation denominator is its compact inventory ledger,
 # docs/design/platform-inventory.toml, frozen per target slice on 2026-10-02
@@ -29,7 +29,7 @@ frontends = []
 ids = 60
 slots = 300
 sha256 = "132b05e6b591c5687d74e4654cafa160f2ee0a52b81d17f4d632b82fc6223f5b"
-source = { document = "docs/design/native-ui-parity.md", pattern = '^\| (N\d{2}) —' }
+source = { ledger = "docs/design/native-ui-catalog/families.toml" }
 
 [[denominators]]
 kind = "ui-operation"
