@@ -397,6 +397,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("ProcessThreads", (
         BuiltinMemberSpec("count", "int", "method", (), "count"),
+        BuiltinMemberSpec("unparkedCount", "int", "method", (), "unparkedCount"),
+        BuiltinMemberSpec("park", "void", "method", (), "park"),
+        BuiltinMemberSpec("unpark", "void", "method", (), "unpark"),
+        BuiltinMemberSpec("forgetParked", "void", "method", (), "forgetParked"),
     )),
     ("BitPattern32", (
         BuiltinMemberSpec("signedInteger", "int", "method", (("uint", "bits"),), "signedInteger"),
