@@ -942,6 +942,16 @@ class ExpressionAnalyzer:
         self.session.error(f"Duplicate {kind} name '{name}' in the same scope", line, col)
         return False
 
+    def _reject_flexible_array_arguments(self, arguments) -> None:
+        """An argument is passed by value, so it is never a struct with a
+        flexible array member, whatever the callee: a generic instance, a
+        variadic C function or a constructor."""
+        for argument in arguments:
+            if self.aggregates.reject_flexible_array_value(
+                self._infer_type(argument), "Call argument", argument.line, argument.col
+            ):
+                return
+
     def _reject_flexible_array_lambda(self, expression) -> None:
         """A lambda's parameters and its declared or inferred result are by
         value, so none may be a struct with a flexible array member."""
@@ -1959,6 +1969,7 @@ class ExpressionAnalyzer:
             self._infer_type(expr.callee)
             for argument in expr.args:
                 self._analyze_expr(argument)
+            self._reject_flexible_array_arguments(expr.args)
             self._validate_mutex_destroy_receiver(expr)
             self.calls.analyze_call(expr)
         elif isinstance(expr, IndexExpr):
@@ -2072,6 +2083,7 @@ class ExpressionAnalyzer:
                 t = self._infer_type(el)
                 elem_types.append(t if t else TypeExpr(base="int"))
             tuple_type = TypeExpr(base="Tuple", generic_args=elem_types)
+            self.aggregates.reject_flexible_array_value(tuple_type, "Tuple literal", expr.line, expr.col)
             self.generics.collect_type_instances(tuple_type)
         elif isinstance(expr, LambdaExpr):
             if self._inside_generic_declaration():
@@ -2105,6 +2117,7 @@ class ExpressionAnalyzer:
             for arg in expr.args:
                 self._analyze_expr(arg)
                 self.aggregates.reject_thread_value_escape(arg, "passed as arguments")
+            self._reject_flexible_array_arguments(expr.args)
             if expr.type.base == "Mutex":
                 if any(expr.arg_names or []):
                     self.session.error("'new Mutex<T>()' does not accept named arguments", expr.line, expr.col)

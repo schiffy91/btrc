@@ -110,6 +110,33 @@ REFUSALS = [
         id="spawn-result",
     ),
     pytest.param(
+        "class Box { public int v; }\nstruct S { int n; Box? items[]; };\nint main() { return 0; }",
+        ("Flexible array member 'S.items' cannot hold managed type 'Box'", 2, 24),
+        id="nullable-class-element",
+    ),
+    pytest.param(
+        BUFFER + "int main() { struct Buffer* p = null; int c = (*p, 1)._0.count; return c; }",
+        (BY_VALUE.format("Generic argument 1 of Tuple literal"), 2, 47),
+        id="tuple-literal",
+    ),
+    pytest.param(
+        BUFFER
+        + "class K { public T id<T>(T x) { return x; } }\n"
+        + "int main() { K k = new K(); struct Buffer* p = null; int c = k.id(*p).count; return c; }",
+        (BY_VALUE.format("Call argument"), 3, 67),
+        id="inferred-generic-instance",
+    ),
+    pytest.param(
+        BUFFER + '#include <stdio.h>\nint main() { struct Buffer* p = null; printf("%d", *p); return 0; }',
+        (BY_VALUE.format("Call argument"), 3, 52),
+        id="variadic-argument",
+    ),
+    pytest.param(
+        BUFFER + "int main() { struct Buffer b = {1}; return 0; }",
+        (BY_VALUE.format("Variable 'b'"), 2, 14),
+        id="brace-initialization",
+    ),
+    pytest.param(
         BUFFER + "int f(struct Buffer b) { return b.count; }\nint main() { return 0; }",
         (BY_VALUE.format("Parameter 'f.b'"), 2, 7),
         id="by-value-parameter",
@@ -206,6 +233,16 @@ def test_refusal_is_identical_in_both_compilers(
     assert selfhost.returncode != 0 and reference.returncode != 0
     assert diagnostic_identity(selfhost.stderr) == expected
     assert diagnostic_identity(reference.stderr) == expected
+
+
+def test_member_assignment_from_a_pointer_is_refused_in_both_compilers(semantic_btrcc: Path, tmp_path: Path) -> None:
+    """Both refuse it, worded as for a fixed array member: the reference
+    reports the array object first, btrcc the pointer conversion."""
+    source = BUFFER + "int main() { struct Buffer* p = null; int* q = null; p->data = q; return 0; }"
+    selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
+
+    assert diagnostic_identity(reference.stderr) == ("Array object 'int[]' is not assignable", 2, 54)
+    assert diagnostic_identity(selfhost.stderr) == ("Cannot assign 'int*' to 'int[]'", 2, 54)
 
 
 ACCEPTED = [

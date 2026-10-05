@@ -174,7 +174,7 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
     # a pointer field: the record-member owner's predicate marks it.
     assert "bool flexible = SemanticTypeSystem.flexibleArrayMember(f);" in emit_struct
     assert "field.isUnsizedArray = true;" in emit_struct
-    assert 'suffix = "[]";' in emitter
+    assert '} else if (field.isUnsizedArray) {\n\t\t\tsuffix = "[]";' in emitter
     assert (
         "public IRNode lowerExpr(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow)"
     ) in expressions

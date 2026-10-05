@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from src.compiler.python.analyzer.program import (
     STRING_CONSTANT_NODES,
@@ -479,9 +479,8 @@ class AggregateAnalyzer:
             else:
                 element = self._array_element_type(member.type)
                 if not self._is_flexible_array_element(self.types.canonical_type(element)):
-                    # Name a class element as written, not as its implicit reference.
-                    written = element.pointer_depth - int(getattr(member.type, "auto_upgraded", False))
-                    spelling = self.types.format_type(replace(element, pointer_depth=written))
+                    # Name the managed type, not its reference or pointer.
+                    spelling = self.types.format_type(element).rstrip("*?")
                     self.session.error(
                         f"Flexible array member {label} cannot hold managed type '{spelling}'",
                         member.line,

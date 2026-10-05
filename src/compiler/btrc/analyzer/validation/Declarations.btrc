@@ -990,7 +990,10 @@ class DeclarationValidator {
 				}
 				Node element = TypeShape.withoutOuterArray(member.type);
 				if (!self.types.flexibleArrayElement(element)) {
-					TypeValidator.fail("Flexible array member " + label + " cannot hold managed type '" + self.types.formatType(element) + "'", member);
+					// Name the managed type, not its reference or pointer.
+					string spelling = self.types.formatType(element);
+					while (spelling.endsWith("*") || spelling.endsWith("?")) { spelling = spelling.substring(0, spelling.length() - 1); }
+					TypeValidator.fail("Flexible array member " + label + " cannot hold managed type '" + spelling + "'", member);
 				}
 			}
 			index = index + 1;
