@@ -293,6 +293,7 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-R-06` | Claude | `stage6/reference-attribution` | — | integrated in batch 15 |
 | `CL-C-04` | Claude | `stage16/c4-directives` | — | integrated in batch 13 |
 | `CL-C-07` | Claude | `stage17/c2-schema` | — | integrated in batch 25 (the C2/Stage 18 schema; parsers still refuse the new forms); `CL-C-08` is next, and `CL-P1-04` may run beside it |
+| `CL-REQ-08` | Claude | `stage18/req08-static-tuple-typedef` | — | integrated in batch 37 (btrcc declares tuple typedefs spelled only at file scope; both compilers walk generic code only through its instances). `CL-REQ-09` (`stage18/req09-float-literal-double`) and `CL-C-13` (`stage17/c2-l2`) were returned the same day: one blocker and six blockers |
 | `CL-C-08` | Claude | `stage17/c2-shared-owners` | — | integrated in batch 33 (record-member, initializer-slot and integer-constant owners in both compilers, with three contract tests); C2 lanes `CL-C-09` and `CL-C-13`, `CL-REQ-09` and then `CL-P1-05` may start |
 | `CL-R-37` | Claude | BTRSmith `stage38/btrsmith-ci` (`6658536`) | — | workflows proven (warm 50–57 billed minutes, cold about 250); the draft PR waits for `CL-R-01`'s three product fixes and the owner's check of plan minutes (D26) |
 | Reserved: C3 schema (`CL-C-23`) | Claude | — | the ASDL, `Node`, IR and both parsers | after C2's lanes; never beside `CL-P1-03`…`06` per D27 |
