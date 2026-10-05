@@ -1,0 +1,35 @@
+#include <assert.h>
+
+/* Each tuple shape below is spelled only in a C-for initializer, a sizeof
+ * or cast operand, a property getter, a do-while body or condition, or a
+ * method body declared before a tuple-typed field. */
+class Probe {
+	private int bias = 1;
+
+	public int size {
+		get { return (int)sizeof((long, char)) + self.bias; }
+	}
+
+	public int first() {
+		(char, char) letters = {'a', 'b'};
+		return letters._0;
+	}
+
+	public (short, short) pair;
+}
+
+int main() {
+	int total = 0;
+	for ((int, int) p = {0, 0}; p._0 < 3; p._0++) {
+		total = total + p._0;
+	}
+	int steps = 0;
+	do {
+		steps = steps + (int)sizeof((char, short));
+	} while (steps < (int)sizeof((long, long)));
+	Probe probe = new Probe();
+	probe.pair._1 = 6;
+	print(f"{total} {steps >= (int)sizeof((long, long))} {probe.size > 1} {probe.first()} {probe.pair._1}");
+	print("PASS: test_tuple_expression_only_type");
+	return 0;
+}
