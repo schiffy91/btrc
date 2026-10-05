@@ -1087,6 +1087,18 @@ class StatementAnalyzer:
         with self.session.scope_frame():
             self._analyze_statements(case.body)
 
+    def _report_undeclared_collection_literal(self, expression) -> bool:
+        """Report a collection literal whose class the program never declares.
+
+        An unresolved element is the cause, so it is reported instead, first,
+        as the self-hosted validator does."""
+        message = self.expressions.undeclared_collection_literal(expression)
+        if message is None:
+            return False
+        if not self.generated_symbols.report_unresolved_value(expression):
+            self.session.error(message, expression.line, expression.col)
+        return True
+
     def _analyze_parallel_for(self, stmt):
         if self.flow.is_range_call(stmt.iterable):
             for argument in stmt.iterable.args:
@@ -1095,7 +1107,7 @@ class StatementAnalyzer:
             elem_type = TypeExpr(base="int")
         else:
             self.analyze_expression(stmt.iterable)
-            self.expressions.report_undeclared_collection_literal(stmt.iterable)
+            self._report_undeclared_collection_literal(stmt.iterable)
             iter_type = self.expressions.infer_type(stmt.iterable)
             elem_type = self.types.element_type(iter_type, stmt.line, stmt.col)
             class_info = self.index.class_table.get(iter_type.base) if iter_type else None
@@ -1183,7 +1195,7 @@ class StatementAnalyzer:
             self.session.break_depth -= 1
             return
         self.analyze_expression(stmt.iterable)
-        self.expressions.report_undeclared_collection_literal(stmt.iterable)
+        self._report_undeclared_collection_literal(stmt.iterable)
         self.session.loop_depth += 1
         self.session.break_depth += 1
         iter_type = self.expressions.infer_type(stmt.iterable)
@@ -2136,7 +2148,7 @@ class StatementAnalyzer:
             boundary = self.gpu.array_initializer_boundary(stmt.initializer, stmt.type)
             with self.session.gpu_result_context(boundary):
                 self.analyze_expression(stmt.initializer)
-            if self.expressions.report_undeclared_collection_literal(stmt.initializer):
+            if self._report_undeclared_collection_literal(stmt.initializer):
                 stmt.type = TypeExpr(base="int")
                 if define_binding:
                     self.session.scope.define(stmt.name, self._var_symbol(stmt))

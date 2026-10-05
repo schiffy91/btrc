@@ -238,6 +238,17 @@ INVALID_PROBES = (
         "int main() {\n\tvar values = [1, 2, 3];\n\treturn 0;\n}\n",
         GpuDiagnostic("List literal needs the Vector class; add 'import Library.Vector;'", 2, 15),
     ),
+    # An unresolved element is the cause, so both report it, not the literal.
+    ParityProbe(
+        "list-literal-var-unresolved-element-without-vector",
+        "int main() {\n\tvar values = [missing];\n\treturn 0;\n}\n",
+        GpuDiagnostic("Unresolved identifier 'missing' used as a value", 2, 16),
+    ),
+    ParityProbe(
+        "list-literal-for-in-unresolved-element-without-vector",
+        "int main() {\n\tfor x in [missing] {\n\t\tint y = x;\n\t}\n\treturn 0;\n}\n",
+        GpuDiagnostic("Unresolved identifier 'missing' used as a value", 2, 12),
+    ),
     ParityProbe(
         "map-literal-for-in-without-map",
         'int main() {\n\tint total = 0;\n\tfor key in {"a": 1} {\n\t\ttotal += 1;\n\t}\n\treturn total;\n}\n',

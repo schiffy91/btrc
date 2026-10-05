@@ -403,8 +403,8 @@ class ExpressionAnalyzer:
             ),
         )
 
-    def report_undeclared_collection_literal(self, expression) -> bool:
-        """Reject a literal that must become a collection the program never declares.
+    def undeclared_collection_literal(self, expression) -> str | None:
+        """The diagnostic for a literal that must become a collection the program never declares.
 
         A literal names no symbol, so it needs no import of its own; but an
         inferred binding or a for-in iterable materializes it as a Vector or a
@@ -415,15 +415,10 @@ class ExpressionAnalyzer:
         elif isinstance(expression, MapLiteral):
             collection, kind = "Map", "Map"
         else:
-            return False
+            return None
         if collection in self.index.class_table:
-            return False
-        self.session.error(
-            f"{kind} literal needs the {collection} class; add 'import Library.{collection};'",
-            expression.line,
-            expression.col,
-        )
-        return True
+            return None
+        return f"{kind} literal needs the {collection} class; add 'import Library.{collection};'"
 
     def has_temporary_managed_owner(self, expression) -> bool:
         result_type = self.types.canonical_type(self.infer_type(expression))

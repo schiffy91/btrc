@@ -4,7 +4,30 @@
  * process, since a lock another thread held at the fork stays held forever in
  * the child, so the forked worker pool asks before it starts. */
 class ProcessThreads {
+	/* Threads parked in a join for the rest of the process's work. */
+	class int parkedThreads = 0;
+
 	/* The live thread count, the caller's included, or -1 when the host
 	 * cannot tell. */
 	class int count() { return ProcessThreadsProvider.count(); }
+
+	/* The live threads a fork must account for: the count less parked
+	 * threads, or -1 when the host cannot tell. A parked thread blocks in a
+	 * join holding no lock, so it leaves nothing held in a child. */
+	class int unparkedCount() {
+		int live = ProcessThreadsProvider.count();
+		if (live < 0) { return live; }
+		return live - ProcessThreads.parkedThreads;
+	}
+
+	/* The calling thread is about to block in a join that holds no lock until
+	 * the thread it joins finishes. Call before creating that thread. */
+	class void park() { ProcessThreads.parkedThreads = ProcessThreads.parkedThreads + 1; }
+
+	/* The parked thread has resumed, or never parked. */
+	class void unpark() { ProcessThreads.parkedThreads = ProcessThreads.parkedThreads - 1; }
+
+	/* A forked child runs only the forking thread: nothing it inherited is
+	 * parked. */
+	class void forgetParked() { ProcessThreads.parkedThreads = 0; }
 }

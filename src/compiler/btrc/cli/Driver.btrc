@@ -13,6 +13,9 @@
  */
 
 import Library.BackgroundJobs.WorkerPools;
+#if !defined(_WIN32)
+import Library.BackgroundJobs.ProcessThreads;
+#endif
 import Library.Bytes;
 import Library.FileSystem;
 import Library.FileSystem.FileSystemHandles;
@@ -1880,11 +1883,13 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 #if !defined(_WIN32)
 #include <pthread.h>
 
-/* The program a Unix entry runs on the compiler stack, with its arguments. */
+/* The program a Unix entry runs on the compiler stack, its arguments, and the
+ * status it returns. */
 struct BtrccCompilerStackCall {
 	CFunction<int, int, char**> program;
 	int argc;
 	char** argv;
+	int status;
 };
 
 /* Runs a Unix entry's whole program on one thread with a large stack.
@@ -1893,17 +1898,37 @@ struct BtrccCompilerStackCall {
  * default stack (8 MiB on Linux and macOS) bounds how deeply an expression may
  * nest: a left-associative chain of about 950 terms exhausted it during
  * lowering. The reservation is address space; only the pages a compile touches
- * are committed, so an ordinary compile's peak memory is unchanged. The thread
- * ends the process with the program's status, exactly as returning from main
- * would, so the main thread never resumes BTRC code. If the thread cannot be
- * created, the program runs on the main thread as before. */
+ * are committed, so an ordinary compile's peak memory is unchanged.
+ *
+ * The main thread parks in the join and resumes only to return the program's
+ * status from main, whose exit path is unchanged. A parked thread holds no
+ * lock, so the forked module-unit worker pool still starts
+ * (ProcessThreads.park). The thread enters BTRC through the runtime's
+ * foreign-thread boundary, which drains its managed state on the way out, and
+ * reports an escaping exception exactly as an exception escaping main is
+ * reported. If the thread cannot be created, the program runs on the main
+ * thread as before. */
 class BtrccCompilerStack {
 	class size_t reservedBytes() { return (size_t)536870912; }
 
-	class void* entry(void* raw) {
+	class int body(void* raw) {
 		struct BtrccCompilerStackCall* call = (struct BtrccCompilerStackCall*)raw;
 		CFunction<int, int, char**> program = call->program;
-		exit(program(call->argc, call->argv));
+		try { call->status = program(call->argc, call->argv); }
+		catch (string error) {
+			fprintf(stderr, "Unhandled exception: %s\n", error);
+			call->status = 1;
+		}
+		return 0;
+	}
+
+	class void* entry(void* raw) {
+		int result = 1;
+		CFunction<int, void*> threadBody = BtrccCompilerStack.body;
+		if (__btrc_native_thread_invoke(threadBody, raw, &result) != 0 || result != 0) {
+			struct BtrccCompilerStackCall* call = (struct BtrccCompilerStackCall*)raw;
+			call->status = 1;
+		}
 		return null;
 	}
 
@@ -1912,17 +1937,25 @@ class BtrccCompilerStack {
 		call.program = program;
 		call.argc = argc;
 		call.argv = argv;
+		call.status = 1;
 		pthread_attr_t attributes;
 		if (pthread_attr_init(&attributes) != 0) { return program(argc, argv); }
 		pthread_t handle = (pthread_t)0;
 		CFunction<void*, void*> threadEntry = BtrccCompilerStack.entry;
-		bool started = pthread_attr_setstacksize(&attributes, BtrccCompilerStack.reservedBytes()) == 0 && pthread_create(&handle, &attributes, threadEntry, &call) == 0;
+		bool started = false;
+		if (pthread_attr_setstacksize(&attributes, BtrccCompilerStack.reservedBytes()) == 0) {
+			ProcessThreads.park();
+			started = pthread_create(&handle, &attributes, threadEntry, &call) == 0;
+			if (!started) { ProcessThreads.unpark(); }
+		}
+		if (!started) {
+			pthread_attr_destroy(&attributes);
+			return program(argc, argv);
+		}
+		bool joined = pthread_join(handle, null) == 0;
+		ProcessThreads.unpark();
 		pthread_attr_destroy(&attributes);
-		if (!started) { return program(argc, argv); }
-		void* ignored = null;
-		pthread_join(handle, &ignored);
-		/* The thread exits the process; reaching here means it could not. */
-		return 1;
+		return joined ? call.status : 1;
 	}
 }
 #endif

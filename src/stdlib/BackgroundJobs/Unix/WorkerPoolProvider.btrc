@@ -201,10 +201,11 @@ class ForkedWorkerPool implements IWorkerPool {
 
 	/* Fork `count` workers running `handler`; null if any could not start,
 	 * or while another thread runs: a lock that thread held at the fork would
-	 * stay held forever in the worker. A host that cannot count its threads
-	 * forks as before. */
+	 * stay held forever in the worker. A thread parked in a join holds none,
+	 * so it does not count. A host that cannot count its threads forks as
+	 * before. */
 	class ForkedWorkerPool? start(int count, IWorkerRequestHandler handler) {
-		if (count < 1 || count > 64 || ProcessThreads.count() > 1) { return null; }
+		if (count < 1 || count > 64 || ProcessThreads.unparkedCount() > 1) { return null; }
 		ForkedWorkerPool pool = ForkedWorkerPool();
 		/* Buffered output would otherwise be written once by each process. */
 		fflush(stdout);
@@ -225,6 +226,7 @@ class ForkedWorkerPool implements IWorkerPool {
 				return null;
 			}
 			if (child == (pid_t)0) {
+				ProcessThreads.forgetParked();
 				close(channel[0]);
 				/* Earlier workers' owner-side ends: holding them open would keep
 				 * those workers from ever seeing their end of input. */

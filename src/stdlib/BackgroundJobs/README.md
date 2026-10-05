@@ -97,7 +97,13 @@ and it reports no usage.
 `ProcessThreads.count()` is the process's live thread count, or -1 where the
 host cannot tell: one `/proc/self/task` entry per thread on linux
 (`Linux/ProcessThreadsProvider`), `proc_pidinfo` task info on macOS
-(`MacOS/ProcessThreadsProvider`).
+(`MacOS/ProcessThreadsProvider`). A thread that will block in a join holding
+no lock until the thread it joins finishes calls `ProcessThreads.park()`
+before creating that thread and `unpark()` after the join; the forked worker
+pool counts `unparkedCount()`, so a process whose only other thread is parked
+still forks. The self-hosted compiler's Unix entries park their main thread
+while the compile runs on a large-stack thread (`BtrccCompilerStack`). A
+forked child calls `forgetParked()`, since it runs only the forking thread.
 
 `HostWorkerPools` is the factory a host entry point hands to its owners. The
 `[[package.providers]]` entries in `btrc.toml` select its `WorkerPoolProvider`

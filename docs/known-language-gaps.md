@@ -18,6 +18,7 @@ gap ID.
 | — | A discarded tuple literal in btrcc | `(j = 1, i = i + 1);` as a statement, or as a for-update operand, makes btrcc emit C naming an undeclared tuple struct; the reference compiles it. Found by the Stage 16 r19 review. | `btrc/ir/lowering` tuple instance collection |
 | — | The address of a `volatile` managed local | When the setjmp planner keeps a managed local `volatile` (`char* volatile value`), `string* view = &value;` emits `char** view = (&value);`, which strict C11 refuses (`-Wdiscarded-qualifiers`), whether the declarations are separate or share one list, in both compilers. Found by the Stage 16 C1 exit's ARC witness. | `python/ir/lowering/storage.py`, `btrc/ir/lowering` address-of lowering |
 | — | A null raw pointer to `string` warns | `string* p = null;` warns `Possibly-null value stored in non-nullable variable 'p' of type 'string'`: the nullable check reads the pointer as its pointee, and a raw pointer may hold null; both compilers warn alike. Found by the Stage 16 C1 exit. | `python/analyzer/flow.py`, `btrc/analyzer` nullable flow |
+| — | A collection literal in other value positions of a program without the class | A `var` initializer and a for-in iterable report `List literal needs the Vector class` (or `Map`) when no module declares the class. A literal in other value positions that becomes a collection, such as a lambda result (`() => [1, 2]`), a return, an argument or an assignment, is accepted by both compilers, and the C names an undeclared `btrc_Vector_*` type. Found by the `CL-REQ-10` review. | `python/analyzer/statements.py`, `btrc/analyzer/validation/ControlFlow.btrc` |
 | — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
 
 ## Open native-platform defects
@@ -55,11 +56,14 @@ takes about 9 seconds in `btrcc` and two minutes in the reference compiler.
 `btrcc`'s Unix entries run the whole compile on a 512 MiB thread
 (`BtrccCompilerStack` in `cli/Driver.btrc`), about 60,000 levels of such a
 chain; the main thread's 8 MiB stack used to end near 950. The Windows entry
-still runs on the main thread. The reference compiler's recursion limit (40,000
-frames) ends between 5,000 and 20,000 levels, and past it the compiler reports
-`expression or declaration nested too deeply to compile`, so the two compilers
-can disagree only past 5,000 levels. `btrc/test_deep_expression_parity.py`
-checks 2,000 levels in both compilers.
+still runs on its main thread. The reference compiler's recursion limit
+(40,000 frames) ends sooner, and past it the compiler reports `expression or
+declaration nested too deeply to compile`: a left-associative chain compiles
+at 5,000 terms and fails at 20,000, while parenthesized nesting
+(`k + (k + (…))`), which recurses through every precedence level while
+parsing, already fails at 5,000. Between 2,000 and those depths one compiler
+may accept what the other refuses; `btrc/test_deep_expression_parity.py`
+checks both shapes at 2,000 levels in both compilers.
 
 Exceptions carry string messages. A catch may be untyped or bind `string`; a
 different catch annotation is rejected explicitly. The stdlib error classes
