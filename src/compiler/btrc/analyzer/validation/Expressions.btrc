@@ -703,8 +703,38 @@ class ExpressionValidator {
 			if (first != null && second != null && !self.types.assignmentCompatible(first, second) && !self.types.assignmentCompatible(second, first)) {
 				TypeValidator.fail("Ternary branches have incompatible types '" + self.types.formatType(first) + "' and '" + self.types.formatType(second) + "'", expression);
 			}
+			self.validateFlexibleArrayOperand(expression, "Conditional expression", vars);
 		} else {
 			self.validateExprChildren(expression,  vars);
+		}
+	}
+
+	/* An rvalue copy of a struct with a flexible array member drops its
+	 * elements, and reading them through the copy overruns it. */
+	private void validateFlexibleArrayOperand(Node? expression, string subject, Map<string, Node> vars) {
+		if (expression == null) { return; }
+		self.types.validateFlexibleArrayValue(self.types.inferType(expression, vars), subject, expression);
+	}
+
+	/* Only sizeof(struct S) and sizeof(*p) measure a struct with a flexible
+	 * array member; a tuple or generic instance would embed it by value. */
+	private void validateFlexibleArraySizeof(Node expression, Map<string, Node> vars) {
+		Node? operand = expression.operand;
+		if (operand == null) { return; }
+		Node site = expression;
+		Node? measured = null;
+		if (operand.kind == NK_SIZEOF_TYPE) {
+			measured = operand.type;
+			if (operand.type != null && operand.type.line != 0) { site = operand.type; }
+		} else if (operand.kind == NK_SIZEOF_EXPR_OP) {
+			measured = self.types.inferType(operand.expr, vars);
+		}
+		Node? canonical = self.types.resolveAliases(measured);
+		if (canonical == null) { return; }
+		int index = 0;
+		while (index < canonical.genericArgs().len) {
+			self.types.validateFlexibleArrayValue(canonical.genericArgs().get(index), "Generic argument " + Strings.fromInt(index + 1) + " of sizeof", site);
+			index = index + 1;
 		}
 	}
 
@@ -943,6 +973,8 @@ class ExpressionValidator {
 			self.validateExpr(entry.valueNode,  vars);
 			self.rejectThreadValueEscape(entry.key, "embedded in aggregate values", vars);
 			self.rejectThreadValueEscape(entry.valueNode, "embedded in aggregate values", vars);
+			self.validateFlexibleArrayOperand(entry.key, "Map literal key", vars);
+			self.validateFlexibleArrayOperand(entry.valueNode, "Map literal value", vars);
 			index = index + 1;
 		}
 	}
@@ -954,6 +986,7 @@ class ExpressionValidator {
 			if (part.kind == NK_F_STRING_EXPR) {
 				self.validateExpr(part.expression,  vars);
 				self.rejectThreadValueEscape(part.expression, "formatted as values", vars);
+				self.validateFlexibleArrayOperand(part.expression, "Formatted value", vars);
 			}
 			index = index + 1;
 		}
@@ -1027,8 +1060,14 @@ class ExpressionValidator {
 					TypeValidator.fail("sizeof cannot be applied to flexible array member '" + flexibleMember + "'", expression);
 				}
 			}
+			self.validateFlexibleArraySizeof(expression, vars);
 		} else if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
 			self.validateExprList(expression.elements(),  vars);
+			if (expression.kind == NK_LIST_LITERAL) {
+				for element in expression.elements() {
+					self.validateFlexibleArrayOperand(element, "List literal element", vars);
+				}
+			}
 			if (expression.kind == NK_TUPLE_LITERAL) {
 				self.ownership.rejectOwnedElements(expression.elements(), "a shallow aggregate", vars);
 				self.types.validateFlexibleArrayValue(self.types.inferType(expression, vars), "Tuple literal", expression);
@@ -1042,6 +1081,13 @@ class ExpressionValidator {
 			self.validateExprList(expression.args(),  vars);
 			self.validateFlexibleArrayArguments(expression.args(), vars);
 			self.validateNew(expression,  vars);
+			if (expression.type != null) {
+				int argumentIndex = 0;
+				while (argumentIndex < expression.type.genericArgs().len) {
+					self.types.validateFlexibleArrayValue(expression.type.genericArgs().get(argumentIndex), "Generic argument " + Strings.fromInt(argumentIndex + 1) + " of new expression", expression);
+					argumentIndex = argumentIndex + 1;
+				}
+			}
 		} else if (expression.kind == NK_LAMBDA_EXPR) {
 			if (self.state.typeParams.len > 0) {
 				TypeValidator.fail("Lambda expressions are not supported inside generic declarations", expression);

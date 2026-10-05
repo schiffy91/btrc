@@ -825,7 +825,9 @@ class TypeValidator {
 	 * (directly or as array storage), or "". */
 	public string flexibleArrayStruct(Node? typeExpr) {
 		Node? canonical = self.resolveAliases(typeExpr);
-		if (canonical == null || canonical.pointerDepth > 0) { return ""; }
+		if (typeExpr == null || canonical == null || canonical.pointerDepth > 0) { return ""; }
+		// A type parameter named like a struct never resolves to that struct.
+		if (self.state.typeParams.has(typeExpr.base)) { return ""; }
 		string name = SemanticTypeSystem.resolvedStructName(canonical, self.state.analyzed);
 		if (name == "" || SemanticTypeSystem.flexibleArrayField(self.state.analyzed.structTable.get(name)) == null) { return ""; }
 		return name;

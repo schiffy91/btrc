@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from src.compiler.python.analyzer.program import (
@@ -329,6 +330,7 @@ class AggregateAnalyzer:
         self.session = session
         self.index = index
         self.types = types
+        self._signature_type_parameters: frozenset[str] = frozenset()
         self._initializers = InitializerAnalyzer(
             session,
             index,
@@ -427,14 +429,39 @@ class AggregateAnalyzer:
         elif isinstance(declaration, FunctionDecl):
             self._reject_flexible_array_signature(declaration, declaration.name)
         elif isinstance(declaration, ClassDecl):
-            self._validate_class_complete_types(declaration)
+            with self._type_parameters(declaration.generic_params):
+                self._validate_class_complete_types(declaration)
         elif isinstance(declaration, InterfaceDecl):
-            for method in declaration.methods:
-                self._reject_flexible_array_signature(method, f"{declaration.name}.{method.name}")
+            with self._type_parameters(declaration.generic_params):
+                for method in declaration.methods:
+                    self._reject_flexible_array_signature(method, f"{declaration.name}.{method.name}")
+
+    @contextmanager
+    def _type_parameters(self, names):
+        """Declare the type parameters a signature is checked under, so a
+        parameter named like a struct never resolves to that struct."""
+        previous = self._signature_type_parameters
+        self._signature_type_parameters = previous | frozenset(names or ())
+        try:
+            yield
+        finally:
+            self._signature_type_parameters = previous
+
+    def _active_type_parameters(self) -> frozenset[str]:
+        active = set(self._signature_type_parameters)
+        if self.session.current_class is not None:
+            active.update(self.session.current_class.generic_params)
+        if self.session.current_method is not None:
+            active.update(getattr(self.session.current_method, "generic_params", ()) or ())
+        return frozenset(active)
 
     def _reject_flexible_array_signature(self, declaration, owner) -> None:
         """A prototype passes and returns by value as a definition does, so a
         bodyless signature refuses a struct with a flexible array member too."""
+        with self._type_parameters(getattr(declaration, "generic_params", ())):
+            self._reject_flexible_array_signature_types(declaration, owner)
+
+    def _reject_flexible_array_signature_types(self, declaration, owner) -> None:
         if not getattr(declaration, "is_constructor", False):
             self.reject_flexible_array_value(
                 declaration.return_type, f"Return type of '{owner}'", declaration.line, declaration.col
@@ -509,13 +536,16 @@ class AggregateAnalyzer:
             if self.index.struct_table[name].is_forward or self.flexible_array_struct(element) is not None:
                 # The by-value checks report incomplete and FAM elements.
                 return True
-        return self.types.is_realtime_pod(element)
+        # Hosted-ABI scalars (uint8_t, size_t, ...) and C enum tags too.
+        return self.types.is_numeric_value(element) or self.types.is_realtime_pod(element)
 
     def flexible_array_struct(self, type_expr) -> str | None:
         """The struct with a flexible array member that ``type_expr`` stores by
         value (directly or as array storage), or ``None``."""
         canonical = self.types.canonical_type(type_expr)
         if canonical is None or canonical.pointer_depth > 0:
+            return None
+        if type_expr.base in self._active_type_parameters():
             return None
         name = canonical.base.removeprefix("struct ")
         if TypeSystem.flexible_array_member(self.index.struct_table.get(name)) is not None:
@@ -551,6 +581,10 @@ class AggregateAnalyzer:
         return f"{receiver.base.removeprefix('struct ')}.{member.name}"
 
     def _validate_callable_complete_types(self, declaration, owner) -> None:
+        with self._type_parameters(getattr(declaration, "generic_params", ())):
+            self._validate_callable_complete_signature(declaration, owner)
+
+    def _validate_callable_complete_signature(self, declaration, owner) -> None:
         if not getattr(declaration, "is_constructor", False):
             self.validate_complete_aggregate_use(
                 declaration.return_type, f"Return type of '{owner}'", declaration.line, declaration.col
@@ -678,6 +712,11 @@ class AggregateAnalyzer:
         if self.types.is_void_value(canonical):
             self.session.error("sizeof cannot be applied to void", line, col)
             return
+        # Only sizeof(struct S) and sizeof(*p) measure a struct with a flexible
+        # array member; a tuple or generic instance would embed it by value.
+        for index, argument in enumerate(canonical.generic_args):
+            if self.reject_flexible_array_value(argument, f"Generic argument {index + 1} of sizeof", line, col):
+                return
         self.validate_complete_aggregate_use(canonical, "sizeof", line, col, sizeof=True)
 
     @staticmethod

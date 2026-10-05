@@ -942,6 +942,13 @@ class ExpressionAnalyzer:
         self.session.error(f"Duplicate {kind} name '{name}' in the same scope", line, col)
         return False
 
+    def _reject_flexible_array_operand(self, expression, subject) -> None:
+        """An rvalue copy of a struct with a flexible array member drops its
+        elements, and reading them through the copy overruns it."""
+        self.aggregates.reject_flexible_array_value(
+            self._infer_type(expression), subject, expression.line, expression.col
+        )
+
     def _reject_flexible_array_arguments(self, arguments) -> None:
         """An argument is passed by value, so it is never a struct with a
         flexible array member, whatever the callee: a generic instance, a
@@ -2020,6 +2027,7 @@ class ExpressionAnalyzer:
             self.session.replace_nonnull_paths(true_flow & false_flow)
             self.contextualize_ternary_literals(expr)
             self._validate_ternary_expr(expr)
+            self._reject_flexible_array_operand(expr, "Conditional expression")
         elif isinstance(expr, CastExpr):
             expr.target_type = self.types.upgrade_class_type(expr.target_type)
             self.generics.collect_type_instances(expr.target_type)
@@ -2035,6 +2043,7 @@ class ExpressionAnalyzer:
             for el in expr.elements:
                 self._analyze_expr(el)
                 self.aggregates.reject_thread_value_escape(el, "embedded in aggregate values")
+                self._reject_flexible_array_operand(el, "List literal element")
             if len(expr.elements) >= 2:
                 first_type = next(
                     (
@@ -2064,6 +2073,8 @@ class ExpressionAnalyzer:
                 self._analyze_expr(entry.value)
                 self.aggregates.reject_thread_value_escape(entry.key, "embedded in aggregate values")
                 self.aggregates.reject_thread_value_escape(entry.value, "embedded in aggregate values")
+                self._reject_flexible_array_operand(entry.key, "Map literal key")
+                self._reject_flexible_array_operand(entry.value, "Map literal value")
             if expr.entries:
                 self.generics.record_class_method_use(self._infer_type(expr), "put")
         elif isinstance(expr, FStringLiteral):
@@ -2071,6 +2082,7 @@ class ExpressionAnalyzer:
                 if isinstance(part, FStringExpr):
                     self._analyze_expr(part.expression)
                     self.aggregates.reject_thread_value_escape(part.expression, "formatted as values")
+                    self._reject_flexible_array_operand(part.expression, "Formatted value")
                     part_type = self._infer_type(part.expression)
                     if self.types.has_scalar_to_string(part_type):
                         self.generics.record_class_method_use(part_type, "toString")
@@ -2118,6 +2130,10 @@ class ExpressionAnalyzer:
                 self._analyze_expr(arg)
                 self.aggregates.reject_thread_value_escape(arg, "passed as arguments")
             self._reject_flexible_array_arguments(expr.args)
+            for index, argument in enumerate(expr.type.generic_args):
+                self.aggregates.reject_flexible_array_value(
+                    argument, f"Generic argument {index + 1} of new expression", expr.line, expr.col
+                )
             if expr.type.base == "Mutex":
                 if any(expr.arg_names or []):
                     self.session.error("'new Mutex<T>()' does not accept named arguments", expr.line, expr.col)

@@ -137,6 +137,61 @@ REFUSALS = [
         id="brace-initialization",
     ),
     pytest.param(
+        BUFFER + "int main() { struct Buffer* p = null; int v = (p->count > 0 ? *p : *p).data[0]; return v; }",
+        (BY_VALUE.format("Conditional expression"), 2, 48),
+        id="conditional-copy",
+    ),
+    pytest.param(
+        BUFFER + "int main() { struct Buffer* p = null; int v = (p->count > 0 ? p[0] : p[0]).count; return v; }",
+        (BY_VALUE.format("Conditional expression"), 2, 48),
+        id="conditional-indexed-copy",
+    ),
+    pytest.param(
+        BUFFER + "int main() { struct Buffer* p = null; int n = [*p].len; return n; }",
+        (BY_VALUE.format("List literal element"), 2, 48),
+        id="list-literal-element",
+    ),
+    pytest.param(
+        BUFFER + "int main() { struct Buffer* p = null; int s = 0; for x in [*p] { s = s + x.data[0]; } return s; }",
+        (BY_VALUE.format("List literal element"), 2, 60),
+        id="list-literal-iteration",
+    ),
+    pytest.param(
+        BUFFER + "int main() { struct Buffer* p = null; var m = {1: *p}; return 0; }",
+        (BY_VALUE.format("Map literal value"), 2, 51),
+        id="map-literal-value",
+    ),
+    pytest.param(
+        BUFFER + "class G<T> { public T v; }\nint main() { new G<struct Buffer>(); return 0; }",
+        (BY_VALUE.format("Generic argument 1 of new expression"), 3, 14),
+        id="new-generic-instance",
+    ),
+    pytest.param(
+        BUFFER + "int main() { size_t n = sizeof((struct Buffer, int)); return (int)n; }",
+        (BY_VALUE.format("Generic argument 1 of sizeof"), 2, 32),
+        id="sizeof-tuple",
+    ),
+    pytest.param(
+        BUFFER + "int main() { size_t n = sizeof((int, struct Buffer)); return (int)n; }",
+        (BY_VALUE.format("Generic argument 2 of sizeof"), 2, 32),
+        id="sizeof-tuple-second",
+    ),
+    pytest.param(
+        BUFFER + "class Box<T> { public T v; }\nint main() { size_t n = sizeof(Box<struct Buffer>); return (int)n; }",
+        (BY_VALUE.format("Generic argument 1 of sizeof"), 3, 32),
+        id="sizeof-generic-instance",
+    ),
+    pytest.param(
+        BUFFER + "int main() { size_t n = sizeof(CFunction<struct Buffer, int>); return (int)n; }",
+        (BY_VALUE.format("Generic argument 1 of sizeof"), 2, 32),
+        id="sizeof-function-pointer",
+    ),
+    pytest.param(
+        BUFFER + 'int main() { struct Buffer* p = null; print(f"{*p}"); return 0; }',
+        (BY_VALUE.format("Formatted value"), 2, 48),
+        id="f-string-value",
+    ),
+    pytest.param(
         BUFFER + "int f(struct Buffer b) { return b.count; }\nint main() { return 0; }",
         (BY_VALUE.format("Parameter 'f.b'"), 2, 7),
         id="by-value-parameter",
@@ -303,6 +358,40 @@ ACCEPTED = [
         }
         """,
         id="nullable-pointer-elements",
+    ),
+    pytest.param(
+        """
+        #include <assert.h>
+        #include <stdint.h>
+        #include <stddef.h>
+        #include <stdlib.h>
+        #include <time.h>
+        #include <wchar.h>
+        enum Color { RED, GREEN };
+        struct Bytes { size_t length; uint8_t data[]; };
+        struct Wide { int count; int64_t a[]; };
+        struct Sizes { int count; size_t a[]; };
+        struct Offsets { int count; ptrdiff_t a[]; };
+        struct Addresses { int count; uintptr_t a[]; };
+        struct Characters { int count; wchar_t a[]; };
+        struct Times { int count; time_t a[]; };
+        struct Colors { int count; Color a[]; };
+        int main() {
+            struct Bytes* bytes = (struct Bytes*)calloc((size_t)1, sizeof(struct Bytes) + (size_t)2);
+            struct Colors* colors = (struct Colors*)calloc((size_t)1, sizeof(struct Colors) + sizeof(Color));
+            if (bytes == null || colors == null) { return 1; }
+            bytes->length = (size_t)2;
+            bytes->data[1] = (uint8_t)200;
+            colors->a[0] = GREEN;
+            assert(bytes->data[1] == (uint8_t)200 && colors->a[0] == GREEN);
+            assert(sizeof(struct Wide) + sizeof(struct Sizes) + sizeof(struct Offsets) > (size_t)0);
+            assert(sizeof(struct Addresses) + sizeof(struct Characters) + sizeof(struct Times) > (size_t)0);
+            free(bytes);
+            free(colors);
+            return 0;
+        }
+        """,
+        id="hosted-abi-and-enum-elements",
     ),
 ]
 
