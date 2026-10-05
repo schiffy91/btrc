@@ -1,0 +1,285 @@
+# CX-UIA-11 Linux SDL observations; no inventory classifications changed.
+# Headless/software-GPU evidence is a stand-in. Known failures stay failed.
+schema = "btrc.qualification.ledger/1"
+
+[[records]]
+subject = { kind = "test", id = "native-shell", platform = "linux", frontend = "reference", variant = "linux-wayland-plain" }
+evidence = { status = "passed", observed = "{\"accessibility_reports\": [\"no bridge\"], \"cycles\": 100, \"e46\": \"missing\", \"e47\": \"fixture-only; stdlib missing\", \"frames\": 100, \"fresh_process_restores\": 100, \"gate_cycles\": true, \"live_registrations\": 0, \"native_handles\": 0, \"nonzero_teardown_cycles\": 0, \"private_objects\": 0, \"probe_count\": 100, \"retention_diagnostics\": [], \"teardown_cycles\": 100}", artifact = "build/ui-shell/native-shell-linux-wayland-python-plain.jsonl; sha256=201298c5c6200df61897e978a3627d3aeba0fd0879337e77bdc17c9a66992910" }
+provenance = { runner = "linux-devcontainer", recorded_at = "2026-10-04T20:09:33.133005+00:00", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", build_mode = "plain", os_build = "Linux-6.18.44-x86_64-with-glibc2.42", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+classification = { note = "Current-base headless stand-in correctness run. SDL controls remain custom/drawn; no AT-SPI bridge. Fresh restoration is fixture-owned clean-shutdown restoration, not crash recovery or the future stdlib restoration contract." }
+
+[[records]]
+subject = { kind = "test", id = "native-shell", platform = "linux", frontend = "reference", variant = "linux-wayland-sanitized" }
+evidence = { status = "passed", observed = "{\"accessibility_reports\": [\"no bridge\"], \"cycles\": 100, \"e46\": \"missing\", \"e47\": \"fixture-only; stdlib missing\", \"frames\": 100, \"fresh_process_restores\": 100, \"gate_cycles\": true, \"live_registrations\": 0, \"native_handles\": 0, \"nonzero_teardown_cycles\": 0, \"private_objects\": 0, \"probe_count\": 100, \"retention_diagnostics\": [], \"teardown_cycles\": 100}", artifact = "build/ui-shell/native-shell-linux-wayland-python-sanitized.jsonl; sha256=89ee46f61b6d096f9223de36d9a989eaf2e5eec7f0f9ad5106f0b7b2b497d781" }
+provenance = { runner = "linux-devcontainer", recorded_at = "2026-10-04T20:14:12.944842+00:00", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", build_mode = "asan-ubsan", os_build = "Linux-6.18.44-x86_64-with-glibc2.42", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+classification = { note = "Current-base headless stand-in correctness run. SDL controls remain custom/drawn; no AT-SPI bridge. Fresh restoration is fixture-owned clean-shutdown restoration, not crash recovery or the future stdlib restoration contract." }
+
+[[records]]
+subject = { kind = "test", id = "native-shell", platform = "linux", frontend = "selfhost", variant = "linux-wayland-plain" }
+evidence = { status = "passed", observed = "{\"accessibility_reports\": [\"no bridge\"], \"cycles\": 100, \"e46\": \"missing\", \"e47\": \"fixture-only; stdlib missing\", \"frames\": 100, \"fresh_process_restores\": 100, \"gate_cycles\": true, \"live_registrations\": 0, \"native_handles\": 0, \"nonzero_teardown_cycles\": 0, \"private_objects\": 0, \"probe_count\": 100, \"retention_diagnostics\": [], \"teardown_cycles\": 100}", artifact = "build/ui-shell/native-shell-linux-wayland-selfhost-plain.jsonl; sha256=5a3bd69b8bc47e34d5fe700c4b9e654a5bcaa8e98dd11ee26315c2c8be7bb3b9" }
+provenance = { runner = "linux-devcontainer", recorded_at = "2026-10-04T20:10:58.167113+00:00", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", build_mode = "plain", os_build = "Linux-6.18.44-x86_64-with-glibc2.42", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+classification = { note = "Current-base headless stand-in correctness run. SDL controls remain custom/drawn; no AT-SPI bridge. Fresh restoration is fixture-owned clean-shutdown restoration, not crash recovery or the future stdlib restoration contract." }
+
+[[records]]
+subject = { kind = "test", id = "native-shell", platform = "linux", frontend = "reference", variant = "linux-x11-plain" }
+evidence = { status = "passed", observed = "{\"accessibility_reports\": [\"no bridge\"], \"cycles\": 100, \"e46\": \"missing\", \"e47\": \"fixture-only; stdlib missing\", \"frames\": 100, \"fresh_process_restores\": 100, \"gate_cycles\": true, \"live_registrations\": 0, \"native_handles\": 0, \"nonzero_teardown_cycles\": 0, \"private_objects\": 0, \"probe_count\": 100, \"retention_diagnostics\": [], \"teardown_cycles\": 100}", artifact = "build/ui-shell/native-shell-linux-x11-python-plain.jsonl; sha256=3d831de73432050916d2b19a67cd3304634bf8510c68bd44ae03bc02ad2a444f" }
+provenance = { runner = "linux-devcontainer", recorded_at = "2026-10-04T20:01:59.200456+00:00", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", build_mode = "plain", os_build = "Linux-6.18.44-x86_64-with-glibc2.42", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+classification = { note = "Current-base headless stand-in correctness run. SDL controls remain custom/drawn; no AT-SPI bridge. Fresh restoration is fixture-owned clean-shutdown restoration, not crash recovery or the future stdlib restoration contract." }
+
+[[records]]
+subject = { kind = "test", id = "native-shell", platform = "linux", frontend = "reference", variant = "linux-x11-sanitized" }
+evidence = { status = "passed", observed = "{\"accessibility_reports\": [\"no bridge\"], \"cycles\": 100, \"e46\": \"missing\", \"e47\": \"fixture-only; stdlib missing\", \"frames\": 100, \"fresh_process_restores\": 100, \"gate_cycles\": true, \"live_registrations\": 0, \"native_handles\": 0, \"nonzero_teardown_cycles\": 0, \"private_objects\": 0, \"probe_count\": 100, \"retention_diagnostics\": [], \"teardown_cycles\": 100}", artifact = "build/ui-shell/native-shell-linux-x11-python-sanitized.jsonl; sha256=f33bb9a998154f8ca551abe3837b895834a0d7fe8554291d60071c2feae87260" }
+provenance = { runner = "linux-devcontainer", recorded_at = "2026-10-04T20:05:38.220775+00:00", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", build_mode = "asan-ubsan", os_build = "Linux-6.18.44-x86_64-with-glibc2.42", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+classification = { note = "Current-base headless stand-in correctness run. SDL controls remain custom/drawn; no AT-SPI bridge. Fresh restoration is fixture-owned clean-shutdown restoration, not crash recovery or the future stdlib restoration contract." }
+
+[[records]]
+subject = { kind = "test", id = "native-shell", platform = "linux", frontend = "selfhost", variant = "linux-x11-plain" }
+evidence = { status = "passed", observed = "{\"accessibility_reports\": [\"no bridge\"], \"cycles\": 100, \"e46\": \"missing\", \"e47\": \"fixture-only; stdlib missing\", \"frames\": 100, \"fresh_process_restores\": 100, \"gate_cycles\": true, \"live_registrations\": 0, \"native_handles\": 0, \"nonzero_teardown_cycles\": 0, \"private_objects\": 0, \"probe_count\": 100, \"retention_diagnostics\": [], \"teardown_cycles\": 100}", artifact = "build/ui-shell/native-shell-linux-x11-selfhost-plain.jsonl; sha256=1a191aa1551951a4db147c983a455922038abb764ba5ad7b005ed13b30a2c0dc" }
+provenance = { runner = "linux-devcontainer", recorded_at = "2026-10-04T20:03:11.267899+00:00", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", build_mode = "plain", os_build = "Linux-6.18.44-x86_64-with-glibc2.42", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+classification = { note = "Current-base headless stand-in correctness run. SDL controls remain custom/drawn; no AT-SPI bridge. Fresh restoration is fixture-owned clean-shutdown restoration, not crash recovery or the future stdlib restoration contract." }
+
+[[records]]
+subject = { kind = "test", id = "native-shell", platform = "linux", frontend = "selfhost", variant = "linux-x11-sanitized" }
+evidence = { status = "passed", observed = "{\"accessibility_reports\": [\"no bridge\"], \"cycles\": 100, \"e46\": \"missing\", \"e47\": \"fixture-only; stdlib missing\", \"frames\": 100, \"fresh_process_restores\": 100, \"gate_cycles\": true, \"live_registrations\": 0, \"native_handles\": 0, \"nonzero_teardown_cycles\": 0, \"private_objects\": 0, \"probe_count\": 100, \"retention_diagnostics\": [], \"teardown_cycles\": 100}", artifact = "build/ui-shell/native-shell-linux-x11-selfhost-sanitized.jsonl; sha256=0878a1e16747991e9adebf0c4b16588b4ac5ddebfd94ccba2a8b030b2d743981" }
+provenance = { runner = "linux-devcontainer", recorded_at = "2026-10-04T20:07:56.925217+00:00", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", build_mode = "asan-ubsan", os_build = "Linux-6.18.44-x86_64-with-glibc2.42", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+classification = { note = "Current-base headless stand-in correctness run. SDL controls remain custom/drawn; no AT-SPI bridge. Fresh restoration is fixture-owned clean-shutdown restoration, not crash recovery or the future stdlib restoration contract." }
+
+[[records]]
+subject = { kind = "test", id = "native-shell", platform = "linux", frontend = "selfhost", variant = "linux-wayland-sanitized" }
+classification = { note = "100 primary journeys and GPU frames completed; 61 fresh GUI restores completed. Restore 61 (zero-based) timed out with no output. Raw executable/generated C/native plan/state retained in uia11-wayland-failure. Other three Wayland rows passed. No Wayland qualification inferred." }
+evidence = { status = "implemented-unverified", observed = "failed", reason = "Fresh restoration timed out after 30 seconds with empty stdout/stderr. The earlier same-stack capture blocked in SDL_ShowWindow -> Wayland_ShowWindow -> libdecor_plugin_gtk_dispatch -> poll(POLLIN,-1). The independent pinned libdecor diagnostic below reproduces that dependency behavior.", artifact = "build/junit/uia11-wayland.xml; local log uia11-wayland-baseline.log" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:19:04.293561+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", c_compiler = "GCC 15.2.0" }
+
+[[records]]
+subject = { kind = "test", id = "libdecor-pending-callback-return", platform = "linux", variant = "wayland-nonblocking" }
+classification = { note = "libdecor_dispatch(0) returned 2 after delivering the queued sync callback. Standalone C dependency reproduction; no BTRC, provider or GPU code runs. Diagnostic source sha256=7c5deb255c81289fbaab5887b6c98cf54e030c28b3ef2ce51b12bda52a1e6344" }
+evidence = { status = "passed", observed = "passed", artifact = "src/tests/native/gui/shell/probes/linux/LibdecorPending.c" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:19:04.293561+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", c_compiler = "GCC 15.2.0" }
+
+[[records]]
+subject = { kind = "test", id = "libdecor-pending-callback-return", platform = "linux", variant = "wayland-blocking" }
+classification = { note = "libdecor_dispatch(-1) delivered the queued sync callback but failed to return; bounded three-second watchdog exited 1. Pinned libdecor 0.2.5 GTK processes pending work before polling unconditionally. Standalone C dependency reproduction; no BTRC, provider or GPU code runs. Diagnostic source sha256=7c5deb255c81289fbaab5887b6c98cf54e030c28b3ef2ce51b12bda52a1e6344" }
+evidence = { status = "implemented-unverified", observed = "failed", artifact = "src/tests/native/gui/shell/probes/linux/LibdecorPending.c" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:19:04.293561+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", c_compiler = "GCC 15.2.0" }
+
+[[records]]
+subject = { kind = "test", id = "sdl-clipboard-requestor-lifetime", platform = "linux", variant = "x11-live-requestor" }
+classification = { note = "Three independent live-requestor control trials passed. SDL 3.4.10 owns the clipboard; the separate X11 client requests TARGETS and keeps its requesting window alive through owner dispatch. Standalone C dependency reproduction; no BTRC, provider or GPU code runs. Diagnostic source sha256=a229132f3342c7d67b52ca59c3a58a957d1110707e348b04ae2e12413f08a110" }
+evidence = { status = "passed", observed = "passed", artifact = "src/tests/native/gui/shell/probes/linux/ClipboardRequestor.c" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:19:04.293561+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", c_compiler = "GCC 15.2.0" }
+
+[[records]]
+subject = { kind = "test", id = "sdl-clipboard-requestor-lifetime", platform = "linux", variant = "x11-destroyed-requestor" }
+classification = { note = "All three ordered requestor-destruction trials exited 1 with BadWindow/opcode 18 X_ChangeProperty naming the destroyed window. XSync acknowledges both request submission and destruction before SDL owner dispatch. Matches the concurrent LinuxGUIControls failure signature; no claim to reconstruct that earlier call stack. Standalone C dependency reproduction; no BTRC, provider or GPU code runs. Diagnostic source sha256=a229132f3342c7d67b52ca59c3a58a957d1110707e348b04ae2e12413f08a110" }
+evidence = { status = "implemented-unverified", observed = "failed", artifact = "src/tests/native/gui/shell/probes/linux/ClipboardRequestor.c" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:19:04.293561+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", c_compiler = "GCC 15.2.0" }
+
+[[records]]
+subject = { kind = "test", id = "linux-sdl-ui1-source-audit", platform = "linux" }
+classification = { note = "Source audit at 72592d36: LinuxWindow.dispatch lines 576–577 ignore hidden/minimized notifications, although explicit hide() at 700 DOES set _visible=false; the packet sentence saying hide never updates it is stale. LinuxWindow.render line 246 throws after _frameFailures>120 unavailable frames. LinuxButton, LinuxSlider and LinuxScrollView inherit LinuxNodeView.key returning false (LinuxView.btrc:379); LinuxSlider inherits empty focus (LinuxView.btrc:383). SDL.h flattens committed TEXT_INPUT, not TEXT_EDITING/preedit. These are source observations, not runtime qualification or changes to owner classifications." }
+evidence = { status = "implemented-unverified", observed = "source-audit" }
+provenance = { source = "source-audit", recorded_at = "2026-10-04T21:19:04.293561+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "72592d36f560517a39e54f4b92b0149d44bef4d6", c_compiler = "GCC 15.2.0" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "keys-4095" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "keys-4096" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "keys-4097" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=4097 terminal=0 boundary=4097 first_keys=4096 queued_after_first=0 total_keys=4096 expected_keys=4097 first_key_mismatch=4097 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "keys-8193" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=8193 terminal=0 boundary=4097 first_keys=4096 queued_after_first=4096 total_keys=8192 expected_keys=8193 first_key_mismatch=4097 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "release-4095" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "release-4096" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "release-4097" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=4097 terminal=1 boundary=4097 first_keys=4096 queued_after_first=0 total_keys=4096 expected_keys=4097 first_key_mismatch=4097 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "release-8193" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=8193 terminal=1 boundary=4097 first_keys=4096 queued_after_first=4096 total_keys=8192 expected_keys=8193 first_key_mismatch=4097 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "text-4095" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "text-4096" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "text-4097" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=4097 terminal=2 boundary=4097 first_keys=4096 queued_after_first=0 total_keys=4096 expected_keys=4096 first_key_mismatch=0 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "text-8193" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=8193 terminal=2 boundary=4097 first_keys=4096 queued_after_first=4096 total_keys=8192 expected_keys=8192 first_key_mismatch=0 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "close-4095" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "close-4096" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "close-4097" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=4097 terminal=3 boundary=4097 first_keys=4096 queued_after_first=0 total_keys=4096 expected_keys=4096 first_key_mismatch=0 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "reference", variant = "close-8193" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=8193 terminal=3 boundary=4097 first_keys=4096 queued_after_first=4096 total_keys=8192 expected_keys=8192 first_key_mismatch=0 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "keys-4095" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "keys-4096" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "keys-4097" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=4097 terminal=0 boundary=4097 first_keys=4096 queued_after_first=0 total_keys=4096 expected_keys=4097 first_key_mismatch=4097 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "keys-8193" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=8193 terminal=0 boundary=4097 first_keys=4096 queued_after_first=4096 total_keys=8192 expected_keys=8193 first_key_mismatch=4097 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "release-4095" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "release-4096" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "release-4097" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=4097 terminal=1 boundary=4097 first_keys=4096 queued_after_first=0 total_keys=4096 expected_keys=4097 first_key_mismatch=4097 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "release-8193" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=8193 terminal=1 boundary=4097 first_keys=4096 queued_after_first=4096 total_keys=8192 expected_keys=8193 first_key_mismatch=4097 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "text-4095" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "text-4096" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "text-4097" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=4097 terminal=2 boundary=4097 first_keys=4096 queued_after_first=0 total_keys=4096 expected_keys=4096 first_key_mismatch=0 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "text-8193" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=8193 terminal=2 boundary=4097 first_keys=4096 queued_after_first=4096 total_keys=8192 expected_keys=8192 first_key_mismatch=0 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "close-4095" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "close-4096" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "passed", observed = "Lossless delivery assertion passed; ordered unique key cardinality, payload delivery, empty queue and bounded teardown were required.", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "close-4097" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=4097 terminal=3 boundary=4097 first_keys=4096 queued_after_first=0 total_keys=4096 expected_keys=4096 first_key_mismatch=0 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "test", id = "linux-event-boundary", platform = "linux", frontend = "selfhost", variant = "close-8193" }
+classification = { note = "D24 intentionally failing reproduction branch, never merge until the provider fix. Queue isolation flushes setup traffic and rejects unrelated compositor events before target input; the poll observer delegates every call unchanged. Close permits cancellation of an ordered post-close suffix." }
+evidence = { status = "implemented-unverified", observed = "E40 count=8193 terminal=3 boundary=4097 first_keys=4096 queued_after_first=4096 total_keys=8192 expected_keys=8192 first_key_mismatch=0 releases=0 text=0 close=0 lossless=0", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "ui-case", id = "E40", platform = "linux", frontend = "reference" }
+classification = { note = "Failed at dequeued event 4097. All four payload controls pass at 4095/4096 and fail at 4097/8193. At 4097, the first turn empties the queue while omitting its terminal key/release/text/close event; at 8193 it leaves only 4096 queued. A transparent poll observer tracks unique key ordinals. This boundary reproduction does not qualify sustained-load fairness or the complete E40 budget. Reproduction stays on its D24 branch for CX-UIA-23." }
+evidence = { status = "implemented-unverified", observed = "failed: event 4097 dequeued without delivery", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }
+
+[[records]]
+subject = { kind = "ui-case", id = "E40", platform = "linux", frontend = "selfhost" }
+classification = { note = "Failed at dequeued event 4097. All four payload controls pass at 4095/4096 and fail at 4097/8193. At 4097, the first turn empties the queue while omitting its terminal key/release/text/close event; at 8193 it leaves only 4096 queued. A transparent poll observer tracks unique key ordinals. This boundary reproduction does not qualify sustained-load fairness or the complete E40 budget. Reproduction stays on its D24 branch for CX-UIA-23." }
+evidence = { status = "implemented-unverified", observed = "failed: event 4097 dequeued without delivery", artifact = "codex/cx-uia-11-e40-repro@bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3; build/junit/e40-repaired.xml; sha256=f1d54f7fa52a2b3f17a720f5dc19f8532a6db918fd687c36058a86a65763deb5" }
+provenance = { source = "local-observation", recorded_at = "2026-10-04T21:16:29.345496+00:00", runner = "linux-devcontainer", device_class = "stand-in", btrc_revision = "bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3", c_compiler = "GCC 15.2.0", compiler_digest = "sha256:373a1f75e2a5ccdfbec9e38db46880373bd366dbe6c526039666e3260269a8f1" }

@@ -1447,7 +1447,7 @@ class DeclarationLowerer {
 			if (declared) { continue; }
 			var definition = IRStructDef();
 			definition.name = name;
-			for field in record.fields() { definition.fields.push(IRStructField(self.cTypes.lower(field.type), field.name)); }
+			for field in SemanticTypeSystem.recordDeclarators(record) { definition.fields.push(IRStructField(self.cTypes.lower(field.type), field.name)); }
 			native.structForwards.push(IRStructForward(name));
 			native.structDefs.push(definition);
 			module.structForwards.push(IRStructForward(name));
@@ -1463,7 +1463,7 @@ class DeclarationLowerer {
 		Node record = self.analyzed.structTable.get(type.base);
 		Vector<string> names = [];
 		Vector<IRNode> values = [];
-		for field in record.fields() {
+		for field in SemanticTypeSystem.recordFields(record) {
 			names.push(field.name);
 			values.push(self.objectiveCValue(field.type, IRNode.fieldAccess(value, field.name, false), toNative));
 		}
@@ -2740,9 +2740,10 @@ class DeclarationLowerer {
 		if (self.context.packAlignments.has(declarationKey)) {
 			sd.packAlignment = self.context.packAlignments.get(declarationKey);
 		}
+		Vector<Node> declarators = SemanticTypeSystem.recordDeclarators(d);
 		int i = 0;
-		while (i < d.fields().len) {
-			Node f = d.fields().get(i);
+		while (i < declarators.len) {
+			Node f = declarators.get(i);
 			if (f.type != null && f.type.isArray && f.type.arraySize != null) {
 				Node baseType = TypeShape.withoutOuterArray(f.type);
 				Map<string, Node> empty = {};

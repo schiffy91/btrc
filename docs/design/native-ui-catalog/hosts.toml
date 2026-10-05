@@ -1,0 +1,301 @@
+# Host routing, not an execution ledger. available means an eligible host, never a pass.
+# Both frontends must run independently. No environment is promoted to physical evidence.
+schema = "btrc.ui-hosts/1"
+recorded_at = "2026-10-04"
+platforms = ["macos", "linux", "windows", "ios", "android"]
+frontends = ["reference", "selfhost"]
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+
+[disk_budget]
+stage23_minimum_free_gb = 150
+stage23_basis = "D8 provisioning prerequisite: 150 GB free or external SSD before new SDK/runtime downloads."
+later_stage_minimum_free_gb = 100
+android_sdk_ndk_avd_estimate_gb = [10, 15]
+android_platforms_closure_gb = 17.75
+ios_runtime_budget = "Variable per installed Xcode runtime/destination; measure actual free and allocated space, do not assume a fixed size."
+note = "The older 10–15 GB Android estimate excludes the full 17.75 GB platforms closure and extra AVDs. Re-check disk before downloads; this packet installs no runtimes."
+
+[[routes]]
+id = "macos-hosted-correctness"
+platform = "macos"
+frontends = ["reference", "selfhost"]
+runner = "github-macos"
+kind = "hosted"
+evidence_classes = ["automation", "gpu"]
+status = "available"
+note = "macos.yml macos-15; automation and paravirtual Metal correctness only. No physical timing, display, VoiceOver or AX trust guarantee."
+
+[[routes]]
+id = "macos-hosted-tree"
+platform = "macos"
+frontends = ["reference", "selfhost"]
+runner = "github-macos"
+kind = "hosted"
+evidence_classes = ["accessibility-tree"]
+status = "unverified"
+note = "AppKit tree/virtual-child feasibility requires actual JUnit properties; no native bridge qualification is inferred."
+blocked_by = ["ui-1-macos"]
+
+[[routes]]
+id = "macos-owner"
+platform = "macos"
+frontends = ["reference", "selfhost"]
+runner = "mac-m1-max"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "available"
+note = "Registered owner Mac can collect GPU, VoiceOver, IME and Accessibility Inspector evidence in its session. Availability is not a recorded run or completion."
+device_id = "mac-m1-max"
+
+[[routes]]
+id = "linux-devcontainer-automation"
+platform = "linux"
+frontends = ["reference", "selfhost"]
+runner = "linux-devcontainer"
+kind = "cloud"
+evidence_classes = ["automation", "gpu"]
+status = "available"
+note = "Xvfb/X11 or weston headless/Wayland with lavapipe correctness. Software rendering and synthetic input do not qualify physical GPU, reset, IME or Orca."
+
+[[routes]]
+id = "linux-devcontainer-tree"
+platform = "linux"
+frontends = ["reference", "selfhost"]
+runner = "linux-devcontainer"
+kind = "cloud"
+evidence_classes = ["accessibility-tree"]
+status = "blocked"
+note = "AT-SPI bus availability alone is not a btrc GUI accessibility tree; portable bridge/fixture evidence is pending."
+blocked_by = ["ui-1-linux-sdl-baseline"]
+
+[[routes]]
+id = "github-linux-automation"
+platform = "linux"
+frontends = ["reference", "selfhost"]
+runner = "github-linux"
+kind = "hosted"
+evidence_classes = ["automation", "gpu"]
+status = "available"
+note = "Xvfb/X11 or weston headless/Wayland with lavapipe correctness. Software rendering and synthetic input do not qualify physical GPU, reset, IME or Orca."
+
+[[routes]]
+id = "github-linux-tree"
+platform = "linux"
+frontends = ["reference", "selfhost"]
+runner = "github-linux"
+kind = "hosted"
+evidence_classes = ["accessibility-tree"]
+status = "blocked"
+note = "AT-SPI bus availability alone is not a btrc GUI accessibility tree; portable bridge/fixture evidence is pending."
+blocked_by = ["ui-1-linux-sdl-baseline"]
+
+[[routes]]
+id = "linux-desktop"
+platform = "linux"
+frontends = ["reference", "selfhost"]
+runner = "linux-fractal-north"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "unverified"
+note = "D7: FRACTAL-NORTH did not resolve at last probe. MAC-UIA-01 must establish GPU/driver, compositor, scales, Orca/IME and reset capability; no remote host was contacted by this packet."
+blocked_by = ["tooling-x86-acceptance-host", "tooling-linux-desktop-host"]
+device_id = "linux-fractal-north"
+
+[[routes]]
+id = "windows-x64-ci"
+platform = "windows"
+frontends = ["reference", "selfhost"]
+runner = "github-windows-x64"
+kind = "hosted"
+evidence_classes = ["automation", "accessibility-tree", "gpu"]
+status = "blocked"
+note = "windows.yml windows-latest exists for build/corpus; no Win32 GUI provider or native UI evidence route has landed."
+blocked_by = ["ui-1-windows-shell"]
+
+[[routes]]
+id = "windows-arm64-ci"
+platform = "windows"
+frontends = ["reference", "selfhost"]
+runner = "github-windows-arm64"
+kind = "hosted"
+evidence_classes = ["automation", "accessibility-tree", "gpu"]
+status = "unverified"
+note = "windows-11-arm availability to this repository remains unverified; neither an x64 process under Prism nor scope-only CI is ARM64 GUI evidence."
+blocked_by = ["tooling-windows-ci-arm64-llvm", "ui-1-windows-shell"]
+
+[[routes]]
+id = "windows-physical-x64"
+platform = "windows"
+frontends = ["reference", "selfhost"]
+runner = "unavailable"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "unavailable"
+note = "D8: no Windows hardware and no local VM. Narrator, physical IME/input, real GPU and display qualification remain unavailable."
+blocked_by = ["tooling-windows-physical"]
+device_id = "windows-11-x64-hardware"
+
+[[routes]]
+id = "windows-physical-arm64"
+platform = "windows"
+frontends = ["reference", "selfhost"]
+runner = "unavailable"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "unavailable"
+note = "D8: no Windows hardware and no local VM. Narrator, physical IME/input, real GPU and display qualification remain unavailable."
+blocked_by = ["tooling-windows-physical"]
+device_id = "windows-11-arm64-hardware"
+
+[[routes]]
+id = "ios-iphone-owner"
+platform = "ios"
+frontends = ["reference", "selfhost"]
+runner = "mac-ios-simulator"
+kind = "simulator"
+evidence_classes = ["automation", "accessibility-tree"]
+status = "blocked"
+note = "Explicit iphone simulator destination; runtime presence and native UIKit shell must be verified. Simulators are stand-ins, not device GPU, VoiceOver or physical-input evidence."
+blocked_by = ["tooling-ios-simulator-runtimes", "ui-1-ios-shell"]
+device_id = "mac-m1-max"
+provenance = { device_class = "iphone-simulator" }
+
+[[routes]]
+id = "ios-iphone-github"
+platform = "ios"
+frontends = ["reference", "selfhost"]
+runner = "github-ios-simulator"
+kind = "simulator"
+evidence_classes = ["automation", "accessibility-tree"]
+status = "blocked"
+note = "Explicit iphone simulator destination; runtime presence and native UIKit shell must be verified. Simulators are stand-ins, not device GPU, VoiceOver or physical-input evidence."
+blocked_by = ["tooling-ios-simulator-runtimes", "ui-1-ios-shell"]
+provenance = { device_class = "iphone-simulator" }
+
+[[routes]]
+id = "ios-iphone-floor"
+platform = "ios"
+frontends = ["reference", "selfhost"]
+runner = "unavailable"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "unavailable"
+note = "D8: no physical iphone; simulator coverage cannot close hardware, refresh, IME or assistive-technology evidence."
+blocked_by = ["tooling-ios-physical-devices"]
+device_id = "iphone-ios17"
+provenance = { device_class = "iphone-floor" }
+
+[[routes]]
+id = "ios-iphone-current"
+platform = "ios"
+frontends = ["reference", "selfhost"]
+runner = "unavailable"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "unavailable"
+note = "D8: no physical iphone; simulator coverage cannot close hardware, refresh, IME or assistive-technology evidence."
+blocked_by = ["tooling-ios-physical-devices"]
+device_id = "iphone-current"
+provenance = { device_class = "iphone-current" }
+
+[[routes]]
+id = "ios-ipad-owner"
+platform = "ios"
+frontends = ["reference", "selfhost"]
+runner = "mac-ios-simulator"
+kind = "simulator"
+evidence_classes = ["automation", "accessibility-tree"]
+status = "blocked"
+note = "Explicit ipad simulator destination; runtime presence and native UIKit shell must be verified. Simulators are stand-ins, not device GPU, VoiceOver or physical-input evidence."
+blocked_by = ["tooling-ios-simulator-runtimes", "ui-1-ios-shell"]
+device_id = "mac-m1-max"
+provenance = { device_class = "ipad-simulator" }
+
+[[routes]]
+id = "ios-ipad-github"
+platform = "ios"
+frontends = ["reference", "selfhost"]
+runner = "github-ios-simulator"
+kind = "simulator"
+evidence_classes = ["automation", "accessibility-tree"]
+status = "blocked"
+note = "Explicit ipad simulator destination; runtime presence and native UIKit shell must be verified. Simulators are stand-ins, not device GPU, VoiceOver or physical-input evidence."
+blocked_by = ["tooling-ios-simulator-runtimes", "ui-1-ios-shell"]
+provenance = { device_class = "ipad-simulator" }
+
+[[routes]]
+id = "ios-ipad-floor"
+platform = "ios"
+frontends = ["reference", "selfhost"]
+runner = "unavailable"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "unavailable"
+note = "D8: no physical ipad; simulator coverage cannot close hardware, refresh, IME or assistive-technology evidence."
+blocked_by = ["tooling-ios-physical-devices"]
+device_id = "ipad-ipados17"
+provenance = { device_class = "ipad-floor" }
+
+[[routes]]
+id = "ios-ipad-current"
+platform = "ios"
+frontends = ["reference", "selfhost"]
+runner = "unavailable"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "unavailable"
+note = "D8: no physical ipad; simulator coverage cannot close hardware, refresh, IME or assistive-technology evidence."
+blocked_by = ["tooling-ios-physical-devices"]
+device_id = "ipad-current"
+provenance = { device_class = "ipad-current" }
+
+[[routes]]
+id = "android-emulator-owner"
+platform = "android"
+frontends = ["reference", "selfhost"]
+runner = "mac-android-emulator"
+kind = "emulator"
+evidence_classes = ["automation", "accessibility-tree"]
+status = "blocked"
+note = "API 29/current/16 KiB AVDs require actual boot evidence and an Android UI shell. Hosted CI needs KVM; the Codex cloud has no KVM. Emulator pixels are not device GPU qualification."
+blocked_by = ["tooling-android-sdk-ndk", "tooling-android-ci-emulator", "ui-1-android-shell"]
+device_id = "mac-m1-max"
+provenance = { device_class = "android-emulator" }
+
+[[routes]]
+id = "android-emulator-github"
+platform = "android"
+frontends = ["reference", "selfhost"]
+runner = "github-android-emulator"
+kind = "emulator"
+evidence_classes = ["automation", "accessibility-tree"]
+status = "blocked"
+note = "API 29/current/16 KiB AVDs require actual boot evidence and an Android UI shell. Hosted CI needs KVM; the Codex cloud has no KVM. Emulator pixels are not device GPU qualification."
+blocked_by = ["tooling-android-sdk-ndk", "tooling-android-ci-emulator", "ui-1-android-shell"]
+provenance = { device_class = "android-emulator" }
+
+[[routes]]
+id = "android-api29-vendor-a"
+platform = "android"
+frontends = ["reference", "selfhost"]
+runner = "unavailable"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "unavailable"
+note = "D8: no Android vendor device. TalkBack, physical IME/input and actual GPU/reset evidence remain unavailable."
+blocked_by = ["tooling-android-physical-devices"]
+device_id = "android-api29-vendor-a"
+provenance = { device_class = "android-api29-vendor-a" }
+
+[[routes]]
+id = "android-current-16k-vendor-b"
+platform = "android"
+frontends = ["reference", "selfhost"]
+runner = "unavailable"
+kind = "physical"
+evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
+status = "unavailable"
+note = "D8: no Android vendor device. TalkBack, physical IME/input and actual GPU/reset evidence remain unavailable."
+blocked_by = ["tooling-android-physical-devices"]
+device_id = "android-current-16k-vendor-b"
+provenance = { device_class = "android-current-16k-vendor-b" }

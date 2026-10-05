@@ -3765,7 +3765,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 - tools/hosted_platform.py (new; class HostedPlatformExtractor)
 - src/tests/python/test_hosted_platform_extractor.py (new)
-- build/hosted-platform/\<label>.toml (uncommitted fragments handed to CL-P1-08)
+- build/hosted-platform/\<label>.toml (the tool's default output) and the fragments handed to CL-P1-08, carried as hosted-platform-fragments/\<label>.toml on the never-merge branch stage24/hosted-platform-fragments
 
 **Must not touch**
 
@@ -3775,20 +3775,21 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 **Steps**
 
-1. HostedPlatformExtractor (section 2.3): for one row, build a probe TU that includes the C emitter prologue's automatic headers with exactly the row's real build flags (windows-gnu: -I src/runtime/windows -include btrc_win_compat.h and zig's bundled includes). Pass the row's target_arguments and resolved sysroot, and never -D__ANDROID_API__. Read declared names with NativeHeaderReader in names-only mode, or with clang -Xclang -ast-dump=json. Output [platform] minus declared for each of the five kinds.
-2. Sysroot discovery lives in this tool (allowed: tools discover toolchains): glibc from the flake; zig's aarch64-linux-gnu glibc headers on an x86_64 host; zig lib/libc/include/any-windows-any (MinGW-w64 38c8142f); the NDK r29 sysroot at API 29; and an --xcrun mode for the Mac (used by MAC-P1-05).
-3. Extract linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64, android-aarch64 and android-x86_64. Write the conservative windows-aarch64-msvc table (the windows-aarch64 list plus every MinGW/winpthreads/compat-overlay-only POSIX and pthread name) with source 'conservative copy pending runner extraction'.
-4. Spot-check the bionic borderline names: getrandom, posix_spawn, aligned_alloc, timespec_get and reallocarray are available at 29; the threads.h names are hidden (API 30).
+1. HostedPlatformExtractor (section 2.3): for one row, build a probe TU from the C emitter prologue's defines and headers, btrc_rt.h's hosted headers and PROBE_HEADERS (about 100 platform header families behind __has_include, including sys/sysmacros.h, netinet/icmp6.h and values.h; the emitter prologue alone declares only ISO C). The row's real toolchain preprocesses it with exactly the row's real build flags (windows-gnu: -I src/runtime/windows -include btrc_win_compat.h and zig's bundled includes). Pass the row's target_arguments and resolved sysroot, and never -D__ANDROID_API__. Read macros from -E -dD and declarations with clang \<target_arguments> -x cpp-output -Xclang -ast-dump=json over the preprocessed unit; no NativeHeaderReader names-only mode exists. Output [platform] minus declared for each of the five kinds, under the section 2.3 declared rule.
+2. Sysroot discovery lives in this tool (allowed: tools discover toolchains): both linux rows through zig 0.16.0's bundled glibc headers with the unversioned zig cc -target \<zig_target> that the release build uses, so the floor is zig's default, glibc 2.31, recorded in each fragment's source and a leading comment (not the flake's glibc, and no host-dependent split for aarch64); zig lib/libc/include/any-windows-any (MinGW-w64 38c8142f); the NDK r29 sysroot at API 29; and an --xcrun mode for the Mac (used by MAC-P1-05).
+3. Extract linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64, android-aarch64 and android-x86_64. Write the conservative windows-aarch64-msvc table with source 'conservative copy pending runner extraction': kind by kind, the windows-aarch64 list plus every [platform] name the MSVC toolchain cannot be shown to declare. A name stays available only if \<windows.h> declares it as the same kind outside the CRT and MinGW-only headers, or if ISO C11 declares it and the gnu sibling declares it in a header UCRT shares; a dllimport declaration proves nothing. The row therefore also refuses MinGW's POSIX additions to shared headers (PATH_MAX, S_ISDIR, STDIN_FILENO, O_ACCMODE, timerisset, the type timezone, daylight, tzname), UCRT's old POSIX spellings (access, execv, execve, execvp, open, O_RDONLY) and stdlib self-declarations (environ).
+4. Spot-check in the tool's SPOT_CHECKS, which main runs (a failure writes a '# spot check failed' comment into the row's fragment and exits 1), not in test_hosted_platform_extractor.py: the bionic borderline names getrandom, posix_spawn, aligned_alloc, timespec_get and reallocarray are declared at 29; NDK r29's \<threads.h> declares thrd_\*, mtx_\* and cnd_\* at 29 as static inlines (android/legacy_threads_inlines.h); memfd_create (API 30) is hidden; explicit_bzero is absent on android at every API level. Except timespec_get, none of the borderline names, the threads names or memfd_create is a [platform] name, so these checks check the probe, not the table.
 
 **Acceptance**
 
 - [ ] python3 -m pytest src/tests/python/test_hosted_platform_extractor.py -q green (fixture headers)
-- [ ] Seven fragments produced, each with list sizes reported; spot names: GetFileAttributesA unavailable on every non-windows row, arc4random_uniform unavailable on linux-gnu, explicit_bzero available on linux and android
+- [ ] Seven fragments produced, each with list sizes reported and its leading comments (the linux glibc floor, the stdlib self-declarations, 'GPU runtime names read from src/runtime/gpu: N'); spot names: GetFileAttributesA unavailable on every non-windows row, arc4random_uniform unavailable on linux-gnu, explicit_bzero available on linux and unavailable on android; main's spot checks pass
 - [ ] make lint clean
 
 **Risks**
 
-- Names-only reader mode may not exist yet; the ast-dump fallback must give identical sets (cross-check on one row).
+- No NativeHeaderReader names-only mode exists, so the clang AST dump is the only route; a cross-check against such a mode is deferred until one exists.
+- ISO C names in [names] can never be listed, so the provisional windows-aarch64-msvc table cannot refuse an ISO C11 name that UCRT lacks, such as aligned_alloc (MSVC offers only _aligned_malloc), until the runner extraction.
 
 <a id="cl-p1-08"></a>
 
@@ -3815,14 +3816,16 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 **Steps**
 
-1. Schema 3: one [[platform_targets]] per row, with sorted unique subsets of [platform] for each of the five kinds, a non-empty source, no ISO C or runtime-origin names, and target validated against targets.toml.
+1. Schema 3: one [[platform_targets]] per row, with sorted unique subsets of [platform] for each of the five kinds, a non-empty source, no ISO C or runtime-origin names, and target validated against targets.toml. The rows come from CL-P1-07's fragments (hosted-platform-fragments/\<label>.toml on stage24/hosted-platform-fragments) and MAC-P1-05's Apple rows.
 2. HOSTED_ABI_FINGERPRINT covers the new tables, so ToolchainFingerprint('full') and btrcc's identity follow them.
-3. Extend test_hosted_abi_platform_names.py with the section 2.5 spot names: fork unavailable on both ios rows, GetFileAttributesA, arc4random_uniform and explicit_bzero.
+3. Extend test_hosted_abi_platform_names.py with the section 2.5 spot names: fork unavailable on both ios rows; GetFileAttributesA unavailable on every non-windows row; arc4random_uniform; explicit_bzero available on linux and unavailable on android; environ available on linux and unavailable on windows-aarch64-msvc; and the windows-aarch64-msvc must-refuse names PATH_MAX, STDIN_FILENO, S_ISDIR, O_ACCMODE, timerisset, the type timezone, daylight and tzname.
 4. make compiler-codegen-generate.
 
 **Acceptance**
 
 - [ ] make generated-check clean; python3 -m pytest src/tests/python/test_hosted_abi_platform_names.py src/tests/python/test_hosted_abi_contract.py -q green
+- [ ] test_hosted_abi_platform_names.py asserts the section 2.5 spot names, including PATH_MAX, STDIN_FILENO, S_ISDIR, O_ACCMODE, timerisset, the type timezone, daylight and tzname unavailable on windows-aarch64-msvc, and environ available on linux and unavailable on windows-aarch64-msvc
+- [ ] The android expectations follow NDK r29: explicit_bzero is absent at every API level, so it is unavailable on both android rows; thrd_\*, mtx_\* and cnd_\* are declared at API 29 as static inlines; memfd_create (API 30) is the hidden-name example. Neither the threads names nor memfd_create is a [platform] name, so CL-P1-07's SPOT_CHECKS cover them, not this test
 - [ ] make bootstrap fixed point; zero-warning transpiles; make test-boundaries unchanged
 
 **Risks**
