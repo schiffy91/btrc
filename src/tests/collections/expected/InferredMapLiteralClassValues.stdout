@@ -1,2 +1,3 @@
 4
 30
+PASS: test_inferred_map_literal_class_values

@@ -27,5 +27,6 @@ int main() {
 	var counts = {"apples": 3};
 	counts.put("pears", 4);
 	print(counts.get("apples") + counts.get("pears"));
+	print("PASS: test_lambda_inferred_map_literal");
 	return 0;
 }

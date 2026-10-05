@@ -18,5 +18,6 @@ int main() {
 	points.put("far", Point(10, 20));
 	Point far = points.get("far");
 	print(far.x + far.y);
+	print("PASS: test_inferred_map_literal_class_values");
 	return 0;
 }
