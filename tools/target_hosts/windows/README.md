@@ -108,9 +108,12 @@ includes setup time. Stdin uses a binary temporary file, avoiding Windows
 Handles close before the working directory is removed. The target cwd starts
 empty; request, stdin and status records live in a sibling control directory.
 Only target environment overrides are serialized; merging is case-insensitive.
-The gate uses a detached console and new process group, so the target cannot
-signal the harness through its console. Both pipes drain concurrently with a
-1 MiB retained-byte limit per stream; overflow is an infrastructure failure, never
+The gate and target start detached in new process groups, so the target
+cannot signal the harness through its console. The gate explicitly forwards all
+three standard handles to its target: detached Windows processes cannot rely on
+console inheritance for the binary stdin file and stdout/stderr capture pipes.
+Both pipes drain concurrently with a 1 MiB retained-byte limit per stream;
+overflow is an infrastructure failure, never
 a successful truncated digest. Failed temporary-directory removal is retained as
 `provenance.cleanup_warnings` without discarding the completed result; Job Object
 termination/accounting failures still fail execution.

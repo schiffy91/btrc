@@ -839,6 +839,70 @@ def test_windows_gate_launch_detaches_from_harness_console(bundle, monkeypatch):
     assert host.run(ExecutionRequest("probe")).exit_status == 0
 
 
+def test_detached_gate_explicitly_forwards_binary_standard_streams(tmp_path, monkeypatch):
+    # Model Windows' lack of implicit stdio inheritance from a detached gate.
+    # The target really transports bytes; this is not native Windows evidence.
+    payload = bytes(range(256)) * 1024
+    request = tmp_path / "request.json"
+    request.write_text(
+        json.dumps(
+            {
+                "command": [
+                    sys.executable,
+                    "-c",
+                    "import sys; data=sys.stdin.buffer.read(); sys.stdout.buffer.write(data); "
+                    "sys.stderr.buffer.write(b'error\\x00\\xff'); sys.exit(3)",
+                ],
+                "cwd": str(tmp_path),
+                "env": {},
+                "status": str(tmp_path / "status.txt"),
+                "launch_error": str(tmp_path / "launch-error.json"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    events = []
+    api = SimpleNamespace(
+        OpenEventW=lambda *_: 1,
+        WaitForSingleObject=lambda *_: 0,
+        CloseHandle=lambda *_: 1,
+        GetErrorMode=lambda: 0,
+        SetErrorMode=lambda flags: events.append(("error-mode", flags)),
+        ExitProcess=lambda status: events.append(("exit", status)),
+    )
+    monkeypatch.setattr(executor_module.WindowsJob, "bind", staticmethod(lambda: api))
+    real_run = subprocess.run
+    launches = []
+
+    def detached_run(command, **kwargs):
+        launches.append(kwargs.pop("creationflags", 0))
+        # Without explicit STARTF_USESTDHANDLES, a detached Windows parent
+        # cannot supply its standard handles through console inheritance.
+        for stream in ("stdin", "stdout", "stderr"):
+            kwargs.setdefault(stream, subprocess.DEVNULL)
+        return real_run(command, **kwargs, timeout=10)
+
+    monkeypatch.setattr(executor_module.subprocess, "run", detached_run)
+    stdin_path = tmp_path / "stdin.bin"
+    stdin_path.write_bytes(payload)
+    with (
+        stdin_path.open("rb") as stdin,
+        (tmp_path / "stdout.bin").open("w+b") as stdout,
+        (tmp_path / "stderr.bin").open("w+b") as stderr,
+    ):
+        monkeypatch.setattr(
+            executor_module, "sys", SimpleNamespace(platform="win32", stdin=stdin, stdout=stdout, stderr=stderr)
+        )
+        executor_module.WindowsJob.gate("test-event", request)
+        stdout.seek(0)
+        stderr.seek(0)
+        assert stdout.read() == payload
+        assert stderr.read() == b"error\x00\xff"
+    assert launches == [0x00000008 | 0x00000200]
+    assert events == [("error-mode", 0x0001 | 0x0002 | 0x8000), ("exit", 3)]
+    assert (tmp_path / "status.txt").read_text() == "3"
+
+
 @pytest.mark.skipif(os.name != "posix", reason="real pipe stand-in uses POSIX groups; native proof is check.py")
 @pytest.mark.parametrize("mode", ["return", "sleep"])
 def test_real_target_cwd_control_collisions_do_not_forge_exit_or_timeout(bundle, mode):
