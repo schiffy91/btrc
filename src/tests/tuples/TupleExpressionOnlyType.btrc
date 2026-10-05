@@ -1,5 +1,3 @@
-#include <assert.h>
-
 /* Each tuple shape below is spelled only in a C-for initializer, a sizeof
  * or cast operand, a property getter, a do-while body or condition, or a
  * method body declared before a tuple-typed field. */
