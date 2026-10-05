@@ -3,30 +3,37 @@
  * client's window destruction has been acknowledged by the X server. */
 #include <SDL3/SDL.h>
 #include <X11/Xlib.h>
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
+/* Required calls and checks remain active in release (-DNDEBUG) builds. */
+#define REQUIRE(condition) do { \
+    if (!(condition)) { \
+        fprintf(stderr, "ERROR: %s failed\n", #condition); \
+        exit(2); \
+    } \
+} while (0)
+
 int main(int argc, char **argv) {
     int destroy_before_dispatch = argc == 2 ? atoi(argv[1]) : 1;
-    assert(argc <= 2 && (destroy_before_dispatch == 0 || destroy_before_dispatch == 1));
+    REQUIRE(argc <= 2 && (destroy_before_dispatch == 0 || destroy_before_dispatch == 1));
     alarm(10);
-    assert(SDL_Init(SDL_INIT_VIDEO));
+    REQUIRE(SDL_Init(SDL_INIT_VIDEO));
     SDL_Window *window = SDL_CreateWindow("Clipboard owner", 80, 40, SDL_WINDOW_HIDDEN);
-    assert(window);
-    assert(SDL_SetClipboardText("clipboard boundary"));
+    REQUIRE(window);
+    REQUIRE(SDL_SetClipboardText("clipboard boundary"));
     Display *owner = SDL_GetPointerProperty(SDL_GetWindowProperties(window),
                                            SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
-    assert(owner);
+    REQUIRE(owner);
     XSync(owner, False);
     Display *requestor = XOpenDisplay(NULL);
-    assert(requestor);
+    REQUIRE(requestor);
     Window peer = XCreateSimpleWindow(requestor, DefaultRootWindow(requestor), 0, 0, 1, 1, 0, 0, 0);
     Atom clipboard = XInternAtom(requestor, "CLIPBOARD", False);
     Atom target = XInternAtom(requestor, "TARGETS", False);
     Atom property = XInternAtom(requestor, "BTRC_CLIPBOARD_BOUNDARY", False);
-    assert(XGetSelectionOwner(requestor, clipboard) != None);
+    REQUIRE(XGetSelectionOwner(requestor, clipboard) != None);
     XConvertSelection(requestor, clipboard, target, property, peer, CurrentTime);
     XSync(requestor, False);
     if (destroy_before_dispatch) {
@@ -42,5 +49,6 @@ int main(int argc, char **argv) {
     XCloseDisplay(requestor);
     SDL_DestroyWindow(window);
     SDL_Quit();
+    alarm(0);
     return 0;
 }
