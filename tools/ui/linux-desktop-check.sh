@@ -2,12 +2,14 @@
 # MAC-UIA-01: run once in the owner's existing X11 and Wayland desktop sessions.
 # nix develop --command tools/ui/linux-desktop-check.sh > ~/linux-desktop-check.json
 # No settings, driver reset, hardware claim or assistive-technology pass is invented.
-# Exit 0 means complete; 2 means explicit missing/blocked evidence; 1 means a failed trial.
+# Exit 3 means explicit incomplete evidence; 1 means a failed trial; 2 is invalid usage.
+# This collector cannot yet return complete: Orca, GPU reset and physical IME are deferred.
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 exec python3 - "$root" "$@" <<'PY'
 import argparse
 import datetime
+import importlib.util
 import json
 import math
 import os
@@ -36,7 +38,7 @@ def run(name, command, timeout, *, repo, artifacts):
     if shutil.which(command[0]) is None:
         return {**result, "status": "unavailable", "reason": f"missing executable: {command[0]}"}
     try:
-        with stdout_path.open("w") as stdout, stderr_path.open("w") as stderr:
+        with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
             child = subprocess.Popen(command, cwd=repo, stdout=stdout, stderr=stderr, start_new_session=True)
             try:
                 status = child.wait(timeout=timeout)
@@ -69,7 +71,7 @@ def run(name, command, timeout, *, repo, artifacts):
                     result.update(status="cleanup-failed", reason="child did not exit within two seconds after SIGKILL")
     except OSError as error:
         result.update(status="unavailable", reason=str(error))
-    result["excerpt"] = stdout_path.read_text(errors="replace")[:4096] if stdout_path.exists() else ""
+    result["excerpt"] = stdout_path.read_text(encoding="utf-8", errors="replace")[:4096] if stdout_path.exists() else ""
     return result
 
 
@@ -88,6 +90,8 @@ def gui_trial(repo, artifacts, timeout, execute):
         junit.unlink(missing_ok=True)
     except OSError as error:
         return {"status": "failed", "reason": f"cannot remove previous GUI JUnit: {error}"}
+    if importlib.util.find_spec("pytest") is None:
+        return {"status": "unavailable", "reason": "missing Python module: pytest"}
     command = [
         sys.executable,
         "-m",
@@ -105,6 +109,8 @@ def gui_trial(repo, artifacts, timeout, execute):
     gui["scope"] = (
         "Synthetic controls and GPU reparent correctness through reference/selfhost, plain/sanitized; not Orca, IME or physical reset"
     )
+    if gui["status"] in {"timeout", "cleanup-failed"} or (gui["status"] == "unavailable" and "returncode" not in gui):
+        return gui
     try:
         cases = list(ET.parse(junit).getroot().iter("testcase"))
         counts = {"passed": 0, "skipped": 0, "failed": 0}
@@ -156,6 +162,9 @@ def main():
         "gpu-vulkan": ["vulkaninfo", "--summary"],
         "gpu-opengl": ["glxinfo", "-B"],
         "x11-scales": ["xrandr", "--current"],
+        "kde-output-scales": ["kscreen-doctor", "-o"],
+        "kde6-global-scale": ["kreadconfig6", "--file", "kdeglobals", "--group", "KScreen", "--key", "ScaleFactor"],
+        "kde5-global-scale": ["kreadconfig5", "--file", "kdeglobals", "--group", "KScreen", "--key", "ScaleFactor"],
         "wayland-outputs": ["wayland-info"],
         "gnome-scale": ["gsettings", "get", "org.gnome.desktop.interface", "scaling-factor"],
         "orca-process": ["pgrep", "-x", "orca"],
@@ -201,6 +210,7 @@ def main():
                 "GDK_SCALE",
                 "GDK_DPI_SCALE",
                 "QT_SCALE_FACTOR",
+                "QT_SCREEN_SCALE_FACTORS",
             )
         },
         "artifacts": str(artifacts),
@@ -230,13 +240,13 @@ def main():
     report["trials"]["gui-correctness"] = gui
     report["trials"]["orca-button-label"] = {
         "status": "blocked",
-        "blocked_by": ["ui-1-linux-sdl-baseline", "tooling-linux-desktop-host"],
+        "blocked_by": ["ui-8-linux", "tooling-linux-desktop-host"],
         "reason": "No integrated btrc button-to-AT-SPI-to-Orca speech/event fixture exists. An Orca process or AT-SPI bus address is metadata only, not a reading proof.",
         "atspi_event_log": None,
     }
     report["trials"]["gpu-device-reset"] = {
         "status": "blocked",
-        "blocked_by": ["tooling-linux-desktop-host", "ui-1-linux-sdl-baseline"],
+        "blocked_by": ["tooling-linux-desktop-host", "ui-9-linux"],
         "reason": "No bounded GPU-view device-loss/reset fixture is integrated. Reparenting and software-adapter rendering are not device reset; this command never writes driver reset controls.",
     }
     report["trials"]["physical-input-ime"] = {
@@ -244,9 +254,9 @@ def main():
         "blocked_by": ["tooling-linux-desktop-host"],
         "reason": "Requires an observed desktop keyboard/input-method session; synthetic SDL events and scales do not supply physical IME evidence.",
     }
-    report["status"] = "failed" if gui["status"] in ("failed", "timeout") else "incomplete"
+    report["status"] = "failed" if gui["status"] in ("failed", "timeout", "cleanup-failed") else "incomplete"
     print(json.dumps(report, indent=2, sort_keys=True))
-    return 1 if report["status"] == "failed" else 2
+    return 1 if report["status"] == "failed" else 3
 
 
 if __name__ == "__main__":
