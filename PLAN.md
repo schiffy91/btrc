@@ -384,6 +384,23 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - its workflow is missing, so none of its five acceptance items is met;
     - every native path depends on unintegrated PR #43;
     - its VsDevCmd capture quotes `cmd.exe` arguments wrongly and fails on a real runner.
+- **Batch 33 (2026-10-05): the C2 shared owners.** `CL-C-08` (`stage17/c2-shared-owners`) lands the one commit every C2 construct lane builds on. Two review rounds sent it back. The first added the union zero-fill guard, the divergence record and stricter contract scans. The second, test-only, closed the last gap in the record scan.
+  - **Record members.** `TypeSystem` and `SemanticTypeSystem` own every read of a record's members: its declarators, its direct members, its named members flattened through anonymous members with their member paths, and its fields. 33 btrc and 21 Python struct-field walks, the LSP's `symbols.py` among them, now go through the owner. `test_record_member_owner_contract.py` scans both compilers for raw member-list reads. The Python scan trusts no receiver name. A subscript, a slice or an `in` test counts, because a `StructDecl`'s list supports all three. Only `.get/.items/.keys/.values` reads, which a list lacks, are exempt, and every other read is listed with its reason and count.
+  - **Initializer slots.** `plan_initializer_slots`/`planInitializerSlots` maps each brace element to a member path: positional order, a union's first member, an anonymous member as one braced slot, and designator chains. The analyzers record the plan; every reader goes through the owner, which re-plans identically what validation never saw (generic bodies, replayed module units). Static zero-fill moved into the owners and pads no union member. `test_initializer_slot_owner_contract.py` rejects a method that pairs elements with members outside the owner, including through a returned list or a slice.
+  - **Integer constants.** Both compilers already answered "not a constant", "a constant btrc cannot evaluate" or a value. The Python evaluator now follows btrc's `long long` rule for overflow, shifts and casts. `test_integer_constant_query_parity.py` checks 37 probes. It pins five known divergences (`errno`, a lowercase source macro, `(Color)1`, `7 / 0` in a case label, `enum Other { X = RED }`), plus two Linux-only ones from btrc reading float literals with `strtold`. `CL-REQ-09` removes the two Linux-only ones.
+  - **Evidence.**
+    - No accepted program changes: a verifier found byte-identical C for 262 struct-heavy corpus programs through both compilers.
+    - CI 37243013814 green on `55f9fa5`. One `c11-clang-O2` runner was lost before any test ran and was re-run once.
+    - Bootstrap fixed point; zero-warning transpiles of all three entries.
+    - The lane ran the corpus through both compilers: 1,970 passed.
+    - The integrator re-ran lint, format, the codegen and boundary checks, the transpiles and the contract tests on the merged tree: 352 passed.
+    - Peak RSS of btrcc compiling itself: 2,556,668 → 2,562,752 KiB (+0.24%, inside the 0.3% gate). The verifier traced the growth to about 260 more lines of compiled input, not to the recorded plans: btrc's own sources declare no struct.
+  - **Hand-offs:**
+    - r10 owns the C11 6.7.9p17 continuation rule and the constant query for designated index steps;
+    - r08 and r10 must handle `AnonymousMember` where Python reads `member.type` (`collections.py` `plan_brace`/`plan_static`, `aggregates.py`, `classes.py`, btrc `staticInitializerPadding`);
+    - plans retain their record and initializer, and the per-element plan lookup is O(n²), for later performance work;
+    - folding object-like source macros was not done.
+  - The LSP test `test_server_hardening.py::test_uncached_feature_compute_serializes_with_validation` fails intermittently on this commit and on its parent. It is not this change.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
