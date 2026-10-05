@@ -488,7 +488,7 @@ class ConstantValidator {
 		Node target = resolved;
 		if (target.base == "bool") {
 			if (expression.expr.kind == NK_FLOAT_LITERAL) {
-				return self.knownConstant(FloatLiteral(expression.expr.raw).doubleValue() != 0.0 ? 1 : 0);
+				return self.knownConstant(FloatLiteral(expression.expr.raw).typedValue() != 0.0 ? 1 : 0);
 			}
 			SemanticIntegerConstant operand = self.integerConstant(expression.expr, restrictEnum, enumOwner, allowedMembers);
 			if (!operand.valid || !operand.known) { return operand; }
