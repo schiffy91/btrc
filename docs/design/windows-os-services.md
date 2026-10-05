@@ -1,7 +1,7 @@
 # Windows OS-services providers
 
-Status: CX-P2-01 revision 3, approval pending. Round-2 review: PR #52, comment
-5984785229; current-main cross-check: `0214f3d8`. The branch base remains
+Status: CX-P2-01 revision 4, approval pending. Round-3 review: PR #52, comment
+6000316321; current-main cross-check: `45416fd0` (batch 36). The branch base remains
 `72592d36f560517a39e54f4b92b0149d44bef4d6`.
 CL-P2-01 must review this design and record approval in PLAN.md before it becomes
 an implementation contract. This document does not claim Windows runtime parity.
@@ -154,10 +154,10 @@ under -Werror. D21's Windows 11 floor does not claim Windows 10 support.
 |---|---|---|
 | Runtime filesystem/IO snapshot | CreateFileW, NtCreateFile, NtSetInformationFile, GetFileInformationByHandleEx, SetFileInformationByHandle, GetFinalPathNameByHandleW, GetVolumeInformationByHandleW, ReadFile, WriteFile, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, ReplaceFileW, MoveFileExW, LockFileEx, UnlockFileEx, _get_osfhandle, RtlNtStatusToDosError | kernel32, ntdll, CRT |
 | Sole runtime roots/security owner | GetEnvironmentVariableW, OpenProcessToken, GetTokenInformation, GetCurrentProcess, EqualSid, GetSecurityInfo, SetSecurityInfo, GetAclInformation, GetAce, GetLengthSid, CopySid, InitializeAcl, AddAccessAllowedAceEx, InitializeSecurityDescriptor, SetSecurityDescriptorDacl, SetSecurityDescriptorOwner, SetSecurityDescriptorControl, LocalFree | advapi32, kernel32 |
-| Sole runtime launch/image owner | GetModuleFileNameW, QueryFullProcessImageNameW, CreateProcessW, InitializeProcThreadAttributeList, UpdateProcThreadAttribute, DeleteProcThreadAttributeList, CreateJobObjectW, SetInformationJobObject, QueryInformationJobObject, IsProcessInJob, AssignProcessToJobObject, TerminateJobObject, TerminateProcess, CreatePipe, SetHandleInformation, DuplicateHandle, GetStdHandle, ResumeThread, GetExitCodeProcess, GetEnvironmentStringsW, FreeEnvironmentStringsW, WaitForSingleObject, WaitForMultipleObjects, CancelIoEx, GetOverlappedResult | kernel32 |
+| Sole runtime launch/image owner | GetModuleFileNameW, QueryFullProcessImageNameW, CreateProcessW, InitializeProcThreadAttributeList, UpdateProcThreadAttribute, DeleteProcThreadAttributeList, CreateJobObjectW, SetInformationJobObject, QueryInformationJobObject, IsProcessInJob, AssignProcessToJobObject, TerminateJobObject, TerminateProcess, GetCommandLineW, GetFileType, GetNamedPipeInfo, CreateNamedPipeW, ConnectNamedPipe, DisconnectNamedPipe, CreateEventW, IsWow64Process2, SetHandleInformation, DuplicateHandle, GetStdHandle, ResumeThread, GetExitCodeProcess, GetEnvironmentStringsW, FreeEnvironmentStringsW, WaitForSingleObject, WaitForMultipleObjects, CancelIoEx, GetOverlappedResult, BCryptOpenAlgorithmProvider, BCryptCreateHash, BCryptHashData, BCryptFinishHash, BCryptDestroyHash, BCryptCloseAlgorithmProvider | kernel32, bcrypt |
 | Terminal/Windows/Win32Terminal.h | GetStdHandle, GetConsoleMode, SetConsoleMode, ReadConsoleW, WriteConsoleW, ReadConsoleInputW, SetConsoleCtrlHandler, CancelSynchronousIo, GetCurrentThread, DuplicateHandle, GetFileType, SetEvent | kernel32 |
 | Daemon/Windows/Win32Daemon.h | BCryptGenRandom; SID/DACL operations call the shared runtime security seam, **no duplicate launch/security binding** | bcrypt, advapi32, kernel32 |
-| LocalApplicationChannel/Windows/Win32LocalChannel.h | CreateNamedPipeW, ConnectNamedPipe, DisconnectNamedPipe, WaitNamedPipeW, GetNamedPipeClientProcessId, GetNamedPipeServerProcessId, OpenProcess, OpenThreadToken, ImpersonateNamedPipeClient, RevertToSelf, CreateEventW, SetEvent, CreateFileW, ReadFile, WriteFile, CancelIoEx, GetOverlappedResult, WaitForSingleObject; shared runtime security helpers supply SID/DACL/token checks | kernel32, advapi32 |
+| LocalApplicationChannel/Windows/Win32LocalChannel.h | CreateNamedPipeW, ConnectNamedPipe, DisconnectNamedPipe, WaitNamedPipeW, GetNamedPipeClientProcessId, GetNamedPipeServerProcessId, ImpersonateNamedPipeClient, RevertToSelf, CreateEventW, SetEvent, CreateFileW, ReadFile, WriteFile, CancelIoEx, GetOverlappedResult, WaitForSingleObject; shared runtime security helpers supply SID/DACL/token checks | kernel32, advapi32 |
 | Runtime ProcessThreads; non-closure workers | CreateToolhelp32Snapshot, Thread32First, Thread32Next, GetCurrentProcessId; existing winpthreads start/join/mutex/condition surface | kernel32, existing winpthreads |
 
 Common CloseHandle/GetLastError and strict MultiByteToWideChar/
@@ -253,7 +253,9 @@ method name and suspended-job wording. Do not simply delete these guards:
   enumeration names are not authority. Delete/rename relative to held handles
   using FileDispositionInfoEx/FileRenameInfoEx with POSIX_SEMANTICS only when
   GetVolumeInformationByHandleW advertises FILE_SUPPORTS_POSIX_UNLINK_RENAME;
-  otherwise refuse rather than leave incompatible delete-pending semantics. Never fall back to recursive
+  otherwise refuse rather than leave incompatible delete-pending semantics.
+  Exact dispose does not set FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE or clear
+  read-only metadata: a read-only object returns FS_ACCESS_DENIED with no mutation. Never fall back to recursive
   string-path deletion when an exact operation is unavailable.
 * Identity uses a 64-bit volume serial plus the full 128-bit FILE_ID_128; snapshots preserve size, timestamps and
   checked revisions for files larger than 4 GiB. Existing FileTree revision hashes
@@ -282,13 +284,28 @@ method name and suspended-job wording. Do not simply delete these guards:
   Require nonempty, valid absolute `LOCALAPPDATA`; no cwd/home/Known Folder
   fallback. `stateRoot = LOCALAPPDATA`, `cacheRoot = LOCALAPPDATA/Cache`,
   `configRoot = LOCALAPPDATA/Config`. These are purpose roots; application code
-  appends its validated application namespace. Thus btrcc and btrcpy both use
+  appends its validated application namespace. Reserve application namespaces
+  `Cache` and `Config`, case-insensitively, in **all three** root APIs so a state
+  namespace cannot alias the global cache/config containers. This reservation is
+  an explicit Windows adaptation; existing collisions fail with FS_INVALID_ARGUMENT,
+  never silently merge or relocate another application's data. Thus btrcc and btrcpy both use
   `LOCALAPPDATA/btrc/generations`, or their existing explicit absolute
   `BTRC_STATE_DIR` override. Missing/empty/relative/invalid-Unicode values fail
   with a precise root error in both frontends. No roaming-config claim is made.
   Changing the unsigned row-7 Known Folder proposal requires CL-P2-01 approval.
   Packaged execution uses its actual wide environment and separately qualifies
   virtualization and permissions; it must not silently select another authority.
+  Both generation-root creators use one security policy: owner exactly TokenUser,
+  protected non-null DACL with one explicit allow-full-control ACE for TokenUser
+  and optionally one allow-full-control SYSTEM ACE; no inherited, deny, duplicate
+  or other-principal ACE is accepted. SACL/audit data is not an access grant.
+  Both btrcpy and btrcc must call their qualified shared-security adapter to
+  create/check this policy; Python mkdir(0o700) is insufficient on Windows and
+  must be migrated by CL-P2-27 before cross-frontend sharing is claimed. Existing
+  roots outside this policy fail closed with a migration diagnostic; do not
+  silently rewrite their DACL or create a second generation authority. A separately
+  reviewed migration may move verified content to a newly private root. Test
+  Python-create/BTRC-open and BTRC-create/Python-open against the same owner/ACE set.
   Packaged and unpackaged roots, ACLs and migration need independent evidence.
   GUI folder selection belongs to UI7's future `IFileOpenDialog/FOS_PICKFOLDERS`
   owner; a scoped grant must not be converted to a fabricated unrestricted path.
@@ -339,7 +356,25 @@ Windows comparison policy and its cacheToken-v2 encoding atomically.
 Win32/NTSTATUS failures need a native-code domain alongside FileSystemError's
 existing channel, with an additive atomically landed contract; convert NTSTATUS
 with RtlNtStatusToDosError for common categorization while preserving raw code
-and domain. Runtime HANDLE owners are private to Claude. Non-closure reader
+and domain. Apply semantic checks before the native mapping: invalid input ->
+FS_INVALID_ARGUMENT; name-surrogate -> FS_SYMLINK; verified wrong kind ->
+FS_WRONG_TYPE; identity/revision mismatch -> FS_CHANGED; a closed owner -> FS_CLOSED;
+a refused capability -> FS_UNSUPPORTED. Then map native failures as follows:
+
+| Win32 code (including the mapped NTSTATUS category) | FileSystemErrorKind |
+| --- | --- |
+| ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND | FS_NOT_FOUND |
+| ERROR_ACCESS_DENIED, ERROR_PRIVILEGE_NOT_HELD, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION, ERROR_WRITE_PROTECT | FS_ACCESS_DENIED |
+| ERROR_INVALID_PARAMETER, ERROR_INVALID_NAME, ERROR_BAD_PATHNAME, ERROR_FILENAME_EXCED_RANGE | FS_INVALID_ARGUMENT |
+| ERROR_NOT_ENOUGH_MEMORY, ERROR_OUTOFMEMORY, ERROR_TOO_MANY_OPEN_FILES, ERROR_DISK_FULL, ERROR_HANDLE_DISK_FULL | FS_RESOURCE_EXHAUSTED |
+| ERROR_NOT_SUPPORTED, ERROR_CALL_NOT_IMPLEMENTED, ERROR_INVALID_FUNCTION | FS_UNSUPPORTED |
+| ERROR_DIRECTORY after a kind check identifies a directory/file mismatch | FS_WRONG_TYPE |
+| All other native failures, including unexpected ERROR_INVALID_HANDLE on a live owner | FS_IO |
+
+Retain operation/path/native domain/raw unsigned code in every error; NTSTATUS
+mapping is categorization only. Existing-object mutation conflicts do not mean
+FS_NOT_FOUND; use FS_CHANGED after a verified identity conflict, otherwise FS_IO.
+The table does not turn I/O EOF or enumeration completion into failures. Runtime HANDLE owners are private to Claude. Non-closure reader
 bindings outside this shared runtime seam need approved R1 support for opaque void* HANDLE values, NULL or
 INVALID_HANDLE_VALUE failure sentinel and BOOL-returning CloseHandle, or a
 recorded descriptor-owner exception; do not force them into an incompatible
@@ -375,11 +410,27 @@ against child cwd. No POSIX default search path is imported. Do not use PATHEXT
 script types: explicit extensions are used exactly; extensionless names probe
 `.exe` then `.com`, in that order for each directory. The candidate must pass a
 bounded PE validation from an opened file: MZ, checked e_lfanew and PE signature,
-complete target-compatible COFF/optional headers, executable-image flag and no
-DLL flag. Extension alone never proves PE. Reject DOS COM images and malformed,
-truncated or wrong-machine candidates; the Windows loader remains the final
-loader check. Test x64/ARM64 policy explicitly rather than silently counting
-emulation as native qualification.
+complete bounded COFF/optional headers, executable-image flag and no DLL flag.
+Extension alone never proves PE. Determine the **native host** with
+IsWow64Process2(GetCurrentProcess(), processMachine, nativeMachine), never from
+the BTRC compilation target or the emulated process machine. On native AMD64
+accept I386/PE32 and AMD64/PE32+; on native ARM64 accept I386/PE32 and
+AMD64, ARM64, ARM64EC or ARM64X/PE32+. Check header bounds and matching optional
+header class, not undocumented hybrid metadata; CreateProcessW is the final
+loader and reports unsupported hybrid/emulation features on that OS build.
+An unknown native-machine value is an explicit unsupported-host launch failure.
+Reject other machine values, malformed/truncated images, DLLs and DOS COM.
+This admits x86 tools on x64, x64/ARM64EC tools on ARM64, and native ARM64
+system binaries launched from an emulated x64 BTRC process. These are supported
+launch cases, **not native-ABI qualification evidence**. Pin all cells in the
+Process fixture matrix; missing emulation capability records a capability
+refusal rather than changing the host machine set.
+
+APPEXECLINK application-execution aliases are explicitly unsupported by this
+exact-image contract: inspect the candidate's reparse tag before following it,
+return launch validation failure, and never invoke shell activation or resolve
+an unverified replacement. Ordinary file symlink handling retains the separately
+approved path-launch policy; aliases do not masquerade as regular PE files.
 Always pass absolute lpApplicationName. Refuse .bat/.cmd and all non-PE targets
 with a distinct launch validation failure even if CreateProcessW could run them;
 ordinary argument quoting is unsafe when Windows inserts cmd.exe. Reject a
@@ -388,6 +439,18 @@ quote in argv[0] and command lines over 32,767 UTF-16 units including NUL.
 Launch suspended with `STARTUPINFOEXW` and an explicit inherited-handle list
 containing only the three selected stdio handles. Duplicate inherited caller
 stdio into launch-owned handles and never mutate the caller's inheritance flags.
+Hold one runtime process-wide spawn mutex from creating any inheritable stdio
+or bootstrap duplicate until CreateProcessW finishes and every temporary copy
+is closed, on success and every failure path. Every runtime/compat spawn path,
+including UCRT system/_spawn/_popen wrappers, must acquire the same lock; CL-P2-02
+and CL-P2-14 own that integration and concurrent-leak tests. Uncooperative foreign
+CreateProcess calls cannot be serialized by this mutex and are outside the
+qualified embedding contract; no unrestricted thread-safe inheritance guarantee
+is claimed for such an embedding. Child-side bootstrap immediately clears
+inheritance before any managed spawn. The request writer remains noninheritable.
+Use GetStdHandle plus native handle validation for missing/invalid GUI-subsystem
+streams, substituting NUL; never pass UCRT's -2 unattached descriptor to
+_get_osfhandle or trigger its invalid-parameter fast-fail.
 Assign the child to a kill-on-close job **before** `ResumeThread`. This is the
 CL-P2-02 baseline even if `PROC_THREAD_ATTRIBUTE_JOB_LIST` is available;
 adaptation row 1 already matches it. Job assignment failure
@@ -407,6 +470,16 @@ all modes. Cancellation, timeout and capture overflow
 terminate the whole owned job, finish/cancel I/O, join service threads and close
 all handles. No callbacks into BTRC objects from raw runtime I/O threads.
 
+Keep `timedOut`, `captureExceeded` and `captureFailed` as independent booleans,
+including when several conditions happen. Final precedence matches Process.btrc:
+captureFailed -> 127, else captureExceeded -> 125, else timedOut -> 124, else
+child exit status. Append exactly `failed to poll child output\n` for capture
+failure and `child output exceeded capture limit\n` for overflow (both when
+both flags hold); do not invent an extra timeout diagnostic. The runtime result
+must carry all flags rather than lose them in a single terminal-state enum.
+Broken pipe while feeding a child that closes stdin early stops the producer;
+it is not a launch/capture failure and must not replace the child's result.
+Other stdin I/O errors remain a distinct setup/feed error, not fabricated EOF.
 Map timeout to existing code 124 and capture-limit failure to 125. Launch and
 capture-I/O failures use 127 with distinct reasons/flags; a child that itself exits
 127 is an ordinary child exit, not a launch failure. Preserve the native DWORD
@@ -430,8 +503,15 @@ UnixShell.run is unavailable on Windows: there is no POSIX /bin/sh; use ChildPro
 
 ## Terminal — row 2
 
-`readLine` and `prompt` retain bounded redirected-stream behavior. Console handles
-use `ReadConsoleW`/`WriteConsoleW` and strict Unicode conversion. Password input is
+`readLine` and `prompt` retain bounded redirected-stream behavior. Redirected
+bytes consume LF only, preserve a literal CR (including the CR in CRLF), and use
+Bytes.toStringLossy exactly as current Terminal/TerminalPasswordInput do.
+readLine truncates and drains the rest of the line; an over-4096-byte password
+drains the line and returns empty. Do not claim universal CR stripping or strict
+UTF-8 rejection for these existing lossy APIs. For console ReadConsoleW, treat
+the native Enter-generated CRLF as one line terminator, retain other literal CR,
+and replace malformed UTF-16 rather than throw; this console-specific adaptation
+needs CL-P2-01 approval. WriteConsoleW uses the portable output conversion. Password input is
 a serialized console session: save the original mode, clear `ENABLE_ECHO_INPUT`,
 retain `ENABLE_LINE_INPUT` and `ENABLE_PROCESSED_INPUT`, and restore the mode on success, overflow, error and
 control-event cancellation. Preserve the existing 4096-byte password limit and
@@ -446,104 +526,217 @@ refusal (which tells the caller to supply stdin immediately after refusing it);
 CL-P2-01 must record the adaptation decision for both platforms before delivery.
 No secret is logged. For a blocking console reader, duplicate its real thread
 handle for CancelSynchronousIo, signal cancellation via a native event, and
-restore mode/handler registration after drain. Never GenerateConsoleCtrlEvent.
+restore mode/handler registration after drain. Ctrl-C is not converted into an
+ordinary empty password. For CTRL_C_EVENT, the native handler signals cancellation
+and waits on a bounded native restoration event; the input owner cancels/drains,
+restores mode/registration and unlocks before signalling it. The handler then
+returns FALSE so Windows dispatches to the existing previous/default handlers;
+there is no unsupported attempt to enumerate or manually invoke their chain.
+Native handler storage remains alive until the entered handler returns. Failed
+restoration/drain is a fatal cleanup failure after best-effort restore, not a
+successful empty-password result or an indefinitely blocked control-handler
+thread. Keep the fatal cleanup policy explicit in the Terminal fixture. Do not
+rebroadcast Ctrl-C to another process group. Never GenerateConsoleCtrlEvent.
 Pseudoconsole/foreground handoff remains separately unqualified.
 
 ## Daemon supervisor — row 4
 
-Keep DaemonSpec's validation and declared Command data. Choose **a sibling
-supervisor executable**, not self re-exec: the compiler has no pre-main hook.
-The fixed sibling name is `btrc-daemon-supervisor.exe`, produced from
-`src/stdlib/Daemon/Windows/DaemonSupervisorMain.btrc`. CX-P2-08 owns that thin
-entry and its policy through an amended packet, but cannot implement the builder,
-manifest, runtime or runner changes; those are explicit prerequisites below.
+Keep DaemonSpec validation and Command data. Choose a sibling executable, not
+self re-exec or a pre-main hook. Its basename is the **complete primary image
+basename plus `.btrc-supervisor.exe`**, for example
+`editor.exe.btrc-supervisor.exe`. Two consumers in one directory therefore do not
+overwrite each other's differently built supervisor. CX-P2-08 owns the thin
+`src/stdlib/Daemon/Windows/DaemonSupervisorMain.btrc` entry and policy; only
+CL-P1-11/CL-P2-02 own its builder, runtime and runner prerequisites.
 
-CL-P1-11 must add a reviewed auxiliary-executable declaration to the package/link
-plan and its builder/bundle support before CX-P2-08 starts. The Daemon package
-names the source entry, target filter, exact sibling basename and runtime protocol
-version; both frontends emit the same declaration only for a reachable Windows
-Daemon consumer. The builder compiles it with the same frontend, ABI, runtime
-revision and library set as the main executable. The auxiliary dependency graph
-must be acyclic: the supervisor is a leaf image, cannot request another Daemon
-supervisor, and never embeds its own digest. Build/hash that leaf first, then
-emit the primary consumer's expected-digest metadata and link the primary image.
-Auxiliary declarations are selected by retained Daemon-start capability, not by
-merely importing the package. Both plan writers reject recursive declarations. Each unpackaged corpus program
-gets its own sibling in its isolated output directory, not a shared mutable PATH
-location. A bundle carries the sibling next to the executable that uses it,
-records both hashes and rejects absent/mismatched companions before execution.
-An app distributing Daemon must distribute that pair and its declared runtime
-libraries in both unpackaged and MSIX layouts; no install-time/runtime download.
-No auxiliary executable is added to unrelated or non-Windows programs.
+CL-P1-11 adds a target-filtered auxiliary-executable declaration, selected only
+by retained Windows Daemon-start capability. Both frontends emit the source,
+consumer-derived sibling basename, ABI and protocol identically. Build the leaf
+supervisor with the consumer's frontend, ABI and runtime revision; suppress
+auxiliary emission for this leaf and reject recursive declarations. Link it with
+`/DEPENDENTLOADFLAG:0x800` (GNU linker equivalent `--dependent-load-flag=0x800`),
+allowing dependent DLL resolution only in System32. Statically link non-system
+runtime dependencies, including winpthreads; inability to provide this loader
+policy is a build failure, not a search-path fallback. Test planted DLLs next to
+the image and in cwd/PATH. No additional app-directory delay-loaded dependency
+is admitted by this contract.
 
-The runtime resolves its own absolute module path with `GetModuleFileNameW`,
-forms only that fixed sibling path, and returns a **verified image owner** after
-opening and checking the canonical file, expected build-manifest digest, protocol
-and target machine. It retains the image with no write/delete sharing and holds
-its verified ancestor directories against write/reparse changes and rename; untrusted reparse ancestry or
-an unenforceable namespace lock fails closed. The location must satisfy the
-same reviewed distribution-owner/ACL policy as the application. User-writable
-application installation remains in the application's trust domain; this does
-not claim protection against an actor who can replace the application itself.
-The launcher passes the resulting absolute path as lpApplicationName and checks
-the suspended child's image identity before resume. It never resolves a bare
-supervisor name, PATH, PATHEXT, cwd override or caller-supplied arbitrary image.
-Hold validation locks through creation/identity check; post-hoc path equality
-alone is not an image-race proof. Missing image, mismatched digest/ABI/protocol,
-rename/write interference or unsupported verification gives **unsafe start**
-before transferring any instance/control token. CL-P2-02 owns this runtime helper.
+The order is: build supervisor, optionally Authenticode-sign its **final bytes**,
+SHA-256 those bytes, emit consumer digest/protocol/ABI metadata, then link/sign
+the consumer. No digest of the consumer is embedded in the supervisor. Subsequent
+supervisor signing/repacking requires rebuilding consumer metadata; unsigned
+builds hash their final unsigned bytes. Runtime verification uses BCrypt's
+SHA-256 primitive (bcrypt is an explicit image-owner library dependency), not
+an invented kernel32 hash. Both unpackaged corpus output and relocatable/MSIX
+bundles carry this pair; no download or PATH search supplies a missing image.
+No auxiliary is emitted for unrelated/non-Windows programs.
 
-The launch seam below takes the verified image owner; it cannot use ordinary
-executable search for detached transfer. Tokens travel only over the explicitly
-inherited private control pipe, not command-line/environment/log text. Transfer
-has two additional fixed, audited bootstrap-pipe slots (request and reply)
-beyond ordinary launch's three stdio slots; it admits no arbitrary descriptor
-mapping. Only the intended child ends inherit; parent/unused ends close at their
-handshake boundary. Parent creation remains suspended/contained. The supervisor creates its own managed-tree
-job, publishes READY only after ownership is established, and waits for COMMIT.
-The launcher clears its temporary job's kill-on-close only after READY, sends
-COMMIT, and reports success only after the protected instance record and ACK
-match. Before COMMIT, timeout/launcher loss makes the supervisor terminate its
-managed job and itself. A failure after COMMIT is **indeterminate start**, never
-an automatic second launch: reconcile the authenticated record. This state must
-be added to the controller result contract by CL-P2-01. Ordinary ChildProcess
-close rules remain unchanged. Nested-job/breakaway restrictions fail closed.
+The runtime obtains the running module's absolute path with GetModuleFileNameW
+and derives this sibling only. Open/hash the image with no FILE_SHARE_WRITE or
+FILE_SHARE_DELETE; check expected bytes, protocol and the exact supervisor ABI.
+Hold each verified ancestor directory without FILE_SHARE_DELETE and re-check
+its reparse tag/identity. This prevents renaming/replacing the held directory;
+**it does not prevent entry creation or claim a directory write lock**. Reject
+name-surrogate ancestry, and retain the verified final image handle through
+suspended CreateProcessW plus child-image identity verification. Existing writers
+that conflict with the image sharing policy cause verification failure. The
+application's installation-owner/ACL trust boundary still applies: an actor who
+can replace the consumer itself is not excluded by its embedded digest. No
+arbitrary image, cwd, PATH or PATHEXT override is accepted. Failure precedes any
+secret transfer. Ordinary Process accepts host-compatible emulated tools below;
+the auxiliary instead matches the build's declared ABI by design.
 
-CX-P2-08's amended owned paths explicitly include the new BTRC entry and its
-Daemon manifest fragment; runtime, compiler, native_plan, runner and bundle
-changes remain Claude's. Its acceptance must run both frontends' unpackaged
-`stdlib/Daemon.btrc` with the sibling supplied by the corpus builder within the
-existing 15-second corpus limit, then execute the exact same pair through the
-CX-P1-07 Linux-built Windows bundle. Add missing/replaced/wrong-ABI sibling,
-planted PATH/cwd image, launcher-exit and each READY/COMMIT/ACK failure point.
-MSIX/autostart evidence remains separately capability-gated. Until these named
-prerequisites land, CX-P2-08 cannot claim an implementable completed supervisor.
+### Bootstrap transport and wire contract
 
-Resolve owner-controlled records/logs through
-ApplicationDirectories. Generate 128-bit instance/control tokens with
-`BCryptGenRandom`; records, logs and control-capability files require current-user DACLs.
-PID alone is never a capability. Match the instance token against the protected
-instance record and authenticate the file-control capability before status/stop
-or stale-record cleanup; do not terminate a process from an old PID.
+CL-P2-02 owns **both ends** of bootstrap and all process/job/pipe HANDLEs. The
+BTRC entry consumes the opaque runtime supervisor owner below and implements
+record/restart/stop policy; it never manufactures or closes native handles.
+There are no imaginary Windows std-handle slots. The reserved invocation is
+`"<absolute sibling>" --btrc-daemon-bootstrap-v1 <request-read> <reply-write>`.
+The two values are unsigned decimal HANDLE bit patterns, fitting uintptr_t with
+no sign/leading-zero spelling, and are the only extra inherited handles beyond
+three explicit stdio handles. They are capabilities but **not secret tokens**;
+no command, token, environment, cwd or log path is placed in argv. The runtime
+accept entry parses this exact grammar from GetCommandLineW, checks pipe handle
+kind/direction and distinctness, and clears HANDLE_FLAG_INHERIT immediately on
+all inherited handles before creating any child. Malformed/manual invocation
+fails closed. A caller authorized as the same user can already launch arbitrary
+commands; this bootstrap is not an elevation boundary.
 
-Start the supervisor with the adaptation's detached/new-process-group/breakaway
-flags only where the parent/package policy permits them. It owns a job for its
-managed child tree and applies the declared restart policy. Use the existing owner-DACL-protected file-capability control protocol, not
-an additional named-pipe daemon protocol. A stop record authenticates the instance
-and asks the supervisor to stop/reconcile. Windows then uses declared hard tree
-termination via TerminateJobObject; it does not claim POSIX graceful signals.
-This hard-stop adaptation requires Q4/row-4 approval. The public UnixShell field
-remains a compatibility field but is unused on Windows; no shell command is run. Preserve controller result distinctions (success, not running,
-deadline, unsafe start) and bound startup handshake, log retention and crash
-recovery. A denied breakaway or job assignment is a failed start, not success with
-weaker containment. Ensure the launching process closing its own launch handle
-does not kill the accepted independent supervisor; detached launch requires a
-separately reviewed ownership transfer, not the ordinary ChildProcess close rule.
+Use two private byte-mode named-pipe pairs, remote-client rejection, a protected
+current-user DACL and unpredictable names. The launcher has the only request
+writer and reply reader; the supervisor has the request reader and reply writer.
+CreateNamedPipeW server ends use FILE_FLAG_OVERLAPPED; child ends and all
+OVERLAPPED/event storage are runtime-owned and drained before release. The SDK
+qualification must cover this route: **CreatePipe does not provide overlapped
+handles**. No unused duplicate survives CreateProcessW. The common process-wide
+spawn lock described in Process covers temporary inheritable copies; foreign
+spawners outside that lock are excluded from the guarantee and must be prevented
+or rejected by the embedding contract.
 
-Per-user autostart defaults only to the explicit opt-in packaged startup task.
-Run/logon-task registration belongs to a separately approved unpackaged artifact. MSIX does not imply permission to install a per-user
-service or evade package process restrictions. Packaging policy and native evidence
-must qualify the chosen path; no automatic service installation is proposed here.
+All frames have exactly this 16-byte header: bytes 0–7 are ASCII `BTRCDM1`
+followed by NUL; bytes 8–9 little-endian u16 version 1; bytes 10–11 little-endian
+u16 type; bytes 12–15 little-endian u32 payload length. Maximum payload is
+1,048,576 bytes. Read/write loops handle partial I/O; EOF, trailing bytes within
+a typed payload, bad type/order/version/length, or a second frame of a one-shot
+type is a protocol failure. An open idle pipe is bounded by the deadline, not
+mistaken for EOF. Every integer below is little-endian. `str` means u32 UTF-8
+byte length then exactly those bytes, strict UTF-8 and no NUL, at most 65,536
+bytes; vector counts are u32 at most 4096, checked against the total frame bound.
+
+| Type / direction | Exact payload and state |
+| --- | --- |
+| 1 INIT, launcher → supervisor | token[16]; u64 remaining_startup_ms; u32 lifetime (0 independent, 1 parent-contained); u32 autoRestart (0/1); str daemon name; str canonical control path; str canonical log path; str absolute effective cwd; str command executable; u32 argc followed by argc str arguments including argv[0]; u32 envc followed by envc str `name=value` entries. Runtime takes a complete merged/sorted environment snapshot, preserving Windows drive-current-directory entries such as `=C:=...`; no process-global env mutation. Paths/name/command obey existing portable validation plus Windows path policy. argc is nonzero. |
+| 2 READY, supervisor → launcher | u32 supervisor PID (2..INT_MAX); u32 lifetime matching INIT. Sent only after runtime validation, secure log open and managed-tree job creation succeed; no managed command has run. |
+| 3 COMMIT, launcher → supervisor | token[16], exactly matching INIT. Single commit authorization; no startup data is reparsed from argv. |
+| 4 ACK, supervisor → launcher | token[16]; u32 supervisor PID matching READY; u32 lifetime. Sent only after a matching protected v1 control record is published and re-opened/verified. |
+| 5 ERROR, either direction before COMMIT | u32 stage; u32 domain; u32 native_code; u32 ownership_state, using the common error record below. No secret or arbitrary text. Receiver aborts. After COMMIT, errors/EOF instead trigger reconciliation; an error frame cannot authorize a retry. |
+
+The launcher gives the whole transfer one monotonic positive finite deadline;
+it sends only the remaining budget in INIT. The receiver starts its own deadline
+on accepting INIT and never extends it per read. No unbounded bootstrap wait is
+allowed. Before COMMIT, request-pipe EOF/broken-pipe means launcher loss because
+only that launcher retains its write end. A runtime pending read remains active
+while waiting; its close API cancels/drains it. Loss or expiry destroys the
+managed job and exits the supervisor without running the command. An unresponsive
+launcher is bounded by the same budget. The launcher aborts its temporary
+kill-on-close containment if READY/validation fails.
+
+After READY the launcher clears only its temporary job's KILL_ON_JOB_CLOSE,
+then attempts COMMIT. **Once any COMMIT write is attempted**, failure is
+indeterminate (partial delivery must not be assumed reversible). The receiver
+requires the complete authenticated COMMIT before committing. The BTRC entry
+then publishes the unchanged v1 record through DaemonControlFiles; runtime ACK
+checks that record. Only after ACK is sent may policy start the managed command.
+On accepted COMMIT, later launcher loss does not kill an independent daemon;
+parent-contained lifetime below still applies. ACK loss returns indeterminate
+start and reconciles the token-authenticated record/liveness probe; never launch
+a replacement automatically. Failure to publish before ACK cleans the owned
+job/record and exits; the launcher still reconciles instead of guessing.
+
+### Token, containment and portable outcomes
+
+Use **one 128-bit random token**, generated with BCryptGenRandom. INIT/COMMIT/ACK
+carry its 16 raw bytes. The existing record is exactly UTF-8/ASCII
+`btrc-daemon-v1\n<32 lowercase hex token>\n<decimal supervisor PID>\n`.
+Stop file remains `<control>.<token>.stop`; probe and acknowledgement remain
+`<control>.<token>.probe.<32-hex challenge>` and that path plus `.ack`. Their
+contents stay `<token>\n`. A fresh probe challenge is not a second persistent
+control token. No new record version, Unix migration or alternate control-pipe
+protocol is introduced. PID is diagnostic, not permission to terminate; refuse
+PIDs outside the existing parser range rather than truncate. Runtime wipes
+bootstrap token storage after handoff; records retain the intended capability.
+
+Ordinary Process jobs and the supervisor's managed-tree job set KILL_ON_JOB_CLOSE
+but **neither BREAKAWAY_OK nor SILENT_BREAKAWAY_OK**. Ordinary Process never asks
+for CREATE_BREAKAWAY_FROM_JOB. Only supervisor launch may try that creation flag
+with DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP|CREATE_SUSPENDED. If the launcher
+is outside a job, omit breakaway. If breakaway is refused before a process is
+created, retry exactly once without it, still suspended and contained; never
+retry an ambiguous creation. Before adding its temporary job, query the still-
+suspended child with IsProcessInJob(child, NULL, ...): lifetime is 1 if any
+ancestor job remains and 0 only if none remains. Successful breakaway can stop
+at a restrictive ancestor and does not by itself prove independence. Query
+failure terminates the suspended child and fails start. Then add the supervisor
+to the temporary job before resume. Nested-job assignment failure aborts; no
+uncontained child runs.
+
+This fallback deliberately leaves the supervisor and managed descendants inside
+all inherited parent jobs. After COMMIT it survives the launching *process*,
+but not an enclosing job's termination or limits. Transfer exposes lifetime=1
+for this case, retained in diagnostics/evidence; successful public start still
+means a live authenticated supervisor, not immunity from host containment. With
+a verified absence of enclosing jobs before temporary assignment, lifetime=0. The supervisor creates its
+managed-tree job via the runtime prepare entry and starts each command suspended,
+assigns that job before resume, and applies no further breakaway. Thus the
+existing CX-P1-07 executor's non-breakaway kill-on-close job remains unchanged:
+normal Daemon corpus start/stop succeeds inside it, and executor teardown kills
+any escaped-by-PID descendant still in its outer job. MSIX may forbid even the
+contained route; that is an unsafe-start refusal, never a weaker containment.
+This bounded-lifetime adaptation must be approved and documented by CL-P2-01.
+
+Windows default directory is `stateRoot/btrc/daemons`; files remain
+`<name>.control` and `<name>.log`, cwd defaults to the caller's cwd, and restart
+is false. Unix retains HOME/.btrc/daemons, then its existing TMPDIR/euid fallback;
+no Unix default changes. Owner-only log creation/open is append-only, rejects
+links/wrong owner/unsafe existing files, preserves existing contents and routes
+both managed stdout/stderr to the held log handle; stdin is NUL. No implicit
+rotation/truncation or logging of secret bootstrap content. Log growth is the
+caller's retention responsibility, as on Unix; bounded in-memory I/O does not
+promise a bounded on-disk log.
+
+Keep `DaemonController.result` construction and current code/message pairs:
+`ExecResult(code, "", message, "daemon start|stop|status")`. Existing-record start
+is 1/`daemon control record already exists`; absent/unresponsive stop/status is
+1/`daemon supervisor is not responding`; malformed paths/spec are 125/`unsafe
+daemon specification`; unsafe log is 125/`unsafe daemon log file`; expired stop
+is 124/`daemon did not confirm termination before the deadline`. Preserve all
+other current DaemonController messages verbatim. Launch failure retains its
+code with `failed to launch daemon supervisor`; missing control state and failed
+liveness remain 125 with their current messages. The only new outcome is
+125/`daemon start outcome is indeterminate; reconcile control state before retry`
+plus an additive typed start-indeterminate discriminator approved under D27;
+125 alone cannot tell a caller it is safe to retry. Match the existing launch,
+record and liveness budgets (3000/2500/2500 ms) without multiplying them per
+pipe operation. Native acceptance retains the 15-second corpus bound.
+
+Stop uses the existing protected capability file, then runtime TerminateJobObject
+for hard tree termination; no POSIX graceful-signal claim. The supervisor's own
+exit closes its managed job with kill-on-close intact. Restart uses autoRestart
+only after the previous owned tree is reaped, with the existing 100 ms delay;
+service stop/probe requests while waiting. The public UnixShell compatibility
+field is unused on Windows. Packaged autostart is opt-in; unpackaged Run/logon
+registration remains a separate approved artifact, never an implicit service.
+
+CX-P2-08's amended owned paths include the thin entry and manifest fragment,
+not runtime/compiler/runner code. Require both-frontends unpackaged corpus and
+the same pair in CX-P1-07 bundles, missing/replaced/wrong-ABI or differently signed
+images, two consumers sharing a directory, planted DLLs/PATH/cwd, malformed and
+partial frames, launcher loss at every boundary, ACK loss/reconciliation,
+contained fallback under the unchanged executor, and teardown killing the whole
+outer tree. Independent lifetime needs a separate host allowing breakaway.
+These are proposed acceptance changes, not claims of Windows execution.
+
 The unsupported rendering diagnostic remains:
 
 ```text
@@ -553,7 +746,16 @@ DaemonSpec.renderStartCommand is unavailable on Windows: the supervisor is a POS
 ## LocalApplicationChannel — row 5
 
 Validate the supplied path using the Windows component policy and retain its
-PrivateDirectory parent after owner/DACL checks. Derive a deterministic name
+PrivateDirectory parent after owner/DACL checks. This pipe backend creates no
+filesystem endpoint marker. If any existing file/directory/reparse object occupies
+the requested logical leaf, server prepare returns PATH_CONFLICT and client
+preflight returns SECURITY_REJECTED, without deleting it. An absent leaf proceeds
+to pipe lookup: absent pipe is client UNAVAILABLE; it is not an early missing-file
+failure, because a healthy Windows endpoint also has no marker. Map connect
+access denial to SECURITY_REJECTED, deadline to TIMED_OUT, and remaining transport
+errors to IO_FAILED. A disappeared/refused server is UNAVAILABLE only when no
+identity/security violation was observed. These preserve Unix's nonendpoint
+outcomes with an explicit absent-leaf adaptation. Derive a deterministic name
 `\\.\pipe\btrc-lac-<SID>-<digest(volume,parent-file-id,leaf)>`, using the full
 identity, canonical case policy and bounded collision-resistant digest. Namespace
 hashing is routing, not authorization. Reject insecure parents with
@@ -567,7 +769,14 @@ exclusivity or trust an unauthenticated squatting endpoint.
 
 The initial server uses FILE_FLAG_FIRST_PIPE_INSTANCE|PIPE_REJECT_REMOTE_CLIENTS,
 explicit TokenUser owner, protected user-only DACL and nMaxInstances=maximumClients.
-Later instances owned by that server omit FIRST_PIPE_INSTANCE. Preserve the
+Later instances owned by that server omit FIRST_PIPE_INSTANCE, but re-verify each
+instance's owner and protected DACL before accepting clients. Keep at least one
+owned pipe instance alive throughout normal service: create/verify a successor
+before closing the last prior instance, retaining the connected predecessor if
+maximumClients temporarily leaves no slot. Admission waits or rejects at the
+existing client bound; never drop the last instance to make space and open a
+squatting window. Final shutdown alone closes the last instance; next start uses
+FIRST_PIPE_INSTANCE and authenticates conflicts afresh. Preserve the
 four-byte big-endian frame, empty payload, one reply, bounded bytes and one
 monotonic connect/send/receive deadline. Overlapped poll is nonblocking; canceled
 I/O is completed/drained before releasing OVERLAPPED storage, events or handles.
@@ -651,6 +860,7 @@ typedef struct {
 } __btrc_windows_launch_error;
 typedef struct {
     uint32_t state, native_exit_code, has_exit_code, launch_failed;
+    uint32_t timed_out, capture_exceeded, capture_failed;
     uint64_t stdout_bytes_seen, stderr_bytes_seen;
     size_t stdout_bytes_retained, stderr_bytes_retained;
 } __btrc_windows_launch_result;
@@ -687,8 +897,9 @@ and consumers must preserve bounded memory, early-close and backpressure results
 Validate combinations before launch. Wait returns 0 for a valid result and nonzero
 for API failure. Wait mode 0=poll, 1=finite deadline, 2=unbounded; timeout_ms is
 used only in mode 1, where it must be positive and fit checked monotonic deadline
-arithmetic. All uint32 values, including UINT32_MAX, are valid finite durations;
-no duration doubles as an unbounded sentinel. Result state
+arithmetic. The duration type is uint64_t everywhere; finite values must fit checked
+monotonic deadline arithmetic (including UINT32_MAX when representable).
+No duration doubles as an unbounded sentinel. Result state
 0=running, 1=exited, 2=timed-out, 3=capture-limit, 4=capture-I/O-failed.
 A positive finite wait deadline that expires terminates and reaps the owned tree before
 returning state 2; it is not a detachable wait timeout. The portable wrapper's
@@ -761,6 +972,7 @@ and runtime refusal; a mapped Win32 category never replaces the raw NTSTATUS.
 | `token_current(token_owner** out, error*)`; `token_from_process(process_id, token_owner** out, error*)`; `token_from_impersonation(token_owner** out, error*)`; `token_copy_sid(token_owner*, bytes, capacity, required_bytes, error*)`; `token_close(token_owner** owner, error*)` | Own token/process handles until extraction/verification ends; copied SID bytes are immutable caller-owned output. Insufficient capacity copies nothing. Token close uses the same live/poisoned rules. TokenUser identity, not process ID or shim uid, authorizes. The channel still owns paired impersonate/RevertToSelf; token extraction failure must not bypass reversion. |
 | `private_create/check(file_owner* parent_or_object, component_utf8, token_owner*, file_owner** out, error*)`; `pipe_check_peer_owner(pipe_native_borrow, token_owner*, error*)` | Runtime owns SDK security descriptors, ACL/SID temporary storage and allocator-matched release. Pipe HANDLE is a call-scoped borrow from the channel's checked owner, never retained or closed. Token/DACL decisions are shared with Daemon; no second SDK security owner. |
 | `environment_copy(name_utf8, name_bytes, utf8, capacity, required_bytes, present, error*)`; `roots_resolve(roots_snapshot* out, error*)` | Read/GetEnvironmentVariableW through the runtime once per resolution; distinguish absent and present-empty. Windows name grammar and absolute-root validation are explicit. Roots snapshot is immutable owned data released with `roots_close`; caller copies UTF-8 fields with query/copy semantics. No SHGetKnownFolderPath fallback. |
+| `roots_close(roots_snapshot** owner, error*)` | Null is success; immutable snapshot contains owned data only. Free it once and null the caller pointer; no process-global environment or borrowed pointer is released. |
 | `process_thread_count(uint32_t* out, error*)` | Runtime owns and closes its Toolhelp snapshot before return. Enumeration failure is not a successful zero count. |
 
 All UTF-8 inputs carry byte counts and reject embedded NUL/invalid encodings.
@@ -774,52 +986,108 @@ Native record buffers never escape to btrc. Fixed enums/records and every select
 entry have one runtime manifest/generated declaration; non-Windows unsupported
 implementations obey the same initialized-output/lifetime contract.
 
-The supervisor-specific interface is proposed as:
+The supervisor-specific interface is proposed as follows. All entries are owned
+by CL-P2-02 in windows_os.c, with generated SDK-free runtime declarations and
+non-Windows unsupported definitions. `daemon_startup` contains the existing
+launch-options command, daemon name, canonical control/log paths and autoRestart;
+its output/input modes are fixed by the Daemon policy above, not arbitrary extra
+stdio mappings. String pointers are call-scoped UTF-8 borrows copied at transfer.
 
 ```c
 typedef struct __btrc_windows_image_owner __btrc_windows_image_owner;
+typedef struct __btrc_windows_supervisor_owner __btrc_windows_supervisor_owner;
 typedef struct {
-    uint32_t state; /* confirmed, failed-before-commit, indeterminate-after-commit */
-    uint32_t supervisor_pid; /* diagnostic, never a capability */
+    __btrc_windows_launch_options command;
+    const char *name_utf8, *control_path_utf8, *log_path_utf8;
+    uint32_t auto_restart;
+} __btrc_windows_daemon_startup;
+typedef struct {
+    uint32_t state; /* 0 confirmed, 1 failed-before-commit, 2 indeterminate */
+    uint32_t supervisor_pid, lifetime; /* lifetime: 0 independent, 1 contained */
 } __btrc_windows_transfer_result;
 int __btrc_windows_supervisor_image_verify(
     const unsigned char expected_sha256[32], uint32_t protocol_version,
     __btrc_windows_image_owner **out, __btrc_windows_launch_error *error);
 int __btrc_windows_supervisor_transfer(
     const __btrc_windows_image_owner *image,
-    const __btrc_windows_launch_options *options,
-    const unsigned char instance_token[16], const unsigned char control_token[16],
+    const __btrc_windows_daemon_startup *startup, const unsigned char token[16],
     uint64_t startup_timeout_ms, __btrc_windows_transfer_result *result,
     __btrc_windows_launch_error *error);
 int __btrc_windows_supervisor_image_close(
     __btrc_windows_image_owner **image, __btrc_windows_launch_error *error);
+int __btrc_windows_supervisor_accept(uint64_t startup_timeout_ms,
+    __btrc_windows_supervisor_owner **out, __btrc_windows_launch_error *error);
+int __btrc_windows_supervisor_copy_startup(
+    __btrc_windows_supervisor_owner *owner, unsigned char *buffer,
+    size_t capacity, size_t *required_bytes, __btrc_windows_launch_error *error);
+int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
+    __btrc_windows_launch_error *error);
+int __btrc_windows_supervisor_ready_wait_commit(
+    __btrc_windows_supervisor_owner *owner, __btrc_windows_launch_error *error);
+int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
+    __btrc_windows_launch_error *error);
+int __btrc_windows_supervisor_spawn_managed(
+    __btrc_windows_supervisor_owner *owner, __btrc_windows_launch_error *error);
+int __btrc_windows_supervisor_poll_managed(
+    __btrc_windows_supervisor_owner *owner, uint32_t *running,
+    uint32_t *native_exit_code, __btrc_windows_launch_error *error);
+int __btrc_windows_supervisor_terminate_managed(
+    __btrc_windows_supervisor_owner *owner, uint32_t exit_code,
+    __btrc_windows_launch_error *error);
+int __btrc_windows_supervisor_close(__btrc_windows_supervisor_owner **owner,
+    uint64_t timeout_ms, __btrc_windows_launch_error *error);
 ```
 
-The expected digest/protocol comes from the builder's emitted application
-metadata, not a file chosen from PATH. Verification derives the fixed sibling
-from the running module and retains its absolute verified path/locks privately.
-Transfer rejects options.executable_utf8 and argv attempts to select another
-image; only that owner's absolute path is accepted. It borrows the owner until
-creation/identity verification and the handshake end, copies bounded startup
-storage, scrubs token buffers after use and exposes no token in diagnostics.
-Failure before COMMIT cleans the temporary job/tree; failure after COMMIT returns
-indeterminate and requires record reconciliation. Closing the image owner frees
-verification locks, never terminates an accepted supervisor. This signature and
-the isolated-object plumbing must be reviewed/implemented before CX-P2-08.
+Zero means successful operation; every output initializes before work. Transfer
+borrows the verified image through the handshake and never accepts an executable
+override for that image. Its command executable is the *managed command*, resolved
+under Process policy. Result state is meaningful even on error: any attempted
+COMMIT write sets state 2 until confirmed ACK plus protected-record verification;
+no caller infers retry safety from a nonzero return alone. Image close releases
+verification handles only, never the committed supervisor.
+
+`accept` parses the reserved invocation, validates and clears inherit flags,
+owns both bootstrap ends and a complete validated INIT buffer, and sets a deadline
+to the smaller of its positive maximum and INIT's remaining budget. On failure
+it closes everything it acquired. `copy_startup` query/copy returns the exact
+canonical INIT payload above (including token) to the owned BTRC parser; it makes
+no partial copy and reports bytes, not a native struct. The BTRC policy owns and
+scrubs its copy. This is enough to use existing record/path policy without SDK
+imports. `prepare` creates the unnamed managed-tree job with no breakaway
+flags, sets kill-on-close, and opens the secure append log; the runtime retains
+all three. `ready_wait_commit` sends READY and monitors the sole request writer via pending
+read/EOF/deadline until complete authenticated COMMIT; it never starts user code.
+On precommit failure it aborts the job and signals its caller to exit.
+
+After that call succeeds, BTRC policy publishes the v1 record. `ack` reopens and
+verifies the protected record's token/PID/identity before sending ACK, then closes
+and scrubs bootstrap storage. It never acknowledges a record the runtime did not
+verify. `spawn_managed` requires committed+acknowledged state, creates suspended,
+assigns the retained managed job and only then resumes. It refuses an active
+previous tree. `poll_managed` is nonblocking; running remains true while any
+managed descendant remains, and exit code becomes valid only after the tree is
+reaped. `terminate_managed` idempotently terminates that job; policy polls while
+servicing capabilities. A restart recreates an empty owned job after complete
+cleanup, never reuses a terminated job with live members. `close` terminates any
+active tree, cancels/drains bootstrap I/O, closes log/job/process handles and
+scrubs memory. It nulls the owner only on complete release; live/poisoned failure
+uses the common ownership/error rules and forbids freeing live state. The thin
+entry must exit after an unrecoverable close so kernel process teardown closes
+its retained job. No raw process/job/stdio HANDLE crosses into BTRC.
 
 ```text
 REQUEST(CL-P2-02): Extend the sole reader-free runtime owner and replace the pasted-helper boundary with the isolated windows_os.c asset.
 Repro: WindowsMain has no SDK reader; closure bindings break bootstrap. Pasted SDK includes also leak near/far/IN/OUT/DELETE into emitted user C.
-Expected / actual: Own the launch, image/transfer and filesystem/IO/roots/token/thread C seams above, SDK-free btrc_rt.h declarations, runtime manifest/object/library metadata, generated catalogs and non-Windows unsupported definitions. Amend the packet's current process.c-only/_WIN32-only wording explicitly. D14, strict-C11 identifier-collision fixtures and owner cleanup cases are required.
+Expected / actual: Own both sides of the version-1 bootstrap wire and accept/prepare/ready-wait-commit/ack/spawn/poll/terminate/close supervisor APIs, launcher EOF/deadline handling, single-token v1 record checks, nested-job fallback, host-machine PE admission, common spawn-lock integration, BCrypt image hashing, roots_close and the launch/image/filesystem/IO/roots/token/thread C seams above, SDK-free btrc_rt.h declarations, runtime manifest/object/library metadata, generated catalogs and non-Windows unsupported definitions. Amend the packet's current process.c-only/_WIN32-only wording explicitly. D14, strict-C11 identifier-collision fixtures and owner cleanup cases are required.
 Blocks: CX-P2-04/05/06/08/16 and CL-P2-27. Workaround: retain refusals until this seam and its linker prerequisite land.
 
 REQUEST(CL-P1-11): Add the sibling-image and isolated-runtime-object builder prerequisites before Stage 26; CL-P2-19 preserves them in schema 6.
-Repro: Today the package/link plan and runner build one executable; neither can produce or place btrc-daemon-supervisor.exe for an unpackaged Daemon corpus program.
-Expected / actual: Paired package/plan writers declare target-filtered auxiliary executable source/basename/protocol, one runtime-manifest external-object/system-library carrier, and package native.system-libraries. Extend native_plan, Makefile, runner.py, bootstrap_harness and bundle metadata/verification; arrange workflow adoption through the integrator. Package the sibling beside every Windows Daemon consumer in isolated corpus output and relocatable/MSIX bundles. Bind its digest/ABI/protocol in generated consumer metadata. No PATH lookup or pre-main compiler hook.
+Repro: Today the package/link plan and runner build one executable; neither can produce or place the consumer-named sibling supervisor for an unpackaged Daemon corpus program.
+Expected / actual: Paired package/plan writers declare target-filtered auxiliary executable source/basename/protocol, one runtime-manifest external-object/system-library carrier, and package native.system-libraries. Extend native_plan, Makefile, runner.py, bootstrap_harness and bundle metadata/verification; arrange workflow adoption through the integrator. Package the sibling beside every Windows Daemon consumer in isolated corpus output and relocatable/MSIX bundles. Bind final post-signing whole-file SHA-256/ABI/protocol in generated consumer metadata; enforce the system32-only dependent-loader flag and static non-system dependencies, and derive the companion name from the complete primary basename. No PATH lookup or pre-main compiler hook.
 Blocks: CX-P2-08's unpackaged and bundled acceptance, runtime-object linking, CL-P2-27. Workaround: no shell supervisor or unverified loose image.
 
 REQUEST(CL-P2-01): Amend CX-P2-08's dependency, owned paths and acceptance around the selected sibling mechanism.
-Expected / actual: Dependencies are the CL-P1-11 auxiliary-image builder/bundle change and CL-P2-02 verified-image/transfer/shared-security seam. Explicitly assign src/stdlib/Daemon/Windows/DaemonSupervisorMain.btrc and the Daemon manifest fragment to CX-P2-08; runtime/compiler/runner remain Claude-owned. Require both-frontends unpackaged corpus under 15 seconds and the CX-P1-07 supplied-image bundle, plus image-planting/missing/replacement/ABI and handshake-failure tests. Repoint CX-P2-08 and CX-P2-16 DACL prerequisites from CX-P2-05 to CL-P2-02.
+Expected / actual: Dependencies are the CL-P1-11 auxiliary-image builder/bundle change and CL-P2-02 verified-image/transfer/shared-security seam. Explicitly assign src/stdlib/Daemon/Windows/DaemonSupervisorMain.btrc and the Daemon manifest fragment to CX-P2-08; runtime/compiler/runner remain Claude-owned. Require both-frontends unpackaged corpus under 15 seconds and the CX-P1-07 supplied-image bundle, plus image/DLL planting, missing/replaced/post-signing/ABI cases, every bootstrap failure/loss boundary, unchanged single-token records and the contained fallback under the unchanged non-breakaway Windows executor. Amend the mandatory CREATE_BREAKAWAY_FROM_JOB step; both independent and parent-contained lifetimes need explicit evidence. Repoint CX-P2-08 and CX-P2-16 DACL prerequisites from CX-P2-05 to CL-P2-02.
 Blocks: Implementable Daemon/channel packets. Workaround: documentation only until prerequisites land.
 
 REQUEST(CL-P1-14): Add explicit root-manifest private-provider parity, not only group manifests.
@@ -827,7 +1095,7 @@ Expected / actual: packages.py and Packages.btrc resolve IOFileSnapshotProvider 
 Blocks: Root IO/Process provider selection. Workaround: do not configure an uncovered root seam.
 
 REQUEST(CL-P2-27): Land compiler-import provider selection with complete 11-row coverage and native Windows bootstrap.
-Expected / actual: Byte-identical BtrccMain/MacOSMain on the post-identity baseline; reviewed WindowsMain changes, explicit Windows targets, LOCALAPPDATA roots identical to btrcpy, owner-line approval and final derived symbols/lock. Name Driver.sync, FePackageFileStore/FeStagedFile (including discard of failed .btrc-package-* stages) and SourceIo identity as migrations required before claiming btrcc -o on Windows; stdout-only bootstrap is not that claim. Keep unmigrated paths fail-closed. CL-P1-09/10/14/15 and the runtime/link dependencies remain prerequisites.
+Expected / actual: Byte-identical BtrccMain/MacOSMain on the post-identity baseline; reviewed WindowsMain changes, explicit Windows targets, LOCALAPPDATA roots and reserved namespaces identical to btrcpy, common protected owner/ACE policy and Python mkdir migration, owner-line approval and final derived symbols/lock. Name Driver.sync, FePackageFileStore/FeStagedFile (including discard of failed .btrc-package-* stages) and SourceIo identity as migrations required before claiming btrcc -o on Windows; stdout-only bootstrap is not that claim. Keep unmigrated paths fail-closed. CL-P1-09/10/14/15 and the runtime/link dependencies remain prerequisites.
 Blocks: Compiler-import provider delivery and later -o support. Workaround: native stdout bootstrap stays distinct from compiler-output-file qualification.
 
 REQUEST(CL-P2-01): Assign and own the D27 portable identity/error/status/environment landing scope before Windows exact handles.
