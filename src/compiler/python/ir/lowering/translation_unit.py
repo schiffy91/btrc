@@ -307,7 +307,7 @@ class TranslationUnitLowerer:
             if isinstance(decl, EnumDecl) and decl.name:
                 function_decls.append(TranslationUnitLowerer._enum_to_string_decl(decl.name))
             elif (isinstance(decl, ClassDecl) and (not decl.generic_params)) or isinstance(decl, StructDecl):
-                forward = IRStructForward(name=decl.name)
+                forward = IRStructForward(name=decl.name, is_union=isinstance(decl, StructDecl) and decl.is_union)
                 if forward not in self._session.module.struct_forwards:
                     self._session.module.struct_forwards.append(forward)
                 if isinstance(decl, ClassDecl) and (not decl.generic_params):

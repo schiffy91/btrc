@@ -170,9 +170,7 @@ class BorrowValidator {
 		string structName = "";
 		if (resultType != null) {
 			structName = resultType.base;
-			if (structName.startsWith("struct ")) {
-				structName = structName.substring(7, structName.length() - 7);
-			}
+			structName = SemanticTypeSystem.recordTagName(structName);
 		}
 		bool temporaryStruct = resultType != null && resultType.pointerDepth == 0 && !resultType.isArray && self.state.analyzed.structTable.has(structName);
 		if (expression.kind == NK_CALL_EXPR || expression.kind == NK_BRACE_INITIALIZER) {

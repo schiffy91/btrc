@@ -187,6 +187,9 @@ class CallValidator {
 			threadArgumentIndex = threadArgumentIndex + 1;
 		}
 		self.ownership.rejectRichEnumOwnedArgs(call,  vars);
+		if (call.callee != null && call.callee.kind == NK_IDENTIFIER && call.callee.name == "print" && !self.state.analyzed.funcTable.has("print")) {
+			for argument in call.args() { self.types.validateFormattedValue(self.types.inferType(argument, vars), argument); }
+		}
 		Node callee = call.callee;
 		Map<string, Node> noSubstitutions = {};
 		if (callee == null) { return; }
@@ -928,9 +931,7 @@ class CallValidator {
 			argumentIndex = argumentIndex + 1;
 		}
 		string name = value.base;
-		if (name.startsWith("struct ")) {
-			name = name.substring(7, name.length() - 7);
-		}
+		name = SemanticTypeSystem.recordTagName(name);
 		string kind = self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:";
 		string key = kind + name;
 		if (visiting.has(key)) { return false; }

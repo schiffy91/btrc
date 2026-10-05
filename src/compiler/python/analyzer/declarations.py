@@ -327,12 +327,13 @@ class TopLevelRegistrar:
 
     def register_struct(self, declaration) -> None:
         registry = self.registry
+        keyword = TypeSystem.record_keyword(declaration)
         if not declaration.name:
-            self.session.error("anonymous struct at top level must be named", declaration.line, declaration.col)
+            self.session.error(f"anonymous {keyword} at top level must be named", declaration.line, declaration.col)
             return
         self.claim_name(
             declaration.name,
-            "struct",
+            keyword,
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
             allow_same=True,
@@ -345,7 +346,7 @@ class TopLevelRegistrar:
                 declaration.source_file, NativeHeaderSource
             ):
                 self.session.error(
-                    f"Struct '{declaration.name}' cannot have an empty body under strict C11",
+                    f"{keyword.capitalize()} '{declaration.name}' cannot have an empty body under strict C11",
                     declaration.line,
                     declaration.col,
                 )
@@ -354,35 +355,40 @@ class TopLevelRegistrar:
                 registry.validate_name(field.name, "Struct field", field.line, field.col)
                 if field.name in seen:
                     self.session.error(
-                        f"Duplicate field '{field.name}' in struct '{declaration.name}'", field.line, field.col
+                        f"Duplicate field '{field.name}' in {keyword} '{declaration.name}'", field.line, field.col
                     )
                 seen.add(field.name)
             if declaration.name in self.index.struct_definitions:
                 self.session.error(
-                    f"Duplicate definition of struct '{declaration.name}'", declaration.line, declaration.col
+                    f"Duplicate definition of {keyword} '{declaration.name}'", declaration.line, declaration.col
                 )
             else:
                 self.index.struct_definitions[declaration.name] = declaration
                 self.index.struct_table[declaration.name] = declaration
         elif declaration.name not in self.index.struct_table:
             self.index.struct_table[declaration.name] = declaration
-        self._alias_native_tag(declaration)
+        self._alias_tag(declaration)
 
-    def _alias_native_tag(self, declaration) -> None:
-        """Let a tagged native record's C spelling name the imported record.
+    def _alias_tag(self, declaration) -> None:
+        """Let a record's C tag spelling name the record.
 
-        An SDK record imports under its tag (`pollfd`, `sockaddr`), and C code
-        names that same type `struct pollfd`. The alias row maps the written
-        tag to the import in the typedef alias index, so every canonicalization
-        resolves it in one place; the key holds a space and can never collide
-        with a source name. An unknown tag stays a trusted foreign C tag.
+        btrc emits ``typedef struct S S;`` (or ``union``) for every source
+        record, so ``struct S`` and ``S`` are one type. An SDK record imports
+        under its tag (`pollfd`, `sockaddr`), and C code names that same type
+        `struct pollfd`. The alias row maps the written tag to the record in
+        the typedef alias index, so every canonicalization resolves it in one
+        place; the key holds a space and can never collide with a source name.
+        No consumer iterates the index (test_c_tag_alias_contract.py). An
+        unknown tag stays a trusted foreign C tag.
         """
         source = declaration.source_file
-        if not isinstance(source, NativeHeaderSource):
-            return
-        spelling = source.type_spelling
-        if spelling in (f"struct {declaration.name}", f"union {declaration.name}"):
-            self.index.typedef_table.setdefault(spelling, TypeExpr(base=declaration.name))
+        if isinstance(source, NativeHeaderSource):
+            spelling = source.type_spelling
+            if spelling not in (f"struct {declaration.name}", f"union {declaration.name}"):
+                return
+        else:
+            spelling = f"{TypeSystem.record_keyword(declaration)} {declaration.name}"
+        self.index.typedef_table.setdefault(spelling, TypeExpr(base=declaration.name))
 
     def register_function(self, declaration) -> None:
         registry = self.registry

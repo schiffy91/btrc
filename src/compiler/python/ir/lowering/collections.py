@@ -377,7 +377,7 @@ class CollectionLowerer:
                     f"'{canonical.base}'; use an explicit constructor call"
                 )
         if canonical and canonical.pointer_depth == 0:
-            struct_name = canonical.base.removeprefix("struct ")
+            struct_name = TypeSystem.record_tag_name(canonical.base)
             declaration = self._analyzed.struct_table.get(struct_name)
             if declaration is not None and not declaration.is_forward:
                 slots = TypeSystem.initializer_slots(
@@ -466,7 +466,7 @@ class CollectionLowerer:
         """The complete record a by-value static initializer target names."""
         if type_expr is None or type_expr.pointer_depth > 0 or type_expr.is_array:
             return None
-        declaration = self._analyzed.struct_table.get(type_expr.base.removeprefix("struct "))
+        declaration = self._analyzed.struct_table.get(TypeSystem.record_tag_name(type_expr.base))
         return declaration if declaration is not None and not declaration.is_forward else None
 
     @staticmethod
@@ -485,7 +485,7 @@ class CollectionLowerer:
         canonical = self._types.canonical_type(node_type)
         if canonical is None:
             return
-        struct_name = canonical.base.removeprefix("struct ")
+        struct_name = TypeSystem.record_tag_name(canonical.base)
         if canonical.is_array or canonical.base == "Tuple" or struct_name in self._analyzed.struct_table:
             self._reject_owned_elements(node.elements, "a shallow aggregate", provenance)
 

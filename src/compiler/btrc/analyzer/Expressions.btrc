@@ -304,6 +304,13 @@ class ExpressionTypeResolver {
 			if (node.name == "NULL") { return operators.nullType(); }
 			if (varTypes.has(node.name)) {
 				Node valueType = varTypes.get(node.name);
+				/* A variable typed through a source record's tag reads as the
+				 * record, as the reference compiler's canonical identifier
+				 * type does. */
+				if (SemanticTypeSystem.sourceRecordTag(valueType.base, a)) {
+					Node? named = SemanticTypeSystem.resolveOuterTypedefType(valueType, a.typedefTable);
+					if (named != null) { valueType = named; }
+				}
 				if (valueType.isExtern || valueType.isStatic) {
 					valueType = TypeShape.copy(valueType);
 					valueType.isExtern = false;
@@ -1195,11 +1202,7 @@ class ExpressionTypeResolver {
 
 	class string rawProjectionStructName(Node? typeExpr) {
 		if (typeExpr == null) { return ""; }
-		string name = typeExpr.base;
-		if (name.startsWith("struct ")) {
-			return name.substring(7, name.length() - 7);
-		}
-		return name;
+		return SemanticTypeSystem.recordTagName(typeExpr.base);
 	}
 
 	class bool rawProjectionCarrierHasStorage(RawProjectionCarrier carrier, RawProjectionCarrierContext context) {

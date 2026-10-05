@@ -1095,6 +1095,21 @@ class TypeSystem:
     # members goes through these class methods; the record-member contract
     # test refuses a raw ``StructDecl.fields`` walk anywhere else.
 
+    @staticmethod
+    def record_keyword(record) -> str:
+        """The C keyword that declares ``record``: ``struct`` or ``union``."""
+        return "union" if record.is_union else "struct"
+
+    @staticmethod
+    def record_tag_name(base: str) -> str:
+        """The record a by-value base names: ``struct S`` and ``union U`` name
+        ``S`` and ``U``. A canonical base already went through the tag alias
+        rows; this reads one that may not have."""
+        for prefix in ("struct ", "union "):
+            if base.startswith(prefix):
+                return base[len(prefix) :]
+        return base
+
     @classmethod
     def record_declarators(cls, record) -> tuple:
         """Every member declarator of a record or anonymous member, in source
@@ -1148,7 +1163,7 @@ class TypeSystem:
         canonical = cls.canonical_declaration_type(member_type, tables.typedef_table)
         if canonical is None or canonical.pointer_depth > 0 or canonical.is_array:
             return None
-        declaration = tables.struct_table.get(canonical.base.removeprefix("struct "))
+        declaration = tables.struct_table.get(TypeSystem.record_tag_name(canonical.base))
         return declaration if declaration is not None and not declaration.is_forward else None
 
     @classmethod
@@ -1382,10 +1397,84 @@ class TypeSystem:
         """Whether C, rather than btrc, determines an identifier's value type."""
         return name != "errno" and TypeSystem.c_integer_identifier(name)
 
+    def validate_formatted_value(self, type_expr, line, col) -> None:
+        """A union cannot be printed or formatted: nothing records which member
+        is live (C row 9)."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None or canonical.pointer_depth or canonical.is_array:
+            return
+        declaration = self.index.struct_table.get(canonical.base)
+        if declaration is not None and declaration.is_union:
+            self.session.error(
+                f"Union '{declaration.name}' cannot be printed or formatted; a union cannot tell which member is "
+                "live, so print one of its members",
+                line,
+                col,
+            )
+
+    def tag_keyword_mismatch(self, base: str) -> str | None:
+        """The refusal for a C tag that names a declaration of another kind.
+
+        ``union P`` for a btrc or native ``struct P`` (or an enum, class,
+        interface, rich enum or typedef ``P``) would compile to a C type that
+        is not ``P``. A tag naming nothing stays a trusted foreign C tag.
+        """
+        keyword, _, name = base.partition(" ")
+        if keyword not in ("struct", "union", "enum") or not name or " " in name:
+            return None
+        declaration = self.index.struct_table.get(name)
+        if declaration is not None:
+            kind = self.record_keyword(declaration)
+        elif name in self.index.enum_table:
+            kind = "enum"
+        elif name in self.index.rich_enum_table:
+            kind = "rich enum"
+        elif name in self.index.class_table:
+            kind = "class"
+        elif name in self.index.interface_table:
+            kind = "interface"
+        elif name in self.index.typedef_table:
+            original = self.index.typedef_table[name]
+            if (
+                original.base == base
+                and not original.pointer_depth
+                and not original.is_array
+                and not original.generic_args
+            ):
+                # `typedef struct X X;` for a foreign tag: both spell one type.
+                return None
+            kind = "typedef"
+        else:
+            return None
+        if kind == keyword:
+            return None
+
+        def article(word: str) -> str:
+            return f"an {word}" if word in ("enum", "interface") else f"a {word}"
+
+        return f"'{base}' does not name {article(keyword)}: '{name}' is {article(kind)}"
+
+    def validate_tag_keyword(self, type_expr, line=0, col=0, *, arguments=True) -> bool:
+        """Report ``tag_keyword_mismatch`` for a written type and (unless the
+        caller walks them itself) its generic arguments, at the type that
+        spells the tag."""
+        if type_expr is None:
+            return True
+        message = self.tag_keyword_mismatch(type_expr.base)
+        if message is not None:
+            self.session.error(message, type_expr.line or line, type_expr.col or col)
+            return False
+        return not arguments or all(
+            self.validate_tag_keyword(argument, type_expr.line or line, type_expr.col or col)
+            for argument in type_expr.generic_args or []
+        )
+
     def validate_cast_target_name(self, expression) -> bool:
         """Reject unknown bare names while preserving explicit C type syntax."""
         target = expression.target_type
         if target is None:
+            return False
+        if not self.validate_tag_keyword(target, expression.line, expression.col):
             return False
         if target.pointer_depth or target.generic_args or target.is_array or target.is_nullable:
             return True
@@ -1624,7 +1713,7 @@ class TypeSystem:
         )
 
     def _aggregate_field_types(self, canonical, visiting):
-        name = canonical.base.removeprefix("struct ")
+        name = TypeSystem.record_tag_name(canonical.base)
         kind = "struct" if name in self.index.struct_table else "rich-enum"
         visit_key = f"{kind}:{name}"
         if visit_key in visiting:
@@ -1647,6 +1736,7 @@ class TypeSystem:
             return
         type_line = type_expr.line or line
         type_col = type_expr.col or col
+        self.validate_tag_keyword(type_expr, type_line, type_col, arguments=False)
         self._validate_storage_qualifiers(type_expr, subject, role, type_line, type_col)
         if role == "return" and self._return_type_has_outer_cv_qualifier(type_expr):
             self.session.error(
@@ -2022,12 +2112,15 @@ class TypeSystem:
             return False
         if canonical.base == "bool" or canonical.base in self.NUMERIC_TYPES or canonical.base in self.index.enum_table:
             return True
-        name = canonical.base.removeprefix("struct ")
+        name = TypeSystem.record_tag_name(canonical.base)
         if name in visiting:
             return False
         declaration = self.index.struct_table.get(name)
         if declaration is None or declaration.is_forward:
             return False
+        if declaration.is_union:
+            # Every union member is a plain C value (union_member_blocker).
+            return True
         for field in self.record_fields(declaration):
             payload = self.canonical_type(field.type)
             if payload is not None and payload.is_array:
@@ -2037,6 +2130,73 @@ class TypeSystem:
             if not self.is_realtime_pod(payload, visiting | {name}):
                 return False
         return True
+
+    def union_member_blocker(self, type_expr, visiting=frozenset()) -> tuple[str, ...] | None:
+        """Why a union cannot hold ``type_expr``, or ``None`` for a plain C value.
+
+        A union cannot tell which member is live, so its members are plain C
+        values, transitively (``is_realtime_pod`` with C's foreign tags and
+        managed-free ``CFunction`` pointers admitted, and ``RealtimeFunction``
+        refused). The answer is ``("realtime",)``, ``("managed", type)`` or
+        ``("contains", record, field)``. A direct ``Atomic<T>`` is left to the
+        existing shallow-storage refusal.
+        """
+        canonical = self.canonical_type(type_expr)
+        if canonical is None:
+            return None
+        if canonical.is_array and not canonical.is_nullable and canonical.array_size is not None:
+            canonical = self.strip_outer_storage(canonical, array=True)
+        # A class or collection is written without the reference `*` it is
+        # upgraded with, so the message names the type as written.
+        written = type_expr
+        if getattr(type_expr, "auto_upgraded", False) and type_expr.pointer_depth:
+            written = replace(type_expr, pointer_depth=type_expr.pointer_depth - 1)
+        managed = ("managed", self.format_type(written))
+        if canonical.base == "__realtime_fn_ptr":
+            return ("realtime",)
+        if canonical.base == "__fn_ptr":
+            if canonical.pointer_depth or canonical.is_array or canonical.is_nullable:
+                return managed
+            for argument in canonical.generic_args or []:
+                argument_type = self.canonical_type(argument)
+                if argument_type is not None and argument_type.base == "void" and not argument_type.pointer_depth:
+                    continue
+                if self.union_member_blocker(argument, visiting) is not None:
+                    return managed
+            return None
+        if canonical.is_array or canonical.is_nullable:
+            return managed
+        if canonical.base == "Atomic" or self.contains_atomic_storage(canonical):
+            return None
+        if canonical.pointer_depth > 0:
+            if (
+                canonical.base == "string"
+                or canonical.base in self.index.class_table
+                or canonical.base in self.index.interface_table
+            ):
+                return managed
+            return None
+        if canonical.generic_args or canonical.base in _RUNTIME_TYPE_BASES:
+            return managed
+        if (
+            canonical.base == "string"
+            or canonical.base in self.index.class_table
+            or canonical.base in self.index.interface_table
+            or canonical.base in self.index.rich_enum_table
+        ):
+            return managed
+        name = canonical.base
+        declaration = self.index.struct_table.get(name)
+        if declaration is None or declaration.is_forward or name in visiting:
+            return None
+        for field in self.record_fields(declaration):
+            reason = self.union_member_blocker(field.type, visiting | {name})
+            if reason is None:
+                continue
+            if reason[0] == "realtime":
+                return reason
+            return ("contains", name, field.name if reason[0] == "managed" else reason[2])
+        return None
 
     def is_nonpointer_void_object(self, type_expr) -> bool:
         return self._type_identity.is_scalar_void(type_expr)
@@ -2066,7 +2226,7 @@ class TypeSystem:
             return True
         if canonical.pointer_depth > 0:
             return False
-        name = canonical.base.removeprefix("struct ")
+        name = TypeSystem.record_tag_name(canonical.base)
         if name in visiting:
             return False
         declaration = self.index.struct_table.get(name)

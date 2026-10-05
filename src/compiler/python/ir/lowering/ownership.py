@@ -2538,7 +2538,7 @@ class OwnershipLowerer:
             and canonical_receiver is not None
             and canonical_receiver.pointer_depth == 0
             and not canonical_receiver.is_array
-            and canonical_receiver.base.removeprefix("struct ") in self._analyzed.struct_table
+            and TypeSystem.record_tag_name(canonical_receiver.base) in self._analyzed.struct_table
         ):
             return (receiver, False)
         return self._projection_storage_root(receiver)

@@ -322,7 +322,7 @@ class StorageModel:
             and receiver_type is not None
             and (receiver_type.pointer_depth == 0)
             and (not receiver_type.is_array)
-            and (receiver_type.base.removeprefix("struct ") in self.index.struct_table)
+            and (TypeSystem.record_tag_name(receiver_type.base) in self.index.struct_table)
         ):
             return ProjectionStorageRoot(expression=receiver, managed=False)
         return self.projection_storage_root(receiver)

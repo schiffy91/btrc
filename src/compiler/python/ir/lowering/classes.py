@@ -1194,7 +1194,12 @@ class ClassLowerer:
                     )
                 )
         self._session.module.struct_defs.append(
-            IRStructDef(name=decl.name, fields=fields, pack_alignment=self._pack_alignments.get(id(decl)))
+            IRStructDef(
+                name=decl.name,
+                fields=fields,
+                pack_alignment=self._pack_alignments.get(id(decl)),
+                is_union=decl.is_union,
+            )
         )
 
     def emit_class_decl(self, decl: ClassDecl):

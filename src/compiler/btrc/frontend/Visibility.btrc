@@ -35,6 +35,17 @@ class FeImportReferenceCollector {
 	public Map<string, bool> genericParameters;
 	public Vector<Map<string, bool>> scopes;
 
+	/* The declaration a written base names: `struct X`, `union X` and
+	 * `enum X` name `X`; any other base names itself. */
+	class string taggedName(string base) {
+		int start = 0;
+		if (base.startsWith("struct ")) { start = 7; } else if (base.startsWith("union ")) { start = 6; } else if (base.startsWith("enum ")) { start = 5; }
+		if (start == 0) { return base; }
+		string tag = base.substring(start, base.length() - start);
+		if (tag == "" || tag.contains(" ")) { return base; }
+		return tag;
+	}
+
 	public FeImportReferenceCollector(Vector<string> genericParameters) {
 		self.references = [];
 		self.genericParameters = {};
@@ -125,7 +136,9 @@ class FeImportReferenceCollector {
 	public void visit(Node? node) {
 		if (node == null) { return; }
 		if (node.kind == NK_TYPE_EXPR) {
-			self.add(node.base, node.line, node.col, true);
+			// `struct X`, `union X` and `enum X` name the declaration `X`
+			// (its C tag alias), so they need X's import like `X` does.
+			self.add(FeImportReferenceCollector.taggedName(node.base), node.line, node.col, true);
 			self.visitList(node.genericArgs());
 			self.visit(node.arraySize);
 			return;

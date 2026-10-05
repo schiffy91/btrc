@@ -412,6 +412,7 @@ _NAMED_DECLS = (
     ast.VarDeclStmt,
 )
 _REFERENCE_DECLS = _NAMED_DECLS + (ast.PreprocessorDirective,)
+_C_TAG_KEYWORDS = frozenset(("struct", "union", "enum"))
 
 
 class FrontendVisibilityError(Exception):
@@ -493,7 +494,11 @@ class ImportReferenceCollector:
         if node is None:
             return
         if isinstance(node, ast.TypeExpr):
-            self.add(node.base, node.line, node.col, typename=True)
+            # `struct X`, `union X` and `enum X` name the declaration `X`
+            # (its C tag alias), so they need X's import like `X` does.
+            keyword, _, tag = node.base.partition(" ")
+            name = tag if keyword in _C_TAG_KEYWORDS and tag and " " not in tag else node.base
+            self.add(name, node.line, node.col, typename=True)
             for argument in node.generic_args:
                 self.visit(argument)
             self.visit(node.array_size)

@@ -167,15 +167,18 @@ class ExpressionValidator {
 		if (name == "" || !self.state.analyzed.structTable.has(name)) { return; }
 		Node declaration = self.state.analyzed.structTable.get(name);
 		if (declaration.isForward) {
-			TypeValidator.fail("Incomplete struct '" + name + "' cannot be initialized by value", initializer);
+			TypeValidator.fail("Incomplete " + SemanticTypeSystem.recordKeyword(declaration) + " '" + name + "' cannot be initialized by value", initializer);
 		}
 		if (initializer.kind != NK_BRACE_INITIALIZER) {
-			TypeValidator.fail(subject + " requires a brace initializer for " + "struct '" + name + "'", initializer);
+			TypeValidator.fail(subject + " requires a brace initializer for " + SemanticTypeSystem.recordKeyword(declaration) + " '" + name + "'", initializer);
 		}
 		/* The initializer-slot owner: each element's member path, recorded for
 		 * every later reader (SemanticTypeSystem.initializerSlots). */
 		SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(declaration, initializer, self.state.analyzed);
 		self.state.analyzed.initializerPlans.put(AstIdentity.key(initializer), plan);
+		if (plan.excess > 0 && declaration.isUnion) {
+			TypeValidator.fail("Union '" + name + "' initializer has " + Strings.fromInt(initializer.elements().len) + " elements; a positional union initializer sets only the first member (use a designator such as {.f = ...})", initializer);
+		}
 		if (plan.excess > 0) {
 			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(plan.capacity) + " fields", initializer);
 		}
@@ -374,7 +377,7 @@ class ExpressionValidator {
 		Node? receiver = self.types.inferType(expression.obj, vars);
 		if (receiver == null) { return; }
 		string owner = SemanticTypeSystem.resolvedStructName(receiver, self.state.analyzed);
-		if (!owner.isEmpty() && SemanticTypeSystem.structFieldFor(receiver, expression.field, self.state.analyzed) == null) { TypeValidator.fail("Struct '" + owner + "' has no field '" + expression.field + "'", expression); }
+		if (!owner.isEmpty() && SemanticTypeSystem.structFieldFor(receiver, expression.field, self.state.analyzed) == null) { TypeValidator.fail(SemanticTypeSystem.recordKeywordTitle(self.state.analyzed.structTable.get(owner)) + " '" + owner + "' has no field '" + expression.field + "'", expression); }
 		if (!owner.isEmpty() && self.state.analyzed.nativeFieldCallContract(owner, expression.field) != null) { TypeValidator.fail("Reading a native callback field with non-null parameters requires a checked callback adapter", expression); }
 	}
 
@@ -444,7 +447,7 @@ class ExpressionValidator {
 		string structName = SemanticTypeSystem.resolvedStructName(receiver, self.state.analyzed);
 		if (structName != "") {
 			if (SemanticTypeSystem.structFieldFor(receiver, expression.field, self.state.analyzed) == null) {
-				TypeValidator.fail("Struct '" + structName + "' has no field '" + expression.field + "'", expression);
+				TypeValidator.fail(SemanticTypeSystem.recordKeywordTitle(self.state.analyzed.structTable.get(structName)) + " '" + structName + "' has no field '" + expression.field + "'", expression);
 			}
 			return;
 		}
@@ -928,6 +931,7 @@ class ExpressionValidator {
 			if (part.kind == NK_F_STRING_EXPR) {
 				self.validateExpr(part.expression,  vars);
 				self.rejectThreadValueEscape(part.expression, "formatted as values", vars);
+				self.types.validateFormattedValue(self.types.inferType(part.expression, vars), part.expression);
 			}
 			index = index + 1;
 		}
@@ -981,6 +985,7 @@ class ExpressionValidator {
 				TypeValidator.fail("'super' used in a class without a parent", expression);
 			}
 		} else if (expression.kind == NK_CAST_EXPR) {
+			self.types.validateTagKeyword(expression.targetType, expression);
 			self.types.rejectRuntimeInterfaceType(expression.targetType, expression);
 			self.validateExpr(expression.expr,  vars);
 			self.rejectThreadValueEscape(expression.expr, "cast", vars);
@@ -993,6 +998,9 @@ class ExpressionValidator {
 			if (source != null && target != null && self.state.analyzed.nativeClassLanguage(source.base) == "objective-c" && self.state.analyzed.nativeClassLanguage(target.base) == "objective-c" && !self.state.analyzed.isSubclass(source.base, target.base)) { TypeValidator.fail("Objective-C casts require a proven object upcast", expression); }
 			if (source != null && target != null && (self.state.analyzed.nativeClassLanguage(source.base) == "c" || self.state.analyzed.nativeClassLanguage(target.base) == "c") && ((!self.state.analyzed.isSubclass(source.base, target.base) && self.state.analyzed.nativeResourceQueryType(target, source) == "") || source.pointerDepth - (source.isNullable ? 1 : 0) != 0 || target.pointerDepth - (target.isNullable ? 1 : 0) != 0)) { TypeValidator.fail("Managed native resources cannot be cast to or from other value types", expression); }
 		} else if (expression.kind == NK_SIZEOF_EXPR) {
+			if (expression.operand != null && expression.operand.kind == NK_SIZEOF_TYPE) {
+				self.types.validateTagKeyword(expression.operand.type, expression);
+			}
 			if (expression.operand != null && expression.operand.kind == NK_SIZEOF_EXPR_OP) {
 				self.validateExpr(expression.operand.expr,  vars);
 			}

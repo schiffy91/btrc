@@ -1613,6 +1613,16 @@ class ExpressionLowerer {
 		return null;
 	}
 
+	/* A `var` declaration's type: the initializer's resolved type, except
+	 * that a source record's tag keeps its written spelling, as the reference
+	 * compiler records the inferred type. */
+	public Node? inferredDeclarationType(Node expression, Map<string, Node> varTypes) {
+		Node? resolved = self.resolvedExpressionType(expression, varTypes);
+		Node? raw = self.expressionTypes.inferRaw(expression, varTypes);
+		if (resolved != null && raw != null && SemanticTypeSystem.sourceRecordTag(raw.base, self.analyzed) && raw.pointerDepth == resolved.pointerDepth && raw.isArray == resolved.isArray && resolved.base == SemanticTypeSystem.recordTagName(raw.base)) { return raw; }
+		return resolved;
+	}
+
 	public Node? resolvedExpressionType(Node? expression, Map<string, Node> varTypes) { return self.operandPlanner.expressionType(expression, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive())); }
 
 	public void typedOperatorFail(string message) {

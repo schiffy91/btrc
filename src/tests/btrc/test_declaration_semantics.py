@@ -14,7 +14,7 @@ from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, co
     [
         (
             "struct Item { int value; }; struct Item { int other; }; int main() { return 0; }",
-            "Duplicate struct definition 'Item'",
+            "Duplicate definition of struct 'Item'",
         ),
         (
             "struct Item { Item child; }; int main() { return 0; }",

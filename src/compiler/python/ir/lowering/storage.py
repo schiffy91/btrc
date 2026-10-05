@@ -7,7 +7,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.storage import StorageModel
-from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeShapeError
+from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeShapeError, TypeSystem
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -469,7 +469,7 @@ class StorageLowerer:
         receiver = plan.receiver_type
         if receiver is None:
             return False
-        struct_name = receiver.base.removeprefix("struct ")
+        struct_name = TypeSystem.record_tag_name(receiver.base)
         return bool(receiver.base == "Tuple" or struct_name in self._analyzed.struct_table)
 
     def prepare_update(
@@ -802,8 +802,6 @@ class StorageLowerer:
         provenance: CallableProvenance,
     ) -> VariableDeclarationPlan:
         """Plan a lexical declaration without lowering its source expressions."""
-        from src.compiler.python.analyzer.types import TypeSystem
-
         element_c_type = None
         if node.type is not None and node.type.is_array:
             element_type = TypeSystem.strip_outer_storage(node.type, array=True)

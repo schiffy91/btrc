@@ -1,0 +1,51 @@
+import ./layout/union_layout.c
+#include <assert.h>
+
+// C row 9: a btrc union lays out exactly as C does. The mirror in
+// layout/union_layout.c declares the same members and reports sizeof and
+// offsetof as size_t; btrc measures its own declarations.
+extern size_t unionLayoutValueSize(void);
+extern size_t unionLayoutValueAlignment(void);
+extern size_t unionLayoutTaggedSize(void);
+extern size_t unionLayoutValueOffset(void);
+extern size_t unionLayoutFlagOffset(void);
+extern size_t unionLayoutSmallSize(void);
+
+union Value {
+	int integer;
+	double real;
+	char bytes[12];
+};
+
+struct Tagged {
+	char tag;
+	union Value value;
+	short flag;
+};
+
+union Small {
+	char letter;
+	short half;
+};
+
+int main() {
+	Tagged tagged = {'v', {7}, 3};
+	char* start = (char*)&tagged;
+	size_t valueOffset = (size_t)((char*)&tagged.value - start);
+	size_t flagOffset = (size_t)((char*)&tagged.flag - start);
+	Value pair[2];
+	size_t stride = (size_t)((char*)&pair[1] - (char*)&pair[0]);
+	assert(sizeof(Value) == unionLayoutValueSize());
+	assert(sizeof(union Value) == sizeof(Value));
+	assert(stride == unionLayoutValueSize());
+	size_t zero = 0;
+	assert(sizeof(Value) % unionLayoutValueAlignment() == zero);
+	assert(sizeof(Tagged) == unionLayoutTaggedSize());
+	assert(valueOffset == unionLayoutValueOffset());
+	assert(flagOffset == unionLayoutFlagOffset());
+	assert(sizeof(Small) == unionLayoutSmallSize());
+	assert(tagged.value.integer == 7 && tagged.flag == 3);
+	print("PASS: union sizeof matches C");
+	print("PASS: union offsetof matches C");
+	return 0;
+}

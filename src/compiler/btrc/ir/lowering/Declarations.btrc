@@ -1445,6 +1445,7 @@ class DeclarationLowerer {
 			bool declared = false;
 			for definition in native.structDefs { if (definition.name == name) { declared = true; } }
 			if (declared) { continue; }
+			DeclarationLowerer.requireObjectiveCStruct(record);
 			var definition = IRStructDef();
 			definition.name = name;
 			for field in SemanticTypeSystem.recordDeclarators(record) { definition.fields.push(IRStructField(self.cTypes.lower(field.type), field.name)); }
@@ -1456,11 +1457,19 @@ class DeclarationLowerer {
 		return native;
 	}
 
+	/* The Objective-C adapters rebuild a record member by member, which is
+	 * wrong for a union; native union values stay refused (ref:3191-3192),
+	 * so meeting one here is a compiler defect, never a user error. */
+	class void requireObjectiveCStruct(Node record) {
+		if (record.isUnion) { throw f"internal error: Objective-C record '{record.name}' is a union"; }
+	}
+
 	private bool objectiveCRecord(Node type) { return type.pointerDepth == 0 && !type.isArray && self.analyzed.isObjectiveCRecord(type.base); }
 
 	private IRNode objectiveCValue(Node type, IRNode value, bool toNative) {
 		if (!self.objectiveCRecord(type)) { return value; }
 		Node record = self.analyzed.structTable.get(type.base);
+		DeclarationLowerer.requireObjectiveCStruct(record);
 		Vector<string> names = [];
 		Vector<IRNode> values = [];
 		for field in SemanticTypeSystem.recordFields(record) {
@@ -2736,6 +2745,7 @@ class DeclarationLowerer {
 		CallableFlowState callableFlow = CallableFlowState();
 		IRStructDef sd = IRStructDef();
 		sd.name = d.name;
+		sd.isUnion = d.isUnion;
 		string declarationKey = AstIdentity.key(d);
 		if (self.context.packAlignments.has(declarationKey)) {
 			sd.packAlignment = self.context.packAlignments.get(declarationKey);
@@ -3902,7 +3912,9 @@ class DeclarationLowerer {
                  * so a function prototype can name `struct X*` before X is
                  * defined (mirrors legacy forward-declaration phase-1, which
                  * tests ClassDecl OR StructDecl). Only classes get _destroy. */
-				m.structForwards.push(IRStructForward(d.name));
+				IRStructForward forward = IRStructForward(d.name);
+				forward.isUnion = d.kind == NK_STRUCT_DECL && d.isUnion;
+				m.structForwards.push(forward);
 				if (d.kind == NK_CLASS_DECL && d.genericParams().len == 0) {
 					IRFunctionDecl destroyDeclaration = IRFunctionDecl(d.name + "_destroy", "void", false);
 					destroyDeclaration.params.push(IRParam("void*", "object"));

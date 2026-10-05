@@ -76,7 +76,7 @@ from .calls import (
     GenericDefaultHelperPlan,
 )
 from .ownership import ManagedLifetimeLowerer, OwnershipLowerer
-from .types import CTypeLowerer
+from .types import CodegenError, CTypeLowerer
 
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalyzedProgram
@@ -2487,6 +2487,7 @@ class FunctionLowerer:
             if name in declared:
                 return
             declared.add(name)
+            self._require_objective_c_struct(record)
             # The analyzer has validated by-value layouts. Preserve the same
             # dependency-first order as the self-hosted native declaration owner.
             for field in TypeSystem.record_fields(record):
@@ -2504,6 +2505,14 @@ class FunctionLowerer:
             append_record(record)
         return native
 
+    @staticmethod
+    def _require_objective_c_struct(record) -> None:
+        """The Objective-C adapters rebuild a record member by member, which is
+        wrong for a union; native union values stay refused (ref:3191-3192),
+        so meeting one here is a compiler defect, never a user error."""
+        if record.is_union:
+            raise CodegenError(f"internal error: Objective-C record '{record.name}' is a union")
+
     def _objective_c_record(self, value_type):
         if value_type.pointer_depth or value_type.is_array:
             return None
@@ -2515,6 +2524,7 @@ class FunctionLowerer:
         record = self._objective_c_record(value_type)
         if record is None:
             return value
+        self._require_objective_c_struct(record)
         spelling = record.source_file.type_spelling if to_native else self._types.render(value_type)
         return IRCompoundLiteral(
             c_type=CType(text=spelling),

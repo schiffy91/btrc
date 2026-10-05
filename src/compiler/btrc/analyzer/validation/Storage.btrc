@@ -640,9 +640,7 @@ class StorageValidator {
 		}
 
 		string structName = receiverType.base;
-		if (structName.startsWith("struct ")) {
-			structName = structName.substring(7, structName.length() - 7);
-		}
+		structName = SemanticTypeSystem.recordTagName(structName);
 		if (!self.state.analyzed.structTable.has(structName)) { return null; }
 		Node structure = self.state.analyzed.structTable.get(structName);
 		return SemanticTypeSystem.recordMember(structure, target.field);
@@ -656,9 +654,7 @@ class StorageValidator {
 		receiverType = self.types.resolveAliases(receiverType);
 		if (receiverType == null) { return false; }
 		string structName = receiverType.base;
-		if (structName.startsWith("struct ")) {
-			structName = structName.substring(7, structName.length() - 7);
-		}
+		structName = SemanticTypeSystem.recordTagName(structName);
 		return self.state.analyzed.structTable.has(structName);
 	}
 
@@ -898,9 +894,8 @@ class StorageValidator {
 
 	class string structTypeName(Node? typeExpr, Analyzed analyzed) {
 		if (typeExpr == null || typeExpr.pointerDepth > 0) { return ""; }
-		if (typeExpr.base.startsWith("struct ")) {
-			return typeExpr.base.substring(7, typeExpr.base.length() - 7);
-		}
+		string tagName = SemanticTypeSystem.recordTagName(typeExpr.base);
+		if (tagName != typeExpr.base) { return tagName; }
 		if (analyzed.structTable.has(typeExpr.base)) { return typeExpr.base; }
 		return "";
 	}
