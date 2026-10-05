@@ -4,7 +4,9 @@
  * process, since a lock another thread held at the fork stays held forever in
  * the child, so the forked worker pool asks before it starts. */
 class ProcessThreads {
-	/* Threads parked in a join for the rest of the process's work. */
+	/* Threads parked in a join for the rest of the process's work. Only the
+	 * parking thread changes it, before it creates the thread it joins and
+	 * after the join, so the thread creation and join order every access. */
 	class int parkedThreads = 0;
 
 	/* The live thread count, the caller's included, or -1 when the host
