@@ -341,14 +341,16 @@ class TopLevelRegistrar:
         )
         self.index.declared_type_names.add(declaration.name)
         if not declaration.is_forward:
-            if not declaration.fields and not isinstance(declaration.source_file, NativeHeaderSource):
+            if not TypeSystem.record_declarators(declaration) and not isinstance(
+                declaration.source_file, NativeHeaderSource
+            ):
                 self.session.error(
                     f"Struct '{declaration.name}' cannot have an empty body under strict C11",
                     declaration.line,
                     declaration.col,
                 )
             seen = set()
-            for field in declaration.fields:
+            for field in TypeSystem.record_fields(declaration):
                 registry.validate_name(field.name, "Struct field", field.line, field.col)
                 if field.name in seen:
                     self.session.error(
@@ -1108,7 +1110,7 @@ class DeclarationRegistry:
             CompilerStdlibSource.authenticated(self.session.current_source_file)
             and declaration.name == "winsize"
             and declaration.is_forward
-            and (not declaration.fields)
+            and (not TypeSystem.record_declarators(declaration))
         )
 
     def hosted_object_declaration_allowed(self, declaration) -> bool:
