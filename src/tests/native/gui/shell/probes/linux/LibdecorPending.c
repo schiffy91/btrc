@@ -4,12 +4,19 @@
 #define _POSIX_C_SOURCE 200809L
 #include <libdecor.h>
 #include <wayland-client.h>
-#include <assert.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+
+/* Required calls and checks remain active in release (-DNDEBUG) builds. */
+#define REQUIRE(condition) do { \
+    if (!(condition)) { \
+        fprintf(stderr, "ERROR: %s failed\n", #condition); \
+        exit(2); \
+    } \
+} while (0)
 
 static volatile sig_atomic_t delivered;
 
@@ -38,33 +45,34 @@ static void failed(struct libdecor *context, enum libdecor_error error, const ch
 }
 
 int main(int argc, char **argv) {
-    int timeout = argc == 2 ? atoi(argv[1]) : -1;
-    assert(argc <= 2 && (timeout == -1 || timeout == 0));
-    struct wl_display *display = wl_display_connect(NULL);
-    assert(display);
-    struct libdecor_interface interface = {.error = failed};
-    struct libdecor *decor = libdecor_new(display, &interface);
-    assert(decor);
-    assert(wl_display_roundtrip(display) >= 0);
-    assert(libdecor_dispatch(decor, 0) >= 0);
-    struct wl_callback *callback = wl_display_sync(display);
-    const struct wl_callback_listener listener = {.done = done};
-    assert(wl_callback_add_listener(callback, &listener, NULL) == 0);
-    while (wl_display_prepare_read(display) != 0) assert(wl_display_dispatch_pending(display) >= 0);
-    assert(wl_display_flush(display) >= 0);
-    struct pollfd descriptor = {wl_display_get_fd(display), POLLIN, 0};
-    assert(poll(&descriptor, 1, 1000) == 1);
-    assert(wl_display_read_events(display) == 0);
-    assert(!delivered);
     struct sigaction action = {0};
     action.sa_handler = expired;
-    assert(sigemptyset(&action.sa_mask) == 0);
-    assert(sigaction(SIGALRM, &action, NULL) == 0);
+    REQUIRE(sigemptyset(&action.sa_mask) == 0);
+    REQUIRE(sigaction(SIGALRM, &action, NULL) == 0);
+    alarm(10); /* Bound connect, context creation and every initial roundtrip. */
+    int timeout = argc == 2 ? atoi(argv[1]) : -1;
+    REQUIRE(argc <= 2 && (timeout == -1 || timeout == 0));
+    struct wl_display *display = wl_display_connect(NULL);
+    REQUIRE(display);
+    struct libdecor_interface interface = {.error = failed};
+    struct libdecor *decor = libdecor_new(display, &interface);
+    REQUIRE(decor);
+    REQUIRE(wl_display_roundtrip(display) >= 0);
+    REQUIRE(libdecor_dispatch(decor, 0) >= 0);
+    struct wl_callback *callback = wl_display_sync(display);
+    const struct wl_callback_listener listener = {.done = done};
+    REQUIRE(wl_callback_add_listener(callback, &listener, NULL) == 0);
+    while (wl_display_prepare_read(display) != 0) REQUIRE(wl_display_dispatch_pending(display) >= 0);
+    REQUIRE(wl_display_flush(display) >= 0);
+    struct pollfd descriptor = {wl_display_get_fd(display), POLLIN, 0};
+    REQUIRE(poll(&descriptor, 1, 1000) == 1);
+    REQUIRE(wl_display_read_events(display) == 0);
+    REQUIRE(!delivered);
     alarm(3);
     int count = libdecor_dispatch(decor, timeout);
-    alarm(0);
     printf("dispatch returned %d; callback delivered=%d\n", count, (int)delivered);
     libdecor_unref(decor);
     wl_display_disconnect(display);
+    alarm(0);
     return delivered && count >= 0 ? 0 : 2;
 }
