@@ -13,8 +13,36 @@ function Get-MsvcVersion([string]$Banner) {
         throw 'Cannot identify MSVC compiler version'
     }
     $version = [version]$Matches[1]
-    if ($version -lt [version]'19.40') { throw "MSVC $version is below required 19.40" }
     return $version.ToString()
+}
+
+function Assert-MsvcVersion([string]$Version) {
+    if ([version]$Version -lt [version]'19.40') { throw "MSVC $Version is below required 19.40" }
+}
+
+function Get-WindowsSdkVersion {
+    if (-not $env:WindowsSDKVersion) { throw 'Windows SDK version is absent from the developer environment' }
+    return $env:WindowsSDKVersion.TrimEnd('\')
+}
+
+function Enter-Arm64Environment([string]$DevCmd) {
+    # A simple relative .cmd filename avoids passing nested cmd.exe quoting
+    # through Python's list2cmdline. Keep the script beside the module's cwd.
+    $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    $name = 'btrc-vsenv-' + [Guid]::NewGuid().ToString('N') + '.cmd'
+    $script = Join-Path $root $name
+    try {
+        Set-Content -LiteralPath $script -Encoding utf8NoBOM -Value @"
+@echo off
+call "$DevCmd" -no_logo -arch=arm64 -host_arch=arm64 >nul
+if errorlevel 1 exit /b %errorlevel%
+set
+"@
+        $environment = Invoke-Bounded 'cmd.exe' @('/d', '/c', $name)
+        foreach ($line in ($environment.stdout -split "`r?`n")) {
+            if ($line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process') }
+        }
+    } finally { Remove-Item -LiteralPath $script -ErrorAction SilentlyContinue }
 }
 
 function Assert-ArchiveDigest([string]$Path) {
@@ -31,8 +59,8 @@ function Invoke-Bounded([string]$File, [string[]]$Arguments, [int]$TimeoutSecond
     $start.FileName = $PythonExecutable
     $start.WorkingDirectory = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
     $start.UseShellExecute = $false
-    # Python owns the command Job/process group and pipe draining. This wrapper
-    # inherits no command output pipes that an orphan could keep open.
+    # Python bounds the command and captures output. Windows tree containment
+    # explicitly belongs to the enclosing disposable runner, not this wrapper.
     foreach ($argument in @('-m', 'tools.windows_toolchain.process_runner', '--output', $resultPath,
                              '--timeout', $TimeoutSeconds.ToString(), '--', $File) + $Arguments) {
         $start.ArgumentList.Add($argument)
@@ -48,8 +76,12 @@ function Invoke-Bounded([string]$File, [string[]]$Arguments, [int]$TimeoutSecond
         }
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         if ($process.ExitCode -ne 0) { throw $result.error }
-        if ($result.timed_out) { throw "$File timed out; partial output: $($result.stdout) $($result.stderr)" }
-        if ($result.returncode -notin $AllowedExitCodes) { throw "$File exited $($result.returncode): $($result.stderr)" }
+        if ($result.timed_out -or $result.returncode -notin $AllowedExitCodes) {
+            $reason = if ($result.timed_out) { 'timed out' } else { "exited $($result.returncode)" }
+            $failure = [InvalidOperationException]::new("$File $reason; stdout: $($result.stdout); stderr: $($result.stderr)")
+            $failure.Data['result'] = $result
+            throw $failure
+        }
         return [pscustomobject]@{ stdout = $result.stdout; stderr = $result.stderr; exit_code = $result.returncode }
     } finally {
         $process.Dispose()
@@ -60,7 +92,7 @@ function Invoke-Bounded([string]$File, [string[]]$Arguments, [int]$TimeoutSecond
 if ($FunctionsOnly) { return }
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $output | Out-Null
-$report = [ordered]@{ status = 'failed'; target = 'aarch64-pc-windows-msvc19.40.0'; native_execution = 'not-run' }
+$report = [ordered]@{ status = 'failed'; target = 'aarch64-pc-windows-msvc19.40.0'; native_execution = 'not-run'; containment = 'external-ephemeral-runner' }
 try {
     if (-not $IsWindows -or [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne 'Arm64') {
         throw 'Requires native ARM64 PowerShell on Windows ARM64'
@@ -72,15 +104,12 @@ try {
     $installation = (Invoke-Bounded $Vswhere @('-latest', '-products', '*', '-property', 'installationPath')).stdout.Trim()
     if (-not $installation) { throw 'Visual Studio installation not found' }
     $devcmd = Join-Path $installation 'Common7/Tools/VsDevCmd.bat'
-    $environment = Invoke-Bounded 'cmd.exe' @('/d', '/s', '/c', ('""{0}" -no_logo -arch=arm64 -host_arch=arm64 >nul && set"' -f $devcmd))
-    foreach ($line in ($environment.stdout -split "`r?`n")) {
-        if ($line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process') }
-    }
+    Enter-Arm64Environment $devcmd
     $env:VSLANG = '1033'
     $cl = Invoke-Bounded 'cl.exe' @('/Bv') -AllowedExitCodes @(0, 2)
     $report.msvc_version = Get-MsvcVersion ($cl.stdout + $cl.stderr)
-    $report.windows_sdk = $env:WindowsSDKVersion.TrimEnd('\')
-    if (-not $report.windows_sdk) { throw 'Windows SDK version is absent from the developer environment' }
+    Assert-MsvcVersion $report.msvc_version
+    $report.windows_sdk = Get-WindowsSdkVersion
     $report.clang_version = (Invoke-Bounded 'clang.exe' @('--version')).stdout.Trim()
     $hello = Join-Path $output 'hello.c'
     $helloExe = Join-Path $output 'hello.exe'
@@ -88,6 +117,7 @@ try {
 int main(void) { puts("PASS: Windows ARM64 MSVC CRT"); return 0; }'
     $flags = @('--target=aarch64-pc-windows-msvc19.40.0', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-pedantic-errors')
     Invoke-Bounded 'clang.exe' ($flags + @($hello, '-o', $helloExe)) | Out-Null
+    $report.native_execution = 'running'
     $helloRun = Invoke-Bounded $helloExe @()
     if ($helloRun.stdout.Trim() -ne 'PASS: Windows ARM64 MSVC CRT') { throw 'MSVC-ABI hello output mismatch' }
     $report.hello = 'passed'
@@ -102,13 +132,18 @@ int main(void) { puts("PASS: Windows ARM64 MSVC CRT"); return 0; }'
     $smoke = Join-Path $output 'wgpu-link-smoke.exe'
     Invoke-Bounded 'clang.exe' ($flags + @('-I', $header[0].DirectoryName, (Join-Path $PSScriptRoot 'wgpu_link_smoke.c'), $library[0].FullName, '-o', $smoke)) | Out-Null
     Copy-Item -LiteralPath $dll[0].FullName -Destination (Join-Path $output 'wgpu_native.dll') -Force
-    $result = Invoke-Bounded $smoke @() -TimeoutSeconds 30
+    $result = Invoke-Bounded $smoke @() -TimeoutSeconds 30 -AllowedExitCodes @(0, 2)
+    $report.wgpu_exit_code = $result.exit_code
+    $report.wgpu_stdout = $result.stdout
+    $report.wgpu_stderr = $result.stderr
     $report.wgpu = $result.stdout | ConvertFrom-Json
-    if (-not $report.wgpu.instance_created -or -not $report.wgpu.callback_returned) { throw 'wgpu instance/callback smoke failed' }
+    if ($result.exit_code -ne 0 -or -not $report.wgpu.instance_created -or -not $report.wgpu.callback_returned) { throw 'wgpu instance/callback smoke failed' }
     $report.native_execution = 'passed'
     $report.status = 'passed'
 } catch {
+    if ($report.native_execution -eq 'running') { $report.native_execution = 'failed' }
     $report.error = $_.Exception.Message
+    if ($_.Exception.Data.Contains('result')) { $report.failed_command = $_.Exception.Data['result'] }
     Write-Error $_ -ErrorAction Continue
 } finally {
     $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $output 'summary.json') -Encoding utf8NoBOM

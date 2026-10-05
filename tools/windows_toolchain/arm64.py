@@ -16,6 +16,7 @@ from pathlib import Path
 from tools.windows_toolchain.process_runner import run as run_process
 
 ROOT = Path(__file__).resolve().parents[2]
+PINS = json.loads(Path(__file__).with_name("pins.json").read_text())
 TARGET = "aarch64-windows-gnu"
 FLAGS = [
     "-std=c11",
@@ -56,6 +57,7 @@ class Evidence:
             "host_system": platform.system(),
             "python_platform": sysconfig.get_platform(),
             "native_execution": "not-run",
+            "containment": "external-ephemeral-runner" if sys.platform == "win32" else "process-group",
             "steps": [],
         }
 
@@ -76,8 +78,8 @@ class Evidence:
     def identify(self) -> None:
         self.report["revision"] = self.run(["git", "rev-parse", "HEAD"], "revision", timeout=60).decode().strip()
         version = self.run([self.zig, "version"], "zig-version", timeout=60).decode().strip()
-        if version != "0.16.0":
-            raise RuntimeError(f"expected pinned Zig 0.16.0, got {version}")
+        if version != PINS["zig_version"]:
+            raise RuntimeError(f"expected pinned Zig {PINS['zig_version']}, got {version}")
         self.report["zig_version"] = version
 
     def build(self) -> Path:
@@ -109,7 +111,7 @@ class Evidence:
             "host_system": "Linux",
             "native_execution": "not-run",
             "revision": self.report["revision"],
-            "zig_version": "0.16.0",
+            "zig_version": PINS["zig_version"],
         }
         if any(summary.get(key) != value for key, value in required.items()):
             raise RuntimeError("cross summary must identify a passing Linux cross-build at this source revision")
@@ -122,13 +124,13 @@ class Evidence:
     def native(self, cross: Path, cross_summary: Path) -> None:
         if platform.system() != "Windows" or sysconfig.get_platform() != "win-arm64":
             raise RuntimeError("native evidence requires ARM64 Python on an actual ARM64 Windows host")
-        if cross.resolve() == self.output / "btrcc.exe":
+        if any(path.resolve().is_relative_to(self.output) for path in (cross, cross_summary)):
             raise RuntimeError("cross artifact must be separate from the native output directory")
-        self.report["native_execution"] = "running"
         self.report["cross_compiler"] = pe_arm64(cross)
         self.verify_cross(cross_summary)
         native = self.build()
         sample = ROOT / "src/tests/strings/BracesInCodeGen.btrc"
+        self.report["native_execution"] = "running"
         cross_c = self.run([cross, sample], "cross-sample")
         native_c = self.run([native, sample], "native-sample")
         if cross_c != native_c:
@@ -167,6 +169,11 @@ def main() -> int:
         parser.error("--cross is required for native or pe")
     if args.mode == "native" and args.cross_summary is None:
         parser.error("--cross-summary is required for native provenance")
+    if any(
+        path is not None and path.resolve().is_relative_to(args.out.resolve())
+        for path in (args.cross, args.cross_summary)
+    ):
+        parser.error("cross inputs must be separate from the output directory; refusing to overwrite evidence")
     evidence = Evidence(args.out, args.zig)
     evidence.report["mode"] = args.mode
     try:

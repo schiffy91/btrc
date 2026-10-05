@@ -1,16 +1,20 @@
 """Portable negative checks; none execute a Windows image on Linux."""
 
+import base64
 import json
+import os
+import re
 import struct
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from tools.windows_toolchain.arm64 import Evidence, main, pe_arm64
-from tools.windows_toolchain.process_runner import Result, run
+from tools.windows_toolchain.arm64 import PINS, ROOT, Evidence, main, pe_arm64
+from tools.windows_toolchain.process_runner import Result, run, run_windows
 
 
 class Arm64EvidenceTests(unittest.TestCase):
@@ -155,8 +159,11 @@ class Arm64EvidenceTests(unittest.TestCase):
         program = (
             "import subprocess,sys; subprocess.Popen([sys.executable,'-c',sys.argv[1]]); print('partial',flush=True)"
         )
+        if sys.platform == "win32":
+            # The runner owns orphan cleanup; only assert this direct child deadline here.
+            program = "import time; print('partial',flush=True); time.sleep(60)"
         started = time.monotonic()
-        timeout = 3 if sys.platform == "win32" else 0.2
+        timeout = 3
         result = run([sys.executable, "-c", program, child], cwd=self.root, env=None, timeout=timeout)
         self.assertTrue(result.timed_out)
         self.assertEqual(result.stdout.splitlines(), [b"partial"])
@@ -165,10 +172,99 @@ class Arm64EvidenceTests(unittest.TestCase):
     def test_download_pins_are_complete(self):
         pins = json.loads(Path(__file__).with_name("pins.json").read_text())
         self.assertEqual(pins["zig_version"], "0.16.0")
-        for key in ("zig_windows_arm64", "zig_linux_x64"):
+        for key in ("zig_windows_arm64",):
             self.assertEqual(len(pins[key]["shasum"]), 64)
             self.assertGreater(int(pins[key]["size"]), 0)
         self.assertEqual(len(pins["wgpu"]["sha256"]), 64)
+
+    def test_windows_requires_external_containment_contract(self):
+        with self.assertRaisesRegex(RuntimeError, "enclosing runner deadline"):
+            run_windows([sys.executable], cwd=self.root, env={}, timeout=1)
+
+    def test_windows_file_capture_keeps_failure_and_launch_error(self):
+        environment = {**os.environ, "BTRC_WINDOWS_EXTERNAL_CONTAINMENT": "ephemeral-runner"}
+        result = run_windows(
+            [sys.executable, "-c", "import sys; print('OBSERVED'); sys.exit(2)"],
+            cwd=self.root,
+            env=environment,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout.strip(), b"OBSERVED")
+        result = run_windows([str(self.root / "missing-clang.exe")], cwd=self.root, env=environment, timeout=1)
+        self.assertEqual(result.returncode, 127)
+        self.assertIn(b"missing-clang.exe", result.stderr)
+
+    def test_windows_cleanup_failure_retains_output(self):
+        environment = {**os.environ, "BTRC_WINDOWS_EXTERNAL_CONTAINMENT": "ephemeral-runner"}
+        process = Mock()
+        process.wait.side_effect = subprocess.TimeoutExpired("fixture", 1)
+        process.poll.return_value = None
+
+        def launch(command, **kwargs):
+            kwargs["stdout"].write(b"CHILD-EVIDENCE-31ab")
+            kwargs["stdout"].flush()
+            return process
+
+        with (
+            patch("tools.windows_toolchain.process_runner.subprocess.Popen", side_effect=launch),
+            patch("tools.windows_toolchain.process_runner.subprocess.run", side_effect=OSError("taskkill unavailable")),
+        ):
+            result = run_windows(["fixture"], cwd=self.root, env=environment, timeout=1)
+        self.assertTrue(result.timed_out)
+        self.assertEqual(result.stdout, b"CHILD-EVIDENCE-31ab")
+        self.assertIn(b"taskkill unavailable", result.stderr)
+        self.assertIn(b"direct child cleanup failed", result.stderr)
+        process.kill.assert_called_once()
+
+    def test_report_writer_refuses_cross_summary_collision_before_any_output(self):
+        output = self.root / "output"
+        output.mkdir()
+        summary = output / "summary.json"
+        summary.write_bytes(b"cross provenance must survive")
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "arm64.py",
+                    "native",
+                    "--out",
+                    str(output),
+                    "--cross",
+                    str(self.image),
+                    "--cross-summary",
+                    str(summary),
+                ],
+            ),
+            self.assertRaises(SystemExit),
+        ):
+            main()
+        self.assertEqual(summary.read_bytes(), b"cross provenance must survive")
+
+    def test_bad_provenance_does_not_claim_native_execution(self):
+        evidence = Evidence(self.root / "output", "zig")
+        evidence.report["revision"] = "a" * 40
+        summary = self.root / "cross.json"
+        summary.write_text("{}")
+        with (
+            patch("platform.system", return_value="Windows"),
+            patch("sysconfig.get_platform", return_value="win-arm64"),
+            self.assertRaisesRegex(RuntimeError, "passing Linux cross-build"),
+        ):
+            evidence.native(self.image, summary)
+        self.assertEqual(evidence.report["native_execution"], "not-run")
+
+    def test_zig_version_comes_from_pins(self):
+        evidence = Evidence(self.root, "zig")
+        with patch.dict(PINS, zig_version="99.1.2"), patch.object(evidence, "run", side_effect=[b"a" * 40, b"99.1.2"]):
+            evidence.identify()
+        self.assertEqual(evidence.report["zig_version"], "99.1.2")
+
+    def test_wgpu_pin_matches_integrated_archive_hash(self):
+        source = (ROOT / "nix/wgpu-native-prebuilt.nix").read_text()
+        row = re.search(r'windows-arm64\s*=\s*archive\s+"[^"]+"\s+"sha256-([^"]+)"', source)
+        self.assertIsNotNone(row)
+        self.assertEqual(base64.b64decode(row[1]).hex(), PINS["wgpu"]["sha256"])
 
 
 if __name__ == "__main__":
