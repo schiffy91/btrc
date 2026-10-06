@@ -337,8 +337,8 @@ Both compilers infer the host only when `--target` is absent. Both reduce the ho
   - The row reaches them through the analyzer context and the native importer, both filled by `CompilerPipeline`.
 - **Widths contract.** C4's widths check covers `__CHAR_BIT__`, `__SIZEOF_SHORT__`, `__SIZEOF_INT__` and `__SIZEOF_LONG_LONG__` against both analyzers' widths. It gains `__SIZEOF_LONG__` against `for_target` for every row, and stays in `test_hosted_abi_contract.py`.
 - **Observable change.** A Linux → `windows-x86_64` compile now types `long` as 32 bits:
-  - `long x = 3000000000;` is refused, with the existing out-of-range message;
-  - the constant cast-range checks for `long` and `unsigned long` use the 32-bit range;
+  - the constant cast-range checks for `long` and `unsigned long` use the 32-bit range, so `(long)3000000000` is no integer constant (an enum value using it is refused) and `(unsigned long)4294967297` folds to 1 (a `case` using it can duplicate `case 1`);
+  - `long x = 3000000000;` stays accepted on every row, as before: C11 6.3.1.3p3 makes narrowing a constant initializer implementation-defined, and neither analyzer refuses it (commit 1c found no out-of-range message to apply, so the test pins the acceptance instead);
   - the unsuffixed decimal literal `3000000000` is typed `long long` in both compilers. Today both compilers type it from the host (`long` on every LP64 host, whatever the target). Switching only Python would have split them, which would change overload choice and f-string formats, so all three btrc sites move in the same commit.
 
   Neither analyzer folds the hosted `LONG_MAX` macro. It reaches C unchanged, and C's `<limits.h>` gives the target's value. `test_target_data_model.py` pins all three in both compilers.

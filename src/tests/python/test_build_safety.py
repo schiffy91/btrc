@@ -376,6 +376,26 @@ def test_btrcc_release_targets_publish_bundles_not_raw_dist_binaries():
     assert "tools.compiler_codegen.main check" in linux + windows
 
 
+def test_release_c_files_are_generated_for_their_rows_and_checked_per_row():
+    """Each release C file is generated for an explicit row, never the host, and
+    the gate proves it byte-identical for its other architecture
+    (platform-target-contract.md §1.8)."""
+
+    linux = _make_dry_run("--always-make", "btrcc-linux-x64", "NIX=")
+    macos = _make_dry_run("--always-make", "btrcc-macos-arm64", "NIX=")
+    windows = _make_dry_run("--always-make", "btrcc-windows-x64", "NIX=")
+
+    assert "BtrccMain.btrc --strict-imports --no-cache --target linux-x86_64 -o dist/btrcc.c" in linux
+    assert "--target linux-aarch64 -o build/btrcc/release-c/linux-aarch64.c" in linux
+    assert "cmp -s dist/btrcc.c build/btrcc/release-c/linux-aarch64.c" in linux
+    assert "dist/btrcc.c -o build/btrcc/linux-x64/btrcc" in linux
+    assert "BtrccMain.btrc --strict-imports --no-cache --target macos-x86_64 -o dist/btrcc-macos.c" in macos
+    assert "cmp -s dist/btrcc-macos.c build/btrcc/release-c/macos-aarch64.c" in macos
+    assert "dist/btrcc-macos.c -o build/btrcc/macos-arm64/btrcc" in macos
+    assert "dist/btrcc.c" not in macos
+    assert "WindowsMain.btrc --strict-imports --no-cache --target windows-x86_64 -o dist/btrcc-windows.c" in windows
+
+
 def test_explicit_generation_target_forces_regeneration_without_aliases():
     output = _make_dry_run("compiler-codegen-generate", "NIX=")
 

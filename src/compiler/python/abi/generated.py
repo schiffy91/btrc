@@ -18070,6 +18070,13 @@ TARGET_PREDEFINED_MACRO_ROWS: tuple[GeneratedPredefinedMacroRow, ...] = (
         environments=(),
     ),
     GeneratedPredefinedMacroRow(
+        name='_M_ARM64',
+        value=1,
+        operating_systems=('windows',),
+        architectures=('aarch64',),
+        environments=('msvc',),
+    ),
+    GeneratedPredefinedMacroRow(
         name='__CHAR_BIT__',
         value=8,
         operating_systems=(),
@@ -18832,23 +18839,7 @@ TARGET_FOREIGN_MACRO_NAMES: tuple[str, ...] = (
     'TARGET_CPU_PPC64',
     'TARGET_CPU_X86',
     'TARGET_CPU_X86_64',
-    'TARGET_IPHONE_SIMULATOR',
     'TARGET_OS_BRIDGE',
-    'TARGET_OS_DRIVERKIT',
-    'TARGET_OS_EMBEDDED',
-    'TARGET_OS_IOS',
-    'TARGET_OS_IPHONE',
-    'TARGET_OS_LINUX',
-    'TARGET_OS_MAC',
-    'TARGET_OS_MACCATALYST',
-    'TARGET_OS_OSX',
-    'TARGET_OS_SIMULATOR',
-    'TARGET_OS_TV',
-    'TARGET_OS_UNIX',
-    'TARGET_OS_VISION',
-    'TARGET_OS_WATCH',
-    'TARGET_OS_WIN32',
-    'TARGET_OS_WINDOWS',
     'TARGET_RT_64_BIT',
     'TARGET_RT_BIG_ENDIAN',
     'TARGET_RT_LITTLE_ENDIAN',
@@ -18858,4 +18849,4 @@ TARGET_FOREIGN_MACRO_NAMES: tuple[str, ...] = (
     'bool',
 )
 
-TARGET_SPEC_FINGERPRINT = '7865f267cc2888822ba3f93f571f923a1a835f94049abc4876c0e4c5d8dcfa58'
+TARGET_SPEC_FINGERPRINT = '75ad61e9ebc3aacc6f60923304c08ec457e2f4a9f014ea81792e1771537d7eca'

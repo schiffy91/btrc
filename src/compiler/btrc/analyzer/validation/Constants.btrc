@@ -332,11 +332,13 @@ class ConstantValidator {
 		if (base == "uint" || base == "unsigned" || base == "unsigned int") {
 			return self.unsignedCastRange(UINT_MAX);
 		}
+		/* long follows the selected row, not the C compiler that built btrcc. */
 		if (base == "long" || base == "long int" || base == "signed long" || base == "signed long int") {
-			return self.signedCastRange(LONG_MIN, LONG_MAX);
+			long long maximum = (long long)IntegerLiteral.signedMaximum(analyzed.longBits);
+			return self.signedCastRange(-maximum - 1LL, maximum);
 		}
 		if (base == "unsigned long" || base == "unsigned long int") {
-			return self.unsignedCastRange(ULONG_MAX);
+			return self.unsignedCastRange(IntegerLiteral.unsignedMaximum(analyzed.longBits));
 		}
 		if (base == "long long" || base == "long long int" || base == "signed long long" || base == "signed long long int") {
 			return self.signedCastRange(LLONG_MIN, LLONG_MAX);

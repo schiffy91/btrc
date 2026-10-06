@@ -171,7 +171,7 @@ class GeneratedHostedAbiData {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
 		self.fingerprint = "b07b01e79a64ba737b576643e93e54c5dce217fdbe11a11c74a1a4ddc3b86fe2";
-		self.targetSpecFingerprint = "7865f267cc2888822ba3f93f571f923a1a835f94049abc4876c0e4c5d8dcfa58";
+		self.targetSpecFingerprint = "75ad61e9ebc3aacc6f60923304c08ec457e2f4a9f014ea81792e1771537d7eca";
 	}
 
 	/* Every table builds on first use. A compile that never asks for a
@@ -16466,23 +16466,7 @@ class GeneratedHostedAbiData {
 		values.push("TARGET_CPU_PPC64");
 		values.push("TARGET_CPU_X86");
 		values.push("TARGET_CPU_X86_64");
-		values.push("TARGET_IPHONE_SIMULATOR");
 		values.push("TARGET_OS_BRIDGE");
-		values.push("TARGET_OS_DRIVERKIT");
-		values.push("TARGET_OS_EMBEDDED");
-		values.push("TARGET_OS_IOS");
-		values.push("TARGET_OS_IPHONE");
-		values.push("TARGET_OS_LINUX");
-		values.push("TARGET_OS_MAC");
-		values.push("TARGET_OS_MACCATALYST");
-		values.push("TARGET_OS_OSX");
-		values.push("TARGET_OS_SIMULATOR");
-		values.push("TARGET_OS_TV");
-		values.push("TARGET_OS_UNIX");
-		values.push("TARGET_OS_VISION");
-		values.push("TARGET_OS_WATCH");
-		values.push("TARGET_OS_WIN32");
-		values.push("TARGET_OS_WINDOWS");
 		values.push("TARGET_RT_64_BIT");
 		values.push("TARGET_RT_BIG_ENDIAN");
 		values.push("TARGET_RT_LITTLE_ENDIAN");
@@ -16565,6 +16549,7 @@ class GeneratedHostedAbiData {
 		built.push(GeneratedPredefinedMacroRow("__aarch64__", 1LL, self.emptyNames(), ["aarch64"], self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__arm64", 1LL, ["ios", "macos"], ["aarch64"], self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__arm64__", 1LL, ["ios", "macos"], ["aarch64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("_M_ARM64", 1LL, ["windows"], ["aarch64"], ["msvc"]));
 		built.push(GeneratedPredefinedMacroRow("__CHAR_BIT__", 8LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_SHORT__", 2LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_INT__", 4LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
@@ -16583,10 +16568,10 @@ class GeneratedHostedAbiData {
 		built.push(GeneratedPredefinedMacroRow("TARGET_OS_DRIVERKIT", 0LL, ["ios", "macos"], self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("TARGET_OS_EMBEDDED", 1LL, ["ios"], self.emptyNames(), [""]));
 		built.push(GeneratedPredefinedMacroRow("TARGET_OS_EMBEDDED", 0LL, ["ios"], self.emptyNames(), ["simulator"]));
-		built.push(GeneratedPredefinedMacroRow("TARGET_OS_EMBEDDED", 0LL, ["macos"], self.emptyNames(), self.emptyNames()));
 	}
 
 	private void pushPredefinedMacroRows1(Vector<GeneratedPredefinedMacroRow> built) {
+		built.push(GeneratedPredefinedMacroRow("TARGET_OS_EMBEDDED", 0LL, ["macos"], self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("TARGET_OS_IOS", 1LL, ["ios"], self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("TARGET_OS_IOS", 0LL, ["macos"], self.emptyNames(), self.emptyNames()));
 		built.push(GeneratedPredefinedMacroRow("TARGET_OS_IPHONE", 1LL, ["ios"], self.emptyNames(), self.emptyNames()));
@@ -16626,10 +16611,10 @@ class GeneratedHostedAbiData {
 		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__", 140000LL, ["macos"], ["aarch64"], [""]));
 		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__", 140000LL, ["macos"], ["x86_64"], [""]));
 		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", 170000LL, ["ios"], ["aarch64"], [""]));
-		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", 170000LL, ["ios"], ["aarch64"], ["simulator"]));
 	}
 
 	private void pushPredefinedMacroRows2(Vector<GeneratedPredefinedMacroRow> built) {
+		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", 170000LL, ["ios"], ["aarch64"], ["simulator"]));
 		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", 140000LL, ["macos"], ["aarch64"], [""]));
 		built.push(GeneratedPredefinedMacroRow("__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__", 140000LL, ["macos"], ["x86_64"], [""]));
 		built.push(GeneratedPredefinedMacroRow("__LP64__", 1LL, ["android"], ["aarch64"], [""]));
@@ -16669,10 +16654,10 @@ class GeneratedHostedAbiData {
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["linux"], ["aarch64"], ["gnu"]));
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["linux"], ["x86_64"], ["gnu"]));
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["macos"], ["aarch64"], [""]));
-		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["macos"], ["x86_64"], [""]));
 	}
 
 	private void pushPredefinedMacroRows3(Vector<GeneratedPredefinedMacroRow> built) {
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 4LL, ["macos"], ["x86_64"], [""]));
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 2LL, ["windows"], ["aarch64"], ["gnu"]));
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 2LL, ["windows"], ["aarch64"], ["msvc"]));
 		built.push(GeneratedPredefinedMacroRow("__SIZEOF_WCHAR_T__", 2LL, ["windows"], ["x86_64"], ["gnu"]));

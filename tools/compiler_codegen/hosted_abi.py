@@ -1190,16 +1190,13 @@ class TargetUnion:
     the generator fails, naming the file and the two targets.
 
     The union is keyed by the identities the compilers' conditional
-    environments distinguish. Until PLAN.md Stage 24 commit 1b gives them the
-    environment axis (platform-target-contract.md §1.4), an environment is
-    an ``operating_system-architecture`` pair, so rows that differ only in
-    their environment share one key; commit 1b keys it by row label.
+    environments distinguish: since PLAN.md Stage 24 commit 1c they select by
+    environment too (platform-target-contract.md §1.3), so every row label is
+    its own key.
     """
 
     def __init__(self, targets: TargetManifest) -> None:
-        self._labels = tuple(
-            dict.fromkeys(f"{target.operating_system}-{target.architecture}" for target in targets.targets)
-        )
+        self._labels = tuple(target.label for target in targets.targets)
 
     @property
     def labels(self) -> tuple[str, ...]:
