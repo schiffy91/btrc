@@ -175,7 +175,6 @@ class DocumentAnalyzer:
         return path
 
     @staticmethod
-    @staticmethod
     def _background_type_names(background: list[FileUnit], program_units: list[FileUnit]) -> frozenset[str]:
         """Names only the background stdlib declares, never the program.
 
@@ -186,6 +185,7 @@ class DocumentAnalyzer:
         declared = frozenset().union(*(unit.defined_names for unit in program_units))
         return frozenset().union(*(unit.defined_names for unit in background)) - declared
 
+    @staticmethod
     def _diagnostic(
         line: int,
         col: int,
