@@ -147,8 +147,8 @@ Checked against main `9971ee1` and the open PRs when preparing this plan:
   [PR56](https://github.com/schiffy91/btrc/pull/56) merged in batch 36; Linux
   diagnostics [PR57](https://github.com/schiffy91/btrc/pull/57) merged in batch 38.
 - Windows host hardening [PR58](https://github.com/schiffy91/btrc/pull/58), head
-  `6ec9b9dc`, is open with final CI green and 16 native cases passing on each of
-  x64 and ARM64. This is execution infrastructure, not a Windows GUI provider.
+  `6ec9b9dc`, merged in batch 42 with 16 native cases passing on each of x64 and
+  ARM64. This is execution infrastructure, not a Windows GUI provider.
 - HTTP [PR51](https://github.com/schiffy91/btrc/pull/51), head `0fa4c093`, and
   Windows services [PR52](https://github.com/schiffy91/btrc/pull/52), head
   `d77b4b14`, address their latest findings and have green final docs CI; contract
@@ -169,9 +169,13 @@ batch 40. Old packet IDs stay for traceability; WORKSTREAMS.md §3.3.2 keeps the
 path claims. Each entry names its source (a PR, branch or review comment), the
 owner, the exact prerequisite and the next acceptance.
 
-- **PR58, `CX-P1-06` Windows host hardening** (head `6ec9b9dc`). Owner: Claude.
-  Prerequisite: none; final CI is green. Next: Claude integration (batch gate).
-  It unblocks the `CL-P1-17` protocol freeze and the PR53 rebase.
+- **PR58, `CX-P1-06` Windows host hardening: integrated in batch 42** (main
+  `2ca3ca56`; Claude added four tests that fail when its fixes are reverted).
+  Next, owner Codex, before `CX-P1-07`: the follow-ups in the PR58 closing
+  comment. First, `execution_workspace`'s bare `shutil.rmtree` loses the
+  read-only retry, so a target that leaves a read-only file leaks its temp
+  directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
+  bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`, head
   `958d309b`). Owner: Codex (`tools/windows_toolchain/**`); Claude then adds the
   drafted `windows-arm64.yml`. Returned in batch 36: it duplicates
@@ -186,10 +190,14 @@ owner, the exact prerequisite and the next acceptance.
   native builds; `msvc_probe` cl.exe ≥19.40; an MSVC-ABI hello; a wgpu smoke.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`, head
   `55a71b8c`, CI green, scope only). Owner: Codex for code; Claude for the
-  review and for `host-ios.yml` on macos-15 (`REQUEST(CL-R-38)`), running the
-  six commands in the PR. Prerequisite: Claude reviews the repair (bounded
-  launch deadline, start/cancel handshake, late-identity reaping); returned in
-  batch 23 and not re-reviewed since. Next acceptance: 12 fixtures ×
+  review. `host-ios.yml` landed in batch 43 (`REQUEST(CL-R-38)`): a macos-15
+  job runs the PR's six commands once `tools/target_hosts/ios/` is on the
+  revision, and skips otherwise. Next, owner Codex: rebase onto main, which is
+  111 commits ahead, dropping the `PLAN.md`/`WORKSTREAMS.md` edits (PLAN.md is
+  a pointer now; the packet's record lives here). The rebased PR then gets its
+  first native simulator run. Then Claude reviews the repair (bounded launch
+  deadline, start/cancel handshake, late-identity reaping) with that run's
+  evidence. Next acceptance: 12 fixtures ×
   spawn/app × iPhone/iPad, plus one repeated app invocation per class (50
   executions), with Xcode/runtime provenance and `UIDeviceFamily [1,2]`. This is
   the real Xcode simulator host the iOS private-file slice needs. Afterwards:
@@ -197,10 +205,14 @@ owner, the exact prerequisite and the next acceptance.
   (protocol) and `REQUEST(CL-P1-21)` (entry symbol).
 - **PR35, `CX-P1-05` Android host** (`codex/cx-p1-05`, head `628a4a54`, CI
   green, scope only). Owner: Codex (`tools/target_hosts/android/**`); Claude for
-  the review, `host-android.yml` and the i686 shell issue. Prerequisite: Claude
-  re-reviews the repair (returned in batch 23), then adds `host-android.yml`
-  from the PR's `REQUEST(CL-REQ)` KVM spec (API 29/36, SDK packages and verify,
-  cache key). `REQUEST(CL-P1-02)`: the `.#platforms` shell's i686 compatibility
+  the review and the i686 shell issue. `host-android.yml` landed in batch 43
+  from the PR's `REQUEST(CL-REQ)` KVM spec. It runs API 29 and 36 jobs that
+  install exactly `sdk packages`, take the pinned emulator and platform-tools
+  from `nix/android-repo-overlay.json` and run `sdk verify`, and a contract test
+  checks that. It skips until `tools/target_hosts/android/` is on the revision.
+  Next, owner Codex: rebase onto main, dropping the `PLAN.md`/`WORKSTREAMS.md`
+  edits; the rebased PR then gets its first emulator run. Then Claude
+  re-reviews the repair (returned in batch 23) with that evidence. `REQUEST(CL-P1-02)`: the `.#platforms` shell's i686 compatibility
   builder fails on cloud kernels. Next acceptance: API 29 and 36 KVM emulators
   boot and pass shell and NativeActivity modes, with boot/install/launch
   timings. Later, the in-process provider mode named above.
