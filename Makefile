@@ -326,11 +326,14 @@ test-native-gui: generated-check ## Focused gate: the native GUI, tray and provi
 GUI_SESSION ?= x11
 GUI_SHARD_DIR := build/linux-gui/$(GUI_SESSION)
 GUI_SHARD_TESTS := $(NATIVE_GUI_TESTS) src/tests/python/test_build_safety.py::test_devcontainer_installs_the_null_alsa_pcm
+# The SDL clipboard-requestor case drives the X11 selection protocol itself, so
+# only the X11 row runs it; under Wayland it would skip for want of a DISPLAY.
+GUI_SHARD_IGNORE := $(if $(filter wayland,$(GUI_SESSION)),--ignore=src/tests/python/test_native_ui_sdl_clipboard_requestor.py)
 
 test-shard-gui: generated-check gpu-required btrcc ## CI shard: native GUI and Linux audio under one headless session (GUI_SESSION=x11|wayland)
 	$(NIX) $(SHARD_BTRCC) ALSA_CONFIG_PATH="$(abspath nix/asound.conf)" tools/ui/headless-session.sh --$(GUI_SESSION) -- \
 		python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py --output $(GUI_SHARD_DIR) -- \
-		$(PYTEST) $(GUI_SHARD_TESTS) --basetemp=$(GUI_SHARD_DIR)/pytest --junitxml=$(GUI_SHARD_DIR)/junit.xml \
+		$(PYTEST) $(GUI_SHARD_TESTS) $(GUI_SHARD_IGNORE) --basetemp=$(GUI_SHARD_DIR)/pytest --junitxml=$(GUI_SHARD_DIR)/junit.xml \
 		--skip-report=build/skip-report-gui-$(GUI_SESSION).json $(PYTEST_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-gui-$(GUI_SESSION).json
 
