@@ -482,6 +482,8 @@ jobs:
             build/linux-gui/${{ matrix.session }}/pytest/**/*.stdout
             build/linux-gui/${{ matrix.session }}/pytest/**/*.stderr
             build/linux-gui/${{ matrix.session }}/pytest/**/*.json
+            build/linux-gui/${{ matrix.session }}/pytest/**/*.ppm
+            build/linux-gui/${{ matrix.session }}/pytest/**/*.png
           if-no-files-found: warn
           retention-days: 14
       - name: Retain the JUnit results

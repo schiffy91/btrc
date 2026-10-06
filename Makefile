@@ -351,9 +351,9 @@ test-native-gui: generated-check ## Focused gate: the native GUI, tray and provi
 # sound card, so the shard needs no host device. The session's bus also carries
 # tools/ui/status_notifier_watcher.py, a stand-in StatusNotifierWatcher, so the
 # Linux tray provider registers its item here instead of skipping.
-# tools/ui/session_evidence.py dumps the session's AT-SPI tree beside the shell
-# ledgers in build/ui-shell, and pytest's working directories stay under
-# build/linux-gui for CI to keep.
+# tools/ui/session_evidence.py dumps the session's AT-SPI tree to
+# build/linux-gui/<session>/atspi.json, and pytest's working directories stay
+# under build/linux-gui for CI to keep.
 GUI_SESSION ?= x11
 GUI_SHARD_DIR := build/linux-gui/$(GUI_SESSION)
 # The SDL clipboard-requestor case drives the X11 selection protocol itself, so
