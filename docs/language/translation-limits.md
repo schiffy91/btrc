@@ -26,25 +26,33 @@ collection (`Nest<Vector<T>>?` inside `Nest<T>`), and through two classes that
 specialize each other (`Left<T>` holding `Right<(T, int)>`, `Right<T>` holding
 `Left<T>`).
 
-Each derived specialization remembers the use that named it and the
-specialization being expanded at the time. When a use that already appears in
-a specialization's own derivation produces one with deeper type arguments,
-that use grows without bound. Both compilers then report one diagnostic at that
-use and stop specializing:
+Both compilers keep a graph of type-parameter uses, as Go does for generic
+instantiation cycles. Each type parameter a reached declaration has is a node
+(`Chain.T`, or `Walker.walk.U` for a generic method's own). A use that passes
+a parameter to a generic adds an edge to that generic's parameter; the use
+*grows* when it wraps the parameter (`(T, int)`, `Vector<T>`, `T*`, `T[]`,
+`T?`) rather than passing it bare. A cycle of edges that contains a growing
+use nests one more level on every pass, so it never ends. When specialization
+closes such a cycle, both compilers report one diagnostic at the cycle's
+growing use that comes first in source, and stop specializing:
 
 ```text
 error: Generic class 'Chain' grows its own type arguments through this use, so its specializations never end
 ```
 
-The rule fires after a few steps, however many growing uses a declaration
-has. Deep but finite nesting is unaffected: a class whose fields reuse its own
-argument (`Tree<T>? left`) or a fixed one (`Tree<Vector<int>>? fixed`)
-compiles, as do written-out types such as `Vector<Vector<Vector<int>>>`.
+The rule depends on the uses alone, so it fires once each declaration on the
+cycle has been reached, however many growing uses a declaration has. Deep but
+finite nesting is unaffected: a class whose fields reuse its own argument
+(`Tree<T>? left`), a fixed one (`Tree<Vector<int>>? fixed`), or wrap a
+parameter outside any cycle (`Box<Vector<T>>` inside `Tree<T>`, when `Box`
+never uses `Tree`) compiles, as do written-out types such as
+`Vector<Vector<Vector<int>>>`.
 
 ## Nesting backstop
 
 A specialization reached through recursive instantiation whose type arguments
-nest deeper than 32 levels is also refused, as a backstop:
+nest deeper than 32 levels (each generic argument, pointer and array level
+counts) is also refused, as a backstop:
 
 ```text
 error: Generic class 'Box' needs type arguments nested deeper than 32 levels, the limit that keeps specialization finite

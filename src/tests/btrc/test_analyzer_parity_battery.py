@@ -362,6 +362,25 @@ INVALID_PROBES = (
         "int main() { Walker w = new Walker(); w.walk(1, 3); return w.count; }\n",
         _unbounded("method 'Walker.walk'", 5, 26),
     ),
+    # A class and a generic method that specialize each other: the cycle runs
+    # through a method's own parameter, and its growing use is the call's.
+    ParityProbe(
+        "generic-class-method-cycle",
+        "class Box<T> {\n    public T value;\n    public Box(T value) { self.value = value; }\n}\n"
+        "class K<T> {\n    public T v;\n    public K(T v) { self.v = v; }\n    public void go(int d) {\n"
+        "        if (d > 0) { Walker w = new Walker(); w.walk(new Box<T>(self.v), d - 1); }\n    }\n}\n"
+        "class Walker {\n    public void walk<U>(U item, int d) {\n        K<U> k = new K<U>(item);\n"
+        "        k.go(d);\n    }\n}\n"
+        "int main() { Walker w = new Walker(); w.walk(1, 3); return 0; }\n",
+        _unbounded("method 'Walker.walk'", 9, 47),
+    ),
+    # A pointer level grows a specialization as a generic level does.
+    ParityProbe(
+        "generic-pointer-recursion",
+        "class P<T> {\n    public T value;\n    public P<T*>? next = null;\n}\n"
+        "int main() { P<int> x = new P<int>(); return 0; }\n",
+        _unbounded("class 'P'", 3, 12),
+    ),
 )
 
 VALID_PROBES = (
@@ -392,6 +411,13 @@ VALID_PROBES = (
         "class C<T> { public Box<T> b; public void go() { E<T> e = new E<T>(); e.run(); } }\n"
         "class E<T> { public void run() { C<Box<int>> c = new C<Box<int>>(); } }\n"
         + _main("C<int> x = new C<int>(); x.go(); return 0;"),
+    ),
+    # A cycle whose uses pass parameters bare is finite: A<T, U> reaches B<U>,
+    # which reaches A<T, Box<int>>, a fixed argument, so nothing grows.
+    ParityProbe(
+        "generic-bare-two-class-cycle",
+        "class Box<T> { public T value; }\nclass A<T, U> { public B<U>? b = null; }\n"
+        "class B<T> { public A<T, Box<int>>? a = null; }\n" + _main("A<int, int> x = new A<int, int>(); return 0;"),
     ),
     # A type the program writes out is not limited, however deep.
     ParityProbe(

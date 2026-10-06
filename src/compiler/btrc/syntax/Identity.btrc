@@ -1150,13 +1150,14 @@ class TypeIdentity {
 	}
 
 	/* Generic-argument levels a type spells: 1 for int, 2 for Vector<int>. */
-	class int genericNestingDepth(Node typeExpr) {
+	class int typeNestingDepth(Node typeExpr) {
 		int deepest = 0;
 		for argument in typeExpr.genericArgs() {
-			int depth = TypeIdentity.genericNestingDepth(argument);
+			int depth = TypeIdentity.typeNestingDepth(argument);
 			if (depth > deepest) { deepest = depth; }
 		}
-		return deepest + 1;
+		int arrayLevel = typeExpr.isArray ? 1 : 0;
+		return deepest + 1 + typeExpr.pointerDepth + arrayLevel;
 	}
 
 	/* The name a parsed type spells when it is one bare identifier, else "".

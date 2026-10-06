@@ -461,10 +461,13 @@ class TypeIdentity:
         return self._reserved_prefix
 
     @staticmethod
-    def generic_nesting_depth(type_expr: TypeExpr) -> int:
-        """Generic-argument levels a type spells: 1 for ``int``, 2 for ``Vector<int>``."""
+    def type_nesting_depth(type_expr: TypeExpr) -> int:
+        """Levels a type spells: 1 for ``int``, 2 for ``Vector<int>`` or ``int*``.
+
+        Each generic argument level, pointer level and array level counts."""
         arguments = type_expr.generic_args or ()
-        return 1 + max((TypeIdentity.generic_nesting_depth(argument) for argument in arguments), default=0)
+        deepest = max((TypeIdentity.type_nesting_depth(argument) for argument in arguments), default=0)
+        return 1 + type_expr.pointer_depth + int(type_expr.is_array) + deepest
 
     @staticmethod
     def ordinary_identifier(type_expr: TypeExpr | None) -> str | None:

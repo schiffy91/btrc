@@ -60,16 +60,15 @@ are ordinary values and do not introduce typed exception payloads.
 
 ## Translation limits
 
-Generic specialization must end. A specialization reached through recursive
-instantiation that needs a larger specialization of a use already in its own
-derivation (`class Chain<T>` with a field `Chain<(T, int)>?`, a generic method
+Generic specialization must end. A cycle of type-parameter uses that wraps a
+parameter (`class Chain<T>` with a field `Chain<(T, int)>?`, a generic method
 calling itself with `(item, depth)`, or two classes that specialize each other
-with a growing argument) is refused at that use, with one diagnostic, in both
-compilers: `Generic class 'Chain' grows its own type arguments through this
-use, so its specializations never end`. As a backstop, a derived
-specialization whose type arguments nest deeper than 32 levels
-(`limits.generic_argument_nesting` in `src/language/hosted_abi.toml`) is
-refused. Types a program writes out are not limited.
+with a growing argument) is refused at the cycle's first growing use, with one
+diagnostic, in both compilers: `Generic class 'Chain' grows its own type
+arguments through this use, so its specializations never end`. As a
+backstop, a derived specialization whose type arguments nest deeper than 32
+levels (`limits.generic_argument_nesting` in `src/language/hosted_abi.toml`)
+is refused. Types a program writes out are not limited.
 [docs/language/translation-limits.md](language/translation-limits.md) states
 the rule.
 

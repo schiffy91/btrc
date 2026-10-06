@@ -47,15 +47,6 @@ class GenericMethodInferencePlan:
 
 
 @dataclass(frozen=True)
-class SpecializationOrigin:
-    """How one specialization was reached: the use that named it while another was scanned."""
-
-    site: tuple[int, int] | None
-    depth: int
-    parent: object | None
-
-
-@dataclass(frozen=True)
 class GenericSpecializationScanPlan:
     """Cached type and compound-operator facts revisited under substitutions."""
 
@@ -70,13 +61,13 @@ class GenericAnalyzer:
         self.session = session
         self.index = index
         self.types = types
-        # Specialization keys -> origins, the specialization being scanned, and
-        # whether one was refused (which ends all further specialization).
-        self._origins: dict[object, SpecializationOrigin] = {}
-        self._scanning: object | None = None
-        # Whether the use being collected names the scanned specialization's
-        # type parameters; a fixed use starts a new derivation.
-        self._carried = True
+        # The declaration whose specialization is being scanned, as (class,
+        # method or None); the type-parameter use graph its uses add to; and
+        # whether a growing use was refused (which ends all specialization).
+        self._scope: tuple[str, str | None] | None = None
+        self._uses: dict[tuple, None] = {}
+        self._successors: dict[str, set[str]] = {}
+        self._predecessors: dict[str, set[str]] = {}
         self._expansion_refused = False
 
     def type_of(self, expression):
@@ -240,12 +231,12 @@ class GenericAnalyzer:
         cls = self.index.class_table.get(base)
         if cls is None or not cls.generic_params:
             return
-        previous = self._scanning
-        self._scanning = self.types.generic_instance_key(base, args)
+        previous = self._scope
+        self._scope = (base, None)
         try:
             self._scan_class_members(cls, base, args, scan_plans)
         finally:
-            self._scanning = previous
+            self._scope = previous
 
     def _scan_class_members(self, cls, base, args, scan_plans) -> None:
         substitutions = dict(zip(cls.generic_params, args))
@@ -290,20 +281,12 @@ class GenericAnalyzer:
             return
         substitutions = dict(zip(cls.generic_params, class_args))
         substitutions.update(zip(method.generic_params, method_args))
-        previous = self._scanning
-        self._scanning = self._method_instance_key(owner, name, class_args, method_args)
+        previous = self._scope
+        self._scope = (owner, name)
         try:
             self._scan_value(method, substitutions, (), scan_plans)
         finally:
-            self._scanning = previous
-
-    def _method_instance_key(self, owner, name, class_args, method_args) -> tuple:
-        return (
-            owner,
-            name,
-            tuple(self.types.type_shape_key(arg) for arg in class_args),
-            tuple(self.types.type_shape_key(arg) for arg in method_args),
-        )
+            self._scope = previous
 
     def record_class_method_use(self, receiver_type: TypeExpr | None, method_name: str) -> None:
         """Record demand for one ordinary method on a generic class instance."""
@@ -403,7 +386,7 @@ class GenericAnalyzer:
                         (
                             tuple(dependencies),
                             dict(zip(cls.generic_params, arguments)),
-                            self.types.generic_instance_key(owner, arguments),
+                            (owner, None),
                         )
                     )
 
@@ -428,7 +411,7 @@ class GenericAnalyzer:
                     processed_methods.add(key)
                     substitutions = dict(zip(cls.generic_params, class_arguments))
                     substitutions.update(zip(method.generic_params, method_arguments))
-                    pending.append((dependencies, substitutions, key))
+                    pending.append((dependencies, substitutions, (instance_owner, method_name)))
 
             for callable_identity, instances in tuple(self.session.generic_class_callable_instances.items()):
                 cls = self.index.class_table.get(callable_identity.owner)
@@ -447,22 +430,22 @@ class GenericAnalyzer:
                         (
                             dependencies,
                             dict(zip(cls.generic_params, arguments)),
-                            self.types.generic_instance_key(callable_identity.owner, arguments),
+                            (callable_identity.owner, None),
                         )
                     )
 
             if not pending:
                 return
-            for dependencies, substitutions, origin in pending:
-                previous = self._scanning
-                self._scanning = origin
+            for dependencies, substitutions, scope in pending:
+                previous = self._scope
+                self._scope = scope
                 try:
                     for dependency in dependencies:
                         self._select_resolved_dependency(dependency, substitutions)
                         if self._expansion_refused:
                             return
                 finally:
-                    self._scanning = previous
+                    self._scope = previous
 
     def _select_resolved_dependency(
         self,
@@ -480,24 +463,17 @@ class GenericAnalyzer:
             )
             if any(argument is None for argument in (*class_arguments, *method_arguments)):
                 return
-            previous = self._carried
-            self._carried = any(
-                self.types.type_references_names(argument, substitutions)
-                for argument in (*dependency.class_arguments, *dependency.method_arguments)
-            )
-            try:
-                self._select_method_dependency(
-                    GenericMethodInstanceDependency(
-                        owner=dependency.owner,
-                        method_name=dependency.method_name,
-                        class_arguments=class_arguments,
-                        method_arguments=method_arguments,
-                        line=dependency.line,
-                        col=dependency.col,
-                    )
+            self._record_method_use(dependency)
+            self._select_method_dependency(
+                GenericMethodInstanceDependency(
+                    owner=dependency.owner,
+                    method_name=dependency.method_name,
+                    class_arguments=class_arguments,
+                    method_arguments=method_arguments,
+                    line=dependency.line,
+                    col=dependency.col,
                 )
-            finally:
-                self._carried = previous
+            )
             return
         resolved = (
             self.types.substitute_type(dependency.receiver, substitutions) if substitutions else dependency.receiver
@@ -568,17 +544,9 @@ class GenericAnalyzer:
             if resolved is not None and resolved.generic_args:
                 if specialized:
                     self._validate_specialized_contracts(resolved, resolved.line, resolved.col)
-                self._collect_carried(resolved, specialized, unresolved)
+                    self._record_uses(type_expr)
+                self.collect_type_instances(resolved, unresolved)
         self._scan_compound_operator_dependencies(plan.compound_assignments, substitutions)
-
-    def _collect_carried(self, type_expr, carried: bool, unresolved=()) -> None:
-        """Collect one use's instances, recording whether it carries the scanned parameters."""
-        previous = self._carried
-        self._carried = carried
-        try:
-            self.collect_type_instances(type_expr, unresolved)
-        finally:
-            self._carried = previous
 
     def _scan_compound_operator_dependencies(self, assignments, substitutions) -> None:
         """Select concrete operator and conversion callables hidden by template types."""
@@ -709,9 +677,6 @@ class GenericAnalyzer:
             not templated
             and not self._method_instance_seen(bucket, entry)
             and not self._admit_specialization(
-                self._method_instance_key(
-                    dependency.owner, dependency.method_name, dependency.class_arguments, dependency.method_arguments
-                ),
                 f"method '{owner}'",
                 (*dependency.class_arguments, *dependency.method_arguments),
                 dependency.line,
@@ -756,17 +721,16 @@ class GenericAnalyzer:
             bucket.append(entry)
         substitutions = dict(zip(cls.generic_params, dependency.class_arguments))
         substitutions.update(zip(method.generic_params, dependency.method_arguments))
-        previous = self._scanning
-        self._scanning = self._method_instance_key(
-            dependency.owner, dependency.method_name, dependency.class_arguments, dependency.method_arguments
-        )
+        previous = self._scope
+        self._scope = (dependency.owner, dependency.method_name)
         try:
             for type_expr in [method.return_type, *(parameter.type for parameter in method.params)]:
                 resolved = self.types.substitute_type(type_expr, substitutions)
                 if resolved and resolved.generic_args:
-                    self._collect_carried(resolved, self.types.type_references_names(type_expr, substitutions))
+                    self._record_uses(type_expr)
+                    self.collect_type_instances(resolved)
         finally:
-            self._scanning = previous
+            self._scope = previous
 
     def _method_instance_seen(self, bucket, entry) -> bool:
         class_args, method_args = entry
@@ -879,44 +843,127 @@ class GenericAnalyzer:
     def _normalize_type_key(self, type_expr: TypeExpr) -> tuple:
         return self.types.type_shape_key(type_expr)
 
-    def _admit_specialization(self, key, generic, arguments, line, col) -> bool:
-        """Record how a new specialization was reached, or refuse one that grows without bound.
+    def _admit_specialization(self, generic, arguments, line, col) -> bool:
+        """Refuse a derived specialization nested past hosted_abi.toml's limit, a backstop.
 
-        A specialization derived through a use that already appears in its own
-        derivation, with deeper arguments, grows through that use forever (each
-        pass around the cycle nests one more level), so it is refused at that
-        use, after a few steps whatever the number of growing uses. A derived
-        specialization nested past hosted_abi.toml's limit is refused too, as
-        a backstop. A refusal ends all further specialization."""
+        Growth itself is refused through the use graph (_add_use); a refusal
+        ends all further specialization. Types a program writes out are not
+        limited."""
         if self._expansion_refused:
             return False
-        depth = max((TypeIdentity.generic_nesting_depth(argument) for argument in arguments), default=0)
-        parent = self._scanning if self._carried else None
-        site = (line, col)
-        ancestor = parent
-        while ancestor is not None:
-            origin = self._origins.get(ancestor)
-            if origin is None:
-                break
-            if origin.site == site and site != (0, 0) and depth > origin.depth:
-                return self._refuse_specialization(
-                    f"Generic {generic} grows its own type arguments through this use, so its specializations never end",
-                    line,
-                    col,
-                )
-            ancestor = origin.parent
-        if self._scanning is not None and depth > HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT:
+        if self._scope is None:
+            return True
+        depth = max((TypeIdentity.type_nesting_depth(argument) for argument in arguments), default=0)
+        if depth > HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT:
             return self._refuse_specialization(
                 f"Generic {generic} needs type arguments nested deeper than {HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT} "
                 "levels, the limit that keeps specialization finite",
                 line,
                 col,
             )
-        if parent is None:
-            self._origins.setdefault(key, SpecializationOrigin(None, depth, None))
-        else:
-            self._origins.setdefault(key, SpecializationOrigin(site, depth, parent))
         return True
+
+    def _scope_nodes(self) -> dict[str, str]:
+        """Each type parameter of the scanned declaration, with its node in the use graph."""
+        if self._scope is None:
+            return {}
+        owner, method_name = self._scope
+        cls = self.index.class_table.get(owner)
+        if cls is None:
+            return {}
+        nodes = {parameter: f"{owner}.{parameter}" for parameter in cls.generic_params}
+        method = cls.methods.get(method_name) if method_name is not None else None
+        if method is not None:
+            nodes.update({parameter: f"{owner}.{method_name}.{parameter}" for parameter in method.generic_params})
+        return nodes
+
+    def _record_uses(self, template) -> None:
+        """Add the use graph's edges for one template type the scanned declaration uses."""
+        nodes = self._scope_nodes()
+        if nodes and template is not None:
+            self._record_type_uses(template, nodes)
+
+    def _record_type_uses(self, type_expr, nodes) -> None:
+        arguments = type_expr.generic_args or []
+        cls = self.index.class_table.get(type_expr.base)
+        if cls is not None and cls.generic_params and len(arguments) == len(cls.generic_params):
+            for parameter, argument in zip(cls.generic_params, arguments):
+                target = f"{type_expr.base}.{parameter}"
+                self._record_argument(
+                    argument, nodes, target, (type_expr.line, type_expr.col), f"class '{type_expr.base}'"
+                )
+        for argument in arguments:
+            self._record_type_uses(argument, nodes)
+
+    def _record_method_use(self, dependency) -> None:
+        """Add the use graph's edges for one generic-method call in the scanned declaration."""
+        nodes = self._scope_nodes()
+        cls = self.index.class_table.get(dependency.owner)
+        method = cls.methods.get(dependency.method_name) if cls is not None else None
+        if not nodes or method is None:
+            return
+        site = (dependency.line, dependency.col)
+        for parameter, argument in zip(cls.generic_params, dependency.class_arguments):
+            self._record_argument(
+                argument, nodes, f"{dependency.owner}.{parameter}", site, f"class '{dependency.owner}'"
+            )
+        generic = f"method '{dependency.owner}.{dependency.method_name}'"
+        for parameter, argument in zip(method.generic_params, dependency.method_arguments):
+            target = f"{dependency.owner}.{dependency.method_name}.{parameter}"
+            self._record_argument(argument, nodes, target, site, generic)
+        for argument in (*dependency.class_arguments, *dependency.method_arguments):
+            self._record_type_uses(argument, nodes)
+
+    def _record_argument(self, argument, nodes, target, site, generic) -> None:
+        for name, node in nodes.items():
+            if self.types.type_references_names(argument, (name,)):
+                bare = (
+                    argument.base == name
+                    and not argument.generic_args
+                    and not argument.pointer_depth
+                    and not argument.is_array
+                    and not argument.is_nullable
+                )
+                self._add_use(node, target, not bare, site, generic)
+
+    def _add_use(self, source, target, growing, site, generic) -> None:
+        """Add one use edge, and refuse a growing use that lies on a cycle.
+
+        A type parameter flows into a parameter of the generic it uses; the
+        use is growing when the argument wraps the parameter (Chain<(T, int)>
+        inside Chain<T>). A cycle through a growing use makes every pass
+        around it nest one more level, so specialization never ends. Edges
+        come from the uses specialization follows, so the cycle is found
+        once each declaration on it has been scanned, however many uses
+        grow. The refusal names the cycle's growing use first in source."""
+        key = (source, target, growing, site, generic)
+        if key in self._uses or self._expansion_refused:
+            return
+        self._uses[key] = None
+        self._successors.setdefault(source, set()).add(target)
+        self._predecessors.setdefault(target, set()).add(source)
+        if source not in self._reachable(target, self._successors):
+            return
+        component = self._reachable(source, self._successors) & self._reachable(source, self._predecessors)
+        cycle_uses = [use for use in self._uses if use[2] and use[0] in component and use[1] in component]
+        if cycle_uses:
+            _source, _target, _growing, (line, col), name = min(cycle_uses, key=lambda use: (use[3], use[4]))
+            self._refuse_specialization(
+                f"Generic {name} grows its own type arguments through this use, so its specializations never end",
+                line,
+                col,
+            )
+
+    @staticmethod
+    def _reachable(start, edges) -> set[str]:
+        seen = {start}
+        pending = [start]
+        while pending:
+            for following in edges.get(pending.pop(), ()):
+                if following not in seen:
+                    seen.add(following)
+                    pending.append(following)
+        return seen
 
     def _refuse_specialization(self, message, line, col) -> bool:
         self._expansion_refused = True
@@ -1012,7 +1059,7 @@ class GenericAnalyzer:
         )
 
     def collect_type_instances(self, type_expr, unresolved_names=()):
-        if type_expr is None:
+        if type_expr is None or self._expansion_refused:
             return
         active = set(unresolved_names)
         if self.session.current_class is not None:
@@ -1067,9 +1114,7 @@ class GenericAnalyzer:
         if (
             registered
             and (not unresolved)
-            and not self._admit_specialization(
-                self.types.generic_instance_key(key, args), f"class '{key}'", args, type_expr.line, type_expr.col
-            )
+            and not self._admit_specialization(f"class '{key}'", args, type_expr.line, type_expr.col)
         ):
             return
         valid = self._validate_generic_specialization(type_expr) if registered else True
@@ -1088,18 +1133,18 @@ class GenericAnalyzer:
                     for method in interface.methods.values():
                         self._select_class_callable(type_expr, ClassCallableIdentity.method(cls.name, method.name))
             substitutions = dict(zip(cls.generic_params, type_expr.generic_args))
-            previous = self._scanning
-            self._scanning = self.types.generic_instance_key(key, args)
+            previous = self._scope
+            self._scope = (key, None)
             try:
                 for method in cls.methods.values():
                     result = method.return_type
                     if result and result.generic_args:
                         resolved = self.types.substitute_type(result, substitutions)
                         if resolved and resolved.generic_args and (resolved.base != key):
-                            carried = self.types.type_references_names(result, substitutions)
-                            self._collect_carried(resolved, carried, method.generic_params)
+                            self._record_uses(result)
+                            self.collect_type_instances(resolved, method.generic_params)
             finally:
-                self._scanning = previous
+                self._scope = previous
 
 
 __all__ = ["GenericAnalyzer", "GenericMethodInferencePlan"]
