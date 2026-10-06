@@ -367,28 +367,23 @@ class TopLevelRegistrar:
                 self.index.struct_table[declaration.name] = declaration
         elif declaration.name not in self.index.struct_table:
             self.index.struct_table[declaration.name] = declaration
-        self._alias_tag(declaration)
+        self._alias_native_tag(declaration)
 
-    def _alias_tag(self, declaration) -> None:
-        """Let a record's C tag spelling name the record.
+    def _alias_native_tag(self, declaration) -> None:
+        """Let a tagged native record's C spelling name the imported record.
 
-        btrc emits ``typedef struct S S;`` (or ``union``) for every source
-        record, so ``struct S`` and ``S`` are one type. An SDK record imports
-        under its tag (`pollfd`, `sockaddr`), and C code names that same type
-        `struct pollfd`. The alias row maps the written tag to the record in
-        the typedef alias index, so every canonicalization resolves it in one
-        place; the key holds a space and can never collide with a source name.
-        No consumer iterates the index (test_c_tag_alias_contract.py). An
-        unknown tag stays a trusted foreign C tag.
+        An SDK record imports under its tag (`pollfd`, `sockaddr`), and C code
+        names that same type `struct pollfd`. The alias row maps the written
+        tag to the import in the typedef alias index, so every canonicalization
+        resolves it in one place; the key holds a space and can never collide
+        with a source name. An unknown tag stays a trusted foreign C tag.
         """
         source = declaration.source_file
-        if isinstance(source, NativeHeaderSource):
-            spelling = source.type_spelling
-            if spelling not in (f"struct {declaration.name}", f"union {declaration.name}"):
-                return
-        else:
-            spelling = f"{TypeSystem.record_keyword(declaration)} {declaration.name}"
-        self.index.typedef_table.setdefault(spelling, TypeExpr(base=declaration.name))
+        if not isinstance(source, NativeHeaderSource):
+            return
+        spelling = source.type_spelling
+        if spelling in (f"struct {declaration.name}", f"union {declaration.name}"):
+            self.index.typedef_table.setdefault(spelling, TypeExpr(base=declaration.name))
 
     def register_function(self, declaration) -> None:
         registry = self.registry
@@ -1297,43 +1292,59 @@ class DeclarationRegistry:
         written spelling, and a typedef named for its own tag (``typedef struct
         P P;``) keeps its original for the name-claim diagnostic. It runs
         before registration, so prototype and global compatibility compare
-        one spelling. Inside a class, interface or method whose generic
-        parameter shares the record's name, the bare name would be the
-        parameter, so the written tag stays: it still names the record.
+        one spelling.
+
+        A record named like any generic parameter in the program (``T``,
+        ``K``, ``V``, the stdlib's included) keeps its written tag everywhere:
+        its bare name would be captured by an instance's substitution wherever
+        the record's type reaches that generic's body, so its tag and its name
+        stay two spellings, as before C row 9.
         """
+        parameters = self._generic_parameter_names(program)
         records: dict[str, str] = {}
         for declaration in self.session.declarations(program):
             if (
                 isinstance(declaration, StructDecl)
                 and declaration.name
+                and declaration.name not in parameters
                 and not isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
             ):
                 records.setdefault(declaration.name, TypeSystem.record_keyword(declaration))
-        stack: list = [(declaration, frozenset()) for declaration in self.session.declarations(program)]
+        if not records:
+            return
+        stack: list = list(self.session.declarations(program))
         while stack:
-            node, shadowed = stack.pop()
+            node = stack.pop()
             if isinstance(node, list):
-                stack.extend((item, shadowed) for item in node)
+                stack.extend(node)
                 continue
             if type(node).__module__ != _AST_MODULE:
                 continue
             if isinstance(node, TypeExpr):
-                self._normalize_record_tag(node, records, shadowed)
+                self._normalize_record_tag(node, records)
             elif isinstance(node, TypedefDecl) and self._names_its_own_tag(node):
-                stack.extend((argument, shadowed) for argument in node.original.generic_args)
+                stack.extend(node.original.generic_args)
                 continue
-            parameters = getattr(node, "generic_params", None)
-            if parameters:
-                shadowed = shadowed | frozenset(parameters)
             for member in fields(node):
                 value = getattr(node, member.name)
                 if isinstance(value, list) or type(value).__module__ == _AST_MODULE:
-                    stack.append((value, shadowed))
+                    stack.append(value)
+
+    def _generic_parameter_names(self, program: Program) -> set[str]:
+        """Every generic parameter a class, interface or method declares."""
+        names: set[str] = set()
+        for declaration in self.session.declarations(program):
+            if isinstance(declaration, (ClassDecl, InterfaceDecl)):
+                names.update(declaration.generic_params)
+            if isinstance(declaration, ClassDecl):
+                for member in declaration.members:
+                    names.update(getattr(member, "generic_params", ()))
+        return names
 
     @staticmethod
-    def _normalize_record_tag(type_expr: TypeExpr, records: dict[str, str], shadowed: frozenset[str]) -> None:
+    def _normalize_record_tag(type_expr: TypeExpr, records: dict[str, str]) -> None:
         keyword, _, name = type_expr.base.partition(" ")
-        if keyword in ("struct", "union") and records.get(name) == keyword and name not in shadowed:
+        if keyword in ("struct", "union") and records.get(name) == keyword:
             type_expr.base = name
 
     @staticmethod

@@ -593,7 +593,6 @@ class NameValidator {
 	}
 
 	public void validateDeclarationDuplicates(Node program) {
-		self.validateTopLevelDuplicates(program);
 		int index = 0;
 		while (index < program.declarations().len) {
 			Node declaration = program.declarations().get(index);

@@ -609,11 +609,20 @@ class ImportVisibilityChecker:
         graph: SourceDependencyGraph,
         *,
         external_symbol_files: Mapping[str, Iterable[str]] | None = None,
+        tag_owner_files: Iterable[str] | None = None,
     ) -> None:
         self.program = program
         self.provenance = provenance
         self.graph = graph
         self.external_symbol_files = external_symbol_files or {}
+        # The files whose types can own a C tag. A compiler's program is
+        # exactly its sources; an editor composes the whole stdlib for
+        # completion and names the files the active program really contains.
+        self.tag_owner_files = (
+            None
+            if tag_owner_files is None
+            else frozenset(SourceDependencyGraph.canonical_file(path) for path in tag_owner_files)
+        )
         self.package_access = PackageImportPolicy()
 
     @staticmethod
@@ -641,7 +650,8 @@ class ImportVisibilityChecker:
         the types this program declares. A C tag (`struct X`) resolves only
         among the latter: the external symbol index may name a stdlib module
         that is not in the program, and a header's own `struct Timer` is not
-        the stdlib's Timer."""
+        the stdlib's Timer. A generic class or interface owns no C tag (its C
+        names are mangled per instance), so it is never a tag's owner."""
         types: dict[str, set[str]] = {}
         symbols = {
             name: {SourceDependencyGraph.canonical_file(path) for path in paths}
@@ -670,7 +680,11 @@ class ImportVisibilityChecker:
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
             if name:
                 symbols.setdefault(name, set()).add(canonical_file)
-                if isinstance(declaration, _TYPE_DECLS):
+                if (
+                    isinstance(declaration, _TYPE_DECLS)
+                    and not getattr(declaration, "generic_params", None)
+                    and (self.tag_owner_files is None or canonical_file in self.tag_owner_files)
+                ):
                     types.setdefault(name, set()).add(canonical_file)
             if isinstance(declaration, ast.EnumDecl):
                 for value in declaration.values:

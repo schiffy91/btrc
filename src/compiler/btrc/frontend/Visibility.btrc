@@ -431,9 +431,12 @@ class FeImportVisibilityChecker {
 		}
 	}
 
-	/* The name a declaration gives a type, or "" when it declares none. */
+	/* The name a declaration gives a type that can own a C tag, or "" when it
+	 * declares none. A generic class or interface owns no C tag: its C names
+	 * are mangled per instance. */
 	private string typeName(Node declaration) {
 		int kind = declaration.kind;
+		if ((kind == NK_CLASS_DECL || kind == NK_INTERFACE_DECL) && declaration.genericParams().len > 0) { return ""; }
 		if (kind == NK_CLASS_DECL || kind == NK_INTERFACE_DECL || kind == NK_STRUCT_DECL || kind == NK_ENUM_DECL || kind == NK_RICH_ENUM_DECL) { return declaration.name; }
 		if (kind == NK_TYPEDEF_DECL) { return declaration.alias; }
 		return "";

@@ -758,23 +758,7 @@ class ExpressionTypeResolver {
 	/* Match the reference analyzer's stored expression-type domain: expand the
      * alias naming the value itself, but retain aliases nested in generic
      * arguments so IR symbol selection agrees with generic-instance collection. */
-	private Node? inferSpecializationTypeUnmemoized(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) {
-		Node? inferred = self.inferTypeRawMemoized(node, a, operators, varTypes);
-		if (inferred != null && ExpressionTypeResolver.shadowedRecordTag(inferred.base, a)) { return inferred; }
-		return SemanticTypeSystem.resolveOuterTypedefType(inferred, a.typedefTable);
-	}
-
-	/* A source record's tag keeps its written spelling only where a generic
-	 * parameter shadows the record's name (DeclarationRegistry
-	 * normalizeRecordTags). Resolving it to the bare name there would let the
-	 * instance's substitution hand the record to the parameter, so the
-	 * written tag stays the expression's type. */
-	class bool shadowedRecordTag(string base, Analyzed a) {
-		string name = SemanticTypeSystem.recordTagName(base);
-		if (name == base || !a.structTable.has(name)) { return false; }
-		Node record = a.structTable.get(name);
-		return SemanticTypeSystem.recordKeyword(record) + " " + name == base && !a.isNativeDeclaration(record);
-	}
+	private Node? inferSpecializationTypeUnmemoized(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) { return SemanticTypeSystem.resolveOuterTypedefType(self.inferTypeRawMemoized(node, a, operators, varTypes), a.typedefTable); }
 
 	/* Infer the __fn_ptr(ret, params...) TypeExpr for a lambda expression so that
      * `var f = lambda` declares `f` with the right typedef'd C type. The return

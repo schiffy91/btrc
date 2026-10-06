@@ -1452,7 +1452,8 @@ class TypeSystem:
 
         ``union P`` for a btrc or native ``struct P`` (or an enum, class,
         interface, rich enum or typedef ``P``) would compile to a C type that
-        is not ``P``. A tag naming nothing stays a trusted foreign C tag.
+        is not ``P``. A tag naming nothing, or a generic class or interface
+        (whose C names are mangled per instance), stays a trusted foreign C tag.
         """
         keyword, _, name = base.partition(" ")
         if keyword not in ("struct", "union", "enum") or not name or " " in name:
@@ -1465,8 +1466,14 @@ class TypeSystem:
         elif name in self.index.rich_enum_table:
             kind = "rich enum"
         elif name in self.index.class_table:
+            if self.index.class_table[name].generic_params:
+                # A generic class's C names are mangled per instance; it owns
+                # no C tag, so a header's `struct ListNode` is its own.
+                return None
             kind = "class"
         elif name in self.index.interface_table:
+            if self.index.interface_table[name].generic_params:
+                return None
             kind = "interface"
         elif name in self.index.typedef_table:
             original = self.index.typedef_table[name]

@@ -1,13 +1,15 @@
-"""C tag aliases live in the typedef alias index, and only canonicalization reads them (C row 9).
+"""C tags: native alias rows, record-tag normalization and strict imports (C row 9).
 
-Registration enters `struct S`, `union U` (and, with the enum lane, `enum E`)
-mapping to the declaration in each compiler's typedef alias index (Python
-`typedef_table`, btrc `typedefTable`), through one owner per compiler. The
-keys hold a space, so they claim no source name, and every canonicalization
-resolves a tag in one place. That only stays true while nothing enumerates
-the index: a consumer that iterated it would see each record twice, once
-under a tag. A tag also names its declaration for strict imports, in both
-import reference collectors.
+Registration enters `struct S` and `union U` for a tagged native record in
+each compiler's typedef alias index (Python `typedef_table`, btrc
+`typedefTable`), through one owner per compiler. The keys hold a space, so
+they claim no source name, and every canonicalization resolves a tag in one
+place. That only stays true while nothing enumerates the index: a consumer
+that iterated it would see each record twice, once under a tag. A source
+record needs no row: each registry rewrites its written tag to its name,
+except for a record named like a generic parameter, which keeps both
+spellings as before C row 9. A tag also names its declaration for strict
+imports, in both import reference collectors.
 """
 
 from __future__ import annotations
@@ -90,7 +92,7 @@ def test_one_owner_per_compiler_writes_tag_rows() -> None:
     """Only the registry's tag owner writes a row keyed by a tag spelling."""
 
     python = (REPO / "src/compiler/python/analyzer/declarations.py").read_text(encoding="utf-8")
-    owner = python[python.index("    def _alias_tag(") :]
+    owner = python[python.index("    def _alias_native_tag(") :]
     owner = owner[: owner.index("\n    def ", 1)]
     assert "self.index.typedef_table.setdefault(spelling" in owner
     writers = [
@@ -102,7 +104,7 @@ def test_one_owner_per_compiler_writes_tag_rows() -> None:
     assert python.count("typedef_table.setdefault(") == 1
 
     btrc = (BTRC_ROOT / "analyzer/Declarations.btrc").read_text(encoding="utf-8")
-    owner = btrc[btrc.index("	private void aliasTag(") :]
+    owner = btrc[btrc.index("	private void aliasNativeTag(") :]
     owner = owner[: owner.index("\n	}\n") + 3]
     assert "typedefTable.put(spelling" in owner
     assert btrc.count("typedefTable.put(spelling") == 1

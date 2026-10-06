@@ -19,22 +19,16 @@ class DeclarationRegistry {
 		self.hostedAbi = hostedAbi;
 	}
 
-	/* Let a record's C tag spelling name the record. btrc emits
-	 * `typedef struct S S;` (or `union`) for every source record, so
-	 * `struct S` and `S` are one type. An SDK record imports under its tag
-	 * (`pollfd`, `sockaddr`), and C code names that same type `struct
-	 * pollfd`. The alias row maps the written tag to the record in the
-	 * typedef alias index, so every canonicalization resolves it in one
-	 * place; the key holds a space and can never collide with a source name.
-	 * No consumer iterates the index (test_c_tag_alias_contract.py). An
-	 * unknown tag stays a trusted foreign C tag. */
-	private void aliasTag(Node declaration) {
-		if (declaration.name == "") { return; }
-		string spelling = SemanticTypeSystem.recordKeyword(declaration) + " " + declaration.name;
-		if (self.analyzed.isNativeDeclaration(declaration)) {
-			spelling = self.analyzed.nativeTypeSpelling(declaration.name);
-			if (spelling != "struct " + declaration.name && spelling != "union " + declaration.name) { return; }
-		}
+	/* Let a tagged native record's C spelling name the imported record. An SDK
+	 * record imports under its tag (`pollfd`, `sockaddr`), and C code names
+	 * that same type `struct pollfd`. The alias row maps the written tag to
+	 * the import in the typedef alias index, so every canonicalization
+	 * resolves it in one place; the key holds a space and can never collide
+	 * with a source name. An unknown tag stays a trusted foreign C tag. */
+	private void aliasNativeTag(Node declaration) {
+		if (!self.analyzed.isNativeDeclaration(declaration)) { return; }
+		string spelling = self.analyzed.nativeTypeSpelling(declaration.name);
+		if (spelling != "struct " + declaration.name && spelling != "union " + declaration.name) { return; }
 		if (!self.analyzed.typedefTable.has(spelling)) { self.analyzed.typedefTable.put(spelling, SemanticTypeSystem.primitive(declaration.name)); }
 	}
 
@@ -88,6 +82,7 @@ class DeclarationRegistry {
 				if (!self.analyzed.structTable.has(d.name) || !d.isForward) {
 					self.analyzed.structTable.put(d.name, d);
 				}
+				self.aliasNativeTag(d);
 			} else if (d.kind == NK_VAR_DECL_STMT) {
 				/* Module-level variable: record its type in the global scope so self.analyzed
         * bare identifier referencing it resolves during inference. An
@@ -102,11 +97,6 @@ class DeclarationRegistry {
 			}
 			i = i + 1;
 		}
-		/* Tag rows wait for every typedef: a typedef sharing a record's name
-		 * is the name-claim diagnostic, never a tag-to-typedef cycle. */
-		for declaration in program.declarations() {
-			if (declaration.kind == NK_STRUCT_DECL && !self.analyzed.typedefTable.has(declaration.name)) { self.aliasTag(declaration); }
-		}
 		self.normalizeRecordTags(program);
 		self.indexAnalyzedMembers(self.analyzed);
 	}
@@ -119,51 +109,55 @@ class DeclarationRegistry {
 	 * assignability rule and one lowering. A tag of another kind stays for
 	 * the wrong-keyword refusal, an SDK record keeps its written spelling,
 	 * and a typedef named for its own tag (`typedef struct P P;`) keeps its
-	 * original for the name-claim diagnostic. Inside a class, interface or
-	 * method whose generic parameter shares the record's name, the bare name
-	 * would be the parameter, so the written tag stays: it still names the
-	 * record. */
+	 * original for the name-claim diagnostic.
+	 *
+	 * A record named like any generic parameter in the program (`T`, `K`,
+	 * `V`, the stdlib's included) keeps its written tag everywhere: its bare
+	 * name would be captured by an instance's substitution wherever the
+	 * record's type reaches that generic's body, so its tag and its name stay
+	 * two spellings, as before C row 9. */
 	public void normalizeRecordTags(Node program) {
-		Vector<Node> stack = [];
-		Map<string, bool> unshadowed = {};
-		Vector<Map<string, bool>> scopes = [];
+		Map<string, bool> parameters = DeclarationRegistry.genericParameterNames(program);
+		Map<string, bool> records = {};
 		for declaration in program.declarations() {
-			stack.push(declaration);
-			scopes.push(unshadowed);
+			if (declaration.kind == NK_STRUCT_DECL && declaration.name != "" && !parameters.has(declaration.name) && !self.analyzed.isNativeDeclaration(declaration)) { records.put(declaration.name, true); }
 		}
+		if (records.len == 0) { return; }
+		Vector<Node> stack = [];
+		for declaration in program.declarations() { stack.push(declaration); }
 		Vector<Node> children = [];
 		while (stack.len > 0) {
 			Node node = stack.pop();
-			Map<string, bool> shadowed = scopes.pop();
 			if (node.kind == NK_TYPE_EXPR) {
-				self.normalizeRecordTag(node, shadowed);
+				self.normalizeRecordTag(node, records);
 			} else if (node.kind == NK_TYPEDEF_DECL && DeclarationRegistry.namesItsOwnTag(node)) {
-				for argument in node.original.genericArgs() {
-					stack.push(argument);
-					scopes.push(shadowed);
-				}
+				for argument in node.original.genericArgs() { stack.push(argument); }
 				continue;
-			}
-			if (node.genericParams().len > 0) {
-				Map<string, bool> inner = {};
-				for name in shadowed.keys() { inner.put(name, true); }
-				for name in node.genericParams() { inner.put(name, true); }
-				shadowed = inner;
 			}
 			children.clear();
 			AstStructure.children(node, children);
-			for child in children {
-				stack.push(child);
-				scopes.push(shadowed);
-			}
+			for child in children { stack.push(child); }
 		}
 	}
 
-	private void normalizeRecordTag(Node typeExpr, Map<string, bool> shadowed) {
+	/* Every generic parameter a class, interface or method declares. */
+	class Map<string, bool> genericParameterNames(Node program) {
+		Map<string, bool> names = {};
+		for declaration in program.declarations() {
+			if (declaration.kind != NK_CLASS_DECL && declaration.kind != NK_INTERFACE_DECL) { continue; }
+			for name in declaration.genericParams() { names.put(name, true); }
+			if (declaration.kind != NK_CLASS_DECL) { continue; }
+			for member in declaration.members() {
+				for name in member.genericParams() { names.put(name, true); }
+			}
+		}
+		return names;
+	}
+
+	private void normalizeRecordTag(Node typeExpr, Map<string, bool> records) {
 		string name = SemanticTypeSystem.recordTagName(typeExpr.base);
-		if (name == typeExpr.base || name.contains(" ") || shadowed.has(name) || !self.analyzed.structTable.has(name)) { return; }
-		Node record = self.analyzed.structTable.get(name);
-		if (SemanticTypeSystem.recordKeyword(record) + " " + name == typeExpr.base && !self.analyzed.isNativeDeclaration(record)) { typeExpr.base = name; }
+		if (name == typeExpr.base || !records.has(name) || !self.analyzed.structTable.has(name)) { return; }
+		if (SemanticTypeSystem.recordKeyword(self.analyzed.structTable.get(name)) + " " + name == typeExpr.base) { typeExpr.base = name; }
 	}
 
 	/* `typedef struct P P;` or `typedef struct P* P;`: the alias reuses the
