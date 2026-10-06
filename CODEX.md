@@ -266,8 +266,17 @@ owner, the exact prerequisite and the next acceptance.
   (`ShellProbe.m:271`); map through `controlView`. (3) Test-record slot keys set
   frontend/variant values that `JUnitAdapter` never emits. Acceptance: the
   mutation tests fail on the old gate, and macos.yml `native-gui` is green.
-  Separately, Tab delivery is unproven because all 300 contexts were inactive
-  (`MAC-UIA-02`).
+  (4) Batch 46 (the UI1 checkpoint, `docs/design/ui-contracts/ui1-feasibility.md`):
+  keyboard delivery is unproven for every key, not only Tab, because the
+  hosted application is never activated (300 of 300 contexts per variant are
+  `application_active=false`, `window_key=false`; nothing under `src/` or
+  `tools/` calls `activate`). Have the probe request activation and record
+  `application_active`/`window_key` after the request, or deliver through a
+  declared route (`[window sendEvent:]` or field-editor commands) and record
+  which. `CX-UIA-22` must not count E01–E03 or E33/E34 Return and Escape rows
+  as passed until a run shows `window_key=true`. `MAC-UIA-02` covers GPU timing
+  and an Accessibility Inspector capture only; it does not prove keyboard
+  delivery.
 - **`CX-UIA-11` residuals** (after batch 38). Owner: Claude for the flake/nix
   pins (WORKSTREAMS §3.3.1 hotspots); Codex re-runs the acceptance once they
   land. Prerequisites: a libdecor 0.2.5 fix for the Wayland
@@ -287,6 +296,33 @@ owner, the exact prerequisite and the next acceptance.
   10 ms tick, and step 5 (`action.count == 1`) failed intermittently on a
   virtual display shared by parallel workers. Keep that pattern in new journey
   steps.
+  Batch 46: the UI1 checkpoint admits Linux SDL to UI2 with X11 gating and
+  Wayland carried. The re-records above (the destroyed-requestor row, then all
+  four Wayland rows at the current revision, then `test_native_ui_shell_linux.py`'s
+  failure count from 21 to 20) are now also the Wayland half of the UI2
+  landing's evidence. Claude added a UI2-eligibility sentence to the `note` of
+  `macos-hosted-correctness` and `linux-devcontainer-automation` in
+  `docs/design/native-ui-catalog/hosts.toml` (a `CX-UIA-06` path; notes only,
+  no `status` or `blocked_by` change).
+- **UI2 landing chain** (batch 47: `CL-UIA-13` approved the UI2 contract in
+  `docs/design/ui-contracts/ui2-approved.md`). Owner: Codex. Prerequisite: none
+  for `CX-UIA-21`; `CX-UIA-22` and `CX-UIA-23` stack on it, and paths held by
+  `CX-STDLIB-01/02/03/05` become claimable once those integrate (D28).
+  `CX-UIA-21` writes the production interface exactly as the record's
+  "Approved interface diff" gives it (the `I*.btrc` changes, the `GUI.btrc`
+  facade mirrors, `GUI/ControlEvents.btrc`, the BackgroundJobs completion hook
+  with its README contract and test, the portable fixtures under
+  `src/tests/native/gui/ui2/`, the operation shard rows and
+  `amendments/cx-uia-21.toml`, and the E-case link hunk as a fragment). The
+  record's "Landing" section is authoritative for the owned paths each of
+  `CX-UIA-21/22/23` gains. Rules to keep: receivers have one distinctly named
+  method each; outcomes are owning classes with a `kind` enum, never rich enums
+  carrying managed payloads; worker publication uses the fixed non-generic
+  record; the macOS wake is a common-mode run-loop source (no `performBlock`);
+  Linux composition goes through `SDL_EVENT_TEXT_EDITING`, and E01's Linux undo
+  row stays missing for `CX-UIA-27`. Acceptance: `CL-UIA-14` lands the
+  interface, macOS and Linux atomically with E01–E04, E29, E31, E35, E39, E40
+  and E46 on both frontends.
 - **`CX-P1-02` platform inventory.** Owner: the owner (sign-off), then Codex
   (the 58 cells in `platform-inventory.toml`) and Claude (the
   `platform-parity.md` totals fragment). Prerequisite: the owner's sign-off on

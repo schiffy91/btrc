@@ -2280,7 +2280,7 @@ The Codex packets below build the rest, platform by platform:
 
 **Steps**
 
-1. Handle startup, foreground and background, memory warnings, termination and relaunch, and deliver IApplication.post on the main executor. GUI.run and poll adapt to the OS-owned loop with no busy polling.
+1. Handle startup, foreground and background, memory warnings, termination and relaunch, and deliver IApplication.post on the application's UI executor thread. The host entry calls `GUI.attachHost` (ui2-approved.md, provisional host link); poll adapts to the OS-owned loop with no busy polling.
 2. Run 100 background/foreground/memory-warning cycles on the simulator through both frontends, then open a draft PR from codex/cx-p2-36.
 
 **Acceptance**
@@ -3584,7 +3584,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 **Steps**
 
-1. Use UIApplicationMain with a process-scoped app delegate and an instance-scoped scene delegate, through Stage 29's instantiated Objective-C adapters. GUI.run maps to the OS-owned loop, which feeds ui-2-contract-executor.
+1. Use UIApplicationMain with a process-scoped app delegate and an instance-scoped scene delegate, through Stage 29's instantiated Objective-C adapters. The host entry calls `GUI.attachHost` (ui2-approved.md, provisional host link) instead of GUI.run; the OS-owned loop feeds ui-2-contract-executor.
 2. Add UITextField, UIButton, UIScrollView and a CAMetalLayer-backed WebGPU view.
 3. Add an accessibility probe through UIAccessibility/XCUITest, and run 100 scene connect/disconnect cycles.
 4. Build and run on a GitHub macOS runner's simulator. Prepare tools/ui/run-ios-shell.sh for the owner's Mac.
@@ -3858,13 +3858,14 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 1. MacOSTextField: NSTextField delegate draft, commit and cancel events that keep the field editor, selection and undo.
 2. MacOSSelect: keyed NSPopUpButton items. MacOSSlider: continuous tracking with one end commit. MacOSScrollView: two-axis offsets from bounds-changed notifications.
-3. MacOSWindow: windowShouldClose becomes the decision hook, with an asynchronous sheet. MacOSApplication: a thread-safe wakeup (CFRunLoopSource or performBlock) for worker publication, with no polling timer.
+3. MacOSWindow: windowShouldClose becomes the decision hook, with an asynchronous sheet. MacOSApplication: a thread-safe common-mode wakeup (a CFRunLoopSource added to the main run loop's common modes, per ui2-approved.md) for worker publication, with no polling timer and no performBlock.
 4. Audit final release for every native owner (E31), keep image presentation (E35) and honor effective visibility (E39). Run the portable fixtures through both frontends, plain and ASan/UBSan.
 
 **Acceptance**
 
 - [ ] On macos.yml for the stacked draft PR (and focus=native-gui): E01-E03 produce one product command per commit and 0 setter actions; E04 wakes an idle loop with no timer armed; E29 and E31 pass; E35, E39 and E46 pass at 100 cycles. Both frontends, plain and sanitized (run ids).
 - [ ] GPU-dependent rows are left for owner-Mac confirmation. The PR-body report follows the protocol.
+- [ ] E40 (ui2-approved.md): 100 bursts at 4,095/4,096/4,097/8,193 events with 0 unexplained losses, plus the macOS tracking trials (delivery during menu, slider and scroller tracking and live resize). Return and Escape rows of E01-E03, E33 and E34 count only from a run that shows `window_key=true` or a declared delivery route (ui1-feasibility.md).
 
 **Risks**
 
@@ -3917,7 +3918,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 - [ ] Under tools/ui/headless-session.sh --x11 and --wayland, both frontends, plain and sanitized: E40 passes 100 bursts at 4,095/4,096/4,097/8,193 events with 0 unexplained losses.
 - [ ] On plain builds, the 10-minute load keeps p95 delivery ≤ 100 ms and service gaps ≤ 250 ms, and close starts within 250 ms; sanitized runs check counts and losses only.
-- [ ] E01-E04, E29, E35, E39 and E46 pass as on macOS, and LinuxGUIControls still passes.
+- [ ] E01-E04, E29, E31, E35, E39 and E46 pass as on macOS, and LinuxGUIControls still passes. E01's composition rows use the `SDL_EVENT_TEXT_EDITING` path (stand-in until an owner IME session); its Linux undo-preservation row stays missing for CX-UIA-27 and is not counted at UI2 (ui2-approved.md).
 - [ ] ci.yml is green on the stacked draft PR (run id). The PR-body report follows the protocol.
 
 **Risks**
