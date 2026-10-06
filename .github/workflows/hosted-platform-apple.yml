@@ -111,15 +111,26 @@ jobs:
           cat "$out/extract-route.txt"
           exit "$status"
 
+      # The dev shell's xcrun is nix's xcbuild over its own macOS SDK: it has
+      # no iphoneos SDK and no Apple clang (run 37498176824). So the oracle
+      # runs on the runner's python3 with the system Xcode, pytest pinned to
+      # the dev shell's release; the extractor's unit tests stay in the shell.
       - name: Run the Apple macro oracle against the runner's Xcode
         if: ${{ !cancelled() }}
         env:
           BTRC_APPLE_STAND_IN_XCODE_BUILD: ${{ steps.versions.outputs.xcode_build }}
         run: |
-          nix develop --command python3 -m pytest src/tests/python/test_target_macro_table.py \
-            src/tests/python/test_hosted_platform_extractor.py -v -rs -p no:cacheprovider \
-            --skip-report build/skip-report-hosted-platform-apple.json 2>&1 \
+          python3 -m pip install --quiet pytest==9.0.3
+          /usr/bin/env -u DEVELOPER_DIR -u SDKROOT python3 -m pytest src/tests/python/test_target_macro_table.py \
+            -v -rs -p no:cacheprovider --skip-report build/skip-report-hosted-platform-apple-oracle.json 2>&1 \
             | tee build/hosted-platform-apple/pytest.log
+
+      - name: Run the extractor's unit tests in the dev shell
+        if: ${{ !cancelled() }}
+        run: |
+          nix develop --command python3 -m pytest src/tests/python/test_hosted_platform_extractor.py \
+            -v -rs -p no:cacheprovider --skip-report build/skip-report-hosted-platform-apple-extractor.json 2>&1 \
+            | tee build/hosted-platform-apple/pytest-extractor.log
 
       - name: Retain the fragments and logs
         if: always()
