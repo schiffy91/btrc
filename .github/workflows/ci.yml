@@ -465,6 +465,12 @@ jobs:
       - run: make devcontainer
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} test-shard-gui
+      # pytest makes its working directories private (0700) as the container's
+      # user, which the runner cannot read back to upload.
+      - name: Open the session evidence to the runner
+        if: always()
+        run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest chmod -R a+rX build/linux-gui build/ui-shell
+        continue-on-error: true
       - name: Retain the session evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
