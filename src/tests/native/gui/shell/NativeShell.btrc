@@ -50,6 +50,16 @@ class ShellJourney implements IApplicationWork {
 		self._deadline.start();
 	}
 
+	/* Injected input reaches the provider on a later event-loop turn, and on a
+	 * display shared by parallel test workers that can take longer than one
+	 * 10 ms tick. A step whose input has not landed yet runs again on the next
+	 * tick, until the journey's 15 s input budget is spent; then it asserts. */
+	private bool pending(bool landed) {
+		if (landed || self._deadline.elapsed() >= 15.0f) { return false; }
+		GUI.postAfter(0.01, self);
+		return true;
+	}
+
 	public void run() {
 		assert(self._deadline.elapsed() < 20.0f);
 		if (self._restore) {
@@ -79,6 +89,7 @@ class ShellJourney implements IApplicationWork {
 			shellProbeObserve();
 			shellProbeClick(70.0, 30.0);
 		} else if (self._step == 1) {
+			if (self.pending(shellProbeFocus() == 1)) { return; }
 			assert(shellProbeFocus() == 1);
 			shellProbeTab();
 		} else if (self._step == 2) {
@@ -90,13 +101,17 @@ class ShellJourney implements IApplicationWork {
 			shellProbeText();
 			shellProbeEnter();
 		} else if (self._step == 4) {
+			if (self.pending(self._field.text().equals("draft"))) { return; }
 			assert(self._field.text().equals("draft"));
 			shellProbeClick(320.0, 30.0);
 		} else if (self._step == 5) {
+			/* Wait for the click, then require exactly one action. */
+			if (self.pending(self._action.count >= 1)) { return; }
 			assert(self._action.count == 1);
 			if (getenv("BTRC_UI_SHELL_NO_SCROLL") != null) { self._scroll.scrollTo(120.0); }
 			else { shellProbeScroll(); }
 		} else if (self._step == 6) {
+			if (self.pending(self._scroll.scrollOffset() > 0.0)) { return; }
 			assert(self._scroll.scrollOffset() > 0.0);
 			self.anchor = self._scroll.scrollOffset();
 			self.draft = self._field.text();
