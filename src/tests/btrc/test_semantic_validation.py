@@ -440,7 +440,7 @@ def test_type_name_shadowing_uses_instance_member_lookup(
         ),
         (
             "class A { class int value() { return 1; } } int main() { A item = A(); return item.value(); }",
-            "must be called on the class",
+            "Class method 'value' must be accessed on 'A', not on an instance",
         ),
         (
             "class A { public int value() { return 1; } } int main() { return A.value(); }",
