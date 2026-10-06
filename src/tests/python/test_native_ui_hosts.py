@@ -57,7 +57,7 @@ DEVICE_PLATFORMS = {
 
 def plan_items():
     # The canonical item-to-stage appendix excludes release ids and prose examples.
-    appendix = (REPO / "PLAN.md").read_text(encoding="utf-8").split("## Appendix: every mapped item → stage", 1)[1]
+    appendix = (REPO / "CLAUDE.md").read_text(encoding="utf-8").split("## Appendix: every mapped item → stage", 1)[1]
     return {
         item
         for line in appendix.splitlines()

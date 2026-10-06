@@ -1,0 +1,147 @@
+name: Host Android
+
+# CX-P1-05's Android test host (tools/target_hosts/android) on hosted
+# ubuntu-latest runners with KVM: the x86_64 shell fixtures and NativeActivity
+# app run on API 29 and API 36 google_apis x86_64 emulators, and the arm64 pair
+# is built for compile-only coverage. Emulator results are stand-in evidence;
+# the arm64 16 KiB-page image stays MAC-P1-03. The SDK comes from the runner's
+# sdkmanager, never the 17.75 GB .#platforms shell, and must match the pins in
+# nix/platforms.nix exactly (`sdk verify`); the emulator and platform-tools
+# revisions are installed from the checksummed archives in
+# nix/android-repo-overlay.json, because sdkmanager installs only their latest.
+# Until the tool directory is on the revision being tested, the tooling job
+# reports it absent and the emulator jobs are skipped.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/host-android.yml
+      - tools/target_hosts/android/**
+      - nix/platforms.nix
+      - nix/android-repo-overlay.json
+      - src/tests/python/test_android_host_versions.py
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/host-android.yml
+      - tools/target_hosts/android/**
+      - nix/platforms.nix
+      - nix/android-repo-overlay.json
+      - src/tests/python/test_android_host_versions.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels the run it supersedes; runs on main
+# queue rather than cancel.
+concurrency:
+  group: host-android-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tooling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - id: check
+        run: |
+          if [ -f tools/target_hosts/android/check.py ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::tools/target_hosts/android is not on this revision; the emulator jobs are skipped."
+          fi
+
+  emulator:
+    needs: tooling
+    if: needs.tooling.outputs.present == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        api: ["29", "36"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Allow the runner user to open /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Install the pinned SDK packages
+        run: |
+          mkdir -p build
+          python3 -m tools.target_hosts.android.sdk packages | tee build/android-sdk-packages.txt
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null
+          mapfile -t packages < build/android-sdk-packages.txt
+          "$sdkmanager" --install "${packages[@]}" > build/android-sdkmanager.log
+      - name: Install the pinned emulator and platform-tools archives
+        run: |
+          python3 - <<'EOF'
+          import hashlib, json, os, re, shutil, urllib.request, zipfile
+          from pathlib import Path
+
+          sdk = Path(os.environ["ANDROID_SDK_ROOT"])
+          pins = re.sub(r"#.*", "", Path("nix/platforms.nix").read_text())
+          overlay = json.loads(Path("nix/android-repo-overlay.json").read_text())["packages"]
+          for package, key in (("emulator", "emulatorVersion"), ("platform-tools", "platformToolsVersion")):
+              (revision,) = re.findall(rf'\b{key}\s*=\s*"([0-9.]+)"\s*;', pins)
+              (archive,) = [a for a in overlay[package][revision]["archives"] if a["os"] == "linux"]
+              data = urllib.request.urlopen(archive["url"], timeout=600).read()
+              digest = hashlib.sha1(data).hexdigest()
+              if len(data) != archive["size"] or digest != archive["sha1"]:
+                  raise SystemExit(f"{package} {revision}: size/sha1 mismatch ({len(data)} {digest})")
+              Path("build/archive.zip").write_bytes(data)
+              shutil.rmtree(sdk / package, ignore_errors=True)
+              with zipfile.ZipFile("build/archive.zip") as bundle:
+                  for member in bundle.infolist():
+                      path = Path(bundle.extract(member, sdk))
+                      mode = member.external_attr >> 16
+                      if mode:
+                          path.chmod(mode & 0o777)
+              print(f"installed {package} {revision} from {archive['url']}")
+          EOF
+          python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT"
+          python3 -m tools.target_hosts.android.sdk cache-key | tee build/android-sdk-cache-key.txt
+      - name: Build the x86_64 app and the arm64 compile-only pair
+        run: |
+          ndk=$(sed -n 's/^ndk;//p' build/android-sdk-packages.txt)
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/$ndk"
+          python3 -m tools.target_hosts.android.build --output build/android-host-x64 --app
+          python3 -m tools.target_hosts.android.build --output build/android-host-arm64 --abi arm64-v8a --native-only
+      - name: Run the fixtures on API ${{ matrix.api }}
+        run: python3 -m tools.target_hosts.android.check --boot --state build/android-avds --api ${{ matrix.api }} --bundle build/android-host-x64 --output build/android-api${{ matrix.api }}.json
+      - name: Retain the results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-host-api${{ matrix.api }}-results
+          path: |
+            build/android-api*.json
+            build/android-sdk-*.txt
+            build/android-sdkmanager.log
+            build/android-avds/**/*.log
+            build/android-host-*/load-segments.txt
+            build/android-host-*/toolchain.json
+          if-no-files-found: warn
+          retention-days: 30

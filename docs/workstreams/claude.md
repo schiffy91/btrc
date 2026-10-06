@@ -6093,7 +6093,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 **Must not touch**
 
 - docs/design/plan-reference.md
-- the E40 reproduction branch (never merged before CX-UIA-23)
+- the E40 reproduction branch (never merged before CX-STDLIB-01, which lands it with its fix; D28)
 
 **Steps**
 
@@ -6220,13 +6220,13 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 **Steps**
 
 1. Combine the contract, macOS and Linux branches into one commit on integ/ui2, apply the fragments and regenerate the derived files.
-2. Run the full batch gate in the cloud: make test (sharded), make bootstrap (BackgroundJobs is a compiler import), make test-c11, lint, format-check, generated-check, extension, git diff --check and the zero-warning transpiles. Then push main and read all three workflows.
+2. Run the full batch gate in the cloud: make test (sharded), make bootstrap, make test-c11, lint, format-check, generated-check, extension, git diff --check and the zero-warning transpiles. Then push main and read all three workflows.
 3. Ingest the E-case results, and add the API changes to the BTRSmith rename table with the D24 shim noted.
 
 **Acceptance**
 
 - [ ] One atomic commit on main with a green gate and green CI (run ids).
-- [ ] Stage 32 exit evidence: E01-E04, E29, E31, E35, E39, E40 and E46 pass on macOS and Linux with sanitizers, and the E40 repair landed with its reproduction.
+- [ ] Stage 32 exit evidence: E01-E04, E29, E31, E35, E39, E40 and E46 pass on macOS and Linux with sanitizers, and E40 is re-verified on the UI2 provider (the repair landed in CX-STDLIB-01, D28).
 
 **Risks**
 
