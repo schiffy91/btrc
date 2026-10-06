@@ -1079,7 +1079,9 @@ class StatementAnalyzer:
                     expr.line,
                     expr.col,
                 )
-            self.types.validate_nonescaping_rich_enum_role(inferred, "Lambda return type", "return", expr.line, expr.col)
+            self.types.validate_nonescaping_rich_enum_role(
+                inferred, "Lambda return type", "return", expr.line, expr.col
+            )
 
     def _analyze_switch(self, stmt):
         self.analyze_expression(stmt.value)

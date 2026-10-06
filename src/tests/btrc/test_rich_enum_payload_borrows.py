@@ -207,8 +207,7 @@ FLOWS = {
         f"Lambda return type cannot be nonescaping rich enum 'Outcome'; {REASON}",
     ),
     "iife-collection": (
-        "int main() {\n\tint count = (() => {\nSETUP\t\treturn [Outcome.Held(ARG)];\n\t})().len;\n"
-        "\treturn count;\n}\n",
+        "int main() {\n\tint count = (() => {\nSETUP\t\treturn [Outcome.Held(ARG)];\n\t})().len;\n\treturn count;\n}\n",
         "Lambda return type cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
     ),
     "new-generic": (
@@ -217,8 +216,7 @@ FLOWS = {
         "Constructed 'Box' cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
     ),
     "inferred-constructor": (
-        "INamed make() {\nSETUP\treturn Box(Outcome.Held(ARG));\n}\n\nint main() {\n"
-        "\treturn make().identity();\n}\n",
+        "INamed make() {\nSETUP\treturn Box(Outcome.Held(ARG));\n}\n\nint main() {\n\treturn make().identity();\n}\n",
         "Constructed 'Box' cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
     ),
     "generic-method": (

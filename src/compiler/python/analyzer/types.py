@@ -1997,7 +1997,9 @@ class TypeSystem:
         if rich_enum is None:
             contained = self.contains_nonescaping_rich_enum(canonical)
             if contained is not None:
-                message = f"{subject} cannot contain nonescaping rich enum '{contained}' in aggregate or managed storage"
+                message = (
+                    f"{subject} cannot contain nonescaping rich enum '{contained}' in aggregate or managed storage"
+                )
         elif canonical.pointer_depth > 0 or canonical.is_array or canonical.is_nullable:
             message = (
                 f"Rich enum '{rich_enum}' borrows its managed payloads and must be one direct value; "
