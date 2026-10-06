@@ -11,6 +11,10 @@ name: Hosted platform (Apple, stand-in)
 # `gh workflow run hosted-platform-apple.yml --ref <branch>`.
 on:
   workflow_dispatch:
+  # SCRATCH ONLY (never merged): dispatch needs the file on the default
+  # branch, so this run branch alone triggers it on push.
+  push:
+    branches: [stage24/apple-standin-extraction-run]
 
 permissions:
   contents: read
