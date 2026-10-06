@@ -1,0 +1,5 @@
+40 1170
+7 k v
+8 4 5
+1 2
+PASS: test_sizeof_global_beside_type_parameter

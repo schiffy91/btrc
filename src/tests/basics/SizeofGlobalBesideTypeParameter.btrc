@@ -1,0 +1,40 @@
+// sizeof(name) inside a generic measures the type parameter even when a
+// global of the same name exists, in the program and in the stdlib (Map's
+// sizeof(K) and sizeof(V), Array's sizeof(T)); a global hides neither a type
+// parameter nor a declared type.
+import Library.Array;
+import Library.Map;
+
+char K = 'k';
+char V = 'v';
+int T = 4;
+short U = 2;
+
+class Box<T> {
+	public T value;
+
+	public Box(T value) { self.value = value; }
+
+	public int width() { return (int)sizeof(T); }
+}
+
+class Probe {
+	public int widthOf<U>(U value) { return (int)sizeof(U); }
+}
+
+int main() {
+	Map<string, double> totals = new Map<string, double>();
+	for (int i = 0; i < 40; i++) { totals.put(f"key{i}", (double)i * 1.5); }
+	double sum = 0.0;
+	for (int i = 0; i < 40; i++) { sum += totals.get(f"key{i}"); }
+	print(totals.len, (int)sum);
+	Array<long> values = new Array<long>(5);
+	values[4] = 7;
+	print(values[4], K, V);
+	Box<double> box = new Box<double>(1.0);
+	print(box.width(), (int)sizeof(T), T + 1);
+	Probe probe = new Probe();
+	print(probe.widthOf((char)'c'), (int)sizeof(U));
+	print("PASS: test_sizeof_global_beside_type_parameter");
+	return 0;
+}

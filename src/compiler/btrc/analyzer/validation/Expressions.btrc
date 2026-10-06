@@ -436,8 +436,11 @@ class ExpressionValidator {
 		}
 		if (receiver.base == "Tuple") {
 			int tupleIndex = SemanticTypeSystem.tupleIndex(expression.field);
-			if (tupleIndex < 0 || tupleIndex >= receiver.genericArgs().len) {
-				TypeValidator.fail("Tuple type '" + self.types.formatType(receiver) + "' has no field '" + expression.field + "'", expression);
+			if (tupleIndex < 0 || expression.field != "_" + Strings.fromInt(tupleIndex)) {
+				TypeValidator.fail("Tuple has no field '" + expression.field + "'; use '_N' for a zero-based element index", expression);
+			}
+			if (tupleIndex >= receiver.genericArgs().len) {
+				TypeValidator.fail("Tuple field '" + expression.field + "' is out of range for " + Strings.fromInt(receiver.genericArgs().len) + " element(s)", expression);
 			}
 			return;
 		}
@@ -734,6 +737,10 @@ class ExpressionValidator {
 		}
 
 		Vector<string> names = LambdaFreeNames.of(expression).keys();
+		Map<string, Node> measured = LambdaFreeNames.measuredOf(expression);
+		/* The earliest sizeof of a captured array, as the reference meets it. */
+		string measuredCapture = "";
+		Node measuredSite = expression;
 		plan.borrowedBindings = self.types.cloneFlags(parameterNames);
 		plan.localBindings = self.types.cloneFlags(parameterNames);
 		int captureIndex = 0;
@@ -749,6 +756,13 @@ class ExpressionValidator {
 					TypeValidator.fail("A lambda cannot capture Thread handle '" + name + "'; join it before capture or create a fresh owner " + "inside the lambda", expression);
 				}
 				Node? captured = self.types.resolveAliases(vars.get(name));
+				if (captured != null && captured.isArray && measured.has(name)) {
+					Node site = measured.get(name);
+					if (measuredCapture == "" || site.line < measuredSite.line || (site.line == measuredSite.line && site.col < measuredSite.col)) {
+						measuredCapture = name;
+						measuredSite = site;
+					}
+				}
 				if (captured != null && captured.base == "Span") {
 					TypeValidator.fail("A lambda cannot capture nonescaping Span '" + name + "'", expression);
 				}
@@ -757,6 +771,9 @@ class ExpressionValidator {
 				}
 			}
 			captureIndex = captureIndex + 1;
+		}
+		if (measuredCapture != "") {
+			TypeValidator.fail("sizeof cannot measure array '" + measuredCapture + "' inside a lambda, which captures it as a pointer; measure it outside the lambda", measuredSite);
 		}
 
 		plan.resultType = self.expressionTypes.lambdaReturnType(expression, vars);
@@ -999,7 +1016,9 @@ class ExpressionValidator {
 				/* sizeof(x) names the object when x is a binding in scope (C11
 				 * 6.5.3.4), as the reference's sizeof_value_operand reads it. */
 				string name = TypeIdentity.ordinaryIdentifier(expression.operand.type);
-				if (name != "" && vars.has(name)) {
+				/* A global hides neither a type parameter nor a declared type. */
+				bool hiddenGlobal = self.state.analyzed.globalVarTypes.has(name) && (self.state.typeParams.has(name) || self.state.analyzed.declaresTypeName(name));
+				if (name != "" && vars.has(name) && !hiddenGlobal) {
 					Node value = Node();
 					value.kind = NK_IDENTIFIER;
 					value.name = name;

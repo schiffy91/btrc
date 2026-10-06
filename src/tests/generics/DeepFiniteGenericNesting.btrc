@@ -1,8 +1,8 @@
 // Deep but finite generic nesting compiles: nested collections, a tuple inside
 // a map's vector, a recursive class whose fields reuse its own argument or a
-// fixed one, and a written type nested to exactly the limit that
-// hosted_abi.toml's limits.generic_argument_nesting sets (8 levels of
-// arguments). Only arguments that grow without bound are refused.
+// fixed one, and a written type nested 8 levels deep (a type the program
+// writes out is not limited). Only a use that grows its own arguments is
+// refused (docs/language/translation-limits.md).
 import Library.Map;
 import Library.Vector;
 

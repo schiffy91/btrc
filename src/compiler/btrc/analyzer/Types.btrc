@@ -783,6 +783,8 @@ class SemanticTypeSystem {
 	}
 
 	class Node? indexedMethod(Node objectType, string name, Analyzed analyzed) {
+		/* An array of collections indexes its storage, not a collection. */
+		if (objectType.isArray) { return null; }
 		if (analyzed.isGenericClass(objectType.base) && objectType.pointerDepth <= 1) {
 			return analyzed.genericClassMethod(objectType.base, name);
 		}
@@ -793,7 +795,7 @@ class SemanticTypeSystem {
 	}
 
 	class Node? indexResultType(Node? objectType, Analyzed analyzed) {
-		if (objectType == null || objectType.base == "Tuple") { return null; }
+		if (objectType == null || (objectType.base == "Tuple" && !objectType.isArray && objectType.pointerDepth == 0)) { return null; }
 		if (SemanticTypeSystem.isString(objectType)) {
 			Node character = SemanticTypeSystem.primitive("char");
 			character.isConst = objectType.isConst;

@@ -394,6 +394,8 @@ class Analyzed {
      * `order.equals(...)` lowers as a string method). Seeded into each
      * function's local varTypes at lowering entry. */
 	public Map<string, Node> globalVarTypes;
+	/* Each global's initializer, which completes an unsized array's extent. */
+	public Map<string, Node> globalInitializers;
 	/* Global names with a concrete definition (not an initializer-less extern).
      * IR generation suppresses redundant extern redeclarations when the same
      * composed translation unit already owns the definition. */
@@ -465,6 +467,7 @@ class Analyzed {
 		self.hostedCallKeys = {};
 		self.genericConstructorTypes = {};
 		self.globalVarTypes = {};
+		self.globalInitializers = {};
 		self.globalHasDefinition = {};
 		self.typedefTable = {};
 		self.structTable = {};
@@ -663,6 +666,9 @@ class Analyzed {
 
 	/* Interfaces share managed receiver identity with their implementers. */
 	public bool isInterface(string name) { return self.interfaceTable.has(name); }
+
+	/* Whether a class, struct, enum, interface or typedef is named `name`. */
+	public bool declaresTypeName(string name) { return self.isClass(name) || self.isGenericClass(name) || self.structTable.has(name) || self.isEnum(name) || self.isRichEnum(name) || self.isInterface(name) || self.typedefTable.has(name); }
 
 	/* Find an interface method through its declared inheritance chain. The
      * declaration index belongs to Analyzed so validation and lowering resolve

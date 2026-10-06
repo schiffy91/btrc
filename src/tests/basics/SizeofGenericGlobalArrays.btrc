@@ -1,0 +1,27 @@
+// Global arrays of generic, collection, class and tuple elements used only
+// inside sizeof: the element types stay declared, and indexing an array of
+// collections yields the collection.
+import Library.Vector;
+
+class Box<T> {
+	public T value;
+
+	public Box(T value) { self.value = value; }
+}
+
+class Lonely {
+	public int x = 0;
+}
+
+Box<long> boxes[3];
+Vector<(short, char)> vectors[2];
+Lonely onlyObjects[5];
+(int, int) pairs[4];
+
+int main() {
+	print((int)(sizeof(boxes) / sizeof(boxes[0])), (int)(sizeof(vectors) / sizeof(vectors[0])));
+	print((int)(sizeof(onlyObjects) / sizeof(onlyObjects[0])), (int)(sizeof(pairs) / sizeof(pairs[0])));
+	print((int)(sizeof(vectors[0]) == sizeof(Vector<(short, char)>*)));
+	print("PASS: test_sizeof_generic_global_arrays");
+	return 0;
+}

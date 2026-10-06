@@ -171,8 +171,8 @@ class GeneratedHostedAbiData {
 	public GeneratedHostedAbiData() {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.genericArgumentNestingLimit = 8;
-		self.fingerprint = "956357bff4ca82ba0eee8f0f06977b592bff1ebdaa89db4f3ed728e16baec0d8";
+		self.genericArgumentNestingLimit = 32;
+		self.fingerprint = "6caf453872f49e94962261fdaff5a427439ab531ed02d9f67a9f7870a316952d";
 		self.targetSpecFingerprint = "7865f267cc2888822ba3f93f571f923a1a835f94049abc4876c0e4c5d8dcfa58";
 	}
 

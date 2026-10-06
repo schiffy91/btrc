@@ -8,14 +8,13 @@ stdlib_source_marker = "compiler:stdlib"
 user_source_marker = "compiler:user"
 
 # Translation limits both compilers enforce, as C11 5.2.4.1 sets C's. A
-# program has finitely many generic declarations of fixed arity, so an
-# unbounded set of specializations (Chain<T> needing Chain<(T, int)>) must
-# nest its type arguments without bound; a specialization whose arguments
-# nest deeper than this is refused, which is how monomorphization ends. A
-# divergent generic with k growing uses reaches k^limit specializations
-# first, so the limit stays small: the compiler's own deepest is 2.
+# specialization reached through recursive instantiation whose type arguments
+# nest deeper than this is refused. It is a backstop: the compilers first
+# refuse a use that grows its own specialization's arguments (Chain<T> needing
+# Chain<(T, int)>) after a few steps. Types a program writes out are not
+# limited.
 [limits]
-generic_argument_nesting = 8
+generic_argument_nesting = 32
 
 [names]
 functions = [

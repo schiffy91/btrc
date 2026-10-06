@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,12 +54,24 @@ def _main(body: str) -> str:
 
 
 def _unbounded(generic: str, line: int, col: int) -> GpuDiagnostic:
-    """A specialization past hosted_abi.toml's limits.generic_argument_nesting."""
+    """A use that grows its own specialization's arguments (docs/language/translation-limits.md)."""
     return GpuDiagnostic(
-        f"Generic {generic} needs type arguments nested deeper than 8 levels, the limit that keeps specialization finite",
+        f"Generic {generic} grows its own type arguments through this use, so its specializations never end",
         line,
         col,
     )
+
+
+def _fan(extras: tuple[str, ...]) -> str:
+    """A generic class with one growing field per extra type: k growing uses."""
+    fields = "".join(f"    public Fan<(T, {extra})>? f{index} = null;\n" for index, extra in enumerate(extras))
+    return (
+        "class Fan<T> {\n    public T value;\n" + fields + "    public Fan(T value) { self.value = value; }\n}\n"
+        "int main() { Fan<int> f = new Fan<int>(1); return f.value; }\n"
+    )
+
+
+TUPLE_ARRAY = 'int main() {\n\t(int, string) w[2] = {(1, "a"), (2, "b")};\n'
 
 
 def _self_specializing(name: str, field: str) -> str:
@@ -252,9 +265,59 @@ INVALID_PROBES = (
         _main("(int, int) t = (1, 2); t[1] = 3; return t._0;"),
         GpuDiagnostic("Tuple values are not dynamically indexable; use ._N fields", 1, 37),
     ),
+    # An element of an array or pointer of tuples is a tuple: it is typed,
+    # refused and checked as one in both compilers.
+    ParityProbe(
+        "tuple-array-element-to-int",
+        TUPLE_ARRAY + "\tint bad = w[0];\n\treturn bad;\n}\n",
+        GpuDiagnostic("Cannot assign 'Tuple<int, string>' to variable 'bad' of type 'int'", 3, 2),
+    ),
+    ParityProbe(
+        "tuple-array-element-assign-int",
+        TUPLE_ARRAY + "\tw[0] = 5;\n\treturn 0;\n}\n",
+        GpuDiagnostic("Cannot assign 'int' to 'Tuple<int, string>'", 3, 2),
+    ),
+    ParityProbe(
+        "tuple-array-element-wrong-tuple",
+        TUPLE_ARRAY + '\tw[1] = ("a", 1);\n\treturn 0;\n}\n',
+        GpuDiagnostic("Cannot assign 'Tuple<string, int>' to 'Tuple<int, string>'", 3, 2),
+    ),
+    ParityProbe(
+        "tuple-array-element-field-range",
+        TUPLE_ARRAY + "\tint bad = w[0]._5;\n\treturn bad;\n}\n",
+        GpuDiagnostic("Tuple field '_5' is out of range for 2 element(s)", 3, 12),
+    ),
+    ParityProbe(
+        "tuple-array-element-index",
+        TUPLE_ARRAY + "\tint i = 0;\n\tint bad = w[i][1];\n\treturn bad;\n}\n",
+        GpuDiagnostic("Tuple values are not dynamically indexable; use ._N fields", 4, 12),
+    ),
+    ParityProbe(
+        "tuple-pointer-element-to-int",
+        TUPLE_ARRAY + "\t(int, string)* p = w;\n\tint bad = p[0];\n\treturn bad;\n}\n",
+        GpuDiagnostic("Cannot assign 'Tuple<int, string>' to variable 'bad' of type 'int'", 4, 2),
+    ),
+    ParityProbe(
+        "tuple-array-element-return",
+        "int first((int, string)* w) {\n\treturn w[1];\n}\nint main() { return 0; }\n",
+        GpuDiagnostic("Return type mismatch: expected 'int' but got 'Tuple<int, string>'", 2, 2),
+    ),
+    # A lambda captures an array as a pointer, so sizeof would measure the
+    # pointer; both compilers refuse it.
+    ParityProbe(
+        "sizeof-captured-array",
+        "int main() {\n\tint captured[9];\n\tcaptured[0] = 1;\n"
+        "\tvar measure = () => (int)(sizeof(captured) / sizeof(int));\n\treturn measure();\n}\n",
+        GpuDiagnostic(
+            "sizeof cannot measure array 'captured' inside a lambda, which captures it as a pointer; "
+            "measure it outside the lambda",
+            4,
+            35,
+        ),
+    ),
     # Polymorphic recursion: each specialization needs a larger one, so
-    # monomorphization never ends. Both compilers refuse the first
-    # specialization nested past the shared limit, at the use that needs it.
+    # monomorphization never ends. Both compilers refuse the use that grows
+    # its own derivation's arguments, once, after a few steps.
     ParityProbe(
         "generic-tuple-recursion",
         _self_specializing("Chain", "Chain<(T, int)>?"),
@@ -288,11 +351,16 @@ INVALID_PROBES = (
         "int main() { Left<int> l = new Left<int>(1); return l.value; }\n",
         _unbounded("class 'Right'", 3, 12),
     ),
+    ParityProbe("generic-fan-of-three", _fan(("int", "long", "char")), _unbounded("class 'Fan'", 3, 12)),
+    ParityProbe("generic-fan-of-four", _fan(("int", "long", "char", "short")), _unbounded("class 'Fan'", 3, 12)),
     ParityProbe(
-        "generic-written-past-limit",
-        "class Box<T> {\n    public T value;\n    public Box(T value) { self.value = value; }\n}\n"
-        + _main("Box<Box<Box<Box<Box<Box<Box<Box<Box<int>>>>>>>>>? deep = null; return 0;"),
-        _unbounded("class 'Box'", 5, 14),
+        "generic-method-fan",
+        "class Walker {\n    public int count = 0;\n    public void walk<U>(U item, int depth) {\n"
+        "        self.count = self.count + 1;\n"
+        "        if (depth > 0) { self.walk((item, depth), depth - 1); self.walk((depth, item), depth - 1); }\n"
+        "    }\n}\n"
+        "int main() { Walker w = new Walker(); w.walk(1, 3); return w.count; }\n",
+        _unbounded("method 'Walker.walk'", 5, 26),
     ),
 )
 
@@ -310,6 +378,27 @@ VALID_PROBES = (
     ParityProbe("float-literal-double", _main("var x = 1.5; double* p = &x; return 0;")),
     ParityProbe("float-arithmetic-widens", _main("float f = 1.5; var y = f * 2.0; double* p = &y; return 0;")),
     ParityProbe("source-standard-include", "#include <assert.h>\n" + _main("assert(1 == 1); return 0;")),
+    ParityProbe("tuple-array-element-var", TUPLE_ARRAY + "\tvar e = w[1];\n\treturn e._0;\n}\n"),
+    # A fixed use inside a template starts a new derivation: E<T> holds a
+    # C<Box<int>> that does not grow, so the specializations are finite.
+    ParityProbe(
+        "generic-fixed-use-in-cycle",
+        "class Box<T> { public T value; }\nclass C<T> { public Box<T> b; public E<T> e; }\n"
+        "class E<T> { public C<Box<int>> c; }\n" + _main("C<int> x = new C<int>(); return 0;"),
+    ),
+    ParityProbe(
+        "generic-fixed-use-in-method-cycle",
+        "class Box<T> { public T value; }\n"
+        "class C<T> { public Box<T> b; public void go() { E<T> e = new E<T>(); e.run(); } }\n"
+        "class E<T> { public void run() { C<Box<int>> c = new C<Box<int>>(); } }\n"
+        + _main("C<int> x = new C<int>(); x.go(); return 0;"),
+    ),
+    # A type the program writes out is not limited, however deep.
+    ParityProbe(
+        "generic-written-deep",
+        "class Box<T> {\n    public T value;\n    public Box(T value) { self.value = value; }\n}\n"
+        + _main("Box<Box<Box<Box<Box<Box<Box<Box<Box<int>>>>>>>>>? deep = null; return 0;"),
+    ),
 )
 
 
@@ -319,6 +408,10 @@ class ParityHarness:
     def __init__(self, btrcc: Path, workspace: Path) -> None:
         self._btrcc = btrcc
         self._workspace = workspace
+
+    @property
+    def btrcc(self) -> Path:
+        return self._btrcc
 
     def compile_probe(self, probe: ParityProbe, *flags: str) -> tuple[ParityOutcome, ParityOutcome]:
         source = self._workspace / "probe.btrc"
@@ -447,6 +540,51 @@ def test_gpu_float_division_cpu_fallback_matches_between_compilers(harness: Pari
         assert 'if (b == 0.0F) { fprintf(stderr, "Division by zero\\n"); exit(1); }' in outcome.generated
         workers.append(item)
     assert workers[0].count("__btrc_div(") == workers[1].count("__btrc_div(")
+
+
+@pytest.mark.parametrize("name", ["generic-fan-of-three", "generic-fan-of-four", "generic-method-fan"])
+def test_growing_specialization_ends_quickly_and_once(harness: ParityHarness, tmp_path: Path, name: str) -> None:
+    """Refusal ends specialization after a few steps, however many uses grow,
+    and the reference reports it once, as btrcc does."""
+    probe = next(probe for probe in INVALID_PROBES if probe.name == name)
+    started = time.monotonic()
+    reference, selfhost = harness.compile_probe(probe)
+    assert time.monotonic() - started < 20
+    assert reference == selfhost
+    source = tmp_path / "fan.btrc"
+    source.write_text(probe.source)
+    result = subprocess.run(
+        [sys.executable, "-m", "src.compiler.python.main", str(source), "--no-cache", "--no-stdlib"]
+        + ["-o", str(tmp_path / "fan.c")],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.stderr.count("error:") == 1, result.stderr
+
+
+def test_owned_store_into_a_tuple_array_element_is_refused_in_both(harness: ParityHarness, tmp_path: Path) -> None:
+    """An f-string is a caller-owned temporary; a tuple element of an array is shallow."""
+    source = tmp_path / "store.btrc"
+    source.write_text(TUPLE_ARRAY + '\tw[0]._1 = f"{w[1]._0}!";\n\treturn 0;\n}\n')
+    message = (
+        "caller-owned temporary cannot be stored in a shallow aggregate; "
+        "bind the owner to a local and store only its borrowed reference"
+    )
+    reference = subprocess.run(
+        [sys.executable, "-m", "src.compiler.python.main", str(source), "--no-cache", "--no-stdlib"]
+        + ["-o", str(tmp_path / "store.c")],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    selfhost = subprocess.run(
+        [str(harness.btrcc), "--no-stdlib", str(source)], cwd=REPO, capture_output=True, text=True, timeout=120
+    )
+    assert reference.returncode != 0 and message in reference.stderr, reference.stderr
+    assert selfhost.returncode != 0 and message in selfhost.stderr, selfhost.stderr
 
 
 def test_probe_battery_covers_both_outcomes() -> None:

@@ -237,7 +237,7 @@ class TypeValidator {
 	public Node? inferRaw(Node? expression, Map<string, Node> vars) { return self.expressionTypes.inferRaw(expression, vars); }
 
 	public Node? indexResultType(Node? objectType) {
-		if (objectType == null || objectType.base == "Tuple") { return null; }
+		if (objectType == null || (objectType.base == "Tuple" && !objectType.isArray && objectType.pointerDepth == 0)) { return null; }
 		if (SemanticTypeSystem.isString(objectType)) {
 			Node character = SemanticTypeSystem.primitive("char");
 			character.isConst = objectType.isConst;
@@ -267,7 +267,7 @@ class TypeValidator {
 	}
 
 	private Node? indexedMethod(Node objectType, string name) {
-		if (self.state.typeParams.has(objectType.base)) { return null; }
+		if (self.state.typeParams.has(objectType.base) || objectType.isArray) { return null; }
 		if (self.state.analyzed.isGenericClass(objectType.base) && objectType.pointerDepth <= 1) {
 			return self.state.analyzed.genericClassMethod(objectType.base, name);
 		}

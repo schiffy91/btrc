@@ -1239,16 +1239,26 @@ class ExpressionTypeResolver {
 class LambdaFreeNames {
 	private Vector<Map<string, bool>> scopes;
 	private Map<string, bool> names;
+	/* The first sizeof operand naming each free name, in source order. */
+	private Map<string, Node> measured;
 
 	public LambdaFreeNames() {
 		self.scopes = [];
 		self.names = {};
+		self.measured = {};
 	}
 
 	class Map<string, bool> of(Node lambda) {
 		LambdaFreeNames collector = LambdaFreeNames();
 		collector.collectLambda(lambda);
 		return collector.names;
+	}
+
+	/* Free names a sizeof operand measures, each with its first operand. */
+	class Map<string, Node> measuredOf(Node lambda) {
+		LambdaFreeNames collector = LambdaFreeNames();
+		collector.collectLambda(lambda);
+		return collector.measured;
 	}
 
 	private void push() {
@@ -1306,7 +1316,10 @@ class LambdaFreeNames {
 			/* sizeof(x) may name the object x; the caller keeps only names
 			 * that resolve to a variable, as for any identifier. */
 			string name = TypeIdentity.ordinaryIdentifier(n.type);
-			if (!self.bound(name)) { self.names.put(name, true); }
+			if (!self.bound(name)) {
+				self.names.put(name, true);
+				if (!self.measured.has(name)) { self.measured.put(name, n.type); }
+			}
 			return;
 		}
 		if (n.kind == NK_LAMBDA_EXPR) {
