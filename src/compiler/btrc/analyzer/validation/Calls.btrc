@@ -59,6 +59,8 @@ class CallValidator {
 		self.borrows = borrows;
 	}
 
+	public bool hasCollectionArguments() { return self.collectionArguments.len > 0; }
+
 	/* The collection literal arguments the last signatures bound, handed to
 	 * the caller once. */
 	public Vector<CallCollectionArgument> takeCollectionArguments() {

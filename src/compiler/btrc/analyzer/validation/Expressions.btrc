@@ -144,6 +144,7 @@ class ExpressionValidator {
 
 	/* Collection literal arguments take their parameter's element types. */
 	private void validateCollectionArguments(Map<string, Node> vars) {
+		if (!self.calls.hasCollectionArguments()) { return; }
 		for check in self.calls.takeCollectionArguments() { self.validateTypedInitializer(check.expected, check.argument, check.subject, vars); }
 	}
 

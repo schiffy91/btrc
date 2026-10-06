@@ -352,6 +352,11 @@ INVALID_PROBES = (
         COLLECTIONS + "var values = [1, 2];\nint main() {\n\treturn 0;\n}\n",
         GpuDiagnostic("Global 'values' requires a C constant/address initializer for static storage", 3, 1),
     ),
+    ParityProbe(
+        "global-tuple-literal-var",
+        "var origin = (1, 2);\nint main() {\n\tprint(origin._0);\n\treturn 0;\n}\n",
+        GpuDiagnostic("Global 'origin' requires a C constant/address initializer for static storage", 1, 1),
+    ),
 )
 
 VALID_PROBES = (
