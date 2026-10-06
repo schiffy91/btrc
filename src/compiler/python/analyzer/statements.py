@@ -62,7 +62,6 @@ from src.compiler.python.syntax.ast.generated import (
     ReturnStmt,
     RichEnumDecl,
     SelfExpr,
-    SpawnExpr,
     StructDecl,
     SwitchStmt,
     TernaryExpr,
@@ -372,6 +371,34 @@ class StatementAnalyzer:
                 statement.col,
             )
 
+    def validate_nonescaping_variable(self, declaration, *, is_global) -> None:
+        """Refuse a variable that would let a borrowing rich enum outlive its owners.
+
+        A declared type is checked before its initializer, as btrcc checks it,
+        and an inferred one after; each site reports once.
+        """
+        canonical = self.types.canonical_type(declaration.type)
+        if canonical is None:
+            return
+        subject = f"Global '{declaration.name}'" if is_global else f"Variable '{declaration.name}'"
+        self.types.validate_nonescaping_rich_enum_role(
+            canonical,
+            subject,
+            "object",
+            declaration.type.line or declaration.line,
+            declaration.type.col or declaration.col,
+        )
+        rich_enum = self.types.nonescaping_rich_enum(canonical)
+        if rich_enum is None or canonical.pointer_depth != 0 or canonical.is_array:
+            return
+        if is_global or canonical.is_static or canonical.is_extern:
+            message = f"{subject} cannot store nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}"
+        elif declaration.initializer is None:
+            message = f"{subject} must initialize its nonescaping rich enum '{rich_enum}' borrow"
+        else:
+            return
+        self.types.report_type_shape_error(message, None, declaration.line, declaration.col)
+
     def _validate_variable_storage(self, declaration, *, is_global) -> None:
         type_expr = declaration.type
         if type_expr is None:
@@ -391,20 +418,7 @@ class StatementAnalyzer:
                 self.session.error(f"{subject} cannot store nonescaping Span<T>", declaration.line, declaration.col)
             if not is_global and declaration.initializer is None:
                 self.session.error(f"{subject} must initialize its Span<T> borrow", declaration.line, declaration.col)
-        rich_enum = self.types.nonescaping_rich_enum(canonical)
-        if rich_enum is not None and canonical.pointer_depth == 0 and not canonical.is_array:
-            if is_global or canonical.is_static or canonical.is_extern:
-                self.session.error(
-                    f"{subject} cannot store nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}",
-                    declaration.line,
-                    declaration.col,
-                )
-            elif declaration.initializer is None:
-                self.session.error(
-                    f"{subject} must initialize its nonescaping rich enum '{rich_enum}' borrow",
-                    declaration.line,
-                    declaration.col,
-                )
+        self.validate_nonescaping_variable(declaration, is_global=is_global)
         if canonical and canonical.base == "Atomic" and canonical.pointer_depth == 0:
             initializer = declaration.initializer
             valid_constructor = bool(
@@ -840,8 +854,6 @@ class StatementAnalyzer:
     def _prepare_expression(self, expression, facts) -> None:
         if expression is None or not dataclasses.is_dataclass(expression):
             return
-        if isinstance(expression, SpawnExpr) and isinstance(expression.fn, LambdaExpr):
-            self.session.spawned_lambda_ids.add(id(expression.fn))
         if isinstance(expression, LambdaExpr):
             if id(expression) not in self.session.lambda_body_facts:
                 self._analyze_lambda(expression)
@@ -1067,14 +1079,7 @@ class StatementAnalyzer:
                     expr.line,
                     expr.col,
                 )
-            spawned = id(expr) in self.session.spawned_lambda_ids
-            rich_enum = None if spawned else self.types.nonescaping_rich_enum(inferred)
-            if rich_enum is not None:
-                self.session.error(
-                    f"Lambda return type cannot be nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}",
-                    expr.line,
-                    expr.col,
-                )
+            self.types.validate_nonescaping_rich_enum_role(inferred, "Lambda return type", "return", expr.line, expr.col)
 
     def _analyze_switch(self, stmt):
         self.analyze_expression(stmt.value)
@@ -2213,6 +2218,7 @@ class StatementAnalyzer:
                     self.flow.record_nonnull_binding(self.session.scope.lookup(stmt.name))
             return
         stmt.type = self.types.upgrade_class_type(stmt.type)
+        self.validate_nonescaping_variable(stmt, is_global=is_global)
         self.generics.collect_type_instances(stmt.type)
         if stmt.initializer:
             self.expressions.contextualize_ternary_literals(stmt.initializer, stmt.type)

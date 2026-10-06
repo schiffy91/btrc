@@ -1898,7 +1898,7 @@ class TypeSystem:
                 type_line,
                 type_col,
             )
-        self._validate_nonescaping_rich_enum_role(canonical, subject, role, type_line, type_col)
+        self.validate_nonescaping_rich_enum_role(canonical, subject, role, type_line, type_col)
         if canonical and canonical.base != "Atomic" and self.contains_atomic_storage(canonical):
             self.session.error(
                 f"{subject} cannot embed an Atomic<T> owner in shallow copyable storage; "
@@ -1983,39 +1983,32 @@ class TypeSystem:
                 active_type_params=active_type_params,
             )
 
-    def _validate_nonescaping_rich_enum_role(self, canonical, subject, role, line, col) -> None:
-        """A borrowing rich enum is a direct lexical local or parameter only."""
+    def validate_nonescaping_rich_enum_role(self, type_expr, subject, role, line, col) -> None:
+        """A borrowing rich enum is a direct lexical local or parameter only.
+
+        Each site reports once: a variable's declared type is checked before its
+        initializer, as btrcc does, and again with the rest of its storage rules.
+        """
+        canonical = self.canonical_type(type_expr)
         if canonical is None:
             return
         rich_enum = self.nonescaping_rich_enum(canonical)
+        message = None
         if rich_enum is None:
             contained = self.contains_nonescaping_rich_enum(canonical)
             if contained is not None:
-                self.session.error(
-                    f"{subject} cannot contain nonescaping rich enum '{contained}' in aggregate or managed storage",
-                    line,
-                    col,
-                )
-            return
-        if canonical.pointer_depth > 0 or canonical.is_array or canonical.is_nullable:
-            self.session.error(
+                message = f"{subject} cannot contain nonescaping rich enum '{contained}' in aggregate or managed storage"
+        elif canonical.pointer_depth > 0 or canonical.is_array or canonical.is_nullable:
+            message = (
                 f"Rich enum '{rich_enum}' borrows its managed payloads and must be one direct value; "
-                "pointer, nullable and array shapes are not supported",
-                line,
-                col,
+                "pointer, nullable and array shapes are not supported"
             )
         elif role in {"field", "stable_field"}:
-            self.session.error(
-                f"{subject} cannot store nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}",
-                line,
-                col,
-            )
+            message = f"{subject} cannot store nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}"
         elif role == "return":
-            self.session.error(
-                f"{subject} cannot be nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}",
-                line,
-                col,
-            )
+            message = f"{subject} cannot be nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}"
+        if message is not None:
+            self.report_type_shape_error(message, None, line, col)
 
     def owned_closure_invoke_is_admissible(self, type_expr, active_type_params=()) -> bool:
         """Whether an owned callback's invoke slot is exact or still unresolved."""

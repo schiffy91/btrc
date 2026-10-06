@@ -47,9 +47,6 @@ class SemanticValidationState {
 	public Map<string, bool> rawBorrowVisiting;
 	public bool allowOwnedOpaqueVariable;
 	public bool inParameterDefault;
-	/* Lambda literals spawned directly, keyed by AstIdentity.key: their
-	 * results are checked by the Thread<T> result rules instead. */
-	public Map<string, bool> spawnedLambdas;
 
 	public SemanticValidationState(Analyzed analyzed) {
 		self.analyzed = analyzed;
@@ -75,7 +72,6 @@ class SemanticValidationState {
 		self.rawBorrowVisiting = {};
 		self.allowOwnedOpaqueVariable = false;
 		self.inParameterDefault = false;
-		self.spawnedLambdas = {};
 	}
 }
 
@@ -511,7 +507,7 @@ class TypeValidator {
 	}
 
 	/* A borrowing rich enum is a direct lexical local or parameter only. */
-	private void validateNonescapingRichEnumRole(Node? canonical, string subject, string role, Node site) {
+	public void validateNonescapingRichEnumRole(Node? canonical, string subject, string role, Node site) {
 		if (canonical == null) { return; }
 		string richEnum = self.nonescapingRichEnum(canonical);
 		if (richEnum == "") {

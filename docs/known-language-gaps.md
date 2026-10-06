@@ -286,11 +286,14 @@ allowed flows in `enums/RichEnumBorrowedPayloads.btrc`). The reason clause
 | Flow | Diagnostic |
 |------|------------|
 | a function, method, interface-method or declared lambda return type | `Return type of function 'f' cannot be nonescaping rich enum 'E'; R` |
-| a lambda whose inferred return is one (a directly spawned lambda is checked as a `Thread<T>` result instead) | `Lambda return type cannot be nonescaping rich enum 'E'; R` |
+| a lambda whose inferred return is one, or contains one (spawned and immediately invoked lambdas too) | `Lambda return type cannot be nonescaping rich enum 'E'; R` (`… cannot contain nonescaping rich enum 'E' in aggregate or managed storage`) |
+| a constructed class instance that would hold one (`new Box<E>(…)`, an inferred `Box(e)`) | `Constructed 'Box' cannot contain nonescaping rich enum 'E' in aggregate or managed storage` |
+| a generic method type argument that is or holds one | `Generic argument 1 for method 'm' cannot contain nonescaping rich enum 'E'` |
 | a class or struct field, a rich-enum payload | `Field 'C.f' cannot store nonescaping rich enum 'E'; R` |
 | a global, `static` or `extern` variable | `Global 'g' cannot store nonescaping rich enum 'E'; R` |
+| a `var` whose inferred type is or contains one, at file scope or in a disallowed shape | the same diagnostics as the declared type |
 | a local without an initializer | `Variable 'v' must initialize its nonescaping rich enum 'E' borrow` |
-| reassigning it, or storing into its payload | `Nonescaping rich enum 'E' cannot be reassigned; R, so declare a new local` (`Payload of nonescaping rich enum …` for a payload store) |
+| reassigning it, or storing into its own payload slots (`r.data.V.f = …`; a write through a payload object, `r.data.V.f.x = …`, is allowed) | `Nonescaping rich enum 'E' cannot be reassigned; R, so declare a new local` (`Payload of nonescaping rich enum …` for a payload store) |
 | any collection, tuple, generic, `Thread<T>` or `Mutex<T>` that contains one | `Variable 'v' cannot contain nonescaping rich enum 'E' in aggregate or managed storage` |
 | a pointer, nullable or array shape | `Rich enum 'E' borrows its managed payloads and must be one direct value; pointer, nullable and array shapes are not supported` |
 | a lambda or `spawn` capture | `A lambda cannot capture nonescaping rich enum 'v'` |

@@ -842,6 +842,24 @@ class StorageValidator {
 		}
 	}
 
+	/* Refuse a variable that would let a borrowing rich enum outlive its
+	 * owners. A declared type is checked before the initializer and an
+	 * inferred `var` type after it, as the reference compiler orders them. */
+	public void validateNonescapingVariable(Node declaration, Node? type, bool isGlobal) {
+		Node? canonical = self.types.resolveAliases(type);
+		if (canonical == null) { return; }
+		string subject = (isGlobal ? "Global '" : "Variable '") + declaration.name + "'";
+		self.types.validateNonescapingRichEnumRole(canonical, subject, "object", declaration);
+		string richEnum = self.types.nonescapingRichEnum(canonical);
+		if (richEnum == "" || canonical.pointerDepth != 0 || canonical.isArray) { return; }
+		if (isGlobal || canonical.isStatic || canonical.isExtern) {
+			TypeValidator.fail(subject + " cannot store nonescaping rich enum '" + richEnum + "'; " + TypeValidator.nonescapingRichEnumReason(), declaration);
+		}
+		if (declaration.initializer == null) {
+			TypeValidator.fail(subject + " must initialize its nonescaping rich enum '" + richEnum + "' borrow", declaration);
+		}
+	}
+
 	public void validateVariableStorage(Node declaration, bool isGlobal, Map<string, Node> vars) {
 		string subject = isGlobal ? "Global '" : "Variable '";
 		subject = subject + declaration.name + "'";
@@ -855,15 +873,7 @@ class StorageValidator {
 				TypeValidator.fail(subject + " must initialize its Span<T> borrow", declaration);
 			}
 		}
-		string richEnum = self.types.nonescapingRichEnum(canonical);
-		if (canonical != null && richEnum != "" && canonical.pointerDepth == 0 && !canonical.isArray) {
-			if (isGlobal || canonical.isStatic || canonical.isExtern) {
-				TypeValidator.fail(subject + " cannot store nonescaping rich enum '" + richEnum + "'; " + TypeValidator.nonescapingRichEnumReason(), declaration);
-			}
-			if (declaration.initializer == null) {
-				TypeValidator.fail(subject + " must initialize its nonescaping rich enum '" + richEnum + "' borrow", declaration);
-			}
-		}
+		self.validateNonescapingVariable(declaration, declaration.type, isGlobal);
 		if (canonical != null && canonical.base == "Atomic" && canonical.pointerDepth == 0 && declaration.initializer != null) {
 			Node initializer = declaration.initializer;
 			bool validConstructor = initializer.kind == NK_CALL_EXPR && initializer.callee != null && initializer.callee.kind == NK_IDENTIFIER && initializer.callee.name == "Atomic";
@@ -1428,10 +1438,12 @@ class StorageValidator {
 		if (richEnum != "") {
 			TypeValidator.fail("Nonescaping rich enum '" + richEnum + "' cannot be reassigned; " + TypeValidator.nonescapingRichEnumReason() + ", so declare a new local", expression);
 		}
+		/* `r.data`, `r.data.V` and `r.data.V.field` are the enum's own storage;
+		 * a store through a payload object (`r.data.V.child.id`) is not. */
 		Node? node = expression.target;
-		while (node != null && (node.kind == NK_FIELD_ACCESS_EXPR || node.kind == NK_INDEX_EXPR)) {
+		for (int hop = 0; hop < 3 && node != null && node.kind == NK_FIELD_ACCESS_EXPR; hop++) {
 			Node current = node;
-			if (current.kind == NK_FIELD_ACCESS_EXPR && current.field == "data") {
+			if (current.field == "data") {
 				richEnum = self.types.nonescapingRichEnum(self.types.inferType(current.obj, vars));
 				if (richEnum != "") {
 					TypeValidator.fail("Payload of nonescaping rich enum '" + richEnum + "' cannot be reassigned; " + TypeValidator.nonescapingRichEnumReason() + ", so declare a new local", expression);

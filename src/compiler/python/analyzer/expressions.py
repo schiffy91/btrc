@@ -586,11 +586,14 @@ class ExpressionAnalyzer:
                 expression.col,
             )
             return True
+        # `r.data`, `r.data.V` and `r.data.V.field` are the enum's own storage;
+        # a store through a payload object (`r.data.V.child.id`) is not.
         node = expression.target
-        while isinstance(node, (FieldAccessExpr, IndexExpr)):
-            receiver = node.obj
-            if isinstance(node, FieldAccessExpr) and node.field == "data":
-                rich_enum = self.types.nonescaping_rich_enum(self.infer_type(receiver))
+        for _ in range(3):
+            if not isinstance(node, FieldAccessExpr):
+                break
+            if node.field == "data":
+                rich_enum = self.types.nonescaping_rich_enum(self.infer_type(node.obj))
                 if rich_enum is not None:
                     self.session.error(
                         f"Payload of nonescaping rich enum '{rich_enum}' cannot be reassigned; "
@@ -599,7 +602,7 @@ class ExpressionAnalyzer:
                         expression.col,
                     )
                     return True
-            node = receiver
+            node = node.obj
         return False
 
     def _validate_assignment(self, expression):
@@ -2131,8 +2134,6 @@ class ExpressionAnalyzer:
                 self.session.error(
                     "spawn expressions are not supported inside generic declarations", expr.line, expr.col
                 )
-            if isinstance(expr.fn, LambdaExpr):
-                self.session.spawned_lambda_ids.add(id(expr.fn))
             self._analyze_expr(expr.fn)
             self._validate_spawn_expr(expr)
             ret_type = self._infer_spawn_return_type(expr.fn)
@@ -2145,6 +2146,27 @@ class ExpressionAnalyzer:
         inferred = self._infer_type(expr)
         if inferred:
             self.session.record_node_type(expr, inferred)
+        self._reject_nonescaping_construction(expr, inferred)
+
+    def _reject_nonescaping_construction(self, expr, inferred) -> None:
+        """A constructed class instance may not hold a nonescaping rich enum."""
+        construction = isinstance(expr, NewExpr) or (
+            isinstance(expr, CallExpr)
+            and isinstance(expr.callee, Identifier)
+            and self.session.scope.lookup(expr.callee.name) is None
+            and expr.callee.name in self.index.class_table
+        )
+        constructed = self.types.canonical_type(inferred) if construction else None
+        if constructed is None or self.types.nonescaping_rich_enum(constructed) is not None:
+            return
+        contained = self.types.contains_nonescaping_rich_enum(constructed)
+        if contained is not None:
+            self.session.error(
+                f"Constructed '{constructed.base}' cannot contain nonescaping rich enum '{contained}' "
+                "in aggregate or managed storage",
+                expr.line,
+                expr.col,
+            )
 
     def _validate_index_expr(self, expression):
         object_type = self.types.canonical_type(self._infer_type(expression.obj))

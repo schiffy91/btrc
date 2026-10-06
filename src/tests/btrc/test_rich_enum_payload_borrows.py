@@ -43,6 +43,22 @@ class Probe implements INamed {
 	}
 }
 
+class Box<T> implements INamed {
+	public T value;
+	public Box(T value) {
+		self.value = value;
+	}
+	public int identity() {
+		return 1;
+	}
+}
+
+class Factory {
+	public INamed boxed<U>(U value) {
+		return new Box<U>(value);
+	}
+}
+
 """
 
 # Each payload kind is one variant shape and the argument that builds it from a
@@ -169,11 +185,62 @@ FLOWS = {
         "\treturn 0;\n}\n",
         "Variable 'worker' cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
     ),
+    "var-collection": (
+        "int main() {\nSETUP\tvar list = [Outcome.Held(ARG)];\n\treturn list.len;\n}\n",
+        "Variable 'list' cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
+    ),
+    "var-tuple": (
+        "int main() {\nSETUP\tvar pair = (Outcome.Held(ARG), 1);\n\treturn pair._1;\n}\n",
+        "Variable 'pair' cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
+    ),
+    "var-thread": (
+        "int main() {\n\tvar worker = spawn(() => Outcome.Rejected(1));\n\tworker.join();\n\treturn 0;\n}\n",
+        f"Lambda return type cannot be nonescaping rich enum 'Outcome'; {REASON}",
+    ),
+    "var-global": (
+        "var saved = Outcome.Rejected(0);\n\nint main() {\n\treturn saved.tag;\n}\n",
+        f"Global 'saved' cannot store nonescaping rich enum 'Outcome'; {REASON}",
+    ),
+    "spawn-join": (
+        "int main() {\n\tOutcome result = spawn(() => {\nSETUP\t\treturn Outcome.Held(ARG);\n\t}).join();\n"
+        "\treturn result.tag;\n}\n",
+        f"Lambda return type cannot be nonescaping rich enum 'Outcome'; {REASON}",
+    ),
+    "iife-collection": (
+        "int main() {\n\tint count = (() => {\nSETUP\t\treturn [Outcome.Held(ARG)];\n\t})().len;\n"
+        "\treturn count;\n}\n",
+        "Lambda return type cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
+    ),
+    "new-generic": (
+        "INamed make() {\nSETUP\treturn new Box<Outcome>(Outcome.Held(ARG));\n}\n\nint main() {\n"
+        "\treturn make().identity();\n}\n",
+        "Constructed 'Box' cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
+    ),
+    "inferred-constructor": (
+        "INamed make() {\nSETUP\treturn Box(Outcome.Held(ARG));\n}\n\nint main() {\n"
+        "\treturn make().identity();\n}\n",
+        "Constructed 'Box' cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
+    ),
+    "generic-method": (
+        "int main() {\nSETUP\tFactory factory = Factory();\n\tINamed boxed = factory.boxed(Outcome.Held(ARG));\n"
+        "\treturn boxed.identity();\n}\n",
+        "Generic argument 1 for method 'boxed' cannot contain nonescaping rich enum 'Outcome'",
+    ),
 }
 
 # The full flow matrix runs for class payloads; each other payload kind runs
 # the flows that build a value from its own owner.
-PAYLOAD_FLOWS = ("return", "outer-assignment", "payload-store", "vector-insert", "lambda-capture", "spawn-capture")
+PAYLOAD_FLOWS = (
+    "return",
+    "outer-assignment",
+    "payload-store",
+    "vector-insert",
+    "var-collection",
+    "lambda-capture",
+    "spawn-capture",
+    "spawn-join",
+    "new-generic",
+)
 CASES = [("class", flow) for flow in FLOWS] + [
     (payload, flow) for payload in ("string", "interface", "collection") for flow in PAYLOAD_FLOWS
 ]
@@ -256,18 +323,40 @@ int main() {
 """
 
 
+# A write through a payload object changes that object, not the enum's own
+# storage, so it stays allowed.
+PAYLOAD_OBJECT_WRITES = """enum class Outcome {
+	Held(Probe child),
+	Batch(Vector<int> values)
+}
+
+int main() {
+	Probe child = Probe(42);
+	Vector<int> values = [];
+	values.push(1);
+	Outcome held = Outcome.Held(child);
+	Outcome batch = Outcome.Batch(values);
+	held.data.Held.child.id = 5;
+	batch.data.Batch.values[0] = 7;
+	return child.id == 5 && values.get(0) == 7 ? 0 : 1;
+}
+"""
+
+
 @pytest.mark.parametrize(
     "program",
     [
         "src/tests/enums/RichEnumBorrowedPayloads.btrc",
         "src/tests/enums/RichEnumManagedCollectionPayloads.btrc",
         "scalar-flows",
+        "payload-object-writes",
     ],
 )
 def test_allowed_rich_enum_flows_are_sanitizer_clean_in_both_compilers(
     semantic_btrcc: Path, tmp_path: Path, program: str
 ) -> None:
-    source = PRELUDE + SCALAR_FLOWS if program == "scalar-flows" else (REPO / program).read_text()
+    snippets = {"scalar-flows": SCALAR_FLOWS, "payload-object-writes": PAYLOAD_OBJECT_WRITES}
+    source = PRELUDE + snippets[program] if program in snippets else (REPO / program).read_text()
     toolchain = require_sanitizers(tmp_path)
     selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source, no_stdlib=False)
     reference, reference_source = _compile_reference(tmp_path, source, "Allowed")
