@@ -6,6 +6,7 @@ import math
 import struct
 from collections.abc import Callable, Iterable, Mapping, Set
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from types import MappingProxyType
 from typing import ClassVar
 
@@ -200,6 +201,34 @@ class NumericLiteralSemantics:
     @staticmethod
     def float_type(raw: str) -> str:
         return "float" if raw.endswith(("f", "F")) else "double"
+
+    @staticmethod
+    def float_value(raw: str) -> float:
+        """Return a floating literal's value at its C type (C11 6.4.4.2p4).
+
+        A float literal rounds once, from its decimal spelling, to binary32.
+        Rounding through the double differs only when the double lands exactly
+        on a binary32 midpoint; then the exact decimal decides the side.
+        """
+        body = raw.rstrip("fF")
+        value = float(body)
+        if body == raw:
+            return value
+        try:
+            narrowed = struct.unpack("=f", struct.pack("=f", value))[0]
+        except OverflowError:
+            return math.inf
+        if narrowed == value:
+            return value
+        bits = struct.unpack("=I", struct.pack("=f", narrowed))[0]
+        neighbour = struct.unpack("=f", struct.pack("=I", bits + 1 if narrowed < value else bits - 1))[0]
+        if not math.isfinite(neighbour) or value != (narrowed + neighbour) / 2:
+            return narrowed
+        # Decimal compares the spelling exactly without building its integer.
+        exact = Decimal(body)
+        if exact == Decimal(value):
+            return narrowed
+        return max(narrowed, neighbour) if exact > Decimal(value) else min(narrowed, neighbour)
 
     def has_integral_range(self, target_base: str) -> bool:
         """Whether constant conversion to ``target_base`` has known bounds."""
@@ -1355,6 +1384,10 @@ class TypeSystem:
     def float_literal_type(self, raw: str) -> TypeExpr:
         """Decode a floating literal suffix into its semantic type."""
         return TypeExpr(base=self._numeric_literals.float_type(raw))
+
+    def float_literal_value(self, raw: str) -> float:
+        """Decode a floating literal at its C type."""
+        return self._numeric_literals.float_value(raw)
 
     def has_integral_range(self, target_base: str) -> bool:
         """Whether constant conversion to ``target_base`` has known bounds."""

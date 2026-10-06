@@ -766,11 +766,17 @@ def test_scope_counts_every_markdown_file_a_test_or_tool_reads_as_code() -> None
         for name in literal.findall(path.read_text(encoding="utf-8"))
         if (REPO / name).is_file()
     }
-    assert {"PLAN.md", "AGENTS.md", "docs/design/platform-parity.md"} <= read
+    assert {"CLAUDE.md", "AGENTS.md", "docs/design/platform-parity.md"} <= read
     assert sorted(name for name in read if not test_read.search(name)) == []
     for name in ("CLAUDE.md", "src/stdlib/GUI/README.md", "docs/design/compiler-structure.md"):
         assert test_read.search(name), name
-    for name in ("docs/design/ui0-catalog.md", "WORKSTREAMS.md", "docs/qualification/ui-agent-runbook.md"):
+    for name in (
+        "docs/design/ui0-catalog.md",
+        "WORKSTREAMS.md",
+        "CODEX.md",
+        "docs/design/claude-integration-record.md",
+        "docs/qualification/ui-agent-runbook.md",
+    ):
         assert not test_read.search(name), name
 
 
@@ -883,7 +889,8 @@ def _plan(tmp_path: Path, workflow: str, tier: str) -> dict[str, object]:
         ("push", "", (), {"tier": "extended"}, "extended"),
         ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "docs/qualification/notes.md"), {}, "docs"),
         ("pull_request", "stage30/notes", ("WORKSTREAMS.md",), {}, "docs"),
-        ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "PLAN.md"), {}, "lane"),
+        ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "CLAUDE.md"), {}, "lane"),
+        ("pull_request", "codex/cx-stdlib-01", ("CODEX.md",), {}, "docs"),
         ("pull_request", "stage30/notes", ("src/stdlib/GUI/README.md",), {}, "pr"),
         (
             "pull_request",
@@ -1259,3 +1266,35 @@ def test_a_focused_dispatch_runs_only_the_native_gui_job() -> None:
         assert junit["if"] == "always()", workflow
         assert junit["with"]["name"] == f"junit-{stem}-native-gui", workflow
         assert junit["with"]["path"] == "build/junit/native-gui.xml", workflow
+
+
+def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> None:
+    # Claude writes the mobile host workflows Codex requested (D28). Each lands
+    # before its host directory, so a guard job skips the device job on a
+    # revision without the tooling instead of failing main.
+    for workflow, tool in (("host-ios.yml", "ios/spike.py"), ("host-android.yml", "android/check.py")):
+        jobs = _parsed(workflow)["jobs"]
+        assert f"tools/target_hosts/{tool}" in _code(_job(_workflow(workflow), "tooling")), workflow
+        device = next(name for name in jobs if name != "tooling")
+        assert jobs[device]["needs"] == "tooling", workflow
+        assert jobs[device]["if"] == "needs.tooling.outputs.present == 'true'", workflow
+        # Steps pipe into tee, so the job runs bash with pipefail.
+        assert jobs[device]["defaults"] == {"run": {"shell": "bash"}}, workflow
+        final = jobs[device]["steps"][-1]
+        assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT, workflow
+
+    ios = _code(_job(_workflow("host-ios.yml"), "simulator"))
+    assert "python3 -m unittest tools.target_hosts.ios.test_executor -v" in ios
+    for device in ("iphone", "ipad"):
+        for mode in ("spawn", "app"):
+            assert f"--device-class {device} --mode {mode}" in ios, (device, mode)
+
+    # CX-P1-05's request: sdkmanager installs exactly the pinned package list,
+    # and the installed revisions are verified rather than trusted.
+    android = _code(_job(_workflow("host-android.yml"), "emulator"))
+    assert "python3 -m tools.target_hosts.android.sdk packages | tee build/android-sdk-packages.txt" in android
+    assert '"$sdkmanager" --install "${packages[@]}"' in android
+    assert 'python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT"' in android
+    assert "nix/android-repo-overlay.json" in android
+    assert ".#platforms" not in android
+    assert _parsed("host-android.yml")["jobs"]["emulator"]["strategy"]["matrix"]["api"] == ["29", "36"]

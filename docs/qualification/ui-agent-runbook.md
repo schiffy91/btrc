@@ -1,15 +1,16 @@
 # Native UI agent runbook
 
-Codex owns the native UI packets assigned by `WORKSTREAMS.md` §2–§3 and
-`docs/workstreams/codex.md`. Before each packet, fetch `origin/main`, read the
-current `docs/workstreams/codex-ui-lanes.md`, and inspect open draft PR claims.
-That lane file supplies the current order and CI capacity policy.
+Codex's active queue is `CODEX.md` (D28). `WORKSTREAMS.md` §3 holds the path
+claims and protocol; old packet ids in `docs/workstreams/codex.md` stay for
+traceability. Before each unit, fetch `origin/main`, read the current
+`CODEX.md`, and inspect open draft PR claims. `CODEX.md` supplies the current
+order; `docs/workstreams/codex-ui-lanes.md` keeps the CI capacity policy.
 
 ```sh
 git clone https://github.com/schiffy91/btrc.git
 cd btrc
 git fetch origin main
-git ls-tree --name-only origin/main docs/workstreams/codex-ui-lanes.md
+git show origin/main:CODEX.md
 git show origin/main:docs/workstreams/codex-ui-lanes.md
 git switch -c codex/cx-example origin/main
 export BTRC_TEST_RUNNER=linux-devcontainer
@@ -142,7 +143,9 @@ not meet the current CI policy. Every waited test subprocess needs `timeout=`
 from `src/tests/process_limits.py`. Check the current CI cap before pushing. Open a draft PR against `main`, title
 it `[CX-…] …`, and start its body with Owned paths followed by the repository's
 Codex packet template. Include exact commands, counts, skip rules, evidence
-artifacts and run IDs. Use at most four pushes per packet. Watch `release`,
+artifacts and run IDs. Batch corrections (D28): aim for four pushes per packet,
+but that count is not a hard stop and must not strand a verified repair; keep
+the measured CI concurrency cap and avoid redundant runs. Watch `release`,
 `tests (unit)`, `tests (btrc)` and macOS `native-gui` first; fix failures within
 your owned paths and re-push. Compare unrelated failures with current main,
 and rerun only an infrastructure failure, once. Never request full/extended CI

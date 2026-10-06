@@ -7,11 +7,12 @@ import ctypes
 import json
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from .bundle import CORPUS, digest
+from .bundle import METADATA_TIMEOUT_S, ROOT, acceptance_cases, digest
 from .executor import ExecutionRequest, WindowsNativeExecutor
 
 
@@ -58,24 +59,9 @@ def verify(case, result, *, dead_check=assert_dead):
         raise AssertionError(f"{case['name']}: stderr digest mismatch ({result.stderr[:200]!r})")
 
 
-def validate_cases(manifest):
-    """Refuse partial evidence before executing any native acceptance case."""
-    expected = {
-        "binary-streams": "probe",
-        "large-binary-stdin": "probe",
-        "exit-3": "probe",
-        "exit-124": "probe",
-        "exit-137": "probe",
-        "argv-quoting": "probe",
-        "environment": "probe",
-        "isolated-cwd": "probe",
-        "access-violation": "probe",
-        "deadline": "probe",
-        "tree-deadline": "tree",
-        "tree-parent-return": "tree",
-    }
-    corpus = {f"{Path(source).name}-{frontend}": frontend for source in CORPUS for frontend in ("python", "selfhost")}
-    expected.update({name: name for name in corpus})
+def validate_cases(manifest, *, root=ROOT):
+    """Pin the entire fixed-case contract and current checkout golden outputs."""
+    expected = {case["name"]: case for case in acceptance_cases(root)}
     cases = manifest.get("cases")
     if not isinstance(cases, list) or not all(
         isinstance(case, dict) and isinstance(case.get("name"), str) for case in cases
@@ -83,17 +69,19 @@ def validate_cases(manifest):
         raise ValueError("Windows acceptance manifest requires the complete named case list")
     names = [case["name"] for case in cases]
     if len(names) != len(set(names)) or set(names) != set(expected):
-        raise ValueError(
-            f"Windows acceptance case set mismatch: missing={sorted(set(expected) - set(names))}, unexpected={sorted(set(names) - set(expected))}, duplicates={len(names) - len(set(names))}"
-        )
+        raise ValueError("Windows acceptance case set mismatch")
     for case in cases:
-        name = case["name"]
-        if case.get("program") != expected[name]:
-            raise ValueError(f"{name}: acceptance program identity mismatch")
-        if name in corpus and (case.get("frontend") != corpus[name] or case.get("stdout_policy") != "lf"):
-            raise ValueError(f"{name}: corpus frontend or golden comparison policy mismatch")
-        if name.startswith("tree-") and case.get("stdout_policy") != "tree-pids":
-            raise ValueError(f"{name}: missing process-tree survivor evidence")
+        if json.dumps(case, sort_keys=True) != json.dumps(expected[case["name"]], sort_keys=True):
+            raise ValueError(f"{case['name']}: acceptance inputs, outcomes or golden digests mismatch")
+    programs = {case["program"] for case in cases}
+    records = manifest.get("programs", {})
+    if set(records) != programs or any(records[name].get("executable") != f"{name}.exe" for name in programs):
+        raise ValueError("acceptance executable mapping mismatch")
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True, timeout=METADATA_TIMEOUT_S
+    ).strip()
+    if manifest.get("toolchain", {}).get("source_revision") != revision:
+        raise ValueError("bundle must match the native checking checkout revision")
     return cases
 
 
@@ -140,11 +128,12 @@ def check(bundle, report, label):
                         )
                         verify(case, result)
                         row["passed"] = True
-                    except BaseException as error:
+                    except Exception as error:
                         row["error"] = f"{type(error).__name__}: {error}"
-                        raise
             finally:
                 executor.close()
+        if any(not row["passed"] for row in rows):
+            raise RuntimeError("one or more native acceptance cases failed; see all collected results")
         outcome["complete"] = True
     except BaseException as error:
         outcome["error"] = f"{type(error).__name__}: {error}"
