@@ -114,10 +114,16 @@ SPSC = "import Library.SPSC;\n"
 JSON = "import Library.JSON;\n"
 
 
-def _compile_pair(semantic_btrcc: Path, directory: Path, head: str, body: str):
+def _compile_pair(semantic_btrcc: Path, directory: Path, head: str, body: str, owner_import: str):
+    """`Leaf.btrc` spells the tag; `Owner.btrc` brings its module into the
+    program, so the tag names a declaration the program contains."""
     directory.mkdir()
+    (directory / "Owner.btrc").write_text(f"{owner_import}int ownerReady() {{ return 0; }}\n", encoding="utf-8")
+    (directory / "Leaf.btrc").write_text(f"{head}int leaf() {{\n\t{body}\n\treturn 0;\n}}\n", encoding="utf-8")
     main = directory / "Main.btrc"
-    main.write_text(f"{head}int main() {{\n\t{body}\n\treturn 0;\n}}\n", encoding="utf-8")
+    main.write_text(
+        "import ./Leaf.btrc;\nimport ./Owner.btrc;\nint main() { return leaf() + ownerReady(); }\n", encoding="utf-8"
+    )
     environment = {**os.environ, "BTRC_CACHE_DIR": str(directory / "cache")}
     reference = subprocess.run(
         [sys.executable, "-m", "src.compiler.python.main", str(main), "--no-cache", "-o", str(directory / "r.c")],
@@ -151,11 +157,14 @@ def _compile_pair(semantic_btrcc: Path, directory: Path, head: str, body: str):
 def test_a_tag_needs_its_declarations_import(
     semantic_btrcc: Path, tmp_path: Path, body: str, name: str, owner: str, head: str, accepted: bool
 ) -> None:
-    for result in _compile_pair(semantic_btrcc, tmp_path / "unimported", "", body):
+    """A tag naming a type the program contains needs that type's import,
+    as the bare name does, in the module that spells it."""
+
+    for result in _compile_pair(semantic_btrcc, tmp_path / "unimported", "", body, head):
         assert result.returncode != 0
-        assert f"'{name}' is defined in {owner} but Main.btrc does not import it" in result.stderr, result.stderr
+        assert f"'{name}' is defined in {owner} but Leaf.btrc does not import it" in result.stderr, result.stderr
     if accepted:
-        for result in _compile_pair(semantic_btrcc, tmp_path / "imported", head, body):
+        for result in _compile_pair(semantic_btrcc, tmp_path / "imported", head, body, head):
             assert result.returncode == 0, result.stderr
 
 
@@ -194,9 +203,7 @@ def test_a_tag_never_names_a_function(semantic_btrcc: Path, tmp_path: Path) -> N
     ],
     ids=["struct-Timer", "struct-ListNode", "enum-Result", "union-Path"],
 )
-def test_a_headers_own_tag_needs_no_stdlib_import(
-    semantic_btrcc: Path, tmp_path: Path, header: str, body: str
-) -> None:
+def test_a_headers_own_tag_needs_no_stdlib_import(semantic_btrcc: Path, tmp_path: Path, header: str, body: str) -> None:
     """A C header's own `struct Timer` is not the stdlib's Timer: a tag
     resolves only among types the program declares, never through the stdlib
     symbol index for a module the program does not contain."""

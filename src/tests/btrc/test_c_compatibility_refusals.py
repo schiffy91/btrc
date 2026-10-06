@@ -1134,11 +1134,21 @@ RECORD_REFUSALS = [
         pytest.param("struct P { int x; };\n" + BOX + body, (message, 3, col), id=f"r09-new-tag-{name}")
         for name, body, message, col in (
             ("compare", "int main() { if (new Box<union P*>(null) != null) { return 1; } return 0; }", NOT_UNION, 26),
-            ("member", "int main() { bool e = new Box<union P*>(null).value == null; return e ? 0 : 1; }", NOT_UNION, 31),
+            (
+                "member",
+                "int main() { bool e = new Box<union P*>(null).value == null; return e ? 0 : 1; }",
+                NOT_UNION,
+                31,
+            ),
             ("bool", "int main() { bool z = new Box<union P*>(null) != null; return z ? 0 : 1; }", NOT_UNION, 31),
             ("address", "int main() { P p = {1}; var b = new Box<union P*>(&p); return 0; }", NOT_UNION, 41),
             ("declared", "int main() { Box<P*> b = new Box<union P*>(null); return 0; }", NOT_UNION, 34),
-            ("return", "Box<P*> make() { return new Box<union P*>(null); }\nint main() { make(); return 0; }", NOT_UNION, 33),
+            (
+                "return",
+                "Box<P*> make() { return new Box<union P*>(null); }\nint main() { make(); return 0; }",
+                NOT_UNION,
+                33,
+            ),
             (
                 "assignment",
                 "int main() { Box<P*> b = new Box<P*>(null); b = new Box<union P*>(null); return 0; }",
