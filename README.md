@@ -1996,6 +1996,15 @@ make btrcc-windows-x64      # -> dist/btrcc-windows-x64.zip{,.sha256}
 make btrcc-dist             # all five distributions
 ```
 
+Each distribution is cross-compiled from C generated for one explicit target
+row, never the build host: `dist/btrcc.c` (`linux-x86_64`) for both Linux
+architectures, `dist/btrcc-macos.c` (`macos-x86_64`) for both macOS
+architectures, and `dist/btrcc-windows.c` (`windows-x86_64`) for Windows. The
+Linux and macOS files differ because their stdlib providers do. Before a
+Linux or macOS bundle is built, the release gate (`make btrcc-release-c`)
+regenerates its C file for the other architecture's row and requires byte
+identity; the check is stamped, so it reruns only when an input changes.
+
 Each archive has one self-contained layout:
 
 ```text

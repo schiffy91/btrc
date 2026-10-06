@@ -11,6 +11,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from src.tests.process_limits import TOOL_TIMEOUT, TRANSPILE_TIMEOUT
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -374,6 +376,42 @@ def test_btrcc_release_targets_publish_bundles_not_raw_dist_binaries():
     assert "-o build/btrcc/windows-x64/btrcc.exe" in windows
     assert "--target windows-x64 --output-dir dist" in windows
     assert "tools.compiler_codegen.main check" in linux + windows
+
+
+# Each Unix bundle: its release C file, the row that file is generated for, the
+# other row whose identity the gate proves, and the other OS's file it must not use.
+RELEASE_C_BUNDLES = {
+    "btrcc-linux-x64": ("dist/btrcc.c", "linux-x86_64", "linux-aarch64", "linux-x64", "dist/btrcc-macos.c"),
+    "btrcc-linux-arm64": ("dist/btrcc.c", "linux-x86_64", "linux-aarch64", "linux-arm64", "dist/btrcc-macos.c"),
+    "btrcc-macos-x64": ("dist/btrcc-macos.c", "macos-x86_64", "macos-aarch64", "macos-x64", "dist/btrcc.c "),
+    "btrcc-macos-arm64": ("dist/btrcc-macos.c", "macos-x86_64", "macos-aarch64", "macos-arm64", "dist/btrcc.c "),
+}
+
+
+@pytest.mark.parametrize("bundle", sorted(RELEASE_C_BUNDLES))
+def test_release_c_files_are_generated_for_their_rows_and_checked_per_row(bundle: str):
+    """Each release C file is generated for an explicit row, never the host, and
+    the gate proves it byte-identical for its other architecture through an
+    incremental stamp (platform-target-contract.md §1.8)."""
+
+    c_file, row, checked_row, build, other_file = RELEASE_C_BUNDLES[bundle]
+    output = _make_dry_run("--always-make", bundle, "NIX=")
+    stamp = f"build/btrcc/release-c/{checked_row}"
+
+    assert f"BtrccMain.btrc --strict-imports --no-cache --target {row} -o {c_file}" in output
+    assert f"--target {checked_row} -o {stamp}.c" in output
+    assert f"cmp -s {c_file} {stamp}.c" in output
+    assert f"touch {stamp}.ok" in output
+    assert f"{c_file} -o build/btrcc/{build}/btrcc" in output
+    assert other_file not in output
+
+
+def test_windows_release_c_and_samples_are_generated_for_windows_x86_64():
+    windows = _make_dry_run("--always-make", "test-windows", "NIX=")
+
+    assert "WindowsMain.btrc --strict-imports --no-cache --target windows-x86_64 -o dist/btrcc-windows.c" in windows
+    assert "--no-cache --target windows-x86_64 -o dist/win_sample.c" in windows
+    assert "--no-cache --target windows-x86_64 -o dist/win_paths.c" in windows
 
 
 def test_explicit_generation_target_forces_regeneration_without_aliases():

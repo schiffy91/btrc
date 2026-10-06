@@ -51,6 +51,7 @@
 -	defined(__LINE__)	error 1:13 '__LINE__' is reserved for the C implementation and is not a btrc target macro; #if cannot test it
 -	PATH_MAX > 0	error 1:5 'PATH_MAX' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it
 -	defined NDEBUG	error 1:13 'NDEBUG' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it
+-	TARGET_CPU_ARM64	error 1:5 'TARGET_CPU_ARM64' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it
 -	0 && bool	error 1:10 'bool' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it
 #define VERSION(x) x	VERSION	error 2:5 Function-like macro 'VERSION' cannot be used in #if; btrc expands only object-like macros there
 #define FEATURE	FEATURE	error 2:5 Macro 'FEATURE' expands to nothing in #if; test it with defined(FEATURE)
