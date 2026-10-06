@@ -282,6 +282,9 @@ class Lexer {
 		int index = self.grammar.vocabulary.operatorIndexAt(self.source, self.pos, self.sourceLen);
 		if (index >= 0) {
 			string op = self.grammar.vocabulary.operatorAt(index);
+			/* `c?.5:1.0` is `?` and the constant `.5`: optional chaining
+			 * never selects a numeric field. */
+			if (op == "?." && Strings.isDigit(self.peek(2))) { op = "?"; }
 			int oplen = op.length();
 			int consumed = 0;
 			while (consumed < oplen) { self.advance(); consumed++; }

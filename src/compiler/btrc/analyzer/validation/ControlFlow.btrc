@@ -687,7 +687,7 @@ class ControlFlowValidator {
 				TypeValidator.fail("'var' declaration of '" + declaration.name + "' requires an initializer", declaration);
 			}
 			if (declaration.initializer.kind == NK_BRACE_INITIALIZER) {
-				TypeValidator.fail("Cannot infer array storage for 'var' from " + "a brace initializer; use an explicit array declaration", declaration);
+				TypeValidator.fail("Cannot infer array storage for 'var' from " + "a brace initializer; use an explicit array declaration", declaration.initializer);
 			}
 			if (actual == null) {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);

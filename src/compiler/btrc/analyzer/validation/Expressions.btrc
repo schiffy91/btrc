@@ -380,11 +380,6 @@ class ExpressionValidator {
 
 	public void validateField(Node expression, bool requireGetter, Map<string, Node> vars) {
 		if (expression.obj == null) { return; }
-		if (expression.obj.kind == NK_INT_LITERAL || expression.obj.kind == NK_FLOAT_LITERAL) {
-			/* `5.f` is a floating constant; spaced or parenthesized, a
-			 * numeric literal has no members. */
-			TypeValidator.fail("Numeric literal '" + expression.obj.raw + "' has no field '" + expression.field + "'", expression);
-		}
 		if (requireGetter) { self.validateNativeCallbackRead(expression, vars); }
 		if (expression.obj.kind == NK_IDENTIFIER && !vars.has(expression.obj.name)) {
 			if (expression.obj.name == "MemoryOrder") {

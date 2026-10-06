@@ -19,6 +19,7 @@ import ctypes
 import ctypes.util
 import json
 import random
+import shutil
 import subprocess
 import sys
 from decimal import Decimal, localcontext
@@ -105,6 +106,32 @@ def _tokens(source: str) -> list[tuple[TokenKind, str]]:
             "f().0",
             [(TokenKind.IDENT, "f"), (TokenKind.LPAREN, "("), (TokenKind.RPAREN, ")"), (TokenKind.FLOAT_LIT, ".0")],
         ),
+        (
+            "p?.0.1",
+            [
+                (TokenKind.IDENT, "p"),
+                (TokenKind.QUESTION, "?"),
+                (TokenKind.FLOAT_LIT, ".0"),
+                (TokenKind.DOT, "."),
+                (TokenKind.INT_LIT, "1"),
+            ],
+        ),
+        ("}.0", [(TokenKind.RBRACE, "}"), (TokenKind.FLOAT_LIT, ".0")]),
+        # Optional chaining never selects a numeric field: "c?.5:1." is a conditional.
+        (
+            "c?.5:1.",
+            [
+                (TokenKind.IDENT, "c"),
+                (TokenKind.QUESTION, "?"),
+                (TokenKind.FLOAT_LIT, ".5"),
+                (TokenKind.COLON, ":"),
+                (TokenKind.FLOAT_LIT, "1."),
+            ],
+        ),
+        (
+            "return .5;",
+            [(TokenKind.RETURN, "return"), (TokenKind.FLOAT_LIT, ".5"), (TokenKind.SEMICOLON, ";")],
+        ),
         # Dots after digits stay dots, as in a GNU range.
         (
             "1...5",
@@ -134,9 +161,15 @@ float smallest =
 static double reciprocal = 1.0 / 1e-50;
 static int truncated = (int)-2147483648.9;
 static unsigned int zero = (unsigned int)-0.5;
+static int intEdge = (int)2147483647.9;
+static unsigned char byteEdge = (unsigned char)255.9;
+static bool truthy = (bool)1e30;
 
 int main() {
 	long long quarter = (long long).25;
+	int c = 1;
+	double conditional = c?.5:1.;
+	assert(conditional == 0.5 && intEdge == 2147483647 && byteEdge == 255 && truthy);
 	var pair = (1, (2, .5));
 	assert(pair.1.1 == .5 && (pair.1).0 == 2);
 	assert(largest == 340282346638528859811704183484516925440.0f);
@@ -147,8 +180,15 @@ int main() {
 """
 
 
+def _c_compilers() -> list[list[str]]:
+    """gcc and clang where both exist, else the configured C compiler."""
+    found = [[name] for name in ("gcc", "clang") if shutil.which(name) is not None]
+    return found or [list(CC)]
+
+
 def _build_and_run(compiler: list[str], program: Path, directory: Path, layout: list[str] | None) -> str:
-    """Transpile ``program`` in one unit layout, link every unit strictly, run it."""
+    """Transpile ``program`` in one unit layout, link every unit strictly under
+    each available C compiler, run it, and return its one output."""
     directory.mkdir()
     primary = directory / "program.c"
     plan = directory / "program.json"
@@ -159,31 +199,35 @@ def _build_and_run(compiler: list[str], program: Path, directory: Path, layout: 
     transpiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=300)
     assert transpiled.returncode == 0, transpiled.stderr
     units = json.loads(plan.read_text()).get("emitted-units", [])
-    binary = directory / "program"
-    built = subprocess.run(
-        [
-            *CC,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            str(primary),
-            *units,
-            "-o",
-            str(binary),
-            "-lm",
-            "-lpthread",
-        ],
-        cwd=directory,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    assert built.returncode == 0, built.stderr
-    ran = subprocess.run([str(binary)], cwd=directory, capture_output=True, text=True, timeout=30)
-    assert ran.returncode == 0, ran.stderr
-    return ran.stdout
+    outputs = set()
+    for index, c_compiler in enumerate(_c_compilers()):
+        binary = directory / f"program-{index}"
+        built = subprocess.run(
+            [
+                *c_compiler,
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                str(primary),
+                *units,
+                "-o",
+                str(binary),
+                "-lm",
+                "-lpthread",
+            ],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert built.returncode == 0, (c_compiler, built.stderr)
+        ran = subprocess.run([str(binary)], cwd=directory, capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0, (c_compiler, ran.stderr)
+        outputs.add(ran.stdout)
+    assert len(outputs) == 1, outputs
+    return outputs.pop()
 
 
 def _compilers(semantic_btrcc: Path) -> dict[str, list[str]]:
@@ -276,9 +320,44 @@ REFUSALS = [
         id="floating-literal-field",
     ),
     pytest.param(
+        "int main() { int z = 5 .f(); return z; }",
+        ("Numeric literal '5' has no field 'f'", 1, 22),
+        id="integer-literal-method",
+    ),
+    pytest.param(
+        "int y = (5).x;\nint main() { return y; }",
+        ("Numeric literal '5' has no field 'x'", 1, 10),
+        id="integer-literal-field-in-a-global",
+    ),
+    pytest.param(
         "int main() { long long y = (long long).x; return 0; }",
         ("Expected expression after a cast, got DOT '.'", 1, 39),
         id="member-of-type-name",
+    ),
+    pytest.param(
+        "int main() { int x = (int*).x; return 0; }",
+        ("Expected expression after a cast, got DOT '.'", 1, 28),
+        id="member-of-pointer-type-name",
+    ),
+    pytest.param(
+        "int main() { int x = (unsigned).foo; return 0; }",
+        ("Expected expression after a cast, got DOT '.'", 1, 32),
+        id="member-of-unsigned",
+    ),
+    pytest.param(
+        "class Point { public int x; }\nint main() { int y = (Point).x; return y; }",
+        ("Instance member 'x' cannot be accessed on class 'Point'", 2, 23),
+        id="member-of-grouped-class-name",
+    ),
+    pytest.param(
+        "int main() { var t = (1, 2); return t.0e1; }",
+        ("Invalid numeric literal '0e1'", 1, 39),
+        id="field-index-exponent",
+    ),
+    pytest.param(
+        "int f() { return 1; }\nint main() { return f().0f; }",
+        ("Expected SEMICOLON, got FLOAT_LIT '.0f'", 2, 24),
+        id="suffixed-dot-after-call",
     ),
     pytest.param(
         "int main() { int x = 5.x; return x; }", ("Invalid numeric literal '5.x'", 1, 22), id="trailing-dot-tail"
@@ -345,6 +424,43 @@ REFUSALS = [
         "class Limits { class int big = (short)40000.0; }\nint main() { return 0; }",
         (_out_of_range("40000.0", "short"), 1, 32),
         id="static-class-field",
+    ),
+    pytest.param(
+        "int g = 1 ? (int)1e30 : 0;\nint main() { return g; }",
+        (_out_of_range("1e30", "int"), 1, 13),
+        id="ternary-operand",
+    ),
+    pytest.param(
+        "int h = -(int)1e30;\nint main() { return h; }",
+        (_out_of_range("1e30", "int"), 1, 10),
+        id="unary-operand",
+    ),
+    pytest.param(
+        "long long w = (long long)9223372036854775807.0;\nint main() { return 0; }",
+        (_out_of_range("9223372036854775807.0", "long long"), 1, 15),
+        id="long-long-upper-edge",
+    ),
+    pytest.param(
+        "typedef unsigned char Byte;\nByte b = (Byte)300.0;\nint main() { return b; }",
+        (_out_of_range("300.0", "unsigned char"), 2, 10),
+        id="typedef-target",
+    ),
+    pytest.param(
+        # The double spelling lands on the overflow midpoint; the f literal is
+        # FLT_MAX, which no int holds.
+        f"static int big = (int){OVERFLOW_MIDPOINT[:-1]}7.0f;\nint main() {{ return big; }}",
+        (_out_of_range(f"{OVERFLOW_MIDPOINT[:-1]}7.0f", "int"), 1, 18),
+        id="float-literal-below-the-overflow-midpoint",
+    ),
+    pytest.param(
+        "var g = {(int)1e10};\nint main() { return 0; }",
+        ("Cannot infer array storage for 'var' from a brace initializer; use an explicit array declaration", 1, 9),
+        id="untyped-brace-global",
+    ),
+    pytest.param(
+        "int main() {\n\tvar g = {1, 2};\n\treturn 0;\n}\n",
+        ("Cannot infer array storage for 'var' from a brace initializer; use an explicit array declaration", 2, 10),
+        id="untyped-brace-local",
     ),
 ]
 
@@ -427,7 +543,9 @@ def test_selfhost_float_edges_match_strtof(semantic_btrcc: Path, tmp_path: Path)
         pytest.skip("needs the C library's strtof")
     program = tmp_path / "edge.btrc"
     mismatches = []
-    for body in _edge_spellings(seed=34, count=12):
+    spellings = _edge_spellings(seed=34, count=12)
+    assert {_strtof_problem(strtof, body) for body in spellings} == {None, FLOAT_RANGE, FLOAT_UNDERFLOW}
+    for body in spellings:
         program.write_text(f"int main() {{ float value = {body}f; return value > 0.0f ? 0 : 1; }}\n")
         result = subprocess.run(
             [str(semantic_btrcc), "--no-stdlib", str(program)], cwd=REPO, capture_output=True, text=True, timeout=60

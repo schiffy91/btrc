@@ -1417,9 +1417,14 @@ pins every refusal's message, line and column in both.
   as tuple field N after a postfix operand (`f().0`), and a grouped bare name
   before one is not a cast (`(t).0`). `(int).5f`, `(int)5.f` and
   `(long long).25` are casts; `(long long).x` is refused with `Expected
-  expression after a cast, got DOT '.'`. `1...5` keeps its dots.
-- **Members of a numeric literal.** `5 .f`, `(5).x` and `2.5 .y` are refused
-  with `Numeric literal '5' has no field 'f'`; unspaced, `5.x` is the invalid
+  expression after a cast, got DOT '.'`. `1...5` keeps its dots, and `?.`
+  before a digit is `?` and a constant (`c?.5:1.0`), since optional chaining
+  never selects a numeric field. A typedef or class name grouped before a
+  plain `.N` (`(Real).5`) still reads as a tuple field in both compilers, as
+  before; `(Real).5f` and `(Real)0.5` cast.
+- **Members of a numeric literal.** `5 .f`, `5 .f()`, `(5).x` and `2.5 .y`
+  are parse errors in both parsers, `Numeric literal '5' has no field 'f'`,
+  so they come first in any declaration; unspaced, `5.x` is the invalid
   pp-number `Invalid numeric literal '5.x'`, as in C.
 - **`f` range.** The overflow and underflow refusals compare the exact decimal
   with the binary32 midpoints 2^128 - 2^103 and 2^-150 (Python `Fraction`;
@@ -1438,7 +1443,18 @@ pins every refusal's message, line and column in both.
   possibly signed, and whose integer target has known bounds is refused when
   the truncated value is outside them (C11 6.3.1.4p1): `Floating constant
   '1e30' is out of range for 'int' in a static initializer`, at the cast.
-  `char` (signedness is CL-C-25's) and run-time casts are out of scope.
+  The bounds are the ones both compilers share: the built-in integers and
+  the exact-width typedefs (btrc `ConstantValidator.portableCastRange`,
+  Python `NumericLiteralSemantics`). `char` (signedness is CL-C-25's), enums,
+  least-, fast- and hosted-ABI typedefs (`size_t`), folded arithmetic and
+  run-time casts stay unchecked in both, so `static size_t g = (size_t)1e30;`
+  still reaches the C compiler. An untyped global's brace initializer reports
+  its inference refusal first.
 - **Untyped globals.** btrcc lowers an untyped global `var` with the type the
   analyzer inferred (`globalVarTypes`), in whole-program, split and
-  `--module-units` layouts, as the reference does; it used `int`.
+  `--module-units` layouts, as the reference does; it used `int`. Where the
+  analyzer's global inference saw no other global (`var g = arr;`), the
+  lowering takes the initializer's type as a local's (`int*`). Two older
+  gaps stay with the static-storage owners (CL-REQ-10): btrc's analyzer
+  still refuses a reference to such a global, and it does not check that an
+  untyped global's initializer is constant (`var g = f();`).

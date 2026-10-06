@@ -164,6 +164,7 @@ def test_floating_literal_values_match_reference_ast(selfhost_drivers: dict[str,
         "\tdouble edge = 340282356779733661637539395458142568447.0;\n"
         "\tdouble past = 340282356779733661637539395458142568448.0;\n"
         "\tvar pair = (1, (2, 3)); int field = pair.1.0 + (pair).0;\n"
+        '\tstring text = f"{.5} {pair.1.0} {(pair).0}"; double pick = field?.5:1.;\n'
         "}\n"
     )
     parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)

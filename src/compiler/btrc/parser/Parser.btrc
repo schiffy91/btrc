@@ -2496,9 +2496,12 @@ class Parser {
 		string fieldName = "";
 		if (self.check("INT_LIT")) {
 			Token idxTok = self.advance();
+			self.refuseNumericMember(expr, idxTok.value, idxTok);
 			fieldName = "_" + idxTok.value;
 		} else {
-			fieldName = self.memberName().value;
+			Token member = self.memberName();
+			self.refuseNumericMember(expr, member.value, member);
+			fieldName = member.value;
 		}
 		Node fa = Node();
 		fa.kind = NK_FIELD_ACCESS_EXPR;
@@ -2522,8 +2525,17 @@ class Parser {
 		return true;
 	}
 
+	/* `5.f` is a floating constant; spaced or grouped, a numeric literal has
+	 * no members. */
+	private void refuseNumericMember(Node operand, string member, Token site) {
+		if (operand.kind != NK_INT_LITERAL && operand.kind != NK_FLOAT_LITERAL) { return; }
+		Token at = Token(site.type, site.value, operand.line, operand.col);
+		self.failAt("Numeric literal '" + operand.raw + "' has no field '" + member + "'", at);
+	}
+
 	public Node postfixTupleField(Node expr) {
 		Token field = self.advance();
+		self.refuseNumericMember(expr, field.value.substring(1, field.value.length() - 1), field);
 		Node fa = Node();
 		fa.kind = NK_FIELD_ACCESS_EXPR;
 		fa.obj = expr;

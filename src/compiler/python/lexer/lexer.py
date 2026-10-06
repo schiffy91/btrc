@@ -997,6 +997,14 @@ class Lexer:
         line, col = self.line, self.col
 
         match = self._vocabulary.match_operator(self.source, self.pos)
+        if (
+            match is not None
+            and match[0] is TokenKind.QUESTION_DOT
+            and self._literal_scanner.is_ascii_digit(self._peek(2))
+        ):
+            # "c?.5:1.0" is "?" and the constant ".5": optional chaining never
+            # selects a numeric field.
+            match = self._vocabulary.match_operator(self.source[: self.pos + 1], self.pos)
         if match is not None:
             token_type, width = match
             value = self.source[self.pos : self.pos + width]

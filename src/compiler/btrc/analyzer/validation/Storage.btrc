@@ -291,7 +291,7 @@ class StorageValidator {
 		if (spelling == "") { return ""; }
 		Node? target = self.types.resolveAliases(expression.targetType);
 		if (target == null || target.base == "bool" || !self.types.integralType(target, self.state.analyzed)) { return ""; }
-		SemanticIntegralCastRange range = self.constants.integralCastRange(target, self.state.analyzed);
+		SemanticIntegralCastRange range = self.constants.portableCastRange(target, self.state.analyzed);
 		if (!range.supported || self.constants.floatConvertible(self.floatingConstantValue(expression.expr), range)) { return ""; }
 		return "Floating constant '" + spelling + "' is out of range for '" + target.base + "' in a static initializer";
 	}
@@ -951,8 +951,10 @@ class StorageValidator {
 			if (hasStaticStorage && declaration.initializer != null && !declaration.type.isExtern && !self.staticInitializer(declaration.initializer, declaration.type)) {
 				TypeValidator.fail(subject + " requires a C constant/address initializer for " + "static storage", declaration);
 			}
-		} else if (isGlobal) {
-			/* An untyped global `var` takes its inferred type; its initializer is static all the same. */
+		} else if (isGlobal && declaration.initializer != null && declaration.initializer.kind != NK_BRACE_INITIALIZER) {
+			/* An untyped global `var` takes its inferred type; its initializer
+			 * is static all the same. A brace initializer infers no type, which
+			 * is reported first. */
 			self.validateStaticFloatConversion(declaration.initializer);
 		}
 	}

@@ -2206,6 +2206,12 @@ class Parser:
         return self.tokens[follow_pos].type in follow
 
     @staticmethod
+    def _refuse_numeric_member(operand, member: str) -> None:
+        """ "5.f" is a floating constant; spaced or grouped, a numeric literal has no members."""
+        if isinstance(operand, (IntLiteral, FloatLiteral)):
+            raise ParseError(f"Numeric literal '{operand.raw}' has no field '{member}'", operand.line, operand.col)
+
+    @staticmethod
     def _tuple_field_token(token: Token) -> bool:
         """Whether a floating token is a plain ".N", the spelling of a tuple field."""
         value = token.value
@@ -2255,15 +2261,18 @@ class Parser:
                 self._advance()
                 if self._check(TokenKind.INT_LIT):
                     idx_tok = self._advance()
+                    self._refuse_numeric_member(expr, idx_tok.value)
                     field_name = f"_{idx_tok.value}"
                 else:
                     field_name = self._member_name().value
+                    self._refuse_numeric_member(expr, field_name)
                 expr = FieldAccessExpr(obj=expr, field=field_name, arrow=False, line=expr.line, col=expr.col)
 
             elif self._tuple_field_token(tok):
                 # After ")" or "}" the lexer reads ".0" as one floating token;
                 # its plain digits select a tuple field, as "t.0" does.
                 self._advance()
+                self._refuse_numeric_member(expr, tok.value[1:])
                 expr = FieldAccessExpr(obj=expr, field=f"_{tok.value[1:]}", arrow=False, line=expr.line, col=expr.col)
 
             elif tok.type == TokenKind.QUESTION_DOT:

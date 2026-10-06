@@ -112,6 +112,7 @@ INVALID_INPUTS = [
     (".5ff", "Invalid numeric literal '.5ff' at 1:1"),
     ("5.e", "Invalid float literal: no digits in exponent at 1:1"),
     ("x = 1.e+;", "Invalid float literal: no digits in exponent at 1:5"),
+    ("t.0e1", "Invalid numeric literal '0e1' at 1:3"),
 ]
 
 
@@ -237,7 +238,7 @@ def test_dotted_floating_constants_and_tuple_fields_lex_identically(
         "  float a = .5f; double b = 5.; float c = 5.f; float d = 1.e5f; double e = .5e-1;\n"
         "  int f = (int).5f + (int)5.f; double g = 09. + 1.e1 - .25;\n"
         "  var t = (1, (2, 3)); int h = t.0 + t.1.0 + (t).1.1 + pair().0;\n"
-        "  int i = values[0].1 + self.count.2 + x++ .3;\n"
+        "  int i = values[0].1 + self.count.2 + x++ .3; double k = c?.5:1. + p?.q;\n"
         "  return 0;\n"
         "}\n"
     )
