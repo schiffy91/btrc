@@ -68,6 +68,12 @@ jobs:
             done
             echo "--- system xcrun clang --version"
             xcrun clang --version
+            # platform-target-contract.md §2.5 expects fork unavailable on both
+            # ios rows; record how each SDK actually declares it.
+            for sdk in macosx iphoneos iphonesimulator; do
+              echo "--- $sdk SDK: fork in unistd.h"
+              grep -n -E '\bv?fork\(' "$(xcrun --sdk "$sdk" --show-sdk-path)/usr/include/unistd.h" || echo "(not declared)"
+            done
             echo "--- dev shell: which xcrun, DEVELOPER_DIR, SDKROOT"
             nix develop --command bash -c 'command -v xcrun || echo "no xcrun"; echo "DEVELOPER_DIR=${DEVELOPER_DIR:-}"; echo "SDKROOT=${SDKROOT:-}"'
             echo "--- dev shell: xcrun --sdk iphoneos --show-sdk-path"
@@ -112,18 +118,41 @@ jobs:
           exit "$status"
 
       # The dev shell's xcrun is nix's xcbuild over its own macOS SDK: it has
-      # no iphoneos SDK and no Apple clang (run 37498176824). So the oracle
-      # runs on the runner's python3 with the system Xcode, pytest pinned to
-      # the dev shell's release; the extractor's unit tests stay in the shell.
+      # no iphoneos SDK and no Apple clang (run 37498176824). So the two Apple
+      # checks run on the runner's python3 with the system Xcode, pytest
+      # pinned to the dev shell's release. The other cases of the file check
+      # the dev shell's clang, so they run in the shell below.
+      #
+      # The runner's Xcode is not the pinned 27A266a, so a mismatch here is
+      # the stand-in finding this workflow exists to record, not a defect of
+      # the branch: the outcome goes to oracle-result.txt and the run summary,
+      # and the job stays green. MAC-P1-05 runs the same checks as a gate on
+      # the pinned Xcode.
       - name: Run the Apple macro oracle against the runner's Xcode
         if: ${{ !cancelled() }}
         env:
           BTRC_APPLE_STAND_IN_XCODE_BUILD: ${{ steps.versions.outputs.xcode_build }}
         run: |
           python3 -m pip install --quiet pytest==9.0.3
+          status=0
           /usr/bin/env -u DEVELOPER_DIR -u SDKROOT python3 -m pytest src/tests/python/test_target_macro_table.py \
+            -k "test_apple_clang_defines_the_table_target_os_set or test_target_conditionals_header_accepts_the_predefined_values" \
             -v -rs -p no:cacheprovider --skip-report build/skip-report-hosted-platform-apple-oracle.json 2>&1 \
-            | tee build/hosted-platform-apple/pytest.log
+            | tee build/hosted-platform-apple/pytest.log || status=$?
+          summary=$(tail -n 1 build/hosted-platform-apple/pytest.log)
+          echo "exit $status: $summary (Xcode ${BTRC_APPLE_STAND_IN_XCODE_BUILD}, stand-in)" \
+            | tee build/hosted-platform-apple/oracle-result.txt
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::Apple macro oracle differs on stand-in Xcode ${BTRC_APPLE_STAND_IN_XCODE_BUILD}: $summary (see pytest.log)"
+          fi
+          echo "Apple macro oracle (stand-in Xcode ${BTRC_APPLE_STAND_IN_XCODE_BUILD}): exit $status, $summary" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run the macro table's dev-shell checks
+        if: ${{ !cancelled() }}
+        run: |
+          nix develop --command python3 -m pytest src/tests/python/test_target_macro_table.py \
+            -v -rs -p no:cacheprovider --skip-report build/skip-report-hosted-platform-apple-table.json 2>&1 \
+            | tee build/hosted-platform-apple/pytest-table.log
 
       - name: Run the extractor's unit tests in the dev shell
         if: ${{ !cancelled() }}
