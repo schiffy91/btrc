@@ -266,8 +266,17 @@ owner, the exact prerequisite and the next acceptance.
   (`ShellProbe.m:271`); map through `controlView`. (3) Test-record slot keys set
   frontend/variant values that `JUnitAdapter` never emits. Acceptance: the
   mutation tests fail on the old gate, and macos.yml `native-gui` is green.
-  Separately, Tab delivery is unproven because all 300 contexts were inactive
-  (`MAC-UIA-02`).
+  (4) Batch 46 (the UI1 checkpoint, `docs/design/ui-contracts/ui1-feasibility.md`):
+  keyboard delivery is unproven for every key, not only Tab, because the
+  hosted application is never activated (300 of 300 contexts per variant are
+  `application_active=false`, `window_key=false`; nothing under `src/` or
+  `tools/` calls `activate`). Have the probe request activation and record
+  `application_active`/`window_key` after the request, or deliver through a
+  declared route (`[window sendEvent:]` or field-editor commands) and record
+  which. `CX-UIA-22` must not count E01–E03 or E33/E34 Return and Escape rows
+  as passed until a run shows `window_key=true`. `MAC-UIA-02` covers GPU timing
+  and an Accessibility Inspector capture only; it does not prove keyboard
+  delivery.
 - **`CX-UIA-11` residuals** (after batch 38). Owner: Claude for the flake/nix
   pins (WORKSTREAMS §3.3.1 hotspots); Codex re-runs the acceptance once they
   land. Prerequisites: a libdecor 0.2.5 fix for the Wayland
@@ -287,6 +296,14 @@ owner, the exact prerequisite and the next acceptance.
   10 ms tick, and step 5 (`action.count == 1`) failed intermittently on a
   virtual display shared by parallel workers. Keep that pattern in new journey
   steps.
+  Batch 46: the UI1 checkpoint admits Linux SDL to UI2 with X11 gating and
+  Wayland carried. The re-records above (the destroyed-requestor row, then all
+  four Wayland rows at the current revision, then `test_native_ui_shell_linux.py`'s
+  failure count from 21 to 20) are now also the Wayland half of the UI2
+  landing's evidence. Claude added a UI2-eligibility sentence to the `note` of
+  `macos-hosted-correctness` and `linux-devcontainer-automation` in
+  `docs/design/native-ui-catalog/hosts.toml` (a `CX-UIA-06` path; notes only,
+  no `status` or `blocked_by` change).
 - **`CX-P1-02` platform inventory.** Owner: the owner (sign-off), then Codex
   (the 58 cells in `platform-inventory.toml`) and Claude (the
   `platform-parity.md` totals fragment). Prerequisite: the owner's sign-off on
