@@ -14,12 +14,9 @@ interface INamed {
 
 class Probe implements INamed {
 	public int id;
-	public Probe(int id) {
-		self.id = id;
-	}
-	public string name() {
-		return f"probe-{self.id}";
-	}
+	public Probe(int id) { self.id = id; }
+
+	public string name() { return f"probe-{self.id}"; }
 }
 
 enum class Outcome {
@@ -32,24 +29,17 @@ enum class Outcome {
 
 int weigh(Outcome outcome) {
 	switch (outcome.tag) {
-		case Outcome.Count:
-			return outcome.data.Count.value;
-		case Outcome.Label:
-			return outcome.data.Label.text.length();
-		case Outcome.Detached:
-			return outcome.data.Detached.child.id;
-		case Outcome.Viewed:
-			return outcome.data.Viewed.view.name().length();
-		case Outcome.Batch:
-			return outcome.data.Batch.probes.len;
+		case Outcome.Count: return outcome.data.Count.value;
+		case Outcome.Label: return outcome.data.Label.text.length();
+		case Outcome.Detached: return outcome.data.Detached.child.id;
+		case Outcome.Viewed: return outcome.data.Viewed.view.name().length();
+		case Outcome.Batch: return outcome.data.Batch.probes.len;
 	}
 	return -1;
 }
 
 /* A payload read out of a borrowed enum is retained by the return. */
-Probe detachedChild(Outcome outcome) {
-	return outcome.data.Detached.child;
-}
+Probe detachedChild(Outcome outcome) { return outcome.data.Detached.child; }
 
 int main() {
 	Probe child = Probe(42);

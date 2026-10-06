@@ -18,6 +18,7 @@ gap ID.
 | — | A discarded tuple literal in btrcc | `(j = 1, i = i + 1);` as a statement, or as a for-update operand, makes btrcc emit C naming an undeclared tuple struct; the reference compiles it. Found by the Stage 16 r19 review. | `btrc/ir/lowering` tuple instance collection |
 | — | The address of a `volatile` managed local | When the setjmp planner keeps a managed local `volatile` (`char* volatile value`), `string* view = &value;` emits `char** view = (&value);`, which strict C11 refuses (`-Wdiscarded-qualifiers`), whether the declarations are separate or share one list, in both compilers. Found by the Stage 16 C1 exit's ARC witness. | `python/ir/lowering/storage.py`, `btrc/ir/lowering` address-of lowering |
 | — | A null raw pointer to `string` warns | `string* p = null;` warns `Possibly-null value stored in non-nullable variable 'p' of type 'string'`: the nullable check reads the pointer as its pointee, and a raw pointer may hold null; both compilers warn alike. Found by the Stage 16 C1 exit. | `python/analyzer/flow.py`, `btrc/analyzer` nullable flow |
+| — | Shallow structs holding managed fields escape | `struct S { Probe p; }` built from a local and returned (or stored past the local's scope) reads freed memory in both compilers; rich enums with managed payloads are nonescaping (see below), structs are not yet. Reassigning a borrowed payload's owner while a rich enum or `Span<T>` still holds it is also unchecked. Found by CL-REQ-UI2-C. | `python/analyzer/types.py`, `btrc/analyzer/validation/Types.btrc` |
 | — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
 
 ## Open native-platform defects
@@ -264,6 +265,42 @@ first piece:
 |--------|------------|
 | an f-string beside a literal (`f"{n}" " tail"`) | `An f-string cannot be concatenated with an adjacent string literal` |
 | a piece naming anything but a source macro that expands to string literals, including a native macro such as `PRId64` that the front end cannot resolve (D20) | `Cannot concatenate 'PRId64' with an adjacent string literal: it is not a source macro that expands to a string literal` |
+
+## Rich enums with managed payloads are lexical borrows
+
+A rich-enum value is a by-value tagged union that never retains its payloads.
+A rich enum whose payloads hold (directly, or through a struct, tuple, array
+or nested rich enum) a `string`, a class, an interface or a collection is
+therefore **nonescaping**, like `Span<T>`
+([realtime-primitives.md](language/realtime-primitives.md#borrowed-spans)): it
+may be one direct local, initialized where it is declared, or a parameter.
+A payload read out of it (`Probe p = r.data.Detached.child;`, or a `return` of
+one) takes an ordinary reference that outlives the enum. A rich enum with only
+scalar payloads is an ordinary value and is unrestricted.
+
+Every flow that could make the value outlive a payload owner is refused, with
+the same diagnostic in both compilers (`btrc/test_rich_enum_payload_borrows.py`;
+allowed flows in `enums/RichEnumBorrowedPayloads.btrc`). The reason clause
+`R` is `its managed payloads are borrowed references that it never retains`:
+
+| Flow | Diagnostic |
+|------|------------|
+| a function, method, interface-method or declared lambda return type | `Return type of function 'f' cannot be nonescaping rich enum 'E'; R` |
+| a lambda whose inferred return is one (a directly spawned lambda is checked as a `Thread<T>` result instead) | `Lambda return type cannot be nonescaping rich enum 'E'; R` |
+| a class or struct field, a rich-enum payload | `Field 'C.f' cannot store nonescaping rich enum 'E'; R` |
+| a global, `static` or `extern` variable | `Global 'g' cannot store nonescaping rich enum 'E'; R` |
+| a local without an initializer | `Variable 'v' must initialize its nonescaping rich enum 'E' borrow` |
+| reassigning it, or storing into its payload | `Nonescaping rich enum 'E' cannot be reassigned; R, so declare a new local` (`Payload of nonescaping rich enum …` for a payload store) |
+| any collection, tuple, generic, `Thread<T>` or `Mutex<T>` that contains one | `Variable 'v' cannot contain nonescaping rich enum 'E' in aggregate or managed storage` |
+| a pointer, nullable or array shape | `Rich enum 'E' borrows its managed payloads and must be one direct value; pointer, nullable and array shapes are not supported` |
+| a lambda or `spawn` capture | `A lambda cannot capture nonescaping rich enum 'v'` |
+
+Two hazards remain, shared with `Span<T>` and every shallow aggregate: the
+rule does not stop the payload's owner itself from being reassigned or
+released while the enum is alive (`Probe c = Probe(1); E r = E.Held(c); c =
+Probe(2);` leaves `r` dangling), and a struct with a class field
+(`struct S { Probe p; }`) is not yet nonescaping, so returning one built from a
+local reads freed memory in both compilers.
 
 ## Nullable references are checked by warnings
 

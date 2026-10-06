@@ -753,7 +753,8 @@ class DeclarationValidator {
 		while (typeIndex < callable.params().len) {
 			Node parameter = callable.params().get(typeIndex);
 			if (!self.state.analyzed.isNativeDeclaration(callable)) { self.names.validateGeneratedLexicalBindingName(parameter.name, "Parameter", parameter); }
-			self.types.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
+			string parameterOwner = classDeclaration == null ? callable.name : classDeclaration.name + "." + callable.name;
+			self.types.validateDeclaredType(parameter.type, "Parameter '" + parameterOwner + "." + parameter.name + "'", "parameter", parameter);
 			self.types.rejectRuntimeInterfaceType(parameter.type, parameter);
 			typeIndex = typeIndex + 1;
 		}

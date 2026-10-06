@@ -1118,12 +1118,12 @@ class TypeValidator {
 				int methodIndex = 0;
 				while (methodIndex < declaration.methods().len) {
 					Node method = declaration.methods().get(methodIndex);
-					self.validateDeclaredType(method.returnType, "Interface method '" + declaration.name + "." + method.name + "' return", "return", method);
+					self.validateDeclaredType(method.returnType, "Return type of interface method '" + declaration.name + "." + method.name + "'", "return", method);
 					self.validateArrayReturn(method, "Interface method '" + declaration.name + "." + method.name + "'");
 					int parameterIndex = 0;
 					while (parameterIndex < method.params().len) {
 						Node parameter = method.params().get(parameterIndex);
-						self.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
+						self.validateDeclaredType(parameter.type, "Parameter '" + declaration.name + "." + method.name + "." + parameter.name + "'", "parameter", parameter);
 						parameterIndex = parameterIndex + 1;
 					}
 					methodIndex = methodIndex + 1;

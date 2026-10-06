@@ -13,12 +13,9 @@ interface IProbeView {
 
 class Probe implements IProbeView {
 	private int id;
-	public Probe(int id) {
-		self.id = id;
-	}
-	public int identity() {
-		return self.id;
-	}
+	public Probe(int id) { self.id = id; }
+
+	public int identity() { return self.id; }
 }
 
 enum class BatchResult {
@@ -50,14 +47,13 @@ int probeTotal(ProbeSet set) {
 			for probe in set.data.Listed.probes {
 				total += probe.identity();
 			}
-			break;
+		break;
 		case ProbeSet.Named:
 			for name in set.data.Named.byName.keys() {
 				total += set.data.Named.byName.get(name).identity();
 			}
-			break;
-		case ProbeSet.Empty:
-			break;
+		break;
+		case ProbeSet.Empty: break;
 	}
 	return total;
 }

@@ -62,6 +62,7 @@ from src.compiler.python.syntax.ast.generated import (
     ReturnStmt,
     RichEnumDecl,
     SelfExpr,
+    SpawnExpr,
     StructDecl,
     SwitchStmt,
     TernaryExpr,
@@ -839,6 +840,8 @@ class StatementAnalyzer:
     def _prepare_expression(self, expression, facts) -> None:
         if expression is None or not dataclasses.is_dataclass(expression):
             return
+        if isinstance(expression, SpawnExpr) and isinstance(expression.fn, LambdaExpr):
+            self.session.spawned_lambda_ids.add(id(expression.fn))
         if isinstance(expression, LambdaExpr):
             if id(expression) not in self.session.lambda_body_facts:
                 self._analyze_lambda(expression)

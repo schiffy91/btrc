@@ -78,14 +78,22 @@ FLOWS = {
         "int main() {\n\treturn 0;\n}\n",
         f"Return type of method 'Factory.make' cannot be nonescaping rich enum 'Outcome'; {REASON}",
     ),
+    "interface-return": (
+        "interface IFactory {\n\tOutcome make();\n}\n\nint main() {\n\treturn 0;\n}\n",
+        f"Return type of interface method 'IFactory.make' cannot be nonescaping rich enum 'Outcome'; {REASON}",
+    ),
+    "interface-parameter": (
+        "interface ICounter {\n\tint count(Vector<Outcome> results);\n}\n\nint main() {\n\treturn 0;\n}\n",
+        "Parameter 'ICounter.count.results' cannot contain nonescaping rich enum 'Outcome' in aggregate or "
+        "managed storage",
+    ),
     "outer-assignment": (
         "int main() {\n\tOutcome result = Outcome.Rejected(0);\n\t{\nSETUP\t\tresult = Outcome.Held(ARG);\n\t}\n"
         "\treturn result.tag;\n}\n",
         f"Nonescaping rich enum 'Outcome' cannot be reassigned; {REASON}, so declare a new local",
     ),
     "payload-store": (
-        "int main() {\nSETUP\tOutcome result = Outcome.Held(ARG);\n\tresult.data.Held.FIELD = ARG;\n"
-        "\treturn 0;\n}\n",
+        "int main() {\nSETUP\tOutcome result = Outcome.Held(ARG);\n\tresult.data.Held.FIELD = ARG;\n\treturn 0;\n}\n",
         f"Payload of nonescaping rich enum 'Outcome' cannot be reassigned; {REASON}, so declare a new local",
     ),
     "class-field": (
@@ -118,8 +126,7 @@ FLOWS = {
     ),
     "collection-parameter": (
         "int count(Vector<Outcome> results) {\n\treturn results.len;\n}\n\nint main() {\n\treturn 0;\n}\n",
-        "Parameter 'results' of function 'count' cannot contain nonescaping rich enum 'Outcome' in aggregate or "
-        "managed storage",
+        "Parameter 'count.results' cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
     ),
     "tuple": (
         "int main() {\nSETUP\tTuple<Outcome, int> pair = (Outcome.Held(ARG), 1);\n\treturn 0;\n}\n",
@@ -225,13 +232,14 @@ class Holder {
 	}
 }
 
-Measure global = Measure.Exact(1.0, 1L);
+Measure global;
 
 Measure make(long count) {
 	return Measure.Exact(0.5, count);
 }
 
 int main() {
+	global = Measure.Exact(1.0, 1L);
 	Holder holder = Holder();
 	holder.saved = make(3L);
 	Vector<Measure> measures = [];
