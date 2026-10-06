@@ -209,7 +209,12 @@ LIST_USE = "List<int> numbers = new List<int>(); numbers.push(1); "
         ("", "union Path { int i; float f; };", "", "union Path path; path.i = 5; return path.i - 5;"),
         (LIST, LIST_NODE, "", LIST_USE + "struct ListNode tail = {3, null}; return tail.value + numbers.len - 4;"),
         (RESULT, RESULT_ENUM, "", "enum Result result = RESULT_OK; return (int)result - 7;"),
-        ("", "struct Node { int weight; };", NODE_CLASS, "struct Node n = {4}; Node<int> k = new Node<int>(2); return n.weight + k.value - 6;"),
+        (
+            "",
+            "struct Node { int weight; };",
+            NODE_CLASS,
+            "struct Node n = {4}; Node<int> k = new Node<int>(2); return n.weight + k.value - 6;",
+        ),
     ],
     ids=[
         "struct-Timer",
@@ -242,7 +247,8 @@ def test_a_leaf_spells_a_header_tag_beside_an_imported_generic(semantic_btrcc: P
 
     (tmp_path / "linked.h").write_text(f"#ifndef LINKED_H\n#define LINKED_H\n{LIST_NODE}\n#endif\n", encoding="utf-8")
     (tmp_path / "Leaf.btrc").write_text(
-        '#include "linked.h"\nint leafValue() { struct ListNode node = {6, null}; return node.value; }\n', encoding="utf-8"
+        '#include "linked.h"\nint leafValue() { struct ListNode node = {6, null}; return node.value; }\n',
+        encoding="utf-8",
     )
     main = tmp_path / "Main.btrc"
     main.write_text(f"{LIST}import ./Leaf.btrc;\nint main() {{ {LIST_USE}return leafValue() + numbers.len - 7; }}\n")
