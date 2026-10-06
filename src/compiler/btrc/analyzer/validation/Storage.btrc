@@ -1176,7 +1176,7 @@ class StorageValidator {
 			TypeValidator.fail("Cannot determine whether expression is indexable", expression);
 		}
 		Node concreteObject = objectType;
-		if (concreteObject.base == "Tuple") {
+		if (concreteObject.base == "Tuple" && !concreteObject.isArray && concreteObject.pointerDepth == 0) {
 			TypeValidator.fail("Tuple values are not dynamically indexable; use ._N fields", expression);
 		}
 		bool rawIntegral = SemanticTypeSystem.isString(concreteObject) || concreteObject.isArray || self.rawIndexedPointerInState(concreteObject);

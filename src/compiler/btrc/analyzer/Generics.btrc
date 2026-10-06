@@ -33,8 +33,11 @@ class GenericSpecializer {
 	/* Whether validation's facts exist yet: instance scans that run before and
 	 * after validation are recorded apart. */
 	private bool validated = false;
+	/* hosted_abi.toml's limits.generic_argument_nesting. */
+	private int nestingLimit;
 
-	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions) {
+	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions, int nestingLimit) {
+		self.nestingLimit = nestingLimit;
 		self.closedClassInstances = {};
 		self.closedMethodInstances = {};
 		self.templateParameters = {};
@@ -476,6 +479,7 @@ class GenericSpecializer {
 		}
 
 		string owner = classBase + "." + method;
+		self.refuseUnboundedInstance("method '" + owner + "'", methodArgs, call);
 		self.validateGenericArgumentsForOwner(owner, methodArgs);
 
 		/* Resolve and validate the full signature before recording an instance.
@@ -571,6 +575,19 @@ class GenericSpecializer {
 			parameterIndex = parameterIndex + 1;
 		}
 		return names;
+	}
+
+	/* A program has finitely many generic declarations of fixed arity, so an
+	 * unbounded set of specializations must nest its arguments without bound;
+	 * refusing past one shared depth is how monomorphization terminates, as the
+	 * reference's _refuse_unbounded_instance does. */
+	private void refuseUnboundedInstance(string generic, Vector<Node> arguments, Node site) {
+		for argument in arguments {
+			if (TypeIdentity.genericNestingDepth(argument) > self.nestingLimit) {
+				fprintf(stderr, "error: Generic %s needs type arguments nested deeper than %d levels, the limit that keeps specialization finite at %d:%d\n", generic, self.nestingLimit, site.line, site.col);
+				exit(1);
+			}
+		}
 	}
 
 	private void validateGenericArgumentsForOwner(string owner, Vector<Node> args) {
@@ -919,6 +936,9 @@ class GenericSpecializer {
 		/* One key serves both the validation de-duplication and the instance
 		 * table: both identify the exact specialization. */
 		string key = generic ? TypeIdentity.genericInstanceKey(base, t.genericArgs()) : "";
+		if (generic && !a.genericSeen.has(key) && !TypeIdentity.referencesNames(t, unresolved)) {
+			self.refuseUnboundedInstance("class '" + base + "'", t.genericArgs(), t);
+		}
 		if (generic) {
 			/* A specialization's validity depends only on its owner declaration and
 			 * exact arguments, so validate each distinct specialization once instead

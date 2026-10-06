@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING
 
+from src.compiler.python.abi.generated import HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT
 from src.compiler.python.analyzer.program import (
     ClassCallableIdentity,
     ClassCallableKind,
@@ -13,7 +14,7 @@ from src.compiler.python.analyzer.program import (
     GenericMethodInstanceDependency,
     GenericTemplateDependency,
 )
-from src.compiler.python.analyzer.types import TypeShapeError
+from src.compiler.python.analyzer.types import TypeIdentity, TypeShapeError
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilerStdlibSource
 from src.compiler.python.syntax.ast.generated import AssignExpr, FunctionDecl, Identifier, LambdaExpr, TypeExpr
@@ -618,6 +619,10 @@ class GenericAnalyzer:
         ):
             return False
         owner = f"{dependency.owner}.{dependency.method_name}"
+        if self._refuse_unbounded_instance(
+            f"method '{owner}'", dependency.method_arguments, dependency.line, dependency.col
+        ):
+            return False
         if not self._validate_generic_arguments(
             owner,
             dependency.method_arguments,
@@ -771,6 +776,26 @@ class GenericAnalyzer:
     def _normalize_type_key(self, type_expr: TypeExpr) -> tuple:
         return self.types.type_shape_key(type_expr)
 
+    def _refuse_unbounded_instance(self, generic, arguments, line, col) -> bool:
+        """Refuse a specialization nested past the shared limit.
+
+        A program has finitely many generic declarations of fixed arity, so an
+        unbounded set of specializations must nest its arguments without bound;
+        refusing past one shared depth is how monomorphization terminates."""
+        if all(
+            TypeIdentity.generic_nesting_depth(argument) <= HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT
+            for argument in arguments
+        ):
+            return False
+        self.types.report_type_shape_error(
+            f"Generic {generic} needs type arguments nested deeper than {HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT} levels, "
+            "the limit that keeps specialization finite",
+            None,
+            line,
+            col,
+        )
+        return True
+
     def _validate_generic_arguments(self, owner, args, line=0, col=0):
         valid = True
         for index, argument in enumerate(args, 1):
@@ -912,6 +937,12 @@ class GenericAnalyzer:
                 for existing in instances
             ):
                 return
+        if (
+            (registered or runtime)
+            and (not unresolved)
+            and self._refuse_unbounded_instance(f"class '{key}'", args, type_expr.line, type_expr.col)
+        ):
+            return
         valid = self._validate_generic_specialization(type_expr) if registered else True
         if not ((registered or runtime) and valid and (not unresolved)):
             return

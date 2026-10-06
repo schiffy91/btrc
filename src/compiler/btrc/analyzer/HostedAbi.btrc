@@ -83,6 +83,8 @@ class HostedAbiRepository {
 
 	public GeneratedHostedFunctionRow? exactSpec(string name) { return self.data.functionNamed(name); }
 
+	public int genericArgumentNestingLimit() { return self.data.genericArgumentNestingLimit; }
+
 	public bool exactFunction(string name) { return self.data.functionNamed(name) != null; }
 
 	public bool functionOwnedName(string name) {

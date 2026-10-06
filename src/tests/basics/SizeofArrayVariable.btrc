@@ -1,0 +1,55 @@
+// sizeof(name) measures the object when name is a variable in scope, as C11
+// 6.5.3.4 reads it, even though the parser sees a type name: a global used
+// only inside sizeof, a local, a field array, a parameter declared `int a[]`
+// (a pointer in C), a captured local and a variable shadowing a class name.
+int table[8];
+int measuredOnly[6];
+double weights[3] = {1.0, 2.0, 3.0};
+
+class Grid {
+	public int cells[4];
+
+	public Grid() { self.cells[0] = 1; }
+}
+
+class Point {
+	public int x = 0;
+}
+
+bool parameterIsPointer(int values[]) { return sizeof(values) == sizeof(int*); }
+
+int main() {
+	int local[5];
+	local[0] = 0;
+	print((int)(sizeof(table) / sizeof(table[0])));
+	print((int)(sizeof(local) / sizeof(int)));
+	print((int)(sizeof(measuredOnly) / sizeof(int)));
+	print((int)(sizeof(weights) / sizeof(weights[0])));
+
+	Grid grid = new Grid();
+	print((int)(sizeof(grid.cells) / sizeof(grid.cells[0])));
+	print(parameterIsPointer(local));
+
+	Point origin = new Point();
+	print((int)(sizeof(Point) >= sizeof(int)));
+	{
+		int Point = 3;
+		print((int)(sizeof(Point) / sizeof(int)), Point);
+	}
+	print(origin.x);
+
+	char name[10];
+	name[0] = 0;
+	print((int)sizeof(name));
+	for (int i = 0; i < 2; i++) {
+		int inner[7];
+		inner[0] = i;
+		print((int)(sizeof(inner) / sizeof(int)));
+	}
+
+	int scale = 3;
+	var scaled = (int value) => value * (int)(sizeof(table) / sizeof(int));
+	var widened = (int value) => value + (int)(sizeof(scale) / sizeof(int));
+	print(scaled(2), widened(2));
+	return 0;
+}

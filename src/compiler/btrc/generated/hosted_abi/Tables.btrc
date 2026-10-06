@@ -134,6 +134,7 @@ class GeneratedPredefinedMacroRow {
 class GeneratedHostedAbiData {
 	public string stdlibSourceMarker;
 	public string userSourceMarker;
+	public int genericArgumentNestingLimit;
 	public string fingerprint;
 	public string targetSpecFingerprint;
 	private Vector<GeneratedTargetRow>? targetRowsMemo = null;
@@ -170,7 +171,8 @@ class GeneratedHostedAbiData {
 	public GeneratedHostedAbiData() {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "b07b01e79a64ba737b576643e93e54c5dce217fdbe11a11c74a1a4ddc3b86fe2";
+		self.genericArgumentNestingLimit = 8;
+		self.fingerprint = "956357bff4ca82ba0eee8f0f06977b592bff1ebdaa89db4f3ed728e16baec0d8";
 		self.targetSpecFingerprint = "7865f267cc2888822ba3f93f571f923a1a835f94049abc4876c0e4c5d8dcfa58";
 	}
 

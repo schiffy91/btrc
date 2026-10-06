@@ -1302,6 +1302,13 @@ class LambdaFreeNames {
 			self.names.put("self", true);
 			return;
 		}
+		if (n.kind == NK_SIZEOF_TYPE && TypeIdentity.ordinaryIdentifier(n.type) != "") {
+			/* sizeof(x) may name the object x; the caller keeps only names
+			 * that resolve to a variable, as for any identifier. */
+			string name = TypeIdentity.ordinaryIdentifier(n.type);
+			if (!self.bound(name)) { self.names.put(name, true); }
+			return;
+		}
 		if (n.kind == NK_LAMBDA_EXPR) {
 			self.collectLambda(n);
 			return;

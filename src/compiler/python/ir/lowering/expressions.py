@@ -1600,6 +1600,9 @@ class ExpressionLowerer:
         node: SizeofExpr,
         provenance: CallableProvenance,
     ) -> IRSizeof:
+        value = self._sizeof_value_operand(node)
+        if value is not None:
+            return IRSizeof(operand=self._materialize_static_scalar(value, provenance))
         if isinstance(node.operand, SizeofType):
             return IRSizeof(operand=CType(text=self._types.render(node.operand.type)))
         if isinstance(node.operand, SizeofExprOp):
@@ -2155,7 +2158,23 @@ class ExpressionLowerer:
     def _source_identifier_var(self, node, c_name):
         return IRVar(name=c_name).record_array_value(self._session.type_of(node))
 
+    def _sizeof_value_operand(self, node: SizeofExpr) -> Identifier | None:
+        """The object ``sizeof(name)`` measures when ``name`` is a binding, not a type."""
+        if not isinstance(node.operand, SizeofType):
+            return None
+        name = TypeIdentity.ordinary_identifier(node.operand.type)
+        if name is None or not (self._session.local_is_declared(name) or name in self._analyzed.global_var_types):
+            return None
+        return Identifier(name=name, line=node.operand.type.line, col=node.operand.type.col)
+
     def _lower_sizeof(self, node: SizeofExpr, provenance: CallableProvenance) -> IRExpr:
+        value = self._sizeof_value_operand(node)
+        if value is not None:
+            self._session.unevaluated_depth += 1
+            try:
+                return IRSizeof(operand=self.lower_expr(value, provenance))
+            finally:
+                self._session.unevaluated_depth -= 1
         if isinstance(node.operand, SizeofType):
             return IRSizeof(operand=CType(text=self._types.render(node.operand.type)))
         elif isinstance(node.operand, SizeofExprOp):

@@ -12,6 +12,7 @@ from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES, Declarat
 from src.compiler.python.analyzer.types import (
     _RUNTIME_AGGREGATE_BASES,
     OperatorTypeError,
+    TypeIdentity,
 )
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.lexer.lexer import LiteralDecoder
@@ -1979,11 +1980,15 @@ class ExpressionAnalyzer:
             self._analyze_expr(expr.expr)
             self._validate_cast_expr(expr)
         elif isinstance(expr, SizeofExpr):
-            if isinstance(expr.operand, SizeofType):
-                self.generics.collect_type_instances(expr.operand.type)
-            elif isinstance(expr.operand, SizeofExprOp):
-                self._analyze_expr(expr.operand.expr)
-            self.aggregates.validate_sizeof_operand(expr)
+            value = self.sizeof_value_operand(expr)
+            if value is not None:
+                self._analyze_expr(value)
+            else:
+                if isinstance(expr.operand, SizeofType):
+                    self.generics.collect_type_instances(expr.operand.type)
+                elif isinstance(expr.operand, SizeofExprOp):
+                    self._analyze_expr(expr.operand.expr)
+                self.aggregates.validate_sizeof_operand(expr)
         elif isinstance(expr, ListLiteral):
             for el in expr.elements:
                 self._analyze_expr(el)
@@ -2114,12 +2119,22 @@ class ExpressionAnalyzer:
         if inferred:
             self.session.record_node_type(expr, inferred)
 
+    def sizeof_value_operand(self, expression) -> Identifier | None:
+        """The object a ``sizeof(name)`` operand names when ``name`` is a binding in scope."""
+        operand = expression.operand
+        if not isinstance(operand, SizeofType):
+            return None
+        name = TypeIdentity.ordinary_identifier(operand.type)
+        if name is None or self.session.scope.lookup(name) is None:
+            return None
+        return Identifier(name=name, line=operand.type.line, col=operand.type.col)
+
     def _validate_index_expr(self, expression):
         object_type = self.types.canonical_type(self._infer_type(expression.obj))
         index_type = self._infer_type(expression.index)
         if object_type is None:
             return
-        if object_type.base == "Tuple":
+        if object_type.base == "Tuple" and not object_type.is_array and object_type.pointer_depth == 0:
             self.session.error(
                 "Tuple values are not dynamically indexable; use ._N fields", expression.line, expression.col
             )

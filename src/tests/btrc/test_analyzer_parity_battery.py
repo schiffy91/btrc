@@ -36,6 +36,7 @@ class ParityProbe:
     name: str
     source: str
     diagnostic: GpuDiagnostic | None = None
+    stdlib: bool = False
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,24 @@ class ParityOutcome:
 
 def _main(body: str) -> str:
     return "int main() { " + body + " }\n"
+
+
+def _unbounded(generic: str, line: int, col: int) -> GpuDiagnostic:
+    """A specialization past hosted_abi.toml's limits.generic_argument_nesting."""
+    return GpuDiagnostic(
+        f"Generic {generic} needs type arguments nested deeper than 8 levels, the limit that keeps specialization finite",
+        line,
+        col,
+    )
+
+
+def _self_specializing(name: str, field: str) -> str:
+    """A generic class whose field needs a larger specialization of a generic."""
+    return (
+        f"class {name}<T> {{\n    public T value;\n    public {field} next = null;\n"
+        f"    public {name}(T value) {{ self.value = value; }}\n}}\n"
+        f"int main() {{ {name}<int> c = new {name}<int>(1); return c.value; }}\n"
+    )
 
 
 INVALID_PROBES = (
@@ -221,6 +240,60 @@ INVALID_PROBES = (
         'int main() {\n  int a = 1;\n  string s = f"x {a} \\n {a +* 2}";\n  return 0;\n}\n',
         GpuDiagnostic("Unary operator '*' is not defined for 'int'", 3, 29),
     ),
+    # Only a tuple VALUE is refused an index; an array, pointer or collection
+    # whose element is a tuple indexes (tuples/TupleArrayIndexing.btrc).
+    ParityProbe(
+        "tuple-value-index",
+        _main("(int, int) t = (1, 2); int a = t[0]; return a;"),
+        GpuDiagnostic("Tuple values are not dynamically indexable; use ._N fields", 1, 45),
+    ),
+    ParityProbe(
+        "tuple-value-index-store",
+        _main("(int, int) t = (1, 2); t[1] = 3; return t._0;"),
+        GpuDiagnostic("Tuple values are not dynamically indexable; use ._N fields", 1, 37),
+    ),
+    # Polymorphic recursion: each specialization needs a larger one, so
+    # monomorphization never ends. Both compilers refuse the first
+    # specialization nested past the shared limit, at the use that needs it.
+    ParityProbe(
+        "generic-tuple-recursion",
+        _self_specializing("Chain", "Chain<(T, int)>?"),
+        _unbounded("class 'Chain'", 3, 12),
+    ),
+    ParityProbe(
+        "generic-vector-recursion",
+        "import Library.Vector;\n" + _self_specializing("Nest", "Nest<Vector<T>>?"),
+        _unbounded("class 'Nest'", 4, 12),
+        stdlib=True,
+    ),
+    ParityProbe(
+        "generic-doubling-recursion",
+        _self_specializing("Pair", "Pair<(T, T)>?"),
+        _unbounded("class 'Pair'", 3, 12),
+    ),
+    ParityProbe(
+        "generic-method-recursion",
+        "class Walker {\n    public int count = 0;\n    public void walk<U>(U item, int depth) {\n"
+        "        self.count = self.count + 1;\n"
+        "        if (depth > 0) { self.walk((item, depth), depth - 1); }\n    }\n}\n"
+        "int main() { Walker w = new Walker(); w.walk(1, 3); return w.count; }\n",
+        _unbounded("method 'Walker.walk'", 5, 26),
+    ),
+    ParityProbe(
+        "generic-mutual-recursion",
+        "class Left<T> {\n    public T value;\n    public Right<(T, int)>? right = null;\n"
+        "    public Left(T value) { self.value = value; }\n}\n"
+        "class Right<T> {\n    public T value;\n    public Left<T>? left = null;\n"
+        "    public Right(T value) { self.value = value; }\n}\n"
+        "int main() { Left<int> l = new Left<int>(1); return l.value; }\n",
+        _unbounded("class 'Right'", 3, 12),
+    ),
+    ParityProbe(
+        "generic-written-past-limit",
+        "class Box<T> {\n    public T value;\n    public Box(T value) { self.value = value; }\n}\n"
+        + _main("Box<Box<Box<Box<Box<Box<Box<Box<Box<int>>>>>>>>>? deep = null; return 0;"),
+        _unbounded("class 'Box'", 5, 14),
+    ),
 )
 
 VALID_PROBES = (
@@ -250,12 +323,14 @@ class ParityHarness:
     def compile_probe(self, probe: ParityProbe, *flags: str) -> tuple[ParityOutcome, ParityOutcome]:
         source = self._workspace / "probe.btrc"
         source.write_text(probe.source)
+        if not probe.stdlib:
+            flags = ("--no-stdlib", *flags)
         return self._reference(source, flags), self._selfhost(source, flags)
 
     def _reference(self, source: Path, flags: tuple[str, ...]) -> ParityOutcome:
         generated = self._workspace / "reference.c"
         result = subprocess.run(
-            [sys.executable, "-m", "src.compiler.python.main", str(source), "--no-cache", "--no-stdlib", *flags]
+            [sys.executable, "-m", "src.compiler.python.main", str(source), "--no-cache", *flags]
             + ["-o", str(generated)],
             cwd=REPO,
             capture_output=True,
@@ -269,7 +344,7 @@ class ParityHarness:
 
     def _selfhost(self, source: Path, flags: tuple[str, ...]) -> ParityOutcome:
         result = subprocess.run(
-            [str(self._btrcc), "--no-stdlib", *flags, str(source)],
+            [str(self._btrcc), *flags, str(source)],
             cwd=REPO,
             capture_output=True,
             text=True,
@@ -295,9 +370,18 @@ def harness(immutable_btrcc: Path, tmp_path: Path) -> ParityHarness:
 def test_invalid_probe_reports_one_diagnostic_in_both_compilers(harness: ParityHarness, probe: ParityProbe) -> None:
     reference, selfhost = harness.compile_probe(probe)
 
-    assert selfhost == reference
     assert reference.returncode == 1
     assert reference.diagnostic == probe.diagnostic
+    if probe.stdlib:
+        # btrcc numbers lines across the prepended stdlib, so an importing
+        # probe pins the reference line and compares message and column.
+        assert selfhost.returncode == 1 and selfhost.diagnostic is not None
+        assert (selfhost.diagnostic.message, selfhost.diagnostic.col) == (
+            probe.diagnostic.message,
+            probe.diagnostic.col,
+        )
+    else:
+        assert selfhost == reference
 
 
 @pytest.mark.parametrize("probe", VALID_PROBES, ids=lambda probe: probe.name)

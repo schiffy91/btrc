@@ -7,6 +7,16 @@ schema_version = 2
 stdlib_source_marker = "compiler:stdlib"
 user_source_marker = "compiler:user"
 
+# Translation limits both compilers enforce, as C11 5.2.4.1 sets C's. A
+# program has finitely many generic declarations of fixed arity, so an
+# unbounded set of specializations (Chain<T> needing Chain<(T, int)>) must
+# nest its type arguments without bound; a specialization whose arguments
+# nest deeper than this is refused, which is how monomorphization ends. A
+# divergent generic with k growing uses reaches k^limit specializations
+# first, so the limit stays small: the compiler's own deepest is 2.
+[limits]
+generic_argument_nesting = 8
+
 [names]
 functions = [
   "GetFileAttributesA",

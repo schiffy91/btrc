@@ -1149,6 +1149,27 @@ class TypeIdentity {
 		exit(1);
 	}
 
+	/* Generic-argument levels a type spells: 1 for int, 2 for Vector<int>. */
+	class int genericNestingDepth(Node typeExpr) {
+		int deepest = 0;
+		for argument in typeExpr.genericArgs() {
+			int depth = TypeIdentity.genericNestingDepth(argument);
+			if (depth > deepest) { deepest = depth; }
+		}
+		return deepest + 1;
+	}
+
+	/* The name a parsed type spells when it is one bare identifier, else "".
+	 * sizeof(x) parses x as a type name; C11 6.5.3.4 reads it as the object
+	 * when an ordinary identifier x is in scope, so the caller checks the name
+	 * against its own bindings. */
+	class string ordinaryIdentifier(Node? typeExpr) {
+		if (typeExpr == null || typeExpr.genericArgs().len > 0 || typeExpr.pointerDepth != 0 || typeExpr.isArray || typeExpr.arraySize != null || typeExpr.elements().len > 0 || typeExpr.isConst || typeExpr.isNullable || typeExpr.isStatic || typeExpr.isExtern || typeExpr.isVolatile || typeExpr.arrayPointerDepth != 0) {
+			return "";
+		}
+		return typeExpr.base;
+	}
+
 	class void ensureSupportedGenericArguments(Vector<Node> args) {
 		int index = 0;
 		while (index < args.len) {

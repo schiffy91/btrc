@@ -2166,6 +2166,20 @@ class ExpressionLowerer {
 
 	public IRNode lowerSizeof(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node operand = node.operand;
+		/* sizeof(x) measures the object x when x is a binding, not a type
+		 * (C11 6.5.3.4); lowering the name keeps its C spelling and its use. */
+		string valueName = operand != null && operand.kind == NK_SIZEOF_TYPE ? TypeIdentity.ordinaryIdentifier(operand.type) : "";
+		if (valueName != "" && varTypes.has(valueName)) {
+			Node value = Node();
+			value.kind = NK_IDENTIFIER;
+			value.name = valueName;
+			value.line = operand.type.line;
+			value.col = operand.type.col;
+			self.context.unevaluatedDepth = self.context.unevaluatedDepth + 1;
+			IRNode measured = self.lowerExpr(value, varTypes, callableFlow);
+			self.context.unevaluatedDepth = self.context.unevaluatedDepth - 1;
+			return IRNode.sizeofExpression(measured);
+		}
 		if (operand != null && operand.kind == NK_SIZEOF_TYPE) {
 			Node resolvedOperand = self.cTypes.resolveBodyType(operand.type, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 			string operandC = self.cTypes.lower(resolvedOperand);
