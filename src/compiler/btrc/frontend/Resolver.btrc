@@ -340,7 +340,8 @@ class FeConditionalEnvironment {
 		Map<string, bool> foreign = {};
 		for name in data.foreignMacroNames() { foreign.put(name, true); }
 		Map<string, bool> predefined = {};
-		for row in data.predefinedMacroRows() { predefined.put(row.name, true); }
+		/* The names alone: a compile with no #if never builds the rows. */
+		for name in data.predefinedMacroNames() { predefined.put(name, true); }
 		return SourceMacroRules(vocabulary, hostedNames, foreign, predefined);
 	}
 

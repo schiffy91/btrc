@@ -812,6 +812,12 @@ class TargetManifest:
         return self.predefined_macros + self.derived_macros
 
     @property
+    def predefined_macro_names(self) -> tuple[str, ...]:
+        """Every predefined and derived name, on any row, sorted: the names M3 refuses."""
+
+        return tuple(sorted({macro.name for macro in self.macro_rows}))
+
+    @property
     def fingerprint(self) -> str:
         payload = {
             "schema_version": self.schema_version,
@@ -1383,6 +1389,9 @@ class HostedAbiCatalogGenerator:
             lines, "TARGET_UNDEFINED_MACRO_NAMES", self._targets.undefined_macro_names
         )
         GeneratedSourceStyle.append_python_tuple(lines, "TARGET_FOREIGN_MACRO_NAMES", self._targets.foreign_macro_names)
+        GeneratedSourceStyle.append_python_tuple(
+            lines, "TARGET_PREDEFINED_MACRO_NAMES", self._targets.predefined_macro_names
+        )
         lines.extend([f"TARGET_SPEC_FINGERPRINT = {self._targets.fingerprint!r}", ""])
         return lines
 
@@ -1551,6 +1560,7 @@ class HostedAbiCatalogGenerator:
             *self._btrc_name_fields(),
             ("undefinedMacroNames", self._targets.undefined_macro_names),
             ("foreignMacroNames", self._targets.foreign_macro_names),
+            ("predefinedMacroNames", self._targets.predefined_macro_names),
         )
         lines.extend(f"    private Vector<string>? {field}Memo = null;" for field, _ in name_fields)
         lines.extend(

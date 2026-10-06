@@ -23,6 +23,7 @@ import src.compiler.python.syntax.ast.generated as ast
 
 from ..abi.generated import (
     TARGET_FOREIGN_MACRO_NAMES,
+    TARGET_PREDEFINED_MACRO_NAMES,
     TARGET_PREDEFINED_MACRO_ROWS,
     TARGET_ROWS,
     TARGET_UNDEFINED_MACRO_NAMES,
@@ -963,7 +964,7 @@ _MACRO_RESERVED_PREFIXES = (*_COMPILER_RESERVED_PREFIXES, "BTRC_")
 _RUNTIME_OVERRIDE_MACROS = frozenset({"BTRC_RT_ARENA_BYTES", "BTRC_RT_GPU_HEADER"})
 # M3 (C11 6.10.8p2): every predefined-macro row name and derived name, on any
 # row, like ``defined`` itself (platform-target-contract.md §1.3).
-_PREDEFINED_MACRO_NAMES = frozenset(row.name for row in TARGET_PREDEFINED_MACRO_ROWS)
+_PREDEFINED_MACRO_NAMES = frozenset(TARGET_PREDEFINED_MACRO_NAMES)
 
 
 class SourceMacroRules:
