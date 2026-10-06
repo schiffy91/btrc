@@ -884,6 +884,10 @@ _PRIMITIVE_TYPE_NAMES = frozenset(
 _BUILTIN_CAST_BASES = frozenset(("Vector", "List", "Map", "Set", "Array", "Atomic", "Span", "Thread", "Mutex", "Tuple"))
 _FUNCTION_POINTER_BASES = frozenset({"__fn_ptr", "__realtime_fn_ptr"})
 NONESCAPING_RICH_ENUM_REASON = "its managed payloads are borrowed references that it never retains"
+THREAD_AGGREGATE_RESULT_MESSAGE = (
+    "Thread<T> aggregate result type cannot contain string or class references; "
+    "return the managed value directly or use a scalar-only aggregate"
+)
 _RUNTIME_AGGREGATE_BASES = frozenset(("Vector", "List", "Map", "Set", "Array", "Tuple"))
 _RUNTIME_TYPE_BASES = frozenset(
     {
@@ -1648,7 +1652,9 @@ class TypeSystem:
         direct = self.nonescaping_rich_enum(canonical)
         if direct is not None:
             return direct
-        if canonical.base in _FUNCTION_POINTER_BASES:
+        # Thread<T> results have their own refusal: an aggregate result with a
+        # string or class reference, which every nonescaping rich enum carries.
+        if canonical.base in _FUNCTION_POINTER_BASES or canonical.base == "Thread":
             return None
         for argument in canonical.generic_args or []:
             contained = self.contains_nonescaping_rich_enum(argument, visiting)
@@ -1959,7 +1965,7 @@ class TypeSystem:
                 result_type
             ) and self.thread_result_aggregate_contains_managed_reference(result_type):
                 self.session.error(
-                    "Thread<T> aggregate result type cannot contain string or class references; return the managed value directly or use a scalar-only aggregate",
+                    THREAD_AGGREGATE_RESULT_MESSAGE,
                     type_line,
                     type_col,
                 )

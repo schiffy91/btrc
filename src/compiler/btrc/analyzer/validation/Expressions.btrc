@@ -705,6 +705,12 @@ class ExpressionValidator {
 		self.rejectNonescapingConstruction(expression, vars);
 	}
 
+	public void recordSpawnedLambda(Node expression) {
+		if (expression.kind == NK_SPAWN_EXPR && expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
+			self.state.spawnedLambdas.put(AstIdentity.key(expression.fn), true);
+		}
+	}
+
 	public LambdaValidationPlan planLambda(Node expression, Map<string, Node> vars) {
 		LambdaValidationPlan plan = LambdaValidationPlan();
 		self.names.validateLambdaNames(expression);
@@ -762,7 +768,7 @@ class ExpressionValidator {
 		}
 
 		plan.resultType = self.expressionTypes.lambdaReturnType(expression, vars);
-		if (expression.returnType == null) {
+		if (expression.returnType == null && !self.state.spawnedLambdas.has(AstIdentity.key(expression))) {
 			self.types.validateNonescapingRichEnumRole(self.types.resolveAliases(plan.resultType), "Lambda return type", "return", expression);
 		}
 		for name in names {
@@ -1028,9 +1034,15 @@ class ExpressionValidator {
 			if (self.state.typeParams.len > 0 && (expression.fn == null || expression.fn.kind != NK_LAMBDA_EXPR)) {
 				TypeValidator.fail("spawn expressions are not supported inside generic declarations", expression);
 			}
+			self.recordSpawnedLambda(expression);
 			self.validateExpr(expression.fn,  vars);
 			if (expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
 				self.validateSpawnCaptures(expression,  vars);
+				Node? thread = self.types.resolveAliases(self.types.inferType(expression, vars));
+				Map<string, bool> visiting = {};
+				if (thread != null && thread.genericArgs().len == 1 && self.types.containsNonescapingRichEnum(thread.genericArgs().get(0), visiting) != "") {
+					TypeValidator.fail(TypeValidator.threadAggregateResultMessage(), expression);
+				}
 			}
 			Node? callable = self.types.inferType(expression.fn,  vars);
 			if (expression.fn == null || (expression.fn.kind != NK_LAMBDA_EXPR && (callable == null || (callable.base != "__fn_ptr" && callable.base != "__realtime_fn_ptr")))) {

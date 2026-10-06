@@ -12,6 +12,7 @@ from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES, Declarat
 from src.compiler.python.analyzer.types import (
     _RUNTIME_AGGREGATE_BASES,
     NONESCAPING_RICH_ENUM_REASON,
+    THREAD_AGGREGATE_RESULT_MESSAGE,
     OperatorTypeError,
 )
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
@@ -161,6 +162,9 @@ class ExpressionAnalyzer:
             )
         if isinstance(expression.fn, LambdaExpr):
             self._validate_spawn_captures(expression)
+            result = self._infer_spawn_return_type(expression.fn)
+            if self.types.contains_nonescaping_rich_enum(result) is not None:
+                self.session.error(THREAD_AGGREGATE_RESULT_MESSAGE, expression.line, expression.col)
 
     def _validate_spawn_captures(self, expression) -> None:
         for capture in expression.fn.captures:
@@ -2134,6 +2138,8 @@ class ExpressionAnalyzer:
                 self.session.error(
                     "spawn expressions are not supported inside generic declarations", expr.line, expr.col
                 )
+            if isinstance(expr.fn, LambdaExpr):
+                self.session.spawned_lambda_ids.add(id(expr.fn))
             self._analyze_expr(expr.fn)
             self._validate_spawn_expr(expr)
             ret_type = self._infer_spawn_return_type(expr.fn)

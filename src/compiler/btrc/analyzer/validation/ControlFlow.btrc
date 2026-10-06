@@ -130,6 +130,7 @@ class ControlFlowValidator {
 		self.prepareExpression(expression.falseExpr, variables);
 		self.prepareExpression(expression.target, variables);
 		self.prepareExpression(expression.valueNode, variables);
+		self.expressions.recordSpawnedLambda(expression);
 		self.prepareExpression(expression.fn, variables);
 		self.prepareExpression(expression.key, variables);
 		self.prepareExpressionList(expression.args(), variables);

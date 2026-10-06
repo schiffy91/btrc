@@ -62,6 +62,7 @@ from src.compiler.python.syntax.ast.generated import (
     ReturnStmt,
     RichEnumDecl,
     SelfExpr,
+    SpawnExpr,
     StructDecl,
     SwitchStmt,
     TernaryExpr,
@@ -854,6 +855,8 @@ class StatementAnalyzer:
     def _prepare_expression(self, expression, facts) -> None:
         if expression is None or not dataclasses.is_dataclass(expression):
             return
+        if isinstance(expression, SpawnExpr) and isinstance(expression.fn, LambdaExpr):
+            self.session.spawned_lambda_ids.add(id(expression.fn))
         if isinstance(expression, LambdaExpr):
             if id(expression) not in self.session.lambda_body_facts:
                 self._analyze_lambda(expression)
@@ -1079,9 +1082,10 @@ class StatementAnalyzer:
                     expr.line,
                     expr.col,
                 )
-            self.types.validate_nonescaping_rich_enum_role(
-                inferred, "Lambda return type", "return", expr.line, expr.col
-            )
+            if id(expr) not in self.session.spawned_lambda_ids:
+                self.types.validate_nonescaping_rich_enum_role(
+                    inferred, "Lambda return type", "return", expr.line, expr.col
+                )
 
     def _analyze_switch(self, stmt):
         self.analyze_expression(stmt.value)

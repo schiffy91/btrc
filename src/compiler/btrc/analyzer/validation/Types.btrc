@@ -47,6 +47,9 @@ class SemanticValidationState {
 	public Map<string, bool> rawBorrowVisiting;
 	public bool allowOwnedOpaqueVariable;
 	public bool inParameterDefault;
+	/* Lambda literals spawned directly, keyed by AstIdentity.key: their
+	 * results are Thread<T> results. */
+	public Map<string, bool> spawnedLambdas;
 
 	public SemanticValidationState(Analyzed analyzed) {
 		self.analyzed = analyzed;
@@ -72,6 +75,7 @@ class SemanticValidationState {
 		self.rawBorrowVisiting = {};
 		self.allowOwnedOpaqueVariable = false;
 		self.inParameterDefault = false;
+		self.spawnedLambdas = {};
 	}
 }
 
@@ -412,6 +416,8 @@ class TypeValidator {
 
 	class string recordName(string base) { return base.startsWith("struct ") ? base.substring(7, base.length() - 7) : base; }
 
+	class string threadAggregateResultMessage() { return "Thread<T> aggregate result type cannot contain string or class references; return the managed value directly or use a scalar-only aggregate"; }
+
 	class string nonescapingRichEnumReason() { return "its managed payloads are borrowed references that it never retains"; }
 
 	/* A rich-enum value never retains its payloads, so one that carries a
@@ -461,7 +467,9 @@ class TypeValidator {
 		if (canonical == null) { return ""; }
 		string direct = self.nonescapingRichEnum(canonical);
 		if (direct != "") { return direct; }
-		if (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") { return ""; }
+		/* Thread<T> results have their own refusal: an aggregate result with a
+		 * string or class reference, which every nonescaping rich enum carries. */
+		if (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr" || canonical.base == "Thread") { return ""; }
 		for argument in canonical.genericArgs() {
 			string contained = self.containsNonescapingRichEnum(argument, visiting);
 			if (contained != "") { return contained; }
@@ -1067,7 +1075,7 @@ class TypeValidator {
 				TypeValidator.fail("Thread<T> result type cannot contain a Mutex handle", site);
 			}
 			if (!self.directManagedThreadResult(resultType) && self.threadAggregateHasManagedReference(resultType, visiting)) {
-				TypeValidator.fail("Thread<T> aggregate result type cannot contain string or " + "class references; return the managed value directly " + "or use a scalar-only aggregate", site);
+				TypeValidator.fail(TypeValidator.threadAggregateResultMessage(), site);
 			}
 		}
 		if (role != "return" && role != "alias" && TypeValidator.scalarVoid(canonical)) {

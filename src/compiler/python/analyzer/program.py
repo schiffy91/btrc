@@ -520,6 +520,8 @@ class AnalysisSession(AnalysisContext):
         self._flow_unreachable: bool = False
         self._address_escaped_symbol_ids: set[int] = set()
         self.rich_enum_unsafe_default_ids: set[int] = set()
+        # Lambda literals spawned directly: their results are Thread<T> results.
+        self.spawned_lambda_ids: set[int] = set()
         self.record_occurrences: bool = False
         self.occurrences: dict[int, Occurrence] = {}
         self._lambda_contexts: list[tuple[dict[str, SymbolInfo], dict[str, TypeExpr]]] = []
@@ -546,6 +548,7 @@ class AnalysisSession(AnalysisContext):
         self.constant_array_bound_ids = set()
         self.initializer_slot_plans = {}
         self.rich_enum_unsafe_default_ids = set()
+        self.spawned_lambda_ids = set()
         self.generic_resolved_type_facts = []
         self.lambda_body_facts = {}
         self.expression_flow_seeds = {}

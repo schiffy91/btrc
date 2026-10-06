@@ -25,6 +25,10 @@ from src.tests.btrc.runtime_ownership_harness import (
 from src.tests.btrc.selfhost_snippet_harness import REPO, compile_source
 
 REASON = "its managed payloads are borrowed references that it never retains"
+THREAD_RESULT = (
+    "Thread<T> aggregate result type cannot contain string or class references; "
+    "return the managed value directly or use a scalar-only aggregate"
+)
 
 PRELUDE = """import Library.Map;
 import Library.Vector;
@@ -183,7 +187,7 @@ FLOWS = {
     "thread-result": (
         "int main() {\n\tThread<Outcome> worker = spawn(() => Outcome.Rejected(1));\n\tworker.join();\n"
         "\treturn 0;\n}\n",
-        "Variable 'worker' cannot contain nonescaping rich enum 'Outcome' in aggregate or managed storage",
+        THREAD_RESULT,
     ),
     "var-collection": (
         "int main() {\nSETUP\tvar list = [Outcome.Held(ARG)];\n\treturn list.len;\n}\n",
@@ -195,7 +199,7 @@ FLOWS = {
     ),
     "var-thread": (
         "int main() {\n\tvar worker = spawn(() => Outcome.Rejected(1));\n\tworker.join();\n\treturn 0;\n}\n",
-        f"Lambda return type cannot be nonescaping rich enum 'Outcome'; {REASON}",
+        THREAD_RESULT,
     ),
     "var-global": (
         "var saved = Outcome.Rejected(0);\n\nint main() {\n\treturn saved.tag;\n}\n",
@@ -204,7 +208,7 @@ FLOWS = {
     "spawn-join": (
         "int main() {\n\tOutcome result = spawn(() => {\nSETUP\t\treturn Outcome.Held(ARG);\n\t}).join();\n"
         "\treturn result.tag;\n}\n",
-        f"Lambda return type cannot be nonescaping rich enum 'Outcome'; {REASON}",
+        THREAD_RESULT,
     ),
     "iife-collection": (
         "int main() {\n\tint count = (() => {\nSETUP\t\treturn [Outcome.Held(ARG)];\n\t})().len;\n\treturn count;\n}\n",
