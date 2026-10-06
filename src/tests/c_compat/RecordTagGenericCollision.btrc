@@ -140,7 +140,7 @@ class Box<T> implements IShow {
 		return copy.a + inner.b + pointer->a + c2.a + record->b;
 	}
 
-	public (struct T, int) pair() {
+	public(struct T, int) pair() {
 		struct T record = {5, 6};
 		return (record, 7);
 	}
