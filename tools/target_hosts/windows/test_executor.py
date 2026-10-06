@@ -1064,3 +1064,129 @@ def test_production_capture_integrates_with_executor_and_descendant_cleanup(bund
     assert result.exit_status == (None if timeout else 0)
     assert transport.process.stdout.closed and transport.process.stderr.closed
     assert_process_dead(transport.child_pid)
+
+
+# Integration review of PR #58 (batch 42): each test below fails when the fix
+# it names is reverted, which the earlier tests did not catch.
+
+
+def test_status_comes_from_the_gate_exit_not_the_marker_file(bundle):
+    """The gate's exit code is authoritative; a forged marker cannot change it."""
+
+    class MarkerDisagrees(Transport):
+        def communicate(self, data=None, timeout=None):
+            result = super().communicate(data, timeout)
+            Path(self.spec["status"]).write_text("0", encoding="ascii")
+            return result
+
+    result = executor(bundle, MarkerDisagrees(status=3)).run(ExecutionRequest("probe"))
+    assert result.exit_status == 3
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX stand-in for the Windows gate")
+def test_a_target_writing_the_sibling_control_marker_cannot_end_the_run(bundle):
+    """The control directory is reachable as ../control from the target's cwd."""
+
+    class SiblingForger(RealPipeTransport):
+        def spawn(self, command, **kwargs):
+            self.spec = json.loads(Path(command[-1]).read_text())
+            self.ready = Path(command[-1]).parent / "ready.pid"
+            target = (
+                "import pathlib,time; c=pathlib.Path('..')/'control'; (c/'status.txt').write_text('0'); time.sleep(60)"
+            )
+            gate = (
+                "import json,pathlib,subprocess,sys\n"
+                "spec=json.loads(pathlib.Path(sys.argv[1]).read_text())\n"
+                "child=subprocess.Popen([sys.executable,'-c',sys.argv[2]],cwd=spec['cwd'])\n"
+                "ready=pathlib.Path(sys.argv[3]); ready.with_suffix('.tmp').write_text(str(child.pid)); "
+                "ready.with_suffix('.tmp').replace(ready)\n"
+                "status=child.wait()\n"
+                "pathlib.Path(spec['status']).write_text(str(status))\n"
+                "sys.exit(status)\n"
+            )
+            self.process = subprocess.Popen(
+                [sys.executable, "-c", gate, command[-1], target, str(self.ready)],
+                start_new_session=True,
+                **kwargs,
+            )
+            return self
+
+    transport = SiblingForger()
+    result = executor(bundle, transport).run(ExecutionRequest("probe", timeout_s=2))
+    assert result.timed_out and result.exit_status is None
+    assert_process_dead(transport.child_pid)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX stand-in for the Windows gate")
+def test_run_enforces_the_one_mebibyte_output_limit(bundle):
+    """The production limit is applied through run(), not only BoundedOutput(limit=...)."""
+
+    class Flood(RealPipeTransport):
+        @property
+        def stdout(self):
+            return self.process.stdout
+
+        @property
+        def stderr(self):
+            return self.process.stderr
+
+        def wait(self, timeout):
+            self.returncode = self.process.wait(timeout=timeout)
+            return self.returncode
+
+        def spawn(self, command, **kwargs):
+            self.spec = json.loads(Path(command[-1]).read_text())
+            self.ready = Path(command[-1]).parent / "ready.pid"
+            self.child_pid = None
+            script = (
+                "import os,pathlib,sys\n"
+                "os.write(1, b'x' * (1024 * 1024 + 1))\n"
+                "pathlib.Path(sys.argv[1]).write_text('0')\n"
+            )
+            self.process = subprocess.Popen(
+                [sys.executable, "-c", script, self.spec["status"]], start_new_session=True, **kwargs
+            )
+            return self
+
+    transport = Flood()
+    host = WindowsNativeExecutor(job_factory=lambda: transport, spawn=lambda *a, **k: transport.spawn(*a, **k))
+    host.prepare(bundle, "flood")
+    with pytest.raises(RuntimeError, match="exceeded 1048576"):
+        host.run(ExecutionRequest("probe", timeout_s=5))
+    assert executor_module.OUTPUT_LIMIT_BYTES == 1024 * 1024
+
+
+def test_the_gate_merges_the_host_environment_case_insensitively(tmp_path, monkeypatch):
+    """Drive WindowsJob.gate and check the environment that reaches the target."""
+    request = tmp_path / "request.json"
+    request.write_text(
+        json.dumps(
+            {
+                "command": ["target"],
+                "cwd": str(tmp_path),
+                "env": {"path": "override"},
+                "status": str(tmp_path / "status.txt"),
+                "launch_error": str(tmp_path / "launch-error.json"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    api = SimpleNamespace(
+        OpenEventW=lambda *_: 1,
+        WaitForSingleObject=lambda *_: 0,
+        CloseHandle=lambda *_: 1,
+        GetErrorMode=lambda: 0,
+        SetErrorMode=lambda flags: None,
+        ExitProcess=lambda status: None,
+    )
+    monkeypatch.setattr(executor_module.WindowsJob, "bind", staticmethod(lambda: api))
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen.update(kwargs["env"])
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(executor_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(executor_module.os, "environ", {"PATH": "host", "SYSTEMROOT": "C:\\Windows"})
+    executor_module.WindowsJob.gate("event", request)
+    assert seen == {"PATH": "override", "SYSTEMROOT": "C:\\Windows"}
