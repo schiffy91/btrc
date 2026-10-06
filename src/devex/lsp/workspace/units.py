@@ -163,6 +163,7 @@ class FileUnit:
         """LF-normalize, condition, lex and parse one file in its own coordinate space.
 
         A conditioning failure is kept as a lexical error at its file position.
+        ``conditionals`` carries the workspace's target; there is no host default.
         """
 
         source = SourceFileReader.normalize_newlines(source)
@@ -172,7 +173,9 @@ class FileUnit:
             content_hash=hashlib.sha256(source.encode()).hexdigest(),
             conditioned_source=source,
         )
-        conditionals = conditionals or SourceConditionals(ConditionalEnvironment.for_host())
+        # The workspace owns the target (platform-target-contract.md §1.10);
+        # without one, the first evaluated conditional fails (D13).
+        conditionals = conditionals or SourceConditionals(ConditionalEnvironment(None))
         try:
             unit.conditioned_source = conditionals.condition(source, unit.path).text
         except PreprocessorConditionalError as error:

@@ -35,6 +35,8 @@ class BtrcLanguageServer(LanguageServer):
 
     DEFAULT_DEBOUNCE_SECONDS = 0.2
     MAX_DEBOUNCE_SECONDS = 5.0
+    # The workspace diagnostic's URI when the client names no workspace root.
+    TARGET_SETTING_URI = "btrc:settings/btrc.target"
 
     def __init__(
         self,
@@ -73,6 +75,7 @@ class BtrcLanguageServer(LanguageServer):
         self._document_sources: dict[str, str] = {}
         self._versions: dict[str, int] = {}
         self._generation_counter = count(1)
+        self._published_target_problems: tuple[str, ...] = ()
 
         self.compiler_workspace.overlay_provider = self._overlay_source
         self._register_features()
@@ -125,6 +128,11 @@ class BtrcLanguageServer(LanguageServer):
         )(self._protocol_handler(self.semantic_tokens_full))
         self.feature(lsp.TEXT_DOCUMENT_DOCUMENT_HIGHLIGHT)(self._protocol_handler(self.document_highlight))
         self.feature(lsp.WORKSPACE_SYMBOL)(self._protocol_handler(self.workspace_symbol))
+        self.feature(lsp.INITIALIZE)(self._protocol_handler(self.initialize))
+        self.feature(lsp.INITIALIZED)(self._protocol_handler(self.initialized))
+        self.feature(lsp.WORKSPACE_DID_CHANGE_CONFIGURATION)(
+            self.thread()(self._protocol_handler(self.did_change_configuration))
+        )
         self.feature(
             lsp.TEXT_DOCUMENT_CODE_ACTION,
             lsp.CodeActionOptions(code_action_kinds=[lsp.CodeActionKind.QuickFix]),
@@ -347,6 +355,67 @@ class BtrcLanguageServer(LanguageServer):
     def code_action(self, params: lsp.CodeActionParams):
         result = self._cached_current_result(params)
         return self.code_actions.get_code_actions(result, params) if result else []
+
+    def initialize(self, params: lsp.InitializeParams) -> None:
+        """Take ``btrc.target`` from ``initializationOptions.target`` (§1.10)."""
+
+        options = params.initialization_options
+        if isinstance(options, dict) and "target" in options:
+            with self._validate_lock:
+                self.compiler_workspace.set_target(options["target"])
+
+    def initialized(self, _params: lsp.InitializedParams) -> None:
+        self._publish_target_diagnostics()
+
+    def did_change_configuration(self, params: lsp.DidChangeConfigurationParams) -> None:
+        """Apply a changed ``btrc.target`` and re-analyse every open document."""
+
+        settings = params.settings
+        section = settings.get("btrc") if isinstance(settings, dict) else None
+        if not isinstance(section, dict):
+            return
+        with self._validate_lock:
+            changed = self.compiler_workspace.set_target(section.get("target"))
+        self._publish_target_diagnostics()
+        if not changed:
+            return
+        with self._state_lock:
+            self._analysis_cache.clear()
+            self._good_analysis_cache.clear()
+            documents = list(self._document_sources.items())
+        for uri, source in documents:
+            self._schedule_validation(uri, source, 0)
+
+    def _target_diagnostic_uri(self) -> str:
+        """Where the one workspace diagnostic lives: the workspace root, else a settings URI."""
+
+        try:
+            folders = list(self.workspace.folders.values())
+            root = folders[0].uri if folders else self.workspace.root_uri
+        except Exception:
+            root = None
+        return root or self.TARGET_SETTING_URI
+
+    def _publish_target_diagnostics(self) -> None:
+        """Publish the target's problems once, as one workspace diagnostic each."""
+
+        problems = self.compiler_workspace.target.problems
+        with self._state_lock:
+            if problems == self._published_target_problems:
+                return
+            self._published_target_problems = problems
+        diagnostics = [
+            lsp.Diagnostic(
+                range=lsp.Range(start=lsp.Position(line=0, character=0), end=lsp.Position(line=0, character=0)),
+                message=problem,
+                severity=lsp.DiagnosticSeverity.Error,
+                source="btrc",
+            )
+            for problem in problems
+        ]
+        self.text_document_publish_diagnostics(
+            lsp.PublishDiagnosticsParams(uri=self._target_diagnostic_uri(), diagnostics=diagnostics)
+        )
 
     def warm_workspace(self) -> None:  # pragma: no cover - startup optimization
         try:

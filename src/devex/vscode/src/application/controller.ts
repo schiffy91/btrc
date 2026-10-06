@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import {
+    DidChangeConfigurationNotification,
     LanguageClient,
     LanguageClientOptions,
 } from 'vscode-languageclient/node';
@@ -7,6 +8,7 @@ import {
 import { DebugLaunchResolver } from '../debugger/launcher';
 import { LanguageServerLaunchResolver } from '../language_server/launcher';
 import { LanguageServerSession } from '../language_server/session';
+import { TargetSetting } from '../language_server/target';
 import { HostRuntime } from '../runtime/process';
 import { PythonRuntimeProbe } from '../runtime/python';
 
@@ -122,18 +124,39 @@ export class ExtensionController {
             documentSelector: [{ scheme: 'file', language: 'btrc' }],
             synchronize: { fileEvents: fileWatcher },
             outputChannel: output,
+            // Read at every (re)start, so a reopened workspace keeps btrc.target.
+            initializationOptions: () => TargetSetting.initializationOptions(
+                vscode.workspace.getConfiguration(TargetSetting.SECTION),
+            ),
         };
+        let client: LanguageClient | undefined;
         const session = new LanguageServerSession(
             launch,
-            (serverOptions) => new LanguageClient(
-                'btrc',
-                'btrc Language Server',
-                serverOptions,
-                clientOptions,
-            ),
+            (serverOptions) => {
+                client = new LanguageClient(
+                    'btrc',
+                    'btrc Language Server',
+                    serverOptions,
+                    clientOptions,
+                );
+                return client;
+            },
             this.host,
         );
         this.languageServer = session;
+        this.context.subscriptions.push(
+            vscode.workspace.onDidChangeConfiguration((event) => {
+                if (!client?.isRunning() || !TargetSetting.affects(event)) {
+                    return;
+                }
+                void client.sendNotification(
+                    DidChangeConfigurationNotification.type,
+                    TargetSetting.changeNotification(
+                        vscode.workspace.getConfiguration(TargetSetting.SECTION),
+                    ),
+                ).catch(() => undefined);
+            }),
+        );
 
         const startResult = session.start();
         void startResult.then(
