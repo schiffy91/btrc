@@ -37,6 +37,18 @@ _RUNTIME_GENERIC_ARITIES = {
     "Vector": 1,
 }
 _RUNTIME_GENERIC_MIN_ARITIES = {"Tuple": 2, "__fn_ptr": 1, "__realtime_fn_ptr": 1}
+# The realtime plain-data payload rules a specialization must keep: the
+# container, how its payload is named, the rule, and whether the payload must
+# be atomic (otherwise realtime POD). A template's own payload is checked when
+# the template is declared; these recheck it under each specialization's
+# arguments.
+_REALTIME_PAYLOAD_RULES = {
+    "OwnedBuffer": ("OwnedBuffer<T> payload", "must be realtime POD without managed or atomic ownership", False),
+    "SPSCQueue": ("SPSCQueue<T> payload", "must be realtime POD without managed ownership", False),
+    "Span": ("Span<T> element type", "must be realtime POD without managed ownership", False),
+    "AtomicBuffer": ("AtomicBuffer<T> payload", "must be bool, int, uint, or a raw pointer", True),
+    "Atomic": ("Atomic<T> payload", "must be bool, int, uint, or a raw pointer", True),
+}
 
 
 @dataclass(frozen=True)
@@ -651,10 +663,22 @@ class GenericAnalyzer:
         key = (dependency.owner, dependency.method_name)
         bucket = self.session.generic_method_instances.setdefault(key, [])
         entry = (dependency.class_arguments, dependency.method_arguments)
-        if not self._method_instance_seen(bucket, entry):
-            bucket.append(entry)
         substitutions = dict(zip(cls.generic_params, dependency.class_arguments))
         substitutions.update(zip(method.generic_params, dependency.method_arguments))
+        if not self._method_instance_seen(bucket, entry):
+            bucket.append(entry)
+            owner = (
+                self.specialization_spelling(dependency.owner, dependency.class_arguments)
+                if dependency.class_arguments
+                else dependency.owner
+            )
+            self._validate_realtime_payloads(
+                f"{owner}.{self.specialization_spelling(method.name, dependency.method_arguments)}",
+                [method],
+                substitutions,
+                dependency.line,
+                dependency.col,
+            )
         for type_expr in [method.return_type, *(parameter.type for parameter in method.params)]:
             resolved = self.types.substitute_type(type_expr, substitutions)
             if resolved and resolved.generic_args:
@@ -824,6 +848,121 @@ class GenericAnalyzer:
                 valid = False
         return valid
 
+    def _validate_realtime_payloads(self, site_name, members, substitutions, line, col) -> None:
+        """Reject a specialization whose arguments break a realtime payload rule.
+
+        A template checks its own payloads only where they are concrete, so a
+        payload spelled with a type parameter is rechecked here, under the
+        arguments of each instance, through every generic class the template
+        reaches. The least message is reported, so the walk order is not part
+        of the diagnostic.
+        """
+        problems: set[str] = set()
+        visiting: set[tuple] = set()
+        self._realtime_template_problems(members, substitutions, visiting, problems)
+        if problems:
+            self.session.error(f"Generic specialization '{site_name}' is invalid: {min(problems)}", line, col)
+
+    def _realtime_template_problems(self, members, substitutions, visiting, problems) -> None:
+        for member in members:
+            unresolved = frozenset(getattr(member, "generic_params", None) or ()) - substitutions.keys()
+            for type_expr in self._template_type_expressions(member):
+                resolved = self.types.substitute_type_quietly(type_expr, substitutions)
+                self._realtime_type_problems(resolved, unresolved, visiting, problems)
+
+    def _realtime_type_problems(self, type_expr, unresolved, visiting, problems) -> None:
+        if type_expr is None:
+            return
+        canonical = self.types.canonical_type(type_expr)
+        if canonical is None:
+            return
+        shape = type_expr if type_expr.base == canonical.base else canonical
+        rule = _REALTIME_PAYLOAD_RULES.get(canonical.base)
+        if rule is not None and shape.generic_args:
+            payload = shape.generic_args[0]
+            label, requirement, atomic = rule
+            if not self.types.type_references_names(payload, unresolved):
+                admitted = self.types.is_atomic_payload(payload) if atomic else self.types.is_realtime_pod(payload)
+                if not admitted:
+                    problems.add(f"{label} '{self.source_spelling(payload)}' {requirement}")
+        cls = self.index.class_table.get(canonical.base)
+        if (
+            rule is None
+            and cls is not None
+            and cls.generic_params
+            and len(shape.generic_args) == len(cls.generic_params)
+            and not any(self.types.type_references_names(argument, unresolved) for argument in shape.generic_args)
+        ):
+            key = self.types.generic_instance_key(canonical.base, shape.generic_args)
+            if key not in visiting:
+                visiting.add(key)
+                self._realtime_template_problems(
+                    self._own_template_members(cls, canonical.base),
+                    dict(zip(cls.generic_params, shape.generic_args)),
+                    visiting,
+                    problems,
+                )
+        for argument in shape.generic_args or ():
+            self._realtime_type_problems(argument, unresolved, visiting, problems)
+
+    @staticmethod
+    def _own_template_members(cls, base) -> list:
+        """The members a class template declares itself, which its arguments specialize."""
+        members = [field for name, field in cls.fields.items() if cls.field_owners.get(name, base) == base]
+        members.extend(field for name, field in cls.static_fields.items() if cls.field_owners.get(name, base) == base)
+        members.extend(prop for name, prop in cls.properties.items() if cls.property_owners.get(name, base) == base)
+        members.extend(method for name, method in cls.methods.items() if cls.method_owners.get(name, base) == base)
+        return members
+
+    @staticmethod
+    def _template_type_expressions(root) -> list[TypeExpr]:
+        """Every type a template spells, outermost first; arguments are walked by the caller."""
+        found: list[TypeExpr] = []
+        seen: set[int] = set()
+
+        def visit(value):
+            if value is None:
+                return
+            if isinstance(value, TypeExpr):
+                found.append(value)
+                visit(value.array_size)
+                return
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    visit(item)
+                return
+            if not is_dataclass(value) or id(value) in seen:
+                return
+            seen.add(id(value))
+            for field in fields(value):
+                visit(getattr(value, field.name))
+
+        visit(root)
+        return found
+
+    def specialization_spelling(self, base, args) -> str:
+        """One specialization as source names it: ``Base<Arg, ...>``."""
+        return f"{base}<{', '.join(self.source_spelling(argument) for argument in args)}>"
+
+    def source_spelling(self, type_expr) -> str:
+        """A type as source spells it: a class or interface without its implicit pointer."""
+        pointers = type_expr.pointer_depth
+        if pointers and (type_expr.base in self.index.class_table or type_expr.base in self.index.interface_table):
+            pointers -= 1
+        result = "const " if type_expr.is_const else ""
+        if type_expr.base == "__fn_ptr":
+            result += "CFunction"
+        elif type_expr.base == "__realtime_fn_ptr":
+            result += "RealtimeFunction"
+        else:
+            result += type_expr.base
+        if type_expr.generic_args:
+            result += "<" + ", ".join(self.source_spelling(argument) for argument in type_expr.generic_args) + ">"
+        result += "*" * pointers
+        if type_expr.is_array:
+            result += "[]"
+        return result
+
     def _validate_nested_class_arguments(self, owner, type_expr, line=0, col=0):
         if type_expr is None:
             return True
@@ -922,6 +1061,14 @@ class GenericAnalyzer:
             tuple(self._normalize_type_key(argument) for argument in existing) == normalized for existing in instances
         ):
             instances.append(args)
+            if registered and cls is not None and key not in _REALTIME_PAYLOAD_RULES:
+                self._validate_realtime_payloads(
+                    self.specialization_spelling(key, args),
+                    self._own_template_members(cls, key),
+                    dict(zip(cls.generic_params, args)),
+                    type_expr.line,
+                    type_expr.col,
+                )
         if cls and cls.generic_params:
             for name, interface in self.index.interface_table.items():
                 if not interface.generic_params and self.types.is_subclass(cls.name, name):

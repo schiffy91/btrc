@@ -2689,6 +2689,16 @@ class TypeSystem:
             self.report_type_shape_error(str(error), error.type_expr or t, getattr(t, "line", 0), getattr(t, "col", 0))
             return t
 
+    def substitute_type_quietly(self, t: TypeExpr | None, subs: dict) -> TypeExpr | None:
+        """Substitute type parameters, or ``None`` when the shape is invalid.
+
+        The owner of an invalid shape reports it; a query must not report it twice.
+        """
+        try:
+            return self._type_identity.substitute(t, subs, reference_resolver=self.canonical_type)
+        except TypeShapeError:
+            return None
+
     @staticmethod
     def is_floating_type(type_expr: TypeExpr | None) -> bool:
         return bool(TypeSystem._is_scalar(type_expr) and type_expr.base in _FLOATING_BASES)

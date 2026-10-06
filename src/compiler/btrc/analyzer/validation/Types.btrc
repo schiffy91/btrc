@@ -9,6 +9,7 @@ import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
 import ../Expressions.btrc;
+import ../Generics.btrc;
 import ../GPU.btrc;
 import ../Models.btrc;
 import ../Operators.btrc;
@@ -764,62 +765,9 @@ class TypeValidator {
 
 	public bool explicitCTag(string base) { return base.startsWith("struct ") || base.startsWith("enum ") || base.startsWith("union "); }
 
-	public bool atomicPayload(Node? typeExpr) {
-		Node? canonical = self.resolveAliases(typeExpr);
-		if (canonical == null || canonical.isArray || canonical.isNullable || canonical.genericArgs().len > 0) {
-			return false;
-		}
-		if (canonical.pointerDepth > 0) {
-			return canonical.base != "string" && canonical.base != "Atomic" && canonical.base != "Span" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base) && !self.state.analyzed.isInterface(canonical.base);
-		}
-		if (canonical.isConst || canonical.isVolatile) { return false; }
-		return canonical.base == "bool" || canonical.base == "int" || canonical.base == "signed" || canonical.base == "signed int" || canonical.base == "uint" || canonical.base == "unsigned" || canonical.base == "unsigned int";
-	}
+	public bool atomicPayload(Node? typeExpr) { return RealtimePayloadRules.atomicPayload(typeExpr, self.state.analyzed); }
 
-	private bool realtimePodInner(Node? typeExpr, Map<string, bool> visiting) {
-		Node? canonical = self.resolveAliases(typeExpr);
-		if (canonical == null || canonical.isArray || canonical.isNullable) {
-			return false;
-		}
-		if (canonical.pointerDepth > 0) {
-			return canonical.base != "string" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base) && !self.state.analyzed.isInterface(canonical.base);
-		}
-		if (canonical.base == "__realtime_fn_ptr") { return true; }
-		if (canonical.genericArgs().len > 0) { return false; }
-		if (canonical.base == "bool" || NumericSemantics.isType(canonical, self.state.analyzed) || self.state.analyzed.isEnum(canonical.base)) {
-			return true;
-		}
-		string name = canonical.base;
-		if (name.startsWith("struct ")) {
-			name = name.substring(7, name.length() - 7);
-		}
-		if (visiting.has(name) || !self.state.analyzed.structTable.has(name)) {
-			return false;
-		}
-		Node declaration = self.state.analyzed.structTable.get(name);
-		if (declaration.isForward) { return false; }
-		Map<string, bool> nested = self.cloneFlags(visiting);
-		nested.put(name, true);
-		Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
-		int fieldIndex = 0;
-		while (fieldIndex < declarationFields.len) {
-			Node? payload = self.resolveAliases(declarationFields.get(fieldIndex).type);
-			if (payload != null && payload.isArray) {
-				if (payload.arraySize == null || payload.isNullable) { return false; }
-				payload = TypeShape.withoutOuterArray(payload);
-			}
-			if (!self.realtimePodInner(payload, nested)) {
-				return false;
-			}
-			fieldIndex = fieldIndex + 1;
-		}
-		return true;
-	}
-
-	public bool realtimePod(Node? typeExpr) {
-		Map<string, bool> visiting = {};
-		return self.realtimePodInner(typeExpr, visiting);
-	}
+	public bool realtimePod(Node? typeExpr) { return RealtimePayloadRules.pod(typeExpr, self.state.analyzed); }
 
 	public bool runtimeTypeBase(string base) { return base == "Array" || base == "List" || base == "Map" || base == "Atomic" || base == "MemoryOrder" || base == "Mutex" || base == "Set" || base == "Span" || base == "Thread" || base == "Tuple" || base == "Vector" || base == "__fn_ptr" || base == "__realtime_fn_ptr"; }
 
