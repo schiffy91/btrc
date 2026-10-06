@@ -749,13 +749,16 @@ class GenericSpecializer {
 	}
 
 	private void realtimeTemplateProblems(Vector<Node> members, Map<string, Node> substitutions, Map<string, bool> visiting, Map<string, bool> problems, Analyzed a) {
+		Map<string, bool> substituted = {};
+		for name in substitutions.keys() { substituted.put(name, true); }
 		for member in members {
 			Map<string, bool> unresolved = {};
 			for parameter in member.genericParams() {
 				if (!substitutions.has(parameter)) { unresolved.put(parameter, true); }
 			}
 			for node in AstStructure.preorder(member) {
-				if (node.kind != NK_TYPE_EXPR) { continue; }
+				/* A type no argument reaches was checked where it is declared. */
+				if (node.kind != NK_TYPE_EXPR || !TypeIdentity.referencesNames(node, substituted)) { continue; }
 				self.realtimeTypeProblems(SemanticTypeSystem.resolveGenericType(node, substitutions, a), unresolved, visiting, problems, a);
 			}
 		}

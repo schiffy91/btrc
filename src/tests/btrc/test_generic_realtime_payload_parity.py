@@ -207,3 +207,23 @@ def test_plain_data_specializations_still_compile_and_run(semantic_btrcc: Path, 
     assert selfhost.returncode == 0, selfhost.stderr
     strict_build_and_run(reference_c, tmp_path / "reference")
     strict_build_and_run(selfhost_c, tmp_path / "selfhost")
+
+
+def test_template_own_payloads_are_not_rechecked_per_specialization(semantic_btrcc: Path, tmp_path: Path) -> None:
+    """A payload no type argument reaches is the template's own error, reported once where it is declared."""
+    program = PRELUDE + (
+        "\nclass Fixed<T> {\n"
+        "    public SPSCQueue<string> queue;\n\n"
+        "    public Fixed() {\n"
+        "        self.queue = new SPSCQueue<string>((size_t)2);\n"
+        "    }\n"
+        "}\n\n"
+        "int main() {\n    var fixed = new Fixed<int>();\n    return 0;\n}\n"
+    )
+    reference, _reference_c = compile_reference_source(tmp_path, program)
+    selfhost, _selfhost_c = compile_source(semantic_btrcc, tmp_path, program)
+    rule = "SPSCQueue<T> payload must be realtime POD without managed ownership"
+    for result in (reference, selfhost):
+        assert result.returncode == 1, result.stderr
+        assert "Generic specialization" not in result.stderr
+        assert diagnostic_identity(result.stderr)[:2] == (rule, 35)

@@ -867,6 +867,9 @@ class GenericAnalyzer:
         for member in members:
             unresolved = frozenset(getattr(member, "generic_params", None) or ()) - substitutions.keys()
             for type_expr in self._template_type_expressions(member):
+                # A type no argument reaches was checked where it is declared.
+                if not self.types.type_references_names(type_expr, substitutions.keys()):
+                    continue
                 resolved = self.types.substitute_type_quietly(type_expr, substitutions)
                 self._realtime_type_problems(resolved, unresolved, visiting, problems)
 
