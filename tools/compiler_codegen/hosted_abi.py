@@ -551,7 +551,9 @@ class HostedAbiManifest:
                     raise HostedAbiManifestError(
                         f"{context}.unavailable_{kind} lists names outside platform.{kind}: {outside[:5]!r}"
                     )
-                runtime = sorted(name for name in listed if name in runtime_names or name.startswith(self.RUNTIME_PREFIXES))
+                runtime = sorted(
+                    name for name in listed if name in runtime_names or name.startswith(self.RUNTIME_PREFIXES)
+                )
                 if runtime:
                     raise HostedAbiManifestError(
                         f"{context}.unavailable_{kind} lists btrc runtime names, which are ported, not filtered: "
@@ -1510,7 +1512,9 @@ class HostedAbiCatalogGenerator:
             "    {",
         ]
         for target in self._manifest.platform_targets:
-            lines.extend([f"        {target.target!r}: GeneratedPlatformTargetRow(", f"            target={target.target!r},"])
+            lines.extend(
+                [f"        {target.target!r}: GeneratedPlatformTargetRow(", f"            target={target.target!r},"]
+            )
             for kind in HostedAbiPlatformTargetSpec.KINDS:
                 values = getattr(target, kind)
                 if not values:
