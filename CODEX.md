@@ -281,6 +281,12 @@ owner, the exact prerequisite and the next acceptance.
   `ClipboardRequestor` row in `evidence/ui1-linux.toml`. Next acceptance: Codex
   re-runs the Wayland acceptance row and the `LibdecorPending` CI build; Wayland
   4/4 rows and the X11 clipboard probe pass.
+  Batch 45: Claude changed `src/tests/native/gui/shell/NativeShell.btrc` (the
+  CX-UIA-09 fixture) so that journey steps 1, 4, 5 and 6 wait, within a 15 s
+  budget, for injected input to land before asserting. Before, they assumed one
+  10 ms tick, and step 5 (`action.count == 1`) failed intermittently on a
+  virtual display shared by parallel workers. Keep that pattern in new journey
+  steps.
 - **`CX-P1-02` platform inventory.** Owner: the owner (sign-off), then Codex
   (the 58 cells in `platform-inventory.toml`) and Claude (the
   `platform-parity.md` totals fragment). Prerequisite: the owner's sign-off on
