@@ -99,8 +99,10 @@ test('the controller wires the setting into the language client', () => {
         path.join(extensionSource, 'src', 'application', 'controller.ts'),
         'utf8',
     );
-    assert.match(controller, /initializationOptions: \(\) => TargetSetting\.initializationOptions\(/);
+    assert.match(controller, /initializationOptions: \(\) => \{\s+const options = TargetSetting\.initializationOptions\(/);
     assert.match(controller, /onDidChangeConfiguration\(/);
+    // A change made while the server starts is sent once it has started.
+    assert.match(controller, /started successfully\.',\s+\);\s+sendTarget\(\);/);
     assert.match(controller, /DidChangeConfigurationNotification\.type/);
     assert.match(controller, /TargetSetting\.changeNotification\(/);
 });

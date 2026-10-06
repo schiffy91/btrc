@@ -382,9 +382,26 @@ class BtrcLanguageServer(LanguageServer):
         with self._state_lock:
             self._analysis_cache.clear()
             self._good_analysis_cache.clear()
-            documents = list(self._document_sources.items())
-        for uri, source in documents:
-            self._schedule_validation(uri, source, 0)
+            # A validation still running for the old target must not store.
+            for uri in self._open_uris:
+                self._generations[uri] = next(self._generation_counter)
+            documents = list(self._open_uris)
+        for uri in documents:
+            self._revalidate_open_document(uri)
+
+    def _revalidate_open_document(self, uri: str) -> None:
+        """Validate a still-open document's current buffer now, superseding its timer."""
+
+        with self._state_lock:
+            source = self._document_sources.get(uri)
+            if uri not in self._open_uris or source is None:
+                return
+            generation = next(self._generation_counter)
+            self._generations[uri] = generation
+            timer = self._timers.pop(uri, None)
+        if timer:
+            timer.cancel()
+        self._validate_document(uri, source, generation)
 
     def _target_diagnostic_uri(self) -> str:
         """Where the one workspace diagnostic lives: the workspace root, else a settings URI."""
@@ -399,11 +416,17 @@ class BtrcLanguageServer(LanguageServer):
     def _publish_target_diagnostics(self) -> None:
         """Publish the target's problems once, as one workspace diagnostic each."""
 
-        problems = self.compiler_workspace.target.problems
+        uri = self._target_diagnostic_uri()
+        # Read, compare and publish under one lock, so overlapping changes
+        # cannot publish out of order.
         with self._state_lock:
+            problems = self.compiler_workspace.target.problems
             if problems == self._published_target_problems:
                 return
             self._published_target_problems = problems
+            self._publish_workspace_diagnostics(uri, problems)
+
+    def _publish_workspace_diagnostics(self, uri: str, problems: tuple[str, ...]) -> None:
         diagnostics = [
             lsp.Diagnostic(
                 range=lsp.Range(start=lsp.Position(line=0, character=0), end=lsp.Position(line=0, character=0)),
@@ -414,7 +437,7 @@ class BtrcLanguageServer(LanguageServer):
             for problem in problems
         ]
         self.text_document_publish_diagnostics(
-            lsp.PublishDiagnosticsParams(uri=self._target_diagnostic_uri(), diagnostics=diagnostics)
+            lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics)
         )
 
     def warm_workspace(self) -> None:  # pragma: no cover - startup optimization

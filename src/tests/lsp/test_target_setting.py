@@ -230,3 +230,23 @@ def test_an_unknown_host_shows_its_message_once(monkeypatch, tmp_path) -> None:
     assert [diagnostic.message for diagnostic in workspace_diagnostics[0].diagnostics] == [
         TargetRepository.UNKNOWN_HOST_MESSAGE
     ]
+
+
+def test_a_target_change_skips_closed_documents_and_keeps_newer_buffers(monkeypatch, tmp_path) -> None:
+    uri = (tmp_path / "Main.btrc").as_uri()
+    closed = (tmp_path / "Closed.btrc").as_uri()
+    server, published = _server(monkeypatch, uri, tmp_path.as_uri())
+    _initialize(server, {"target": "linux-x86_64"})
+    _open(server, uri)
+    _open(server, closed)
+    server.did_close(lsp.DidCloseTextDocumentParams(text_document=lsp.TextDocumentIdentifier(uri=closed)))
+    # A newer buffer arrived (its debounce timer still pending) before the change.
+    newer = WIN32_REGION.replace("return 0;", "return 1;")
+    server._schedule_validation(uri, newer, 60.0, 2)
+    published.clear()
+
+    server.did_change_configuration(lsp.DidChangeConfigurationParams(settings={"btrc": {"target": "windows-x86_64"}}))
+    assert [params.uri for params in published] == [uri]
+    assert server._document_sources[uri] == newer
+    assert closed not in server._document_sources and closed not in server._open_uris
+    assert server._timers == {}

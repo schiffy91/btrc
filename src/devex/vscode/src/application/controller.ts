@@ -125,11 +125,33 @@ export class ExtensionController {
             synchronize: { fileEvents: fileWatcher },
             outputChannel: output,
             // Read at every (re)start, so a reopened workspace keeps btrc.target.
-            initializationOptions: () => TargetSetting.initializationOptions(
-                vscode.workspace.getConfiguration(TargetSetting.SECTION),
-            ),
+            initializationOptions: () => {
+                const options = TargetSetting.initializationOptions(
+                    vscode.workspace.getConfiguration(TargetSetting.SECTION),
+                );
+                sentTarget = options.target;
+                return options;
+            },
         };
         let client: LanguageClient | undefined;
+        let sentTarget: string | undefined;
+        // Send btrc.target when it differs from what the server last got; a
+        // change made before the server finished starting is sent once it has.
+        const sendTarget = () => {
+            const configuration = vscode.workspace.getConfiguration(
+                TargetSetting.SECTION,
+            );
+            if (!client?.isRunning()
+                || TargetSetting.read(configuration) === sentTarget) {
+                return;
+            }
+            const notification = TargetSetting.changeNotification(configuration);
+            sentTarget = notification.settings.btrc.target;
+            void client.sendNotification(
+                DidChangeConfigurationNotification.type,
+                notification,
+            ).catch(() => undefined);
+        };
         const session = new LanguageServerSession(
             launch,
             (serverOptions) => {
@@ -146,15 +168,7 @@ export class ExtensionController {
         this.languageServer = session;
         this.context.subscriptions.push(
             vscode.workspace.onDidChangeConfiguration((event) => {
-                if (!client?.isRunning() || !TargetSetting.affects(event)) {
-                    return;
-                }
-                void client.sendNotification(
-                    DidChangeConfigurationNotification.type,
-                    TargetSetting.changeNotification(
-                        vscode.workspace.getConfiguration(TargetSetting.SECTION),
-                    ),
-                ).catch(() => undefined);
+                if (TargetSetting.affects(event)) { sendTarget(); }
             }),
         );
 
@@ -165,6 +179,7 @@ export class ExtensionController {
                     output.appendLine(
                         'btrc language server started successfully.',
                     );
+                    sendTarget();
                 }
             },
             (error: unknown) => {
