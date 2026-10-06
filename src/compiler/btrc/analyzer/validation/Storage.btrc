@@ -855,6 +855,15 @@ class StorageValidator {
 				TypeValidator.fail(subject + " must initialize its Span<T> borrow", declaration);
 			}
 		}
+		string richEnum = self.types.nonescapingRichEnum(canonical);
+		if (canonical != null && richEnum != "" && canonical.pointerDepth == 0 && !canonical.isArray) {
+			if (isGlobal || canonical.isStatic || canonical.isExtern) {
+				TypeValidator.fail(subject + " cannot store nonescaping rich enum '" + richEnum + "'; " + TypeValidator.nonescapingRichEnumReason(), declaration);
+			}
+			if (declaration.initializer == null) {
+				TypeValidator.fail(subject + " must initialize its nonescaping rich enum '" + richEnum + "' borrow", declaration);
+			}
+		}
 		if (canonical != null && canonical.base == "Atomic" && canonical.pointerDepth == 0 && declaration.initializer != null) {
 			Node initializer = declaration.initializer;
 			bool validConstructor = initializer.kind == NK_CALL_EXPR && initializer.callee != null && initializer.callee.kind == NK_IDENTIFIER && initializer.callee.name == "Atomic";
@@ -1413,6 +1422,25 @@ class StorageValidator {
 		}
 	}
 
+	/* Refuse a store that could make a borrowing rich enum outlive its payload owners. */
+	private void rejectNonescapingRichEnumStore(Node expression, Node? canonicalTarget, Map<string, Node> vars) {
+		string richEnum = self.types.nonescapingRichEnum(canonicalTarget);
+		if (richEnum != "") {
+			TypeValidator.fail("Nonescaping rich enum '" + richEnum + "' cannot be reassigned; " + TypeValidator.nonescapingRichEnumReason() + ", so declare a new local", expression);
+		}
+		Node? node = expression.target;
+		while (node != null && (node.kind == NK_FIELD_ACCESS_EXPR || node.kind == NK_INDEX_EXPR)) {
+			Node current = node;
+			if (current.kind == NK_FIELD_ACCESS_EXPR && current.field == "data") {
+				richEnum = self.types.nonescapingRichEnum(self.types.inferType(current.obj, vars));
+				if (richEnum != "") {
+					TypeValidator.fail("Payload of nonescaping rich enum '" + richEnum + "' cannot be reassigned; " + TypeValidator.nonescapingRichEnumReason() + ", so declare a new local", expression);
+				}
+			}
+			node = current.obj;
+		}
+	}
+
 	public void validateAssignment(Node expression, Map<string, Node> vars) {
 		if (!self.isLvalue(expression.target, vars)) {
 			TypeValidator.fail("Assignment target is not assignable", expression);
@@ -1422,6 +1450,7 @@ class StorageValidator {
 		if (canonicalStorageTarget != null && canonicalStorageTarget.base == "Atomic" && canonicalStorageTarget.pointerDepth == 0 && !canonicalStorageTarget.isArray) {
 			TypeValidator.fail("Atomic<T> owner cannot be assigned or copied; use Atomic.init/store on stable storage", expression);
 		}
+		self.rejectNonescapingRichEnumStore(expression, canonicalStorageTarget, vars);
 		bool gpuArrayOutput = expression.op == "=" && self.types.gpuArrayResultCall(expression.valueNode, vars);
 		bool gpuCollectionOutput = gpuArrayOutput && self.gpuOutputCollectionTarget(expression.target, storageTarget, vars);
 		bool gpuTargetHasCapacity = gpuArrayOutput && self.arrayTargetHasCapacity(expression.target, storageTarget, vars) && (!self.types.gpuOutputCollectionType(storageTarget) || gpuCollectionOutput);

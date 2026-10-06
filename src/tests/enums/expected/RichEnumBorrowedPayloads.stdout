@@ -1,0 +1,3 @@
+3 8 42 8 2 42
+kept=9 batch=5 text=label-42
+PASS: test_rich_enum_borrowed_payloads

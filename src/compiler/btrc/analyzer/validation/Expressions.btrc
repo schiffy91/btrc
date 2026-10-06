@@ -703,6 +703,12 @@ class ExpressionValidator {
 		}
 	}
 
+	public void recordSpawnedLambda(Node expression) {
+		if (expression.kind == NK_SPAWN_EXPR && expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
+			self.state.spawnedLambdas.put(AstIdentity.key(expression.fn), true);
+		}
+	}
+
 	public LambdaValidationPlan planLambda(Node expression, Map<string, Node> vars) {
 		LambdaValidationPlan plan = LambdaValidationPlan();
 		self.names.validateLambdaNames(expression);
@@ -760,6 +766,16 @@ class ExpressionValidator {
 		}
 
 		plan.resultType = self.expressionTypes.lambdaReturnType(expression, vars);
+		bool spawned = self.state.spawnedLambdas.has(AstIdentity.key(expression));
+		string returnedRichEnum = expression.returnType == null && !spawned ? self.types.nonescapingRichEnum(plan.resultType) : "";
+		if (returnedRichEnum != "") {
+			TypeValidator.fail("Lambda return type cannot be nonescaping rich enum '" + returnedRichEnum + "'; " + TypeValidator.nonescapingRichEnumReason(), expression);
+		}
+		for name in names {
+			if (vars.has(name) && self.state.localBindings.has(name) && self.types.nonescapingRichEnum(vars.get(name)) != "") {
+				TypeValidator.fail("A lambda cannot capture nonescaping rich enum '" + name + "'", expression);
+			}
+		}
 		Node? representedResult = self.types.arrayValueType(plan.resultType);
 		if (representedResult != null) {
 			plan.resultType = representedResult;
@@ -1018,6 +1034,7 @@ class ExpressionValidator {
 			if (self.state.typeParams.len > 0 && (expression.fn == null || expression.fn.kind != NK_LAMBDA_EXPR)) {
 				TypeValidator.fail("spawn expressions are not supported inside generic declarations", expression);
 			}
+			self.recordSpawnedLambda(expression);
 			self.validateExpr(expression.fn,  vars);
 			if (expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
 				self.validateSpawnCaptures(expression,  vars);

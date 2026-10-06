@@ -883,6 +883,7 @@ _PRIMITIVE_TYPE_NAMES = frozenset(
 )
 _BUILTIN_CAST_BASES = frozenset(("Vector", "List", "Map", "Set", "Array", "Atomic", "Span", "Thread", "Mutex", "Tuple"))
 _FUNCTION_POINTER_BASES = frozenset({"__fn_ptr", "__realtime_fn_ptr"})
+NONESCAPING_RICH_ENUM_REASON = "its managed payloads are borrowed references that it never retains"
 _RUNTIME_AGGREGATE_BASES = frozenset(("Vector", "List", "Map", "Set", "Array", "Tuple"))
 _RUNTIME_TYPE_BASES = frozenset(
     {
@@ -1598,6 +1599,69 @@ class TypeSystem:
             for field, nested in self._aggregate_field_types(canonical, visiting)
         )
 
+    def nonescaping_rich_enum(self, type_expr) -> str | None:
+        """Name the rich enum this type is, if its payloads borrow managed references.
+
+        A rich-enum value never retains its payloads, so one that carries a
+        string, class, interface or collection is a lexical borrow like Span<T>.
+        """
+        canonical = self.canonical_type(type_expr)
+        declaration = self.index.rich_enum_table.get(canonical.base) if canonical is not None else None
+        if declaration is None:
+            return None
+        visiting = frozenset({f"rich-enum:{declaration.name}"})
+        borrows = any(
+            self._payload_borrows_managed_reference(parameter.type, visiting)
+            for variant in declaration.variants
+            for parameter in variant.params
+        )
+        return declaration.name if borrows else None
+
+    def _payload_borrows_managed_reference(self, type_expr, visiting) -> bool:
+        canonical = self.canonical_type(type_expr)
+        if canonical is None:
+            return False
+        if canonical.is_array:
+            return self._payload_borrows_managed_reference(self.strip_outer_storage(canonical, array=True), visiting)
+        if self._type_identity.is_scalar_string(canonical):
+            return True
+        if canonical.pointer_depth <= 1 and (
+            canonical.base in self.index.class_table or canonical.base in self.index.interface_table
+        ):
+            return True
+        if canonical.pointer_depth > 0 or canonical.base in _FUNCTION_POINTER_BASES:
+            return False
+        if canonical.base == "Tuple":
+            return any(
+                self._payload_borrows_managed_reference(argument, visiting) for argument in canonical.generic_args
+            )
+        return any(
+            self._payload_borrows_managed_reference(field, nested)
+            for field, nested in self._aggregate_field_types(canonical, visiting)
+        )
+
+    def contains_nonescaping_rich_enum(self, type_expr, visiting=frozenset()) -> str | None:
+        """Name a nonescaping rich enum that this storage transitively contains."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None:
+            return None
+        direct = self.nonescaping_rich_enum(canonical)
+        if direct is not None:
+            return direct
+        if canonical.base in _FUNCTION_POINTER_BASES:
+            return None
+        for argument in canonical.generic_args or []:
+            contained = self.contains_nonescaping_rich_enum(argument, visiting)
+            if contained is not None:
+                return contained
+        if canonical.pointer_depth > 0:
+            return None
+        for field, nested in self._aggregate_field_types(canonical, visiting):
+            contained = self.contains_nonescaping_rich_enum(field, nested)
+            if contained is not None:
+                return contained
+        return None
+
     def contains_atomic_storage(self, type_expr, visiting=frozenset()) -> bool:
         """Return whether storage transitively contains a direct Atomic owner."""
         canonical = self.canonical_type(type_expr)
@@ -1834,6 +1898,7 @@ class TypeSystem:
                 type_line,
                 type_col,
             )
+        self._validate_nonescaping_rich_enum_role(canonical, subject, role, type_line, type_col)
         if canonical and canonical.base != "Atomic" and self.contains_atomic_storage(canonical):
             self.session.error(
                 f"{subject} cannot embed an Atomic<T> owner in shallow copyable storage; "
@@ -1916,6 +1981,40 @@ class TypeSystem:
                 type_col,
                 role=argument_role,
                 active_type_params=active_type_params,
+            )
+
+    def _validate_nonescaping_rich_enum_role(self, canonical, subject, role, line, col) -> None:
+        """A borrowing rich enum is a direct lexical local or parameter only."""
+        if canonical is None:
+            return
+        rich_enum = self.nonescaping_rich_enum(canonical)
+        if rich_enum is None:
+            contained = self.contains_nonescaping_rich_enum(canonical)
+            if contained is not None:
+                self.session.error(
+                    f"{subject} cannot contain nonescaping rich enum '{contained}' in aggregate or managed storage",
+                    line,
+                    col,
+                )
+            return
+        if canonical.pointer_depth > 0 or canonical.is_array or canonical.is_nullable:
+            self.session.error(
+                f"Rich enum '{rich_enum}' borrows its managed payloads and must be one direct value; "
+                "pointer, nullable and array shapes are not supported",
+                line,
+                col,
+            )
+        elif role in {"field", "stable_field"}:
+            self.session.error(
+                f"{subject} cannot store nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}",
+                line,
+                col,
+            )
+        elif role == "return":
+            self.session.error(
+                f"{subject} cannot be nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}",
+                line,
+                col,
             )
 
     def owned_closure_invoke_is_admissible(self, type_expr, active_type_params=()) -> bool:

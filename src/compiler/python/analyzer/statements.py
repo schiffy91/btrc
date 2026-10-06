@@ -15,6 +15,7 @@ from src.compiler.python.analyzer.program import (
     LambdaBodyFacts,
     SymbolInfo,
 )
+from src.compiler.python.analyzer.types import NONESCAPING_RICH_ENUM_REASON
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
@@ -389,6 +390,20 @@ class StatementAnalyzer:
                 self.session.error(f"{subject} cannot store nonescaping Span<T>", declaration.line, declaration.col)
             if not is_global and declaration.initializer is None:
                 self.session.error(f"{subject} must initialize its Span<T> borrow", declaration.line, declaration.col)
+        rich_enum = self.types.nonescaping_rich_enum(canonical)
+        if rich_enum is not None and canonical.pointer_depth == 0 and not canonical.is_array:
+            if is_global or canonical.is_static or canonical.is_extern:
+                self.session.error(
+                    f"{subject} cannot store nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}",
+                    declaration.line,
+                    declaration.col,
+                )
+            elif declaration.initializer is None:
+                self.session.error(
+                    f"{subject} must initialize its nonescaping rich enum '{rich_enum}' borrow",
+                    declaration.line,
+                    declaration.col,
+                )
         if canonical and canonical.base == "Atomic" and canonical.pointer_depth == 0:
             initializer = declaration.initializer
             valid_constructor = bool(
@@ -962,6 +977,12 @@ class StatementAnalyzer:
                     expr.line,
                     expr.col,
                 )
+            if self.types.nonescaping_rich_enum(canonical_capture) is not None:
+                self.session.error(
+                    f"A lambda cannot capture nonescaping rich enum '{name}'",
+                    expr.line,
+                    expr.col,
+                )
             if (
                 canonical_capture is not None
                 and canonical_capture.base == "Atomic"
@@ -1040,6 +1061,14 @@ class StatementAnalyzer:
             for actual in conflicts:
                 self.session.error(
                     f"Lambda has inconsistent inferred return types '{self.types.format_type(inferred)}' and '{self.types.format_type(actual)}'",
+                    expr.line,
+                    expr.col,
+                )
+            spawned = id(expr) in self.session.spawned_lambda_ids
+            rich_enum = None if spawned else self.types.nonescaping_rich_enum(inferred)
+            if rich_enum is not None:
+                self.session.error(
+                    f"Lambda return type cannot be nonescaping rich enum '{rich_enum}'; {NONESCAPING_RICH_ENUM_REASON}",
                     expr.line,
                     expr.col,
                 )

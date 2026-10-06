@@ -1,0 +1,93 @@
+/* Rich-enum payloads that are collections of class or interface values. The
+ * payload slot uses the same representation as the local passed to it, so
+ * both compilers accept Vector<interface>, Vector<class> and Map<string, class>
+ * payloads (CL-REQ-UI2-B). The payloads are borrowed: the locals keep them alive. */
+import Library.Map;
+import Library.Vector;
+
+#include <assert.h>
+
+interface IProbeView {
+	int identity();
+}
+
+class Probe implements IProbeView {
+	private int id;
+	public Probe(int id) {
+		self.id = id;
+	}
+	public int identity() {
+		return self.id;
+	}
+}
+
+enum class BatchResult {
+	Committed(long long revision),
+	FailedConsistent(long long revision, Vector<IProbeView> retained)
+}
+
+enum class ProbeSet {
+	Listed(Vector<Probe> probes),
+	Named(Map<string, Probe> byName),
+	Empty
+}
+
+int retainedTotal(BatchResult result) {
+	if (result.tag != BatchResult.FailedConsistent) {
+		return 0;
+	}
+	int total = 0;
+	for view in result.data.FailedConsistent.retained {
+		total += view.identity();
+	}
+	return total;
+}
+
+int probeTotal(ProbeSet set) {
+	int total = 0;
+	switch (set.tag) {
+		case ProbeSet.Listed:
+			for probe in set.data.Listed.probes {
+				total += probe.identity();
+			}
+			break;
+		case ProbeSet.Named:
+			for name in set.data.Named.byName.keys() {
+				total += set.data.Named.byName.get(name).identity();
+			}
+			break;
+		case ProbeSet.Empty:
+			break;
+	}
+	return total;
+}
+
+int main() {
+	Probe first = Probe(7);
+	Probe second = Probe(35);
+
+	Vector<IProbeView> retained = [];
+	retained.push(first);
+	retained.push(second);
+	BatchResult failed = BatchResult.FailedConsistent(1LL, retained);
+	BatchResult committed = BatchResult.Committed(2LL);
+	assert(failed.data.FailedConsistent.revision == 1LL);
+	assert(failed.data.FailedConsistent.retained.len == 2);
+	assert(failed.data.FailedConsistent.retained.get(0).identity() == 7);
+	print(f"retained={retainedTotal(failed)} committed={retainedTotal(committed)}");
+
+	Vector<Probe> probes = [];
+	probes.push(first);
+	probes.push(second);
+	ProbeSet listed = ProbeSet.Listed(probes);
+
+	Map<string, Probe> byName = {};
+	byName.put("first", first);
+	byName.put("second", second);
+	ProbeSet named = ProbeSet.Named(byName);
+	assert(named.data.Named.byName.get("second").identity() == 35);
+	print(f"listed={probeTotal(listed)} named={probeTotal(named)} empty={probeTotal(ProbeSet.Empty())}");
+
+	print("PASS: test_rich_enum_managed_collection_payloads");
+	return 0;
+}

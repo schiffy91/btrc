@@ -11,6 +11,7 @@ from src.compiler.python.analyzer.ownership import MutexDestroyReceiverPlan
 from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES, DeclarationIndex, Occurrence
 from src.compiler.python.analyzer.types import (
     _RUNTIME_AGGREGATE_BASES,
+    NONESCAPING_RICH_ENUM_REASON,
     OperatorTypeError,
 )
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
@@ -574,6 +575,33 @@ class ExpressionAnalyzer:
         if zero:
             self.session.error("Division by zero", operand.line, operand.col)
 
+    def _reject_nonescaping_rich_enum_store(self, expression, canonical_target) -> bool:
+        """Refuse a store that could make a borrowing rich enum outlive its payload owners."""
+        rich_enum = self.types.nonescaping_rich_enum(canonical_target)
+        if rich_enum is not None:
+            self.session.error(
+                f"Nonescaping rich enum '{rich_enum}' cannot be reassigned; "
+                f"{NONESCAPING_RICH_ENUM_REASON}, so declare a new local",
+                expression.line,
+                expression.col,
+            )
+            return True
+        node = expression.target
+        while isinstance(node, (FieldAccessExpr, IndexExpr)):
+            receiver = node.obj
+            if isinstance(node, FieldAccessExpr) and node.field == "data":
+                rich_enum = self.types.nonescaping_rich_enum(self.infer_type(receiver))
+                if rich_enum is not None:
+                    self.session.error(
+                        f"Payload of nonescaping rich enum '{rich_enum}' cannot be reassigned; "
+                        f"{NONESCAPING_RICH_ENUM_REASON}, so declare a new local",
+                        expression.line,
+                        expression.col,
+                    )
+                    return True
+            node = receiver
+        return False
+
     def _validate_assignment(self, expression):
         if isinstance(expression.target, FieldAccessExpr) and expression.target.optional:
             self.session.error("Optional-chain expression is not assignable", expression.line, expression.col)
@@ -607,6 +635,8 @@ class ExpressionAnalyzer:
                 expression.line,
                 expression.col,
             )
+            return
+        if self._reject_nonescaping_rich_enum_store(expression, canonical_target):
             return
         if self._reject_borrowed_managed_rebind(expression, canonical_target):
             return
@@ -2101,6 +2131,8 @@ class ExpressionAnalyzer:
                 self.session.error(
                     "spawn expressions are not supported inside generic declarations", expr.line, expr.col
                 )
+            if isinstance(expr.fn, LambdaExpr):
+                self.session.spawned_lambda_ids.add(id(expr.fn))
             self._analyze_expr(expr.fn)
             self._validate_spawn_expr(expr)
             ret_type = self._infer_spawn_return_type(expr.fn)
