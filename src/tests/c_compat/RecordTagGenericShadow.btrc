@@ -62,7 +62,9 @@ int main() {
 	assert(holder.record.a + holder.record.c + holder.value == 8);
 
 	Util util = new Util();
-	assert(util.run(0) == 6);
+	int seed = 0;
+	int ran = util.run(seed);
+	assert(ran == 6);
 	print("PASS: a generic parameter never captures a record tag");
 	return 0;
 }
