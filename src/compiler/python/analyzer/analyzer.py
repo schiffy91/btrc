@@ -50,6 +50,7 @@ class SemanticAnalyzer:
         gpu = GpuAnalyzer(session, index, types, aggregates)
         macros = SourceMacroAnalyzer(session, index, types)
         generics = GenericAnalyzer(session, index, types)
+        generated_symbols = GeneratedSymbolRegistry(session, index, types, storage, macros, runtime_helpers)
         calls = CallAnalyzer(
             session,
             index,
@@ -60,12 +61,12 @@ class SemanticAnalyzer:
             gpu,
             macros,
             generics,
+            generated_symbols,
         )
         expressions = ExpressionAnalyzer(
             session, declarations, index, types, aggregates, storage, ownership, calls, gpu, generics
         )
         flow = ControlFlowAnalyzer(session, types, index)
-        generated_symbols = GeneratedSymbolRegistry(session, index, types, storage, macros, runtime_helpers)
         realtime = RealtimeAnalyzer(session, index, runtime_helpers)
         statements = StatementAnalyzer(
             session,

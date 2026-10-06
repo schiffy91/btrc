@@ -428,7 +428,7 @@ class ControlFlowValidator {
 			}
 		} else {
 			self.validateExpression(statement.iterable,  vars);
-			self.expressions.rejectInconsistentCollectionLiteral(statement.iterable, vars);
+			self.expressions.checkInferredLiteral(statement.iterable);
 			self.expressions.rejectUndeclaredCollectionLiteral(statement.iterable);
 			iterableType = self.types.inferType(statement.iterable,  vars);
 			if (iterableType == null) {
@@ -612,7 +612,9 @@ class ControlFlowValidator {
 	 * unreachable code. */
 	private void validateSequenced(Node statement, Map<string, Node> vars) {
 		bool reached = self.flow.reachable();
+		int literals = self.expressions.inferredLiteralMark();
 		self.validateStmt(statement, vars);
+		self.expressions.checkInferredLiterals(literals);
 		if (!reached || self.flow.endsFlow(statement)) { self.flow.markUnreachable(); }
 	}
 
@@ -661,7 +663,8 @@ class ControlFlowValidator {
 		}
 		self.ownership.validateMutexPayloadsInType(preliminaryType, declaration);
 		self.storage.validateThreadVariableOwner(declaration, preliminaryType, self.state.owner == "");
-		self.storage.validateVariableStorage(declaration, self.state.owner == "", vars);
+		bool isGlobal = self.state.globalDeclaration == declaration;
+		self.storage.validateVariableStorage(declaration, isGlobal, vars);
 		self.types.rejectRuntimeInterfaceType(declaration.type, declaration);
 		self.expressions.contextualizeGenericConstructor(declaration.type, declaration.initializer, vars);
 		self.prepareExpression(declaration.initializer, vars);
@@ -691,7 +694,7 @@ class ControlFlowValidator {
 			if (declaration.initializer.kind == NK_BRACE_INITIALIZER) {
 				TypeValidator.fail("Cannot infer array storage for 'var' from " + "a brace initializer; use an explicit array declaration", declaration);
 			}
-			self.expressions.rejectInconsistentCollectionLiteral(declaration.initializer, vars);
+			self.expressions.checkInferredLiteral(declaration.initializer);
 			self.expressions.rejectUndeclaredCollectionLiteral(declaration.initializer);
 			if (actual == null) {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
@@ -700,7 +703,7 @@ class ControlFlowValidator {
 			if (declared == null) {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
 			}
-			self.storage.validateInferredStaticStorage(declaration, declared, self.state.owner == "");
+			self.storage.validateInferredStaticStorage(declaration, declared, isGlobal);
 		} else if (actual != null && !self.types.assignmentCompatible(declared, actual) && !self.expressions.contextualAggregateInitializer(declaration.initializer) && !self.storage.charArrayStringInitializer(declared, declaration.initializer, vars)) {
 			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'" + TypeValidator.commaTupleHint(declaration.initializer, declared), declaration);
 		}

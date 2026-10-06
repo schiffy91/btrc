@@ -54,8 +54,10 @@ def _main(body: str) -> str:
 # Minimal collections for probes that need the classes a literal becomes,
 # declared in the probe so its line numbers stay its own.
 COLLECTIONS = (
-    "class Map<K, V> { public void put(K key, V value) { } }\nclass Vector<T> { public void push(T value) { } }\n"
+    "class Map<K, V> { public int len; public void put(K key, V value) { } }\n"
+    "class Vector<T> { public int len; public void push(T value) { } }\n"
 )
+GENERIC_HOLDER = "class H<T> {\n\tpublic T x;\n\tpublic H(T x) { self.x = x; }\n\tpublic int f() {\n"
 ANIMALS = (
     "class Animal { public int legs; public Animal(int legs) { self.legs = legs; } }\n"
     "class Dog extends Animal { public Dog() { self.legs = 4; } }\n"
@@ -285,7 +287,7 @@ INVALID_PROBES = (
     ParityProbe(
         "map-literal-var-subclass-first",
         COLLECTIONS + ANIMALS + 'int main() {\n\tvar m = {"dog": Dog(), "bird": Animal(2)};\n\treturn 0;\n}\n',
-        GpuDiagnostic("Map value 1 has type 'Animal' but expected 'Dog'", 6, 33),
+        GpuDiagnostic("Map value 1 has type 'Animal*' but expected 'Dog*'", 6, 33),
     ),
     ParityProbe(
         "map-literal-for-in-mixed-values",
@@ -323,7 +325,7 @@ INVALID_PROBES = (
     ParityProbe(
         "list-literal-argument-mixed-elements",
         COLLECTIONS + 'int takeV(Vector<double> v) { return 0; }\nint main() {\n\ttakeV([1, "x"]);\n\treturn 0;\n}\n',
-        GpuDiagnostic("List element 1 has type 'string' but expected 'int'", 5, 12),
+        GpuDiagnostic("Argument 'v' to 'takeV()' expects 'double' elements but got 'string'", 5, 12),
     ),
     ParityProbe(
         "list-literal-argument-wrong-elements",
@@ -357,6 +359,129 @@ INVALID_PROBES = (
         "var origin = (1, 2);\nint main() {\n\tprint(origin._0);\n\treturn 0;\n}\n",
         GpuDiagnostic("Global 'origin' requires a C constant/address initializer for static storage", 1, 1),
     ),
+    # A lambda's locals are not globals, even in a global's initializer.
+    ParityProbe(
+        "global-lambda-with-local-var",
+        "var doubler = (int x) => {\n\tvar y = x * 2;\n\treturn y;\n};\nint main() {\n\treturn 0;\n}\n",
+        GpuDiagnostic("Global 'doubler' requires a C constant/address initializer for static storage", 1, 1),
+    ),
+    # A null entry fits only a type that can hold null, and a null first entry
+    # infers no usable type, as a null first list element does not.
+    ParityProbe(
+        "map-literal-var-null-value",
+        COLLECTIONS + 'int main() {\n\tvar m = {"a": 1, "b": null};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'null*' but expected 'int'", 4, 24),
+    ),
+    ParityProbe(
+        "map-literal-var-null-first-value",
+        COLLECTIONS + 'int main() {\n\tvar m = {"a": null, "b": 1};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'int' but expected 'null*'", 4, 27),
+    ),
+    ParityProbe(
+        "map-literal-var-null-key",
+        COLLECTIONS + 'int main() {\n\tvar m = {1: "a", null: "b"};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map key 1 has type 'null*' but expected 'int'", 4, 19),
+    ),
+    ParityProbe(
+        "map-literal-for-in-null-value",
+        COLLECTIONS + 'int main() {\n\tfor k in {"a": 1.5, "b": null} { }\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'null*' but expected 'double'", 4, 27),
+    ),
+    ParityProbe(
+        "map-literal-var-int-then-bool",
+        COLLECTIONS + 'int main() {\n\tvar m = {"a": 1, "b": true};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'bool' but expected 'int'", 4, 24),
+    ),
+    # A type parameter fits the literal only once it is specialized, so a
+    # generic body is refused, as a list literal is.
+    ParityProbe(
+        "map-literal-var-type-parameter-value",
+        COLLECTIONS
+        + GENERIC_HOLDER
+        + '\t\tvar m = {"a": 1, "b": self.x};\n\t\treturn 0;\n\t}\n}\n'
+        + 'int main() {\n\tH<string> h = H("s");\n\treturn h.f();\n}\n',
+        GpuDiagnostic("Map value 1 has type 'T' but expected 'int'", 7, 25),
+    ),
+    ParityProbe(
+        "map-literal-var-type-parameter-first",
+        COLLECTIONS
+        + GENERIC_HOLDER
+        + '\t\tvar m = {"a": self.x, "b": 1};\n\t\treturn 0;\n\t}\n}\n'
+        + "int main() {\n\tH<int> h = H(1);\n\treturn h.f();\n}\n",
+        GpuDiagnostic("Map value 1 has type 'int' but expected 'T'", 7, 30),
+    ),
+    # Every literal whose type is inferred is checked, wherever it stands.
+    ParityProbe(
+        "map-literal-nested-mixed-values",
+        COLLECTIONS + 'int main() {\n\tvar m = {"k": {"x": 1, "y": "s"}};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'string' but expected 'int'", 4, 30),
+    ),
+    ParityProbe(
+        "map-literal-in-list-mixed-values",
+        COLLECTIONS + 'int main() {\n\tvar l = [{"x": 1, "y": "s"}];\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'string' but expected 'int'", 4, 25),
+    ),
+    ParityProbe(
+        "map-literal-lambda-mixed-values",
+        COLLECTIONS
+        + 'int main() {\n\tvar f = () => {\n\t\tvar m = {"a": 1, "b": "x"};\n\t\treturn m.len;\n\t};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'string' but expected 'int'", 5, 25),
+    ),
+    ParityProbe(
+        "map-literal-ternary-mixed-values",
+        COLLECTIONS + 'int main() {\n\tbool c = true;\n\tvar m = c ? {"a": 1, "b": "x"} : {"c": 2};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'string' but expected 'int'", 5, 28),
+    ),
+    ParityProbe(
+        "map-literal-receiver-mixed-values",
+        COLLECTIONS + 'int main() {\n\tint n = {"a": 1, "b": "x"}.len;\n\treturn n;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'string' but expected 'int'", 4, 24),
+    ),
+    # An unresolved element is the cause of a mismatch it makes, so both
+    # compilers report it first, in a typed position too.
+    ParityProbe(
+        "map-literal-argument-unresolved-entry",
+        COLLECTIONS
+        + 'int takeM(Map<string, double> m) { return 0; }\nint main() {\n\ttakeM({"a": 1, "b": "x", "c": nope});\n\treturn 0;\n}\n',
+        GpuDiagnostic("Unresolved identifier 'nope' used as a value", 5, 32),
+    ),
+    ParityProbe(
+        "declared-map-unresolved-entry",
+        COLLECTIONS + 'int main() {\n\tMap<string, double> m = {"a": 1, "b": "x", "c": nope};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Unresolved identifier 'nope' used as a value", 4, 50),
+    ),
+    ParityProbe(
+        "list-literal-argument-unresolved-element",
+        COLLECTIONS
+        + 'int takeV(Vector<double> v) { return 0; }\nint main() {\n\ttakeV([1.0, "x", nope]);\n\treturn 0;\n}\n',
+        GpuDiagnostic("Unresolved identifier 'nope' used as a value", 5, 19),
+    ),
+    ParityProbe(
+        "list-literal-var-unresolved-element",
+        COLLECTIONS + 'int main() {\n\tvar v = [1, "two", nope];\n\treturn 0;\n}\n',
+        GpuDiagnostic("Unresolved identifier 'nope' used as a value", 4, 21),
+    ),
+    ParityProbe(
+        "declared-vector-unresolved-element",
+        COLLECTIONS + 'int main() {\n\tVector<int> v = [1, "two", nope];\n\treturn 0;\n}\n',
+        GpuDiagnostic("Unresolved identifier 'nope' used as a value", 4, 29),
+    ),
+    # A literal stored or returned into a collection takes its element types.
+    ParityProbe(
+        "assigned-map-wrong-value",
+        COLLECTIONS + 'int main() {\n\tMap<string, int> m = {};\n\tm = {"c": "x"};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Assignment value expects 'int' elements but got 'string'", 5, 12),
+    ),
+    ParityProbe(
+        "assigned-list-wrong-element",
+        COLLECTIONS + 'int main() {\n\tVector<int> v = [];\n\tv = [1, "x"];\n\treturn 0;\n}\n',
+        GpuDiagnostic("Assignment expects 'int' elements but got 'string'", 5, 10),
+    ),
+    ParityProbe(
+        "returned-list-wrong-element",
+        COLLECTIONS + ANIMALS + "Vector<Animal> make() {\n\treturn [Dog(), 3];\n}\nint main() {\n\treturn 0;\n}\n",
+        GpuDiagnostic("Return value expects 'Animal*' elements but got 'int'", 6, 17),
+    ),
 )
 
 VALID_PROBES = (
@@ -373,16 +498,37 @@ VALID_PROBES = (
     ParityProbe("float-literal-double", _main("var x = 1.5; double* p = &x; return 0;")),
     ParityProbe("float-arithmetic-widens", _main("float f = 1.5; var y = f * 2.0; double* p = &y; return 0;")),
     ParityProbe("source-standard-include", "#include <assert.h>\n" + _main("assert(1 == 1); return 0;")),
-    # A null entry, or a type parameter, fits more than one type, so it does
-    # not break an inferred map literal.
+    # A null entry fits a type that can hold null; an empty literal takes its
+    # type from the literal around it.
     ParityProbe(
-        "map-literal-var-null-entry", COLLECTIONS + 'int main() {\n\tvar m = {"a": null, "b": "x"};\n\treturn 0;\n}\n'
+        "map-literal-var-null-string-value",
+        COLLECTIONS + 'int main() {\n\tvar m = {"a": "x", "b": null};\n\treturn 0;\n}\n',
     ),
     ParityProbe(
-        "map-literal-var-type-parameter-entry",
+        "map-literal-var-null-class-value",
+        COLLECTIONS + ANIMALS + 'int main() {\n\tvar m = {"a": Dog(), "b": null};\n\treturn 0;\n}\n',
+    ),
+    ParityProbe(
+        "map-literal-var-empty-list-value",
+        COLLECTIONS + 'int main() {\n\tvar m = {"a": [1.5], "b": []};\n\treturn m.len;\n}\n',
+    ),
+    # A literal in a typed position takes that type, not its first element's.
+    ParityProbe(
+        "contextual-list-literals-take-their-target",
         COLLECTIONS
-        + 'class H<T> {\n\tpublic T x;\n\tpublic H(T x) { self.x = x; }\n\tpublic int f() {\n\t\tvar m = {"a": self.x, "b": 1};\n\t\treturn 0;\n\t}\n}\n'
-        + "int main() {\n\tH<int> h = H(1);\n\treturn h.f();\n}\n",
+        + ANIMALS
+        + "class Zoo {\n\tpublic Vector<Animal> animals = [Dog(), Animal(2)];\n}\n"
+        + "Vector<Animal> make() {\n\treturn [Dog(), Animal(2)];\n}\n"
+        + "int count(Vector<Animal> zoo = [Dog(), Animal(2)]) {\n\treturn zoo.len;\n}\n"
+        + "int main() {\n\tVector<Animal> zoo = [Dog(), Animal(2)];\n\tzoo = [Dog(), Animal(2)];\n"
+        + '\tVector<Map<string, double>> rows = [{"a": 1}, {"b": 2.5}];\n'
+        + "\treturn count([Dog(), Animal(2)]) + make().len + Zoo().animals.len + zoo.len + rows.len;\n}\n",
+    ),
+    ParityProbe(
+        "field-default-lambda-locals",
+        "int helper(int x) { return x * 3; }\nclass Calc {\n\tpublic __fn_ptr<int, int> op = (int x) => {\n"
+        + "\t\tvar y = x * 2;\n\t\tint z = helper(y);\n\t\treturn z + 1;\n\t};\n}\n"
+        + "int main() {\n\treturn Calc().op(1);\n}\n",
     ),
 )
 

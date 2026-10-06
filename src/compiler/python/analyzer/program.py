@@ -529,6 +529,11 @@ class AnalysisSession(AnalysisContext):
         self.source_visible_runtime_names: frozenset[str] = frozenset()
         self.reported_type_shape_errors: set[tuple[str, int, int]] = set()
         self._gpu_result_boundary: object | None = None
+        # An inferred collection literal's first mismatch (literal, message,
+        # line, col) waits for the end of its statement, where it is reported
+        # unless a typed position claimed the literal (contextual_literal_ids).
+        self.inferred_literal_mismatches: list[tuple[object, str, int, int]] = []
+        self.contextual_literal_ids: set[int] = set()
 
     def begin(self, program: Program) -> None:
         """Reset all mutable facts whose lifetime is one analysis run."""
@@ -552,6 +557,8 @@ class AnalysisSession(AnalysisContext):
         self.known_nonnull_expression_ids = set()
         self.reported_type_shape_errors = set()
         self._gpu_result_boundary = None
+        self.inferred_literal_mismatches = []
+        self.contextual_literal_ids = set()
 
     @property
     def gpu_result_boundary(self) -> object | None:

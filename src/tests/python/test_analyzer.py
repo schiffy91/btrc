@@ -2451,12 +2451,22 @@ class TestCallArity:
 class TestListElementTypeValidation:
     def test_mixed_types_error(self):
         src = """
+            class Vector<T> { public void push(T value) { } }
+            int main() {
+                var nums = [1, 2, "three"];
+                return 0;
+            }
+        """
+        assert has_error(src, "List element 2 has type 'string' but expected 'int'")
+
+    def test_declared_list_checks_elements_against_its_type(self):
+        src = """
             int main() {
                 Vector<int> nums = [1, 2, "three"];
                 return 0;
             }
         """
-        assert has_error(src, "List element 2 has type 'string' but expected 'int'")
+        assert has_error(src, "Initializer for 'nums' expects 'int' elements but got 'string'")
 
     def test_homogeneous_list_ok(self):
         src = """

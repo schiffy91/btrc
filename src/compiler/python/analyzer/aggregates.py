@@ -270,6 +270,7 @@ class InitializerAnalyzer:
                 element_types = canonical.generic_args
         elif isinstance(initializer, MapLiteral) and canonical.base == "Map" and (len(canonical.generic_args) == 2):
             steps: list[InitializerStep] = []
+            self.context.contextual_literal_ids.add(id(initializer))
             key_type, value_type = canonical.generic_args
             for entry in initializer.entries:
                 steps.extend(self._plan_collection_element(key_type, entry.key, f"{subject} key", line, col))
@@ -278,6 +279,8 @@ class InitializerAnalyzer:
             return InitializerPlan(True, tuple(steps))
         if element_types is None:
             return InitializerPlan(False)
+        if isinstance(initializer, ListLiteral):
+            self.context.contextual_literal_ids.add(id(initializer))
         expected_element = element_types[0]
         steps = []
         for element in initializer.elements:

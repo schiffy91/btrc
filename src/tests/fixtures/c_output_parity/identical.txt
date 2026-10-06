@@ -411,6 +411,7 @@ functions/ExceptionSetjmpAggregateParameter.btrc
 functions/ExceptionSetjmpAggregateVisibility.btrc
 functions/ExceptionSetjmpVolatileContexts.btrc
 functions/ExceptionsThrowFromLambda.btrc
+functions/FieldDefaultLambdaLocals.btrc
 functions/FindindexArrowNotfound.btrc
 functions/FnptrAsParamValue.btrc
 functions/FnptrExportedParameter.btrc

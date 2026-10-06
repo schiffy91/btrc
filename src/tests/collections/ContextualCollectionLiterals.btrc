@@ -1,0 +1,90 @@
+// A list or map literal in a typed position (a declaration, an assignment,
+// a return, an argument, a field or a default) takes that position's type,
+// not its first element's, so [Dog(), Bird()] fills a Vector<Animal>.
+import Library.Map;
+import Library.Vector;
+
+typedef Map<string, double> Weights;
+
+class Animal {
+	public int legs;
+	public Animal(int legs) { self.legs = legs; }
+}
+
+class Dog extends Animal {
+	public Dog() { self.legs = 4; }
+}
+
+class Bird extends Animal {
+	public Bird() { self.legs = 2; }
+}
+
+interface IShape {
+	int area();
+}
+
+class Square implements IShape {
+	public int side;
+	public Square(int side) { self.side = side; }
+
+	public int area() { return self.side * self.side; }
+}
+
+class Rect implements IShape {
+	public int width;
+	public int height;
+	public Rect(int width, int height) {
+		self.width = width;
+		self.height = height;
+	}
+
+	public int area() { return self.width * self.height; }
+}
+
+class Point {
+	public int x;
+	public Point(int x) { self.x = x; }
+}
+
+class Zoo {
+	public Vector<Animal> animals = [Dog(), Bird()];
+}
+
+int legs(Vector<Animal> zoo) {
+	int sum = 0;
+	for animal in zoo { sum = sum + animal.legs; }
+	return sum;
+}
+
+Vector<Animal> make() { return [Bird(), Dog(), Animal(6)]; }
+
+int counted(Vector<Animal> zoo = [Dog(), Bird(), Bird()]) { return legs(zoo); }
+
+int main() {
+	Vector<Animal> zoo = [Dog(), Bird()];
+	print(legs(zoo));
+	zoo = [Bird(), Animal(6), Dog()];
+	print(legs(zoo));
+	print(legs(make()));
+	print(legs([Dog(), Animal(1)]));
+	print(legs(Zoo().animals));
+	print(counted());
+
+	Vector<IShape> shapes = [Square(2), Rect(2, 3)];
+	int area = 0;
+	for shape in shapes { area = area + shape.area(); }
+	print(area);
+
+	Vector<Point?> points = [null, Point(1)];
+	print(points.len);
+
+	Vector<Map<string, double>> rows = [{"a": 1}, {"b": 2.5}];
+	print(rows.get(0).get("a") + rows.get(1).get("b"));
+
+	Weights weights = {};
+	weights.put("w", 1.5);
+	print(weights.get("w"));
+
+	print("PASS: test_contextual_collection_literals");
+	return 0;
+}

@@ -2500,8 +2500,12 @@ class ExpressionLowerer {
 			}
 		}
 		if (node.elements().len == 0) {
-			if (expected != null && expected.genericArgs().len > 0 && self.analyzed.isGenericClass(expected.base)) {
-				string mangled = TypeIdentity.mangleGenericType(expected.base, expected.genericArgs());
+			/* A typedef spelling of a collection (`typedef Map<K, V> Weights`)
+			 * builds the collection it names. */
+			Node? collection = expected == null ? null : SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable);
+			if (collection == null) { collection = expected; }
+			if (collection != null && collection.genericArgs().len > 0 && self.analyzed.isGenericClass(collection.base)) {
+				string mangled = TypeIdentity.mangleGenericType(collection.base, collection.genericArgs());
 				Vector<IRNode> newArgs = [];
 				return IRNode.call(mangled + "_new", newArgs);
 			}
