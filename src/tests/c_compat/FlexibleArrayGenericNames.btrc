@@ -1,9 +1,9 @@
-// Structs with flexible array members (C row 13) whose names are also type
-// parameters elsewhere: K and V in Library.Map, E in the generics below.
-// (A struct named T is avoided: any struct T, flexible or not, already breaks
-// Library.Vector's `(T)0`.) A type parameter never resolves to the struct it is
-// named like, so these generics stay valid; only the struct itself is kept
-// behind a pointer.
+// Structs with flexible array members (C row 13) named like the type
+// parameters of a stdlib generic: K and V in Library.Map. Stdlib generics
+// cannot refer to a program's structs, so their parameters keep meaning the
+// parameter and the program compiles; only the structs stay behind a pointer.
+// A program's own generic may not name a type parameter like such a struct
+// (test_flexible_array_member_contract.py pins that refusal).
 import Library.Map;
 
 #include <assert.h>
@@ -11,41 +11,21 @@ import Library.Map;
 
 struct K { int count; int data[]; };
 
-struct E { int count; char data[]; };
-
 struct V { int count; double data[]; };
-
-class Box<E> {
-	public E value;
-	public Box(E value) { self.value = value; }
-}
-
-class Identity {
-	public E same<E>(E value) { return value; }
-}
-
-interface Getter<E> { E get(); }
-
-class Constant {
-	public int get() { return 7; }
-}
 
 int main() {
 	Map<int, int> squares = {};
 	squares.put(3, 9);
-	Box<int> box = new Box<int>(5);
-	Identity identity = new Identity();
-	Constant constant = new Constant();
 	struct K* keys = (struct K*)calloc((size_t)1, sizeof(struct K) + (size_t)2 * sizeof(int));
-	assert(keys != null);
+	struct V* values = (struct V*)calloc((size_t)1, sizeof(struct V) + sizeof(double));
+	assert(keys != null && values != null);
 	keys->count = 2;
 	keys->data[1] = squares.get(3);
-	int total = keys->data[1] + 3 + identity.same(box.value) + constant.get();
+	values->data[0] = 0.5;
+	int total = keys->data[1] + (int)(values->data[0] * 2.0);
 	free(keys);
-	delete constant;
-	delete identity;
-	delete box;
-	assert(total == 24);
-	print(f"PASS: type parameters named like flexible-array structs ({total})");
+	free(values);
+	assert(total == 10);
+	print(f"PASS: stdlib type parameters named like flexible-array structs ({total})");
 	return 0;
 }

@@ -625,6 +625,8 @@ class GenericAnalyzer:
             dependency.col,
         ):
             return False
+        if not self._reject_flexible_array_method_arguments(owner, dependency):
+            return False
         substitutions = dict(zip(cls.generic_params, dependency.class_arguments))
         substitutions.update(zip(method.generic_params, dependency.method_arguments))
         signature_types = [method.return_type, *(parameter.type for parameter in method.params)]
@@ -770,6 +772,25 @@ class GenericAnalyzer:
 
     def _normalize_type_key(self, type_expr: TypeExpr) -> tuple:
         return self.types.type_shape_key(type_expr)
+
+    def _reject_flexible_array_method_arguments(self, owner, dependency) -> bool:
+        """An inferred method type argument is by-value storage in the
+        instance, so it is never a struct with a flexible array member (r13).
+        A template's own type parameters are resolved later, per instance."""
+        template = set(self.session.current_class.generic_params if self.session.current_class else ())
+        if self.session.current_method is not None:
+            template.update(self.session.current_method.generic_params or ())
+        for index, argument in enumerate(dependency.method_arguments, 1):
+            name = self.types.flexible_array_value_struct(argument, frozenset(template))
+            if name is not None:
+                self.session.error(
+                    f"Generic argument {index} for '{owner}' uses struct '{name}' with a flexible array member "
+                    "by value; use a pointer",
+                    dependency.line,
+                    dependency.col,
+                )
+                return False
+        return True
 
     def _validate_generic_arguments(self, owner, args, line=0, col=0):
         valid = True

@@ -32,6 +32,7 @@ BTRC = REPO / "src/compiler/btrc"
 
 BUFFER = "struct Buffer { int count; int data[]; };\n"
 BY_VALUE = "{} uses struct 'Buffer' with a flexible array member by value; use a pointer"
+SHADOW = "Type parameter '{0}' of '{1}' is named like struct '{0}', which has a flexible array member; rename the type parameter"
 
 REFUSALS = [
     pytest.param(
@@ -123,7 +124,7 @@ REFUSALS = [
         BUFFER
         + "class K { public T id<T>(T x) { return x; } }\n"
         + "int main() { K k = new K(); struct Buffer* p = null; int c = k.id(*p).count; return c; }",
-        (BY_VALUE.format("Call argument"), 3, 67),
+        (BY_VALUE.format("Generic argument 1 for 'K.id'"), 3, 62),
         id="inferred-generic-instance",
     ),
     pytest.param(
@@ -190,6 +191,40 @@ REFUSALS = [
         BUFFER + 'int main() { struct Buffer* p = null; print(f"{*p}"); return 0; }',
         (BY_VALUE.format("Formatted value"), 2, 48),
         id="f-string-value",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Reader { public T get<T>(T* value) { return *value; } }\n"
+        + "int main() { Reader r = new Reader(); struct Buffer* p = null; int n = r.get(p).data[3]; return n; }",
+        (BY_VALUE.format("Generic argument 1 for 'Reader.get'"), 3, 72),
+        id="inferred-method-argument-return",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Reader { public int get<T>(T* value) { T copy = *value; return 0; } }\n"
+        + "int main() { Reader r = new Reader(); struct Buffer* p = null; int n = r.get(p); return n; }",
+        (BY_VALUE.format("Generic argument 1 for 'Reader.get'"), 3, 72),
+        id="inferred-method-argument-local-copy",
+    ),
+    pytest.param(
+        BUFFER
+        + "Buffer* gp = null;\nclass Holder<Buffer> { public Buffer value; "
+        + "public Holder(Buffer value) { self.value = value; } "
+        + "public int peek(bool c) { return (c ? *gp : *gp).data[3]; } }\nint main() { return 0; }",
+        (SHADOW.format("Buffer", "Holder"), 3, 1),
+        id="class-type-parameter-shadows-struct",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nPacket* source = null;\n"
+        + "class P { public int pick<Packet>(Packet unused, bool flag) { return (flag ? *source : *source).items[2]; } }\n"
+        + "int main() { return 0; }",
+        (SHADOW.format("Packet", "P.pick"), 3, 11),
+        id="method-type-parameter-shadows-struct",
+    ),
+    pytest.param(
+        BUFFER + "interface Getter<Buffer> { Buffer get(); }\nint main() { return 0; }",
+        (SHADOW.format("Buffer", "Getter"), 2, 1),
+        id="interface-type-parameter-shadows-struct",
     ),
     pytest.param(
         BUFFER + "int f(struct Buffer b) { return b.count; }\nint main() { return 0; }",

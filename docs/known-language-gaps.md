@@ -291,11 +291,40 @@ diagnostic in both compilers (`btrc/test_flexible_array_member_contract.py`):
 | `&p->data` | `Cannot take the address of flexible array member 'Buffer.data'; use the member itself or an element's address` |
 | assigning the member from an array | `Array object 'int[]' is not assignable` (from a pointer, btrcc reports `Cannot assign 'int*' to 'int[]'` first, as it does for a fixed array member) |
 | `new Buffer()` | `new requires a class type, got 'Buffer'` |
+| a type argument inferred for a generic method (`r.get(p)` with `T get<T>(T* value)`) | `Generic argument 1 for 'Reader.get' uses struct 'Buffer' with a flexible array member by value; use a pointer` |
+| a type parameter of a program's own generic named like such a struct (`class Holder<Buffer>`, `pick<Packet>`, `interface Getter<Buffer>`) | `Type parameter 'Buffer' of 'Holder' is named like struct 'Buffer', which has a flexible array member; rename the type parameter` |
 
 A typedef never makes a FAM: `typedef int[] Values;` and a `Values data;`
 field keep btrc's pointer-valued array. Sizing with `offsetof` waits for btrc
 `offsetof`, and a native struct's incomplete-array field is still refused by
 the importer.
+
+Inside a generic, a type spelled like a type parameter means the parameter,
+so a parameter named like a FAM struct would hide the struct's refusals; a
+program's generics are refused instead, while stdlib generics (`Map<K, V>`
+beside a program's `struct K`, `c_compat/FlexibleArrayGenericNames.btrc`)
+keep working because they cannot refer to the program's structs. A generic
+argument is refused even where the generic only uses it behind a pointer.
+
+Known gaps around FAMs, recorded rather than fixed here:
+
+- `char16_t` and `pthread_t` elements are refused in both compilers with the
+  misleading wording `cannot hold managed type`; neither is managed.
+- `enum Color d[]` spelled with the tag of a btrc enum is accepted and both
+  compilers emit invalid C: the x-enum-tag divergence, fixed by the enum-tag
+  lane. Write `Color d[]`.
+- `p->data.len` on an array member (fixed or flexible) emits invalid C in
+  both compilers; `sizeof(r.get(p))` drops the variable use and trips
+  `-Werror=unused-variable`.
+- In a generic body, btrcc reports `Cannot determine whether expression is
+  indexable` for `copy.data[index]` where the reference accepts it.
+- A program's `struct T` makes the reference compiler refuse
+  `Library.Vector`'s `T s = (T)0;` (`Cannot cast scalar 'int' to aggregate
+  struct 'T'`), with or without a FAM; btrcc accepts it. A parity gap that
+  predates r13.
+- Without a FAM, a type parameter named like a struct still shadows it
+  inside the generic: `var x = *gp;` in `class Holder<Buffer>` with a global
+  `Buffer* gp` emits invalid C in both compilers.
 
 ## Adjacent string literals (C row 5)
 

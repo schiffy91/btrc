@@ -477,6 +477,17 @@ class GenericSpecializer {
 
 		string owner = classBase + "." + method;
 		self.validateGenericArgumentsForOwner(owner, methodArgs);
+		/* An inferred method type argument is by-value storage in the
+		 * instance, so it is never a struct with a flexible array member. */
+		int flexibleIndex = 0;
+		while (flexibleIndex < methodArgs.len) {
+			string flexible = SemanticTypeSystem.flexibleArrayValueStruct(methodArgs.get(flexibleIndex), a);
+			if (flexible != "") {
+				fprintf(stderr, "error: %s at %d:%d\n", "Generic argument " + Strings.fromInt(flexibleIndex + 1) + " for '" + owner + "' uses struct '" + flexible + "' with a flexible array member by value; use a pointer", call.line, call.col);
+				exit(1);
+			}
+			flexibleIndex = flexibleIndex + 1;
+		}
 
 		/* Resolve and validate the full signature before recording an instance.
          * This catches nested-array composition and nested writable class

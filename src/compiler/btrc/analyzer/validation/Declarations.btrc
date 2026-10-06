@@ -482,6 +482,7 @@ class DeclarationValidator {
 				if (self.state.interfaces.has(declaration.name)) {
 					TypeValidator.fail("Duplicate interface declaration '" + declaration.name + "'", declaration);
 				}
+				self.validateTypeParameterNames(declaration, declaration.genericParams(), declaration.name, declaration);
 				self.state.interfaces.put(declaration.name, declaration);
 			}
 			index = index + 1;
@@ -559,7 +560,26 @@ class DeclarationValidator {
 		}
 	}
 
+	/* Inside a generic, a type named like a type parameter means the
+	 * parameter, so a parameter named like a struct with a flexible array
+	 * member would hide that struct's by-value refusals. The compiler stdlib
+	 * is exempt: its generics cannot refer to a program's structs. */
+	public void validateTypeParameterNames(Node declaration, Vector<string> names, string owner, Node site) {
+		if (self.hostedAbi.compilerStdlibNode(declaration)) { return; }
+		for name in names {
+			if (self.state.analyzed.structTable.has(name) && SemanticTypeSystem.flexibleArrayField(self.state.analyzed.structTable.get(name)) != null) {
+				TypeValidator.fail("Type parameter '" + name + "' of '" + owner + "' is named like struct '" + name + "', which has a flexible array member; rename the type parameter", site);
+			}
+		}
+	}
+
 	public void validateClassBodies(Node declaration) {
+		self.validateTypeParameterNames(declaration, declaration.genericParams(), declaration.name, declaration);
+		for member in declaration.members() {
+			if (member.kind == NK_METHOD_DECL) {
+				self.validateTypeParameterNames(declaration, member.genericParams(), declaration.name + "." + member.name, member);
+			}
+		}
 		Map<string, Node> fieldVars = self.globalTypes(self.state.analyzed);
 		fieldVars.put("self", self.selfType(declaration));
 		string previousFlowOwner = self.controlFlow.flow.ownerClass;

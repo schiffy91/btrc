@@ -11,6 +11,7 @@ from src.compiler.python.analyzer.program import (
     DeclarationIndex,
 )
 from src.compiler.python.analyzer.types import TypeSystem
+from src.compiler.python.frontend.sources import CompilerStdlibSource
 from src.compiler.python.syntax.ast.generated import (
     AnonymousMember,
     BraceInitializer,
@@ -429,12 +430,35 @@ class AggregateAnalyzer:
         elif isinstance(declaration, FunctionDecl):
             self._reject_flexible_array_signature(declaration, declaration.name)
         elif isinstance(declaration, ClassDecl):
+            self._reject_shadowing_type_parameters(declaration, declaration.generic_params, declaration.name, declaration)
+            for member in declaration.members:
+                if isinstance(member, MethodDecl):
+                    self._reject_shadowing_type_parameters(
+                        declaration, member.generic_params, f"{declaration.name}.{member.name}", member
+                    )
             with self._type_parameters(declaration.generic_params):
                 self._validate_class_complete_types(declaration)
         elif isinstance(declaration, InterfaceDecl):
+            self._reject_shadowing_type_parameters(declaration, declaration.generic_params, declaration.name, declaration)
             with self._type_parameters(declaration.generic_params):
                 for method in declaration.methods:
                     self._reject_flexible_array_signature(method, f"{declaration.name}.{method.name}")
+
+    def _reject_shadowing_type_parameters(self, declaration, names, owner, site) -> None:
+        """Inside a generic, a type named like a type parameter means the
+        parameter, so a parameter named like a struct with a flexible array
+        member would hide that struct's by-value refusals. The compiler stdlib
+        is exempt: its generics cannot refer to a program's structs."""
+        if CompilerStdlibSource.authenticated(getattr(declaration, "source_file", None)):
+            return
+        for name in names or ():
+            if TypeSystem.flexible_array_member(self.index.struct_table.get(name)) is not None:
+                self.session.error(
+                    f"Type parameter '{name}' of '{owner}' is named like struct '{name}', which has a flexible "
+                    "array member; rename the type parameter",
+                    site.line,
+                    site.col,
+                )
 
     @contextmanager
     def _type_parameters(self, names):

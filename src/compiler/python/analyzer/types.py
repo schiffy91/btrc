@@ -1155,6 +1155,25 @@ class TypeSystem:
             and member.type.array_size is None
         )
 
+    def flexible_array_value_struct(self, type_expr, excluded=frozenset()) -> str | None:
+        """The struct with a flexible array member that ``type_expr`` holds by
+        value, directly or through a generic argument, or ``None``. Names in
+        ``excluded`` are type parameters, never the structs they are named like."""
+        if type_expr is None or type_expr.base in excluded:
+            return None
+        canonical = self.canonical_type(type_expr)
+        if canonical is None:
+            return None
+        if canonical.pointer_depth == 0:
+            name = canonical.base.removeprefix("struct ")
+            if self.flexible_array_member(self.index.struct_table.get(name)) is not None:
+                return name
+        for argument in canonical.generic_args:
+            found = self.flexible_array_value_struct(argument, excluded)
+            if found is not None:
+                return found
+        return None
+
     @classmethod
     def flexible_array_member(cls, record) -> FieldDef | None:
         """The flexible array member of a complete record, or ``None``."""
