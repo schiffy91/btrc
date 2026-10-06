@@ -82,6 +82,10 @@ class GenericSpecializer {
 	private string scopeOwner;
 	private string scopeMethod;
 	/* The declaration whose template body the method-generics walk is in. */
+	/* The generic method of the scanned class instance whose body or
+	 * signature is being scanned (the reference's _member_method). */
+	private string memberOwner;
+	private string memberMethod;
 	private string templateOwner;
 	private string templateMethod;
 	/* The type-parameter use graph (the reference's _uses and _successors). */
@@ -95,12 +99,17 @@ class GenericSpecializer {
 	/* Template generic-method calls by scope, and the scopes a specialization
 	 * has reached; a call's uses join the graph once its scope is reached. */
 	private Map<string, Vector<TemplateMethodCall>> templateCalls;
+	private Map<string, bool> templateCallKeys;
+	/* Whether the method-generics walk only gathers template calls. */
+	private bool gatheringTemplates;
 	private Map<string, bool> reachedScopes;
 
 	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions, int nestingLimit) {
 		self.nestingLimit = nestingLimit;
 		self.scopeOwner = "";
 		self.scopeMethod = "";
+		self.memberOwner = "";
+		self.memberMethod = "";
 		self.templateOwner = "";
 		self.templateMethod = "";
 		self.useKeys = {};
@@ -108,6 +117,8 @@ class GenericSpecializer {
 		self.successors = {};
 		self.growthFound = false;
 		self.templateCalls = {};
+		self.templateCallKeys = {};
+		self.gatheringTemplates = false;
 		self.reachedScopes = {};
 		self.closedClassInstances = {};
 		self.closedMethodInstances = {};
@@ -131,6 +142,15 @@ class GenericSpecializer {
 			index = index + 1;
 		}
 		BtrccPhaseTimer.mark("g-collect");
+		/* The use graph needs every template's generic-method calls before the
+		 * first closure specializes anything, as the reference's template
+		 * dependencies are; gather them without registering instances. */
+		self.gatheringTemplates = true;
+		for declaration in program.declarations() {
+			if (declaration.kind == NK_CLASS_DECL) { self.collectMethodGenericsDecl(declaration, self.analyzed, self.operators); }
+		}
+		self.gatheringTemplates = false;
+		BtrccPhaseTimer.mark("g-templates");
 		self.registerTransitiveGenericInstances(self.analyzed, self.operators);
 		BtrccPhaseTimer.mark("g-transitive");
 		index = 0;
@@ -324,7 +344,8 @@ class GenericSpecializer {
 			int i = 0;
 			while (i < d.members().len) {
 				Node mem = d.members().get(i);
-				if (mem.kind == NK_METHOD_DECL && mem.bodyNode != null) {
+				bool genericMethod = mem.kind == NK_METHOD_DECL && mem.genericParams().len > 0;
+				if (mem.kind == NK_METHOD_DECL && mem.bodyNode != null && (genericMethod || !self.gatheringTemplates)) {
 					Map<string, Node> vt = {};
 					Node selfT = SemanticTypeSystem.namedClass(d.name);
 					selfT.pointerDepth = 1;
@@ -569,10 +590,10 @@ class GenericSpecializer {
 				}
 			}
 			if (symbolic) {
-				self.addTemplateCall(TemplateMethodCall(classBase, method, classArgs, methodParameters, symbolicArgs, call.line, call.col));
+				self.addTemplateCall(call, TemplateMethodCall(classBase, method, classArgs, methodParameters, symbolicArgs, call.line, call.col));
 			}
 		}
-		if (!ok) { return; }
+		if (!ok || self.gatheringTemplates) { return; }
 		/* A template call whose args name the template's parameters is not an
 		 * instance; keep its args for validating the template itself. */
 		if (self.templateParameters.len > 0) {
@@ -733,8 +754,11 @@ class GenericSpecializer {
 
 	/* Keep a template call in the method-generics walk's scope, adding its
 	 * uses now if a specialization already reached that scope. */
-	private void addTemplateCall(TemplateMethodCall templateCall) {
+	private void addTemplateCall(Node call, TemplateMethodCall templateCall) {
 		string key = GenericSpecializer.scopeKey(self.templateOwner, self.templateMethod);
+		string callKey = key + "|" + AstIdentity.key(call);
+		if (self.templateCallKeys.has(callKey)) { return; }
+		self.templateCallKeys.put(callKey, true);
 		if (!self.templateCalls.has(key)) {
 			Vector<TemplateMethodCall> calls = [];
 			self.templateCalls.put(key, calls);
@@ -763,17 +787,18 @@ class GenericSpecializer {
 		return null;
 	}
 
-	/* Each type parameter of the scanned declaration, with its node in the use
-	 * graph: Owner.T, or Owner.method.U for a generic method's own. */
-	private Map<string, string> scopeNodes() {
+	/* Each type parameter of a declaration's scope, with its node in the use
+	 * graph: Owner.T, or Owner.method.U (and Owner.method.T) for a generic
+	 * method's. */
+	private Map<string, string> scopeNodes(string owner, string methodName) {
 		Map<string, string> nodes = {};
-		if (self.scopeOwner == "") { return nodes; }
-		Node? declaration = self.scopeOwnerDeclaration(self.scopeOwner);
+		if (owner == "") { return nodes; }
+		Node? declaration = self.scopeOwnerDeclaration(owner);
 		if (declaration == null) { return nodes; }
-		string prefix = GenericSpecializer.scopeKey(self.scopeOwner, self.scopeMethod);
+		string prefix = GenericSpecializer.scopeKey(owner, methodName);
 		for parameter in declaration.genericParams() { nodes.put(parameter, prefix + "." + parameter); }
-		if (self.scopeMethod != "") {
-			Node? method = self.scopeMethodDeclaration(self.scopeOwner, self.scopeMethod);
+		if (methodName != "") {
+			Node? method = self.scopeMethodDeclaration(owner, methodName);
 			if (method != null) {
 				for parameter in method.genericParams() { nodes.put(parameter, prefix + "." + parameter); }
 			}
@@ -782,10 +807,21 @@ class GenericSpecializer {
 	}
 
 	/* Add the use graph's edges for one template type the scanned declaration
-	 * uses. */
+	 * uses. A class instance's scan specializes its generic methods' bodies
+	 * and signatures too: a type there that names only the class's parameters
+	 * is a use of every class instance, and one that names the method's own
+	 * parameters is a use of the method's scope, which holds only once the
+	 * method is specialized. The reference's _record_uses. */
 	private void recordUses(Node? template) {
 		if (template == null || self.scopeOwner == "") { return; }
-		Map<string, string> nodes = self.scopeNodes();
+		string methodName = self.scopeMethod;
+		if (self.memberMethod != "" && self.memberOwner == self.scopeOwner && self.scopeMethod == "") {
+			Node? method = self.scopeMethodDeclaration(self.scopeOwner, self.memberMethod);
+			if (method != null && TypeIdentity.referencesNames(template, SemanticTypeSystem.genericParameterSet(method.genericParams()))) {
+				methodName = self.memberMethod;
+			}
+		}
+		Map<string, string> nodes = self.scopeNodes(self.scopeOwner, methodName);
 		if (nodes.len > 0) { self.recordTypeUses(template, nodes); }
 	}
 
@@ -807,7 +843,7 @@ class GenericSpecializer {
 	/* Add the use graph's edges for one generic-method call in the scanned
 	 * declaration. */
 	private void recordMethodUse(TemplateMethodCall templateCall) {
-		Map<string, string> nodes = self.scopeNodes();
+		Map<string, string> nodes = self.scopeNodes(self.scopeOwner, self.scopeMethod);
 		Node? method = self.scopeMethodDeclaration(templateCall.owner, templateCall.method);
 		if (nodes.len == 0 || method == null) { return; }
 		/* A call specializes the method's own scope, whose nodes carry the
@@ -1030,15 +1066,15 @@ class GenericSpecializer {
 					if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
 						self.registerResolvedGenericInstance(mem.type, tm, unresolved, a);
 					} else if (mem.kind == NK_METHOD_DECL) {
-						/* A generic method's signature belongs to its own scope. */
-						if (mem.genericParams().len > 0) { self.scopeMethod = mem.name; }
+						self.memberOwner = inst.base;
+						self.memberMethod = mem.genericParams().len > 0 ? mem.name : "";
 						self.registerResolvedGenericInstance(mem.returnType, tm, unresolved, a);
 						int p = 0;
 						while (p < mem.params().len) {
 							self.registerResolvedGenericInstance(mem.params().get(p).type, tm, unresolved, a);
 							p = p + 1;
 						}
-						self.scopeMethod = "";
+						self.memberMethod = "";
 					}
 					mi = mi + 1;
 				}
@@ -1702,13 +1738,14 @@ class GenericSpecializer {
 				if (includeConstructor || !member.isConstructor) {
 					Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(member.genericParams());
 					Map<string, Node> variables = self.genericClosureCopyTypes(baseVariables);
-					/* A generic method's uses belong to its own scope: they hold
-					 * only when the method is specialized. */
-					string previousMethod = self.scopeMethod;
-					if (member.genericParams().len > 0) { self.scopeMethod = member.name; }
+					string previousOwner = self.memberOwner;
+					string previousMember = self.memberMethod;
+					self.memberOwner = self.scopeOwner;
+					self.memberMethod = member.genericParams().len > 0 ? member.name : "";
 					self.genericClosureSeedParameters(member, substitutions, unresolved, analyzed, operators, variables);
 					self.genericClosureWalkNode(member.bodyNode, substitutions, unresolved, analyzed, operators, variables);
-					self.scopeMethod = previousMethod;
+					self.memberOwner = previousOwner;
+					self.memberMethod = previousMember;
 				}
 			}
 			index = index + 1;

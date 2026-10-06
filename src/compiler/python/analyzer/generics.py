@@ -67,6 +67,9 @@ class GenericAnalyzer:
         # specialization); and whether specialization was refused (which ends
         # it).
         self._scope: tuple[str, str | None] | None = None
+        # The generic method of the scanned class instance whose body or
+        # signature is being scanned, as (class, method).
+        self._member_method: tuple[str, str] | None = None
         self._uses: dict[tuple, None] = {}
         self._successors: dict[str, set[str]] = {}
         self._growth_found = False
@@ -264,17 +267,14 @@ class GenericAnalyzer:
             if method.is_constructor:
                 continue
             owner = cls.method_owners.get(name, base)
-            # A generic method's uses belong to its own scope: they hold only
-            # when the method is specialized, not for every class instance.
-            previous = self._scope
-            if method.generic_params:
-                self._scope = (base, name)
+            previous = self._member_method
+            self._member_method = (base, name) if method.generic_params else None
             try:
                 self._scan_value(
                     method, substitutions if owner == base else {}, tuple(method.generic_params), scan_plans
                 )
             finally:
-                self._scope = previous
+                self._member_method = previous
 
     @staticmethod
     def _member_substitutions(cls, base, member, substitutions):
@@ -881,11 +881,12 @@ class GenericAnalyzer:
             )
         return True
 
-    def _scope_nodes(self) -> dict[str, str]:
+    def _scope_nodes(self, scope=None) -> dict[str, str]:
         """Each type parameter of the scanned declaration, with its node in the use graph."""
-        if self._scope is None:
+        scope = scope or self._scope
+        if scope is None:
             return {}
-        owner, method_name = self._scope
+        owner, method_name = scope
         cls = self.index.class_table.get(owner)
         if cls is None:
             return {}
@@ -897,8 +898,21 @@ class GenericAnalyzer:
         return nodes
 
     def _record_uses(self, template) -> None:
-        """Add the use graph's edges for one template type the scanned declaration uses."""
-        nodes = self._scope_nodes()
+        """Add the use graph's edges for one template type the scanned declaration uses.
+
+        A class instance's scan specializes its generic methods' bodies and
+        signatures too: a type there that names only the class's parameters
+        is a use of every class instance, and one that names the method's own
+        parameters is a use of the method's scope, which holds only once the
+        method is specialized."""
+        scope = self._scope
+        member = self._member_method
+        if member is not None and scope == (member[0], None) and template is not None:
+            cls = self.index.class_table.get(member[0])
+            method = cls.methods.get(member[1]) if cls is not None else None
+            if method is not None and self.types.type_references_names(template, tuple(method.generic_params)):
+                scope = member
+        nodes = self._scope_nodes(scope)
         if nodes and template is not None:
             self._record_type_uses(template, nodes)
 
@@ -1164,18 +1178,19 @@ class GenericAnalyzer:
                     for method in interface.methods.values():
                         self._select_class_callable(type_expr, ClassCallableIdentity.method(cls.name, method.name))
             substitutions = dict(zip(cls.generic_params, type_expr.generic_args))
-            previous = self._scope
+            previous = (self._scope, self._member_method)
             try:
                 for name, method in cls.methods.items():
-                    self._scope = (key, name if method.generic_params else None)
                     result = method.return_type
                     if result and result.generic_args:
                         resolved = self.types.substitute_type(result, substitutions)
                         if resolved and resolved.generic_args and (resolved.base != key):
+                            self._scope = (key, None)
+                            self._member_method = (key, name) if method.generic_params else None
                             self._record_uses(result)
                             self.collect_type_instances(resolved, method.generic_params)
             finally:
-                self._scope = previous
+                self._scope, self._member_method = previous
 
 
 __all__ = ["GenericAnalyzer", "GenericMethodInferencePlan"]

@@ -31,9 +31,12 @@ instantiation cycles. Each type parameter a reached declaration has is a node,
 such as `Chain.T`. A use that passes a parameter to a generic adds an edge to
 that generic's parameter; the use *grows* when it wraps the parameter
 (`(T, int)`, `Vector<T>`, `T*`, `T[]`, `T?`) rather than passing it bare. A
-generic method's uses hold only once the method is specialized, so its
-parameters, its class's included, are nodes of their own (`Walker.walk.U`),
-and a call to it passes its arguments into them. A cycle of edges that
+use in a generic method that names the method's own type parameters holds
+only once the method is specialized, so the method's parameters, its class's
+included, are nodes of their own (`Walker.walk.U`), and a call to it passes
+its arguments into them. A use there that names only the class's parameters
+is specialized with every class instance, so it is the class's. A cycle of
+edges that
 contains a growing use nests one more level on every pass, so it never ends.
 Once specialization finds such a cycle it admits no further derived
 specialization, and both compilers report one diagnostic at the growing use on

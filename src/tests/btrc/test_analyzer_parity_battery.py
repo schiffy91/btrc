@@ -406,6 +406,25 @@ INVALID_PROBES = (
         "int main() { Box<int> b = new Box<int>(1); return b.grow(2); }\n",
         _unbounded("class 'Box'", 5, 34),
     ),
+    # A type in a generic method that names only its class's parameters is
+    # specialized with every class instance, called or not, so it grows the
+    # class: here it would double each level and never reach the backstop.
+    ParityProbe(
+        "generic-method-body-grows-its-class",
+        "class Box<T> {\n    public T value;\n    public Box(T value) { self.value = value; }\n"
+        "    public int m<U>(U u) { Box<(T, T)>? x = null; return 0; }\n}\n"
+        "int main() { Box<int> b = new Box<int>(1); return b.value - 1; }\n",
+        _unbounded("class 'Box'", 4, 28),
+    ),
+    # A cycle through a call: f passes T to m, whose own Box<(U, int)> grows it.
+    ParityProbe(
+        "generic-call-into-growing-method",
+        "class Box<T> {\n    public T value;\n    public Box(T value) { self.value = value; }\n"
+        "    public int f() { return self.m(self.value); }\n"
+        "    public int m<U>(U u) { Box<(U, int)>? x = null; return 0; }\n}\n"
+        "int main() { Box<int> b = new Box<int>(1); return b.f(); }\n",
+        _unbounded("class 'Box'", 5, 28),
+    ),
     # A pointer level grows a specialization as a generic level does.
     ParityProbe(
         "generic-pointer-recursion",
