@@ -749,9 +749,12 @@ tuples/TupleClassField.btrc
 tuples/TupleClassFieldReassign.btrc
 tuples/TupleDeepNested.btrc
 tuples/TupleElementInference.btrc
+tuples/TupleExpressionOnlyType.btrc
 tuples/TupleFieldCompoundAssign.btrc
 tuples/TupleFieldEquality.btrc
 tuples/TupleFourElements.btrc
+tuples/TupleGenericInstanceType.btrc
+tuples/TupleGlobalOnlyType.btrc
 tuples/TupleInFstring.btrc
 tuples/TupleInVector.btrc
 tuples/TupleLambdaReturn.btrc

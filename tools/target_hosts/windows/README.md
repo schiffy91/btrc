@@ -27,8 +27,11 @@ Record its receipt immediately after building
 it from the stated checkout; never generate a receipt to relabel an unknown binary.
 The receipt binds the binary SHA-256, full build-source revision and a digest of
 tracked compiler/spec/runtime/stdlib/generator input contents. Bundle construction
-requires both the binary and source-input digests to match; tool-only branch
-changes may reuse a source-identical compiler. This is retained build provenance,
+requires both digests to match and verifies that the recorded source revision
+exists and has the same compiler inputs as the current HEAD. The receipt records
+tracked-tree and compiler-input dirty state; dirty compiler inputs are refused.
+Tool-only branch changes may reuse a source-identical compiler. The source commit
+must be available in the producer checkout (fetch it when reusing a separate build). This is retained build provenance,
 not a cryptographic attestation of who performed the build. Both
 bundles use `zig cc` with the existing Windows workflow's exact strict flags:
 `-std=c11 -O2 -Wall -Wextra -Werror -pedantic`, the Windows runtime include
@@ -63,10 +66,13 @@ needs confirmation.
 The checker copies the bundle to a path containing spaces and a Greek lambda,
 then runs every case from a different temporary working directory with those
 characters. Admission requires the exact 16 unique case identities, including both
-tree cases and all four corpus/frontend cases, their corresponding programs and
-evidence policies. Empty/truncated manifests cannot yield a successful report.
-Failures retain incomplete status, actual pass/fail counts and an error row for
-the failing execution; fail-fast does not imply the unexecuted cases passed. Byte streams remain bytes: fixtures cover NUL and non-UTF-8
+tree cases and all four corpus/frontend cases, their exact executable mappings, argv,
+stdin, environment, deadlines, expected outcomes and evidence policies. Golden
+digests are recomputed from the runner checkout, whose revision must match the
+bundle. Empty, truncated or modified cases cannot yield a successful report.
+Ordinary case failures retain an error row and the checker continues collecting
+all remaining cases; any failure leaves `complete=false`. Admission failures and
+interrupts abort while retaining the evidence already collected. Byte streams remain bytes: fixtures cover NUL and non-UTF-8
 output, 256 KiB binary stdin, arguments with quoting/empty/trailing-backslash
 cases, environment, working directory, ordinary exits 3/124/137, a raised
 EXCEPTION_ACCESS_VIOLATION status (not a hardware memory fault), deadline expiry,
@@ -95,18 +101,37 @@ errno and message in an atomic error record, distinct from a target exit.
 
 Timeouts use `TerminateJobObject`, drain the captured pipes, and query job
 accounting until no active processes remain. Normal returns also terminate
-remaining descendants: polling the atomic target-status file distinguishes a
-returned target from descendants that still hold its pipes open. The deadline
+remaining descendants: polling the gate process distinguishes its completion
+from descendants that still hold its pipes open. The deadline
 includes setup time. Stdin uses a binary temporary file, avoiding Windows
 `communicate`'s synchronous stdin write blocking beyond that deadline.
-Handles close before the working directory is removed.
+Handles close before the working directory is removed. The target cwd starts
+empty; request, stdin and status records live in a sibling control directory.
+Only target environment overrides are serialized; merging is case-insensitive.
+The gate and target start detached in new process groups, so the target
+cannot signal the harness through its console. The gate explicitly forwards all
+three standard handles to its target: detached Windows processes cannot rely on
+console inheritance for the binary stdin file and stdout/stderr capture pipes.
+Both pipes drain concurrently with a 1 MiB retained-byte limit per stream;
+overflow is an infrastructure failure, never
+a successful truncated digest. Failed temporary-directory removal is retained as
+`provenance.cleanup_warnings` without discarding the completed result; Job Object
+termination/accounting failures still fail execution.
+
+Admission commits bundle state only after every check succeeds, and each run
+rechecks the executable digest immediately before spawning. Program mappings
+must be exactly `<program>.exe`; batch/cmd launchers are refused. This harness
+runs trusted repository fixtures under the same Windows user: sibling control
+files and repeated digests address accidental cwd collisions and stale artifacts,
+not a hostile same-user sandbox or an atomic filesystem-to-CreateProcess guarantee.
 The tree fixture prints the PIDs of its parent, child and grandchild; the
 checker requires all three generations; the executor queries job accounting until empty,
 then independently checks that each observed PID is dead. This is an
 execution assertion, not evidence supplied by a portable mock.
 
-The gate writes a status file after the target returns, preserving the full
-32-bit exit status. Missing status is an infrastructure error. Known NTSTATUS
+The gate writes a completion marker after the target returns, then exits with
+the full 32-bit target status. The parent reads the gate process exit code, never
+a numeric status supplied by a cwd file. A missing marker is an infrastructure error. Known NTSTATUS
 values map to signal-like results, and their original hexadecimal value is
 retained. This is a Windows exit-code convention: an application deliberately
 calling `ExitProcess` with a crash NTSTATUS is indistinguishable from that
@@ -127,6 +152,10 @@ Build commands have finite deadlines; the Linux producer terminates the
 compiler process group after success, failure or timeout before a bounded pipe
 drain. Metadata subprocesses also have finite deadlines.
 
+`test_executor.py` is collected by the `host-windows.yml` bundle job, not by
+the shared unit shard. Invoke it explicitly for local changes; its builder/validator
+roundtrip uses stubbed compiler effects and does not claim native execution.
+
 The portable suite exercises admission failures, binary transport, launch
 ordering, timeout cleanup, normal and crash statuses, and the tree-evidence
 checker using a fake transport. It does not exercise Windows APIs.
@@ -139,16 +168,11 @@ injection is local to the instance; tests do not replace process-global clocks.
 Cleanup exceptions are suppressed only when this invocation itself raised a
 primary error, never merely because its caller is handling another exception.
 
-Current repair Linux build evidence: both architecture bundles compiled
-successfully with validated compiler receipts from matching source inputs:
-12 PE executables, including four Python and four self-hosted corpus outputs,
-and 16 declared execution cases per architecture.
-All PE machine checks passed. Native execution, actual Job Object behavior,
-tree cleanup and corpus golden matches remain unverified until hosted Windows
-runs complete. No Wine or Linux mock result is counted as native evidence.
-
-The user's explicit prohibition on editing workflow files leaves
-`host-windows.yml` absent. The draft PR contains an integrator request for the
-Linux build and native Windows matrix, its exact commands, artifact handoff,
-contract rows and skip-report handling. None of the packet's native runtime
-acceptance boxes are marked complete solely from cross-compilation.
+The integrator installed `host-windows.yml` in batch35. Its first run,
+[37311381559](https://github.com/schiffy91/btrc/actions/runs/37311381559), verified
+the original spike at merged revision `87727690`: both downloaded native reports
+contain 16 passed, 0 failed, 0 skipped, including both tree cases and both corpus
+programs through both compilers. x64 is hosted Windows Server 2025 stand-in
+evidence; ARM64 ran natively on `windows-11-arm`. This baseline does not validate
+subsequent hardening; that requires the follow-up PR's own host lane results.
+No Wine or Linux mock result is counted as native Windows evidence.

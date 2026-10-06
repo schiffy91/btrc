@@ -66,6 +66,18 @@
         "linux-devcontainer"
       ],
       "note": "CX-UIA-09 shell requires its host provider; both frontends and sanitizer modes run on the named stand-in."
+    },
+    {
+      "id": "sdl-clipboard-requestor-linux-only",
+      "files": [
+        "src/tests/python/test_native_ui_sdl_clipboard_requestor.py"
+      ],
+      "reason": "^requires Linux X11 SDL$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The patched SDL's X11 clipboard path (nix/sdl3-x11-selection-requestor.patch) exists only on Linux; the probe runs under the Linux virtual display."
     }
   ]
 }

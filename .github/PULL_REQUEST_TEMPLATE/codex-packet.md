@@ -1,5 +1,5 @@
 <!--
-Packet report for a WORKSTREAMS.md packet (§3.7). Title the PR `[CX-…] <packet title>`
+Packet report for a CODEX.md unit or WORKSTREAMS.md packet (§3.7). Title the PR `[CX-…] <packet title>`
 (Claude's lanes use `[CL-…]`) and open it as a draft against `main`: the draft PR is
 for CI only, and Claude integrates it (§3.8). Fill this in as the work proceeds.
 -->
@@ -8,7 +8,7 @@ Packet: CX-…  <title>                 Branch: codex/…   Base: <main sha, or 
 
 ## Owned paths
 
-<copied from the packet in docs/workstreams/codex.md>
+<copied from the unit in CODEX.md, or from the packet in docs/workstreams/codex.md>
 
 ## Commits
 
@@ -27,7 +27,7 @@ Queued run ids are fine at handoff; Claude reads the results.
 - ci.yml run <id>: green | red (<job>) | queued
 - macos.yml run <id>: …
 - windows.yml run <id>: …
-- <own workflow> run <id>: …
+- <lane workflow (Claude adds it, D28)> run <id>: …
 
 ## Skip gate
 

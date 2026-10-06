@@ -12,6 +12,14 @@
           if lib.hasPrefix "-Ddbus_daemon=" flag then "-Ddbus_daemon=${pkgs.dbus}/bin/dbus-daemon" else flag
         ) old.mesonFlags;
       });
+      # SDL 3.4.10 exits on BadWindow when a clipboard requestor destroys its
+      # window before SDL answers (X_ChangeProperty); the patch absorbs only
+      # that requestor's errors. Reproducer and regression test:
+      # src/tests/native/gui/shell/probes/linux/ClipboardRequestor.c and
+      # test_native_ui_sdl_clipboard_requestor.py.
+      sdl3Patched = pkgs: pkgs.sdl3.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [ ./nix/sdl3-x11-selection-requestor.patch ];
+      });
       cfg = {
         name = "btrc";
         image = "btrc-devcontainer:latest";
@@ -51,7 +59,8 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
-            sdl3.dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
+            libdecor.dev   # libdecor-0.pc: the Wayland decoration probe (src/tests/native/gui/shell/probes/linux/LibdecorPending.c)
+            (sdl3Patched pkgs).dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
             # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
             # (weston's headless backend) display inside its own session bus,
