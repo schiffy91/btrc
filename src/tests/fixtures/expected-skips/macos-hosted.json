@@ -250,21 +250,6 @@
       "note": "The C oracle compares btrc's linux-x86_64 selection with the host gcc and clang -E, so only an x86_64 Linux host runs it; the devcontainer does (CL-C-06)."
     },
     {
-      "id": "c2-strtold-platform-divergence",
-      "files": [
-        "src/tests/btrc/test_integer_constant_query_parity.py"
-      ],
-      "nodes": [
-        "src/tests/btrc/test_integer_constant_query_parity.py::test_recorded_platform_divergences_still_hold*"
-      ],
-      "reason": "^btrc's strtold is 80-bit only on Linux x86-64$",
-      "category": "platform",
-      "covered_by": [
-        "linux-devcontainer"
-      ],
-      "note": "CL-C-08 pins two float-cast divergences that exist only where long double is 80-bit (Linux x86-64): btrc reads float literals with strtold. CL-REQ-09 reads them as double and removes these tests and this rule."
-    },
-    {
       "id": "apple-target-macro-oracle",
       "files": [
         "src/tests/python/test_target_macro_table.py"
