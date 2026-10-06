@@ -1,7 +1,7 @@
 # Host routing, not an execution ledger. available means an eligible host, never a pass.
 # Both frontends must run independently. No environment is promoted to physical evidence.
 schema = "btrc.ui-hosts/2"
-recorded_at = "2026-10-05"
+recorded_at = "2026-10-06"
 platforms = ["macos", "linux", "windows", "ios", "android"]
 frontends = ["reference", "selfhost"]
 evidence_classes = ["automation", "accessibility-tree", "assistive-technology", "physical-input-ime", "gpu"]
@@ -23,7 +23,7 @@ runner = "macos-hosted"
 kind = "hosted"
 evidence_classes = ["automation", "gpu"]
 status = "available"
-note = "macos.yml macos-15; automation and paravirtual Metal correctness only. No physical timing, display, VoiceOver or AX trust guarantee."
+note = "macos.yml macos-15; automation and paravirtual Metal correctness only. No physical timing, display, VoiceOver or AX trust guarantee. CL-UIA-09 (ui-1-feasibility-review, 2026-10-06): AppKit is eligible for UI2 on both frontends, plain and ASan/UBSan (run 37318960723); keyboard delivery, Tab order and GPU Tab/AX inclusion remain gaps (docs/design/ui-contracts/ui1-feasibility.md)."
 
 [[routes]]
 id = "macos-hosted-tree"
@@ -56,7 +56,7 @@ runner = "linux-devcontainer"
 kind = "cloud"
 evidence_classes = ["automation", "gpu"]
 status = "available"
-note = "Cloud and hosted Linux CI share the linux-devcontainer ledger runner. Xvfb/X11 or weston headless/Wayland with lavapipe correctness. Software rendering and synthetic input do not qualify physical GPU, reset, IME or Orca."
+note = "Cloud and hosted Linux CI share the linux-devcontainer ledger runner. Xvfb/X11 or weston headless/Wayland with lavapipe correctness. Software rendering and synthetic input do not qualify physical GPU, reset, IME or Orca. CL-UIA-09 (ui-1-feasibility-review, 2026-10-06): the SDL provider under X11 is eligible for UI2 on both frontends, plain and ASan/UBSan; Wayland is eligible with the open selfhost ASan/UBSan restore-61 libdecor stall carried (CX-UIA-11 residual) and is not qualified (docs/design/ui-contracts/ui1-feasibility.md)."
 
 [[routes]]
 id = "linux-devcontainer-tree"

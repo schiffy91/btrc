@@ -1057,6 +1057,7 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
   - **E40.** The reproduction is written and recorded as failing in the catalog. It stays on a branch (D24) until its repair lands as CX-STDLIB-01 (CODEX.md, D28).
   - **GObject.** Binding parity holds and the bootstrap is byte-stable.
   - **Toolkit.** The GTK feasibility record exists, D23 is recorded, and the Linux GUI shard is green.
+- **Status (batch 46, 2026-10-06).** `ui-1-feasibility-review` (`CL-UIA-09`) is recorded in [`ui1-feasibility.md`](docs/design/ui-contracts/ui1-feasibility.md): macOS AppKit and Linux SDL (X11 gating, Wayland carried) enter UI2 on both frontends; Windows, iOS and Android stay blocked. The Stage 31 exit is still open: the five-platform shell harness, E46, E47, the GObject binding, the GTK spike and D23, and the Linux GUI shard (`CL-UIA-11`, in flight).
 - **Parallelization: WORKFLOW, 11 agents** (one platform at a time without D6(c)).
   - **Serial first:** the fixture and the harness.
   - **6 provider agents** in separate worktrees:
