@@ -16,6 +16,7 @@ directories are allowed. `hosts.toml` is validated by its own host packet.
 | `hosts.toml` | host matrix; explicitly skipped by this loader | CX-UIA-06 |
 | `evidence/ui1-macos.toml` | ledger/1 evidence, tests and notes | CX-UIA-10 |
 | `evidence/ui1-linux.toml` | ledger/1 evidence, tests and notes | CX-UIA-11 |
+| `evidence/ui2-linux-e40.toml`, and the E40 hunk in `cases/E25-E47.toml` (carried per WORKSTREAMS §3.3 step 4) | ledger/1 evidence, tests and notes; it sorts after `ui1-linux.toml`, as newer evidence must. The hunk updates E40's Linux classification | CX-STDLIB-01 ([CODEX.md](../../../CODEX.md)) |
 | UI2 `operations/<Owner>.toml` | same owner rules; claim exact filenames in the PR | CX-UIA-21 |
 | UI3 `operations/<Owner>.toml` | same owner rules; claim exact filenames in the PR | CX-UIA-25 |
 | `amendments/<packet-id-lowercase>.toml` (`cx-uia-05.toml`, `cl-uia-24.toml`, `mac-c-01.toml`) | reviewed source-amendment grammar | named packet |

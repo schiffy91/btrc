@@ -3,8 +3,8 @@
 Updated 2026-10-06. Owner-directed plan, introduced by `CX-PLAN-01` on
 `codex/stdlib-lane-plan`, based on main `9971ee1709b59b9185b9cf38b09693f52c2441f8`.
 Read [AGENTS.md](AGENTS.md) for the shared architecture and parity rules.
-[PLAN.md](PLAN.md#owner-update-separate-claude-and-codex-plans-2026-10-06) records
-the owner update; Claude will migrate its remaining roadmap to CLAUDE.md.
+[CLAUDE.md](CLAUDE.md#owner-update-separate-claude-and-codex-plans-2026-10-06)
+records the owner update; Claude's roadmap moved there from PLAN.md in batch 40.
 
 ## Goal and ownership
 
@@ -57,7 +57,7 @@ remote branches or merged code. Publish reviewable repair commits with their tes
 
 | Unit | Outcome and scope | Starting evidence | Remaining acceptance |
 |---|---|---|---|
-| CX-STDLIB-01 (from UIA23) | Retain queued input; match popup hit testing to painted position; preserve text/selection on clipboard Cut failure; honor external hide/show rendering | `d6df2cb6335e122526204f0408602aeef6d31b66`; 84 native cases across staged revisions, plus final controls | Port to current main, wire normal driver, rerun both compilers and sanitizer/control cases on final source |
+| CX-STDLIB-01 (from UIA23) | Retain queued input; match popup hit testing to painted position; preserve text/selection on clipboard Cut failure; honor external hide/show rendering | `d6df2cb6335e122526204f0408602aeef6d31b66`; 84 native cases across staged revisions, plus final controls | Port to current main, wire normal driver, rerun both compilers and sanitizer/control cases on final source; catalog: a new `evidence/ui2-linux-e40.toml` shard plus the E40 hunk in `cases/E25-E47.toml`, carried per WORKSTREAMS §3.3 step 4 ([catalog README](docs/design/native-ui-catalog/README.md)) |
 | CX-STDLIB-02 (from UIB26) | Grid and both Stack orientations invoke child layout so scroll offsets clamp after resize | Combined `0f6f3448967720480365d43980c74baf7280b7e4`; 40/40 final-source native cases | Port combined repair, wire normal driver, verify actual pixel/offset behavior and fixture discovery |
 | CX-STDLIB-03 (from UIB18) | Explicit Mac button alignment survives title/symbol updates; defaults preserved | `f6071c8aa1c42998fd1db3266d078285798299af`; source reviewed/formatted only | Wire actual AppKit fixture; compile and execute on macOS through both compilers; no native pass yet |
 | CX-STDLIB-04 | Reject an invalid Linux grid replacement without losing the old child | Source finding: Linux detaches before validating; Mac validates/rolls back | Reproduce with an already-parented replacement; check old child identity/rendering, valid replacement, null clear and ownership cleanup; fix only after reproduction |
@@ -72,6 +72,8 @@ are under `src/tests/native/gui/ui2/probes/linux/`. Move the existing collector 
 `src/tests/python/test_native_ui_linux_spike.py` with the established platform,
 native-reader and display guards; remove the old collector to avoid duplicate
 unguarded collection. The historical `spike` spelling does not relax acceptance.
+Its catalog update is the new `docs/design/native-ui-catalog/evidence/ui2-linux-e40.toml`
+shard plus the E40 hunk in `docs/design/native-ui-catalog/cases/E25-E47.toml`.
 
 CX-STDLIB-02 owns `src/stdlib/GUI/Linux/{LinuxGrid,LinuxStack}.btrc`, the existing
 `src/tests/native/gui/layout/linux/{LinuxGridScrollResize,LinuxStackScrollResize}.btrc`
@@ -153,16 +155,127 @@ Checked against main `9971ee1` and the open PRs when preparing this plan:
   approvals remain pending. That does not block unrelated Linux repairs.
 - Windows ARM64 toolchain [PR53](https://github.com/schiffy91/btrc/pull/53), mobile
   hosts PR34/35 and accessibility [PR42](https://github.com/schiffy91/btrc/pull/42)
-  remain open with their individual acceptance/dependency gaps. Reuse these
-  branches; do not duplicate their tools or describe them as finished providers.
+  remain open with their individual acceptance/dependency gaps, listed in the
+  next section. Reuse these branches; do not duplicate their tools or describe
+  them as finished providers.
 - The six Linux repairs and Mac alignment repair above remain unpublished
   experiments. Their existing regression wiring proposals and frozen evidence
   are retained; normal integration and current-source validation remain to do.
 
+## Active assignments carried from WORKSTREAMS (D28)
+
+These assignments moved here from WORKSTREAMS.md and the old packet files in
+batch 40. Old packet IDs stay for traceability; WORKSTREAMS.md §3.3.2 keeps the
+path claims. Each entry names its source (a PR, branch or review comment), the
+owner, the exact prerequisite and the next acceptance.
+
+- **PR58, `CX-P1-06` Windows host hardening** (head `6ec9b9dc`). Owner: Claude.
+  Prerequisite: none; final CI is green. Next: Claude integration (batch gate).
+  It unblocks the `CL-P1-17` protocol freeze and the PR53 rebase.
+- **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`, head
+  `958d309b`). Owner: Codex (`tools/windows_toolchain/**`); Claude then adds the
+  drafted `windows-arm64.yml`. Returned in batch 36: it duplicates
+  `tools/target_hosts/windows` (`process_runner.run_windows` vs
+  `executor.WindowsJob`, `arm64.TARGET/FLAGS` vs `bundle.TARGETS`, `pe_arm64` vs
+  `bundle.pe_machine`). Prerequisite: PR58 integrated. Then rebase on main, use
+  `WindowsJob` and the executor gate, and drop the ephemeral-runner/taskkill
+  path. Non-blocking fixes: VsDevCmd `1>&2`; vswhere `-requires` ARM64 and Clang
+  with `installationVersion`; an overall deadline in `native()`; the README.
+  Next acceptance, on `windows-11-arm` (nothing has run there yet): PE ARM64
+  with a byte-identical 3-stage bootstrap; byte-identical C from cross and
+  native builds; `msvc_probe` cl.exe ≥19.40; an MSVC-ABI hello; a wgpu smoke.
+- **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`, head
+  `55a71b8c`, CI green, scope only). Owner: Codex for code; Claude for the
+  review and for `host-ios.yml` on macos-15 (`REQUEST(CL-R-38)`), running the
+  six commands in the PR. Prerequisite: Claude reviews the repair (bounded
+  launch deadline, start/cancel handshake, late-identity reaping); returned in
+  batch 23 and not re-reviewed since. Next acceptance: 12 fixtures ×
+  spawn/app × iPhone/iPad, plus one repeated app invocation per class (50
+  executions), with Xcode/runtime provenance and `UIDeviceFamily [1,2]`. This is
+  the real Xcode simulator host the iOS private-file slice needs. Afterwards:
+  `CX-P1-08` (needs `CL-P1-17`, `CL-P1-13`, `CL-P1-16`), `REQUEST(CL-P1-17)`
+  (protocol) and `REQUEST(CL-P1-21)` (entry symbol).
+- **PR35, `CX-P1-05` Android host** (`codex/cx-p1-05`, head `628a4a54`, CI
+  green, scope only). Owner: Codex (`tools/target_hosts/android/**`); Claude for
+  the review, `host-android.yml` and the i686 shell issue. Prerequisite: Claude
+  re-reviews the repair (returned in batch 23), then adds `host-android.yml`
+  from the PR's `REQUEST(CL-REQ)` KVM spec (API 29/36, SDK packages and verify,
+  cache key). `REQUEST(CL-P1-02)`: the `.#platforms` shell's i686 compatibility
+  builder fails on cloud kernels. Next acceptance: API 29 and 36 KVM emulators
+  boot and pass shell and NativeActivity modes, with boot/install/launch
+  timings. Later, the in-process provider mode named above.
+- **PR42, `CX-UIB-07` accessibility spike** (findings head `6d62e046`, docs CI
+  green; prototype `codex/cx-uib-07-spike` `0d6127a6`). Owner: Codex for the
+  note, Claude for the decision. macOS run 37217909473 failed at compile in both
+  frontends: a managed NSView passed as raw `void*`. AX trust is unknown.
+  `REQUEST(CL-UIB-09)` asks for a nonescaping mutable NSView adapter boundary,
+  but `CL-UIB-09` depends on this packet's gap list and Stage 29 interop step 6,
+  so the two wait on each other. `REQUEST(CL-UIB-12)` covers D-Bus vtables after
+  D23. Recommended next acceptance: land the findings note with AX trust
+  recorded as "unknown, blocked on CL-UIB-09". Missing evidence stays missing
+  (D28), and landing the note meets `CL-UIB-09`'s gap-list dependency. The
+  native re-run follows `CL-UIB-09`.
+- **PR51, `CX-P2-02` HTTP contract rev 4** (head `0fa4c093`) and **PR52,
+  `CX-P2-01` Windows services design rev 4** (head `d77b4b14`). Owner: Claude.
+  Prerequisite: none on Codex's side. Next: `CL-P2-01` round 4 (Claude: two
+  adversarial reviewers, a parity reviewer and a verifier). On approval, the
+  request lists become `CL-P2-02/03/04/14` scope. D28 lifts the push stop for
+  further revisions.
+- **`CX-C-01` follow-ups** (batch 26 comment on PR26; no PR yet). Owner: Codex
+  (`tools/bench/scripts/ccompat_checkpoint.sh`,
+  `src/tests/python/test_ccompat_checkpoint_script.py`). Prerequisite: none.
+  They fail closed today. (1) Read the RED gate summary in a `finally` block,
+  with a test. (2) Make parent budget runs opt-in (`--budget-parent`).
+  (3) Record the QuietCheck verdict in `summary.json`. (4) The macOS `sun_path`
+  is 104 bytes: shorten the paths or use `$TMPDIR`. (5) The dry-run `READER=`
+  placeholder and the `BTRC_NATIVE_TARGET`/`SYSROOT` record. Acceptance: one
+  small PR with tests, before `MAC-C-02` uses the script.
+- **`CX-UIA-10` follow-ups** (batch 36 comment on PR54; no PR yet). Owner: Codex
+  (`src/tests/native/gui/shell/probes/macos`, the evidence shard).
+  Prerequisite: none. (1) Add `wrong_field_identity` and `wrong_scroll_identity`
+  mutation cases. (2) `native_controls[].ax_exposed` compares raw views
+  (`ShellProbe.m:271`); map through `controlView`. (3) Test-record slot keys set
+  frontend/variant values that `JUnitAdapter` never emits. Acceptance: the
+  mutation tests fail on the old gate, and macos.yml `native-gui` is green.
+  Separately, Tab delivery is unproven because all 300 contexts were inactive
+  (`MAC-UIA-02`).
+- **`CX-UIA-11` residuals** (after batch 38). Owner: Claude for the flake/nix
+  pins (WORKSTREAMS §3.3.1 hotspots); Codex re-runs the acceptance once they
+  land. Prerequisites: a libdecor 0.2.5 fix for the Wayland
+  selfhost+sanitizer restore-61 timeout; `libdecor-0.pc` in the dev shell, so CI
+  compiles `LibdecorPending`; a pinned SDL fix for the X11 BadWindow clipboard
+  crash. Per-worker Xvfb is an integrator mitigation. Next acceptance: Codex
+  re-runs the Wayland acceptance row and the `LibdecorPending` CI build; Wayland
+  4/4 rows and the X11 clipboard probe pass.
+- **`CX-P1-02` platform inventory.** Owner: the owner (sign-off), then Codex
+  (the 58 cells in `platform-inventory.toml`) and Claude (the
+  `platform-parity.md` totals fragment). Prerequisite: the owner's sign-off on
+  `platform-adaptations.md` (WORKSTREAMS §7 Q9). The platform slices above
+  assume those adaptation defaults. Acceptance: `test_platform_inventory`
+  passes with the cells applied.
+- **Claude `CL-REQ` packets awaiting Codex's minimal repros.** Neither failure
+  is recorded on GitHub yet as a REQUEST, PR comment or issue (open and closed
+  PRs 26–59 were searched).
+  Codex posts each repro: the command, run through both frontends. Claude then
+  opens the `CL-REQ` packet and owns the paired fix. Acceptance: a paired fix in
+  both compilers plus a regression.
+  - The catalog partition assertion (handoff step 6).
+  - The Windows SDK qualified function type, which both compilers rejected in
+    eight architecture/frontend cases (the Windows slice above).
+- **Not active, carried.** Owner: Codex.
+  - `CX-UIB-08` follow-up (batch 32): the 100,000-record fixture has 989
+    repeated sort keys and only 8 distinct titles. Add a tie-break or richer
+    titles before `CX-UIB-28` consumes the digest.
+  - `CX-UIA-05` (broader surface): startable, since `CX-UIA-02` and
+    `CL-UIA-24` landed, but unclaimed. Stage 30; it gates nothing under D28.
+  - `CX-UIA-07`: unclaimed. Stage 30; it gates nothing under D28.
+
 ## Claude handoff: migrate and synchronize the plans
 
-**Claude: the owner explicitly requested this split and the PLAN-to-CLAUDE rename.
-Use this CODEX.md as Codex's active lane, not the older blanket start gates.**
+**Done in batch 40 (2026-10-06).** The owner explicitly requested this split and
+the PLAN-to-CLAUDE rename, and Claude carried it out in batch 40. The six steps
+below are kept as the record. This CODEX.md is Codex's active lane, not the
+older blanket start gates.
 
 1. Integrate this owner-directed update. Reconcile D27, WORKSTREAMS and the older
    Codex packet/lane files with D28 instead of making Codex re-request approval for
@@ -198,5 +311,7 @@ Use this CODEX.md as Codex's active lane, not the older blanket start gates.**
 Migration acceptance: AGENTS remains intact and loaded, CLAUDE is a regular plan
 file with the shared rules referenced, all active Codex assignments have one
 canonical home here, old links and test-read consumers are resolved, and the
-normal checks pass. The rename is pending Claude's synchronization commit; this
-plan update intentionally changes only PLAN.md and CODEX.md.
+normal checks pass. The migration landed in batch 40: CLAUDE.md is a regular
+file importing AGENTS.md, PLAN.md is a pointer, the Progress log is in
+[docs/design/claude-integration-record.md](docs/design/claude-integration-record.md),
+and the tests that read the roadmap now read CLAUDE.md.
