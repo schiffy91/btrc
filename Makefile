@@ -167,11 +167,9 @@ $(BTRCC_RELEASE_C_ROOT)/macos-aarch64.ok: $(BTRCC_MACOS_PORTABLE_C) $(BTRCC_INPU
 
 btrcc-release-c: btrcc-release-c-linux btrcc-release-c-macos ## Generate and row-check every portable release C file
 
-btrcc-release-c-linux: generated-check ## Generate dist/btrcc.c (linux-x86_64) and prove it for linux-aarch64
-	$(MAKE) --no-print-directory $(BTRCC_RELEASE_C_ROOT)/linux-aarch64.ok
+btrcc-release-c-linux: $(BTRCC_RELEASE_C_ROOT)/linux-aarch64.ok ## Generate dist/btrcc.c (linux-x86_64) and prove it for linux-aarch64
 
-btrcc-release-c-macos: generated-check ## Generate dist/btrcc-macos.c (macos-x86_64) and prove it for macos-aarch64
-	$(MAKE) --no-print-directory $(BTRCC_RELEASE_C_ROOT)/macos-aarch64.ok
+btrcc-release-c-macos: $(BTRCC_RELEASE_C_ROOT)/macos-aarch64.ok ## Generate dist/btrcc-macos.c (macos-x86_64) and prove it for macos-aarch64
 
 btrcc: $(BTRCC_NATIVE) ## Build the self-hosted compiler for THIS machine -> bin/btrcc
 

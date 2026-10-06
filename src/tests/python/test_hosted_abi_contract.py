@@ -811,6 +811,10 @@ def test_generated_target_rows_equal_the_spec() -> None:
         (macro.name, macro.value, macro.operating_systems, macro.architectures, macro.environments)
         for macro in (*targets.predefined_macros, *targets.derived_macros)
     ]
+    # M3's name list must stay exactly the predefined and derived row names.
+    row_names = {row[0] for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS}
+    assert len(generated_abi.TARGET_PREDEFINED_MACRO_NAMES) == len(row_names)
+    assert set(generated_abi.TARGET_PREDEFINED_MACRO_NAMES) == row_names
     assert targets.undefined_macro_names == generated_abi.TARGET_UNDEFINED_MACRO_NAMES
     assert targets.foreign_macro_names == generated_abi.TARGET_FOREIGN_MACRO_NAMES
     assert targets.fingerprint == generated_abi.TARGET_SPEC_FINGERPRINT
@@ -823,6 +827,11 @@ def test_generated_target_rows_equal_the_spec() -> None:
     for target in targets.targets:
         assert f'built.push(GeneratedTargetRow("{target.label}", "{target.operating_system}", ' in tables
     assert 'built.put("x64", "x86_64");' in tables
+    btrc_names = re.findall(
+        r'values\.push\("([^"]+)"\);',
+        "".join(re.findall(r"void pushPredefinedMacroNames\d+\(Vector<string> values\) \{(.*?)\n\t\}", tables, re.S)),
+    )
+    assert sorted(btrc_names) == sorted(row_names)
     assert 'built.put("windows", "gnu");' in tables
     assert "public Map<string, string> architectureAliases() {" in tables
     assert "public Map<string, string> defaultEnvironments() {" in tables

@@ -167,16 +167,19 @@ class StdlibArchiveManifest:
                 f"compiler version (archive: {stamped or 'unstamped'}, current: "
                 f"{current}); regenerate it with --build-stdlib"
             )
+        # The row comes before the source hash: once the stdlib is conditioned
+        # on the target, an archive for another row also hashes a different
+        # source, and only the row message names the remedy.
+        if manifest["target"] != target:
+            raise ArchiveVersionError(
+                f"stdlib archive in '{stdlib_dir}' was built for target '{manifest['target']}', "
+                f"not '{target}'; regenerate it with --build-stdlib --target {target}"
+            )
         if manifest["stdlib_source"] != self.source_hash(stdlib_source):
             raise ArchiveVersionError(
                 f"stdlib archive in '{stdlib_dir}' was built from a different "
                 "standard library source; regenerate it with --build-stdlib or "
                 "compile without --stdlib"
-            )
-        if manifest["target"] != target:
-            raise ArchiveVersionError(
-                f"stdlib archive in '{stdlib_dir}' was built for target '{manifest['target']}', "
-                f"not '{target}'; regenerate it with --build-stdlib --target {target}"
             )
         for artifact_name, expected_hash in manifest["artifacts"].items():
             artifact_path = os.path.join(stdlib_dir, artifact_name)

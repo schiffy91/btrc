@@ -457,6 +457,16 @@ def test_archive_manifest_refused_for_another_target_row(tmp_path, archive_row, 
         _archive_service().load(str(tmp_path), source, current_row)
 
 
+def test_archive_manifest_for_another_row_names_the_row_before_the_source(tmp_path):
+    _write_archive(tmp_path, _archive_manifest("linux stdlib", target="linux-x86_64"))
+
+    with pytest.raises(
+        stdlib_archive.ArchiveVersionError,
+        match=re.escape("was built for target 'linux-x86_64', not 'windows-x86_64'"),
+    ):
+        _archive_service().load(str(tmp_path), "windows stdlib", "windows-x86_64")
+
+
 def test_archive_manifest_without_a_target_requires_regeneration(tmp_path):
     source = "stdlib source"
     unstamped = _archive_manifest(source)

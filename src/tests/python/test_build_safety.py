@@ -383,8 +383,8 @@ def test_btrcc_release_targets_publish_bundles_not_raw_dist_binaries():
 RELEASE_C_BUNDLES = {
     "btrcc-linux-x64": ("dist/btrcc.c", "linux-x86_64", "linux-aarch64", "linux-x64", "dist/btrcc-macos.c"),
     "btrcc-linux-arm64": ("dist/btrcc.c", "linux-x86_64", "linux-aarch64", "linux-arm64", "dist/btrcc-macos.c"),
-    "btrcc-macos-x64": ("dist/btrcc-macos.c", "macos-x86_64", "macos-aarch64", "macos-x64", "dist/btrcc.c "),
-    "btrcc-macos-arm64": ("dist/btrcc-macos.c", "macos-x86_64", "macos-aarch64", "macos-arm64", "dist/btrcc.c "),
+    "btrcc-macos-x64": ("dist/btrcc-macos.c", "macos-x86_64", "macos-aarch64", "macos-x64", "dist/btrcc.c"),
+    "btrcc-macos-arm64": ("dist/btrcc-macos.c", "macos-x86_64", "macos-aarch64", "macos-arm64", "dist/btrcc.c"),
 }
 
 
