@@ -454,6 +454,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['linux-gui'] }}
     name: linux-gui (${{ matrix.session }})
+    # ci/tiers.toml marks a row report-only while its session is not yet stable.
+    continue-on-error: ${{ matrix.report_only == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5

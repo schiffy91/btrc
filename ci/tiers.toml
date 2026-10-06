@@ -151,6 +151,11 @@ reports = ["skip-report", "junit"]
 # The Linux GUI and audio shard: one row per display protocol, each in its own
 # headless session (CL-UIA-11). It runs on every push and in the focused
 # native-gui dispatch; a lane or pull request runs it when a GUI path changes.
+# X11 gates. Wayland reports only (its job may fail without failing the run)
+# until the native-shell journey stops asserting that a native close lands
+# within one 10 ms tick: under ASan on weston it lands later, and the fix is
+# in src/tests/native/gui/shell/NativeShell.btrc (step 9), outside this shard.
+# Flip report_only to "false" once that lands and Wayland runs green.
 [[jobs]]
 workflow = "ci.yml"
 job = "linux-gui"
@@ -160,6 +165,7 @@ reports = ["skip-report", "junit"]
 [[shards]]
 job = "ci.yml/linux-gui"
 session = "x11"
+report_only = "false"
 tiers = ["main", "extended", "release", "native-gui"]
 selected_tiers = { lane = "lane-linux-gui" }
 changed_tiers = ["pr"]
@@ -188,6 +194,7 @@ changed_paths = [
 [[shards]]
 job = "ci.yml/linux-gui"
 session = "wayland"
+report_only = "true"
 tiers = ["main", "extended", "release", "native-gui"]
 selected_tiers = { lane = "lane-linux-gui" }
 changed_tiers = ["pr"]

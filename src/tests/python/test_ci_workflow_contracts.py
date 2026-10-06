@@ -1315,7 +1315,9 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     assert job["name"] == "linux-gui (${{ matrix.session }})"
     assert job["runs-on"] == "ubuntu-latest"
     rows = [shard.row for shard in TIERS.shards if shard.job == "ci.yml/linux-gui"]
-    assert rows == [{"session": "x11"}, {"session": "wayland"}]
+    # X11 gates; Wayland reports only until its sanitized shell journey is stable.
+    assert rows == [{"session": "x11", "report_only": "false"}, {"session": "wayland", "report_only": "true"}]
+    assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
     for tier in ("main", "extended", "release", "native-gui"):
         plan = TIERS.plan("ci.yml", tier)
         assert plan["matrix"]["linux-gui"]["include"] == rows, tier
