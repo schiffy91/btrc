@@ -25,6 +25,9 @@ bounded wait timed out true, still busy true
 terminated reply failed true, usage reaped true
 single threaded true
 threads while one waits 2, pool refused true
+unparked while one is parked 1
+pool started beside a parked thread true
+parked pool closed cleanly true
 single threaded after join true
 reopened after join true
 reopened closed cleanly true

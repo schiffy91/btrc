@@ -1087,6 +1087,28 @@ class StatementAnalyzer:
         with self.session.scope_frame():
             self._analyze_statements(case.body)
 
+    def _report_inconsistent_map_literal(self, expression) -> bool:
+        """Report a map entry that does not fit the type the first entry infers.
+
+        A list literal's elements are checked as the literal is analyzed; a
+        map literal whose type is inferred is checked here, key then value,
+        entry by entry, as the self-hosted validator does."""
+        if not isinstance(expression, MapLiteral) or len(expression.entries) < 2:
+            return False
+        first = expression.entries[0]
+        expected = {"key": self.expressions.infer_type(first.key), "value": self.expressions.infer_type(first.value)}
+        for index, entry in enumerate(expression.entries[1:], 1):
+            for part, value in (("key", entry.key), ("value", entry.value)):
+                actual = self.expressions.infer_type(value)
+                if expected[part] and actual and not self.types.types_compatible(expected[part], actual):
+                    self.session.error(
+                        f"Map {part} {index} has type '{actual.base}' but expected '{expected[part].base}'",
+                        value.line,
+                        value.col,
+                    )
+                    return True
+        return False
+
     def _report_undeclared_collection_literal(self, expression) -> bool:
         """Report a collection literal whose class the program never declares.
 
@@ -1107,8 +1129,10 @@ class StatementAnalyzer:
             elem_type = TypeExpr(base="int")
         else:
             self.analyze_expression(stmt.iterable)
-            self._report_undeclared_collection_literal(stmt.iterable)
+            if not self._report_inconsistent_map_literal(stmt.iterable):
+                self._report_undeclared_collection_literal(stmt.iterable)
             iter_type = self.expressions.infer_type(stmt.iterable)
+            self.generics.collect_type_instances(iter_type)
             elem_type = self.types.element_type(iter_type, stmt.line, stmt.col)
             class_info = self.index.class_table.get(iter_type.base) if iter_type else None
             if class_info and "iterLen" in class_info.methods and "iterGet" in class_info.methods:
@@ -1195,7 +1219,8 @@ class StatementAnalyzer:
             self.session.break_depth -= 1
             return
         self.analyze_expression(stmt.iterable)
-        self._report_undeclared_collection_literal(stmt.iterable)
+        if not self._report_inconsistent_map_literal(stmt.iterable):
+            self._report_undeclared_collection_literal(stmt.iterable)
         self.session.loop_depth += 1
         self.session.break_depth += 1
         iter_type = self.expressions.infer_type(stmt.iterable)
@@ -2148,7 +2173,9 @@ class StatementAnalyzer:
             boundary = self.gpu.array_initializer_boundary(stmt.initializer, stmt.type)
             with self.session.gpu_result_context(boundary):
                 self.analyze_expression(stmt.initializer)
-            if self._report_undeclared_collection_literal(stmt.initializer):
+            if self._report_inconsistent_map_literal(stmt.initializer) or self._report_undeclared_collection_literal(
+                stmt.initializer
+            ):
                 stmt.type = TypeExpr(base="int")
                 if define_binding:
                     self.session.scope.define(stmt.name, self._var_symbol(stmt))

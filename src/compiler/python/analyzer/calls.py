@@ -585,6 +585,10 @@ class CallAnalyzer:
             )
             if self.ownership.validate_callable_value(expected, argument, argument_line, argument_col):
                 continue
+            if self._contextualize_collection_argument(
+                expected, argument, f"Argument '{params[param_index].name}' to '{name}()'", argument_line, argument_col
+            ):
+                continue
             actual = self.type_of(argument)
             if actual and gpu_array_parameter:
                 if not self.aggregates.array_target_has_capacity(argument, actual):
@@ -887,6 +891,10 @@ class CallAnalyzer:
                     getattr(arg, "col", col),
                 )
             )
+            if self._contextualize_collection_argument(
+                expected, arg, f"Argument {index} to '{name}()'", getattr(arg, "line", line), getattr(arg, "col", col)
+            ):
+                continue
             actual = self.type_of(arg)
             if actual and (not self.types.types_compatible(expected, actual)):
                 self.session.error(
@@ -1210,6 +1218,28 @@ class CallAnalyzer:
             self._consumption_argument_plan(cls.constructor.params, args, arg_names),
             cls.name,
         )
+
+    def _contextualize_collection_argument(self, expected, argument, subject, line, col) -> bool:
+        """Give a list or map literal argument the collection its parameter names.
+
+        The literal fills that storage as a declared initializer does: each
+        element is checked against the parameter's element types, and the
+        literal lowers as the parameter's collection.
+        """
+        if isinstance(argument, ListLiteral) and argument.elements:
+            collection = "Vector"
+        elif isinstance(argument, MapLiteral) and argument.entries:
+            collection = "Map"
+        else:
+            return False
+        canonical = self.types.canonical_type(expected)
+        if canonical is None or canonical.is_array or canonical.base != collection or not canonical.generic_args:
+            return False
+        self.apply_initializer_plan(self.aggregates.plan_collection_initializer(expected, argument, subject, line, col))
+        literal_type = self.types.collection_literal_type(collection, list(canonical.generic_args))
+        self.session.record_node_type(argument, literal_type)
+        self.generics.collect_type_instances(literal_type)
+        return True
 
     def _contextualize_empty_collection(self, expected, expression) -> bool:
         """Give an empty ``[]`` or ``{}`` the collection type its target names.

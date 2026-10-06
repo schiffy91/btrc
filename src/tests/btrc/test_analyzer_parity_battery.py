@@ -51,6 +51,17 @@ def _main(body: str) -> str:
     return "int main() { " + body + " }\n"
 
 
+# Minimal collections for probes that need the classes a literal becomes,
+# declared in the probe so its line numbers stay its own.
+COLLECTIONS = (
+    "class Map<K, V> { public void put(K key, V value) { } }\nclass Vector<T> { public void push(T value) { } }\n"
+)
+ANIMALS = (
+    "class Animal { public int legs; public Animal(int legs) { self.legs = legs; } }\n"
+    "class Dog extends Animal { public Dog() { self.legs = 4; } }\n"
+)
+
+
 INVALID_PROBES = (
     ParityProbe(
         "coalesce-int",
@@ -258,6 +269,54 @@ INVALID_PROBES = (
         "map-literal-var-without-map",
         'int main() {\n\tvar counts = {"a": 1};\n\treturn 0;\n}\n',
         GpuDiagnostic("Map literal needs the Map class; add 'import Library.Map;'", 2, 15),
+    ),
+    # An inferred list or map literal takes its type from its first element or
+    # entry; a later one that does not fit it is rejected where it stands.
+    ParityProbe(
+        "map-literal-var-mixed-values",
+        COLLECTIONS + 'int main() {\n\tvar m = {"a": 1, "b": "two"};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'string' but expected 'int'", 4, 24),
+    ),
+    ParityProbe(
+        "map-literal-var-mixed-keys",
+        COLLECTIONS + 'int main() {\n\tvar m = {"a": 1, 2: 3};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map key 1 has type 'int' but expected 'string'", 4, 19),
+    ),
+    ParityProbe(
+        "map-literal-var-subclass-first",
+        COLLECTIONS + ANIMALS + 'int main() {\n\tvar m = {"dog": Dog(), "bird": Animal(2)};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'Animal' but expected 'Dog'", 6, 33),
+    ),
+    ParityProbe(
+        "map-literal-for-in-mixed-values",
+        COLLECTIONS + 'int main() {\n\tfor key in {"a": 1, "b": "two"} {\n\t\tint y = 1;\n\t}\n\treturn 0;\n}\n',
+        GpuDiagnostic("Map value 1 has type 'string' but expected 'int'", 4, 27),
+    ),
+    ParityProbe(
+        "list-literal-var-mixed-elements",
+        COLLECTIONS + 'int main() {\n\tvar values = [1, "two"];\n\treturn 0;\n}\n',
+        GpuDiagnostic("List element 1 has type 'string' but expected 'int'", 4, 19),
+    ),
+    ParityProbe(
+        "declared-map-mixed-values",
+        COLLECTIONS + 'int main() {\n\tMap<string, int> m = {"a": 1, "b": "two"};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Initializer for 'm' value expects 'int' elements but got 'string'", 4, 37),
+    ),
+    # A global's initializer runs before main; a collection literal allocates.
+    ParityProbe(
+        "global-map-literal-var",
+        COLLECTIONS + 'var counts = {"a": 1};\nint main() {\n\treturn 0;\n}\n',
+        GpuDiagnostic("Global 'counts' requires a C constant/address initializer for static storage", 3, 1),
+    ),
+    ParityProbe(
+        "global-map-literal-var-used",
+        COLLECTIONS + 'var counts = {"a": 1};\nint main() {\n\tcounts.put("b", 2);\n\treturn 0;\n}\n',
+        GpuDiagnostic("Global 'counts' requires a C constant/address initializer for static storage", 3, 1),
+    ),
+    ParityProbe(
+        "global-list-literal-var",
+        COLLECTIONS + "var values = [1, 2];\nint main() {\n\treturn 0;\n}\n",
+        GpuDiagnostic("Global 'values' requires a C constant/address initializer for static storage", 3, 1),
     ),
 )
 

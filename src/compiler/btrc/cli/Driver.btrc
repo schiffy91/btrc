@@ -1906,8 +1906,8 @@ struct BtrccCompilerStackCall {
  * (ProcessThreads.park). The thread enters BTRC through the runtime's
  * foreign-thread boundary, which drains its managed state on the way out, and
  * reports an escaping exception exactly as an exception escaping main is
- * reported. If the thread cannot be created, the program runs on the main
- * thread as before. */
+ * reported. If no thread can be created with at least 64 MiB, the program
+ * runs on the main thread as before. */
 class BtrccCompilerStack {
 	class size_t reservedBytes() { return (size_t)536870912; }
 
@@ -1943,10 +1943,16 @@ class BtrccCompilerStack {
 		pthread_t handle = (pthread_t)0;
 		CFunction<void*, void*> threadEntry = BtrccCompilerStack.entry;
 		bool started = false;
-		if (pthread_attr_setstacksize(&attributes, BtrccCompilerStack.reservedBytes()) == 0) {
-			ProcessThreads.park();
-			started = pthread_create(&handle, &attributes, threadEntry, &call) == 0;
-			if (!started) { ProcessThreads.unpark(); }
+		/* A host that refuses the full reservation (a tight address-space
+		 * limit) still gets the largest stack it grants, down to 64 MiB. */
+		size_t reservation = BtrccCompilerStack.reservedBytes();
+		while (!started && reservation >= (size_t)67108864) {
+			if (pthread_attr_setstacksize(&attributes, reservation) == 0) {
+				ProcessThreads.park();
+				started = pthread_create(&handle, &attributes, threadEntry, &call) == 0;
+				if (!started) { ProcessThreads.unpark(); }
+			}
+			reservation = reservation / (size_t)2;
 		}
 		if (!started) {
 			pthread_attr_destroy(&attributes);

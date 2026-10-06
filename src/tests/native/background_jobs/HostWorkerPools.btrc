@@ -147,6 +147,14 @@ int main() {
 			return 0;
 		});
 	print(f"threads while one waits {ProcessThreads.count()}, pool refused {pools.open(2, ProbeHandler(configuration)) == null}");
+	// A thread parked in a join holds no lock, so the count the pool checks
+	// leaves it out: with the other thread parked, the pool starts.
+	ProcessThreads.park();
+	print(f"unparked while one is parked {ProcessThreads.unparkedCount()}");
+	IWorkerPool? parkedPool = pools.open(2, ProbeHandler(configuration));
+	print(f"pool started beside a parked thread {parkedPool != null}");
+	if (parkedPool != null) { print(f"parked pool closed cleanly {parkedPool.close()}"); }
+	ProcessThreads.unpark();
 	gate.set(1);
 	waiting.join();
 	gate.destroy();

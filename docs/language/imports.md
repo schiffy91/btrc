@@ -29,9 +29,12 @@ declares `Vector`. Where the literal must become a collection value, as a
 `var` initializer or a for-in iterable, the program must declare that class
 (`Vector` for a list literal, `Map` for a map literal). Otherwise both
 compilers reject the literal with `List literal needs the Vector class; add
-'import Library.Vector;'` (or the `Map` equivalent). A literal written into
-storage whose type it fills, such as an array or a declared `Vector<int>`,
-follows that type instead.
+'import Library.Vector;'` (or the `Map` equivalent). Such an inferred literal
+takes its type from its first element or entry, and a later one that does not
+fit is rejected (`Map value 1 has type 'string' but expected 'int'`). A literal
+written into storage whose type it fills, such as an array, a declared
+`Vector<double>` or a `Map<string, double>` parameter, follows that type
+instead: `[1, 2]` passed as `Vector<double>` is a `Vector<double>`.
 
 `--strict-imports` remains accepted as an explicit assertion of the default.
 `--relaxed-imports` is the only compatibility opt-out. Relaxed mode preserves

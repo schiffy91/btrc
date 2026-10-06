@@ -428,6 +428,7 @@ class ControlFlowValidator {
 			}
 		} else {
 			self.validateExpression(statement.iterable,  vars);
+			self.expressions.rejectInconsistentCollectionLiteral(statement.iterable, vars);
 			self.expressions.rejectUndeclaredCollectionLiteral(statement.iterable);
 			iterableType = self.types.inferType(statement.iterable,  vars);
 			if (iterableType == null) {
@@ -690,6 +691,7 @@ class ControlFlowValidator {
 			if (declaration.initializer.kind == NK_BRACE_INITIALIZER) {
 				TypeValidator.fail("Cannot infer array storage for 'var' from " + "a brace initializer; use an explicit array declaration", declaration);
 			}
+			self.expressions.rejectInconsistentCollectionLiteral(declaration.initializer, vars);
 			self.expressions.rejectUndeclaredCollectionLiteral(declaration.initializer);
 			if (actual == null) {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
@@ -698,6 +700,7 @@ class ControlFlowValidator {
 			if (declared == null) {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
 			}
+			self.storage.validateInferredStaticStorage(declaration, declared, self.state.owner == "");
 		} else if (actual != null && !self.types.assignmentCompatible(declared, actual) && !self.expressions.contextualAggregateInitializer(declaration.initializer) && !self.storage.charArrayStringInitializer(declared, declaration.initializer, vars)) {
 			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'" + TypeValidator.commaTupleHint(declaration.initializer, declared), declaration);
 		}

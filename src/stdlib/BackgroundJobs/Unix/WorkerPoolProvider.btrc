@@ -240,7 +240,8 @@ class ForkedWorkerPool implements IWorkerPool {
 					 * the worker cleanly. Fail it as an exception escaping
 					 * main does. */
 					fprintf(stderr, "Unhandled exception: %s\n", error);
-					exit(1);
+					fflush(stderr);
+					_exit(1);
 				}
 			}
 			close(channel[1]);

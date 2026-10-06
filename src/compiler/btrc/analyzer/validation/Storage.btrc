@@ -260,6 +260,16 @@ class StorageValidator {
 		return STATIC_INITIALIZER_INVALID;
 	}
 
+	/* A global `var` has no declared type until its initializer is inferred,
+	 * so validateVariableStorage cannot check its static storage; check it
+	 * against the inferred type, as the reference compiler does. */
+	public void validateInferredStaticStorage(Node declaration, Node? inferred, bool isGlobal) {
+		if (!isGlobal || declaration.type != null || declaration.initializer == null) { return; }
+		if (!self.staticInitializer(declaration.initializer, inferred)) {
+			TypeValidator.fail("Global '" + declaration.name + "' requires a C constant/address initializer for " + "static storage", declaration);
+		}
+	}
+
 	public bool staticInitializer(Node? expression, Node? expected) {
 		if (expression == null) { return true; }
 		bool literal = expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_LIST_LITERAL;

@@ -3703,8 +3703,16 @@ class ExpressionLowerer {
 		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 	}
 
+	/* A list or map literal lowers to the collection its target names, so its
+	 * prepared value has the target's type, not the type its first element
+	 * would infer: [1, 2] passed as Vector<double> is a Vector<double>. */
+	private Node? preparedSourceType(Node expression, Node? targetType, Map<string, Node> varTypes) {
+		if (targetType != null && !targetType.isArray && ((expression.kind == NK_LIST_LITERAL && targetType.base == "Vector") || (expression.kind == NK_MAP_LITERAL && targetType.base == "Map"))) { return targetType; }
+		return self.resolvedExpressionType(expression, varTypes);
+	}
+
 	public PreparedValue prepareTargetValue(Node expression, Node? targetType, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		Node? sourceType = self.resolvedExpressionType(expression, varTypes);
+		Node? sourceType = self.preparedSourceType(expression, targetType, varTypes);
 		string hostedMode = self.strings.hostedStringConversionMode(expression, targetType, sourceType);
 		if (hostedMode == "reject") {
 			fprintf(stderr, "error: raw char* to managed string conversion reached IR without a proven hosted ownership effect\n");
@@ -3731,7 +3739,7 @@ class ExpressionLowerer {
 	}
 
 	private PreparedValue prepareCallTargetValue(Node expression, Node? targetType, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		Node? sourceType = self.resolvedExpressionType(expression, varTypes);
+		Node? sourceType = self.preparedSourceType(expression, targetType, varTypes);
 		string hostedMode = self.strings.hostedStringConversionMode(expression, targetType, sourceType);
 		if (hostedMode == "reject") {
 			fprintf(stderr, "error: raw char* to managed string conversion reached IR without a proven hosted ownership effect\n");
