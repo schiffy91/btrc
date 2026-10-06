@@ -1976,11 +1976,12 @@ class ExpressionAnalyzer:
             self._infer_type(expr.callee)
             for argument in expr.args:
                 self._analyze_expr(argument)
+            # r13, in btrcc's order: inferred method type arguments, then the
+            # arguments themselves, before the call's own type and arity checks.
+            self.calls.reject_inferred_flexible_arguments(expr)
+            self._reject_flexible_array_arguments(expr.args)
             self._validate_mutex_destroy_receiver(expr)
             self.calls.analyze_call(expr)
-            # After the call records its generic instance, as btrcc's generic
-            # collector checks inferred type arguments before any argument.
-            self._reject_flexible_array_arguments(expr.args)
         elif isinstance(expr, IndexExpr):
             self._analyze_expr(expr.obj)
             self._analyze_expr(expr.index)

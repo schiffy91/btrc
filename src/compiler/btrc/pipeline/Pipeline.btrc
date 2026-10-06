@@ -177,6 +177,7 @@ class CompilerPipeline {
 		FeConditionalFailure? tested = FeConditionalTestChecker().verify(program, resolved, packages.linkPlan);
 		if (tested != null) { return self.failure(tested.render()); }
 
+		Map<string, bool>? visibleTypeParameters = null;
 		if (options.strictImports) {
 			FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceSymbolShadows(program), self.targetEnvironments());
 			FeVisibilityCheckResult checked = visibility.check();
@@ -186,6 +187,7 @@ class CompilerPipeline {
 			if (checked.diagnostics.len > 0) {
 				return self.failure(self.visibilityDiagnostic(checked.diagnostics));
 			}
+			visibleTypeParameters = checked.visibleTypeParameters;
 		}
 
 		declarations = [];
@@ -205,6 +207,7 @@ class CompilerPipeline {
 		RuntimeHelperCatalog runtimeHelpers = RuntimeHelperCatalog(runtimeData.rows, runtimeData.intrinsicEffects);
 		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols, self.macroRules());
 		analyzer.configureNativeDeclarations(resolved.nativeDeclarations);
+		analyzer.configureVisibleTypeParameters(visibleTypeParameters);
 		analyzer.configureUnmodeledIncludes(program, resolved.stdlibLineCount, resolved.userLines);
 		BtrccPhaseTimer.mark("catalog");
 		/* Stage B: with module units and a store, unchanged groups replay

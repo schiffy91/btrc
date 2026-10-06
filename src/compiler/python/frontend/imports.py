@@ -730,6 +730,7 @@ class ImportVisibilityChecker:
                     if self.package_access.permits_reference(canonical_file, owner)
                 }
             reachable = reachable_cache[canonical_file]
+            self._record_visible_type_parameters(declaration, symbol_files, reachable)
 
             seen_refs: set[ImportReference] = set()
             for reference in self._references(declaration):
@@ -754,6 +755,24 @@ class ImportVisibilityChecker:
                     )
                 )
         return failures
+
+    @staticmethod
+    def _record_visible_type_parameters(declaration, symbol_files, reachable) -> None:
+        """Mark which type-parameter names of a generic also name a top-level
+        symbol its file can see. Inside the generic such a name means the
+        parameter, so the analyzer refuses one that would hide a struct the
+        generic could otherwise reach (r13); a symbol the file cannot see is
+        never hidden. Unmarked generics (no strict visibility) are treated as
+        seeing every symbol."""
+        owners = [declaration]
+        if isinstance(declaration, ast.ClassDecl):
+            owners.extend(member for member in declaration.members if isinstance(member, ast.MethodDecl))
+        for owner in owners:
+            if not isinstance(owner, (ast.ClassDecl, ast.InterfaceDecl, ast.MethodDecl)):
+                continue
+            owner.visible_type_parameters = frozenset(
+                name for name in owner.generic_params or () if symbol_files.get(name, set()) & reachable
+            )
 
     def check(self, *, active_file: str | None = None) -> list[tuple[str, int, int]]:
         """Return visibility failures as ``(message, line, col)`` tuples."""

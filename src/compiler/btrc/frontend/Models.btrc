@@ -946,6 +946,9 @@ class FeVisibilityCheckResult {
 	public bool success;
 	public string diagnostic;
 	public Vector<FeVisibilityDiagnostic> diagnostics;
+	/* Type-parameter names of each generic that name a symbol its file can
+	 * see, keyed "<declaration key>\t<name>". */
+	public Map<string, bool> visibleTypeParameters = {};
 
 	public FeVisibilityCheckResult(bool success, string diagnostic, Vector<FeVisibilityDiagnostic> diagnostics) {
 		self.success = success;

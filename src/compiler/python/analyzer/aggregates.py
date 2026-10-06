@@ -455,7 +455,12 @@ class AggregateAnalyzer:
         is exempt: its generics cannot refer to a program's structs."""
         if CompilerStdlibSource.authenticated(getattr(declaration, "source_file", None)):
             return
+        # The frontend marks the names the generic's file can see; a struct
+        # in a file it does not import cannot be hidden by the parameter.
+        visible = getattr(site, "visible_type_parameters", None)
         for name in names or ():
+            if visible is not None and name not in visible:
+                continue
             if TypeSystem.flexible_array_member(self.index.struct_table.get(name)) is not None:
                 self.session.error(
                     f"Type parameter '{name}' of '{owner}' is named like struct '{name}', which has a flexible "

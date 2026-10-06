@@ -17,7 +17,10 @@ validation read it rather than re-deriving the shape.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -227,6 +230,44 @@ REFUSALS = [
         id="interface-type-parameter-shadows-struct",
     ),
     pytest.param(
+        BUFFER + "int f(int x) { return x; }\nint main() { struct Buffer* p = null; return f(*p); }",
+        (BY_VALUE.format("Call argument"), 3, 48),
+        id="call-argument-of-another-type",
+    ),
+    pytest.param(
+        BUFFER + "int f(int x) { return x; }\nint main() { struct Buffer* p = null; return f(1, *p); }",
+        (BY_VALUE.format("Call argument"), 3, 51),
+        id="call-argument-beyond-arity",
+    ),
+    pytest.param(
+        BUFFER
+        + "class C { public int m(int x) { return x; } }\n"
+        + "int main() { C c = new C(); struct Buffer* p = null; return c.m(1, *p); }",
+        (BY_VALUE.format("Call argument"), 3, 68),
+        id="method-argument-beyond-arity",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Reader { public int second<T>((T, int) pair) { return pair._1; } }\n"
+        + "int main() { Reader r = new Reader(); struct Buffer* p = null; return r.second((*p, 1)); }",
+        (BY_VALUE.format("Generic argument 1 of Tuple literal"), 3, 80),
+        id="generic-call-tuple-argument",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Holder { public int transform<T>(CFunction<T, struct Buffer*> f) { return 0; } }\n"
+        + "int main() { Holder h = new Holder(); return h.transform((struct Buffer* q) => *q); }",
+        (BY_VALUE.format("Lambda return type"), 3, 58),
+        id="generic-call-lambda-argument",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Reader { public int take<T>(T v) { return 0; } }\n"
+        + "int main() { Reader r = new Reader(); struct Buffer* p = null; return r.take(p->count > 0 ? *p : *p); }",
+        (BY_VALUE.format("Conditional expression"), 3, 78),
+        id="generic-call-conditional-argument",
+    ),
+    pytest.param(
         BUFFER + "int f(struct Buffer b) { return b.count; }\nint main() { return 0; }",
         (BY_VALUE.format("Parameter 'f.b'"), 2, 7),
         id="by-value-parameter",
@@ -333,6 +374,80 @@ def test_member_assignment_from_a_pointer_is_refused_in_both_compilers(semantic_
 
     assert diagnostic_identity(reference.stderr) == ("Array object 'int[]' is not assignable", 2, 54)
     assert diagnostic_identity(selfhost.stderr) == ("Cannot assign 'int*' to 'int[]'", 2, 54)
+
+
+CACHE_LIBRARY = """
+{imports}class Cache<Entry> {{
+	public Entry value;
+	public Cache(Entry value) {{ self.value = value; }}
+	public Entry get() {{ return self.value; }}
+}}
+"""
+
+ENTRY_PROGRAM = """import ./modlib/CacheLib.btrc;
+{imports}#include <stdlib.h>
+{declaration}int main() {{
+	struct Entry* e = (struct Entry*)calloc((size_t)1, sizeof(struct Entry) + (size_t)4);
+	if (e == null) {{ return 1; }}
+	e->length = 5;
+	Cache<int> cache = new Cache<int>(e->length);
+	int n = cache.get();
+	delete cache;
+	free(e);
+	print(f"PASS {{n}}");
+	return 0;
+}}
+"""
+
+ENTRY = "struct Entry { int length; char text[]; };\n"
+
+
+def _compile_library_program(btrcc: Path, root: Path, *, library_sees_entry: bool):
+    """A program and an imported user library whose generic's type parameter
+    is named like the program's flexible-array struct. Only a library that can
+    name the struct (it imports the struct's module) may not shadow it."""
+    (root / "modlib").mkdir(parents=True)
+    if library_sees_entry:
+        (root / "modlib" / "Entries.btrc").write_text(ENTRY)
+        library_imports, program_imports, declaration = (
+            "import ./Entries.btrc;\n",
+            "import ./modlib/Entries.btrc;\n",
+            "",
+        )
+    else:
+        library_imports, program_imports, declaration = "", "", ENTRY
+    (root / "modlib" / "CacheLib.btrc").write_text(CACHE_LIBRARY.format(imports=library_imports))
+    program = root / "UsesEntry.btrc"
+    program.write_text(ENTRY_PROGRAM.format(imports=program_imports, declaration=declaration))
+    reference_c = root / "reference.c"
+    reference = subprocess.run(
+        [sys.executable, "-m", "src.compiler.python.main", str(program), "--no-cache", "-o", str(reference_c)],
+        cwd=REPO,
+        env={**os.environ, "BTRC_CACHE_DIR": str(root / "reference-cache")},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    selfhost = subprocess.run([str(btrcc), str(program)], cwd=REPO, capture_output=True, text=True, timeout=300)
+    selfhost_c = root / "selfhost.c"
+    if selfhost.returncode == 0:
+        selfhost_c.write_text(selfhost.stdout)
+    return (reference, reference_c), (selfhost, selfhost_c)
+
+
+def test_imported_library_cannot_hide_a_struct_it_cannot_name(semantic_btrcc: Path, tmp_path: Path) -> None:
+    for name, (result, generated) in zip(
+        ("reference", "selfhost"), _compile_library_program(semantic_btrcc, tmp_path, library_sees_entry=False)
+    ):
+        assert result.returncode == 0, result.stderr
+        strict_c11_matrix((name, generated), tmp_path)
+
+
+def test_imported_library_may_not_hide_a_struct_it_imports(semantic_btrcc: Path, tmp_path: Path) -> None:
+    message = SHADOW.format("Entry", "Cache")
+    for result, _ in _compile_library_program(semantic_btrcc, tmp_path, library_sees_entry=True):
+        assert result.returncode != 0
+        assert f"error: {message}" in result.stderr, result.stderr
 
 
 ACCEPTED = [

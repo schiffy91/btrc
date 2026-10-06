@@ -300,10 +300,12 @@ field keep btrc's pointer-valued array. Sizing with `offsetof` waits for btrc
 the importer.
 
 Inside a generic, a type spelled like a type parameter means the parameter,
-so a parameter named like a FAM struct would hide the struct's refusals; a
-program's generics are refused instead, while stdlib generics (`Map<K, V>`
-beside a program's `struct K`, `c_compat/FlexibleArrayGenericNames.btrc`)
-keep working because they cannot refer to the program's structs. A generic
+so a parameter named like a FAM struct would hide the struct's refusals. Such
+a generic is refused when its file can name the struct (the struct is
+declared there or in a file it imports, transitively). A generic whose file
+cannot name it, in the stdlib (`Map<K, V>` beside a program's `struct K`,
+`c_compat/FlexibleArrayGenericNames.btrc`) or in an imported user library,
+keeps working: inside it the name can only mean the parameter. A generic
 argument is refused even where the generic only uses it behind a pointer.
 
 Known gaps around FAMs, recorded rather than fixed here:
@@ -316,6 +318,10 @@ Known gaps around FAMs, recorded rather than fixed here:
 - `p->data.len` on an array member (fixed or flexible) emits invalid C in
   both compilers; `sizeof(r.get(p))` drops the variable use and trips
   `-Werror=unused-variable`.
+- Inside a generic class body, btrcc cannot infer a generic method's type
+  arguments from a template-typed argument (`r.get(self.ptr)` with
+  `T get<T>(T* value)` reports `Cannot infer generic arguments for method
+  'get'`), with or without a FAM; the reference infers them.
 - In a generic body, btrcc reports `Cannot determine whether expression is
   indexable` for `copy.data[index]` where the reference accepts it.
 - A program's `struct T` makes the reference compiler refuse

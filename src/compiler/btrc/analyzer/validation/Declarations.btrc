@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../../generated/ast/Node.btrc;
+import ../../syntax/Identity.btrc;
 import ../../syntax/Literals.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
@@ -566,7 +567,11 @@ class DeclarationValidator {
 	 * is exempt: its generics cannot refer to a program's structs. */
 	public void validateTypeParameterNames(Node declaration, Vector<string> names, string owner, Node site) {
 		if (self.hostedAbi.compilerStdlibNode(declaration)) { return; }
+		// The frontend marks the names the generic's file can see; a struct in
+		// a file it does not import cannot be hidden by the parameter.
+		Map<string, bool>? visible = self.state.analyzed.visibleTypeParameters;
 		for name in names {
+			if (visible != null && !visible.has(AstIdentity.key(site) + "\t" + name)) { continue; }
 			if (self.state.analyzed.structTable.has(name) && SemanticTypeSystem.flexibleArrayField(self.state.analyzed.structTable.get(name)) != null) {
 				TypeValidator.fail("Type parameter '" + name + "' of '" + owner + "' is named like struct '" + name + "', which has a flexible array member; rename the type parameter", site);
 			}

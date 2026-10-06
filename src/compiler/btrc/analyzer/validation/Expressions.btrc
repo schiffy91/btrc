@@ -672,6 +672,9 @@ class ExpressionValidator {
 				self.validateExpr(expression.args().get(index),  vars);
 				index = index + 1;
 			}
+			// r13: inferred method type arguments, then the arguments
+			// themselves, before the call's own type and arity checks.
+			self.validateInferredFlexibleArrayArguments(expression, vars);
 			self.validateFlexibleArrayArguments(expression.args(), vars);
 			self.names.deferGeneratedSymbolCall(expression, vars);
 			self.calls.validateCall(expression,  vars);
@@ -735,6 +738,29 @@ class ExpressionValidator {
 		while (index < canonical.genericArgs().len) {
 			self.types.validateFlexibleArrayValue(canonical.genericArgs().get(index), "Generic argument " + Strings.fromInt(index + 1) + " of sizeof", site);
 			index = index + 1;
+		}
+	}
+
+	/* An inferred method type argument is by-value storage in the instance,
+	 * so it is never a struct with a flexible array member. An argument naming
+	 * the enclosing template's own type parameters is checked per instance. */
+	private void validateInferredFlexibleArrayArguments(Node call, Map<string, Node> vars) {
+		Node? callee = call.callee;
+		if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR || callee.optional || callee.obj == null) { return; }
+		if (callee.obj.kind == NK_IDENTIFIER && !vars.has(callee.obj.name) && self.state.analyzed.isClass(callee.obj.name)) { return; }
+		Vector<Node>? inferred = self.state.analyzed.methodCallArguments(call);
+		Node? receiver = self.types.resolveAliases(self.types.inferType(callee.obj, vars));
+		if (inferred == null || receiver == null) { return; }
+		Vector<Node> arguments = inferred;
+		int index = 0;
+		while (index < arguments.len) {
+			Node argument = arguments.get(index);
+			index = index + 1;
+			if (self.types.typeContainsParams(argument, self.state.typeParams)) { continue; }
+			string flexible = SemanticTypeSystem.flexibleArrayValueStruct(argument, self.state.analyzed);
+			if (flexible != "") {
+				TypeValidator.fail("Generic argument " + Strings.fromInt(index) + " for '" + receiver.base + "." + callee.field + "' uses struct '" + flexible + "' with a flexible array member by value; use a pointer", call);
+			}
 		}
 	}
 

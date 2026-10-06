@@ -10,6 +10,7 @@ import ../lexer/Lexer.btrc;
 import ../parser/Parser.btrc;
 import ../parser/SourceMacros.btrc;
 import ../syntax/Grammar.btrc;
+import ../syntax/Identity.btrc;
 import ../syntax/Tokens.btrc;
 import ./Models.btrc;
 import ./Timing.btrc;
@@ -553,6 +554,7 @@ class FeImportVisibilityChecker {
 		}
 		self.stdlibSymbols.mergeInto(symbols);
 		Vector<FeVisibilityDiagnostic> diagnostics = [];
+		Map<string, bool> visibleTypeParameters = {};
 		int declarationIndex = 0;
 		while (declarationIndex < self.program.declarations().len) {
 			Node declaration = self.program.declarations().get(declarationIndex);
@@ -577,6 +579,7 @@ class FeImportVisibilityChecker {
 			}
 			Map<string, bool> reachable = self.visibilityReachable(sourceFile);
 			string sourceIdentity = self.sourcePaths.identity(sourceFile);
+			self.recordVisibleTypeParameters(declaration, symbols, sourceIdentity, reachable, visibleTypeParameters);
 			FeImportReferenceCollector collector = FeImportReferenceCollector(declaration.genericParams());
 			collector.visit(declaration);
 			Map<string, bool> seen = {};
@@ -604,7 +607,31 @@ class FeImportVisibilityChecker {
 				}
 			}
 		}
-		return FeVisibilityCheckResult(true, "", diagnostics);
+		FeVisibilityCheckResult result = FeVisibilityCheckResult(true, "", diagnostics);
+		result.visibleTypeParameters = visibleTypeParameters;
+		return result;
+	}
+
+	/* Mark which type-parameter names of a generic also name a top-level
+	 * symbol its file can see. Inside the generic such a name means the
+	 * parameter, so the analyzer refuses one that would hide a struct the
+	 * generic could otherwise reach (r13); a symbol the file cannot see is
+	 * never hidden. */
+	private void recordVisibleTypeParameters(Node declaration, Map<string, Vector<string>> symbols, string sourceIdentity, Map<string, bool> reachable, Map<string, bool> out) {
+		if (declaration.kind != NK_CLASS_DECL && declaration.kind != NK_INTERFACE_DECL) { return; }
+		self.recordVisibleNames(declaration, symbols, sourceIdentity, reachable, out);
+		if (declaration.kind != NK_CLASS_DECL) { return; }
+		for member in declaration.members() {
+			if (member.kind == NK_METHOD_DECL) { self.recordVisibleNames(member, symbols, sourceIdentity, reachable, out); }
+		}
+	}
+
+	private void recordVisibleNames(Node owner, Map<string, Vector<string>> symbols, string sourceIdentity, Map<string, bool> reachable, Map<string, bool> out) {
+		for name in owner.genericParams() {
+			if (symbols.has(name) && self.anyOwnerVisible(sourceIdentity, symbols.get(name), reachable)) {
+				out.put(AstIdentity.key(owner) + "\t" + name, true);
+			}
+		}
 	}
 }
 

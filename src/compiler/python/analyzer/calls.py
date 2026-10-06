@@ -1152,6 +1152,41 @@ class CallAnalyzer:
         )
         self._collect_method_instance(expr, cls, method, receiver_type, substitutions)
 
+    def reject_inferred_flexible_arguments(self, expr) -> None:
+        """r13: before any argument or signature check, as btrcc's call
+        validation orders it, refuse a generic method call whose inferred type
+        arguments hold a struct with a flexible array member by value."""
+        callee = expr.callee
+        if not isinstance(callee, FieldAccessExpr) or callee.optional:
+            return
+        if self.types.function_pointer_signature(self.type_of(callee)) is not None:
+            return
+        if (
+            isinstance(callee.obj, Identifier)
+            and self.session.scope.lookup(callee.obj.name) is None
+            and callee.obj.name in self.index.class_table
+        ):
+            return
+        receiver_type = self.type_of(callee.obj)
+        cls = self.index.class_table.get(receiver_type.base) if receiver_type is not None else None
+        method = cls.methods.get(callee.field) if cls is not None else None
+        if method is None or not method.generic_params:
+            return
+        class_substitutions = {}
+        if cls.generic_params and receiver_type.generic_args:
+            class_substitutions = dict(zip(cls.generic_params, receiver_type.generic_args))
+        inferred = self.generics.infer_method_type_args(
+            self._generic_method_plan(expr, method.params), method, class_substitutions
+        )
+        if not inferred:
+            return
+        self.generics.reject_flexible_array_method_arguments(
+            f"{receiver_type.base}.{method.name}",
+            [inferred.get(parameter) for parameter in method.generic_params],
+            expr.line,
+            expr.col,
+        )
+
     def _method_substitutions(self, expr, cls, method, receiver_type):
         substitutions = {}
         if receiver_type and cls.generic_params and receiver_type.generic_args:

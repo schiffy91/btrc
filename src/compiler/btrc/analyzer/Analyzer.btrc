@@ -86,6 +86,9 @@ class SemanticAnalyzer {
 
 	public void configureNativeDeclarations(Vector<FeNativeImportedDeclaration> declarations) { self.analysis.setNativeDeclarations(declarations); }
 
+	/* The frontend's strict-import marks of visible generic type-parameter names. */
+	public void configureVisibleTypeParameters(Map<string, bool>? names) { self.analysis.visibleTypeParameters = names; }
+
 	/* Record every line of a user source file that has a raw quoted include
 	 * of an unmodeled C header or source. */
 	public void configureUnmodeledIncludes(Node program, int stdlibLineCount, Vector<FeLine> userLines) {
