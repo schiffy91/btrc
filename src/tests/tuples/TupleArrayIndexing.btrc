@@ -54,5 +54,6 @@ int main() {
 	nested[0]._0._0 = 42;
 	nested[1]._0 = (5, 6);
 	print(nested[0]._0._0, nested[1]._0._1);
+	print("PASS: test_tuple_array_indexing");
 	return 0;
 }

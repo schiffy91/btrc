@@ -9,3 +9,4 @@ uno 22 dos
 12
 4 a
 42 6
+PASS: test_tuple_array_indexing

@@ -41,5 +41,6 @@ int main() {
 
 	Box<Box<Box<Box<Box<Box<Box<Box<int>>>>>>>> deepest = new Box<Box<Box<Box<Box<Box<Box<Box<int>>>>>>>>(new Box<Box<Box<Box<Box<Box<Box<int>>>>>>>(new Box<Box<Box<Box<Box<Box<int>>>>>>(new Box<Box<Box<Box<Box<int>>>>>(new Box<Box<Box<Box<int>>>>(new Box<Box<Box<int>>>(new Box<Box<int>>(new Box<int>(9))))))));
 	print(deepest.value.value.value.value.value.value.value.value);
+	print("PASS: test_deep_finite_generic_nesting");
 	return 0;
 }

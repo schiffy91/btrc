@@ -11,3 +11,4 @@ true
 7
 7
 16 3
+PASS: test_sizeof_array_variable

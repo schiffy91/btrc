@@ -53,5 +53,6 @@ int main() {
 	var scaled = (int value) => value * (int)(sizeof(table) / sizeof(int));
 	var widened = (int value) => value + (int)(sizeof(scale) / sizeof(int));
 	print(scaled(2), widened(2));
+	print("PASS: test_sizeof_array_variable");
 	return 0;
 }
