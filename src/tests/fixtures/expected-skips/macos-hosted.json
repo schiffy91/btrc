@@ -264,6 +264,21 @@
       "note": "platform-target-contract.md §1.3 pins Apple clang's TARGET_OS_* set and the iOS SDK's <TargetConditionals.h> to the acceptance Mac's Xcode 27A266a; a hosted image carries another Xcode, whose predefined TARGET_OS_* set may differ. MAC-P1-05 runs both checks on the acceptance Mac; a hosted platform rule cannot name that host in covered_by, so the report shows them uncovered here."
     },
     {
+      "id": "linux-real-desktop-session",
+      "files": [
+        "src/tests/python/test_native_ui_shell_linux.py"
+      ],
+      "nodes": [
+        "*::test_linux_real_desktop_session"
+      ],
+      "reason": "^requires Linux SDL native shell$",
+      "category": "platform",
+      "covered_by": [
+        "linux"
+      ],
+      "note": "The real X11 and Wayland desktop check (CL-UIA-11) runs only on a physical Linux desktop, PLAN D7's host; the devcontainer skips it as awaiting hardware, so it is not covered there."
+    },
+    {
       "id": "ui-shell-linux-only",
       "files": [
         "src/tests/python/test_native_ui_shell_linux.py"
