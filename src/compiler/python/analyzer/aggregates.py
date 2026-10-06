@@ -430,7 +430,9 @@ class AggregateAnalyzer:
         elif isinstance(declaration, FunctionDecl):
             self._reject_flexible_array_signature(declaration, declaration.name)
         elif isinstance(declaration, ClassDecl):
-            self._reject_shadowing_type_parameters(declaration, declaration.generic_params, declaration.name, declaration)
+            self._reject_shadowing_type_parameters(
+                declaration, declaration.generic_params, declaration.name, declaration
+            )
             for member in declaration.members:
                 if isinstance(member, MethodDecl):
                     self._reject_shadowing_type_parameters(
@@ -439,7 +441,9 @@ class AggregateAnalyzer:
             with self._type_parameters(declaration.generic_params):
                 self._validate_class_complete_types(declaration)
         elif isinstance(declaration, InterfaceDecl):
-            self._reject_shadowing_type_parameters(declaration, declaration.generic_params, declaration.name, declaration)
+            self._reject_shadowing_type_parameters(
+                declaration, declaration.generic_params, declaration.name, declaration
+            )
             with self._type_parameters(declaration.generic_params):
                 for method in declaration.methods:
                     self._reject_flexible_array_signature(method, f"{declaration.name}.{method.name}")
