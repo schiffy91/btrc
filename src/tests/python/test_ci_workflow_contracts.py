@@ -1358,12 +1358,13 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     assert 'ALSA_CONFIG_PATH="$(abspath nix/asound.conf)"' in recipe
     assert "python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py" in recipe
     assert "tools/ui/session_evidence.py --output $(GUI_SHARD_DIR)" in recipe
-    assert "$(GUI_SHARD_TESTS) $(GUI_SHARD_IGNORE)" in recipe
-    assert re.search(
-        r"(?m)^GUI_SHARD_IGNORE := \$\(if \$\(filter wayland,\$\(GUI_SESSION\)\),"
-        r"--ignore=src/tests/python/test_native_ui_sdl_clipboard_requestor\.py\)$",
-        makefile,
-    ) and "--junitxml=$(GUI_SHARD_DIR)/junit.xml" in recipe
+    assert "$(GUI_SHARD_TESTS) --basetemp" in recipe and "--junitxml=$(GUI_SHARD_DIR)/junit.xml" in recipe
     assert "$(SKIP_GATE) build/skip-report-gui-$(GUI_SESSION).json" in recipe
-    assert re.search(r"(?m)^GUI_SHARD_TESTS := \$\(NATIVE_GUI_TESTS\) ", makefile)
+    # The Wayland row leaves out the X11-protocol clipboard case; an explicit
+    # path ignores --ignore, so make drops it from the list.
+    assert "GUI_SHARD_X11_ONLY := src/tests/python/test_native_ui_sdl_clipboard_requestor.py" in makefile
+    assert (
+        "GUI_SHARD_TESTS := $(if $(filter wayland,$(GUI_SESSION)),"
+        "$(filter-out $(GUI_SHARD_X11_ONLY),$(NATIVE_GUI_TESTS)),$(NATIVE_GUI_TESTS))"
+    ) in makefile
     assert "test_native_linux_providers.py" in makefile
