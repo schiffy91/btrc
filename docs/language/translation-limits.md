@@ -27,14 +27,17 @@ specialize each other (`Left<T>` holding `Right<(T, int)>`, `Right<T>` holding
 `Left<T>`).
 
 Both compilers keep a graph of type-parameter uses, as Go does for generic
-instantiation cycles. Each type parameter a reached declaration has is a node
-(`Chain.T`, or `Walker.walk.U` for a generic method's own). A use that passes
-a parameter to a generic adds an edge to that generic's parameter; the use
-*grows* when it wraps the parameter (`(T, int)`, `Vector<T>`, `T*`, `T[]`,
-`T?`) rather than passing it bare. A cycle of edges that contains a growing
-use nests one more level on every pass, so it never ends. When specialization
-closes such a cycle, both compilers report one diagnostic at the cycle's
-growing use that comes first in source, and stop specializing:
+instantiation cycles. Each type parameter a reached declaration has is a node,
+such as `Chain.T`. A use that passes a parameter to a generic adds an edge to
+that generic's parameter; the use *grows* when it wraps the parameter
+(`(T, int)`, `Vector<T>`, `T*`, `T[]`, `T?`) rather than passing it bare. A
+generic method's uses hold only once the method is specialized, so its
+parameters, its class's included, are nodes of their own (`Walker.walk.U`),
+and a call to it passes its arguments into them. A cycle of edges that
+contains a growing use nests one more level on every pass, so it never ends.
+Once specialization finds such a cycle it admits no further derived
+specialization, and both compilers report one diagnostic at the growing use on
+a cycle that comes first in source:
 
 ```text
 error: Generic class 'Chain' grows its own type arguments through this use, so its specializations never end

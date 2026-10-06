@@ -84,12 +84,14 @@ class GenericSpecializer {
 	/* The declaration whose template body the method-generics walk is in. */
 	private string templateOwner;
 	private string templateMethod;
-	/* The type-parameter use graph (the reference's _uses, _successors and
-	 * _predecessors). */
+	/* The type-parameter use graph (the reference's _uses and _successors). */
 	private Map<string, bool> useKeys;
 	private Vector<GenericUse> uses;
 	private Map<string, Vector<string>> successors;
-	private Map<string, Vector<string>> predecessors;
+	/* Whether the graph holds a growing cycle; from then on no derived
+	 * specialization is admitted, and reportGrowth names it once discovery
+	 * drains. */
+	private bool growthFound;
 	/* Template generic-method calls by scope, and the scopes a specialization
 	 * has reached; a call's uses join the graph once its scope is reached. */
 	private Map<string, Vector<TemplateMethodCall>> templateCalls;
@@ -104,7 +106,7 @@ class GenericSpecializer {
 		self.useKeys = {};
 		self.uses = [];
 		self.successors = {};
-		self.predecessors = {};
+		self.growthFound = false;
 		self.templateCalls = {};
 		self.reachedScopes = {};
 		self.closedClassInstances = {};
@@ -144,6 +146,7 @@ class GenericSpecializer {
 		BtrccPhaseTimer.mark("g-method-scan");
 		self.registerTransitiveGenericInstances(self.analyzed, self.operators);
 		BtrccPhaseTimer.mark("g-transitive-methods");
+		self.reportGrowth();
 	}
 
 	public void useRecords(IValidationRecords? records) { self.records = records; }
@@ -242,6 +245,7 @@ class GenericSpecializer {
 		self.collectNativeCallbackInstances(hostedAbi);
 		BtrccPhaseTimer.mark("c-native");
 		self.closeProgramGenericExpressionGraph(program, self.analyzed, self.operators);
+		self.reportGrowth();
 	}
 
 	private void collectNativeCallbackInstances(HostedAbiRepository hostedAbi) {
@@ -587,7 +591,7 @@ class GenericSpecializer {
 			Vector<Node> instanceArguments = [];
 			for argument in classArgs { instanceArguments.push(argument); }
 			for argument in methodArgs { instanceArguments.push(argument); }
-			self.admitSpecialization("method '" + owner + "'", instanceArguments, call);
+			if (!self.admitSpecialization("method '" + owner + "'", instanceArguments, call)) { return; }
 		}
 		self.validateGenericArgumentsForOwner(owner, methodArgs);
 
@@ -692,12 +696,14 @@ class GenericSpecializer {
 		return names;
 	}
 
-	/* Refuse a derived specialization nested past hosted_abi.toml's limit, as
-	 * a backstop: growth itself is refused through the use graph (addUse).
-	 * Types a program writes out are not limited. The reference's
-	 * _admit_specialization. */
-	private void admitSpecialization(string generic, Vector<Node> arguments, Node site) {
-		if (self.scopeOwner == "") { return; }
+	/* Whether a specialization may be registered. Growth itself is refused
+	 * through the use graph (addUse): once a growing cycle is seen no derived
+	 * specialization is admitted. A derived specialization nested past
+	 * hosted_abi.toml's limit is refused as a backstop. Types a program
+	 * writes out are not limited. The reference's _admit_specialization. */
+	private bool admitSpecialization(string generic, Vector<Node> arguments, Node site) {
+		if (self.scopeOwner == "") { return true; }
+		if (self.growthFound) { return false; }
 		int depth = 0;
 		for argument in arguments {
 			int nesting = TypeIdentity.typeNestingDepth(argument);
@@ -707,6 +713,7 @@ class GenericSpecializer {
 			fprintf(stderr, "error: Generic %s needs type arguments nested deeper than %d levels, the limit that keeps specialization finite at %d:%d\n", generic, self.nestingLimit, site.line, site.col);
 			exit(1);
 		}
+		return true;
 	}
 
 	class string scopeKey(string owner, string method) { return method == "" ? owner : owner + "." + method; }
@@ -763,11 +770,12 @@ class GenericSpecializer {
 		if (self.scopeOwner == "") { return nodes; }
 		Node? declaration = self.scopeOwnerDeclaration(self.scopeOwner);
 		if (declaration == null) { return nodes; }
-		for parameter in declaration.genericParams() { nodes.put(parameter, self.scopeOwner + "." + parameter); }
+		string prefix = GenericSpecializer.scopeKey(self.scopeOwner, self.scopeMethod);
+		for parameter in declaration.genericParams() { nodes.put(parameter, prefix + "." + parameter); }
 		if (self.scopeMethod != "") {
 			Node? method = self.scopeMethodDeclaration(self.scopeOwner, self.scopeMethod);
 			if (method != null) {
-				for parameter in method.genericParams() { nodes.put(parameter, self.scopeOwner + "." + self.scopeMethod + "." + parameter); }
+				for parameter in method.genericParams() { nodes.put(parameter, prefix + "." + parameter); }
 			}
 		}
 		return nodes;
@@ -802,11 +810,14 @@ class GenericSpecializer {
 		Map<string, string> nodes = self.scopeNodes();
 		Node? method = self.scopeMethodDeclaration(templateCall.owner, templateCall.method);
 		if (nodes.len == 0 || method == null) { return; }
+		/* A call specializes the method's own scope, whose nodes carry the
+		 * class's parameters as well as the method's. */
+		string prefix = templateCall.owner + "." + templateCall.method;
 		Node? owner = self.scopeOwnerDeclaration(templateCall.owner);
 		if (owner != null) {
 			int index = 0;
 			while (index < owner.genericParams().len && index < templateCall.classArgs.len) {
-				string target = templateCall.owner + "." + owner.genericParams().get(index);
+				string target = prefix + "." + owner.genericParams().get(index);
 				self.recordArgument(templateCall.classArgs.get(index), nodes, target, templateCall.line, templateCall.col, "class '" + templateCall.owner + "'");
 				index = index + 1;
 			}
@@ -814,7 +825,7 @@ class GenericSpecializer {
 		string generic = "method '" + templateCall.owner + "." + templateCall.method + "'";
 		int argument = 0;
 		while (argument < templateCall.methodArgs.len) {
-			string target = templateCall.owner + "." + templateCall.method + "." + templateCall.methodParameters.get(argument);
+			string target = prefix + "." + templateCall.methodParameters.get(argument);
 			self.recordArgument(templateCall.methodArgs.get(argument), nodes, target, templateCall.line, templateCall.col, generic);
 			argument = argument + 1;
 		}
@@ -833,14 +844,16 @@ class GenericSpecializer {
 		}
 	}
 
-	/* Add one use edge, and refuse a growing use that lies on a cycle. A type
+	/* Add one use edge, and note a growing use that lies on a cycle. A type
 	 * parameter flows into a parameter of the generic it uses; the use is
 	 * growing when the argument wraps the parameter (Chain<(T, int)> inside
 	 * Chain<T>). A cycle through a growing use makes every pass around it nest
 	 * one more level, so specialization never ends. Edges come from the uses
 	 * specialization follows, so the cycle is found once each declaration on
-	 * it has been scanned, however many uses grow. The refusal names the
-	 * cycle's growing use first in source. The reference's _add_use. */
+	 * it has been scanned, however many uses grow. From then on no derived
+	 * specialization is admitted, and the uses of the specializations already
+	 * found still join the graph, so reportGrowth sees the same graph whatever
+	 * order they were scanned. The reference's _add_use. */
 	private void addUse(string source, string target, bool growing, int line, int col, string generic) {
 		int growth = growing ? 1 : 0;
 		string key = f"{source}|{target}|{growth}|{line}:{col}|{generic}";
@@ -848,23 +861,36 @@ class GenericSpecializer {
 		self.useKeys.put(key, true);
 		self.uses.push(GenericUse(source, target, growing, line, col, generic));
 		self.addEdge(self.successors, source, target);
-		self.addEdge(self.predecessors, target, source);
-		if (!self.reachable(target, self.successors).has(source)) { return; }
-		Map<string, bool> forward = self.reachable(source, self.successors);
-		Map<string, bool> backward = self.reachable(source, self.predecessors);
-		GenericUse? first = null;
-		for use in self.uses {
-			if (!use.growing) { continue; }
-			if (!forward.has(use.source) || !backward.has(use.source) || !forward.has(use.target) || !backward.has(use.target)) { continue; }
-			if (first == null || GenericSpecializer.useBefore(use, first)) { first = use; }
-		}
-		if (first != null) {
-			fprintf(stderr, "error: Generic %s grows its own type arguments through this use, so its specializations never end at %d:%d\n", first.generic, first.line, first.col);
-			exit(1);
+		if (!self.growthFound && self.reachable(target, self.successors).has(source)) {
+			self.growthFound = self.growingCycleUse() != null;
 		}
 	}
 
+	/* The growing use on a cycle that comes first in source, preferring one
+	 * with a source position: a use the analyzer inferred has none. */
+	private GenericUse? growingCycleUse() {
+		GenericUse? first = null;
+		for use in self.uses {
+			if (!use.growing || !self.reachable(use.target, self.successors).has(use.source)) { continue; }
+			if (first == null || GenericSpecializer.useBefore(use, first)) { first = use; }
+		}
+		return first;
+	}
+
+	/* Refuse the growing cycle's first use, once discovery has drained. The
+	 * reference's _report_growth. */
+	private void reportGrowth() {
+		if (!self.growthFound) { return; }
+		GenericUse? first = self.growingCycleUse();
+		if (first == null) { return; }
+		fprintf(stderr, "error: Generic %s grows its own type arguments through this use, so its specializations never end at %d:%d\n", first.generic, first.line, first.col);
+		exit(1);
+	}
+
 	class bool useBefore(GenericUse left, GenericUse right) {
+		bool leftLocated = left.line != 0 || left.col != 0;
+		bool rightLocated = right.line != 0 || right.col != 0;
+		if (leftLocated != rightLocated) { return leftLocated; }
 		if (left.line != right.line) { return left.line < right.line; }
 		if (left.col != right.col) { return left.col < right.col; }
 		return Strings.compare(left.generic, right.generic) < 0;
@@ -1004,12 +1030,15 @@ class GenericSpecializer {
 					if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
 						self.registerResolvedGenericInstance(mem.type, tm, unresolved, a);
 					} else if (mem.kind == NK_METHOD_DECL) {
+						/* A generic method's signature belongs to its own scope. */
+						if (mem.genericParams().len > 0) { self.scopeMethod = mem.name; }
 						self.registerResolvedGenericInstance(mem.returnType, tm, unresolved, a);
 						int p = 0;
 						while (p < mem.params().len) {
 							self.registerResolvedGenericInstance(mem.params().get(p).type, tm, unresolved, a);
 							p = p + 1;
 						}
+						self.scopeMethod = "";
 					}
 					mi = mi + 1;
 				}
@@ -1248,7 +1277,7 @@ class GenericSpecializer {
 		 * table: both identify the exact specialization. */
 		string key = generic ? TypeIdentity.genericInstanceKey(base, t.genericArgs()) : "";
 		if (generic && !a.genericSeen.has(key) && !TypeIdentity.referencesNames(t, unresolved)) {
-			self.admitSpecialization("class '" + base + "'", t.genericArgs(), t);
+			if (!self.admitSpecialization("class '" + base + "'", t.genericArgs(), t)) { return; }
 		}
 		if (generic) {
 			/* A specialization's validity depends only on its owner declaration and
@@ -1673,8 +1702,13 @@ class GenericSpecializer {
 				if (includeConstructor || !member.isConstructor) {
 					Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(member.genericParams());
 					Map<string, Node> variables = self.genericClosureCopyTypes(baseVariables);
+					/* A generic method's uses belong to its own scope: they hold
+					 * only when the method is specialized. */
+					string previousMethod = self.scopeMethod;
+					if (member.genericParams().len > 0) { self.scopeMethod = member.name; }
 					self.genericClosureSeedParameters(member, substitutions, unresolved, analyzed, operators, variables);
 					self.genericClosureWalkNode(member.bodyNode, substitutions, unresolved, analyzed, operators, variables);
+					self.scopeMethod = previousMethod;
 				}
 			}
 			index = index + 1;

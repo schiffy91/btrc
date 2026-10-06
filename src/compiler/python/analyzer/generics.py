@@ -62,12 +62,14 @@ class GenericAnalyzer:
         self.index = index
         self.types = types
         # The declaration whose specialization is being scanned, as (class,
-        # method or None); the type-parameter use graph its uses add to; and
-        # whether a growing use was refused (which ends all specialization).
+        # method or None); the type-parameter use graph its uses add to;
+        # whether it holds a growing cycle (which stops derived
+        # specialization); and whether specialization was refused (which ends
+        # it).
         self._scope: tuple[str, str | None] | None = None
         self._uses: dict[tuple, None] = {}
         self._successors: dict[str, set[str]] = {}
-        self._predecessors: dict[str, set[str]] = {}
+        self._growth_found = False
         self._expansion_refused = False
 
     def type_of(self, expression):
@@ -189,6 +191,7 @@ class GenericAnalyzer:
                     class_work = self._pending_classes(processed_classes)
                     method_work = self._pending_methods(processed_methods)
                     if not class_work and (not method_work):
+                        self._report_growth()
                         return
                 for base, args, key in class_work:
                     processed_classes.add(key)
@@ -261,7 +264,17 @@ class GenericAnalyzer:
             if method.is_constructor:
                 continue
             owner = cls.method_owners.get(name, base)
-            self._scan_value(method, substitutions if owner == base else {}, tuple(method.generic_params), scan_plans)
+            # A generic method's uses belong to its own scope: they hold only
+            # when the method is specialized, not for every class instance.
+            previous = self._scope
+            if method.generic_params:
+                self._scope = (base, name)
+            try:
+                self._scan_value(
+                    method, substitutions if owner == base else {}, tuple(method.generic_params), scan_plans
+                )
+            finally:
+                self._scope = previous
 
     @staticmethod
     def _member_substitutions(cls, base, member, substitutions):
@@ -492,6 +505,8 @@ class GenericAnalyzer:
         receiver: TypeExpr | None,
         callable_identity: ClassCallableIdentity,
     ) -> None:
+        if self._growth_found and self._scope is not None:
+            return
         receiver = self.types.canonical_type(receiver)
         cls = self.index.class_table.get(receiver.base) if receiver is not None else None
         if (
@@ -846,13 +861,16 @@ class GenericAnalyzer:
     def _admit_specialization(self, generic, arguments, line, col) -> bool:
         """Refuse a derived specialization nested past hosted_abi.toml's limit, a backstop.
 
-        Growth itself is refused through the use graph (_add_use); a refusal
-        ends all further specialization. Types a program writes out are not
-        limited."""
+        Growth itself is refused through the use graph (_add_use): once a
+        growing cycle is seen no derived specialization is admitted, and
+        _report_growth names it when the closure drains. Types a program writes
+        out are not limited."""
         if self._expansion_refused:
             return False
         if self._scope is None:
             return True
+        if self._growth_found:
+            return False
         depth = max((TypeIdentity.type_nesting_depth(argument) for argument in arguments), default=0)
         if depth > HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT:
             return self._refuse_specialization(
@@ -871,10 +889,11 @@ class GenericAnalyzer:
         cls = self.index.class_table.get(owner)
         if cls is None:
             return {}
-        nodes = {parameter: f"{owner}.{parameter}" for parameter in cls.generic_params}
+        prefix = owner if method_name is None else f"{owner}.{method_name}"
+        nodes = {parameter: f"{prefix}.{parameter}" for parameter in cls.generic_params}
         method = cls.methods.get(method_name) if method_name is not None else None
         if method is not None:
-            nodes.update({parameter: f"{owner}.{method_name}.{parameter}" for parameter in method.generic_params})
+            nodes.update({parameter: f"{prefix}.{parameter}" for parameter in method.generic_params})
         return nodes
 
     def _record_uses(self, template) -> None:
@@ -903,14 +922,14 @@ class GenericAnalyzer:
         if not nodes or method is None:
             return
         site = (dependency.line, dependency.col)
+        # A call specializes the method's own scope, whose nodes carry the
+        # class's parameters as well as the method's.
+        prefix = f"{dependency.owner}.{dependency.method_name}"
         for parameter, argument in zip(cls.generic_params, dependency.class_arguments):
-            self._record_argument(
-                argument, nodes, f"{dependency.owner}.{parameter}", site, f"class '{dependency.owner}'"
-            )
+            self._record_argument(argument, nodes, f"{prefix}.{parameter}", site, f"class '{dependency.owner}'")
         generic = f"method '{dependency.owner}.{dependency.method_name}'"
         for parameter, argument in zip(method.generic_params, dependency.method_arguments):
-            target = f"{dependency.owner}.{dependency.method_name}.{parameter}"
-            self._record_argument(argument, nodes, target, site, generic)
+            self._record_argument(argument, nodes, f"{prefix}.{parameter}", site, generic)
         for argument in (*dependency.class_arguments, *dependency.method_arguments):
             self._record_type_uses(argument, nodes)
 
@@ -927,7 +946,7 @@ class GenericAnalyzer:
                 self._add_use(node, target, not bare, site, generic)
 
     def _add_use(self, source, target, growing, site, generic) -> None:
-        """Add one use edge, and refuse a growing use that lies on a cycle.
+        """Add one use edge, and note a growing use that lies on a cycle.
 
         A type parameter flows into a parameter of the generic it uses; the
         use is growing when the argument wraps the parameter (Chain<(T, int)>
@@ -935,24 +954,36 @@ class GenericAnalyzer:
         around it nest one more level, so specialization never ends. Edges
         come from the uses specialization follows, so the cycle is found
         once each declaration on it has been scanned, however many uses
-        grow. The refusal names the cycle's growing use first in source."""
+        grow. From then on no derived specialization is admitted, and the
+        uses of the specializations already found still join the graph, so
+        _report_growth sees the same graph whatever order they were scanned."""
         key = (source, target, growing, site, generic)
         if key in self._uses or self._expansion_refused:
             return
         self._uses[key] = None
         self._successors.setdefault(source, set()).add(target)
-        self._predecessors.setdefault(target, set()).add(source)
-        if source not in self._reachable(target, self._successors):
+        if not self._growth_found and source in self._reachable(target, self._successors):
+            self._growth_found = bool(self._growing_cycle_uses())
+
+    def _growing_cycle_uses(self) -> list[tuple]:
+        """The growing uses that lie on a cycle of the use graph."""
+        return [use for use in self._uses if use[2] and use[0] in self._reachable(use[1], self._successors)]
+
+    def _report_growth(self) -> None:
+        """Refuse the growing use on a cycle that comes first in source, once.
+
+        A use the analyzer inferred carries no source position; it is named
+        only when no use on a growing cycle has one."""
+        if not self._growth_found or self._expansion_refused:
             return
-        component = self._reachable(source, self._successors) & self._reachable(source, self._predecessors)
-        cycle_uses = [use for use in self._uses if use[2] and use[0] in component and use[1] in component]
-        if cycle_uses:
-            _source, _target, _growing, (line, col), name = min(cycle_uses, key=lambda use: (use[3], use[4]))
-            self._refuse_specialization(
-                f"Generic {name} grows its own type arguments through this use, so its specializations never end",
-                line,
-                col,
-            )
+        growing = self._growing_cycle_uses()
+        located = [use for use in growing if use[3] != (0, 0)]
+        _source, _target, _growing, (line, col), name = min(located or growing, key=lambda use: (use[3], use[4]))
+        self._refuse_specialization(
+            f"Generic {name} grows its own type arguments through this use, so its specializations never end",
+            line,
+            col,
+        )
 
     @staticmethod
     def _reachable(start, edges) -> set[str]:
@@ -1134,9 +1165,9 @@ class GenericAnalyzer:
                         self._select_class_callable(type_expr, ClassCallableIdentity.method(cls.name, method.name))
             substitutions = dict(zip(cls.generic_params, type_expr.generic_args))
             previous = self._scope
-            self._scope = (key, None)
             try:
-                for method in cls.methods.values():
+                for name, method in cls.methods.items():
+                    self._scope = (key, name if method.generic_params else None)
                     result = method.return_type
                     if result and result.generic_args:
                         resolved = self.types.substitute_type(result, substitutions)

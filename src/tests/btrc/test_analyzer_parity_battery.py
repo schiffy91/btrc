@@ -374,6 +374,38 @@ INVALID_PROBES = (
         "int main() { Walker w = new Walker(); w.walk(1, 3); return 0; }\n",
         _unbounded("method 'Walker.walk'", 9, 47),
     ),
+    # The refusal names the cycle's first growing use in source, whichever use
+    # the compiler scans first: the declared type before the `new` expression.
+    ParityProbe(
+        "generic-growth-names-first-use",
+        "class Box<T> {\n    public T value;\n    public Box(T value) { self.value = value; }\n"
+        "    public int grow(int n) {\n"
+        "        if (n > 0) { Box<(T, int)> b = new Box<(T, int)>((self.value, n)); return b.grow(n - 1); }\n"
+        "        return 0;\n    }\n}\n"
+        "int main() { Box<int> b = new Box<int>(1); return b.grow(2); }\n",
+        _unbounded("class 'Box'", 5, 22),
+    ),
+    # Of two independent growing cycles, the first in source is named, not the
+    # first instantiated.
+    ParityProbe(
+        "generic-two-growing-cycles",
+        "class A<T> {\n    public T value;\n    public A<(T, int)>? a = null;\n"
+        "    public A(T value) { self.value = value; }\n}\n"
+        "class B<T> {\n    public T value;\n    public B<(int, T)>? b = null;\n"
+        "    public B(T value) { self.value = value; }\n}\n"
+        "int main() { B<int> b = new B<int>(1); A<int> a = new A<int>(1); return a.value + b.value; }\n",
+        _unbounded("class 'A'", 3, 12),
+    ),
+    # A use the analyzer inferred has no source position; the written use is named.
+    ParityProbe(
+        "generic-growth-through-inferred-var",
+        "class Box<T> {\n    public T value;\n    public Box(T value) { self.value = value; }\n"
+        "    public int grow(int n) {\n"
+        "        if (n > 0) { var b = new Box<(T, int)>((self.value, n)); return b.grow(n - 1); }\n"
+        "        return 0;\n    }\n}\n"
+        "int main() { Box<int> b = new Box<int>(1); return b.grow(2); }\n",
+        _unbounded("class 'Box'", 5, 34),
+    ),
     # A pointer level grows a specialization as a generic level does.
     ParityProbe(
         "generic-pointer-recursion",
@@ -418,6 +450,15 @@ VALID_PROBES = (
         "generic-bare-two-class-cycle",
         "class Box<T> { public T value; }\nclass A<T, U> { public B<U>? b = null; }\n"
         "class B<T> { public A<T, Box<int>>? a = null; }\n" + _main("A<int, int> x = new A<int, int>(); return 0;"),
+    ),
+    # A generic method's uses hold only when the method is specialized: a
+    # Box<(T, U)> in pair<U> does not make every Box<T> need a larger Box.
+    ParityProbe(
+        "generic-method-wraps-its-class",
+        "class Box<T> {\n    public T value;\n    public Box(T value) { self.value = value; }\n"
+        "    public Box<(T, U)>? pair<U>(U u) { return null; }\n"
+        "    public int take<U>(U u) { Box<(T, U)>? x = null; return 0; }\n}\n"
+        "int main() { Box<int> b = new Box<int>(1); var p = b.pair(2); return b.take(3); }\n",
     ),
     # A type the program writes out is not limited, however deep.
     ParityProbe(
