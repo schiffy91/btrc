@@ -60,6 +60,9 @@ class GenericAnalyzer:
         self.session = session
         self.index = index
         self.types = types
+        # r13: one refusal per call site, whether the call check or the
+        # dependency collector reaches the inferred arguments first.
+        self._flexible_array_refusals: set[tuple[str, int, int]] = set()
 
     def type_of(self, expression):
         """Read a type fact produced by ExpressionAnalyzer."""
@@ -791,6 +794,9 @@ class GenericAnalyzer:
                 continue
             name = self.types.flexible_array_value_struct(argument)
             if name is not None:
+                if (owner, line, col) in self._flexible_array_refusals:
+                    return False
+                self._flexible_array_refusals.add((owner, line, col))
                 self.session.error(
                     f"Generic argument {index} for '{owner}' uses struct '{name}' with a flexible array member "
                     "by value; use a pointer",

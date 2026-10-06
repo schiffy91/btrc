@@ -60,6 +60,7 @@ class SemanticValidator {
 
 	public void validate() {
 		self.types.validateTypedefs(self.program);
+		self.declarations.validateGenericTypeParameterNames(self.program);
 		self.declarations.validateInterfaceDeclarations(self.program);
 		int index = 0;
 		while (index < self.program.declarations().len) {

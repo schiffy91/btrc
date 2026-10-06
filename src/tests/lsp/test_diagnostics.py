@@ -79,6 +79,28 @@ def test_diagnostic_line_maps_after_import_expansion(tmp_path):
     assert any(d.range.start.line == 1 for d in r.diagnostics)
 
 
+def test_imported_generic_cannot_hide_a_flexible_struct_it_cannot_name(tmp_path):
+    """r13: the library cannot name the program's `Entry`, so its type
+    parameter hides nothing, in the editor as in the compilers."""
+    (tmp_path / "CacheLib.btrc").write_text(
+        "class Cache<Entry> {\n\tpublic Entry* slot;\n\tpublic Cache() { self.slot = null; }\n}\n"
+    )
+    main = tmp_path / "Main.btrc"
+    source = (
+        "import ./CacheLib.btrc;\nstruct Entry { int length; char text[]; };\n"
+        "int main() { Cache<int> cache = new Cache<int>(); return cache.slot == null ? 0 : 1; }\n"
+    )
+    main.write_text(source)
+
+    r = analyze(source, uri=main.as_uri())
+
+    # The library's own diagnostics are filtered from this document's list,
+    # so read the analysis the editor shares across its documents.
+    assert r.analyzed is not None
+    messages = _msgs(r) + [diagnostic.message for diagnostic in r.analyzed.diags]
+    assert not any("Type parameter" in message for message in messages), messages
+
+
 def test_diagnostic_range_is_well_formed():
     r = analyze("int main() { return undefinedThing(); }\n")
     # Whether or not this is an error, any emitted diagnostic must have a sane range.

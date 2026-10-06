@@ -664,6 +664,7 @@ class ExpressionValidator {
 			if (expression.callee != null && expression.callee.kind == NK_FIELD_ACCESS_EXPR) {
 				self.validateExpr(expression.callee.obj,  vars);
 				self.validateNativeCallbackRead(expression.callee, vars);
+				self.validateCalleeMember(expression.callee, vars);
 			} else if (expression.callee == null || expression.callee.kind != NK_IDENTIFIER) {
 				self.validateExpr(expression.callee,  vars);
 			}
@@ -741,12 +742,24 @@ class ExpressionValidator {
 		}
 	}
 
+	/* A method callee on an instance resolves before its arguments are
+	 * checked: a missing, private or class-only member is the first error. */
+	private void validateCalleeMember(Node callee, Map<string, Node> vars) {
+		if (callee.obj == null) { return; }
+		if (callee.obj.kind == NK_IDENTIFIER && !vars.has(callee.obj.name) && (self.state.analyzed.isClass(callee.obj.name) || self.state.analyzed.isGenericClass(callee.obj.name))) { return; }
+		Node? receiver = self.types.inferType(callee.obj, vars);
+		if (receiver == null) { return; }
+		if (self.state.analyzed.isClass(receiver.base) || self.state.analyzed.isGenericClass(receiver.base)) {
+			self.validateInstanceProjection(callee, receiver, false);
+		}
+	}
+
 	/* An inferred method type argument is by-value storage in the instance,
 	 * so it is never a struct with a flexible array member. An argument naming
 	 * the enclosing template's own type parameters is checked per instance. */
 	private void validateInferredFlexibleArrayArguments(Node call, Map<string, Node> vars) {
 		Node? callee = call.callee;
-		if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR || callee.optional || callee.obj == null) { return; }
+		if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR || callee.obj == null) { return; }
 		if (callee.obj.kind == NK_IDENTIFIER && !vars.has(callee.obj.name) && self.state.analyzed.isClass(callee.obj.name)) { return; }
 		Vector<Node>? inferred = self.state.analyzed.methodCallArguments(call);
 		Node? receiver = self.types.resolveAliases(self.types.inferType(callee.obj, vars));

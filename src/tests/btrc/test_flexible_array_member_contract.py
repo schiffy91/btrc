@@ -211,6 +211,57 @@ REFUSALS = [
     ),
     pytest.param(
         BUFFER
+        + "class Reader { public int get<T>(T* value) { T copy = *value; return 0; } }\n"
+        + "int main() { Reader? r = new Reader(); struct Buffer* p = null; int n = r?.get(p) ?? 0; return n; }",
+        (BY_VALUE.format("Generic argument 1 for 'Reader.get'"), 3, 73),
+        id="optional-inferred-method-argument-local-copy",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Reader { public int get<T>(T* value) { return 0; } }\n"
+        + "int main() { Reader? r = new Reader(); struct Buffer* p = null; int n = r?.get(p) ?? 0; return n; }",
+        (BY_VALUE.format("Generic argument 1 for 'Reader.get'"), 3, 73),
+        id="optional-inferred-method-argument-pointer-only",
+    ),
+    # The callee resolves before its arguments: a missing, private or
+    # class-only member is reported ahead of a by-value argument.
+    pytest.param(
+        BUFFER
+        + "class Reader { class int take<T>(T v) { return 0; } }\n"
+        + "int main() { Reader r = new Reader(); struct Buffer* p = null; return r.take(*p); }",
+        ("Class method 'take' must be accessed on 'Reader', not on an instance", 3, 71),
+        id="generic-class-method-on-instance",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Reader { private int take<T>(T v) { return 0; } }\n"
+        + "int main() { Reader r = new Reader(); struct Buffer* p = null; return r.take(*p); }",
+        ("Cannot access private method 'take' of class 'Reader'", 3, 71),
+        id="private-generic-method",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Reader { public int x; }\n"
+        + "int main() { Reader r = new Reader(); struct Buffer* p = null; return r.nope(*p); }",
+        ("Class 'Reader' has no field or method 'nope'", 3, 71),
+        id="missing-method",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Reader { private int take(int v) { return 0; } }\n"
+        + "int main() { Reader r = new Reader(); struct Buffer* p = null; return r.take(*p); }",
+        ("Cannot access private method 'take' of class 'Reader'", 3, 71),
+        id="private-method",
+    ),
+    pytest.param(
+        BUFFER
+        + "class Reader { class int take(int v) { return 0; } }\n"
+        + "int main() { Reader r = new Reader(); struct Buffer* p = null; return r.take(*p); }",
+        ("Class method 'take' must be accessed on 'Reader', not on an instance", 3, 71),
+        id="class-method-on-instance",
+    ),
+    pytest.param(
+        BUFFER
         + "Buffer* gp = null;\nclass Holder<Buffer> { public Buffer value; "
         + "public Holder(Buffer value) { self.value = value; } "
         + "public int peek(bool c) { return (c ? *gp : *gp).data[3]; } }\nint main() { return 0; }",

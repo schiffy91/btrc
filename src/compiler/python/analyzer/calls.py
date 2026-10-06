@@ -1157,7 +1157,7 @@ class CallAnalyzer:
         validation orders it, refuse a generic method call whose inferred type
         arguments hold a struct with a flexible array member by value."""
         callee = expr.callee
-        if not isinstance(callee, FieldAccessExpr) or callee.optional:
+        if not isinstance(callee, FieldAccessExpr):
             return
         if self.types.function_pointer_signature(self.type_of(callee)) is not None:
             return

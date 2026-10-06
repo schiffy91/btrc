@@ -483,7 +483,6 @@ class DeclarationValidator {
 				if (self.state.interfaces.has(declaration.name)) {
 					TypeValidator.fail("Duplicate interface declaration '" + declaration.name + "'", declaration);
 				}
-				self.validateTypeParameterNames(declaration, declaration.genericParams(), declaration.name, declaration);
 				self.state.interfaces.put(declaration.name, declaration);
 			}
 			index = index + 1;
@@ -578,13 +577,26 @@ class DeclarationValidator {
 		}
 	}
 
-	public void validateClassBodies(Node declaration) {
-		self.validateTypeParameterNames(declaration, declaration.genericParams(), declaration.name, declaration);
-		for member in declaration.members() {
-			if (member.kind == NK_METHOD_DECL) {
-				self.validateTypeParameterNames(declaration, member.genericParams(), declaration.name + "." + member.name, member);
+	/* Every interface, class and method type parameter, in declaration
+	 * order, whether or not this build replays the class's body validation
+	 * from module-unit records: a newly visible struct can make an unchanged
+	 * generic's parameter a shadow. */
+	public void validateGenericTypeParameterNames(Node program) {
+		for declaration in program.declarations() {
+			if (declaration.kind == NK_INTERFACE_DECL) {
+				self.validateTypeParameterNames(declaration, declaration.genericParams(), declaration.name, declaration);
+			}
+			if (declaration.kind != NK_CLASS_DECL) { continue; }
+			self.validateTypeParameterNames(declaration, declaration.genericParams(), declaration.name, declaration);
+			for member in declaration.members() {
+				if (member.kind == NK_METHOD_DECL) {
+					self.validateTypeParameterNames(declaration, member.genericParams(), declaration.name + "." + member.name, member);
+				}
 			}
 		}
+	}
+
+	public void validateClassBodies(Node declaration) {
 		Map<string, Node> fieldVars = self.globalTypes(self.state.analyzed);
 		fieldVars.put("self", self.selfType(declaration));
 		string previousFlowOwner = self.controlFlow.flow.ownerClass;

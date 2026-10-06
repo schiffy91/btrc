@@ -721,8 +721,6 @@ class ImportVisibilityChecker:
                 continue
             display_file = os.path.abspath(source_file)
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
-            if canonical_active is not None and canonical_file != canonical_active:
-                continue
             if canonical_file not in reachable_cache:
                 reachable_cache[canonical_file] = {
                     owner
@@ -730,7 +728,11 @@ class ImportVisibilityChecker:
                     if self.package_access.permits_reference(canonical_file, owner)
                 }
             reachable = reachable_cache[canonical_file]
+            # Every generic's marks, not only the active file's: the analyzer
+            # checks the whole program, so an editor check must see them too.
             self._record_visible_type_parameters(declaration, symbol_files, reachable)
+            if canonical_active is not None and canonical_file != canonical_active:
+                continue
 
             seen_refs: set[ImportReference] = set()
             for reference in self._references(declaration):

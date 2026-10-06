@@ -307,6 +307,13 @@ cannot name it, in the stdlib (`Map<K, V>` beside a program's `struct K`,
 `c_compat/FlexibleArrayGenericNames.btrc`) or in an imported user library,
 keeps working: inside it the name can only mean the parameter. A generic
 argument is refused even where the generic only uses it behind a pointer.
+Under `--relaxed-imports` no file's visibility is computed, so every generic
+is treated as able to name every struct: an imported library generic whose
+type parameter is named like the program's FAM struct is refused there,
+though the strict build accepts it. The `struct X` spelling is not covered by
+the visibility marks: a file can write `struct Buffer` without importing the
+file that declares it, and a type parameter never hides that spelling, so
+`struct Buffer` inside `class Holder<Buffer>` still names the struct.
 
 Known gaps around FAMs, recorded rather than fixed here:
 
@@ -321,7 +328,15 @@ Known gaps around FAMs, recorded rather than fixed here:
 - Inside a generic class body, btrcc cannot infer a generic method's type
   arguments from a template-typed argument (`r.get(self.ptr)` with
   `T get<T>(T* value)` reports `Cannot infer generic arguments for method
-  'get'`), with or without a FAM; the reference infers them.
+  'get'`), with or without a FAM; the reference infers them. The same gap
+  holds in a lambda body, where the reference gives the FAM refusal and
+  btrcc `Cannot infer generic arguments`.
+- The reference compiler skips the inferred-argument check for a static
+  generic call (`Reader.get(p).count` with a `class` method) and then emits
+  invalid C (an implicit declaration of `Reader_get`). Without any FAM it
+  also emits non-compiling C for an optional-chained generic method call
+  (`maybe?.count(&pt)`: an implicit declaration of `R_count`); btrcc
+  compiles both. Both predate r13.
 - In a generic body, btrcc reports `Cannot determine whether expression is
   indexable` for `copy.data[index]` where the reference accepts it.
 - A program's `struct T` makes the reference compiler refuse
