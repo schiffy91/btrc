@@ -64,6 +64,12 @@ jobs:
             done
             echo "--- system xcrun clang --version"
             xcrun clang --version
+            # platform-target-contract.md §2.5 expects fork unavailable on both
+            # ios rows; record how each SDK actually declares it.
+            for sdk in macosx iphoneos iphonesimulator; do
+              echo "--- $sdk SDK: fork in unistd.h"
+              grep -n -E '\bv?fork\(' "$(xcrun --sdk "$sdk" --show-sdk-path)/usr/include/unistd.h" || echo "(not declared)"
+            done
             echo "--- dev shell: which xcrun, DEVELOPER_DIR, SDKROOT"
             nix develop --command bash -c 'command -v xcrun || echo "no xcrun"; echo "DEVELOPER_DIR=${DEVELOPER_DIR:-}"; echo "SDKROOT=${SDKROOT:-}"'
             echo "--- dev shell: xcrun --sdk iphoneos --show-sdk-path"
