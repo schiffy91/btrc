@@ -90,9 +90,9 @@ FLOWS = {
         f"Return type of function 'make' cannot be nonescaping rich enum 'Outcome'; {REASON}",
     ),
     "method-return": (
-        "class Factory {\n\tpublic Outcome make(Probe child) {\n\t\treturn Outcome.Rejected(child.id);\n\t}\n}\n\n"
+        "class Maker {\n\tpublic Outcome make(Probe child) {\n\t\treturn Outcome.Rejected(child.id);\n\t}\n}\n\n"
         "int main() {\n\treturn 0;\n}\n",
-        f"Return type of method 'Factory.make' cannot be nonescaping rich enum 'Outcome'; {REASON}",
+        f"Return type of method 'Maker.make' cannot be nonescaping rich enum 'Outcome'; {REASON}",
     ),
     "interface-return": (
         "interface IFactory {\n\tOutcome make();\n}\n\nint main() {\n\treturn 0;\n}\n",
