@@ -13,11 +13,13 @@ Two checks are Mac-bound (MAC-P1-05): Apple clang must predefine the same
 ``TARGET_OS_*`` set as the table for the four Apple rows, and the iOS SDK's
 ``<TargetConditionals.h>`` must accept the predefined values. They run on the
 acceptance Mac, whose Xcode build the design pins, and are classified skips
-everywhere else.
+everywhere else, unless ``BTRC_APPLE_STAND_IN_XCODE_BUILD`` names the host's
+own Xcode build, which runs them as stand-in evidence.
 """
 
 from __future__ import annotations
 
+import os
 import platform
 import re
 import shutil
@@ -64,6 +66,10 @@ APPLE_XCODE_BUILD = "27A266a"
 APPLE_OPERATING_SYSTEMS = ("ios", "macos")
 # §1.3 checks the predefined values against the iOS SDK's <TargetConditionals.h>.
 IOS_SDK = "iphoneos"
+# Set to the host's own Xcode build to run the Apple checks there as stand-in
+# evidence (D8), as .github/workflows/hosted-platform-apple.yml does on a hosted
+# runner; it never stands in for MAC-P1-05's run on the pinned build.
+APPLE_STAND_IN = "BTRC_APPLE_STAND_IN_XCODE_BUILD"
 APPLE_TARGET_NAME = re.compile(r"TARGET_(?:OS_[A-Z0-9_]+|IPHONE_SIMULATOR)\Z")
 # Predefined by clang on Apple targets but never by GCC.
 CLANG_ONLY = frozenset({"__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__"})
@@ -168,6 +174,8 @@ def _apple_toolchain() -> str | None:
         ["xcrun", "xcodebuild", "-version"], capture_output=True, text=True, check=False, timeout=C_COMPILE_TIMEOUT
     )
     build = re.search(r"Build version (\S+)", completed.stdout)
+    if completed.returncode == 0 and build is not None and build.group(1) == os.environ.get(APPLE_STAND_IN):
+        return None
     if completed.returncode != 0 or build is None or build.group(1) != APPLE_XCODE_BUILD:
         return f"{reason}; this host has {build.group(1) if build else 'no Xcode'}"
     return None

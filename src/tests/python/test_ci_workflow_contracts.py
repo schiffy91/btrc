@@ -274,7 +274,7 @@ def _parsed(name: str) -> dict[str, object]:
 # starts by hand; release runs on dispatch, tags and the nightly schedule.
 CORE_WORKFLOWS = ("ci.yml", "macos.yml", "windows.yml")
 LANE_WORKFLOWS = ("host-*.yml", "windows-*.yml", "ios.yml", "android.yml")
-DISPATCH_ONLY_WORKFLOWS = ("windows-msvc-probe.yml", "acceptance-x86.yml")
+DISPATCH_ONLY_WORKFLOWS = ("windows-msvc-probe.yml", "acceptance-x86.yml", "hosted-platform-apple.yml")
 TAG_WORKFLOWS = ("release.yml",)
 
 

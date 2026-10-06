@@ -1,0 +1,136 @@
+name: Hosted platform (Apple, stand-in)
+
+# CL-R-52: stand-in Apple hosted-availability extractions and the Apple macro
+# oracle on a GitHub-hosted macos-15 runner, while the owner's Mac is offline.
+# tools/hosted_platform.py --xcrun writes the [[platform_targets]] fragment of
+# the four Apple rows (platform-target-contract.md §2.3), and
+# test_target_macro_table.py runs its Mac-bound TARGET_OS_* checks against the
+# runner's Xcode. The runner's Xcode is not the pinned 27A266a, so every
+# fragment's source says STAND-IN and names the runner's Xcode and SDKs (D8);
+# MAC-P1-05 still re-extracts on the pinned Xcode and diffs. Dispatch only:
+# `gh workflow run hosted-platform-apple.yml --ref <branch>`.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The Mac-bound skips classify as the hosted runner's (macos-hosted.json).
+env:
+  BTRC_TEST_RUNNER: macos-hosted
+
+concurrency:
+  group: hosted-platform-apple-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: macos-15
+    timeout-minutes: 90
+    # An explicit bash shell runs with pipefail, so a failing command piped
+    # into tee still fails its step.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      # The fallback route when the dev shell hides the system Xcode from xcrun.
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Record the Xcode and SDK versions
+        id: versions
+        run: |
+          out=build/hosted-platform-apple
+          mkdir -p "$out/fragments"
+          {
+            echo "runner: ${ImageOS:-unknown} ${ImageVersion:-unknown} $(uname -m)"
+            echo "commit: $GITHUB_SHA"
+            echo "--- system xcodebuild -version"
+            xcodebuild -version
+            echo "--- system xcode-select -p"
+            xcode-select -p
+            for sdk in macosx iphoneos iphonesimulator; do
+              echo "--- system xcrun --sdk $sdk: version, path"
+              xcrun --sdk "$sdk" --show-sdk-version
+              xcrun --sdk "$sdk" --show-sdk-path
+            done
+            echo "--- system xcrun clang --version"
+            xcrun clang --version
+            echo "--- dev shell: which xcrun, DEVELOPER_DIR, SDKROOT"
+            nix develop --command bash -c 'command -v xcrun || echo "no xcrun"; echo "DEVELOPER_DIR=${DEVELOPER_DIR:-}"; echo "SDKROOT=${SDKROOT:-}"'
+            echo "--- dev shell: xcrun --sdk iphoneos --show-sdk-path"
+            nix develop --command xcrun --sdk iphoneos --show-sdk-path 2>&1 || echo "(failed: $?)"
+            echo "--- dev shell: xcrun xcodebuild -version"
+            nix develop --command xcrun xcodebuild -version 2>&1 || echo "(failed: $?)"
+          } 2>&1 | tee "$out/versions.txt"
+          version=$(xcodebuild -version | sed -n 's/^Xcode //p')
+          build=$(xcodebuild -version | sed -n 's/^Build version //p')
+          macosx=$(xcrun --sdk macosx --show-sdk-version)
+          iphoneos=$(xcrun --sdk iphoneos --show-sdk-version)
+          simulator=$(xcrun --sdk iphonesimulator --show-sdk-version)
+          provenance="GitHub macos-15 runner, Xcode $version ($build), macosx SDK $macosx, iphoneos SDK $iphoneos, iphonesimulator SDK $simulator; re-extract with Xcode 27A266a (MAC-P1-05)"
+          echo "provenance: $provenance" | tee -a "$out/versions.txt"
+          echo "xcode_build=$build" >> "$GITHUB_OUTPUT"
+          echo "provenance=$provenance" >> "$GITHUB_OUTPUT"
+
+      # The dev shell first, as MAC-P1-05 runs it. If it cannot reach the
+      # iOS SDKs (the shell can hide the system Xcode from xcrun), the
+      # runner's own python3 runs the same tool against the system Xcode;
+      # extract-route.txt records which route wrote the fragments. A failed
+      # spot check still writes every fragment and fails the step.
+      - name: Extract the four Apple rows
+        env:
+          PROVENANCE: ${{ steps.versions.outputs.provenance }}
+        run: |
+          out=build/hosted-platform-apple
+          targets=(--target macos-aarch64 --target macos-x86_64 --target ios-aarch64 --target ios-aarch64-simulator)
+          status=0
+          nix develop --command python3 -m tools.hosted_platform --xcrun "${targets[@]}" \
+            --output "$out/fragments" --stand-in "$PROVENANCE" 2>&1 | tee "$out/extract-nix.log" || status=$?
+          if [ "$(find "$out/fragments" -name '*.toml' | wc -l)" -eq 4 ]; then
+            echo "nix develop (exit $status)" > "$out/extract-route.txt"
+          else
+            status=0
+            /usr/bin/env -u DEVELOPER_DIR -u SDKROOT python3 -m tools.hosted_platform --xcrun "${targets[@]}" \
+              --output "$out/fragments" --stand-in "$PROVENANCE" 2>&1 | tee "$out/extract-system.log" || status=$?
+            echo "system python3 $(python3 --version) with the system Xcode (exit $status); the dev shell route failed" \
+              > "$out/extract-route.txt"
+          fi
+          cat "$out/extract-route.txt"
+          exit "$status"
+
+      - name: Run the Apple macro oracle against the runner's Xcode
+        if: ${{ !cancelled() }}
+        env:
+          BTRC_APPLE_STAND_IN_XCODE_BUILD: ${{ steps.versions.outputs.xcode_build }}
+        run: |
+          nix develop --command python3 -m pytest src/tests/python/test_target_macro_table.py \
+            src/tests/python/test_hosted_platform_extractor.py -v -rs -p no:cacheprovider \
+            --skip-report build/skip-report-hosted-platform-apple.json 2>&1 \
+            | tee build/hosted-platform-apple/pytest.log
+
+      - name: Retain the fragments and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-platform-apple-standin
+          path: build/hosted-platform-apple
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-hosted-platform-apple-extract
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14

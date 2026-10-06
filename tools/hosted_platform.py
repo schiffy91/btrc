@@ -52,15 +52,19 @@ conservative copy §2.3 prescribes: ``windows-aarch64``'s list plus every
 ``conservative_msvc``), with ``source = "conservative copy pending runner
 extraction"``. It can only refuse too much, never too little.
 
-    python3 -m tools.hosted_platform [--target LABEL ...] [--xcrun] [--output DIR]
+    python3 -m tools.hosted_platform [--target LABEL ...] [--xcrun] [--output DIR] [--stand-in PROVENANCE]
 
 Run it inside ``nix develop`` (``nix develop .#platforms`` for the NDK rows).
+``--stand-in`` prefixes every ``source`` with ``STAND-IN: <provenance>;`` for
+an extraction made on a toolchain other than the pinned one (D8), such as the
+Apple rows on a hosted macOS runner (``.github/workflows/hosted-platform-apple.yml``).
 """
 
 from __future__ import annotations
 
 import argparse
 import bisect
+import dataclasses
 import datetime
 import json
 import os
@@ -965,6 +969,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=REPO / "build" / "hosted-platform")
     parser.add_argument("--ndk", type=Path, help="NDK root (default: ANDROID_NDK_HOME)")
     parser.add_argument("--date", help="extraction date recorded in each source (default: today)")
+    parser.add_argument(
+        "--stand-in",
+        metavar="PROVENANCE",
+        help="label every source as stand-in evidence (D8): 'STAND-IN: PROVENANCE; <source>'",
+    )
     arguments = parser.parse_args(argv)
     labels = arguments.targets or list(XCRUN_LABELS if arguments.xcrun else DEFAULT_LABELS)
     extractor = HostedPlatformExtractor(ndk_home=arguments.ndk, date=arguments.date)
@@ -973,6 +982,11 @@ def main(argv: list[str] | None = None) -> int:
     except HostedPlatformError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
+    if arguments.stand_in:
+        extractions = {
+            label: dataclasses.replace(extraction, source=f"STAND-IN: {arguments.stand_in}; {extraction.source}")
+            for label, extraction in extractions.items()
+        }
     failures = extractor.spot_check(extractions)
     arguments.output.mkdir(parents=True, exist_ok=True)
     for label, extraction in extractions.items():

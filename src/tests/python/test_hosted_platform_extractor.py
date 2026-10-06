@@ -691,3 +691,18 @@ def test_main_writes_one_fragment_per_label_and_marks_failed_spot_checks(
     captured = capsys.readouterr()
     assert "spot checks: failed" in captured.out
     assert "spot check failed: explicit_bzero should be available on linux-x86_64" in captured.err
+
+
+def test_main_labels_every_source_as_stand_in_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import tools.hosted_platform as module
+
+    def fake_extract_all(self: HostedPlatformExtractor, labels: list[str]) -> dict[str, PlatformExtraction]:
+        declared = frozenset({"arc4random_uniform"})
+        return {label: PlatformExtraction(label, declared, {}, EMPTY, "macosx SDK MacOSX.sdk") for label in labels}
+
+    monkeypatch.setattr(module.HostedPlatformExtractor, "extract_all", fake_extract_all)
+    output = tmp_path / "out"
+    provenance = "GitHub macos-15 runner, Xcode 16.4"
+    assert module.main(["--target", "macos-aarch64", "--output", str(output), "--stand-in", provenance]) == 0
+    table = tomllib.loads((output / "macos-aarch64.toml").read_text())["platform_targets"][0]
+    assert table["source"] == f"STAND-IN: {provenance}; macosx SDK MacOSX.sdk"
