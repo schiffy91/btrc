@@ -256,9 +256,16 @@ A program that spells a btrc record or enum with its tag (`struct Point`,
 that declares it, as for the bare name (`enum Color` for a btrc enum is
 otherwise the enum-tag row's work). As in C, a tag names only a type: a
 module that declares a function `timeval` does not make `struct timeval`
-need its import. A source record's tag and its bare name are one type
-everywhere, generic and tuple arguments and `CFunction` signatures included:
-`Vector<struct P>` is `Vector<P>`.
+need its import, and a tag needs an import only for a non-generic type the
+program declares: a header's own `struct Timer`, or its `struct ListNode`
+beside `import Library.List;` (a generic class owns no C tag), is the
+header's. A source record's tag and its bare name are one type everywhere,
+generic and tuple arguments and `CFunction` signatures included:
+`Vector<struct P>` is `Vector<P>`. The exception is a record named like a
+generic parameter anywhere in the program (`T`, `K`, `V`, …): its tag and its
+name stay two spellings, as before C row 9, so `Vector<struct T>` and
+`Vector<T>` are two instances, and an instance's substitution never captures
+the record.
 
 ## Variable-length arrays (C row 23)
 

@@ -1185,6 +1185,26 @@ RECORD_REFUSALS = [
         ("Top-level name 'P' is declared as both struct and typedef", 2, 18),
         id="r09-identity-typedef-other-keyword-pointer",
     ),
+    pytest.param(
+        "struct P { int v; };\ntypedef enum P P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 16),
+        id="r09-identity-typedef-enum-keyword",
+    ),
+    pytest.param(
+        "struct P { int v; };\ntypedef union P Q;\ntypedef union P P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 3, 17),
+        id="r09-identity-typedef-after-wrong-tag-typedef",
+    ),
+    pytest.param(
+        "struct P { int v; };\ntypedef union P P;\ntypedef union P Q;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 17),
+        id="r09-identity-typedef-before-wrong-tag-typedef",
+    ),
+    pytest.param(
+        "struct P { int v; };\ntypedef union P P;\nstruct Q { union P* bad; };" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 17),
+        id="r09-identity-typedef-before-wrong-tag-field",
+    ),
 ]
 
 

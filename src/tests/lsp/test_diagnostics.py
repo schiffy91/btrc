@@ -79,6 +79,46 @@ def test_diagnostic_line_maps_after_import_expansion(tmp_path):
     assert any(d.range.start.line == 1 for d in r.diagnostics)
 
 
+VENDOR_HEADER = (
+    "#ifndef VENDOR_H\n#define VENDOR_H\nstruct Timer { long ticks; };\n"
+    "struct ListNode { int value; struct ListNode* next; };\n"
+    "enum Result { RESULT_OK = 7, RESULT_FAIL = 8 };\nunion Path { int i; float f; };\n#endif\n"
+)
+
+
+def test_header_tags_named_like_stdlib_types_report_nothing(tmp_path):
+    """The editor composes the whole stdlib for completion; a header's own
+    `struct Timer` collides with nothing the compilers see (C row 9)."""
+    (tmp_path / "vendor.h").write_text(VENDOR_HEADER)
+    main = tmp_path / "Main.btrc"
+    source = (
+        '#include "vendor.h"\nint main() {\n\tstruct Timer timer; timer.ticks = 5;\n'
+        "\tstruct ListNode node = {3, null};\n\tenum Result result = RESULT_OK;\n"
+        "\tunion Path path; path.i = 2;\n\treturn (int)timer.ticks + node.value + (int)result + path.i - 17;\n}\n"
+    )
+    main.write_text(source)
+
+    r = analyze(source, uri=main.as_uri())
+
+    assert _msgs(r) == []
+
+
+def test_tag_of_a_stdlib_record_outside_the_program_reports_nothing(tmp_path):
+    main = tmp_path / "Main.btrc"
+    source = "int main() {\n\tstruct SPSCQueueStorage* storage = null;\n\treturn storage == null ? 0 : 1;\n}\n"
+    main.write_text(source)
+
+    r = analyze(source, uri=main.as_uri())
+
+    assert _msgs(r) == []
+
+
+def test_wrong_keyword_tag_of_a_program_record_is_still_reported():
+    r = analyze("struct P { int v; };\nint main() { union P* p = null; return p == null ? 0 : 1; }\n")
+
+    assert "'union P' does not name a union: 'P' is a struct" in _msgs(r)
+
+
 def test_diagnostic_range_is_well_formed():
     r = analyze("int main() { return undefinedThing(); }\n")
     # Whether or not this is an error, any emitted diagnostic must have a sane range.

@@ -192,27 +192,64 @@ def test_a_tag_never_names_a_function(semantic_btrcc: Path, tmp_path: Path) -> N
         assert result.returncode == 0, result.stderr
 
 
+LIST = "import Library.List;\n"
+RESULT = "import Library.Result;\n"
+LIST_NODE = "struct ListNode { int value; struct ListNode* next; };"
+RESULT_ENUM = "enum Result { RESULT_OK = 7, RESULT_FAIL = 8 };"
+NODE_CLASS = "class Node<T> { public T value; public Node(T value) { self.value = value; } }\n"
+LIST_USE = "List<int> numbers = new List<int>(); numbers.push(1); "
+
+
 @pytest.mark.parametrize(
-    ("header", "body"),
+    ("head", "header", "declarations", "body"),
     [
-        ("struct Timer { long ticks; };", "struct Timer timer; timer.ticks = 3; return (int)timer.ticks - 3;"),
-        (
-            "struct ListNode { int v; struct ListNode* next; };",
-            "struct ListNode node; node.v = 2; node.next = NULL; return node.v - 2;",
-        ),
-        ("enum Result { RESULT_OK, RESULT_BAD };", "enum Result result = RESULT_OK; return (int)result;"),
-        ("union Path { int i; float f; };", "union Path path; path.i = 5; return path.i - 5;"),
+        ("", "struct Timer { long ticks; };", "", "struct Timer timer; timer.ticks = 3; return (int)timer.ticks - 3;"),
+        ("", LIST_NODE, "", "struct ListNode node; node.value = 2; node.next = NULL; return node.value - 2;"),
+        ("", RESULT_ENUM, "", "enum Result result = RESULT_OK; return (int)result - 7;"),
+        ("", "union Path { int i; float f; };", "", "union Path path; path.i = 5; return path.i - 5;"),
+        (LIST, LIST_NODE, "", LIST_USE + "struct ListNode tail = {3, null}; return tail.value + numbers.len - 4;"),
+        (RESULT, RESULT_ENUM, "", "enum Result result = RESULT_OK; return (int)result - 7;"),
+        ("", "struct Node { int weight; };", NODE_CLASS, "struct Node n = {4}; Node<int> k = new Node<int>(2); return n.weight + k.value - 6;"),
     ],
-    ids=["struct-Timer", "struct-ListNode", "enum-Result", "union-Path"],
+    ids=[
+        "struct-Timer",
+        "struct-ListNode",
+        "enum-Result",
+        "union-Path",
+        "struct-ListNode-beside-List",
+        "enum-Result-beside-Result",
+        "struct-Node-beside-user-Node",
+    ],
 )
-def test_a_headers_own_tag_needs_no_stdlib_import(semantic_btrcc: Path, tmp_path: Path, header: str, body: str) -> None:
+def test_a_headers_own_tag_needs_no_stdlib_import(
+    semantic_btrcc: Path, tmp_path: Path, head: str, header: str, declarations: str, body: str
+) -> None:
     """A C header's own `struct Timer` is not the stdlib's Timer: a tag
     resolves only among types the program declares, never through the stdlib
-    symbol index for a module the program does not contain."""
+    symbol index for a module the program does not contain. A generic class
+    (`List`'s `ListNode<T>`, `Result<T, E>`, a user `Node<T>`) owns no C tag,
+    so a header's tag of that name stays the header's."""
 
     (tmp_path / "linked.h").write_text(f"#ifndef LINKED_H\n#define LINKED_H\n{header}\n#endif\n", encoding="utf-8")
     main = tmp_path / "Main.btrc"
-    main.write_text(f'#include "linked.h"\nint main() {{ {body} }}\n', encoding="utf-8")
+    main.write_text(f'{head}#include "linked.h"\n{declarations}int main() {{ {body} }}\n', encoding="utf-8")
+    _run_strict_pair(semantic_btrcc, tmp_path, main)
+
+
+def test_a_leaf_spells_a_header_tag_beside_an_imported_generic(semantic_btrcc: Path, tmp_path: Path) -> None:
+    """The module that spells a header's `struct ListNode` needs no
+    `import Library.List;` because the program imports List elsewhere."""
+
+    (tmp_path / "linked.h").write_text(f"#ifndef LINKED_H\n#define LINKED_H\n{LIST_NODE}\n#endif\n", encoding="utf-8")
+    (tmp_path / "Leaf.btrc").write_text(
+        '#include "linked.h"\nint leafValue() { struct ListNode node = {6, null}; return node.value; }\n', encoding="utf-8"
+    )
+    main = tmp_path / "Main.btrc"
+    main.write_text(f"{LIST}import ./Leaf.btrc;\nint main() {{ {LIST_USE}return leafValue() + numbers.len - 7; }}\n")
+    _run_strict_pair(semantic_btrcc, tmp_path, main)
+
+
+def _run_strict_pair(semantic_btrcc: Path, tmp_path: Path, main: Path) -> None:
     environment = {**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")}
     reference_c, selfhost_c = tmp_path / "reference.c", tmp_path / "selfhost.c"
     reference = subprocess.run(

@@ -1,0 +1,189 @@
+#include <assert.h>
+#include <stdlib.h>
+
+// C row 9: a record named like a generic parameter (T, K, V, P here) keeps
+// its written tag everywhere, as before row 9: an instance's substitution
+// never captures it, inside the generic or for values that reach the generic
+// from outside, and its tag spelling is one instance on both sides.
+struct T {
+	int a;
+	int b;
+};
+
+struct K {
+	int a;
+	int b;
+};
+
+union V {
+	int i;
+	float f;
+};
+
+struct P {
+	int a;
+	int b;
+};
+
+struct T shared = {20, 30};
+struct T gRecord = {1, 2};
+
+struct Wrap {
+	struct T inner;
+};
+
+struct T* firstRecord() { return &gRecord; }
+
+class Widget {
+	public int w;
+	public Widget() { self.w = 1; }
+}
+
+class Record {
+	public struct T record;
+}
+
+class Holder<T> {
+	public int run() {
+		struct T local = {1, 2};
+		struct T* p = &local;
+		p->b = 9;
+		return local.a + local.b;
+	}
+
+	public int take(struct T r) { return r.a + r.b; }
+
+	public struct T give() {
+		struct T r = {20, 3};
+		return r;
+	}
+}
+
+class Util {
+	public int run<T>(T value) {
+		struct T local = {4, 5};
+		return local.a + local.b;
+	}
+
+	public int measure<P>(P value) { return 4; }
+}
+
+class Keeper<K> {
+	public struct K rec;
+
+	public Keeper() {
+		self.rec.a = 5;
+		self.rec.b = 7;
+	}
+
+	public void bump() { self.rec.a += 10; }
+}
+
+class UnionKeeper<V> {
+	public union V rec;
+	public UnionKeeper() { self.rec.i = 42; }
+}
+
+class Cell<V> {
+	public V value;
+	public Cell(V value) { self.value = value; }
+}
+
+class Maker<K> {
+	public Cell<struct K> build(int n) {
+		struct K rec = {n, n * 2};
+		return new Cell<struct K>(rec);
+	}
+
+	public int read(Cell<struct K> c) { return c.value.a + c.value.b; }
+}
+
+interface IShow {
+	int show(struct T* p);
+}
+
+class Box<T> implements IShow {
+	public int show(struct T* p) { return p->a; }
+
+	public int copyIt() {
+		struct T r = {1, 2};
+		var copy = r;
+		return copy.a + copy.b;
+	}
+
+	public int pairIt() {
+		struct T r = {1, 2};
+		(struct T, int) pair = (r, 5);
+		return pair._0.b + pair._1;
+	}
+
+	public int at() {
+		struct T arr[3];
+		arr[1].a = 4;
+		var q = &arr[1];
+		return q->a;
+	}
+
+	public int pointer() {
+		struct T local = {8, 1};
+		var p = &local;
+		var q = p;
+		return q->a;
+	}
+
+	public int outside(struct Wrap w, Record holder) {
+		var copy = shared;
+		var inner = w.inner;
+		var pointer = &gRecord;
+		var c2 = holder.record;
+		var record = firstRecord();
+		return copy.a + inner.b + pointer->a + c2.a + record->b;
+	}
+
+	public (struct T, int) pair() {
+		struct T record = {5, 6};
+		return (record, 7);
+	}
+}
+
+int main() {
+	Holder<Widget> widgets = new Holder<Widget>();
+	Holder<string> strings = new Holder<string>();
+	struct T given = widgets.give();
+	assert(widgets.run() == 10 && strings.run() == 10 && widgets.take(given) == 23);
+
+	Util util = new Util();
+	Widget widget = new Widget();
+	struct P point = {1, 2};
+	int ran = util.run(widget);
+	int measured = util.measure(&point);
+	assert(ran == 9 && measured == 4);
+
+	Keeper<Widget> keptWidget = new Keeper<Widget>();
+	keptWidget.bump();
+	Keeper<int> keptInt = new Keeper<int>();
+	keptInt.bump();
+	assert(keptWidget.rec.a + keptWidget.rec.b == 22 && keptInt.rec.a == 15);
+	UnionKeeper<Widget> unionWidget = new UnionKeeper<Widget>();
+	UnionKeeper<int> unionInt = new UnionKeeper<int>();
+	assert(unionWidget.rec.i == 42 && unionInt.rec.i == 42);
+
+	Maker<long> maker = new Maker<long>();
+	Cell<struct K> cell = maker.build(5);
+	assert(cell.value.a == 5 && cell.value.b == 10 && maker.read(cell) == 15);
+
+	Box<int> box = new Box<int>();
+	IShow shown = box;
+	struct T six = {6, 0};
+	struct Wrap wrap = {{3, 4}};
+	Record holder = new Record();
+	holder.record.a = 5;
+	var pair = box.pair();
+	assert(shown.show(&six) == 6 && box.copyIt() == 3 && box.pairIt() == 7 && box.at() == 4);
+	assert(box.pointer() == 8 && box.outside(wrap, holder) == 32 && pair._0.a + pair._0.b + pair._1 == 18);
+	Box<char> letters = new Box<char>();
+	assert(letters.copyIt() == 3);
+
+	print("PASS: a record named like a generic parameter keeps its tag");
+	return 0;
+}
