@@ -417,6 +417,12 @@ DECLARATOR_REFUSALS = [
         ("'var' declares one variable: write one 'var' declaration per variable", 1, 10),
         id="r03-global-var-declarators",
     ),
+    # Several declarators reach the duplicate-member check.
+    pytest.param(
+        "class C { public int a, a; }\nint main() { return 0; }",
+        ("Duplicate field 'a' in class 'C'", 1, 25),
+        id="r03-duplicate-class-field",
+    ),
 ]
 
 # Row 5: adjacent string literals concatenate (src/tests/c_compat/AdjacentStringLiterals.btrc);
@@ -927,18 +933,6 @@ def test_accepted_neighbour_runs_strictly_in_both_compilers(
 # literal after it is refused. The two import parsers already reported this
 # differently before row 5 landed (btrcc has no same-line import check); the
 # pair is pinned so a change to either side is deliberate.
-# The two compilers word a duplicate class member differently for single
-# declarations too; several declarators reach the same check, so the
-# divergence is pinned, not new.
-DECLARATOR_DIVERGENT_REFUSALS = [
-    pytest.param(
-        "class C { public int a, a; }\nint main() { return 0; }",
-        ("Duplicate field 'a' in class 'C'", 1, 25),
-        ("Duplicate member 'C.a'", 1, 25),
-        id="r03-duplicate-class-field",
-    ),
-]
-
 # Row 19: each parser words a missing expression its own way.
 COMMA_DIVERGENT_REFUSALS = [
     # A missing operand is each parser's ordinary expression error.
@@ -967,7 +961,7 @@ IMPORT_PATH_REFUSALS = [
 
 @pytest.mark.parametrize(
     ("source", "reference_expected", "selfhost_expected"),
-    VLA_DIVERGENT_REFUSALS + DECLARATOR_DIVERGENT_REFUSALS + COMMA_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS,
+    VLA_DIVERGENT_REFUSALS + COMMA_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS,
 )
 def test_divergent_refusal_is_pinned_per_compiler(
     semantic_btrcc: Path,

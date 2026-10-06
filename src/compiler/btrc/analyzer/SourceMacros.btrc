@@ -16,20 +16,16 @@ class SourceMacroNamespace {
 	private Map<string, bool> undefinedNames;
 	private HostedAbiRepository hostedAbi;
 	private SourceMacroRules rules;
-	private int stdlibLineCount;
-	private Vector<FeLine> sourceLines;
 
 	/* Collection validates every directive in hoisted program order (M1-M4
 	 * and the name rules) and fails at the first refusal, positioned in its
-	 * own file through `sourceLines`. */
-	public SourceMacroNamespace(Node program, HostedAbiRepository hostedAbi, SourceMacroRules rules, int stdlibLineCount, Vector<FeLine> sourceLines) {
+	 * own file. */
+	public SourceMacroNamespace(Node program, HostedAbiRepository hostedAbi, SourceMacroRules rules) {
 		self.declaredNames = {};
 		self.activeDefinitions = {};
 		self.undefinedNames = {};
 		self.hostedAbi = hostedAbi;
 		self.rules = rules;
-		self.stdlibLineCount = stdlibLineCount;
-		self.sourceLines = sourceLines;
 		self.collect(program);
 	}
 
@@ -38,18 +34,9 @@ class SourceMacroNamespace {
 	/* Whether some live #undef names the macro. */
 	public bool undefined(string name) { return self.undefinedNames.has(name); }
 
-	/* Fail at `site`, at its own file's position when the combined line maps
-	 * to one; validation reports one error and stops. */
-	public void fail(string message, Node site) {
-		int index = site.line - self.stdlibLineCount - 1;
-		if (index >= 0 && index < self.sourceLines.len) {
-			FeLine line = self.sourceLines.get(index);
-			fprintf(stderr, "%s\n", FeVisibilityDiagnostic(message, line.sourceFile, line.lineNumber, site.col, line.text).render());
-		} else {
-			fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
-		}
-		exit(1);
-	}
+	/* Fail at `site`, at its own file's position; validation reports one
+	 * error and stops. */
+	public void fail(string message, Node site) { FeDiagnosticSources.fail(message, site.line, site.col); }
 
 	/* Why code may not use a declared source macro (U1, U2), or "". Every
 	 * directive is emitted before the program, so code sees each macro's

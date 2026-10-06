@@ -7,8 +7,10 @@ from dataclasses import dataclass
 
 REFERENCE_DIAGNOSTIC = re.compile(r"^error: (.*)\n\s*--> .*?:(\d+):(\d+)", re.MULTILINE)
 
-
-SELFHOST_DIAGNOSTIC = re.compile(r"^error: (.*) at (\d+):(\d+)$", re.MULTILINE)
+# btrcc renders a positioned error as the reference does, at its own file's
+# position; only a position no source line maps keeps "<message> at L:C",
+# which diagnostic_identity also reads.
+SELFHOST_DIAGNOSTIC = REFERENCE_DIAGNOSTIC
 
 
 @dataclass(frozen=True)

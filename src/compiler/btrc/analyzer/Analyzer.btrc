@@ -92,8 +92,6 @@ class SemanticAnalyzer {
 	/* Record every line of a user source file that has a raw quoted include
 	 * of an unmodeled C header or source. */
 	public void configureUnmodeledIncludes(Node program, int stdlibLineCount, Vector<FeLine> userLines) {
-		self.analysis.stdlibLineCount = stdlibLineCount;
-		self.analysis.sourceLines = userLines;
 		Map<string, bool> files = {};
 		for declaration in program.declarations() {
 			if (declaration.kind != NK_PREPROCESSOR_DIRECTIVE || !NameValidator.unmodeledInclude(declaration.text)) { continue; }

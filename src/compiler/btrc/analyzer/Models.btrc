@@ -1,4 +1,5 @@
 import Library.Map;
+import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
@@ -361,6 +362,9 @@ class Analyzed {
 	/* Number of enum declarations that export each bare spelling. Qualified
      * access remains legal when the bare form is ambiguous. */
 	public Map<string, int> enumValueOwnerCount;
+	/* Every enum (by name, "" when anonymous) that exports each bare spelling,
+	 * which an ambiguous bare use lists. */
+	public Map<string, Map<string, bool>> enumValueOwnerNames;
 	/* rich (tagged-union) enum type name -> its RichEnumDecl node
      * (NK_RICH_ENUM_DECL). Mirrors rich_enum_table. */
 	public Map<string, Node> richEnumTable;
@@ -428,10 +432,6 @@ class Analyzed {
 	/* The program's source-macro namespace, installed by validation; lowering
 	 * decodes a string constant's extent through it. */
 	public SourceMacroNamespace? sourceMacros = null;
-	/* The composed source's user lines, which position macro refusals in
-	 * their own files. */
-	public int stdlibLineCount = 0;
-	public Vector<FeLine> sourceLines = [];
 	/* The selected target row's long width in bits (its sizeof_long), which
 	 * types literals and bounds long casts; SemanticAnalyzer sets it. */
 	public int longBits = 0;
@@ -459,6 +459,7 @@ class Analyzed {
 		self.enumTable = {};
 		self.enumValueOwner = {};
 		self.enumValueOwnerCount = {};
+		self.enumValueOwnerNames = {};
 		self.richEnumTable = {};
 		self.methodGenInstances = [];
 		self.methodGenSeen = {};
@@ -636,6 +637,17 @@ class Analyzed {
 	public bool isEnumValue(string name) { return self.enumValueOwner.has(name) && self.enumValueOwnerCount.get(name) == 1; }
 
 	public bool isAmbiguousEnumValue(string name) { return self.enumValueOwnerCount.has(name) && self.enumValueOwnerCount.get(name) > 1; }
+
+	/* The enums an ambiguous bare spelling belongs to, sorted, as a
+	 * diagnostic lists them. */
+	public string enumValueOwnerList(string name) {
+		Vector<string> owners = [];
+		if (self.enumValueOwnerNames.has(name)) {
+			for owner in self.enumValueOwnerNames.get(name).keys() { owners.push(owner.isEmpty() ? "<anonymous>" : owner); }
+		}
+		owners.sort();
+		return Strings.join(owners, ", ");
+	}
 
 	public bool enumContains(string enumName, string valueName) {
 		if (!self.enumTable.has(enumName)) { return false; }

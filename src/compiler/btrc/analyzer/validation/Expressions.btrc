@@ -958,7 +958,7 @@ class ExpressionValidator {
 				TypeValidator.fail("Hosted function '" + name + "' cannot be stored or forwarded as a value because bare " + "__fn_ptr does not preserve its exact C ABI and effects; " + "call it directly", expression);
 			}
 			if (!vars.has(name) && self.state.analyzed.isAmbiguousEnumValue(name)) {
-				TypeValidator.fail("Ambiguous enum value '" + name + "'; qualify it with the enum name", expression);
+				TypeValidator.fail("Ambiguous enum member '" + name + "' belongs to " + self.state.analyzed.enumValueOwnerList(name) + "; qualify it", expression);
 			}
 			bool known = vars.has(name) || self.state.analyzed.funcTable.has(name) || self.sourceMacros.declared(name) || self.state.analyzed.isClass(name) || self.state.analyzed.isGenericClass(name) || self.state.analyzed.isEnum(name) || self.state.analyzed.isRichEnum(name) || self.state.analyzed.isEnumValue(name) || self.sourceRuntimeSymbols.helper(name) || name == "errno" || self.names.foreignConstant(name, expression) || name == "NULL" || name == "__func__" || name == "stdin" || name == "stdout" || name == "stderr";
 			self.names.deferGeneratedSymbolReference(expression, vars, known);

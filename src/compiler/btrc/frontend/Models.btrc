@@ -882,6 +882,43 @@ class FeResolvedSource {
 	}
 }
 
+/* Where a positioned error is reported. Every stage after resolution works
+ * on the combined program, so its positions count the lines of every
+ * imported file before the one they belong to. This owner maps a combined
+ * position back to the file and line it came from, once, and renders the
+ * error as the reference does: the input as named, any other file by its
+ * path, the line and column, and the source line with a caret. The pipeline
+ * configures one compile's sources before lexing; a position no source
+ * line maps keeps the combined form "<message> at <line>:<col>". */
+class FeDiagnosticSources {
+	class FeResolvedSource? resolved = null;
+	class string rootDisplay = "";
+
+	class void configure(FeResolvedSource resolved, string rootDisplay) {
+		FeDiagnosticSources.resolved = resolved;
+		FeDiagnosticSources.rootDisplay = rootDisplay;
+	}
+
+	class string render(string message, int line, int col) {
+		FeResolvedSource? active = FeDiagnosticSources.resolved;
+		if (active != null) {
+			FeLine? source = active.userLineForCombined(line);
+			if (source != null && source.lineNumber > 0) {
+				string display = source.sourceFile.equals(active.rootSourcePath) ? FeDiagnosticSources.rootDisplay : source.sourceFile;
+				return FeVisibilityDiagnostic(message, display, source.lineNumber, col, source.text).render();
+			}
+		}
+		return f"error: {message} at {line}:{col}";
+	}
+
+	/* Report one error at a combined position and stop: validation reports
+	 * the first error only. */
+	class void fail(string message, int line, int col) {
+		fprintf(stderr, "%s\n", FeDiagnosticSources.render(message, line, col));
+		exit(1);
+	}
+}
+
 /* Cache only source ranges; resolution owns paths, packages and providers. */
 class FeDirectiveRange {
 	public int start;

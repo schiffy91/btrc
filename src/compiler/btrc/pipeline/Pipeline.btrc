@@ -6,6 +6,7 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
+import ../frontend/Models.btrc;
 import ../frontend/Packages.btrc;
 import ../frontend/NativeImports.btrc;
 import ../frontend/Resolver.btrc;
@@ -51,6 +52,14 @@ class CompilerPipeline {
 
 	/* Starts module-unit worker processes; null lowers every group here. */
 	public void setWorkerPools(IWorkerPoolFactory? pools) { self.workerPools = pools; }
+
+	/* A lexer or parser diagnostic ("<message> at <line>:<col>") at its own
+	 * file's position. */
+	private string positionedDiagnostic(string diagnostic) {
+		FeLexFailure failure = FeLexFailure(diagnostic);
+		if (failure.line <= 0) { return "error: " + diagnostic; }
+		return FeDiagnosticSources.render(failure.message, failure.line, failure.col);
+	}
 
 	private string visibilityDiagnostic(Vector<FeVisibilityDiagnostic> diagnostics) {
 		Vector<string> rendered = [];
@@ -153,18 +162,21 @@ class CompilerPipeline {
 		var packages = input.packages;
 		string sourcePath = input.sourcePath;
 
+		/* Every later stage reports at combined positions; the diagnostic
+		 * owner maps them back to their own files. */
+		FeDiagnosticSources.configure(resolved, sourcePath);
 		Lexer lexer = Lexer(resolved.source, self.grammar);
 		Vector<Token> tokens = lexer.tokenize();
 		BtrccPhaseTimer.mark("lex");
 		if (lexer.failed) {
-			return self.failure("error: " + lexer.diagnostic);
+			return self.failure(self.positionedDiagnostic(lexer.diagnostic));
 		}
 
 		Parser parser = Parser(tokens, self.grammar);
 		Node program = parser.parseProgram();
 		BtrccPhaseTimer.mark("parse");
 		if (parser.failed) {
-			return self.failure("error: " + parser.diagnostic);
+			return self.failure(self.positionedDiagnostic(parser.diagnostic));
 		}
 
 		self.hostedAbi.stampProgramSources(program, resolved.stdlibLineCount, resolved.userLines, sourcePath, self.stdlib.directory());

@@ -168,8 +168,7 @@ def test_managed_specialization_payloads_are_refused_identically(
     assert reference.returncode == 1, reference.stderr
     assert selfhost.returncode == 1, selfhost.stderr
     assert diagnostic_identity(reference.stderr) == (message, *position)
-    selfhost_message, _selfhost_line, selfhost_col = diagnostic_identity(selfhost.stderr)
-    assert (selfhost_message, selfhost_col) == (message, position[1])
+    assert diagnostic_identity(selfhost.stderr) == (message, *position)
 
 
 def test_plain_data_specializations_still_compile_and_run(semantic_btrcc: Path, tmp_path: Path) -> None:

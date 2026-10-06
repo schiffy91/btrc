@@ -3,6 +3,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import ../frontend/Models.btrc;
 import ../syntax/Identity.btrc;
 import ../syntax/Literals.btrc;
 import ../syntax/Types.btrc;
@@ -189,10 +190,7 @@ class GpuKernelValidator {
 		self.scopeStarts = [];
 	}
 
-	class void fail(string message, Node site) {
-		fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
-		exit(1);
-	}
+	class void fail(string message, Node site) { FeDiagnosticSources.fail(message, site.line, site.col); }
 
 	private void error(string message, Node site) { GpuKernelValidator.fail("@gpu function '" + self.functionName + "': " + message, site); }
 

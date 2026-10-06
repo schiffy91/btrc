@@ -72,6 +72,11 @@ class DeclarationRegistry {
 					if (!self.analyzed.enumValueOwner.has(valueName)) {
 						self.analyzed.enumValueOwner.put(valueName, d.name);
 					}
+					if (!self.analyzed.enumValueOwnerNames.has(valueName)) {
+						Map<string, bool> owners = {};
+						self.analyzed.enumValueOwnerNames.put(valueName, owners);
+					}
+					self.analyzed.enumValueOwnerNames.get(valueName).put(d.name, true);
 					v = v + 1;
 				}
 			} else if (d.kind == NK_RICH_ENUM_DECL) {

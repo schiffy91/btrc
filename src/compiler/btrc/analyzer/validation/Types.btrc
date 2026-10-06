@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../../generated/ast/Node.btrc;
+import ../../frontend/Models.btrc;
 import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
@@ -95,10 +96,7 @@ class TypeValidator {
 
 	class bool scalarVoid(Node? typeExpr) { return typeExpr != null && typeExpr.base == "void" && typeExpr.pointerDepth == 0 && !typeExpr.isArray && typeExpr.genericArgs().len == 0; }
 
-	class void fail(string message, Node site) {
-		fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
-		exit(1);
-	}
+	class void fail(string message, Node site) { FeDiagnosticSources.fail(message, site.line, site.col); }
 
 	/* Explain a tuple literal flowing into a non-tuple (D19 row 19): btrc reads
 	 * a parenthesized comma list as a tuple; C's comma operator exists only in
@@ -114,8 +112,7 @@ class TypeValidator {
 	class void failAtName(string message, Node declaration) {
 		int line = declaration.nameLine != 0 ? declaration.nameLine : declaration.line;
 		int col = declaration.nameLine != 0 ? declaration.nameCol : declaration.col;
-		fprintf(stderr, "error: %s at %d:%d\n", message, line, col);
-		exit(1);
+		FeDiagnosticSources.fail(message, line, col);
 	}
 
 	class Map<string, Node> cloneTypes(Map<string, Node> source) {
