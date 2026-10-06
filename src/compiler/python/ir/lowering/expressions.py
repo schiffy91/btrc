@@ -1602,6 +1602,9 @@ class ExpressionLowerer:
     ) -> IRSizeof:
         value = self._sizeof_value_operand(node)
         if value is not None:
+            spelled = self._sizeof_global_array_type(value.name)
+            if spelled is not None:
+                return IRSizeof(operand=CType(text=spelled))
             self._session.unevaluated_depth += 1
             try:
                 return IRSizeof(operand=self._materialize_static_scalar(value, provenance))
@@ -2171,9 +2174,27 @@ class ExpressionLowerer:
             return None
         return Identifier(name=name, line=node.operand.type.line, col=node.operand.type.col)
 
+    def _sizeof_global_array_type(self, name: str) -> str | None:
+        """Spell a global array with literal extents as its C type, ``int[8]``.
+
+        Measuring the type instead of the object leaves a global used only
+        inside ``sizeof`` unreferenced, as C sees it, so it is not emitted as an
+        unneeded internal declaration."""
+        binding = None if self._session.local_is_declared(name) else self._analyzed.global_var_types.get(name)
+        if binding is None or not binding.is_array or binding.array_pointer_depth:
+            return None
+        extents = [binding.array_size, *binding.elements]
+        if not all(isinstance(extent, IntLiteral) for extent in extents):
+            return None
+        element = self._types.render(replace(binding, is_array=False, is_static=False, is_extern=False))
+        return element + "".join(f"[{extent.raw}]" for extent in extents)
+
     def _lower_sizeof(self, node: SizeofExpr, provenance: CallableProvenance) -> IRExpr:
         value = self._sizeof_value_operand(node)
         if value is not None:
+            spelled = self._sizeof_global_array_type(value.name)
+            if spelled is not None:
+                return IRSizeof(operand=CType(text=spelled))
             self._session.unevaluated_depth += 1
             try:
                 return IRSizeof(operand=self.lower_expr(value, provenance))

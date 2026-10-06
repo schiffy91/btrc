@@ -2164,12 +2164,34 @@ class ExpressionLowerer {
 		return IRNode.unary(op, operand, node.prefix);
 	}
 
+	/* A global array with literal extents spelled as its C type, int[8], so a
+	 * global used only inside sizeof stays unreferenced, as C sees it, and is
+	 * not emitted as an unneeded internal declaration (the reference's
+	 * _sizeof_global_array_type). "" otherwise. */
+	private string sizeofGlobalArrayType(string name) {
+		if (self.context.sourceLexicalBindings.has(name) || !self.analyzed.globalVarTypes.has(name)) { return ""; }
+		Node binding = self.analyzed.globalVarTypes.get(name);
+		if (!binding.isArray || binding.arrayPointerDepth != 0 || binding.arraySize == null || binding.arraySize.kind != NK_INT_LITERAL) { return ""; }
+		string extents = "[" + binding.arraySize.raw + "]";
+		for extent in binding.elements() {
+			if (extent.kind != NK_INT_LITERAL) { return ""; }
+			extents = extents + "[" + extent.raw + "]";
+		}
+		Node element = TypeShape.copy(binding);
+		element.isArray = false;
+		element.isStatic = false;
+		element.isExtern = false;
+		return self.cTypes.lower(element) + extents;
+	}
+
 	public IRNode lowerSizeof(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node operand = node.operand;
 		/* sizeof(x) measures the object x when x is a binding, not a type
 		 * (C11 6.5.3.4); lowering the name keeps its C spelling and its use. */
 		string valueName = operand != null && operand.kind == NK_SIZEOF_TYPE ? TypeIdentity.ordinaryIdentifier(operand.type) : "";
 		if (valueName != "" && (varTypes.has(valueName) || self.analyzed.globalVarTypes.has(valueName))) {
+			string spelled = self.sizeofGlobalArrayType(valueName);
+			if (spelled != "") { return IRNode.sizeofType(spelled); }
 			Node value = Node();
 			value.kind = NK_IDENTIFIER;
 			value.name = valueName;
