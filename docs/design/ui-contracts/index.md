@@ -12,7 +12,7 @@ land atomically with that diff through `CL-UIA-14`.
 | [Executor](ui2-executor.md) | CX-UIA-19 | Worker publication, bounded queues, fair dispatch and the host-owned loop; E04, E24, E30, E40 |
 | [Lifecycle](ui2-lifecycle.md) | CX-UIA-20 | Close transactions, ordered mutation, interaction eligibility and final release; E29, E31, E35, E39, E42, E46 |
 
-The three drafts landed together in batch 20. `CL-UIA-13` reconciles their
+**Approved 2026-10-06 (batch 47):** [`ui2-approved.md`](ui2-approved.md) is the frozen UI2 interface record; where a draft and the record differ, the record governs, and the drafts stay as the design history. The three drafts landed together in batch 20. `CL-UIA-13` reconciles their
 operation spellings and shared event rules (two known conflicts: whether a
 terminal result's capacity is reserved per interaction, and what text
 eligibility loss cancels) before any portable interface changes.
