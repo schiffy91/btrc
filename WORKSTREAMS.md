@@ -1,7 +1,9 @@
 # WORKSTREAMS: the shared work plan for Claude, Codex and the owner
 
-**Status:** in force, 2026-10-03 (D27, §2). **Roadmap and decisions:** [PLAN.md](PLAN.md). **Rules every agent follows:** [AGENTS.md](AGENTS.md).
+**Status:** in force, 2026-10-03 (D27, §2); amended 2026-10-06 by D28. **Roadmap and decisions:** [CLAUDE.md](CLAUDE.md) (formerly PLAN.md, now a pointer). **Rules every agent follows:** [AGENTS.md](AGENTS.md). **Codex's active queue:** [CODEX.md](CODEX.md).
 **Contents:** 449 work packets (Claude 185, Codex 209, owner 55), generated from six planning analysts' output plus the writer adjustments in §9 and the review changes in §10, with four packets added on 2026-10-03 (`CX-UIA-30`, `CL-UIA-24`, `CL-R-50`, `CL-P2-29`; [codex-ui-lanes.md](docs/workstreams/codex-ui-lanes.md)).
+
+**D28 (2026-10-06).** [CODEX.md](CODEX.md) is Codex's active queue and results. This file keeps the shared path claims (§3.3), the cross-agent dependencies and the protocol (§3). Where a D27-era clause here conflicts with D28, D28 governs, including a conflicting Codex scheduling clause below that carries no D28 note. Packet ids are kept for traceability.
 
 1. [Purpose and how to use this doc](#1-purpose-and-how-to-use-this-doc)
 2. [Decision D27](#2-decision-d27-two-builder-agents-and-which-ui-work-starts-early)
@@ -18,15 +20,15 @@
 
 **What this is.** One shared plan for the two builder agents, Claude and OpenAI Codex, and for the owner. It cuts every remaining PLAN.md item into **work packets** and gives each packet one owner, an explicit list of paths it may edit, numbered steps, an acceptance checklist and its dependencies.
 
-**What it is not.** It is not a second roadmap. **PLAN.md stays the roadmap and the source of every decision** (D1–D27; D27 is reproduced in §2). This doc only assigns PLAN.md's items. If the two disagree, PLAN.md wins and Claude fixes this doc. AGENTS.md's architecture rules (six-stage pipeline, parity, strict imports, naming, generated files) bind both agents and win over everything here.
+**What it is not.** It is not a second roadmap. **CLAUDE.md is the roadmap and the source of every decision** (D1–D28; D27 is reproduced in §2). PLAN.md, its old name, is now a pointer to it. This doc only assigns the roadmap's items. If the two disagree, CLAUDE.md wins and Claude fixes this doc. Codex's queue, scheduling and results live in [CODEX.md](CODEX.md) (D28). This doc holds the shared path claims, cross-agent dependencies and the protocol. AGENTS.md's architecture rules (six-stage pipeline, parity, strict imports, naming, generated files) bind both agents and win over everything here.
 
 **The owner's question, answered.**
-- **One doc or two?** One. Claude's and Codex's packets share dependencies, paths and gates, and two documents would drift apart within a week. Each agent filters this doc by owner: §6.1 holds Claude's packets, §6.2 Codex's and §6.3 the owner's.
+- **One doc or two?** One. Claude's and Codex's packets share dependencies, paths and gates, and two documents would drift apart within a week. Each agent filters this doc by owner: §6.1 holds Claude's packets, §6.2 Codex's and §6.3 the owner's. (Since D28, Codex's active queue lives in [CODEX.md](CODEX.md); this doc keeps the shared claims and dependencies.)
 - **What Codex does.** As suggested, Codex does the GUI for each platform: the stdlib `GUI`, `UI`, `Tray` and `App` providers and, once each contract is approved, the portable contracts. It also takes the work around them that needs no compiler change:
   - the stdlib OS-service providers (Windows, iOS and Android filesystem, process, HTTP and so on);
   - test hosts, packaging, cross-built dependencies and CI lanes for new platforms;
   - evidence harnesses, examples and the BTRSmith UI slices.
-- **What Claude keeps.** Everything inside the two compilers, the shared specs, generators, runtime assets, the native readers, interop, the C-compatibility track, PLAN.md, and integration: Claude merges every branch, Codex's included, and runs every gate.
+- **What Claude keeps.** Everything inside the two compilers, the shared specs, generators, runtime assets, the native readers, interop, the C-compatibility track, the roadmap (CLAUDE.md), and integration: Claude merges every branch, Codex's included, and runs every gate.
 - **Cloud.** Yes, both agents work in Linux cloud containers. macOS and Windows proof comes from GitHub runners on Codex's draft PRs, and Android emulator proof from GitHub's Linux runners with KVM. GitHub capacity is the tight resource (§3.2). Anything that needs the Mac, a device, an account or the owner's ears is an **owner packet** (`MAC-…`), reduced to one command.
 - **What you decide.** D27 (§2) amends D1 and D6(c). It is in force from 2026-10-03 because you asked for this split and started Codex; strike any clause you disagree with. You approved Stage 24's early start on 2026-10-03 (§7 Q2). Every other §7 default that would amend a decision is marked **needs owner approval**.
 
@@ -46,8 +48,8 @@
 - `CL-REQ-NN` packets are created later from Codex's compiler requests (§3.6).
 
 **Who reads what.**
-- **Codex.** Read AGENTS.md first: Codex reads it natively, and CLAUDE.md is a symlink to it. Its Codex section sits right after the title, inside Codex's read limit (§3.11). Then read §2 and §3 of this doc, then your packet in §6.2. AGENTS.md's Mac capacity, lock, hub, disk and quiet-machine rules describe the owner's Mac and do not apply in your container. Everything about architecture, naming, parity and generated files does apply.
-- **Claude.** Read AGENTS.md, PLAN.md, then this doc. Claude is this doc's only editor: it updates the lock table (§3.3) and records done packets at every integration batch.
+- **Codex.** Read AGENTS.md first: Codex reads it natively, and its Codex section sits right after the title, inside Codex's read limit (§3.11). Then read [CODEX.md](CODEX.md), your queue (D28), then §3 here for path claims and the protocol. §6.2 keeps the older packet text for traceability. AGENTS.md's Mac capacity, lock, hub, disk and quiet-machine rules describe the owner's Mac and do not apply in your container. Everything about architecture, naming, parity and generated files does apply.
+- **Claude.** Read CLAUDE.md (which imports AGENTS.md), CODEX.md, then this doc. Claude is this doc's only editor: it updates the lock table (§3.3) and records done packets at every integration batch.
 - **The owner.** Read §2 (D27, in force; strike any clause you disagree with), §5.3 (your sessions, in order), §6.3 (one command each) and §7 (open questions). Every question has a default; the ones marked **needs owner approval** amend a decision and wait for your word, and everything else proceeds on its default.
 
 **How to pick work.** Take a packet that meets all four conditions:
@@ -56,9 +58,11 @@
 3. its owned paths are free in the lock table (§3.3);
 4. it is the earliest such packet on your track in §5, and no struck D27 clause covers it (§2.2).
 
+**Codex under D28.** Codex takes the next unit from [CODEX.md](CODEX.md) whose own prerequisites are met, instead of condition 4's track order. A blocked unit never stops independent units (D28).
+
 The first waves are listed explicitly in §5.4.
 
-**Numbers.** Estimates are **agent-hours** for balancing load between the agents. They are not calendar estimates, and PLAN.md stays estimate-free (ref:1822). Packet totals after the writer adjustments in §9, the review changes in §10 and the 2026-10-03 UI-lanes changes:
+**Numbers.** Estimates are **agent-hours** for balancing load between the agents. They are not calendar estimates, and the roadmap (CLAUDE.md) stays estimate-free (ref:1822). Packet totals after the writer adjustments in §9, the review changes in §10 and the 2026-10-03 UI-lanes changes:
 
 | Owner | Packets | Agent-hours | Start now (dependencies met on `main`) |
 |---|---:|---:|---:|
@@ -90,6 +94,11 @@ Codex's draft PR #21 (the UI0 catalog, `CX-UIA-02`) is integrated in the first b
 | D27 | **Two builder agents (Claude and Codex); early UI work** | **Status.** In force 2026-10-03: the owner asked for the Claude/Codex split and started Codex on it. The owner may strike any clause; work under a struck clause takes no new packets, and its in-flight packets finish or park. Stage 24's early start (the last clause's first bullet) was approved on 2026-10-03, when the owner asked for all the UI work, iOS, iPadOS and Android included, to run in parallel (WORKSTREAMS.md §7 Q2).<br>**Roles.** Claude (the main session) stays the integrator and the one contract owner D6(c) asks for. It alone changes the compilers, shared specs, generators, generated files, `src/runtime/**` (`c/`, `gpu/`, `windows/`), the native readers, editor tooling (`src/devex/**`, except a file a Codex packet names while no C-track packet holds it) and the hotspot files (Makefile, `flake.nix`, `flake.lock`, `nix/*`, `conftest.py`, `runner_capabilities.py`, `native_plan.py`, `budget_bench.py`, `ci.yml`, `macos.yml`, `windows.yml`, PLAN.md, AGENTS.md). It also applies the integrator-owned data (`btrc.toml` manifests, expected-skip manifests, denominators, `ci/tiers.toml`), which Codex changes only through `fragment:` commits. It approves and freezes every contract, merges every branch and pushes `main`. Codex (OpenAI) is a second builder. It owns stdlib platform providers and UI (`GUI`, `UI`, `Tray`, `App`, except their `btrc.toml`), OS-service providers that need no compiler change, test hosts, packaging and host tooling in `tools/` directories it owns, the lane workflows it creates, fixtures, examples, evidence harnesses and their docs, and the BTRSmith UI slices. It may draft UI contracts as the single designated writer chain. A draft becomes a contract only when Claude approves it under the standing design rule. Codex files a request for any compiler, spec or runtime change, and Claude turns it into a packet. Owner steps are `MAC-` packets, one command each.<br>**Mechanics.** `WORKSTREAMS.md` assigns the packets and their paths. Codex works on `codex/…` branches, claims a packet with a draft PR titled `[CX-…]` that carries a `Packet:` line, opens draft PRs to `main` only to get CI, and never merges. Claude integrates at most two Codex code branches per batch into `main-kn9jxh`. Docs-only branches do not count, and an atomic landing (UI2, UI3, a Stage 34 landing, a Stage 35 track milestone, the Windows FileSystem/Process landing) counts as one. Claude runs D5 and pushes per D4. The parity rule is unchanged.<br>**Amends D1.** D1 still orders Claude's work and the gate queue, except for the early starts named in the last clause. A Codex packet may run ahead of its bucket when its dependencies are met on `main`, or when it is planning or spike work, and it changes no file on Claude's list. Codex batches never displace a bucket 1–3 batch or a quiet window.<br>**Amends D6(c).** The bucket 3–4 platform lanes may be split between the two agents. There is still one contract owner (Claude), and one writer at a time per hotspot. IView, IWindow and `App.btrc` form one Codex writer chain.<br>**UI work that starts now:**<br>• UI0: the focused GUI gate, the catalog and drift test, the host matrix, the BTRSmith caller map and the headless Wayland/X11/AT-SPI tooling;<br>• the native-shell fixture and its macOS and Linux-SDL proofs;<br>• docs-only drafts of the UI2 and UI4–UI9 contracts;<br>• spikes that merge only a findings note: GTK4/WebGPU in plain C, Win32/UIKit/Android shell notes, the collection data model, accessibility bridges;<br>• the 100,000-row fixture generator.<br>**Starts as soon as its in-stage dependencies land,** without waiting for buckets 2–3 to close: the macOS and Linux-SDL halves of UI1–UI3 and the tray (Stages 31–33). UI2 and UI3 approvals are provisional for Windows, iOS and Android until `CL-UIA-22` re-checks them on the real shells. A change then is a versioned contract change, landed atomically with macOS and Linux. If D23 picks GTK4, `CX-UIA-29` ports the Linux UI2/UI3 core to GTK4 before the Linux UI4 work.<br>**Stays gated:**<br>• any portable-contract edit before its packet is approved; such edits land atomically with both reference providers;<br>• the btrc-hosted GTK4 spike and D23, which come after interop step 7 (`CL-P2-24`) and the GObject binding (step 8);<br>• the Windows, iOS and Android shells and UI tracks (Stages 23–29 first);<br>• Stage 34–37 provider work, which waits for the Stage 33 landing, the five shells and `CL-UIA-22`;<br>• BTRSmith screen migration, which waits for its btrc landing and pin bump;<br>• every compiler, spec and runtime change the last clause does not name;<br>• Mac, device and account evidence (D8).<br>**Codex stdlib code while bucket 2 runs:**<br>• no `#if`, `#ifdef` or `#undef` in `src/stdlib` until C4 lands; after that, only conditions valid on every target, and never `#undef`;<br>• no struct member spelled `T[] name` (write `T* name`);<br>• no `volatile T*`;<br>• import every btrc type spelled `struct X`, `union X` or `enum X`;<br>• no identifier that C3 reserves (`inline`, `restrict`, `va_arg`, `_Alignas`, …).<br>Codex stdlib branches are re-gated after C4, r09, r13, the C3 vocabulary commit and r15a.<br>**Claude may also start early** (each item an explicit amendment of D1):<br>• Stage 24 (`CL-P1-03`…`15`) and Stage 25's compiler packets (`CL-P1-16`…`20`), once C4 lands (`CL-C-06`). They interleave with C2/C3 by hotspot, never beside `CL-C-07` or `CL-C-23`, and `CL-P1-05` never beside `CL-C-25` or `CL-C-30`. Interop (`CL-P2-05`…`24`), the GObject binding (`CL-UIA-06`…`08`) and `CL-UIB-16` wait for bucket 2's close (`CL-C-40`);<br>• bucket-1 preparation that measures nothing: the runbook kit, the Stage B key and journal spec, never-merged floor spikes, reference attribution tooling and the host manifests (the x86_64 workflow waits for D7's probe);<br>• Stage 38 CI on runners that already exist: the macOS hardware skip tier, BTRSmith Linux CI and CI tiers;<br>• the BTRSmith UI2 subscriptions and Library.UI split (`CL-UIA-15`…`18`) once UI2 lands, because bucket 1 measures the D9 BTRSmith copy pinned by `CL-R-01`, never BTRSmith `main`. |
 ```
 
+**D28 (2026-10-06) precedence.** The row above stays as copied. CLAUDE.md's D28 row supersedes three of its clauses for Codex:
+- "Stays gated" bullets 3 and 4 (the Windows, iOS and Android shells and UI tracks; Stage 34–37 provider work), as applied to existing-interface repairs and per-platform slices. Those start on their own demonstrated prerequisites (§2.2, [CODEX.md](CODEX.md)). New contract and feature scope stays gated as written.
+- The Roles grant of "the lane workflows it creates". D28 grants Codex no workflow edit, so Claude installs lane workflows (§3.2).
+- The Mechanics clause "`WORKSTREAMS.md` assigns the packets". CODEX.md holds Codex's queue; this doc keeps the path claims and the protocol.
+
 ### 2.1 How D27 changes D1 and D6(c)
 
 - **D1 (bucket order; UI-first rejected).** D1 still holds for everything Claude builds, except the early starts D27 names. D27 does not reopen UI-first:
@@ -112,10 +121,11 @@ Codex's draft PR #21 (the UI0 catalog, `CX-UIA-02`) is integrated in the first b
 | Class | Rule | Packets |
 |---|---|---|
 | **PLAN-sanctioned without D27** | Runs even if D27 is struck | Claude in bucket order: `CL-UIA-01` (Gate 0), `CL-R-00`, `CL-R-01`, `CL-C-01…`, `CL-C-00`, `CL-C-02`, `CL-REQ-01`, `CL-P1-02`, `CL-UIA-02` (CI policy commit), and the bucket-1 preparation below. Codex: `CX-C-01`, `CX-P1-02`, `CX-P1-03` (after `CL-UIA-02`), `CX-P2-01…03`. |
-| **Starts now** (dependencies on `main`, or planning/spike) | No wait for buckets 2–3 | UI0: `CX-UIA-01`, `CX-UIA-02` (follow-up; PR #21's commit is integrated), `CX-UIA-06`, `CL-UIA-21`, `CL-UIA-24`, `CL-UIA-03` (PR #21's ids are on `main`), `CL-UIA-05` (rolling; step 6 first); shell fixture `CX-UIA-09`; UI2 drafts `CX-UIA-18/19/20`; UI4–UI9 pre-drafts `CX-UIB-01…05`; spikes `CX-UIA-12`, `CX-UIA-13`, `CX-UIB-06`, `CX-UIB-07`; generators `CX-UIB-08` (and `CX-UIB-09` with BTRSmith access). Non-UI Codex starters: `CX-P1-03…06` (`CL-UIA-02` is on `main`; Q20's default is in force), `CX-R-01`, `CX-R-03`. |
+| **Starts now** (dependencies on `main`, or planning/spike) | No wait for buckets 2–3 | UI0: `CX-UIA-01`, `CX-UIA-02` (follow-up; PR #21's commit is integrated), `CX-UIA-06`, `CL-UIA-21`, `CL-UIA-24`, `CL-UIA-03` (PR #21's ids are on `main`), `CL-UIA-05` (rolling; step 6 first); shell fixture `CX-UIA-09`; UI2 drafts `CX-UIA-18/19/20`; UI4–UI9 pre-drafts `CX-UIB-01…05`; spikes `CX-UIA-12`, `CX-UIA-13`, `CX-UIB-06`, `CX-UIB-07`; generators `CX-UIB-08` (and `CX-UIB-09` with BTRSmith access). Non-UI Codex starters: `CX-P1-03…06` (`CL-UIA-02` is on `main`; under D28 Claude adds their workflows, Q20), `CX-R-01`, `CX-R-03`. |
 | **Starts when in-stage dependencies land** | No wait for buckets 2–3 to close | macOS and Linux-SDL UI1–UI3 and the tray: `CX-UIA-03/04/05/07/30`, `CX-UIA-10`, `CX-UIA-11`, `CL-UIA-09`, `CL-UIA-11/12`, `CL-UIA-13`, `CL-UIA-14`, `CL-UIA-19`, `CL-UIA-20`, `CX-UIA-21…28`; the GTK4 port `CX-UIA-29` and `CL-UIA-23` only if D23 picks GTK4 |
-| **Gated by bucket 3** | Waits for its Stage 23–29 packets | `CX-UIA-15/16/17` (Win32, UIKit, Android shells), `CL-UIA-06…08` (GObject, after interop step 7) and `CX-UIA-14` (GTK4 spike), `CL-UIA-10` (D23), `CL-UIA-22` (new-platform feasibility and the UI2/UI3 re-check), all of Stage 35 (`CX-UIB-42…65`, `CL-UIB-14`, `CL-UIB-19`) |
-| **Gated by the Stage 33 landing, the five shells and `CL-UIA-22`** | Contract approval `CL-UIB-02` checks against real shells | `CX-UIB-10…17`, `CL-UIB-02…08`, the Stage 34 providers |
+| **D28 / CODEX.md** (2026-10-06) | Starts on its own demonstrated prerequisites; a blocked unit never stops independent units | `CX-STDLIB-01…05` (existing-interface repairs taken from `CX-UIA-23/27` and `CX-UIB-18/26/31`) and the per-platform slices: the Windows SDK import, then the Toolhelp thread count; iOS and Android app-private files; the Android NativeActivity host; the mobile lifecycle, one button and one field ([CODEX.md](CODEX.md)) |
+| **Gated by bucket 3** (new contract/feature scope only) | Waits for its Stage 23–29 packets | `CX-UIA-15/16/17` (Win32, UIKit, Android shells), `CL-UIA-06…08` (GObject, after interop step 7) and `CX-UIA-14` (GTK4 spike), `CL-UIA-10` (D23), `CL-UIA-22` (new-platform feasibility and the UI2/UI3 re-check), all of Stage 35 (`CX-UIB-42…65`, `CL-UIB-14`, `CL-UIB-19`) |
+| **Gated by the Stage 33 landing, the five shells and `CL-UIA-22`** (new contract/feature scope only) | Contract approval `CL-UIB-02` checks against real shells | `CX-UIB-10…17`, `CL-UIB-02…08`, the Stage 34 providers |
 | **Gated by the BTRSmith btrc landing** | After the pin bump (`CL-UIB-15`'s step for that landing) | `CX-UIB-66…76`, `CX-UIB-83…85` |
 | **Claude early starts** (D27's last clause) | Measure nothing; merge nothing that changes compiler behavior ahead of order, except Stage 24/25 after C4 | Bucket-1 preparation and Stage 38 CI on existing runners: `CL-R-02`, `CL-R-04`, `CL-R-05` (spike branches never merged), `CL-R-06`, `CL-R-23`, `CL-R-36`, `CL-R-37`, `CL-R-38`, `CL-R-50`. After C4 (`CL-C-06`): `CL-P1-03…20`. After UI2 (`CL-UIA-14`): `CL-UIA-15…18`. |
 
@@ -127,9 +137,9 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 | | Claude | Codex | Owner |
 |---|---|---|---|
-| Builds | Both compilers (`src/compiler/python`, `src/compiler/btrc`) in parity; shared specs (`src/language/*`); generators (`tools/compiler_codegen`); runtime assets (`src/runtime/**`: `c/` and its manifest, `gpu/`, `windows/`); native readers (`tools/NativeHeaderReader.cpp`, `tools/JavaClassReader.c`); native import and lowering; editor tooling (`src/devex/**`); the C-compatibility track; the target contract; interop; boundary records; CI hotspots and the workflow-class policy; BTRSmith's composition-root and policy work | Stdlib platform providers and UI (`src/stdlib/{GUI,UI,App,Tray}` except `btrc.toml`: providers now, portable contracts once approved); stdlib OS-service providers that need no compiler change; test hosts, packaging and host tooling in `tools/` directories it owns; the lane workflow files it creates; fixtures and pytest drivers for its providers; examples; UI evidence and automation harnesses; docs for its areas; BTRSmith UI and platform slices | Steps that need the Mac, hardware, accounts, licences or the owner's ears (D8) |
+| Builds | Both compilers (`src/compiler/python`, `src/compiler/btrc`) in parity; shared specs (`src/language/*`); generators (`tools/compiler_codegen`); runtime assets (`src/runtime/**`: `c/` and its manifest, `gpu/`, `windows/`); native readers (`tools/NativeHeaderReader.cpp`, `tools/JavaClassReader.c`); native import and lowering; editor tooling (`src/devex/**`); the C-compatibility track; the target contract; interop; boundary records; CI hotspots, lane workflows (D28) and the workflow-class policy; BTRSmith's composition-root and policy work | Stdlib platform providers and UI (`src/stdlib/{GUI,UI,App,Tray}` except `btrc.toml`: providers now, portable contracts once approved); stdlib OS-service providers that need no compiler change; test hosts, packaging and host tooling in `tools/` directories it owns (Claude writes their lane workflow files, D28); fixtures and pytest drivers for its providers; examples; UI evidence and automation harnesses; docs for its areas; BTRSmith UI and platform slices | Steps that need the Mac, hardware, accounts, licences or the owner's ears (D8) |
 | Integrates | Every branch, Codex's included, into `main-kn9jxh`; applies every `fragment:` commit; runs every gate; pushes `main` (D4) | Never merges or pushes `main` | Never edits tracked files |
-| Decides | Contract approval and freezing (D6(c)), merge order, conflicts, PLAN.md | Nothing beyond its own packet | D27, and every §7 default marked **needs owner approval**; may override any other default at any time |
+| Decides | Contract approval and freezing (D6(c)), merge order, conflicts, CLAUDE.md | The order of its active queue in CODEX.md (D28); nothing beyond its own units | D27, D28, and every §7 default marked **needs owner approval**; may override any other default at any time |
 
 ### 3.2 Branches, draft PRs and CI
 
@@ -139,13 +149,13 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
   - Title: `[CX-UIA-02] <packet title>`.
   - Body: the report template in §3.7, filled in as the work proceeds.
   - If Codex cannot create a draft PR, the title starts with `[DRAFT]`, and Claude treats the PR as a draft.
-  - When the CI cap below is reached, a packet without a docs-tier claim commit (policy item 3) opens its draft PR when the slot frees. Until then its planned paths count as reserved through [`codex-ui-lanes.md`](docs/workstreams/codex-ui-lanes.md) for the UI lanes, or through a `Reserved:` row in the lock table (§3.3.2) for other packets.
+  - When the CI cap below is reached, a packet without a docs-tier claim commit (policy item 3) opens its draft PR when the slot frees. Until then its planned paths count as reserved through a `Reserved:` row in the lock table (§3.3.2); CODEX.md units included.
 - **Stacked branches.** A packet whose dependency is marked `(ready)` stacks on an unmerged contract or base packet:
   - it branches from the base packet's branch, opens its draft PR against `main`, and names the base in the PR body;
   - a base is **ready** when its acceptance is ticked and its draft-PR CI is green;
   - only the base's landing packet merges it: `CL-UIA-14`, `CL-UIA-20`, `CL-UIA-23`, `CL-UIB-05…08`, `CL-UIB-17` or `CL-P2-27`;
   - a stacked packet's owned-path self-check diffs against its base branch, not `origin/main`.
-- **Reproduction branches.** D24 keeps a reproduction written before its fix on its own branch, recorded as failing in the catalog. Such a branch (`codex/<id>-<case>-repro`, for example `codex/cx-uia-11-e40-repro`) belongs to the packet that writes it and is never merged. The fix packet lands the reproduction with its fix (`CX-UIA-23` lands E40's).
+- **Reproduction branches.** D24 keeps a reproduction written before its fix on its own branch, recorded as failing in the catalog. Such a branch (`codex/<id>-<case>-repro`, for example `codex/cx-uia-11-e40-repro`) belongs to the packet that writes it and is never merged. The fix packet lands the reproduction with its fix (`CX-STDLIB-01`, [CODEX.md](CODEX.md), lands E40's; D28).
 - **Spike branches.** A spike's prototype (`CX-UIA-12`, `CX-UIB-06`, `CX-UIB-07`) lives on `codex/<id>-spike`, which is pushed but never gets a PR and is never merged. A spike that needs a hosted runner gets one `focus=native-gui` dispatch on that branch (`CX-UIB-07`; policy item 8). The findings PR on `codex/<id>` carries only Markdown outside the test-read set, so it runs the docs tier.
 - **Two repositories.** A packet with paths in both btrc and BTRSmith runs as two Codex tasks, one per repository environment, under the same packet id. The btrc half merges first, the BTRSmith half pins it, and the packet is done when both are.
 - **What the draft PR is for.** Only CI. Codex never merges or closes a PR, and never pushes to `main`, `main-kn9jxh` or another agent's branch. Claude closes the PR after integrating it.
@@ -161,6 +171,7 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
     - `extended` (a dispatch with `focus=extended`, and the nightly `release.yml` run at 08:23 UTC) adds macOS clang O1 and O3; `release` (a `release.yml` dispatch or a `v*` tag) runs every hosted job and assembles one ledger bundle.
     - The old `docs` job is now `static`, and `release.yml`'s calls prefix every job name.
 - **Workflow files a packet owns** follow the lane-workflow class in `test_ci_workflow_contracts.py`: push and pull_request to `main` with a paths filter that includes the workflow file itself, plus `workflow_dispatch` (and `workflow_call` for a reusable workflow). Every pytest job uploads its skip report as its last step, and the packet adds that workflow's row in the same commit.
+  - Under D28 Codex edits no workflow file and no `ci/proposed/` file. Claude writes lane workflows from the commands in the packet's `REQUEST`, under the same class policy.
   - `CL-UIA-02` replaced the exact-trigger test with this class policy on `main` (batch 13), so a new lane workflow no longer fails the unit shards and lane-workflow packets no longer wait.
   - Until a workflow file is on `main`, it runs only on its `pull_request` trigger, because GitHub dispatches only workflows on the default branch. Rerun with `gh run rerun <id> [--failed]`.
 - **Rerun or focus:**
@@ -177,18 +188,18 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
   - At each batch, Claude reads the runs. For each red job it posts a PR comment through REST (§3.8) that begins `@codex` and gives the job, the run id and the failing log lines.
   - The owner, or the Codex GitHub integration if PR-comment triggers are on, starts the follow-up task on the same branch.
 - **Codex CI policy** (every packet; [`docs/workstreams/codex-ui-lanes.md`](docs/workstreams/codex-ui-lanes.md) gives the exact commands):
-  1. Check the tier and the cap before each push. The `gh api …/actions/runs` query lists in-flight `codex/*` runs. Advisory priority: `CX-C-01`, the `CX-UIA-02` follow-up, `CX-UIA-09`, `CX-P1-05`, then the rest.
+  1. Check the tier and the cap before each push. The `gh api …/actions/runs` query lists in-flight `codex/*` runs. Advisory priority: CODEX.md's queue order.
   2. Local acceptance and an owned-path self-check before each push.
-  3. At most four pushes per packet (claim, final, two fixes). A claim commit may carry only a non-test-read Markdown file, so the claim runs the docs tier.
+  3. Batch corrections. Four pushes per packet (claim, final, two fixes) is a guideline, not a stop: a verified repair may push again (D28). The CI cap and one dispatch per workflow (item 8) still apply, and Codex avoids redundant dispatches (CODEX.md). A claim commit may carry only a non-test-read Markdown file, so the claim runs the docs tier.
   4. Watch `release`, `tests (unit)`, `tests (btrc)` and macOS `native-gui` first. Fix in owned paths and re-push at once.
   5. `gh run watch <id> --exit-status --interval 120`, time-boxed to 180 minutes after the final push.
   6. For a failure the diff cannot cause, compare with `main`'s latest run. Rerun with `--failed` once, for infrastructure failures only; otherwise record it and hand back.
   7. Never add `ci:full`, and never dispatch `full` or `extended`.
      - No Makefile, `ci/tiers.toml` or core-workflow change unless the packet names it as a `fragment:` (§3.5). Such a PR runs the main tier and takes the CI slot.
      - Prefer a `REQUEST` when Claude can land the line first.
-     - A lane workflow with a matrix pytest job needs a `fragment: ci/tiers.toml` row (`test_ci_workflow_contracts.py:564`).
+     - A lane workflow with a matrix pytest job needs a `ci/tiers.toml` row (`test_ci_workflow_contracts.py:564`); under D28 Claude adds it with the workflow.
   8. At most one `focus=native-gui` dispatch per workflow per packet. Dispatching needs `actions:write`; without it, Claude dispatches and posts the run id.
-  9. Hand back when green, after a third red, or at the time box.
+  9. Hand back when green, after a third red, or at the time box, then continue another independent CODEX.md unit (D28). A pending run or approval never stops unrelated work.
 - **BTRSmith** (private) uses the same convention: branch `codex/<id>` in `schiffy91/btrsmith`, a draft PR to BTRSmith `main`, from a second Codex environment (§7 Q19). BTRSmith has no CI until `CL-R-37` (Linux, tagged macOS) and `CL-R-48` (KVM emulator, Windows dispatch); its macOS and iOS evidence comes from owner sessions.
 - **Claude's own lanes** keep today's branch names (`stage<N>/<topic>`, `integ/<batch>`). Claude claims a lane by pushing its branch and opening a `[CL-…]` draft PR, with Owned paths first, before the first edit. That claim counts in §3.3 like a Codex draft PR. Lane reports carry the §3.7 fields.
 
@@ -211,7 +222,7 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 - table rows in `tools/bench/scripts/README.md` (`CX-C-01`, `CL-R-02`);
 - separate sections of BTRSmith `docs/NativePlatformPlan.md` (`CX-P1-01`, `CL-UIA-03`, `CL-R-00`);
 - separate sections of `docs/design/ci-health.md` (`CL-R-36`, `CX-P2-18`);
-- workflow rows in `src/tests/python/test_ci_workflow_contracts.py` (each lane-workflow packet; the policy itself is Claude's: `CL-UIA-02`, now `CL-R-50`);
+- workflow rows in `src/tests/python/test_ci_workflow_contracts.py` (one per lane workflow, which Claude adds under D28; the policy itself is Claude's: `CL-UIA-02`, now `CL-R-50`);
 - `native_ui_shell_fixtures.py` (`CX-UIA-09`, then `CX-UIA-15/16/17`). `test_native_ui_shell.py` holds the portable harness (`CX-UIA-09`); each platform's rows live in its own `test_native_ui_shell_<platform>.py`, created by `CX-UIA-09` (macos, linux) or by that platform's shell packet, and then owned by that platform's packets;
 - new parametrization rows in `src/tests/python/test_native_cxx_owners.py` (`CX-P2-30`);
 - the UI catalog's shard documents under `docs/design/native-ui-catalog/`: `families.toml`, `operations/<Owner>.toml`, `cases/E<aa>-E<bb>.toml`, `surface/<Stem>.toml`, `evidence/<kebab-name>.toml|.jsonl`, `amendments/<packet-id-lowercase>.toml` and `hosts.toml`. Each file is held by one packet, as listed in its README; the layout and admission rules live in `tools/qualification/ui_catalog.py`. Classification of a slot lives in exactly one file; evidence may come from several, and the last in ledger order wins (schema.py). The seed `docs/design/native-ui-catalog.toml` changes only through reviewed releases (§7 Q35, Q36). Until `CL-UIA-24` repoints the frozen sources, no packet adds a row shaped ``| `Owner.member` |`` to `native-ui-api-inventory.md` or changes an N/E row id in `native-ui-parity.md`. No test or tool names a Markdown file outside ci.yml's `TEST_READ_MARKDOWN` (`test_scope_counts_every_markdown_file_a_test_or_tool_reads_as_code`).
@@ -227,16 +238,16 @@ iOS and iPadOS are one platform family: one provider directory (`GUI/IOS`, `App/
 | Generated files | `src/compiler/python/syntax/ast/generated.py`, `…/abi/generated.py`, `…/abi/native_generated.py`, `…/runtime/generated.py`, `src/compiler/btrc/generated/**`, `src/stdlib/btrc.lock`, `src/stdlib/btrc.symbols`, `src/devex/lsp/catalog/generated.py` | Regenerated by Claude, never edited by hand; never held | A `derived:` commit, which Claude drops (§3.5) |
 | Runtime and readers | `src/runtime/**` (`c/` and its manifest, `gpu/`, `windows/`), `tools/NativeHeaderReader.cpp`, `tools/JavaClassReader.c`, the boundary manifest | Claude (one D14 re-capture per commit) | `REQUEST(…)`: `CL-P2-28` for GPU platform branches, `CL-P2-14` for the Windows shims |
 | Editor tooling | `src/devex/**` | Claude (construct commits keep it in step with the parsers); Codex only in packets that name the file, never while a C-track packet holds it | `REQUEST(…)` |
-| Hotspots | `Makefile`, `flake.nix`, `flake.lock`, `nix/*`, `src/tests/conftest.py`, `src/tests/runner_capabilities.py`, `tools/native_plan.py`, `tools/budget_bench.py`, `.github/workflows/{ci,macos,windows}.yml`, the policy in `test_ci_workflow_contracts.py`, `tools/qualification/*.py` (existing modules), PLAN.md, AGENTS.md/CLAUDE.md | Claude, one holder at a time | A `fragment:` commit (Makefile lines, CI tier lines) or `REQUEST(…)` |
+| Hotspots | `Makefile`, `flake.nix`, `flake.lock`, `nix/*`, `src/tests/conftest.py`, `src/tests/runner_capabilities.py`, `tools/native_plan.py`, `tools/budget_bench.py`, `.github/workflows/{ci,macos,windows}.yml`, lane workflow files (Claude writes them from a Codex `REQUEST`, D28), the policy in `test_ci_workflow_contracts.py`, `tools/qualification/*.py` (existing modules), PLAN.md (a pointer), AGENTS.md, CLAUDE.md | Claude, one holder at a time | A `fragment:` commit (Makefile lines, CI tier lines) or `REQUEST(…)` |
 | Integrator-owned data | `src/stdlib/**/btrc.toml` exports and native rows, `src/tests/fixtures/expected-skips/*.json` (including new runner manifests), `tools/qualification/denominators.toml`, `ci/tiers.toml`, the totals table in `docs/design/platform-parity.md` | Claude applies them; never held | A `fragment:` commit |
 | Compiler-import stdlib modules | The root prelude, `BackgroundJobs` (`HostWorkerPools`, `WorkerPools`, `WorkerPoolProvider` and its providers, `ProcessThreads` and its providers), `Bytes`, `Callback`, `Console`, `Digest`, `FileSystem`, `IO`, `Iterable`, `JSON`, `Map`, `Math`, `OwnedBuffer`, `Platform`, `Process`, `Result`, `Strings`, `TOML`, `Timer`, `Vector` | Claude, or a Codex packet that names the file, under the rule in §3.4 | `REQUEST(…)` |
 | Inventory cells | `docs/design/platform-inventory.toml` | Either agent, only the cells of operations its packet implements; Claude merges conflicts. The frozen denominator never changes | — |
-| Codex areas | `src/stdlib/{GUI,UI,App,Tray}/**` except `btrc.toml` (portable contract files only after approval), stdlib OS-service provider directories (`FileSystem/Windows`, `HTTP/IOS`, …), `tools/{target_hosts,windows_toolchain,xbuild,audio_rig,ui,ui_evidence,devices,android,apple}/**`, the lane workflow files it creates, its fixtures and test modules, `docs/design/native-ui-*.md` and the UI catalog, `examples/**` | Codex, per packet | Claude asks in the PR, or opens a `CL-` packet |
+| Codex areas | `src/stdlib/{GUI,UI,App,Tray}/**` except `btrc.toml` (portable contract files only after approval), stdlib OS-service provider directories (`FileSystem/Windows`, `HTTP/IOS`, …), `tools/{target_hosts,windows_toolchain,xbuild,audio_rig,ui,ui_evidence,devices,android,apple}/**`, its fixtures and test modules, `docs/design/native-ui-*.md` and the UI catalog, `examples/**` | Codex, per packet | Claude asks in the PR, or opens a `CL-` packet |
 | Frozen | `docs/design/plan-reference.md` | Nobody | — |
 
 #### 3.3.2 In-flight lock table (snapshot; Claude updates it in every integration merge commit)
 
-Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]` draft PRs plus the Claude lanes listed here. [`docs/workstreams/codex-ui-lanes.md`](docs/workstreams/codex-ui-lanes.md) lists the Codex UI lanes open now and the paths each lane will claim; a lane holds its paths only once its draft PR exists.
+Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]` draft PRs plus the Claude lanes listed here. [CODEX.md](CODEX.md) lists Codex's active units and their paths. Claims and reservations are recorded in this table: a unit holds its paths once its draft PR exists, and a `Reserved:` row reserves them before that (§3.2).
 
 | Packet | Agent | Branch | Holds | State |
 |---|---|---|---|---|
@@ -248,19 +259,19 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CX-UIA-13` | Codex | `codex/cx-uia-13` (PR #28) | — | notes integrated in batch 20 (`docs/design/native-ui-shells/{windows,ios,android}.md`); `CL-UIA-12` reviews them |
 | `CX-UIB-03`…`06` | Codex | `codex/cx-uib-03`…`06` (PRs #30, #31, #32, #44) | — | pre-drafts and the collection-model findings integrated in batch 21 (`docs/design/native-ui-contracts/`); `CL-UIB-02` reviews them |
 | `CX-P2-03` | Codex | `codex/cx-p2-03-r2` (PR #50; first draft #36) | — | approved by `CL-P2-01` round 2 and merged in batch 31 (`docs/design/mobile-storage.md`); its non-blocking items ride the first implementation packet |
-| `CX-P2-01`, `CX-P2-02` | Codex | `codex/cx-p2-01-r2` (PR #52), `codex/cx-p2-02-r2` (PR #51) | the design docs | round 2: every round-1 blocker resolved; revise again for 1 (Windows: the Daemon supervisor executable has no build, bundle or trusted-location mechanism) and 2 (HTTP: providers send differently-validated requests, Android turns a GET with a body into a POST; synchronous WinHTTP cancelled by `WinHttpCloseHandle`) |
+| `CX-P2-01`, `CX-P2-02` | Codex | `codex/cx-p2-01-r2` (PR #52), `codex/cx-p2-02-r2` (PR #51) | the design docs | revision 4 pushed (#52 `d77b4b14`, #51 `0fa4c093`), docs CI green; awaiting `CL-P2-01` round 4 (Claude). Round 2 resolved every round-1 blocker; round 3 returned both in batch 36 (4 and 8 blockers) |
 | `CX-UIA-12` | Codex | `codex/cx-uia-12` (PR #38; spike `codex/cx-uia-12-spike`, never merged) | — | findings integrated in batch 21 (`docs/design/linux-gtk4-feasibility.md`); `CL-UIA-12` reviews them |
 | `CX-UIA-10`, `CX-UIA-06` follow-up | Codex | `codex/cx-uia-10` (#54), `codex/cx-uia-06-followup` (#56) | — | integrated in batch 36 (AppKit accessibility and key-view evidence with the AX gate bound to fixture controls; the integrator applied the PR's verified promotion of the four test records to the fixed-gate run, artifact 11354918053. Evidence routes bound to trusted runners and devices). Returned the same day: `CX-P1-03` (#53, must build on `tools/target_hosts/windows`), `CX-P2-01` round 3 (#52, 4 blockers), `CX-P2-02` round 3 (#51, 8 blockers) |
-| `CX-P1-06` | Codex | `codex/cx-p1-06` (#43) | — | integrated in batch 35 (gated Windows executor with a kill-on-close Job Object, Linux cross-build bundles for x64 and ARM64, native checker); the integrator added `.github/workflows/host-windows.yml` (its REQUEST), whose first run on `main` is the native evidence. Before `CL-P1-17` freezes the protocol: the status file must leave the target's cwd, `prepare()` must be atomic, and admission must pin argv and expected outcomes |
-| `CX-UIA-11` | Codex | `codex/cx-uia-11` (#55); the E40 reproduction stays on never-merge `codex/cx-uia-11-e40-repro` (`bbe4f56e`) until `CX-UIA-23` fixes the provider | — | integrated in batch 34 (Linux SDL shell evidence in `ui1-linux.toml`; bounded Wayland/libdecor and X11 clipboard probes). Follow-ups on the PR: `observed` holds the outcome word; probes get a whole-program watchdog and no side effects inside `assert()`; the Wayland acceptance row waits for the libdecor fix. `CX-UIA-10` (#54) was returned: its AX gate passes without the Commit button |
+| `CX-P1-06` | Codex | `codex/cx-p1-06` (#43); follow-ups `codex/cx-p1-06-native-hardening` (#58, `6ec9b9dc`) | `tools/target_hosts/windows/**` (#58) | integrated in batch 35 (gated Windows executor with a kill-on-close Job Object, Linux cross-build bundles for x64 and ARM64, native checker); the integrator added `.github/workflows/host-windows.yml` (its REQUEST), whose first run on `main` is the native evidence. Before `CL-P1-17` freezes the protocol: the status file must leave the target's cwd, `prepare()` must be atomic, and admission must pin argv and expected outcomes. Follow-ups open in #58, green (CI 37358029674; Host Windows 37358027694, 16/16 native cases on x64 and on ARM64); awaiting Claude integration, which comes before #53 rebases onto that host |
+| `CX-UIA-11` | Codex | `codex/cx-uia-11` (#55); the E40 reproduction stays on never-merge `codex/cx-uia-11-e40-repro` (`bbe4f56e`) until `CX-STDLIB-01` ([CODEX.md](CODEX.md), D28) lands it with the fix | — | integrated in batch 34 (Linux SDL shell evidence in `ui1-linux.toml`; bounded Wayland/libdecor and X11 clipboard probes). Follow-ups on the PR: `observed` holds the outcome word; probes get a whole-program watchdog and no side effects inside `assert()`; the Wayland acceptance row waits for the libdecor fix. `CX-UIA-10` (#54) was returned: its AX gate passes without the Commit button; follow-up #57 integrated in batch 38 (E40 records now count as failed; probes bounded and NDEBUG-safe; the clipboard probe compiles in CI; the integrator keeps `bbe4f56e` reachable on branch `evidence/cx-uia-11-e40-repro` (the proxy refuses tags)) |
 | `CX-UIA-06`, `CX-UIB-08` | Codex | `codex/cx-uia-06` (#49), `codex/cx-uib-08` (#48) | — | integrated in batch 32 (UI evidence host map and Linux desktop check; the 100,000-record collection fixture). Follow-ups on the PRs: hosts validator binding runner/device to platform; record-key tie-break before `CX-UIB-28` |
-| `CX-P1-03` | Codex | `codex/cx-p1-03` (#53) | `tools/windows_toolchain/**`, its lane workflow | returned in batch 32: no `windows-arm64.yml` (or `ci/proposed/`), 0 of 5 acceptance items, depends on #43, VsDevCmd quoting |
+| `CX-P1-03` | Codex | `codex/cx-p1-03` (#53) | `tools/windows_toolchain/**` | returned again in batch 36 at `958d309b` (push 2/4): rebase onto `tools/target_hosts/windows` once #58 is integrated; Claude adds `windows-arm64.yml` (D28). First returned in batch 32 (no `windows-arm64.yml` or `ci/proposed/` file, which D28 makes Claude's; 0 of 5 acceptance items; depended on #43; VsDevCmd quoting) |
 | `CX-UIA-09`, `CX-UIA-01` | Codex | `codex/cx-uia-09` (#40), `codex/cx-uia-01` (#33) | — | integrated in batch 30 (the UI1 shell fixture; the UI0 focused-gate runbook, setup script and coverage test) |
-| `CX-UIB-07` | Codex | `codex/cx-uib-07` (#42), prototype `codex/cx-uib-07-spike` | its findings doc | open: macOS run 37217909473 on the repaired prototype refused `(void*)surface.nativeView()` in both compilers (the probe's parameter is not declared a read-only borrow); see the PR |
+| `CX-UIB-07` | Codex | `codex/cx-uib-07` (#42), prototype `codex/cx-uib-07-spike` | its findings doc | open: macOS run 37217909473 on the repaired prototype refused `(void*)surface.nativeView()` in both compilers (the probe's parameter is not declared a read-only borrow); see the PR. Its 4/4 push stop is lifted by D28; AX trust (acceptance item 1) stays unknown until `CL-UIB-09`; see [CODEX.md](CODEX.md) |
 | `CX-UIA-30`, `CX-UIA-04` | Codex | `codex/cx-uia-30` (#45), `codex/cx-uia-04` (#46) | — | case map (470 slots) and operation map B integrated in batch 23; cells stay implemented-unverified until the evidence follow-up |
 | `CX-UIA-03` | Codex | `codex/cx-uia-03` (#47) | — | operation map A integrated in batch 24 (81 frozen ids, 15 pending factories; `GUI.rasterText` retired); cells implemented-unverified until the evidence follow-up |
 | `CX-P1-02` | Codex | `codex/cx-p1-02` (#41) | — | `platform-adaptations.md` integrated in batch 23 for the owner's sign-off; its 58-cell `platform-inventory.toml` patch (PR body) and the `platform-parity.md` totals wait for that sign-off |
-| `CX-P1-04`, `05`, `06` | Codex | `codex/cx-p1-04` (#34), `-05` (#35), `-06` (#43) | their `tools/target_hosts/**` and `host-*.yml` | returned in batch 23: no workflow was committed (Codex followed the integrator's over-broad "no CI workflows" wording, now corrected), Android app mode cannot work with real adb, and the iOS spawn timeout leaks its child |
+| `CX-P1-04`, `05` | Codex | `codex/cx-p1-04` (#34), `-05` (#35) | their `tools/target_hosts/**` | repaired on 2026-10-04 (`55a71b8c`, `628a4a54`), not yet re-reviewed; awaiting integrator review plus Claude-added `host-ios.yml`/`host-android.yml` (D28). Returned in batch 23: no workflow was committed (D28 now makes the workflows Claude's), Android app mode could not work with real adb, and the iOS spawn timeout leaked its child. `CX-P1-06`, returned with them, is integrated (its own row above) |
 | `CX-C-01` | Codex | `codex/cx-c-01` (PR #26) | `tools/bench/scripts/ccompat_checkpoint.sh`, one README row, `test_ccompat_checkpoint_script.py` | integrated in batch 26; its first real run is `MAC-C-02`. Follow-ups (minor, fail closed): the RED gate's step lines in `summary.txt`, optional parent budget runs, the quiet verdict in `summary.json`, the macOS socket path length. BTRSmith's btrc input moves to a branch URL in `CL-R-01`, so `MAC-C-09`'s flake.lock-only bump can work |
 | UI0 evidence promotion | Claude | `stage30/ui0-evidence-promotion` | — | integrated in batch 26 (438 operation cells passed from runs 37171132726/37171133887; the loader lets an observation of the same revision supersede an inventory audit) |
 | `CL-UIA-01` (Gate 0) | Claude | — | — | done: `main` at `7a83bb1` |
@@ -293,11 +304,19 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-R-06` | Claude | `stage6/reference-attribution` | — | integrated in batch 15 |
 | `CL-C-04` | Claude | `stage16/c4-directives` | — | integrated in batch 13 |
 | `CL-C-07` | Claude | `stage17/c2-schema` | — | integrated in batch 25 (the C2/Stage 18 schema; parsers still refuse the new forms); `CL-C-08` is next, and `CL-P1-04` may run beside it |
+| `CL-REQ-08` | Claude | `stage18/req08-static-tuple-typedef` | — | integrated in batch 37 (btrcc declares tuple typedefs spelled only at file scope; both compilers walk generic code only through its instances). `CL-REQ-09` (`stage18/req09-float-literal-double`) and `CL-C-13` (`stage17/c2-l2`) were returned the same day: one blocker and six blockers |
 | `CL-C-08` | Claude | `stage17/c2-shared-owners` | — | integrated in batch 33 (record-member, initializer-slot and integer-constant owners in both compilers, with three contract tests); C2 lanes `CL-C-09` and `CL-C-13`, `CL-REQ-09` and then `CL-P1-05` may start |
 | `CL-R-37` | Claude | BTRSmith `stage38/btrsmith-ci` (`6658536`) | — | workflows proven (warm 50–57 billed minutes, cold about 250); the draft PR waits for `CL-R-01`'s three product fixes and the owner's check of plan minutes (D26) |
+| `CX-PLAN-01` | Codex | `codex/stdlib-lane-plan` (#59) | — | integrated in batch 39 ([CODEX.md](CODEX.md) and the D28 owner update) |
 | Reserved: C3 schema (`CL-C-23`) | Claude | — | the ASDL, `Node`, IR and both parsers | after C2's lanes; never beside `CL-P1-03`…`06` per D27 |
 | Reserved: `flake.nix`/`nix/*` | Claude | — | free | queue |
 | Reserved: `macos.yml`/`ci.yml`/`windows.yml`/`release.yml` | Claude | — | free; next `CL-UIA-11` (after `CX-UIA-09` and `CX-UIA-11`), then `CL-UIB-04`, then `CL-UIB-14`. `CL-R-50` edits `ci/tiers.toml` and the contract test, not the workflows | queue |
+| Reserved: lane workflows (D28) | Claude | — | `.github/workflows/host-ios.yml` (for #34), `host-android.yml` (for #35), `windows-arm64.yml` (for #53) | queue: Claude adds each from its PR's `REQUEST` or commands; the reviewer-drafted `windows-arm64.yml` already passes `test_ci_workflow_contracts.py` |
+| Reserved: `CX-STDLIB-01` (Codex, CODEX.md) | Codex | — | `src/stdlib/GUI/Linux/{LinuxApplication,LinuxSelect,LinuxTextField,LinuxWindow}.btrc`; its event fixture under `src/tests/native/gui/linux/`; the probes under `src/tests/native/gui/ui2/probes/linux/`; `src/tests/python/test_native_ui_linux_spike.py` (the moved collector; the old collector is removed); the new catalog shard `docs/design/native-ui-catalog/evidence/ui2-linux-e40.toml`, with the E40 hunk in `cases/E25-E47.toml` carried per §3.3 step 4 | unpublished, no draft PR yet. Later packets that list these paths (`CX-UIA-23`, `CX-UIA-27`, `CX-UIB-21`, `CX-UIB-26`, `CX-UIB-31`, `CX-UIB-33`) wait for it (§3.9) |
+| Reserved: `CX-STDLIB-02` (Codex, CODEX.md) | Codex | — | `src/stdlib/GUI/Linux/{LinuxGrid,LinuxStack}.btrc`; `src/tests/native/gui/layout/linux/{LinuxGridScrollResize,LinuxStackScrollResize}.btrc`; `src/tests/python/test_native_ui_layout_resize.py` | unpublished, no draft PR yet. First `LinuxGrid` writer; `CX-STDLIB-04` follows it. `CX-UIB-26` waits for it (§3.9) |
+| Reserved: `CX-STDLIB-04` (Codex, CODEX.md) | Codex | — | `src/stdlib/GUI/Linux/LinuxGrid.btrc` after `CX-STDLIB-02`; a `LinuxViewNode` validation change (`LinuxView.btrc`) needs its own explicit row | unpublished; reproduce before fixing (CODEX.md). `CX-UIB-26` waits for it (§3.9) |
+| Reserved: `CX-STDLIB-05` (Codex, CODEX.md) | Codex | — | `src/stdlib/GUI/Linux/LinuxScrollView.btrc` and its dedicated fixture and driver | unpublished; independent of the grid writer. `CX-UIA-23`, `CX-UIA-27` and `CX-UIB-31` wait for it (§3.9) |
+| Reserved: `CX-STDLIB-03` (Codex, CODEX.md) | Codex | — | `src/stdlib/GUI/MacOS/MacOSButton.btrc`; `src/tests/native/gui/controls/macos/ButtonAlignment.btrc`; the narrow fixture registration in `src/tests/python/test_native_gui_appkit.py` (coordinated with any active AppKit harness writer) | unpublished, no draft PR yet. `CX-UIB-18` (`MacOSButton.btrc`, `controls/macos/Button*.btrc`) waits for it (§3.9) |
 
 ### 3.4 Parity rule, and the stdlib modules the compiler imports
 
@@ -360,7 +379,7 @@ Workaround in this branch: <none | what, and how it is removed later>
   - `CL-UIA-02` or `CL-R-38`: CI.
 
   Otherwise it is `CL-REQ`.
-- **What Claude does.** Within its next batch, Claude turns each `CL-REQ` into a numbered packet, `CL-REQ-NN`, adds it to §4, and replies in the PR with the id. The Codex packet carries on with the parts it can do, or parks.
+- **What Claude does.** Within its next batch, Claude turns each `CL-REQ` into a numbered packet, `CL-REQ-NN`, adds it to §4, and replies in the PR with the id. The Codex packet carries on with the parts it can do, or parks. Parking one packet never stops other CODEX.md units (D28).
 - **Workarounds** are allowed only if they change no compiler behavior and can be removed. A workaround is a deferral in the report.
 
 ### 3.7 The packet report (PR body)
@@ -369,7 +388,7 @@ Codex fills this in as it works, and Claude's lane reports carry the same fields
 
 ```markdown
 Packet: CX-…  <title>                 Branch: codex/…   Base: <main sha, or the base packet's branch when stacked>
-Owned paths: <copied from WORKSTREAMS.md §6>
+Owned paths: <copied from the CODEX.md unit, or from WORKSTREAMS.md §6>
 
 Commits
 - <sha> <subject>
@@ -379,7 +398,7 @@ Tests (command → passed / skipped / failed; per frontend where it applies)
 
 CI (queued run ids are fine at handoff; Claude reads the results, §3.2)
 - ci.yml run <id>: green | red (<job>) | queued
-- macos.yml run <id>: …   windows.yml run <id>: …   <own workflow> run <id>: …
+- macos.yml run <id>: …   windows.yml run <id>: …   <lane workflow (Claude adds it, D28)> run <id>: …
 
 Skip gate
 - skip-reports jobs green (run ids); rules added: <rule ids> (fragment: commit)
@@ -402,12 +421,12 @@ Deferrals and stand-in evidence
 At each batch:
 1. **Select branches.** Take at most **two Codex code branches** whose acceptance is ticked and whose CI is green. Docs-only branches (designs, drafts, findings notes) do not count, and an atomic landing (UI2, UI3, a Stage 34 landing, a Stage 35 track milestone, `CL-P2-27`) counts as one. A stacked branch is merged only by its landing packet. Add Claude's own lanes, in the stage's merge order.
 2. **Rebase.** Fetch, and rebase onto `main-kn9jxh` on the integration branch (never force-push a `codex/*` branch). Drop each `derived:` commit, and re-apply each `fragment:` commit.
-3. **Regenerate.** Run `make compiler-codegen-generate`, `btrcpy --fetch` for the stdlib lock, `btrc.symbols` and the LSP catalog. Update the lock table and record done packets in this doc. This all goes in the merge commit (PLAN's merge-batch procedure).
+3. **Regenerate.** Run `make compiler-codegen-generate`, `btrcpy --fetch` for the stdlib lock, `btrc.symbols` and the LSP catalog. Update the lock table and record done packets in this doc. This all goes in the merge commit (CLAUDE.md's merge-batch procedure).
 4. **Gate.** The cloud batch gate is what the recent cloud batches practised:
    - **locally:** generated-check, lint, format-check, `git diff --check`, zero-warning transpiles of the three entries, `boundary-check`, the changed modules plus the corpus through both compilers, and `make bootstrap`;
    - **from CI on the pushed SHA:** `make test` and `make test-c11` (ci.yml's 13 shards), plus `macos.yml` and `windows.yml`;
    - **on the Mac:** the Mac-only rows (D5's Mac gate at bucket exits, quiet measurements), as `MAC-` packets.
-5. **Push.** On green, push `main` fast-forward only (D4). Read `ci.yml`, `macos.yml` and `windows.yml` on `main`, and record the batch and packet ids in PLAN.md's Progress log.
+5. **Push.** On green, push `main` fast-forward only (D4). Read `ci.yml`, `macos.yml` and `windows.yml` on `main`, and record the batch and packet ids in the Progress log of the [integration record](docs/design/claude-integration-record.md#progress-log).
 6. **Report back** through REST, because Claude Code sessions cannot use GraphQL:
    - comment: `gh api -X POST repos/schiffy91/btrc/issues/<n>/comments -f body='integrated in <sha> (batch <n>)'`;
    - close: `gh api -X PATCH repos/schiffy91/btrc/pulls/<n> -f state=closed`;
@@ -421,11 +440,11 @@ If a rebase conflicts on a Codex-owned path, Claude asks Codex in the PR to reba
 | Conflict | Resolution |
 |---|---|
 | Two packets need one file | The earliest claim (a `[CX-…]` or `[CL-…]` draft PR, or a Claude lane in §3.3.2) wins. The other waits, or asks the holder to carry its hunk. Integrator-owned data and generated files are never a conflict (§3.3). |
-| A contract question (UI, executor protocol, target contract, ledger schema) | Claude decides as contract owner and records the decision in PLAN.md. |
+| A contract question (UI, executor protocol, target contract, ledger schema) | Claude decides as contract owner and records the decision in CLAUDE.md. |
 | Unsure whether a change alters compiler behavior | It is Claude's; file `REQUEST(…)`. |
-| Merge order | The stage's order in PLAN.md and §5. Claude may reorder to unblock. |
+| Merge order | The stage's order in CLAUDE.md and §5. Claude may reorder to unblock. |
 | Evidence disputes | Ledger records and CI run ids win. Stand-in evidence (hosted runners, simulators) is labelled stand-in and never counts as physical. |
-| Doc disagreement | AGENTS.md architecture rules, then PLAN.md, then this doc, then the packet text. |
+| Doc disagreement | AGENTS.md architecture rules, then CLAUDE.md decisions (D28), then CODEX.md for Codex's queue and scheduling, then this doc, then the packet text. |
 | Owner unreachable | Use the default in §7, except a default marked **needs owner approval**, which waits. |
 
 ### 3.10 Definition of done
@@ -433,7 +452,7 @@ If a rebase conflicts on a Codex-owned path, Claude asks Codex in the PR to reba
 A packet is done when all four hold:
 1. Every acceptance item is ticked with evidence (command, counts, CI run ids) in the PR body or lane report.
 2. Claude has merged it in a green batch gate and pushed `main`, and CI on `main` is green.
-3. Claude has recorded the packet id in PLAN.md's Progress log.
+3. Claude has recorded the packet id in the Progress log of the [integration record](docs/design/claude-integration-record.md#progress-log).
 4. Any part the packet hands to a `MAC-` packet is named in its report.
 
 A stage exit stays open until its `MAC-` evidence is ingested, but the cloud packet is done. A spike packet is done when its findings note lands; the spike branch is never merged.
@@ -455,7 +474,7 @@ A stage exit stays open until its `MAC-` evidence is ingested, but the cloud pac
 - no physical devices;
 - neither `/.dockerenv` nor `/run/.containerenv`, so the skip gate's runner detection says `linux`, which has no manifest. Export `BTRC_TEST_RUNNER=linux-devcontainer`: it is a stand-in with the same Nix toolchain as the CI image.
 
-Apple, Windows and Android-emulator evidence comes from GitHub runners: draft-PR CI, `gh workflow run`, and the packet's own workflow files. Pinned-Xcode (27A266a), arm64-emulator, hardware and signing evidence comes from the owner (`MAC-` packets).
+Apple, Windows and Android-emulator evidence comes from GitHub runners: draft-PR CI, `gh workflow run`, and the lane workflows Claude adds for a packet (D28). Pinned-Xcode (27A266a), arm64-emulator, hardware and signing evidence comes from the owner (`MAC-` packets).
 
 **The Nix dev shell.** Every gate is defined by the flake. The Makefile wraps each target in `nix develop --command`; inside an open shell, use `make NIX= <target>`. The pinned dev shell provides:
 - clang, and gcc 15.2.0;
@@ -532,7 +551,7 @@ echo "codex setup: ready"
 1. local focused pytest with the pinned `btrcc`;
 2. the draft PR's CI on every push;
 3. `gh workflow run <wf>.yml --ref codex/<id>` (needs `actions:write`; only for workflows already on `main`);
-4. the packet's own workflow, on its `pull_request` trigger until Claude merges the file;
+4. the packet's lane workflow, once Claude adds it (D28);
 5. Claude's batch gate at integration.
 
 **The owner must confirm these in the Codex settings:**
@@ -540,9 +559,9 @@ echo "codex setup: ready"
 2. **BTRSmith access.** Grant or deny it for the private `schiffy91/btrsmith`, as a second Codex environment with the same setup script (§7 Q19). Without it, the BTRSmith packets move to Claude.
 3. **The setup script** above, with internet access during setup.
 4. **Internet during tasks:** on, with the domains above allowed (or unrestricted).
-5. **A GitHub token** (secret `GH_TOKEN`) with contents and pull-request write, `actions:write`, and the **workflows** permission. The packets that add workflow files need the last one (`CX-P1-03…09`, `CX-P2-18/26/31/49/50`). The fallback without it is §7 Q20.
+5. **A GitHub token** (secret `GH_TOKEN`) with contents and pull-request write and `actions:write`. The **workflows** permission was requested so that packets could add workflow files (`CX-P1-03…09`, `CX-P2-18/26/31/49/50`). Under D28 and the owner's restriction Codex pushes no workflow file, so Claude adds them and Codex does not need that permission (§7 Q20).
 6. **Container size and caching:** whether size is configurable, and whether Codex caches the container after setup (caching keeps the Nix store warm between tasks).
-7. **AGENTS.md** is read automatically, up to `project_doc_max_bytes` (documented default 32 KiB; confirm whether cloud tasks apply it). AGENTS.md is 37,433 bytes today, and a cut at 32 KiB would drop its Makefile targets and Hard Rules. `CL-UIA-01` cuts it to at most 30,000 bytes and puts the Codex section right after the title. CLAUDE.md is a symlink to it.
+7. **AGENTS.md** is read automatically, up to `project_doc_max_bytes` (documented default 32 KiB; confirm whether cloud tasks apply it). AGENTS.md is 37,433 bytes today, and a cut at 32 KiB would drop its Makefile targets and Hard Rules. `CL-UIA-01` cuts it to at most 30,000 bytes and puts the Codex section right after the title. CLAUDE.md imports it (`@AGENTS.md`). AGENTS.md was 30,168 bytes when D28 arrived (2026-10-06), over that target but under 32 KiB, so D28 edits must keep it under 32,768 bytes.
 8. **The CI feedback loop** (§3.2):
    - whether `@codex` PR comments start tasks;
    - whether a follow-up task can push to an existing `codex/*` branch without an owner click;
@@ -558,7 +577,7 @@ echo "codex setup: ready"
 
   Until a wrapper exists, the packet lists the fallback commands.
 - **Mac occupancy.** Each packet shows the owner's attended estimate and the Mac's wall-clock hours, with overnights counted separately (§6.3). The Mac is the bottleneck, so plan by wall hours.
-- **Results.** Paste the summary into the Claude session, or let the runbook push redacted summaries to an `evidence/<preset>-<date>` branch (§7 Q24). Claude ingests them through `python3 -m tools.qualification ingest` and writes PLAN.md. The owner never edits tracked files.
+- **Results.** Paste the summary into the Claude session, or let the runbook push redacted summaries to an `evidence/<preset>-<date>` branch (§7 Q24). Claude ingests them through `python3 -m tools.qualification ingest` and records them in the [integration record](docs/design/claude-integration-record.md#progress-log). The owner never edits tracked files.
 - **Rows awaiting hardware.** Rows that need hardware or accounts that do not exist yet (D8) are prepared and recorded as **awaiting hardware/account**, never as met.
 
 ## 4. Assignment matrix
@@ -730,7 +749,7 @@ Every packet, sorted by stage, then by owner (Claude, Codex, Owner), then by id.
 | [CX-P2-11](docs/workstreams/codex.md#cx-p2-11) | iOS HTTP transport (NSURLSession) and foreground-listener adaptation | Codex | 26 | CX-P2-09, CL-P1-14, CX-P1-08, CL-P1-15 | linux+mac-ci | no | 6 |
 | [CX-P2-12](docs/workstreams/codex.md#cx-p2-12) | Android HTTP transport (HttpURLConnection over JNI or Cronet), loopback listener and network permission states | Codex | 26 | CX-P2-09, CL-P2-09, CX-P1-09, CL-P1-15 | linux+all-ci | no | 8 |
 | [CX-P2-13](docs/workstreams/codex.md#cx-p2-13) | Regex/glob/fnmatch parity: vendored POSIX engine on Windows and behaviour checks on all slices | Codex | 26 | CL-P2-03, CL-P1-17, CX-P1-10, CL-P1-15 | linux+all-ci | no | 8 |
-| [CX-P2-14](docs/workstreams/codex.md#cx-p2-14) | Mobile storage foundation: app roots, non-seekable streams, bounded import, revocation errors | Codex | 26 | CX-P2-05, CL-P2-01, CX-P1-08, CX-P1-09, CL-P1-16, CL-P1-15, CL-P2-27, CL-P1-20 | linux+all-ci | no | 10 |
+| [CX-P2-14](docs/workstreams/codex.md#cx-p2-14) | Mobile storage foundation: app roots, non-seekable streams, bounded import, revocation errors | Codex | 26 | CL-P2-01, CX-P1-08, CX-P1-09, CL-P1-16, CL-P1-15, CL-P1-20; CX-P2-05 and CL-P2-27 for path serialization only, while either holds the shared `FileSystem` and `IO.btrc` files (one writer, §3.4; D28, [CODEX.md](CODEX.md)) | linux+all-ci | no | 10 |
 | [CX-P2-15](docs/workstreams/codex.md#cx-p2-15) | BackgroundJobs on Windows (winpthreads) and qualification on bionic/iOS | Codex | 26 | CL-P2-01, CL-P1-10, CL-P1-14, CL-P1-19, CL-P1-15, CL-P1-20 | linux+all-ci | no | 6 |
 | [CX-P2-16](docs/workstreams/codex.md#cx-p2-16) | LocalApplicationChannel on Windows (named pipes with peer identity) and mobile restrictions | Codex | 26 | CX-P2-05, CL-P2-01, CL-P1-10, CL-P1-15 | linux+all-ci | no | 8 |
 | [MAC-P2-01](docs/workstreams/owner.md#mac-p2-01) | Stage 26 iOS acceptance on pinned Xcode 27A266a (regex, process/terminal/daemon refusals, channel/jobs, mobile storage, HTTP) | Owner | 26 | CX-P2-06, CX-P2-07, CX-P2-08, CX-P2-11, CX-P2-13, CX-P2-14, CX-P2-15, CX-P2-16, MAC-P1-02 | mac | no | 2 (wall 3) |
@@ -810,7 +829,7 @@ Every packet, sorted by stage, then by owner (Claude, Codex, Owner), then by id.
 | [CX-UIA-04](docs/workstreams/codex.md#cx-uia-04) | ui-0-operation-map (B): controls, layout containers, indicators, images and fonts | Codex | 30 | CX-UIA-02 | linux+mac-ci | no | 6 |
 | [CX-UIA-05](docs/workstreams/codex.md#cx-uia-05) | ui-0-broader-surface: classify every GUI, App, UI and Tray export outside the interfaces | Codex | 30 | CX-UIA-02, CL-UIA-24 (to finish) | linux | no | 4 |
 | [CX-UIA-06](docs/workstreams/codex.md#cx-uia-06) | ui-0-host-matrix: UI evidence hosts per platform, plus the Linux desktop check script | Codex | 30 | — | linux | yes | 4 |
-| [CX-UIA-07](docs/workstreams/codex.md#cx-uia-07) | ui-0-doc-reconcile: GUI/UI/Tray/App READMEs and the roadmap docs derived from the catalog | Codex | 30 | CX-UIA-03, CX-UIA-04, CX-UIA-05, CX-UIA-30, CL-UIA-03 | linux | no | 4 |
+| [CX-UIA-07](docs/workstreams/codex.md#cx-uia-07) | ui-0-doc-reconcile: GUI/UI/Tray/App READMEs and the roadmap docs derived from the catalog (no longer gates UI2 or repairs, D28) | Codex | 30 | CX-UIA-03, CX-UIA-04, CX-UIA-05, CX-UIA-30, CL-UIA-03 | linux | no | 4 |
 | [CX-UIA-30](docs/workstreams/codex.md#cx-uia-30) | ui-0-operation-map (cases): classify the 47 E-cases × 5 platforms × 2 frontends (470 slots) | Codex | 30 | CX-UIA-02 | linux+all-ci | no | 5 |
 | [MAC-UIA-01](docs/workstreams/owner.md#mac-uia-01) | tooling-linux-desktop-host: probe FRACTAL-NORTH or record the Linux desktop as unavailable | Owner | 30 | CX-UIA-06 | device | no | 1 (wall 1) |
 | [CL-UIA-06](docs/workstreams/claude.md#cl-uia-06) | ui-1-linux-gobject-binding (Tier A, part 1): sinking, subtype casts and the GLib main-context executor in both compilers | Claude | 31 | CL-P2-24, CL-UIA-21 | linux | no | 10 |
@@ -828,8 +847,8 @@ Every packet, sorted by stage, then by owner (Claude, Codex, Owner), then by id.
 | [CX-UIA-13](docs/workstreams/codex.md#cx-uia-13) | Native-shell design notes for Win32, UIKit and Android Views (docs-only spike) | Codex | 31 | — | linux | yes | 5 |
 | [CX-UIA-14](docs/workstreams/codex.md#cx-uia-14) | ui-1-linux-gtk-spike: btrc-hosted GTK4 provider prototype on Wayland and X11 | Codex | 31 | CL-UIA-08, CX-UIA-11, CX-UIA-12 | linux | no | 12 |
 | [CX-UIA-15](docs/workstreams/codex.md#cx-uia-15) | ui-1-windows-shell: Win32 GUI provider skeleton and shell proof | Codex | 31 | CX-UIA-09, CX-UIA-13, CL-P1-06, CL-P1-14, CL-P2-06, CL-P2-10, CL-P2-29, CX-P2-25, CX-P1-07 | linux+win-ci | no | 12 |
-| [CX-UIA-16](docs/workstreams/codex.md#cx-uia-16) | ui-1-ios-shell: UIKit GUI provider skeleton and shell proof on the simulator | Codex | 31 | CX-UIA-09, CX-UIA-13, CL-P1-06, MAC-P1-02, CX-P1-08, CL-P2-21, CX-P2-36, CX-P2-39 | linux+mac-ci | no | 12 |
-| [CX-UIA-17](docs/workstreams/codex.md#cx-uia-17) | ui-1-android-shell: Android Views shell proof (Activity plus checked JNI) | Codex | 31 | CX-UIA-09, CX-UIA-13, CL-P1-06, CL-P1-02, MAC-P1-03, CX-P1-09, CX-P1-05, CL-P2-24, CX-P2-41, CX-P2-44, CL-P1-15 | linux+kvm-ci | no | 12 |
+| [CX-UIA-16](docs/workstreams/codex.md#cx-uia-16) | ui-1-ios-shell: UIKit GUI provider skeleton and shell proof on the simulator | Codex | 31 | CX-UIA-09, CX-UIA-13, CL-P1-06, MAC-P1-02, CX-P1-08, CL-P2-21, CX-P2-36, CX-P2-39 (to finish; the CODEX.md mobile-GUI slice starts without it, D28) | linux+mac-ci | no | 12 |
+| [CX-UIA-17](docs/workstreams/codex.md#cx-uia-17) | ui-1-android-shell: Android Views shell proof (Activity plus checked JNI) | Codex | 31 | CX-UIA-09, CX-UIA-13, CL-P1-06, CL-P1-02, MAC-P1-03, CX-P1-09, CX-P1-05, CL-P2-24, CX-P2-41, CX-P2-44 (to finish; the CODEX.md mobile-GUI slice starts without it, D28), CL-P1-15 | linux+kvm-ci | no | 12 |
 | [MAC-UIA-02](docs/workstreams/owner.md#mac-uia-02) | ui-1-macos on the owner's Mac: GPU child, Xcode 27 and Accessibility Inspector | Owner | 31 | CX-UIA-10 | mac | no | 1 (wall 1.5) |
 | [MAC-UIA-03](docs/workstreams/owner.md#mac-uia-03) | iOS simulator and Android emulator shell confirmation on the owner's Mac | Owner | 31 | CX-UIA-16, CX-UIA-17 | mac | no | 1.5 (wall 2) |
 | [CL-UIA-13](docs/workstreams/claude.md#cl-uia-13) | ui-2-contract-review: feasibility and parity review, reconciliation and standing approval | Claude | 32 | CX-UIA-18, CX-UIA-19, CX-UIA-20, CL-UIA-09, CX-UIA-13 | linux | no | 4 |
@@ -841,9 +860,9 @@ Every packet, sorted by stage, then by owner (Claude, Codex, Owner), then by id.
 | [CX-UIA-18](docs/workstreams/codex.md#cx-uia-18) | ui-2-contract-control-events: docs-only draft of typed control events, stable keys and setter suppression | Codex | 32 | — | linux | yes | 5 |
 | [CX-UIA-19](docs/workstreams/codex.md#cx-uia-19) | ui-2-contract-executor: docs-only draft of worker wakeup, fair dispatch and the host-owned loop | Codex | 32 | — | linux | yes | 5 |
 | [CX-UIA-20](docs/workstreams/codex.md#cx-uia-20) | ui-2-contract-lifecycle: docs-only draft of close transactions, exposure, ordered mutation and final release | Codex | 32 | — | linux | yes | 5 |
-| [CX-UIA-21](docs/workstreams/codex.md#cx-uia-21) | UI2 interface landing branch: approved `I*.btrc` diff, BackgroundJobs hook, portable E-case fixtures and catalog rows | Codex | 32 | CL-UIA-13, CL-UIA-12, CX-UIA-07 | linux | no | 6 |
+| [CX-UIA-21](docs/workstreams/codex.md#cx-uia-21) | UI2 interface landing branch: approved `I*.btrc` diff, BackgroundJobs hook, portable E-case fixtures and catalog rows | Codex | 32 | CL-UIA-13, CL-UIA-12 | linux | no | 6 |
 | [CX-UIA-22](docs/workstreams/codex.md#cx-uia-22) | ui-2-macos: AppKit implementation of the UI2 contracts | Codex | 32 | CX-UIA-21 (ready) | linux+mac-ci | no | 12 |
-| [CX-UIA-23](docs/workstreams/codex.md#cx-uia-23) | ui-2-linux: SDL provider implementation of the UI2 contracts, lossless pump and exposure repairs | Codex | 32 | CX-UIA-21 (ready), CX-UIA-11 | linux | no | 12 |
+| [CX-UIA-23](docs/workstreams/codex.md#cx-uia-23) | ui-2-linux: SDL provider implementation of the UI2 contracts, lossless pump and exposure repairs (split: existing-interface repair → CX-STDLIB-01, [CODEX.md](CODEX.md)) | Codex | 32 | CX-UIA-21 (ready), CX-UIA-11 | linux | no | 12 |
 | [MAC-UIA-04](docs/workstreams/owner.md#mac-uia-04) | UI2 BTRSmith macOS evidence: journeys and idle wakeups before and after | Owner | 32 | CL-UIA-15 | mac | no | 1.5 (wall 2) |
 | [MAC-UIA-05](docs/workstreams/owner.md#mac-uia-05) | Library.UI split: signed macOS smokes and AgentSurfaceAcceptance on the owner's Mac | Owner | 32 | CL-UIA-17, CL-UIA-18 | mac | no | 1.5 (wall 2) |
 | [CL-UIA-19](docs/workstreams/claude.md#cl-uia-19) | UI3 contract review: feasibility and parity review and standing approval | Claude | 33 | CX-UIA-24, CL-UIA-14, CX-UIA-13 | linux | no | 3 |
@@ -852,7 +871,7 @@ Every packet, sorted by stage, then by owner (Claude, Codex, Owner), then by id.
 | [CX-UIA-24](docs/workstreams/codex.md#cx-uia-24) | ui-3-contract-input: draft of focus, commands, key identity, pointer/touch and edit transactions | Codex | 33 | CL-UIA-13 | linux | no | 6 |
 | [CX-UIA-25](docs/workstreams/codex.md#cx-uia-25) | UI3 interface landing branch: approved IView/IWindow/ITextField/App diff, Commands owner and portable fixtures | Codex | 33 | CL-UIA-19 | linux | no | 6 |
 | [CX-UIA-26](docs/workstreams/codex.md#cx-uia-26) | ui-3-macos: AppKit focus, responder-chain commands, IME, undo and keyboard identity | Codex | 33 | CX-UIA-25 (ready) | linux+mac-ci | no | 12 |
-| [CX-UIA-27](docs/workstreams/codex.md#cx-uia-27) | ui-3-linux: Linux keyboard behaviour, editor precedence, preedit, undo and clipboard transactions | Codex | 33 | CX-UIA-25 (ready) | linux | no | 12 |
+| [CX-UIA-27](docs/workstreams/codex.md#cx-uia-27) | ui-3-linux: Linux keyboard behaviour, editor precedence, preedit, undo and clipboard transactions (split: existing-interface repair → CX-STDLIB-01, [CODEX.md](CODEX.md)) | Codex | 33 | CX-UIA-25 (ready) | linux | no | 12 |
 | [CX-UIA-28](docs/workstreams/codex.md#cx-uia-28) | ui-11-tray: typed tray commands, lifecycle qualification and a test StatusNotifierWatcher | Codex | 33 | CL-UIA-20 | linux+mac-ci | no | 10 |
 | [CX-UIA-29](docs/workstreams/codex.md#cx-uia-29) | Linux GTK4 provider core: UI2/UI3 window, pump, executor, focus, commands and IME on GTK4 (only if D23 = GTK4) | Codex | 33 | CL-UIA-10, CL-UIA-20 | linux | no | 16 |
 | [MAC-UIA-06](docs/workstreams/owner.md#mac-uia-06) | UI3 physical IME and keyboard-layout trials | Owner | 33 | CL-UIA-20 | mac | no | 1.5 (wall 1.5) |
@@ -884,7 +903,7 @@ Every packet, sorted by stage, then by owner (Claude, Codex, Owner), then by id.
 | [CX-UIB-15](docs/workstreams/codex.md#cx-uib-15) | UI7 services contract: menus, popovers, async dialogs and pickers, clipboard, drag/drop, open/share, document state | Codex | 34 | CL-UIA-20, CL-P2-01, CX-UIB-04 | linux+mac-ci | no | 10 |
 | [CX-UIB-16](docs/workstreams/codex.md#cx-uib-16) | UI9 GPU contract: display clock, exposure, presentation recovery, subtree capture, artwork budget and shaped text | Codex | 34 | CL-UIA-20, CX-UIB-05 | linux+mac-ci | no | 8 |
 | [CX-UIB-17](docs/workstreams/codex.md#cx-uib-17) | Contract packet reconciler: factories, stubs, portable drivers, docs and the single review packet | Codex | 34 | CX-UIB-10 (ready), CX-UIB-11 (ready), CX-UIB-12 (ready), CX-UIB-13 (ready), CX-UIB-14 (ready), CX-UIB-15 (ready), CX-UIB-16 (ready) | linux+mac-ci | no | 8 |
-| [CX-UIB-18](docs/workstreams/codex.md#cx-uib-18) | ui-4-macos part A: AppKit buttons and roles, switch/checkbox/radio, segmented control, images, progress and level, with their UI8 rows | Codex | 34 | CL-UIB-02, CX-UIB-22 (ready) | linux+mac-ci | no | 10 |
+| [CX-UIB-18](docs/workstreams/codex.md#cx-uib-18) | ui-4-macos part A: AppKit buttons and roles, switch/checkbox/radio, segmented control, images, progress and level, with their UI8 rows (split: existing-interface repair → CX-STDLIB-03, [CODEX.md](CODEX.md)) | Codex | 34 | CL-UIB-02, CX-UIB-22 (ready) | linux+mac-ci | no | 10 |
 | [CX-UIB-19](docs/workstreams/codex.md#cx-uib-19) | ui-4-macos part B: labels, search/secure fields, NSTextView editor, stepper numeric field, ranges and selects | Codex | 34 | CL-UIB-02, CX-UIB-22 (ready) | linux+mac-ci | no | 12 |
 | [CX-UIB-20](docs/workstreams/codex.md#cx-uib-20) | ui-4-linux part A: buttons, toggles, radios, segmented control, images and symbols, progress, forms (D23 route) | Codex | 34 | CL-UIB-02, CL-UIA-10, CX-UIB-23 (ready), CL-UIA-23 (if GTK4) | linux | no | 12 |
 | [CX-UIB-21](docs/workstreams/codex.md#cx-uib-21) | ui-4-linux part B: labels, text modes, multiline editor, numeric entry, keyboard ranges and selects (D23 route) | Codex | 34 | CL-UIB-02, CL-UIA-10, CX-UIB-23 (ready), CL-UIA-23 (if GTK4) | linux | no | 12 |
@@ -892,12 +911,12 @@ Every packet, sorted by stage, then by owner (Claude, Codex, Owner), then by id.
 | [CX-UIB-23](docs/workstreams/codex.md#cx-uib-23) | ui-8-linux core, part 1: accessibility tree for native and painted controls (GtkAccessible or AT-SPI over D-Bus) | Codex | 34 | CL-UIB-02, CL-UIB-03, CL-UIB-12, CL-UIA-23 (if GTK4) | linux | no | 12 |
 | [CX-UIB-24](docs/workstreams/codex.md#cx-uib-24) | ui-8-linux, part 2: GPU virtual children, accessible collections, text and range values, throttled announcements | Codex | 34 | CL-UIB-06, CX-UIB-30 (ready) | linux | no | 10 |
 | [CX-UIB-25](docs/workstreams/codex.md#cx-uib-25) | ui-5-macos: constrained layout, navigation/split/toolbar, appearance, RTL, text scaling, dismissal and restoration | Codex | 34 | CL-UIB-05 | linux+mac-ci | no | 12 |
-| [CX-UIB-26](docs/workstreams/codex.md#cx-uib-26) | ui-5-linux layout: constrained measurement, navigation and split, portal theme and contrast, RTL, close veto | Codex | 34 | CL-UIB-05, CL-UIB-03, CL-UIA-23 (if GTK4) | linux | no | 12 |
+| [CX-UIB-26](docs/workstreams/codex.md#cx-uib-26) | ui-5-linux layout: constrained measurement, navigation and split, portal theme and contrast, RTL, close veto (split: existing-interface repairs → CX-STDLIB-02 and CX-STDLIB-04, [CODEX.md](CODEX.md)) | Codex | 34 | CL-UIB-05, CL-UIB-03, CL-UIA-23 (if GTK4) | linux | no | 12 |
 | [CX-UIB-27](docs/workstreams/codex.md#cx-uib-27) | ui-5-linux shaping: shaped runs and fallback fonts for control text (E37, control part) | Codex | 34 | CL-UIB-05, CL-UIB-03, CL-UIA-23 (if GTK4) | linux | no | 10 |
 | [CX-UIB-28](docs/workstreams/codex.md#cx-uib-28) | ui-6-stress-fixture: the 100,000-row collection stress fixture with cell, bind, memory and frame counters | Codex | 34 | CL-UIB-02, CX-UIB-08 | linux+mac-ci | no | 8 |
 | [CX-UIB-29](docs/workstreams/codex.md#cx-uib-29) | ui-6-macos: NSCollectionView, NSTableView and NSOutlineView collections with keyed diffing, selection, anchors and two-axis scrolling | Codex | 34 | CL-UIB-06, CX-UIB-28 (ready), CL-UIB-09 | linux+mac-ci | no | 12 |
 | [CX-UIB-30](docs/workstreams/codex.md#cx-uib-30) | ui-6-linux collection owner: GtkListView/ColumnView/TreeListModel or an SDL recycler | Codex | 34 | CL-UIB-06, CX-UIB-28 (ready), CL-UIA-23 (if GTK4) | linux | no | 12 |
-| [CX-UIB-31](docs/workstreams/codex.md#cx-uib-31) | ui-6-linux scroll and select repairs: boundary handoff, horizontal axis, honest phase, viewport-bounded select popup | Codex | 34 | CL-UIB-06, CX-UIB-33 (ready) | linux | no | 8 |
+| [CX-UIB-31](docs/workstreams/codex.md#cx-uib-31) | ui-6-linux scroll and select repairs: boundary handoff, horizontal axis, honest phase, viewport-bounded select popup (split: existing-interface repairs → CX-STDLIB-05 and CX-STDLIB-01, [CODEX.md](CODEX.md)) | Codex | 34 | CL-UIB-06, CX-UIB-33 (ready) | linux | no | 8 |
 | [CX-UIB-32](docs/workstreams/codex.md#cx-uib-32) | ui-9-macos: display-link pacing, occlusion state, GPU recovery that keeps editors, capture alignment, artwork accounting | Codex | 34 | CL-UIB-06, CL-UIB-09 | linux+mac-ci | no | 12 |
 | [CX-UIB-33](docs/workstreams/codex.md#cx-uib-33) | ui-9-linux, part 1: exposure-aware frames, presentation recovery, display pacing, subtree capture without sleeping | Codex | 34 | CL-UIB-06 | linux | no | 10 |
 | [CX-UIB-34](docs/workstreams/codex.md#cx-uib-34) | ui-9-linux, part 2: byte-accounted artwork trim without repaint, and shaped GPU text | Codex | 34 | CL-UIB-06, CX-UIB-27 | linux | no | 10 |
@@ -1056,21 +1075,24 @@ Order follows dependencies and payoff only. There are no calendar dates (ref:182
 6. **Codex UI-lane support (2026-10-03).** Three small Claude items the Codex lanes wait on: `CL-UIA-05` step 6 (the `NATIVE_GUI_TESTS` line), `CL-UIA-24` (before `CX-UIA-05` integrates) and `CL-R-50` (the CI cap). §5.4 orders them.
 
 **Codex track: stdlib UI and platform providers.**
+
+Codex's critical path is [CODEX.md](CODEX.md)'s queue (D28). The chains below describe new-contract scope and packet traceability only.
+
 1. **UI0 (D27 in force).** `CX-UIA-02`'s follow-up (shard loader, family cells), then `CX-UIA-03` → `04` → `30` → `05` (one lane run at a time until `CL-R-50`), then `07`; `CX-UIA-01`'s remainder; `CX-UIA-06`.
 2. **UI1 on existing providers.** `CX-UIA-09` (shell fixture) → `CX-UIA-10` (macOS) ∥ `CX-UIA-11` (Linux SDL) → Claude's checkpoint `CL-UIA-09`. `CX-UIA-12` (GTK4 pre-spike) and `CX-UIA-13` (shell notes) also gate `CL-UIA-12`, and through it UI2.
 3. **UI2 → UI3 → tray (macOS and Linux).**
    - `CX-UIA-18/19/20` (drafts, written now) and `CX-UIA-13` (shell notes) → `CL-UIA-13` (approval, provisional for the new platforms) → `CX-UIA-21` → `22` ∥ `23` (stacked) → `CL-UIA-14` (atomic landing);
    - → `CX-UIA-24` → `CL-UIA-19` → `CX-UIA-25` → `26` ∥ `27` → `CL-UIA-20` → `CX-UIA-28` (tray).
 
-   This is Codex's critical path. It never waits for buckets 2–3.
+   This is the critical path of the new-contract scope. It never waits for buckets 2–3.
 4. **Platform foundations, beside the UI chain.**
    - Test-host spikes `CX-P1-04/05/06`, then CI lanes `CX-P1-07/08/09` once Claude's runner core lands.
    - OS-service designs `CX-P2-01/02/03`, then the Windows and mobile providers `CX-P2-04…16`.
    - Then the W2/I1/I2/A1/A2 providers `CX-P2-31…50`, cross-built dependencies `CX-P2-22…25`, and BTRSmith target shells `CX-P2-19…21`.
 5. **New-platform shells.**
    - `CX-UIA-15` (Win32) after COM (`CL-P2-10`, which needs `CL-P2-09` and `CX-P2-17`), `CL-P2-29` and the Windows host lane (`CX-P1-07`).
-   - `CX-UIA-16` (UIKit) after `CL-P2-21`, the iOS lifecycle `CX-P2-36`, the iOS GPU `CX-P2-39` and the iOS host lane.
-   - `CX-UIA-17` (Android) after `CL-P2-24`, `CX-P2-41`, `CX-P2-44` and the Android host lane.
+   - `CX-UIA-16` (UIKit) after `CL-P2-21`, the iOS lifecycle `CX-P2-36`, the iOS GPU `CX-P2-39` (to finish, D28) and the iOS host lane.
+   - `CX-UIA-17` (Android) after `CL-P2-24`, `CX-P2-41`, `CX-P2-44` (to finish, D28) and the Android host lane.
    - Then `CL-UIA-22`: the toolkit questions, the UI2/UI3 re-check on the real shells and Stage 31's close for the three providers.
    - `CX-UIA-14` (GTK4 spike) after `CL-UIA-08` (interop step 8).
 6. **Stage 34.**
@@ -1217,13 +1239,15 @@ Fill-ins when a slot is free:
 - `CL-R-04`, `CL-R-05`, `CL-R-06`, `CL-R-23` (bucket-1 prep);
 - `CL-R-36`, `CL-R-37` (CI on existing runners).
 
+**Codex works from [CODEX.md](CODEX.md) (D28).** The Codex lists below, through Wave 1b, are the 2026-10-03 first wave, kept as history.
+
 **Codex, PLAN-sanctioned work** (runs whatever happens to D27; §2):
 1. `CX-C-01`: the one-command Mac checkpoint script. It unblocks every bucket-2 owner session (`MAC-C-02…09`).
 2. `CX-P1-02`: the adaptations for the owner, which closes Stage 22 (read-only planning).
 3. `CX-P2-01`, `02`, `03`: the Windows OS-services, HTTP and mobile-storage designs (docs, one bucket early).
 4. `CX-P1-03`: the Windows ARM64 job for Stage 23 provisioning (`CL-UIA-02` is on `main`; Q20's default is in force, with the `ci/proposed/` fallback).
 
-**Codex, UI work under D27, in this order.** [`docs/workstreams/codex-ui-lanes.md`](docs/workstreams/codex-ui-lanes.md) is the assignment Codex works from: per-platform status, the lanes that can be authored at once, the CI policy, Tasks 0–4 and wave 2. This list is its order:
+**Codex, UI work under D27, in this order.** [`docs/workstreams/codex-ui-lanes.md`](docs/workstreams/codex-ui-lanes.md) was the assignment Codex worked from until D28: per-platform status, the lanes that can be authored at once, the CI policy, Tasks 0–4 and wave 2. This list was its order:
 1. `CX-C-01` first in the CI queue: bucket-2 tooling, ready for `MAC-C-02` when C4 lands.
 2. The `CX-UIA-02` follow-up on `codex/cx-uia-02-shards` (shard loader and contract, family cells, IFontFace scope). After it is integrated: `CX-UIA-03` → `04` → `30` → `05`, then `07`.
 3. `CX-UIA-09` now (UI2's head), with `CX-UIA-01`'s remainder beside it. Then `CX-UIA-10` ∥ `11`, once `09` and the follow-up are integrated.
@@ -1294,7 +1318,7 @@ The full packet text lives in three files beside this plan, one per owner, so ea
 
 ## 7. Open questions, each with the default in force
 
-Every question has a default. A default marked **needs owner approval** would amend an owner decision (D1–D26) or a PLAN exit, so it waits for the owner's word; until then the packets it governs follow the unamended decision. Every other default is in force, and the owner overrides it by saying so; Claude then records the change in PLAN.md and updates the affected packets. Questions come from all six analysts, with duplicates merged. Q48–Q51 were added on 2026-10-03 and sit in section A with the other questions on decisions and order; their defaults change nothing, and the marker sits on the answer that would amend a decision.
+Every question has a default. A default marked **needs owner approval** would amend an owner decision (D1–D28) or a roadmap exit (CLAUDE.md), so it waits for the owner's word; until then the packets it governs follow the unamended decision. Every other default is in force, and the owner overrides it by saying so; Claude then records the change in CLAUDE.md and updates the affected packets. Questions come from all six analysts, with duplicates merged. Q48–Q51 were added on 2026-10-03 and sit in section A with the other questions on decisions and order; their defaults change nothing, and the marker sits on the answer that would amend a decision.
 
 ### A. Decisions and order
 
@@ -1349,9 +1373,9 @@ Every question has a default. A default marked **needs owner approval** would am
 - **Q49. Count catalog-data branches (TOML shards under `docs/design/native-ui-catalog/`, no code) as docs-only for D27's two-branch integration cap?**
   *Default:* No; they count (D27 unchanged). A yes **needs owner approval**: it amends D27.
 - **Q50. Split `CL-UIA-22` and `CL-UIB-14` per platform, so each Stage 35 track waits only for its own shell?**
-  *Default:* No (D27 unchanged). A yes **needs owner approval**: it amends D27's "Stays gated".
+  *Default:* No (D27 unchanged). A yes **needs owner approval**: it amends D27's "Stays gated". D28 answers this for existing-interface repairs and per-platform slices. For new UI4–UI9 contract and feature work, a yes still needs owner approval, and each contract still needs its review.
 - **Q51. Approve UI4–UI9 provisionally for macOS and Linux, so Stage 34 provider work starts before all five shells and D23 exist?**
-  *Default:* No (D27 unchanged). A yes **needs owner approval**: it amends D27.
+  *Default:* No (D27 unchanged). A yes **needs owner approval**: it amends D27. D28 answers this for existing-interface repairs and per-platform slices. For new UI4–UI9 contract and feature work, a yes still needs owner approval, and each contract still needs its review.
 
 ### B. Codex access and ownership
 
@@ -1364,7 +1388,7 @@ Every question has a default. A default marked **needs owner approval** would am
 
   Their BTRSmith paths stay out of the btrc repository either way.
 - **Q20. Does Codex get a GitHub token with the *workflows* permission?** It is needed to push new workflow files: `CX-P1-03…09`, `CX-P2-18`, `CX-P2-26`, `CX-P2-31`, `CX-P2-49`, `CX-P2-50`.
-  *Default:* Yes. Fallback: Codex commits the file as `ci/proposed/<name>.yml`; Claude moves it into `.github/workflows/` at integration and dispatches it. That lane's evidence then arrives one batch later.
+  *Default:* **Superseded by D28:** Codex commits no workflow or `ci/proposed/` file. Claude installs lane workflows from the PR's `REQUEST`. (The 2026-10-03 default was yes, with a `ci/proposed/<name>.yml` fallback that Claude moved into `.github/workflows/` at integration.)
 - **Q21. Who is D6(c)'s UI contract owner?** The Stage 34–37 analyst proposed Codex.
   *Default:* Claude, as in §2.1. Codex is the single designated writer chain for the UI contract files, and its drafts become contracts only on Claude's approval (`CL-UIA-13`, `CL-UIA-19`, `CL-UIB-02`, `CL-UIB-18`). Part of D27 (Q1).
 - **Q22. May Codex edit compiler-import stdlib modules (`FileSystem`, `Process`, `IO`, `BackgroundJobs`, …)?**
@@ -1408,7 +1432,7 @@ Every question has a default. A default marked **needs owner approval** would am
 - **Q37. CI capacity for Codex PRs.**
   *Default:* the §3.2 limits: at most one Codex PR with lane- or main-tier CI in flight until `CL-R-50` lands and a lane run is measured, then two, with a lane run that `CL-R-50` reduces to `scope`, `release` and unit not counted; docs-tier PRs uncapped; at most two Codex code branches per integration batch, with docs-only branches not counted and an atomic landing counting as one.
 - **Q38. Land E40's Linux lossless-dequeue fix before UI2?**
-  *Default:* No. It lands with its reproduction in UI2 (`CX-UIA-23`), per D24.
+  *Default:* Superseded by D28: yes. `CX-STDLIB-01` ([CODEX.md](CODEX.md)) lands the fix with its reproduction before UI2, which still meets D24. (Until D28 the default was No: it would land with its reproduction in UI2, `CX-UIA-23`.)
 - **Q39. May BTRSmith's P0 inventory totals appear in public btrc docs?**
   *Default:* Counts only, by release name. No journey text.
 - **Q40. Put the Android SDK/NDK in a named shell (`nix develop .#platforms`) and amend Stage 23's exit wording?**
