@@ -62,9 +62,10 @@ class StdlibArchivePort(Protocol):
         header: str,
         implementation: str,
         metadata: dict,
+        target: str,
     ) -> dict: ...
 
-    def load(self, stdlib_dir: str, stdlib_source: str) -> dict: ...
+    def load(self, stdlib_dir: str, stdlib_source: str, target: str) -> dict: ...
 
 
 class StdlibArchiveError(ValueError):
@@ -84,13 +85,14 @@ class DisabledStdlibArchive:
         header: str,
         implementation: str,
         metadata: dict,
+        target: str,
     ) -> dict:
-        del out_dir, stdlib_source, header, implementation, metadata
+        del out_dir, stdlib_source, header, implementation, metadata, target
         raise StdlibArchiveError("stdlib archive persistence is not configured")
 
     @staticmethod
-    def load(stdlib_dir: str, stdlib_source: str) -> dict:
-        del stdlib_dir, stdlib_source
+    def load(stdlib_dir: str, stdlib_source: str, target: str) -> dict:
+        del stdlib_dir, stdlib_source, target
         raise StdlibArchiveError("stdlib archive persistence is not configured")
 
 
@@ -190,7 +192,8 @@ class StdlibArchiveAdapter:
         self.runtime_catalog = runtime_catalog
         self.emitter = emitter
 
-    def publish(self, out_dir: str, module, stdlib_source: str) -> dict:
+    def publish(self, out_dir: str, module, stdlib_source: str, target: str) -> dict:
+        """Publish the archive of one target row, by its canonical label."""
         shared, declarations = self.transform_module(module)
         header = self.emitter.emit_header(module, declarations)
         implementation = self.emitter.emit_impl(module, self.repository.header_name, set(shared))
@@ -201,15 +204,17 @@ class StdlibArchiveAdapter:
                 header,
                 implementation,
                 self.metadata(module, shared),
+                target,
             )
         except StdlibArchiveError:
             raise
         except (OSError, ValueError) as error:
             raise StdlibArchiveError(str(error)) from error
 
-    def consume(self, module, program, archive_dir: str, stdlib_source: str) -> None:
+    def consume(self, module, program, archive_dir: str, stdlib_source: str, target: str) -> None:
+        """Link an archive built for ``target``, the compile's canonical row label."""
         try:
-            manifest = self.repository.load(archive_dir, stdlib_source)
+            manifest = self.repository.load(archive_dir, stdlib_source, target)
         except StdlibArchiveError:
             raise
         except (OSError, ValueError) as error:
@@ -844,6 +849,7 @@ class CompilationPipeline:
                     program,
                     options.stdlib_archive,
                     self.frontend.stdlib.source("", ConditionalEnvironment(source.native_plan.target)),
+                    source.native_plan.target.label,
                 )
                 self._finalize_optimized_ir(module)
                 self._timed(profile, "stdlib_archive", start)
@@ -955,7 +961,7 @@ class CompilationPipeline:
                 split_source_spaces=False,
             )
             module = self.optimize(module, options)
-            self.stdlib_archive.publish(out_dir, module, stdlib_source)
+            self.stdlib_archive.publish(out_dir, module, stdlib_source, environment.target.label)
         except (CodegenError, StdlibArchiveError) as error:
             failure = self.failure_for(error)
             return CompilerActionResult(failure=failure)
