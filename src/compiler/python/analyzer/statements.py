@@ -1095,12 +1095,16 @@ class StatementAnalyzer:
         entry by entry, as the self-hosted validator does."""
         if not isinstance(expression, MapLiteral) or len(expression.entries) < 2:
             return False
+        if self.generated_symbols.report_unresolved_value(expression):
+            return True
         first = expression.entries[0]
         expected = {"key": self.expressions.infer_type(first.key), "value": self.expressions.infer_type(first.value)}
         for index, entry in enumerate(expression.entries[1:], 1):
             for part, value in (("key", entry.key), ("value", entry.value)):
                 actual = self.expressions.infer_type(value)
-                if expected[part] and actual and not self.types.types_compatible(expected[part], actual):
+                if not self._comparable_map_entry_types(expected[part], actual):
+                    continue
+                if not self.types.types_compatible(expected[part], actual):
                     self.session.error(
                         f"Map {part} {index} has type '{actual.base}' but expected '{expected[part].base}'",
                         value.line,
@@ -1108,6 +1112,24 @@ class StatementAnalyzer:
                     )
                     return True
         return False
+
+    def _comparable_map_entry_types(self, expected, actual) -> bool:
+        """Whether two entry types are definite enough to compare.
+
+        A null entry, or a type parameter of the enclosing generic, fits more
+        than one type, so it neither sets nor breaks the inferred type."""
+        if expected is None or actual is None or expected.base == "null" or actual.base == "null":
+            return False
+        parameters = self.storage.active_type_parameters()
+        pending = [expected, actual]
+        while pending:
+            current = pending.pop()
+            if current is None:
+                continue
+            if current.base in parameters:
+                return False
+            pending.extend(current.generic_args or ())
+        return True
 
     def _report_undeclared_collection_literal(self, expression) -> bool:
         """Report a collection literal whose class the program never declares.

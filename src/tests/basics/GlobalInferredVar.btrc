@@ -1,0 +1,24 @@
+// A global `var` takes the type its constant initializer infers, as a local
+// `var` does: a double stays a double, a string a string, a long a long.
+var ratio = 2.5;
+var greeting = "hello";
+var big = 5000000000L;
+var count = 7;
+var negative = -3;
+var flag = true;
+
+int twice(int x) { return x * 2; }
+
+var doubler = twice;
+
+int main() {
+	double scaled = ratio * 2.0;
+	print(scaled);
+	print(greeting);
+	print(big);
+	print(count + negative);
+	print(flag ? 1 : 0);
+	print(doubler(21));
+	print("PASS: test_global_inferred_var");
+	return 0;
+}

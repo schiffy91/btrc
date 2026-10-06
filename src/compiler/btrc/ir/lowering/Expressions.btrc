@@ -2201,7 +2201,9 @@ class ExpressionLowerer {
 	public IRNode lowerListLiteral(Node node, Map<string, Node> varTypes, Node? expected, CallableFlowState callableFlow) {
 		string mangled = "btrc_Vector_int";
 		Node? elementExpected = null;
-		Node concreteExpected = self.cTypes.resolveBodyType(expected, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		/* A typedef naming the collection (`typedef Vector<double> Doubles`) is
+		 * resolved first, so the literal builds that collection. */
+		Node concreteExpected = self.cTypes.resolveBodyType(SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		if (expected != null && concreteExpected.genericArgs().len > 0) {
 			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
 			elementExpected = concreteExpected.genericArgs().get(0);
@@ -2385,7 +2387,7 @@ class ExpressionLowerer {
 		string mangled = "btrc_Map_string_int";
 		Node? keyExpected = null;
 		Node? valueExpected = null;
-		Node concreteExpected = self.cTypes.resolveBodyType(expected, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		Node concreteExpected = self.cTypes.resolveBodyType(SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		if (expected != null && concreteExpected.genericArgs().len > 1) {
 			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
 			keyExpected = concreteExpected.genericArgs().get(0);
@@ -3707,7 +3709,10 @@ class ExpressionLowerer {
 	 * prepared value has the target's type, not the type its first element
 	 * would infer: [1, 2] passed as Vector<double> is a Vector<double>. */
 	private Node? preparedSourceType(Node expression, Node? targetType, Map<string, Node> varTypes) {
-		if (targetType != null && !targetType.isArray && ((expression.kind == NK_LIST_LITERAL && targetType.base == "Vector") || (expression.kind == NK_MAP_LITERAL && targetType.base == "Map"))) { return targetType; }
+		if (targetType != null && (expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL)) {
+			Node? collection = SemanticTypeSystem.resolveTypedefType(targetType, self.analyzed.typedefTable);
+			if (collection != null && !collection.isArray && ((expression.kind == NK_LIST_LITERAL && collection.base == "Vector") || (expression.kind == NK_MAP_LITERAL && collection.base == "Map"))) { return targetType; }
+		}
 		return self.resolvedExpressionType(expression, varTypes);
 	}
 

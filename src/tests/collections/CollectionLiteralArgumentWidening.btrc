@@ -5,6 +5,9 @@
 import Library.Map;
 import Library.Vector;
 
+typedef Vector<double> Doubles;
+typedef Map<string, double> Weights;
+
 interface IShape {
 	int area();
 }
@@ -47,6 +50,13 @@ double listTotal(Vector<double> values) {
 	return sum;
 }
 
+double aliased(Doubles values, Weights weights) {
+	double sum = 0.0;
+	for value in values { sum = sum + value; }
+	for key in weights { sum = sum + weights.get(key); }
+	return sum;
+}
+
 int areas(Map<string, IShape> shapes) {
 	int sum = 0;
 	for key in shapes { sum = sum + shapes.get(key).area(); }
@@ -66,6 +76,7 @@ int main() {
 	print(listTotal([1, 2, 3]));
 	print(areas({"a": Square(2), "b": Square(3)}));
 	print(present({"a": Point(1)}));
+	print(aliased([1, 2], {"w": 3}));
 
 	Totals totals = Totals({"x": 2});
 	print(totals.scaled([3, 2]));

@@ -142,6 +142,11 @@ class ExpressionValidator {
 
 	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
+	/* Collection literal arguments take their parameter's element types. */
+	private void validateCollectionArguments(Map<string, Node> vars) {
+		for check in self.calls.takeCollectionArguments() { self.validateTypedInitializer(check.expected, check.argument, check.subject, vars); }
+	}
+
 	/* A list or map literal whose type is inferred takes it from its first
 	 * element or entry, so every later one must fit that type. */
 	public void rejectInconsistentCollectionLiteral(Node? expression, Map<string, Node> vars) {
@@ -176,9 +181,13 @@ class ExpressionValidator {
 		}
 	}
 
+	/* A null entry, or a type parameter of the enclosing generic, fits more
+	 * than one type, so it neither sets nor breaks the inferred type. */
 	private void rejectMapEntryMismatch(string part, int index, Node? expected, Node value, Map<string, Node> vars) {
 		Node? actual = self.types.inferType(value, vars);
-		if (expected != null && actual != null && !self.types.assignmentCompatible(expected, actual)) {
+		if (expected == null || actual == null || expected.base == "null" || actual.base == "null") { return; }
+		if (self.types.typeContainsParams(expected, self.state.typeParams) || self.types.typeContainsParams(actual, self.state.typeParams)) { return; }
+		if (!self.types.assignmentCompatible(expected, actual)) {
 			TypeValidator.fail("Map " + part + " " + Strings.fromInt(index) + " has type '" + actual.base + "' but expected '" + expected.base + "'", value);
 		}
 	}
@@ -324,7 +333,7 @@ class ExpressionValidator {
 					string hint = canonical.base == "Set" ? "'{}' creates an empty Set and add() inserts elements" : "use a list literal [...]";
 					TypeValidator.fail(subject + " cannot use a non-empty brace initializer for '" + canonical.base + "'; " + hint, value);
 				}
-				self.validateInitializerElements(canonical.genericArgs().get(0), value.elements(), subject, vars);
+				for element in value.elements() { self.validateInitializerValueAs(canonical.genericArgs().get(0), element, subject, " elements", vars); }
 				return;
 			}
 			if (value.kind == NK_BRACE_INITIALIZER && value.elements().len == 0 && canonical.genericArgs().len > 0 && self.state.analyzed.isGenericClass(canonical.base)) {
@@ -732,6 +741,7 @@ class ExpressionValidator {
 			}
 			self.names.deferGeneratedSymbolCall(expression, vars);
 			self.calls.validateCall(expression,  vars);
+			self.validateCollectionArguments(vars);
 		} else if (expression.kind == NK_INDEX_EXPR) {
 			self.validateExpr(expression.obj,  vars);
 			self.validateExpr(expression.index,  vars);
@@ -964,6 +974,7 @@ class ExpressionValidator {
 		}
 		self.calls.validateConstructorAccess(className, constructor, expression);
 		self.calls.validateSignature(className, constructor.params(), expression, substitutions, false, vars);
+		self.validateCollectionArguments(vars);
 		if (className == "CallbackRegistration") {
 			self.calls.validateDirectRealtimeCallback(className, constructor, expression, vars, "invoke");
 		} else if (className == "RealtimeAudioProgram") {
@@ -1060,6 +1071,7 @@ class ExpressionValidator {
 			}
 		} else if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
 			self.validateExprList(expression.elements(),  vars);
+			if (expression.kind == NK_LIST_LITERAL) { self.rejectInconsistentCollectionLiteral(expression, vars); }
 			if (expression.kind == NK_TUPLE_LITERAL) {
 				self.ownership.rejectOwnedElements(expression.elements(), "a shallow aggregate", vars);
 			}

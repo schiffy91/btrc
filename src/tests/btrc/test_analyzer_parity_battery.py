@@ -314,6 +314,40 @@ INVALID_PROBES = (
         GpuDiagnostic("Global 'counts' requires a C constant/address initializer for static storage", 3, 1),
     ),
     ParityProbe(
+        "map-literal-var-unresolved-entry",
+        COLLECTIONS + 'int main() {\n\tvar m = {"a": 1, "b": "x", "c": nope};\n\treturn 0;\n}\n',
+        GpuDiagnostic("Unresolved identifier 'nope' used as a value", 4, 34),
+    ),
+    # A literal argument fills its parameter's collection, so its elements
+    # are checked against the parameter's element types.
+    ParityProbe(
+        "list-literal-argument-mixed-elements",
+        COLLECTIONS + 'int takeV(Vector<double> v) { return 0; }\nint main() {\n\ttakeV([1, "x"]);\n\treturn 0;\n}\n',
+        GpuDiagnostic("List element 1 has type 'string' but expected 'int'", 5, 12),
+    ),
+    ParityProbe(
+        "list-literal-argument-wrong-elements",
+        COLLECTIONS + 'int takeV(Vector<double> v) { return 0; }\nint main() {\n\ttakeV(["x", "y"]);\n\treturn 0;\n}\n',
+        GpuDiagnostic("Argument 'v' to 'takeV()' expects 'double' elements but got 'string'", 5, 9),
+    ),
+    ParityProbe(
+        "map-literal-argument-wrong-value",
+        COLLECTIONS
+        + 'int takeM(Map<string, double> m) { return 0; }\nint main() {\n\ttakeM({"a": 1, "b": "x"});\n\treturn 0;\n}\n',
+        GpuDiagnostic("Argument 'm' to 'takeM()' value expects 'double' elements but got 'string'", 5, 22),
+    ),
+    ParityProbe(
+        "map-literal-argument-wrong-key",
+        COLLECTIONS
+        + "int takeM(Map<string, double> m) { return 0; }\nint main() {\n\ttakeM({1: 1.0});\n\treturn 0;\n}\n",
+        GpuDiagnostic("Argument 'm' to 'takeM()' key expects 'string' elements but got 'int'", 5, 9),
+    ),
+    ParityProbe(
+        "declared-vector-wrong-elements",
+        COLLECTIONS + 'int main() {\n\tVector<double> v = ["x"];\n\treturn 0;\n}\n',
+        GpuDiagnostic("Initializer for 'v' expects 'double' elements but got 'string'", 4, 22),
+    ),
+    ParityProbe(
         "global-list-literal-var",
         COLLECTIONS + "var values = [1, 2];\nint main() {\n\treturn 0;\n}\n",
         GpuDiagnostic("Global 'values' requires a C constant/address initializer for static storage", 3, 1),
@@ -334,6 +368,17 @@ VALID_PROBES = (
     ParityProbe("float-literal-double", _main("var x = 1.5; double* p = &x; return 0;")),
     ParityProbe("float-arithmetic-widens", _main("float f = 1.5; var y = f * 2.0; double* p = &y; return 0;")),
     ParityProbe("source-standard-include", "#include <assert.h>\n" + _main("assert(1 == 1); return 0;")),
+    # A null entry, or a type parameter, fits more than one type, so it does
+    # not break an inferred map literal.
+    ParityProbe(
+        "map-literal-var-null-entry", COLLECTIONS + 'int main() {\n\tvar m = {"a": null, "b": "x"};\n\treturn 0;\n}\n'
+    ),
+    ParityProbe(
+        "map-literal-var-type-parameter-entry",
+        COLLECTIONS
+        + 'class H<T> {\n\tpublic T x;\n\tpublic H(T x) { self.x = x; }\n\tpublic int f() {\n\t\tvar m = {"a": self.x, "b": 1};\n\t\treturn 0;\n\t}\n}\n'
+        + "int main() {\n\tH<int> h = H(1);\n\treturn h.f();\n}\n",
+    ),
 )
 
 

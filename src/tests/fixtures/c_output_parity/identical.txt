@@ -44,6 +44,7 @@ basics/FloatModTruncates.btrc
 basics/FloatToString.btrc
 basics/FunctionCall.btrc
 basics/GlobalFixedArray.btrc
+basics/GlobalInferredVar.btrc
 basics/Hello.btrc
 basics/IfElse.btrc
 basics/IncdecValueSemantics.btrc
