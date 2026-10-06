@@ -122,7 +122,9 @@ def test_tables_are_subsets_of_platform_and_never_list_iso_c_or_runtime_names() 
         "types": set(generated_abi.HOSTED_TYPE_NAMES) - PLATFORM["types"],
         "typedefs": set(generated_abi.HOSTED_TYPEDEF_NAMES) - PLATFORM["typedefs"],
     }
+    # ISO C names live in [names] only, so the subset rule alone keeps them off every row.
     assert {"malloc", "printf", "strlen", "fopen"} <= iso_and_runtime["functions"]
+    assert not {"malloc", "printf", "strlen", "fopen"} & PLATFORM["functions"]
     for label, row in UNAVAILABLE.items():
         for kind in KINDS:
             listed = getattr(row, kind)
@@ -154,19 +156,14 @@ def test_apple_rows_keep_their_stand_in_source() -> None:
         assert "extracted" in UNAVAILABLE[label].source, label
 
 
-def test_fingerprint_covers_the_availability_tables() -> None:
+@pytest.mark.parametrize("field", (*KINDS, "source"))
+def test_fingerprint_covers_the_availability_tables(field: str) -> None:
     manifest = _manifest()
     assert manifest.fingerprint == generated_abi.HOSTED_ABI_FINGERPRINT == HOSTED_ABI.fingerprint
     linux = next(row for row in manifest.platform_targets if row.target == "linux-x86_64")
-    changed = linux.__class__(
-        target=linux.target,
-        functions=tuple(sorted({*linux.functions, "fork"})),
-        macros=linux.macros,
-        objects=linux.objects,
-        types=linux.types,
-        typedefs=linux.typedefs,
-        source=linux.source,
-    )
+    value = getattr(linux, field)
+    changed_value = value + " (changed)" if field == "source" else value[:-1]
+    changed = linux.__class__(**{**_row_fields(linux), field: changed_value})
     rows = tuple(changed if row is linux else row for row in manifest.platform_targets)
     assert manifest.__class__(**{**_fields(manifest), "platform_targets": rows}).fingerprint != manifest.fingerprint
     tables = (SOURCE_ROOT / "compiler/btrc/generated/hosted_abi/Tables.btrc").read_text()

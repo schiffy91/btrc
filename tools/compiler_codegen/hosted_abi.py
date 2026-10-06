@@ -551,6 +551,9 @@ class HostedAbiManifest:
                     raise HostedAbiManifestError(
                         f"{context}.unavailable_{kind} lists names outside platform.{kind}: {outside[:5]!r}"
                     )
+                # [platform] carries the GPU runtime's btrc_/BTRC_/Btrc names, so the
+                # prefixes do the work; runtime_names guards a future [platform] overlap.
+                # The extractor, not this rule, excludes unprefixed src/runtime/gpu names.
                 runtime = sorted(
                     name for name in listed if name in runtime_names or name.startswith(self.RUNTIME_PREFIXES)
                 )
