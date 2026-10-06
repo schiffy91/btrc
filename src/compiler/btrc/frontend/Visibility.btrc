@@ -598,6 +598,10 @@ class FeImportVisibilityChecker {
 		self.stdlibSymbols.mergeInto(symbols);
 		Vector<FeVisibilityDiagnostic> diagnostics = [];
 		Map<string, bool> valueNames = self.valueOnlyNames();
+		/* An indexed stdlib symbol may be a type, so it is never exempt. */
+		Map<string, Vector<string>> indexedSymbols = {};
+		self.stdlibSymbols.mergeInto(indexedSymbols);
+		for indexedName in indexedSymbols.keys() { valueNames.remove(indexedName); }
 		int declarationIndex = 0;
 		while (declarationIndex < self.program.declarations().len) {
 			Node declaration = self.program.declarations().get(declarationIndex);

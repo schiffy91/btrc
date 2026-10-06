@@ -1056,6 +1056,11 @@ RECORD_REFUSALS = [
         id="r09-identity-typedef-before",
     ),
     pytest.param(
+        "struct P { int x; };\ntypedef struct P* P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 19),
+        id="r09-pointer-typedef-own-tag",
+    ),
+    pytest.param(
         "union U { int x; };\ntypedef union U U;" + MAIN_LINE,
         ("Top-level name 'U' is declared as both union and typedef", 2, 17),
         id="r09-identity-typedef-union",
@@ -1224,6 +1229,22 @@ ACCEPTED = [
         }
         """,
         id="r04-class-static-char-array",
+    ),
+    pytest.param(
+        """
+        #include <assert.h>
+        struct P { int x; };
+        int readP(struct P* p);
+        int readP(P* p) { return p->x; }
+        extern struct P shared;
+        P shared = {5};
+        int main() {
+            P local = {2};
+            assert(readP(&local) + readP(&shared) == 7);
+            return 0;
+        }
+        """,
+        id="r09-record-tag-in-prototypes-and-globals",
     ),
 ]
 

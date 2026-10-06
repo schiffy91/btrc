@@ -118,8 +118,8 @@ class DeclarationRegistry {
 	 * included), makes them one btrc type too: one generic instance, one
 	 * assignability rule and one lowering. A tag of another kind stays for
 	 * the wrong-keyword refusal, an SDK record keeps its written spelling,
-	 * and an identity typedef (`typedef struct P P;`) keeps its original for
-	 * the name-claim diagnostic. */
+	 * and a typedef named for its own tag (`typedef struct P P;`) keeps its
+	 * original for the name-claim diagnostic. */
 	public void normalizeRecordTags(Node program) {
 		Vector<Node> stack = [];
 		for declaration in program.declarations() { stack.push(declaration); }
@@ -128,7 +128,7 @@ class DeclarationRegistry {
 			Node node = stack.pop();
 			if (node.kind == NK_TYPE_EXPR) {
 				self.normalizeRecordTag(node);
-			} else if (node.kind == NK_TYPEDEF_DECL && DeclarationRegistry.identityTypedef(node)) {
+			} else if (node.kind == NK_TYPEDEF_DECL && DeclarationRegistry.namesItsOwnTag(node)) {
 				for argument in node.original.genericArgs() { stack.push(argument); }
 				continue;
 			}
@@ -145,10 +145,12 @@ class DeclarationRegistry {
 		if (SemanticTypeSystem.recordKeyword(record) + " " + name == typeExpr.base && !self.analyzed.isNativeDeclaration(record)) { typeExpr.base = name; }
 	}
 
-	class bool identityTypedef(Node declaration) {
+	/* `typedef struct P P;` or `typedef struct P* P;`: the alias reuses the
+	 * tag's name, a name claim the validator reports. */
+	class bool namesItsOwnTag(Node declaration) {
 		Node? original = declaration.original;
 		if (original == null) { return false; }
-		return SemanticTypeSystem.recordTagName(original.base) == declaration.alias && original.base != declaration.alias && original.pointerDepth == 0 && !original.isArray && original.genericArgs().len == 0;
+		return SemanticTypeSystem.recordTagName(original.base) == declaration.alias && original.base != declaration.alias;
 	}
 
 	/* Immutable exact-name indexes for semantic and lowering member queries. */

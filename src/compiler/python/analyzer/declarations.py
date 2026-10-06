@@ -1255,6 +1255,7 @@ class DeclarationRegistry:
         self.index.global_declarations = {}
         self.index.global_definitions = {}
         self.index.struct_definitions = {}
+        self.normalize_record_tags(program)
         for declaration in self.session.declarations(program):
             if isinstance(declaration, InterfaceDecl):
                 self._register_interface(declaration, top_level)
@@ -1283,7 +1284,6 @@ class DeclarationRegistry:
             elif isinstance(declaration, VarDeclStmt):
                 top_level.register_global(declaration)
         inheritance.resolve(pre_resolved_classes)
-        self.normalize_record_tags(program)
 
     def normalize_record_tags(self, program: Program) -> None:
         """Spell every source record's C tag as the record's name (C row 9).
@@ -1294,9 +1294,19 @@ class DeclarationRegistry:
         signatures included), makes them one btrc type too: one generic
         instance, one assignability rule and one lowering. A tag of another
         kind stays for the wrong-keyword refusal, an SDK record keeps its
-        written spelling, and an identity typedef (``typedef struct P P;``)
-        keeps its original for the name-claim diagnostic.
+        written spelling, and a typedef named for its own tag (``typedef struct
+        P P;``) keeps its original for the name-claim diagnostic. It runs
+        before registration, so prototype and global compatibility compare
+        one spelling.
         """
+        records: dict[str, str] = {}
+        for declaration in self.session.declarations(program):
+            if (
+                isinstance(declaration, StructDecl)
+                and declaration.name
+                and not isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            ):
+                records.setdefault(declaration.name, TypeSystem.record_keyword(declaration))
         stack: list = list(self.session.declarations(program))
         while stack:
             node = stack.pop()
@@ -1306,8 +1316,8 @@ class DeclarationRegistry:
             if type(node).__module__ != _AST_MODULE:
                 continue
             if isinstance(node, TypeExpr):
-                self._normalize_record_tag(node)
-            elif isinstance(node, TypedefDecl) and self._identity_typedef(node):
+                self._normalize_record_tag(node, records)
+            elif isinstance(node, TypedefDecl) and self._names_its_own_tag(node):
                 stack.extend(node.original.generic_args)
                 continue
             for member in fields(node):
@@ -1315,28 +1325,21 @@ class DeclarationRegistry:
                 if isinstance(value, list) or type(value).__module__ == _AST_MODULE:
                     stack.append(value)
 
-    def _normalize_record_tag(self, type_expr: TypeExpr) -> None:
+    @staticmethod
+    def _normalize_record_tag(type_expr: TypeExpr, records: dict[str, str]) -> None:
         keyword, _, name = type_expr.base.partition(" ")
-        if keyword not in ("struct", "union") or not name or " " in name:
-            return
-        record = self.index.struct_table.get(name)
-        if (
-            record is not None
-            and TypeSystem.record_keyword(record) == keyword
-            and not isinstance(getattr(record, "source_file", None), NativeHeaderSource)
-        ):
+        if keyword in ("struct", "union") and records.get(name) == keyword:
             type_expr.base = name
 
     @staticmethod
-    def _identity_typedef(declaration: TypedefDecl) -> bool:
+    def _names_its_own_tag(declaration: TypedefDecl) -> bool:
+        """``typedef struct P P;`` or ``typedef struct P* P;``: the alias
+        reuses the tag's name, a name claim the registry reports."""
         original = declaration.original
         return (
             original is not None
             and original.base != declaration.alias
             and TypeSystem.record_tag_name(original.base) == declaration.alias
-            and not original.pointer_depth
-            and not original.is_array
-            and not original.generic_args
         )
 
     @staticmethod

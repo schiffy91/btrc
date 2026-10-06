@@ -688,7 +688,8 @@ class ImportVisibilityChecker:
 
     def _value_only_names(self) -> set[str]:
         """Names the program declares only as values (functions, globals,
-        enum constants), never as types: a C tag cannot name them."""
+        enum constants), never as types: a C tag cannot name them. An indexed
+        symbol (the stdlib's) may be a type, so it is never exempt."""
         values: set[str] = set()
         types: set[str] = set()
         for declaration in self.program.declarations:
@@ -698,7 +699,7 @@ class ImportVisibilityChecker:
                 values.add(declaration.name)
             if isinstance(declaration, ast.EnumDecl):
                 values.update(value.name for value in declaration.values)
-        return values - types
+        return values - types - set(self.external_symbol_files)
 
     def _references(self, declaration) -> list[ImportReference]:
         if isinstance(declaration, ast.PreprocessorDirective):
