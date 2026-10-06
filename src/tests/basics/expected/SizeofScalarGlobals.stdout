@@ -1,0 +1,2 @@
+failures 0
+PASS: test_sizeof_scalar_globals
