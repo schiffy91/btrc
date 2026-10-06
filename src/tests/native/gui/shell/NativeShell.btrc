@@ -140,6 +140,9 @@ class ShellJourney implements IApplicationWork {
 			assert(self._field.text().equals("draft"));
 			shellProbeClose();
 		} else {
+			/* The native close, like injected input, can land after the next
+			 * tick (weston under the sanitizers); wait within the budget. */
+			if (self.pending(!self._window.isOpen())) { return; }
 			assert(!self._window.isOpen());
 			self.done = true;
 			GUI.requestQuit();
