@@ -1055,11 +1055,6 @@ class TypeValidator {
 						self.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
 						parameterIndex = parameterIndex + 1;
 					}
-					string owner = declaration.name + "." + method.name;
-					self.validateFlexibleArrayValue(method.returnType, "Return type of '" + owner + "'", method);
-					for parameter in method.params() {
-						self.validateFlexibleArrayValue(parameter.type, "Parameter '" + owner + "." + parameter.name + "'", parameter);
-					}
 					methodIndex = methodIndex + 1;
 				}
 				self.state.typeParams = previousParams;

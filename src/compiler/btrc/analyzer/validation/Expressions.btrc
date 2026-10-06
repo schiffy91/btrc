@@ -745,10 +745,56 @@ class ExpressionValidator {
 	/* A method callee on an instance resolves before its arguments are
 	 * checked: a missing, private or class-only member is the first error. */
 	private void validateCalleeMember(Node callee, Map<string, Node> vars) {
-		if (callee.obj == null) { return; }
-		if (callee.obj.kind == NK_IDENTIFIER && !vars.has(callee.obj.name) && (self.state.analyzed.isClass(callee.obj.name) || self.state.analyzed.isGenericClass(callee.obj.name))) { return; }
-		Node? receiver = self.types.inferType(callee.obj, vars);
+		Node? obj = callee.obj;
+		if (obj == null) { return; }
+		if (obj.kind == NK_IDENTIFIER && !vars.has(obj.name)) {
+			// Variant constructors are the call's own to check.
+			if (self.state.analyzed.isRichEnum(obj.name) || self.state.analyzed.isEnum(obj.name)) { return; }
+			if (self.state.analyzed.isClass(obj.name) || self.state.analyzed.isGenericClass(obj.name)) {
+				self.validateClassProjection(callee, obj.name);
+				return;
+			}
+		}
+		Node? receiver = self.types.inferType(obj, vars);
 		if (receiver == null) { return; }
+		string member = callee.field;
+		if (receiver.base == "Thread") {
+			if (member != "join") { TypeValidator.fail("Thread<T> has no method '" + member + "'", callee); }
+			return;
+		}
+		if (receiver.base == "Mutex") {
+			if (member != "get" && member != "set" && member != "destroy") { TypeValidator.fail("Mutex<T> has no method '" + member + "'", callee); }
+			return;
+		}
+		if (receiver.base == "Atomic") {
+			if (member != "init" && member != "load" && member != "store" && member != "exchange" && member != "fetchAdd" && member != "fetchSub" && member != "fetchAnd" && member != "fetchOr" && member != "fetchXor" && member != "compareExchangeStrong") {
+				TypeValidator.fail("Atomic<T> has no method '" + member + "'", callee);
+			}
+			return;
+		}
+		if (receiver.base == "Span") {
+			if (member != "length" && member != "isEmpty" && member != "isValid" && member != "tryGet" && member != "trySet") { TypeValidator.fail("Span<T> has no method '" + member + "'", callee); }
+			return;
+		}
+		if (self.state.analyzed.isRichEnum(receiver.base)) {
+			if (member != "tag" && member != "data" && member != "toString") { TypeValidator.fail("Rich enum '" + receiver.base + "' has no field '" + member + "'", callee); }
+			return;
+		}
+		Node? canonical = self.types.resolveAliases(receiver);
+		if (canonical != null && canonical.base == "Tuple") {
+			int tupleIndex = SemanticTypeSystem.tupleIndex(member);
+			if (tupleIndex < 0 || "_" + Strings.fromInt(tupleIndex) != member) {
+				TypeValidator.fail("Tuple has no field '" + member + "'; use '_N' for a zero-based element index", callee);
+			}
+			if (tupleIndex >= canonical.genericArgs().len) {
+				TypeValidator.fail("Tuple field '" + member + "' is out of range for " + Strings.fromInt(canonical.genericArgs().len) + " element(s)", callee);
+			}
+			return;
+		}
+		if (self.state.analyzed.isInterface(receiver.base)) {
+			if (self.state.analyzed.interfaceMethod(receiver.base, member) == null) { TypeValidator.fail("Interface '" + receiver.base + "' has no method '" + member + "'", callee); }
+			return;
+		}
 		if (self.state.analyzed.isClass(receiver.base) || self.state.analyzed.isGenericClass(receiver.base)) {
 			self.validateInstanceProjection(callee, receiver, false);
 		}

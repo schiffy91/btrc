@@ -417,6 +417,155 @@ def test_refusal_is_identical_in_both_compilers(
     assert diagnostic_identity(reference.stderr) == expected
 
 
+# The first diagnostic when a program has several errors: both compilers run
+# the flexible-array declaration checks, type-parameter shadows included, in
+# declaration order after duplicates and before any body, and resolve a
+# method callee before checking its arguments.
+FIRST_DIAGNOSTICS = [
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nstruct Bad { int items[]; int count; };\nclass Holder<Packet> { public Holder() {} }\nint main() { return 0; }",
+        ("Flexible array member 'Bad.items' must be the last field of struct 'Bad'", 2, 18),
+        id="flexible-member-not-last-before-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nstruct Outer { struct Packet inner; };\nclass Holder<Packet> { public Holder() {} }\nint main() { return 0; }",
+        ("Struct field 'Outer.inner' uses struct 'Packet' with a flexible array member by value; use a pointer", 2, 30),
+        id="struct-field-before-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nint consume(struct Packet p) { return 0; }\nclass Holder<Packet> { public Holder() {} }\nint main() { return 0; }",
+        ("Parameter 'consume.p' uses struct 'Packet' with a flexible array member by value; use a pointer", 2, 13),
+        id="function-parameter-before-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nclass Owner {\n\tpublic struct Packet held;\n}\nclass Holder<Packet> { public Holder() {} }\nint main() { return 0; }",
+        ("Field 'Owner.held' uses struct 'Packet' with a flexible array member by value; use a pointer", 3, 2),
+        id="class-field-before-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nclass Twice { public Twice() {} }\nclass Twice { public Twice() {} }\nclass Holder<Packet> { public Holder() {} }\nint main() { return 0; }",
+        ("Duplicate class name 'Twice'", 3, 7),
+        id="duplicate-class-before-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nclass Holder<Packet> { public Holder() {} }\nclass Twice { public Twice() {} }\nclass Twice { public Twice() {} }\nint main() { return 0; }",
+        ("Duplicate class name 'Twice'", 4, 7),
+        id="duplicate-class-after-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nclass Early { public Early() {} public int take(struct Packet p) { return 0; } }\nclass Holder<Packet> { public Holder() {} }\nint main() { return 0; }",
+        ("Parameter 'Early.take.p' uses struct 'Packet' with a flexible array member by value; use a pointer", 2, 49),
+        id="method-parameter-before-shadow",
+    ),
+    pytest.param(
+        "struct Entry { int length; int items[]; };\nstruct S { struct Entry e; };\nclass P { public P() {} public int pick<Entry>(Entry* e) { return 0; } }\nint main() { return 0; }",
+        ("Struct field 'S.e' uses struct 'Entry' with a flexible array member by value; use a pointer", 2, 25),
+        id="struct-field-before-method-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nstruct Bad { int items[]; int count; };\ninterface Getter<Packet> { Packet get(); }\nint main() { return 0; }",
+        ("Flexible array member 'Bad.items' must be the last field of struct 'Bad'", 2, 18),
+        id="flexible-member-not-last-before-interface-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nint f() { return undefinedName; }\nclass Holder<Packet> { public Holder() {} }\nint main() { return 0; }",
+        (
+            "Type parameter 'Packet' of 'Holder' is named like struct 'Packet', which has a flexible array member; rename the type parameter",
+            3,
+            1,
+        ),
+        id="body-error-before-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nclass Holder<Packet> { public Holder() {} }\ninterface Getter<Packet> { Packet get(); }\nint main() { return 0; }",
+        (
+            "Type parameter 'Packet' of 'Holder' is named like struct 'Packet', which has a flexible array member; rename the type parameter",
+            2,
+            1,
+        ),
+        id="class-shadow-before-interface-shadow",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nclass Holder<Packet> { public Holder() {} }\nstruct Bad { int items[]; int count; };\nint main() { return 0; }",
+        (
+            "Type parameter 'Packet' of 'Holder' is named like struct 'Packet', which has a flexible array member; rename the type parameter",
+            2,
+            1,
+        ),
+        id="shadow-before-flexible-member-not-last",
+    ),
+    pytest.param(
+        "struct Packet { int length; int items[]; };\nstruct Packet g;\nclass Holder<Packet> { public Holder() {} }\nint main() { return 0; }",
+        (
+            "Type parameter 'Packet' of 'Holder' is named like struct 'Packet', which has a flexible array member; rename the type parameter",
+            3,
+            1,
+        ),
+        id="shadow-before-by-value-global",
+    ),
+    pytest.param(
+        BUFFER
+        + "interface Shape { int area(); }\nclass Square implements Shape { public Square() {} public int area() { return 1; } }\nint main() { Shape s = new Square(); struct Buffer* p = null; return s.nope(*p); }",
+        ("Interface 'Shape' has no method 'nope'", 4, 70),
+        id="missing-interface-method",
+    ),
+    pytest.param(
+        BUFFER + "int main() { Atomic<int> a = Atomic(1); struct Buffer* p = null; return a.nope(*p); }",
+        ("Atomic<T> has no method 'nope'", 2, 73),
+        id="missing-atomic-method",
+    ),
+    pytest.param(
+        BUFFER + "int main() { Mutex<int> m = Mutex(0); struct Buffer* p = null; int r = m.nope(*p); return r; }",
+        ("Mutex<T> has no method 'nope'", 2, 72),
+        id="missing-mutex-method",
+    ),
+    pytest.param(
+        BUFFER
+        + "int main() { int xs[2] = {1, 2}; Span<int> s = Span(xs, (size_t)2); struct Buffer* p = null; return s.nope(*p); }",
+        ("Span<T> has no method 'nope'", 2, 101),
+        id="missing-span-method",
+    ),
+    pytest.param(
+        BUFFER
+        + "class R { public R() {} public int take(int v) { return 0; } }\nint main() { struct Buffer* p = null; return R.take(*p); }",
+        ("Method 'take' is not a class method, cannot access it statically", 3, 46),
+        id="instance-method-called-statically",
+    ),
+    pytest.param(
+        BUFFER + "class R { public R() {} }\nint main() { struct Buffer* p = null; return R.nope(*p); }",
+        ("Class 'R' has no static field or method 'nope'", 3, 46),
+        id="missing-static-method",
+    ),
+    pytest.param(
+        BUFFER + "class Box<T> { public Box() {} }\nint main() { struct Buffer* p = null; return Box.nope(*p); }",
+        ("Class 'Box' has no static field or method 'nope'", 3, 46),
+        id="missing-static-method-of-generic-class",
+    ),
+    pytest.param(
+        BUFFER + "int main() { (int, int) t = (1, 2); struct Buffer* p = null; return t.nope(*p); }",
+        ("Tuple has no field 'nope'; use '_N' for a zero-based element index", 2, 69),
+        id="missing-tuple-field",
+    ),
+    pytest.param(
+        BUFFER
+        + "enum class E { V(int x), W }\nint main() { E e = E.W(); struct Buffer* p = null; return e.nope(*p); }",
+        ("Rich enum 'E' has no field 'nope'", 3, 59),
+        id="missing-rich-enum-field",
+    ),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), FIRST_DIAGNOSTICS)
+def test_first_diagnostic_is_identical_in_both_compilers(
+    semantic_btrcc: Path, tmp_path: Path, source: str, expected: tuple[str, int, int]
+) -> None:
+    selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
+
+    assert selfhost.returncode != 0 and reference.returncode != 0
+    assert diagnostic_identity(selfhost.stderr) == expected
+    assert diagnostic_identity(reference.stderr) == expected
+
+
 def test_member_assignment_from_a_pointer_is_refused_in_both_compilers(semantic_btrcc: Path, tmp_path: Path) -> None:
     """Both refuse it, worded as for a fixed array member: the reference
     reports the array object first, btrcc the pointer conversion."""

@@ -721,18 +721,14 @@ class ImportVisibilityChecker:
                 continue
             display_file = os.path.abspath(source_file)
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
-            if canonical_file not in reachable_cache:
-                reachable_cache[canonical_file] = {
-                    owner
-                    for owner in self.graph.visibility_reachable(canonical_file)
-                    if self.package_access.permits_reference(canonical_file, owner)
-                }
-            reachable = reachable_cache[canonical_file]
             # Every generic's marks, not only the active file's: the analyzer
             # checks the whole program, so an editor check must see them too.
-            self._record_visible_type_parameters(declaration, symbol_files, reachable)
+            self._record_visible_type_parameters(
+                declaration, symbol_files, lambda file=canonical_file: self._reachable(file, reachable_cache)
+            )
             if canonical_active is not None and canonical_file != canonical_active:
                 continue
+            reachable = self._reachable(canonical_file, reachable_cache)
 
             seen_refs: set[ImportReference] = set()
             for reference in self._references(declaration):
@@ -758,8 +754,18 @@ class ImportVisibilityChecker:
                 )
         return failures
 
+    def _reachable(self, canonical_file: str, cache: dict[str, set[str]]) -> set[str]:
+        """The files `canonical_file` may reference, computed once per file."""
+        if canonical_file not in cache:
+            cache[canonical_file] = {
+                owner
+                for owner in self.graph.visibility_reachable(canonical_file)
+                if self.package_access.permits_reference(canonical_file, owner)
+            }
+        return cache[canonical_file]
+
     @staticmethod
-    def _record_visible_type_parameters(declaration, symbol_files, reachable) -> None:
+    def _record_visible_type_parameters(declaration, symbol_files, reachable_from) -> None:
         """Mark which type-parameter names of a generic also name a top-level
         symbol its file can see. Inside the generic such a name means the
         parameter, so the analyzer refuses one that would hide a struct the
@@ -772,9 +778,9 @@ class ImportVisibilityChecker:
         for owner in owners:
             if not isinstance(owner, (ast.ClassDecl, ast.InterfaceDecl, ast.MethodDecl)):
                 continue
-            owner.visible_type_parameters = frozenset(
-                name for name in owner.generic_params or () if symbol_files.get(name, set()) & reachable
-            )
+            # Reachability is computed only for a parameter named like a symbol.
+            named = [name for name in owner.generic_params or () if name in symbol_files]
+            owner.visible_type_parameters = frozenset(name for name in named if symbol_files[name] & reachable_from())
 
     def check(self, *, active_file: str | None = None) -> list[tuple[str, int, int]]:
         """Return visibility failures as ``(message, line, col)`` tuples."""
