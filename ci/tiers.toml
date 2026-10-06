@@ -65,8 +65,8 @@ lane-linux = [
   ".gitattributes",
   ".dockerignore",
 ]
-# The Linux GUI and audio shard: the GUI, audio and GPU providers, the native
-# suites and shell fixtures, the headless session and its evidence wrapper,
+# The Linux GUI and audio shard: the GUI, audio, GPU and image providers, the
+# native suites and shell fixtures, the headless session and its evidence wrapper,
 # and the null PCM. A macOS-only change does not select it.
 lane-linux-gui = [
   "src/stdlib/GUI/**",
@@ -78,6 +78,8 @@ lane-linux-gui = [
   "src/tests/native/**",
   "src/tests/python/test_native_*.py",
   "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
   "src/tests/python/native_ui_shell_fixtures.py",
   "src/tests/python/linux_provider_fixtures.py",
   "tools/ui/**",
@@ -86,7 +88,12 @@ lane-linux-gui = [
   "nix/asound.conf",
   "src/tests/fixtures/expected-skips/linux-devcontainer.json",
   "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
   "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
   "!tools/ui/codex-setup.sh",
 ]
 # The macOS arm64 bundle and native-GUI job.
@@ -151,8 +158,9 @@ reports = ["skip-report", "junit"]
 # The Linux GUI and audio shard: one row per display protocol, each in its own
 # headless session (CL-UIA-11). It runs on every push and in the focused
 # native-gui dispatch; a lane or pull request runs it when a GUI path changes.
-# X11 gates. Wayland reports only (its job may fail without failing the run)
-# until the native-shell journey stops asserting that a native close lands
+# X11 gates. Wayland reports only (its job may fail without failing the
+# ci.yml run; a release bundle still lists its reports, so a row that never
+# reached pytest shows there as missing evidence) until the native-shell journey stops asserting that a native close lands
 # within one 10 ms tick: under ASan on weston it lands later, and the fix is
 # in src/tests/native/gui/shell/NativeShell.btrc (step 9), outside this shard.
 # Flip report_only to "false" once that lands and Wayland runs green.
@@ -179,6 +187,8 @@ changed_paths = [
   "src/tests/native/**",
   "src/tests/python/test_native_*.py",
   "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
   "src/tests/python/native_ui_shell_fixtures.py",
   "src/tests/python/linux_provider_fixtures.py",
   "tools/ui/**",
@@ -187,7 +197,12 @@ changed_paths = [
   "nix/asound.conf",
   "src/tests/fixtures/expected-skips/linux-devcontainer.json",
   "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
   "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
   "!tools/ui/codex-setup.sh",
 ]
 
@@ -208,6 +223,8 @@ changed_paths = [
   "src/tests/native/**",
   "src/tests/python/test_native_*.py",
   "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
   "src/tests/python/native_ui_shell_fixtures.py",
   "src/tests/python/linux_provider_fixtures.py",
   "tools/ui/**",
@@ -216,7 +233,12 @@ changed_paths = [
   "nix/asound.conf",
   "src/tests/fixtures/expected-skips/linux-devcontainer.json",
   "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
   "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
   "!tools/ui/codex-setup.sh",
 ]
 

@@ -1324,6 +1324,16 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     assert "linux-gui" not in TIERS.plan("ci.yml", "docs")["jobs"]
     assert "linux-gui" not in TIERS.plan("ci.yml", "pr", ["src/stdlib/GUI/MacOS/Window.btrc"])["jobs"]
     assert "linux-gui" in TIERS.plan("ci.yml", "pr", ["src/stdlib/Audio/Linux/Alsa.btrc"])["jobs"]
+    for macos_only in (
+        "src/tests/native/audio/CoreAudioDevice.btrc",
+        "src/tests/native/gui/MacOSTextFieldConformance.btrc",
+        "src/tests/python/test_native_gui_appkit.py",
+        "src/tests/python/test_native_ui_shell_macos.py",
+        "src/tests/python/test_native_objective_c_blocks.py",
+    ):
+        assert "linux-gui" not in TIERS.plan("ci.yml", "pr", [macos_only])["jobs"], macos_only
+    for linux in ("src/stdlib/Image/EncodedImage.btrc", "src/tests/python/test_build_safety.py"):
+        assert "linux-gui" in TIERS.plan("ci.yml", "pr", [linux])["jobs"], linux
     # One container run of the shard target per row, with the CI shard budgets.
     commands = _job_commands(job, "ci.yml", "linux-gui")
     for session in ("x11", "wayland"):

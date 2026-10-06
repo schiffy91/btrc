@@ -344,7 +344,7 @@ LANE_MACOS = ["native-bundle", "native-gui"]
         (["src/stdlib/GPU/Device.btrc"], LANE_LINUX_GUI, LANE_MACOS),
         (["src/tests/native/gui/Shell.c"], LANE_LINUX_GUI, LANE_MACOS),
         (["src/tests/fixtures/expected-skips/macos-hosted.json"], LANE_LINUX, LANE_MACOS),
-        (["src/stdlib/Image/EncodedImage.btrc"], LANE_LINUX, []),
+        (["src/stdlib/Image/EncodedImage.btrc"], LANE_LINUX_GUI, []),
     ],
 )
 def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(

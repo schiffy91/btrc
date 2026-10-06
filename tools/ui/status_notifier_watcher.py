@@ -19,6 +19,7 @@ session is never mistaken for one without a watcher.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -55,6 +56,8 @@ class StandInWatcher:
         self.watches: dict[str, int] = {}
         self.child: subprocess.Popen[bytes] | None = None
         self.status = 2
+        # Set once GLib has reaped the command: only GLib may wait on its pid.
+        self.reaped = False
         self.loop = GLib.MainLoop()
         self.connection = None
 
@@ -91,7 +94,13 @@ class StandInWatcher:
         register(PATH, info, self.call, self.property, None)
 
     def acquired(self, _connection, _name) -> None:
-        self.child = subprocess.Popen(self.command)
+        try:
+            self.child = subprocess.Popen(self.command)
+        except OSError as error:
+            print(f"status_notifier_watcher: cannot start {self.command[0]}: {error}", file=sys.stderr)
+            self.status = 127
+            self.loop.quit()
+            return
         self.GLib.child_watch_add(self.GLib.PRIORITY_DEFAULT, self.child.pid, self.exited)
 
     def lost(self, _connection, _name) -> None:
@@ -102,15 +111,21 @@ class StandInWatcher:
     def exited(self, _pid, status) -> None:
         # GLib reaped the command and reports its wait status; a command a
         # signal ended exits as a shell reports it, 128 plus the signal.
-        code = os.waitstatus_to_exitcode(status)
+        self.reaped = True
+        try:
+            code = os.waitstatus_to_exitcode(status)
+        except ValueError:
+            code = 1
         self.status = 128 - code if code < 0 else code
         if self.child is not None:
             self.child.returncode = code
         self.loop.quit()
 
     def forward(self, signum: int) -> bool:
-        if self.child is not None and self.child.poll() is None:
-            self.child.send_signal(signum)
+        # Never poll() here: that would reap the pid before GLib's child watch.
+        if self.child is not None and not self.reaped:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(self.child.pid, signum)
         elif self.child is None:
             self.status = 128 + signum
             self.loop.quit()

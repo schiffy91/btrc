@@ -347,6 +347,20 @@ def test_terminating_the_session_stops_the_command_under_the_watcher(tmp_path):
     assert not Path(report.read_text()).exists()
 
 
+def test_stand_in_watcher_reports_a_command_it_cannot_start():
+    _require_session_tools("Xvfb")
+    result = subprocess.run(
+        [str(SESSION), "--x11", "--", sys.executable, str(WATCHER), "--", "/nonexistent/btrc-command"],
+        cwd=ROOT,
+        env=_session_environment(),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 127, result.stderr
+    assert "cannot start /nonexistent/btrc-command" in result.stderr
+
+
 def test_stand_in_watcher_never_runs_its_command_without_a_bus(tmp_path):
     marker = tmp_path / "ran"
     result = subprocess.run(
