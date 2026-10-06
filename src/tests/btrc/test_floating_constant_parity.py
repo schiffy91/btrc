@@ -1,4 +1,4 @@
-"""Floating constants, their binary32 edges and untyped globals, in both compilers.
+"""Floating constants and their binary32 edges, in both compilers.
 
 C11 6.4.4.2 spells a floating constant without a digit on one side of its
 point (``.5f``, ``5.f``, ``1.e5f``); both lexers read those, while a dot after
@@ -7,8 +7,7 @@ an operand still selects its member or tuple field (``t.0.1``, ``f().0``). An
 overflow and underflow refusals compare that value with the binary32
 midpoints, never with a double first rounded onto one. A static initializer
 may not cast a floating constant out of its integer type's range (C11
-6.3.1.4p1), and an untyped global ``var`` has its inferred C type in both
-compilers and every unit layout. Each refusal carries one diagnostic --
+6.3.1.4p1). Each refusal carries one diagnostic --
 message, line and column -- in both compilers; each accepted program builds
 under strict C11 and prints the same output from both.
 """
@@ -243,60 +242,6 @@ def test_dotted_constants_and_float_edges_run_identically(semantic_btrcc: Path, 
     for name, compiler in _compilers(semantic_btrcc).items():
         stdout = _build_and_run(compiler, program, tmp_path / name, None)
         assert stdout == "0 5 100000 -2147483648 0 5.5 10.0\n", name
-
-
-SHARED_GLOBALS = """\
-class Point {
-	public int x;
-
-	public Point(int x) { self.x = x; }
-}
-
-var sharedGreeting = "hi";
-var sharedRatio = 2.5;
-var sharedNarrow = .5f;
-var sharedWide = 3000000000;
-var sharedSuffixed = 3000000000LL;
-var sharedHex = 0xFFFFFFFF;
-var sharedFlag = true;
-var sharedPoint = (Point?)null;
-"""
-
-GLOBALS_MAIN = """\
-#include <stdio.h>
-import ./Shared.btrc;
-
-int main() {
-	sharedWide = sharedWide + 1;
-	sharedPoint = Point(4);
-	int x = sharedPoint?.x ?? 0;
-	sharedPoint = null;
-	printf("%s %.2f %.2f %lld %lld %u %d %d\\n", sharedGreeting, sharedRatio, (double)sharedNarrow,
-		(long long)sharedWide, sharedSuffixed, sharedHex, sharedFlag ? 1 : 0, x);
-	return 0;
-}
-"""
-
-
-@pytest.mark.parametrize(
-    "layout",
-    [
-        pytest.param(None, id="single-unit"),
-        pytest.param([], id="split"),
-        pytest.param(["--module-units"], id="module-units"),
-    ],
-)
-def test_untyped_globals_take_their_inferred_type_in_every_unit(
-    semantic_btrcc: Path,
-    tmp_path: Path,
-    layout: list[str] | None,
-) -> None:
-    (tmp_path / "Shared.btrc").write_text(SHARED_GLOBALS)
-    program = tmp_path / "Main.btrc"
-    program.write_text(GLOBALS_MAIN)
-    for name, compiler in _compilers(semantic_btrcc).items():
-        stdout = _build_and_run(compiler, program, tmp_path / name, layout)
-        assert stdout == "hi 2.50 0.50 3000000001 3000000000 4294967295 1 4\n", name
 
 
 def _out_of_range(spelling: str, target: str) -> str:

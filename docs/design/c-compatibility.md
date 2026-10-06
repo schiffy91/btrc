@@ -1402,7 +1402,7 @@ Stage 18 exits when `c_compat/TwoDimensionalArrays.btrc` passes through both com
 | The boundary manifest count | 310 records (one draft said 309). |
 | The schema commit found that `IRStructField.record` as an `IRStructDef` makes `IRStructDef` and `IRStructField` retain each other, which `test_retained_collaborators_form_a_dag_without_composition_root_leaks` refuses | Accepted. The anonymous member's members sit on the field (`record_fields` / `recordFields`, a self-edge) and its keyword is the field's `c_type`, in both compilers; 0 bytes either way. |
 
-## Floating constants, binary32 edges and untyped globals (CL-REQ-12)
+## Floating constants and binary32 edges (CL-REQ-12)
 
 Pre-existing defects the CL-REQ-09 and CL-P1-05 reviews found, fixed in both
 compilers in one commit; `src/tests/btrc/test_floating_constant_parity.py`
@@ -1450,11 +1450,3 @@ pins every refusal's message, line and column in both.
   run-time casts stay unchecked in both, so `static size_t g = (size_t)1e30;`
   still reaches the C compiler. An untyped global's brace initializer reports
   its inference refusal first.
-- **Untyped globals.** btrcc lowers an untyped global `var` with the type the
-  analyzer inferred (`globalVarTypes`), in whole-program, split and
-  `--module-units` layouts, as the reference does; it used `int`. Where the
-  analyzer's global inference saw no other global (`var g = arr;`), the
-  lowering takes the initializer's type as a local's (`int*`). Two older
-  gaps stay with the static-storage owners (CL-REQ-10): btrc's analyzer
-  still refuses a reference to such a global, and it does not check that an
-  untyped global's initializer is constant (`var g = f();`).
