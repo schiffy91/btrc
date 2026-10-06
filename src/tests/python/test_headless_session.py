@@ -20,6 +20,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 SESSION = ROOT / "tools/ui/headless-session.sh"
 VIRTUAL_DISPLAY = ROOT / "tools/virtual-display.sh"
+EVIDENCE = ROOT / "tools/ui/session_evidence.py"
+WATCHER = ROOT / "tools/ui/status_notifier_watcher.py"
 TIMEOUT = 120
 # Run inside the session: what the command sees and what the gates conclude.
 PROBE = """
@@ -226,6 +228,139 @@ def test_terminating_the_session_stops_the_command_and_the_servers(tmp_path, mod
             session.kill()
             session.wait(timeout=TIMEOUT)
     assert not Path(report.read_text()).exists()
+
+
+@pytest.mark.parametrize("mode", ["--x11", "--wayland"])
+def test_session_evidence_dumps_the_accessibility_tree_and_keeps_the_status(tmp_path, mode):
+    """The GUI shard's wrapper: it samples the session's AT-SPI desktop while the
+    command runs and once after, and exits with the command's status."""
+    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    result = subprocess.run(
+        [str(SESSION), mode, "--", sys.executable, str(EVIDENCE), "--output", str(tmp_path), "--interval", "0.2"]
+        + ["--", "sh", "-c", "sleep 1; exit 5"],
+        cwd=ROOT,
+        env=_session_environment(),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 5, result.stderr
+    dump = json.loads((tmp_path / "atspi.json").read_text())
+    assert dump["schema"] == "btrc.atspi-session/1"
+    assert dump["session"] == mode.removeprefix("--")
+    assert dump["returncode"] == 5
+    assert len(dump["samples"]) >= 2
+    assert dump["final"]["status"] == "observed", dump["final"]
+    assert dump["final"]["desktop"]["role"] == "desktop frame"
+    assert all(sample["status"] == "observed" for sample in dump["samples"]), dump["samples"]
+
+
+def test_session_evidence_records_why_it_cannot_read_a_tree(tmp_path):
+    """Without a session bus the dump says why, and the command still decides the status."""
+    environment = _session_environment()
+    result = subprocess.run(
+        [sys.executable, str(EVIDENCE), "--output", str(tmp_path), "--", sys.executable, "-c", "raise SystemExit(3)"],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 3, result.stderr
+    final = json.loads((tmp_path / "atspi.json").read_text())["final"]
+    assert final["status"] == "unavailable"
+    assert "session bus" in final["reason"] or "typelibs" in final["reason"]
+
+
+def test_session_evidence_passes_term_to_the_command(tmp_path):
+    if sys.platform != "linux":
+        pytest.skip("headless GUI sessions are Linux-only")
+    report = tmp_path / "started"
+    wrapper = subprocess.Popen(
+        [sys.executable, str(EVIDENCE), "--output", str(tmp_path), "--", "sh", "-c", WAITER, "sh", str(report)],
+        cwd=ROOT,
+        env=_session_environment(),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + TIMEOUT
+        while not report.exists():
+            assert wrapper.poll() is None, wrapper.stderr.read() if wrapper.stderr else ""
+            assert time.monotonic() < deadline, "the wrapper never started its command"
+            time.sleep(0.1)
+        wrapper.terminate()
+        assert wrapper.wait(timeout=TIMEOUT) == 143
+    finally:
+        if wrapper.poll() is None:
+            wrapper.kill()
+            wrapper.wait(timeout=TIMEOUT)
+    assert json.loads((tmp_path / "atspi.json").read_text())["returncode"] == -15
+
+
+@pytest.mark.parametrize("mode", ["--x11", "--wayland"])
+def test_stand_in_watcher_gives_the_tray_provider_a_watcher(mode):
+    """The GUI shard runs the Linux tray tests on this watcher instead of skipping them."""
+    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    probe = (
+        "import sys\n"
+        "from src.tests.runner_capabilities import linux_tray_backend_error\n"
+        "print(linux_tray_backend_error())\n"
+        "sys.exit(4)\n"
+    )
+    result = subprocess.run(
+        [str(SESSION), mode, "--", sys.executable, str(WATCHER), "--", sys.executable, "-c", probe],
+        cwd=ROOT,
+        env=_session_environment(),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 4, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "None", result.stdout
+
+
+def test_terminating_the_session_stops_the_command_under_the_watcher(tmp_path):
+    _require_session_tools("Xvfb")
+    report = tmp_path / "runtime"
+    session = subprocess.Popen(
+        [str(SESSION), "--x11", "--", sys.executable, str(WATCHER), "--", "sh", "-c", WAITER, "sh", str(report)],
+        cwd=ROOT,
+        env=_session_environment(),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + TIMEOUT
+        while not report.exists():
+            assert session.poll() is None, session.stderr.read() if session.stderr else ""
+            assert time.monotonic() < deadline, "the watcher never started its command"
+            time.sleep(0.1)
+        session.terminate()
+        assert session.wait(timeout=TIMEOUT) == 143
+    finally:
+        if session.poll() is None:
+            session.kill()
+            session.wait(timeout=TIMEOUT)
+    assert not Path(report.read_text()).exists()
+
+
+def test_stand_in_watcher_never_runs_its_command_without_a_bus(tmp_path):
+    marker = tmp_path / "ran"
+    result = subprocess.run(
+        [sys.executable, str(WATCHER), "--", sys.executable, "-c", f"open({str(marker)!r}, 'w')"],
+        cwd=ROOT,
+        env=_session_environment(
+            DBUS_SESSION_BUS_ADDRESS=f"unix:path={tmp_path / 'missing'}", XDG_RUNTIME_DIR=str(tmp_path)
+        ),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 2, result.stderr
+    assert not marker.exists()
 
 
 @pytest.mark.parametrize("arguments", [[], ["--x11"], ["--x11", "--"], ["--x11", "--wayland", "--", "true"], ["--vnc"]])

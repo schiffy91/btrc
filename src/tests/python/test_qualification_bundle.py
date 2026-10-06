@@ -24,7 +24,7 @@ def _manifest() -> TierManifest:
 
 def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
     matrix = plan["matrix"].get(job, {"include": []})
-    key = "target" if job == "native-bundle" else "shard"
+    key = {"native-bundle": "target", "linux-gui": "session"}.get(job, "shard")
     return {row[key]: row for row in matrix["include"]}
 
 
@@ -35,7 +35,7 @@ def test_the_tracked_manifest_loads_and_describes_every_tier() -> None:
     manifest = _manifest()
     assert list(manifest.tiers) == ["docs", "pr", "lane", "main", "extended", "release", "native-gui", "hardware"]
     assert manifest.workflows() == ["ci.yml", "macos.yml", "windows.yml"]
-    assert {runner.runner for runner in manifest.hardware} == {"macos", "ios", "android"}
+    assert {runner.runner for runner in manifest.hardware} == {"macos", "linux", "ios", "android"}
 
 
 def _minimal(**overrides: object) -> dict:
@@ -152,8 +152,9 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
             for job, matrix in main["matrix"].items():
                 assert all(row in plan["matrix"][job]["include"] for row in matrix["include"]), (workflow, wider, job)
     ci = manifest.plan("ci.yml", "main")
-    assert ci["jobs"] == ["release", "tests", "bench", "linux-arm64-bundle"]
+    assert ci["jobs"] == ["release", "tests", "bench", "linux-arm64-bundle", "linux-gui"]
     assert len(ci["matrix"]["tests"]["include"]) == 13
+    assert list(_rows(ci, "linux-gui")) == ["x11", "wayland"]
     macos = manifest.plan("macos.yml", "main")
     assert list(_rows(macos, "tests")) == [
         "unit",
@@ -267,7 +268,7 @@ def test_a_lane_keeps_the_linux_matrix_and_the_macos_lane_jobs() -> None:
     manifest = _manifest()
     ci = manifest.plan("ci.yml", "lane", ["src/stdlib/GUI/Linux/Window.btrc"])
     # The static job runs the naming contract, which reads every tracked file.
-    assert ci["jobs"] == ["static", "release", "tests", "bench", "linux-arm64-bundle"]
+    assert ci["jobs"] == ["static", "release", "tests", "bench", "linux-arm64-bundle", "linux-gui"]
     assert ci["matrix"] == manifest.plan("ci.yml", "main")["matrix"]
     macos = manifest.plan("macos.yml", "lane", ["src/stdlib/GUI/Linux/Window.btrc"])
     assert macos["jobs"] == ["native-bundle", "native-gui"]
@@ -276,6 +277,9 @@ def test_a_lane_keeps_the_linux_matrix_and_the_macos_lane_jobs() -> None:
 
 LANE_LINUX = ["static", "release", "tests", "bench", "linux-arm64-bundle"]
 LANE_LIGHT = ["static", "release", "tests"]
+# The Linux GUI and audio shard joins when a Linux GUI, audio or native path changes.
+LANE_LINUX_GUI = [*LANE_LINUX, "linux-gui"]
+LANE_LIGHT_GUI = [*LANE_LIGHT, "linux-gui"]
 LANE_MACOS = ["native-bundle", "native-gui"]
 
 
@@ -300,26 +304,31 @@ LANE_MACOS = ["native-bundle", "native-gui"]
         # tools/ui is the macOS GUI harness: macOS, not the Linux heavy shards.
         (["tools/ui/codex-setup.sh"], LANE_LIGHT, LANE_MACOS),
         # ... except the headless session every Linux test shard runs inside.
-        (["tools/ui/headless-session.sh"], LANE_LINUX, LANE_MACOS),
+        (["tools/ui/headless-session.sh"], LANE_LINUX_GUI, LANE_MACOS),
         # A btrc-shard contract imports this unit test module.
         (["src/tests/python/test_exception_codegen_contracts.py"], LANE_LINUX, []),
-        (["src/tests/python/test_native_gui_target.py"], LANE_LIGHT, LANE_MACOS),
+        (["src/tests/python/test_native_gui_target.py"], LANE_LIGHT_GUI, LANE_MACOS),
         (["src/stdlib/GUI/MacOS/Window.btrc"], LANE_LINUX, LANE_MACOS),
         (["src/tests/native/gui/shell/probes/macos/ShellProbe.m"], LANE_LINUX, LANE_MACOS),
-        (["src/stdlib/Tray/Tray.btrc"], LANE_LINUX, LANE_MACOS),
+        (["src/stdlib/Tray/Tray.btrc"], LANE_LINUX_GUI, LANE_MACOS),
         (["src/stdlib/HTTP/Client.btrc"], LANE_LINUX, []),
-        (["src/tests/python/native_ui_shell_fixtures.py"], LANE_LINUX, []),
+        (["src/tests/python/native_ui_shell_fixtures.py"], LANE_LINUX_GUI, []),
         (["src/tests/strings/Escapes.btrc"], LANE_LINUX, []),
         (["examples/todo/Todo.btrc"], LANE_LINUX, []),
         (["tools/bench/scripts/ccompat_checkpoint.sh"], LANE_LINUX, []),
         (["tools/qualification/report.py"], LANE_LINUX, []),
-        (["tools/NativeHeaderReader.cpp"], LANE_LINUX, LANE_MACOS),
+        (["tools/NativeHeaderReader.cpp"], LANE_LINUX_GUI, LANE_MACOS),
         # One heavy path among light ones selects the heavy jobs.
         (["tools/ui/codex-setup.sh", "src/tests/stdlib/Json.btrc"], LANE_LINUX, LANE_MACOS),
         # No change list, or an empty one, fails safe to the whole lane selection.
-        (None, LANE_LINUX, LANE_MACOS),
-        ([], LANE_LINUX, LANE_MACOS),
-        ([""], LANE_LINUX, LANE_MACOS),
+        (None, LANE_LINUX_GUI, LANE_MACOS),
+        ([], LANE_LINUX_GUI, LANE_MACOS),
+        ([""], LANE_LINUX_GUI, LANE_MACOS),
+        # A macOS provider or probe does not select the Linux GUI shard.
+        (["src/stdlib/Audio/MacOS/CoreAudio.btrc"], LANE_LINUX, LANE_MACOS),
+        (["src/tests/python/linux_provider_fixtures.py"], LANE_LINUX_GUI, []),
+        (["nix/asound.conf"], LANE_LIGHT_GUI, []),
+        (["src/tests/fixtures/expected-skips/linux-devcontainer.json"], LANE_LINUX_GUI, []),
         # Root files that configure pytest, the container or line endings reach every shard.
         (["pyproject.toml"], LANE_LINUX, []),
         (["uv.lock"], LANE_LINUX, []),
@@ -328,12 +337,12 @@ LANE_MACOS = ["native-bundle", "native-gui"]
         # Each macOS pattern on its own, with a path no other pattern matches.
         (["MacOS/Notes.txt"], LANE_LIGHT, LANE_MACOS),
         (["docs/design/probe.m"], LANE_LIGHT, LANE_MACOS),
-        (["src/stdlib/GUI/Linux/Window.btrc"], LANE_LINUX, LANE_MACOS),
-        (["src/stdlib/UI/View.btrc"], LANE_LINUX, LANE_MACOS),
-        (["src/stdlib/App/App.btrc"], LANE_LINUX, LANE_MACOS),
-        (["src/stdlib/Audio/Mixer.btrc"], LANE_LINUX, LANE_MACOS),
-        (["src/stdlib/GPU/Device.btrc"], LANE_LINUX, LANE_MACOS),
-        (["src/tests/native/gui/Shell.c"], LANE_LINUX, LANE_MACOS),
+        (["src/stdlib/GUI/Linux/Window.btrc"], LANE_LINUX_GUI, LANE_MACOS),
+        (["src/stdlib/UI/View.btrc"], LANE_LINUX_GUI, LANE_MACOS),
+        (["src/stdlib/App/App.btrc"], LANE_LINUX_GUI, LANE_MACOS),
+        (["src/stdlib/Audio/Mixer.btrc"], LANE_LINUX_GUI, LANE_MACOS),
+        (["src/stdlib/GPU/Device.btrc"], LANE_LINUX_GUI, LANE_MACOS),
+        (["src/tests/native/gui/Shell.c"], LANE_LINUX_GUI, LANE_MACOS),
         (["src/tests/fixtures/expected-skips/macos-hosted.json"], LANE_LINUX, LANE_MACOS),
         (["src/stdlib/Image/EncodedImage.btrc"], LANE_LINUX, []),
     ],
@@ -345,7 +354,9 @@ def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(
     ci = manifest.plan("ci.yml", "lane", changed)
     assert ci["jobs"] == linux
     rows = list(_rows(ci, "tests"))
-    assert rows == (["unit"] if linux == LANE_LIGHT else list(_rows(manifest.plan("ci.yml", "main"), "tests")))
+    heavy = "bench" in linux
+    assert rows == (list(_rows(manifest.plan("ci.yml", "main"), "tests")) if heavy else ["unit"])
+    assert list(_rows(ci, "linux-gui")) == (["x11", "wayland"] if "linux-gui" in linux else [])
     plan = manifest.plan("macos.yml", "lane", changed)
     assert plan["jobs"] == macos
     assert list(_rows(plan, "native-bundle")) == (["macos-arm64"] if macos else [])
@@ -378,6 +389,12 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
     assert expected["ci.yml/static"] == ["skip-report-ci-static"]
     assert expected["ci.yml/bench"] == ["bench-results"]
     assert expected["ci.yml/native-gui"] == ["skip-report-ci-native-gui", "junit-ci-native-gui"]
+    assert expected["ci.yml/linux-gui"] == [
+        "skip-report-ci-linux-gui-x11",
+        "junit-ci-linux-gui-x11",
+        "skip-report-ci-linux-gui-wayland",
+        "junit-ci-linux-gui-wayland",
+    ]
     assert "boundary-report-ci-tests-bootstrap" in expected["ci.yml/tests"]
     assert "boundary-report-macos-tests-bootstrap" in expected["macos.yml/tests"]
     assert len([name for name in expected["ci.yml/tests"] if name.startswith("skip-report-")]) == 13
@@ -396,7 +413,7 @@ def test_the_tiers_command_prints_one_line_of_json(tmp_path: Path, capsys: pytes
     assert code == 0 and out.count("\n") == 1
     assert json.loads(out) == _manifest().plan("ci.yml", "pr", ["src/tests/strings/Foo.btrc"])
     assert QualificationCommand().run(["tiers"]) == 0
-    assert "ci.yml main: 4 job(s), 13 matrix row(s)" in capsys.readouterr().out
+    assert "ci.yml main: 5 job(s), 15 matrix row(s)" in capsys.readouterr().out
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml"]) == 2
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml", "--tier", "nightly"]) == 2
 
