@@ -227,12 +227,29 @@ owner, the exact prerequisite and the next acceptance.
   recorded as "unknown, blocked on CL-UIB-09". Missing evidence stays missing
   (D28), and landing the note meets `CL-UIB-09`'s gap-list dependency. The
   native re-run follows `CL-UIB-09`.
-- **PR51, `CX-P2-02` HTTP contract rev 4** (head `0fa4c093`) and **PR52,
-  `CX-P2-01` Windows services design rev 4** (head `d77b4b14`). Owner: Claude.
-  Prerequisite: none on Codex's side. Next: `CL-P2-01` round 4 (Claude: two
-  adversarial reviewers, a parity reviewer and a verifier). On approval, the
-  request lists become `CL-P2-02/03/04/14` scope. D28 lifts the push stop for
-  further revisions.
+- **PR51, `CX-P2-02` HTTP contract** (rev 4 head `0fa4c093`) and **PR52,
+  `CX-P2-01` Windows services design** (rev 4 head `d77b4b14`). `CL-P2-01`
+  round 4 (2026-10-06) returned both; the confirmed findings are in each PR's
+  round-4 comment. Owner: Codex for revision 5, then Claude for round 5, which
+  checks only those points.
+  - **HTTP: 7 of 8 round-3 blockers resolved.** Two Android blockers remain.
+    First, an exposed 1xx or 101 returns the connection to OkHttp's process-wide
+    pool with the final response unread; the fix is a provider-owned
+    `Connection: close` plus second-request fixtures. Second, in-flight Java I/O
+    can never be aborted, so the quarantine is unbounded; either add a
+    qualified post-publication abort or record the adaptation. One
+    clarification is also required: the Windows revocation stance for fixture
+    leaves without a CRL Distribution Point.
+  - **Windows services: round-3 blockers resolved.** Six new ones:
+    - post-COMMIT supervisor outcomes;
+    - the carrier for the auxiliary image digest, protocol and ABI;
+    - lock contention mapping to `FS_RESOURCE_EXHAUSTED`;
+    - the Ctrl-C handler being unregistered during dispatch;
+    - the supervisor's own stdio;
+    - splitting `CX-P2-08`'s Daemon corpus into portable and POSIX-only
+      programs.
+  - On approval, the request lists become `CL-P2-02/03/04/14` scope. D28 lifts
+    the push stop.
 - **`CX-C-01` follow-ups** (batch 26 comment on PR26; no PR yet). Owner: Codex
   (`tools/bench/scripts/ccompat_checkpoint.sh`,
   `src/tests/python/test_ccompat_checkpoint_script.py`). Prerequisite: none.
@@ -264,6 +281,12 @@ owner, the exact prerequisite and the next acceptance.
   `ClipboardRequestor` row in `evidence/ui1-linux.toml`. Next acceptance: Codex
   re-runs the Wayland acceptance row and the `LibdecorPending` CI build; Wayland
   4/4 rows and the X11 clipboard probe pass.
+  Batch 45: Claude changed `src/tests/native/gui/shell/NativeShell.btrc` (the
+  CX-UIA-09 fixture) so that journey steps 1, 4, 5 and 6 wait, within a 15 s
+  budget, for injected input to land before asserting. Before, they assumed one
+  10 ms tick, and step 5 (`action.count == 1`) failed intermittently on a
+  virtual display shared by parallel workers. Keep that pattern in new journey
+  steps.
 - **`CX-P1-02` platform inventory.** Owner: the owner (sign-off), then Codex
   (the 58 cells in `platform-inventory.toml`) and Claude (the
   `platform-parity.md` totals fragment). Prerequisite: the owner's sign-off on
