@@ -6,7 +6,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer linux-ci clean \
-	test-shard-unit test-native-gui test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
+	test-shard-unit test-native-gui test-shard-gui test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
 
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
@@ -343,6 +343,31 @@ NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui_runtime.py tes
 test-native-gui: generated-check ## Focused gate: the native GUI, tray and provider suites only
 	$(NIX) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-native-gui.json
+
+# The Linux GUI and audio CI shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
+# the focused gate's suites plus the null-PCM check, inside one private
+# headless session per display protocol (GUI_SESSION=x11|wayland), with Mesa's
+# lavapipe as the GPU adapter and the null ALSA PCM of nix/asound.conf as the
+# sound card, so the shard needs no host device. The session's bus also carries
+# tools/ui/status_notifier_watcher.py, a stand-in StatusNotifierWatcher, so the
+# Linux tray provider registers its item here instead of skipping.
+# tools/ui/session_evidence.py dumps the session's AT-SPI tree to
+# build/linux-gui/<session>/atspi.json, and pytest's working directories stay
+# under build/linux-gui for CI to keep.
+GUI_SESSION ?= x11
+GUI_SHARD_DIR := build/linux-gui/$(GUI_SESSION)
+# The SDL clipboard-requestor case drives the X11 selection protocol itself, so
+# only the X11 row runs it; under Wayland it would skip for want of a DISPLAY.
+GUI_SHARD_X11_ONLY := src/tests/python/test_native_ui_sdl_clipboard_requestor.py
+GUI_SHARD_TESTS := $(if $(filter wayland,$(GUI_SESSION)),$(filter-out $(GUI_SHARD_X11_ONLY),$(NATIVE_GUI_TESTS)),$(NATIVE_GUI_TESTS)) \
+	src/tests/python/test_build_safety.py::test_devcontainer_installs_the_null_alsa_pcm
+
+test-shard-gui: generated-check gpu-required btrcc ## CI shard: native GUI and Linux audio under one headless session (GUI_SESSION=x11|wayland)
+	$(NIX) $(SHARD_BTRCC) ALSA_CONFIG_PATH="$(abspath nix/asound.conf)" tools/ui/headless-session.sh --$(GUI_SESSION) -- \
+		python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py --output $(GUI_SHARD_DIR) -- \
+		$(PYTEST) $(GUI_SHARD_TESTS) --basetemp=$(GUI_SHARD_DIR)/pytest --junitxml=$(GUI_SHARD_DIR)/junit.xml \
+		--skip-report=build/skip-report-gui-$(GUI_SESSION).json $(PYTEST_ARGS)
+	$(NIX) $(SKIP_GATE) build/skip-report-gui-$(GUI_SESSION).json
 
 test-shard-btrc: generated-check gpu-required btrcc ## CI shard: self-host contract tests
 	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/btrc/ \

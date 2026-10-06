@@ -530,6 +530,7 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         ("ci.yml", "static"),
         ("ci.yml", "tests"),
         ("ci.yml", "native-gui"),
+        ("ci.yml", "linux-gui"),
         ("macos.yml", "tests"),
         ("macos.yml", "native-gui"),
         ("windows.yml", "windows"),
@@ -962,6 +963,7 @@ def test_a_plain_pull_request_plans_from_its_changed_paths(tmp_path: Path) -> No
 
 LANE_HEAVY_LINUX = ["static", "release", "tests", "bench", "linux-arm64-bundle"]
 LANE_LIGHT_LINUX = ["static", "release", "tests"]
+LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui"]
 
 
 @pytest.mark.parametrize(
@@ -979,10 +981,15 @@ LANE_LIGHT_LINUX = ["static", "release", "tests"]
         ),
         (("tools/ui/codex-setup.sh",), LANE_LIGHT_LINUX, ["native-bundle", "native-gui"]),
         (("src/stdlib/GUI/MacOS/Window.btrc",), LANE_HEAVY_LINUX, ["native-bundle", "native-gui"]),
+        (("src/stdlib/GUI/Linux/Window.btrc",), LANE_GUI_LINUX, ["native-bundle", "native-gui"]),
         (("src/stdlib/HTTP/Client.btrc",), LANE_HEAVY_LINUX, []),
-        (("src/tests/python/test_native_gui_target.py",), LANE_LIGHT_LINUX, ["native-bundle", "native-gui"]),
+        (
+            ("src/tests/python/test_native_gui_target.py",),
+            [*LANE_LIGHT_LINUX, "linux-gui"],
+            ["native-bundle", "native-gui"],
+        ),
         # A pull request with no listed file plans the whole lane selection.
-        ((), LANE_HEAVY_LINUX, ["native-bundle", "native-gui"]),
+        ((), LANE_GUI_LINUX, ["native-bundle", "native-gui"]),
     ],
 )
 def test_a_lane_pull_request_runs_the_jobs_its_paths_select(
@@ -993,7 +1000,7 @@ def test_a_lane_pull_request_runs_the_jobs_its_paths_select(
     ci = _plan(tmp_path, "ci.yml", tier)
     assert ci["jobs"] == linux
     shards = [row["shard"] for row in ci["matrix"]["tests"]["include"]]
-    assert shards == (["unit"] if linux == LANE_LIGHT_LINUX else [name for name, _ in _tier_shards("ci.yml", "main")])
+    assert shards == ([name for name, _ in _tier_shards("ci.yml", "main")] if "bench" in linux else ["unit"])
     assert _plan(tmp_path, "macos.yml", tier)["jobs"] == macos
     assert _plan(tmp_path, "windows.yml", tier)["jobs"] == []
 
@@ -1219,10 +1226,11 @@ def test_linux_bench_job_guards_every_performance_indicator() -> None:
     assert "name: bench-results" in job and "build/bench/results.json" in job
 
 
-def test_a_focused_dispatch_runs_only_the_native_gui_job() -> None:
+def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
     # `gh workflow run ci.yml -f focus=native-gui` (likewise macos.yml) skips
-    # every other job: the native-gui tier lists only the native-GUI job, and
-    # the scope step passes the input through.
+    # every other job: the native-gui tier lists only the native-GUI job and,
+    # on Linux, the GUI shard's two sessions, and the scope step passes the
+    # input through.
     for workflow in CORE_WORKFLOWS:
         document = _parsed(workflow)
         assert document["on"]["workflow_dispatch"] == {
@@ -1236,7 +1244,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_job() -> None:
             }
         }, workflow
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
-        expected = [] if workflow == "windows.yml" else ["native-gui"]
+        expected = {"ci.yml": ["native-gui", "linux-gui"], "macos.yml": ["native-gui"]}.get(workflow, [])
         assert TIERS.plan(workflow, "native-gui")["jobs"] == expected, workflow
 
     linux = _job(_workflow("ci.yml"), "native-gui")
@@ -1298,3 +1306,65 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     assert "nix/android-repo-overlay.json" in android
     assert ".#platforms" not in android
     assert _parsed("host-android.yml")["jobs"]["emulator"]["strategy"]["matrix"]["api"] == ["29", "36"]
+
+
+def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
+    """CL-UIA-11: the GUI and audio suites under X11 and Wayland, on every push."""
+
+    job = _parsed("ci.yml")["jobs"]["linux-gui"]
+    assert job["name"] == "linux-gui (${{ matrix.session }})"
+    assert job["runs-on"] == "ubuntu-latest"
+    rows = [shard.row for shard in TIERS.shards if shard.job == "ci.yml/linux-gui"]
+    # X11 gates; Wayland reports only until its sanitized shell journey is stable.
+    assert rows == [{"session": "x11", "report_only": "false"}, {"session": "wayland", "report_only": "true"}]
+    assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
+    for tier in ("main", "extended", "release", "native-gui"):
+        plan = TIERS.plan("ci.yml", tier)
+        assert plan["matrix"]["linux-gui"]["include"] == rows, tier
+    assert "linux-gui" not in TIERS.plan("ci.yml", "docs")["jobs"]
+    assert "linux-gui" not in TIERS.plan("ci.yml", "pr", ["src/stdlib/GUI/MacOS/Window.btrc"])["jobs"]
+    assert "linux-gui" in TIERS.plan("ci.yml", "pr", ["src/stdlib/Audio/Linux/Alsa.btrc"])["jobs"]
+    for macos_only in (
+        "src/tests/native/audio/CoreAudioDevice.btrc",
+        "src/tests/native/gui/MacOSTextFieldConformance.btrc",
+        "src/tests/python/test_native_gui_appkit.py",
+        "src/tests/python/test_native_ui_shell_macos.py",
+        "src/tests/python/test_native_objective_c_blocks.py",
+    ):
+        assert "linux-gui" not in TIERS.plan("ci.yml", "pr", [macos_only])["jobs"], macos_only
+    for linux in ("src/stdlib/Image/EncodedImage.btrc", "src/tests/python/test_build_safety.py"):
+        assert "linux-gui" in TIERS.plan("ci.yml", "pr", [linux])["jobs"], linux
+    # One container run of the shard target per row, with the CI shard budgets.
+    commands = _job_commands(job, "ci.yml", "linux-gui")
+    for session in ("x11", "wayland"):
+        assert (
+            'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 '
+            f"BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION={session} test-shard-gui"
+        ) in commands
+    steps = job["steps"]
+    evidence, junit, skips = steps[-3:]
+    assert all(step["if"] == "always()" and step["uses"] == UPLOAD_ARTIFACT for step in (evidence, junit, skips))
+    assert evidence["with"]["name"] == "gui-evidence-ci-linux-gui-${{ matrix.session }}"
+    for path in ("build/linux-gui/${{ matrix.session }}/atspi.json", "build/ui-shell/"):
+        assert path in evidence["with"]["path"], path
+    assert junit["with"]["name"] == "junit-ci-linux-gui-${{ matrix.session }}"
+    assert junit["with"]["path"] == "build/linux-gui/${{ matrix.session }}/junit.xml"
+    # The make target runs the focused GUI suites plus the null-PCM check in one
+    # headless session per protocol, with the null PCM, the AT-SPI dump and the
+    # skip gate on its own report.
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    recipe = _makefile_recipe(makefile, "test-shard-gui")
+    assert "tools/ui/headless-session.sh --$(GUI_SESSION) --" in recipe
+    assert 'ALSA_CONFIG_PATH="$(abspath nix/asound.conf)"' in recipe
+    assert "python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py" in recipe
+    assert "tools/ui/session_evidence.py --output $(GUI_SHARD_DIR)" in recipe
+    assert "$(GUI_SHARD_TESTS) --basetemp" in recipe and "--junitxml=$(GUI_SHARD_DIR)/junit.xml" in recipe
+    assert "$(SKIP_GATE) build/skip-report-gui-$(GUI_SESSION).json" in recipe
+    # The Wayland row leaves out the X11-protocol clipboard case; an explicit
+    # path ignores --ignore, so make drops it from the list.
+    assert "GUI_SHARD_X11_ONLY := src/tests/python/test_native_ui_sdl_clipboard_requestor.py" in makefile
+    assert (
+        "GUI_SHARD_TESTS := $(if $(filter wayland,$(GUI_SESSION)),"
+        "$(filter-out $(GUI_SHARD_X11_ONLY),$(NATIVE_GUI_TESTS)),$(NATIVE_GUI_TESTS))"
+    ) in makefile
+    assert "test_native_linux_providers.py" in makefile

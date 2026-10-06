@@ -14,12 +14,12 @@ schema = "btrc.ci-tiers/1"
 
 [tiers]
 docs = "A pull request that changes only Markdown no test or tool reads: the static gates."
-pr = "Any other pull request: generated, lint and format; the unit shard; the corpus directories its paths select; macOS and Windows shards only when their paths change."
-lane = "A codex/* pull request: the static gates, the release job and the unit shard; the rest of the Linux matrix, the macOS arm64 bundle and native-GUI job, and Windows only when their paths change."
+pr = "Any other pull request: generated, lint and format; the unit shard; the corpus directories its paths select; the Linux GUI, macOS and Windows shards only when their paths change."
+lane = "A codex/* pull request: the static gates, the release job and the unit shard; the rest of the Linux matrix, the Linux GUI shard, the macOS arm64 bundle and native-GUI job, and Windows only when their paths change."
 main = "A push to main, a pull request that touches the compilers or the CI hotspots, the ci:full label, or a full dispatch: today's full matrix."
 extended = "A nightly or extended dispatch: the main matrix plus macOS's remaining clang C11 cells."
 release = "release.yml's dispatch or tag: every hosted job of every tier, then one ledger bundle."
-native-gui = "A dispatch with focus=native-gui: the native-GUI jobs alone."
+native-gui = "A dispatch with focus=native-gui: the native-GUI jobs and the Linux GUI shard alone."
 hardware = "Self-hosted runners and devices: never scheduled here; the ledger bundle records them as awaiting."
 
 # A changed path selects corpus directories for a shard's `corpus_tiers`. A
@@ -64,6 +64,37 @@ lane-linux = [
   "uv.lock",
   ".gitattributes",
   ".dockerignore",
+]
+# The Linux GUI and audio shard: the GUI, audio, GPU and image providers, the
+# native suites and shell fixtures, the headless session and its evidence wrapper,
+# and the null PCM. A macOS-only change does not select it.
+lane-linux-gui = [
+  "src/stdlib/GUI/**",
+  "src/stdlib/UI/**",
+  "src/stdlib/App/**",
+  "src/stdlib/Tray/**",
+  "src/stdlib/Audio/**",
+  "src/stdlib/GPU/**",
+  "src/tests/native/**",
+  "src/tests/python/test_native_*.py",
+  "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/python/linux_provider_fixtures.py",
+  "tools/ui/**",
+  "tools/NativeHeaderReader.cpp",
+  "tools/virtual-display.sh",
+  "nix/asound.conf",
+  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
+  "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
+  "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
+  "!tools/ui/codex-setup.sh",
 ]
 # The macOS arm64 bundle and native-GUI job.
 lane-macos = [
@@ -123,6 +154,93 @@ workflow = "ci.yml"
 job = "native-gui"
 tiers = ["native-gui", "release"]
 reports = ["skip-report", "junit"]
+
+# The Linux GUI and audio shard: one row per display protocol, each in its own
+# headless session (CL-UIA-11). It runs on every push and in the focused
+# native-gui dispatch; a lane or pull request runs it when a GUI path changes.
+# X11 gates. Wayland reports only (its job may fail without failing the
+# ci.yml run; a release bundle still lists its reports, so a row that never
+# reached pytest shows there as missing evidence). The native-shell journey
+# used to assert that a native close lands within one 10 ms tick, which fails
+# under ASan on weston; its final step now waits within the journey's budget
+# (batch 50). Flip report_only to "false" once Wayland runs green on main.
+[[jobs]]
+workflow = "ci.yml"
+job = "linux-gui"
+key = "session"
+reports = ["skip-report", "junit"]
+
+[[shards]]
+job = "ci.yml/linux-gui"
+session = "x11"
+report_only = "false"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui" }
+changed_tiers = ["pr"]
+changed_paths = [
+  "src/stdlib/GUI/**",
+  "src/stdlib/UI/**",
+  "src/stdlib/App/**",
+  "src/stdlib/Tray/**",
+  "src/stdlib/Audio/**",
+  "src/stdlib/GPU/**",
+  "src/tests/native/**",
+  "src/tests/python/test_native_*.py",
+  "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/python/linux_provider_fixtures.py",
+  "tools/ui/**",
+  "tools/NativeHeaderReader.cpp",
+  "tools/virtual-display.sh",
+  "nix/asound.conf",
+  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
+  "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
+  "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
+  "!tools/ui/codex-setup.sh",
+]
+
+[[shards]]
+job = "ci.yml/linux-gui"
+session = "wayland"
+report_only = "true"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui" }
+changed_tiers = ["pr"]
+changed_paths = [
+  "src/stdlib/GUI/**",
+  "src/stdlib/UI/**",
+  "src/stdlib/App/**",
+  "src/stdlib/Tray/**",
+  "src/stdlib/Audio/**",
+  "src/stdlib/GPU/**",
+  "src/tests/native/**",
+  "src/tests/python/test_native_*.py",
+  "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/python/linux_provider_fixtures.py",
+  "tools/ui/**",
+  "tools/NativeHeaderReader.cpp",
+  "tools/virtual-display.sh",
+  "nix/asound.conf",
+  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
+  "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
+  "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
+  "!tools/ui/codex-setup.sh",
+]
 
 [[shards]]
 job = "ci.yml/tests"
@@ -345,6 +463,11 @@ reports = ["skip-report"]
 id = "macos-acceptance"
 runner = "macos"
 description = "The owner's Mac: the hardware skip category (CoreAudio output device, GPU adapter, physical display), pinned Xcode and signing"
+
+[[hardware]]
+id = "linux-desktop"
+runner = "linux"
+description = "A physical Linux desktop (PLAN D7's x86_64 host): the real X11 and Wayland session check, nightly once that host registers a self-hosted runner"
 
 [[hardware]]
 id = "ios-device"

@@ -5,6 +5,12 @@
 #include <stdatomic.h>
 #include <stdint.h>
 
+/* A wait that must complete gets a deadline far above the few fake polls it
+   needs: the ThreadSanitizer variant runs on loaded CI hosts, where each 1 ms
+   driver yield can stretch to tens of milliseconds. The timeout paths use
+   explicit zero deadlines instead. */
+#define COMPLETION_DEADLINE_NS UINT64_C(10000000000)
+
 static atomic_int result_release_count;
 
 static void release_result(void* result) {
@@ -26,7 +32,7 @@ static void test_delayed_success(void) {
     void* result = NULL;
 
     assert(btrc_gpu_async_wait(
-               fake_webgpu_instance(), future, async, UINT64_C(100000000),
+               fake_webgpu_instance(), future, async, COMPLETION_DEADLINE_NS,
                &status, &result) == BTRC_GPU_ASYNC_COMPLETED);
     assert(status == 41);
     assert(result == &value);
@@ -66,7 +72,7 @@ static void test_timeout_then_late_exact_future_reap(void) {
            BTRC_GPU_ASYNC_TIMED_OUT);
     assert(fake_webgpu_callback_count(future) == 0);
     assert(btrc_gpu_async_wait(
-               fake_webgpu_instance(), future, async, UINT64_C(100000000),
+               fake_webgpu_instance(), future, async, COMPLETION_DEADLINE_NS,
                NULL, NULL) == BTRC_GPU_ASYNC_COMPLETED);
     assert(fake_webgpu_callback_count(future) == 1);
     btrc_gpu_async_release(async);
@@ -81,7 +87,7 @@ static void test_unclaimed_result_released_once(void) {
     WGPUFuture future = fake_webgpu_make_future(async, 43, &value, 0, false);
 
     assert(btrc_gpu_async_wait(
-               fake_webgpu_instance(), future, async, UINT64_C(100000000),
+               fake_webgpu_instance(), future, async, COMPLETION_DEADLINE_NS,
                NULL, NULL) == BTRC_GPU_ASYNC_COMPLETED);
     btrc_gpu_async_release(async);
     assert(released_results() == before + 1);
@@ -117,7 +123,7 @@ static void* wait_for_distinct_future(void* userdata) {
     int status = 0;
     assert(btrc_gpu_async_wait(
                fake_webgpu_instance(), thread->future, thread->async,
-               UINT64_C(100000000), &status, &thread->result) ==
+               COMPLETION_DEADLINE_NS, &status, &thread->result) ==
            BTRC_GPU_ASYNC_COMPLETED);
     assert(status == thread->expected_status);
     assert(thread->result == thread->expected_result);

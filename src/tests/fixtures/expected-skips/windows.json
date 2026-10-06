@@ -56,6 +56,21 @@
       "note": "CX-UIA-09 shell requires its host provider; both frontends and sanitizer modes run on the named stand-in."
     },
     {
+      "id": "linux-real-desktop-session",
+      "files": [
+        "src/tests/python/test_native_ui_shell_linux.py"
+      ],
+      "nodes": [
+        "*::test_linux_real_desktop_session"
+      ],
+      "reason": "^requires Linux SDL native shell$",
+      "category": "platform",
+      "covered_by": [
+        "linux"
+      ],
+      "note": "The real X11 and Wayland desktop check (CL-UIA-11) runs only on a physical Linux desktop, PLAN D7's host; the devcontainer skips it as awaiting hardware, so it is not covered there."
+    },
+    {
       "id": "ui-shell-linux-only",
       "files": [
         "src/tests/python/test_native_ui_shell_linux.py"

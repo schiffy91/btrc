@@ -11,7 +11,9 @@ Runners
 -------
 ``macos`` (the acceptance Mac), ``macos-hosted`` (GitHub's hosted macOS
 runners, which ``macos.yml`` names), ``linux-devcontainer`` (the CI and
-``make linux-ci`` container), ``windows``, and later the ``ios`` and
+``make linux-ci`` container), ``linux`` (a physical Linux desktop outside any
+container, PLAN D7's acceptance host; it has no manifest until that host
+runs), ``windows``, and later the ``ios`` and
 ``android`` executors. A run names its runner through ``BTRC_TEST_RUNNER``,
 or it is detected from the host; a Darwin host detects as ``macos``, so a
 hosted runner must name itself. Each runner's manifest is
@@ -69,7 +71,7 @@ REPO = Path(__file__).resolve().parents[2]
 MANIFEST_SCHEMA = "btrc.expected-skips/1"
 SKIP_REPORT_SCHEMA = "btrc.skip-report/1"
 MANIFEST_ROOT = REPO / "src" / "tests" / "fixtures" / "expected-skips"
-RUNNERS = ("macos", "macos-hosted", "linux-devcontainer", "windows", "ios", "android")
+RUNNERS = ("macos", "macos-hosted", "linux-devcontainer", "linux", "windows", "ios", "android")
 CATEGORIES = (
     "platform",
     "missing-tool",

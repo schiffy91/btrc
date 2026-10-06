@@ -542,7 +542,38 @@ Each stage records its exit evidence here as it closes; measurements and commit 
     - New, pre-existing: btrcc lowers every untyped global `var` as `int` (`ir/lowering/Declarations.btrc` `emitGlobalVar`), while Python uses the inferred type. This goes to the same REQ lane.
     - New, pre-existing: whole-program dead-code elimination drops a global used only inside `sizeof` (both compilers). This joins `CL-REQ-11`'s `sizeof` work.
     - A Python `--module-units` compile retracts the units an earlier compile wrote under another `--emit-units` prefix, while btrcc keeps them. This is recorded for the artifact-publication owner.
+- **Batch 49 (2026-10-06): GPU async completion waits get a CI-safe deadline.** macOS run 37468957133 on the docs-only `f6c2f2ae` failed one test, `test_gpu_concurrency_contracts_under_thread_sanitizer[async-publication]`: a waiter in `gpu_async_state_machine.c` had to see its fake future complete within 100 ms. The future needs only about five 1 ms driver polls, but under ThreadSanitizer on a loaded hosted runner each yield can stretch to tens of milliseconds. Every wait that must complete now uses a 10 s deadline; the timeout paths keep their explicit zero deadlines and the wait-error path is unchanged. Checks: `test_gpu_async_runtime.py` 18 passed.
 - **`CL-C-09` round 3, returned (2026-10-06).** Workflow `wf_5df67358-dc4`, two reviewers. Blockers 2 and 3 of round 2 are fixed, but 10 new confirmed blockers were introduced by the lane. Seven share one cause: `struct X` is normalized to the bare `X`, and an alias row is registered for every source record, so a generic parameter named like a record captures it. The effects are ARC applied to struct values, btrcc silently writing struct fields through a copy, mismatched instance names, and a btrcc hang on `Box<struct P*>`. The other three are the typedef-order first diagnostic, header tags beside generic stdlib classes, and LSP false positives from composing the whole stdlib. The recommended fix restores main's handling for record names that collide with any generic parameter name.
+
+- **Batch 50 (2026-10-06): the Linux GUI and audio CI shard (`CL-UIA-11`), and the native shell's final wait.**
+  - **What lands** (lane `stage31/linux-gui-audio-shard` at `0e5bf7c5`).
+    - `make test-shard-gui GUI_SESSION=x11|wayland` runs the native GUI tests, the ALSA session tests and the AlsaFaults fixture, plus the null-PCM check. It runs inside `tools/ui/headless-session.sh` with lavapipe and an ALSA null PCM, then writes JUnit, a skip report and the skip gate.
+    - The ci.yml `linux-gui` matrix is planned from `ci/tiers.toml` (x11 gating, wayland report-only through `continue-on-error`) and uploads `gui-evidence`, `junit` and `skip-report` artifacts per session.
+    - `tools/ui/status_notifier_watcher.py` is a stand-in StatusNotifierWatcher, so the Linux tray tests run in the shard; `tools/ui/session_evidence.py` samples the AT-SPI bus into `atspi.json`.
+    - There is no D7 host, so the nightly real-session job is a hardware skip rule (`linux-real-desktop-session`, covered by a new `linux` runner) with the exact command recorded.
+  - **Integrator changes:**
+    - `NativeShell.btrc`'s final journey step waits for the native close through the same bounded `pending()` check as the input steps (batch 45), instead of asserting one tick after the close probe. That is the Wayland residual the lane could not touch.
+    - The tiers comment now says what is left before Wayland gates: green runs on main.
+    - The Makefile comment names `build/linux-gui/<session>/atspi.json`.
+    - The `gui-evidence` artifact also keeps `.ppm` and `.png` captures.
+  - **Review.** Workflow `wf_a5886bd1-160`, the `uia11` reviewer, approved with no blocking finding.
+    - The workflow wiring, the report-only semantics and the artifact names all checked out.
+    - The watcher's signal and exit handling were exercised, the sampler is bounded, and `make -n` resolves for both sessions.
+    - The Makefile merge with batch 48's stamp rules is intact.
+    - The native shell ran under X11 through the shard's wrapper chain: plain 2 passed, sanitized 2 passed. Three Linux tray tests passed under the watcher.
+  - **Checks.**
+    - Lane: unit shard plus btrc suite 11,312 passed, 3,151 skipped; corpus 1,982 passed; branch CI 37483800111 green (x11 200 passed, wayland 198 passed, skip gates clean).
+    - Integrator: lint, format-check, codegen check and `git diff --check` clean; CI-contract, skip-ledger, qualification-bundle and build-safety tests 266 passed.
+  - **Hand-offs to the CI-tiering owner (non-blocking review findings):**
+    - Ledger records for the x11 and wayland JUnit artifacts share subjects, so the rollup keeps only one; pass the row's session as the adapter variant.
+    - ci.yml's `skip-reports` job does not need `linux-gui`, so lost GUI reports only show up in release.yml's bundle.
+    - A Wayland row that never reaches pytest still fails the nightly or release bundle, as the tiers comment says.
+    - The GUI path list is copied three times in `ci/tiers.toml` with no test keeping the copies equal.
+    - Nothing fails the shard if the tray skip rule fires there.
+    - The AT-SPI dump is bus-only until the Linux SDL provider has a bridge (UI8).
+- **`CL-C-13` round 6, returned (2026-10-06).** In the same workflow, round 6 (`cd13fd6`) fixed all three round-5 blockers. Warm module-unit replay matches clean builds in eight cache modes, optional calls refuse identically, and class-receiver callees are checked first. Two new first-diagnostic parity blockers were confirmed:
+  - btrcc's type-parameter shadow check now runs before every declaration check, so it pre-empts errors Python reports first: FAM-not-last, by-value fields and parameters, and duplicate classes.
+  - The callee-first fix covers only class receivers, not interface, `Atomic<T>` or `Mutex<T>` receivers.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
