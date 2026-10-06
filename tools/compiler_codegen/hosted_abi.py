@@ -834,6 +834,12 @@ class TargetManifest:
         return self.predefined_macros + self.derived_macros
 
     @property
+    def predefined_macro_names(self) -> tuple[str, ...]:
+        """Every predefined and derived name, on any row, sorted: the names M3 refuses."""
+
+        return tuple(sorted({macro.name for macro in self.macro_rows}))
+
+    @property
     def fingerprint(self) -> str:
         payload = {
             "schema_version": self.schema_version,
@@ -1200,6 +1206,10 @@ class TargetManifest:
                 raise HostedAbiManifestError(f"foreign macro name {name!r} is a reserved name")
             if name in hosted:
                 raise HostedAbiManifestError(f"foreign macro name {name!r} is already a hosted-ABI name")
+            # A predefined name is refused by M3, and #if reads its row; listing
+            # it as foreign too would let the two classifications drift.
+            if name in selections:
+                raise HostedAbiManifestError(f"foreign macro name {name!r} is also a predefined macro")
 
 
 class TargetUnion:
@@ -1212,16 +1222,13 @@ class TargetUnion:
     the generator fails, naming the file and the two targets.
 
     The union is keyed by the identities the compilers' conditional
-    environments distinguish. Until PLAN.md Stage 24 commit 1b gives them the
-    environment axis (platform-target-contract.md §1.4), an environment is
-    an ``operating_system-architecture`` pair, so rows that differ only in
-    their environment share one key; commit 1b keys it by row label.
+    environments distinguish: since PLAN.md Stage 24 commit 1c they select by
+    environment too (platform-target-contract.md §1.3), so every row label is
+    its own key.
     """
 
     def __init__(self, targets: TargetManifest) -> None:
-        self._labels = tuple(
-            dict.fromkeys(f"{target.operating_system}-{target.architecture}" for target in targets.targets)
-        )
+        self._labels = tuple(target.label for target in targets.targets)
 
     @property
     def labels(self) -> tuple[str, ...]:
@@ -1405,6 +1412,9 @@ class HostedAbiCatalogGenerator:
             lines, "TARGET_UNDEFINED_MACRO_NAMES", self._targets.undefined_macro_names
         )
         GeneratedSourceStyle.append_python_tuple(lines, "TARGET_FOREIGN_MACRO_NAMES", self._targets.foreign_macro_names)
+        GeneratedSourceStyle.append_python_tuple(
+            lines, "TARGET_PREDEFINED_MACRO_NAMES", self._targets.predefined_macro_names
+        )
         lines.extend([f"TARGET_SPEC_FINGERPRINT = {self._targets.fingerprint!r}", ""])
         return lines
 
@@ -1574,6 +1584,7 @@ class HostedAbiCatalogGenerator:
             *self._btrc_name_fields(),
             ("undefinedMacroNames", self._targets.undefined_macro_names),
             ("foreignMacroNames", self._targets.foreign_macro_names),
+            ("predefinedMacroNames", self._targets.predefined_macro_names),
         )
         lines.extend(f"    private Vector<string>? {field}Memo = null;" for field, _ in name_fields)
         lines.extend(

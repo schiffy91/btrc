@@ -861,6 +861,7 @@ Lane parallelism in this bucket depends on D6(c). Without it, one bounded contra
   - The cache-poisoning matrix is green, and a quiet M11 re-measure shows no regression.
   - C4's iOS and Android rows are added if C4 landed.
 - **Depends on.** D21.
+- **Status (batch 48, 2026-10-06).** On main: commit 1a (`CL-P1-03`, targets.toml schema 2, batch 22), 1b (`CL-P1-04`, one target owner per compiler, batch 29), the hosted-platform extractor (`CL-P1-07`, batch 31) and 1c (`CL-P1-05`, the per-row data model, environment-aware macros, M3 and per-OS release C, batch 48). Next: 1d (`CL-P1-06`, the LSP `btrc.target` setting), then the sub-batch 1 gate.
 - **Parallelization: SERIAL spec, then a WORKFLOW of about 14 agents, at most 4 writers.**
   - **Spec.** 1 design agent plus 2 adversarial reviewers (Python/btrc parity including host inference; per-platform triple and sysroot rules).
   - **Fan-out:**
@@ -1089,6 +1090,7 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
   - **The E40 repair lands with its Stage 31 reproduction:** 0 lost events across bursts of 4,095, 4,096, 4,097 and 8,193 events, with progress for input, rendering and close (D28: lands earlier as CX-STDLIB-01; Stage 32 re-verifies the 4,095/4,096/4,097/8,193 bursts on the UI2 provider).
   - BTRSmith idle wakeups are measured before and after.
   - Library.UI is limited to the musical surfaces.
+- **Approval (batch 47, 2026-10-06).** `ui-2-contract-review` (`CL-UIA-13`): the three UI2 drafts are approved under the standing design rule in [`ui2-approved.md`](docs/design/ui-contracts/ui2-approved.md), the frozen interface diff and the operation ids the catalog gains, with the review files under `docs/design/ui-contracts/reviews/ui2/` (two feasibility reviewers, a reconciler and a parity reviewer; eight findings raised as blocking were each verified not to block and are closed by decisions in the record). The host link (`IApplication.attachHost` and its types) is provisional everywhere; the Windows, iOS and Android rows stay provisional until `CL-UIA-22`. Next: `CX-UIA-21` writes the production interface from the record, `CX-UIA-22` (macOS) and `CX-UIA-23` (Linux) stack on it, and `CL-UIA-14` lands all three atomically.
 - **Parallelization: WORKFLOW, about 12 agents.**
   - **Drafting.** 3 drafters on disjoint files: control events; executor; lifecycle, which is the only IView writer.
   - **Review.** 2 feasibility reviewers using the real Stage 31 shells, plus 1 reconciler. Then your approval.

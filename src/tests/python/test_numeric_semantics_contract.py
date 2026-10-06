@@ -35,7 +35,7 @@ def test_native_integer_widths_match_c_compiler(tmp_path: Path, c_compiler: str)
         timeout=C_COMPILE_TIMEOUT,
     )
     result = subprocess.run([str(executable)], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT)
-    widths = CIntegerWidths.native()
+    widths = CIntegerWidths.for_target()
     assert tuple(map(int, result.stdout.split())) == (
         widths.char,
         widths.short,

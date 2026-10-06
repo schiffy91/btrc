@@ -292,7 +292,7 @@ class ExpressionTypeResolver {
 
 	private Node? inferTypeRaw(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) {
 		if (node == null) { return null; }
-		if (node.kind == NK_INT_LITERAL) { return NumericSemantics.integerLiteralType(node.raw); }
+		if (node.kind == NK_INT_LITERAL) { return NumericSemantics.integerLiteralType(node.raw, a.longBits); }
 		if (node.kind == NK_FLOAT_LITERAL) { return NumericSemantics.floatLiteralType(node.raw); }
 		if (node.kind == NK_BOOL_LITERAL) { return SemanticTypeSystem.primitive("bool"); }
 		if (node.kind == NK_CHAR_LITERAL) { return SemanticTypeSystem.primitive("char"); }
