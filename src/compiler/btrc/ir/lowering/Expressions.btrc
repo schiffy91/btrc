@@ -2169,7 +2169,7 @@ class ExpressionLowerer {
 		/* sizeof(x) measures the object x when x is a binding, not a type
 		 * (C11 6.5.3.4); lowering the name keeps its C spelling and its use. */
 		string valueName = operand != null && operand.kind == NK_SIZEOF_TYPE ? TypeIdentity.ordinaryIdentifier(operand.type) : "";
-		if (valueName != "" && varTypes.has(valueName)) {
+		if (valueName != "" && (varTypes.has(valueName) || self.analyzed.globalVarTypes.has(valueName))) {
 			Node value = Node();
 			value.kind = NK_IDENTIFIER;
 			value.name = valueName;

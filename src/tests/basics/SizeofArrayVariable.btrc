@@ -1,10 +1,12 @@
 // sizeof(name) measures the object when name is a variable in scope, as C11
 // 6.5.3.4 reads it, even though the parser sees a type name: a global used
-// only inside sizeof, a local, a field array, a parameter declared `int a[]`
-// (a pointer in C), a captured local and a variable shadowing a class name.
+// only inside sizeof, a file-scope initializer, a local, a field array, a
+// parameter declared `int a[]` (a pointer in C), a captured local and a
+// variable shadowing a class name.
 int table[8];
 int measuredOnly[6];
 double weights[3] = {1.0, 2.0, 3.0};
+int tableLength = (int)(sizeof(table) / sizeof(int));
 
 class Grid {
 	public int cells[4];
@@ -21,7 +23,7 @@ bool parameterIsPointer(int values[]) { return sizeof(values) == sizeof(int*); }
 int main() {
 	int local[5];
 	local[0] = 0;
-	print((int)(sizeof(table) / sizeof(table[0])));
+	print((int)(sizeof(table) / sizeof(table[0])), tableLength);
 	print((int)(sizeof(local) / sizeof(int)));
 	print((int)(sizeof(measuredOnly) / sizeof(int)));
 	print((int)(sizeof(weights) / sizeof(weights[0])));

@@ -619,7 +619,11 @@ class GenericAnalyzer:
         ):
             return False
         owner = f"{dependency.owner}.{dependency.method_name}"
-        if self._refuse_unbounded_instance(
+        templated = any(
+            self.types.type_references_names(argument, self._active_template_parameter_names())
+            for argument in (*dependency.class_arguments, *dependency.method_arguments)
+        )
+        if not templated and self._refuse_unbounded_instance(
             f"method '{owner}'", dependency.method_arguments, dependency.line, dependency.col
         ):
             return False
@@ -938,7 +942,7 @@ class GenericAnalyzer:
             ):
                 return
         if (
-            (registered or runtime)
+            registered
             and (not unresolved)
             and self._refuse_unbounded_instance(f"class '{key}'", args, type_expr.line, type_expr.col)
         ):

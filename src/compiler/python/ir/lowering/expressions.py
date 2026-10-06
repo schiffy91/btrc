@@ -1602,7 +1602,11 @@ class ExpressionLowerer:
     ) -> IRSizeof:
         value = self._sizeof_value_operand(node)
         if value is not None:
-            return IRSizeof(operand=self._materialize_static_scalar(value, provenance))
+            self._session.unevaluated_depth += 1
+            try:
+                return IRSizeof(operand=self._materialize_static_scalar(value, provenance))
+            finally:
+                self._session.unevaluated_depth -= 1
         if isinstance(node.operand, SizeofType):
             return IRSizeof(operand=CType(text=self._types.render(node.operand.type)))
         if isinstance(node.operand, SizeofExprOp):
