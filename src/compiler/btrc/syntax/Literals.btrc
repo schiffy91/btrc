@@ -218,6 +218,13 @@ class FloatLiteral {
 
 	public double doubleValue() { return strtod(self.numericBody(), NULL); }
 
+	// The value at the literal's C type (C11 6.4.4.2p4): a float literal
+	// rounds once, from its decimal spelling, to float.
+	public double typedValue() {
+		if (self.narrow()) { return (double)strtof(self.numericBody(), NULL); }
+		return self.doubleValue();
+	}
+
 	private bool hasNonzeroSignificand() {
 		int index = 0;
 		while (index < self.raw.length() && self.raw[index] != 'e' && self.raw[index] != 'E') {
