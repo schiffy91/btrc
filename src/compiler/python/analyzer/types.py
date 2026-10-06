@@ -1489,10 +1489,9 @@ class TypeSystem:
 
         return f"'{base}' does not name {article(keyword)}: '{name}' is {article(kind)}"
 
-    def validate_tag_keyword(self, type_expr, line=0, col=0, *, arguments=True) -> bool:
-        """Report ``tag_keyword_mismatch`` for a written type and (unless the
-        caller walks them itself) its generic arguments, at the type that
-        spells the tag."""
+    def validate_tag_keyword(self, type_expr, line=0, col=0) -> bool:
+        """Report ``tag_keyword_mismatch`` for a written type and its generic
+        arguments, at the type that spells the tag."""
         if type_expr is None:
             return True
         message = self.tag_keyword_mismatch(type_expr.base)
@@ -1502,7 +1501,7 @@ class TypeSystem:
                 self._reported_tags.add(site)
                 self.session.error(*site)
             return False
-        return not arguments or all(
+        return all(
             self.validate_tag_keyword(argument, type_expr.line or line, type_expr.col or col)
             for argument in type_expr.generic_args or []
         )
@@ -1774,7 +1773,7 @@ class TypeSystem:
             return
         type_line = type_expr.line or line
         type_col = type_expr.col or col
-        self.validate_tag_keyword(type_expr, type_line, type_col, arguments=False)
+        self.validate_tag_keyword(type_expr, type_line, type_col)
         self._validate_storage_qualifiers(type_expr, subject, role, type_line, type_col)
         if role == "return" and self._return_type_has_outer_cv_qualifier(type_expr):
             self.session.error(

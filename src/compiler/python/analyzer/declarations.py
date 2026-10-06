@@ -1297,7 +1297,9 @@ class DeclarationRegistry:
         written spelling, and a typedef named for its own tag (``typedef struct
         P P;``) keeps its original for the name-claim diagnostic. It runs
         before registration, so prototype and global compatibility compare
-        one spelling.
+        one spelling. Inside a class, interface or method whose generic
+        parameter shares the record's name, the bare name would be the
+        parameter, so the written tag stays: it still names the record.
         """
         records: dict[str, str] = {}
         for declaration in self.session.declarations(program):
@@ -1307,28 +1309,31 @@ class DeclarationRegistry:
                 and not isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
             ):
                 records.setdefault(declaration.name, TypeSystem.record_keyword(declaration))
-        stack: list = list(self.session.declarations(program))
+        stack: list = [(declaration, frozenset()) for declaration in self.session.declarations(program)]
         while stack:
-            node = stack.pop()
+            node, shadowed = stack.pop()
             if isinstance(node, list):
-                stack.extend(node)
+                stack.extend((item, shadowed) for item in node)
                 continue
             if type(node).__module__ != _AST_MODULE:
                 continue
             if isinstance(node, TypeExpr):
-                self._normalize_record_tag(node, records)
+                self._normalize_record_tag(node, records, shadowed)
             elif isinstance(node, TypedefDecl) and self._names_its_own_tag(node):
-                stack.extend(node.original.generic_args)
+                stack.extend((argument, shadowed) for argument in node.original.generic_args)
                 continue
+            parameters = getattr(node, "generic_params", None)
+            if parameters:
+                shadowed = shadowed | frozenset(parameters)
             for member in fields(node):
                 value = getattr(node, member.name)
                 if isinstance(value, list) or type(value).__module__ == _AST_MODULE:
-                    stack.append(value)
+                    stack.append((value, shadowed))
 
     @staticmethod
-    def _normalize_record_tag(type_expr: TypeExpr, records: dict[str, str]) -> None:
+    def _normalize_record_tag(type_expr: TypeExpr, records: dict[str, str], shadowed: frozenset[str]) -> None:
         keyword, _, name = type_expr.base.partition(" ")
-        if keyword in ("struct", "union") and records.get(name) == keyword:
+        if keyword in ("struct", "union") and records.get(name) == keyword and name not in shadowed:
             type_expr.base = name
 
     @staticmethod

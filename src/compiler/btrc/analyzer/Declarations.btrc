@@ -119,28 +119,49 @@ class DeclarationRegistry {
 	 * assignability rule and one lowering. A tag of another kind stays for
 	 * the wrong-keyword refusal, an SDK record keeps its written spelling,
 	 * and a typedef named for its own tag (`typedef struct P P;`) keeps its
-	 * original for the name-claim diagnostic. */
+	 * original for the name-claim diagnostic. Inside a class, interface or
+	 * method whose generic parameter shares the record's name, the bare name
+	 * would be the parameter, so the written tag stays: it still names the
+	 * record. */
 	public void normalizeRecordTags(Node program) {
 		Vector<Node> stack = [];
-		for declaration in program.declarations() { stack.push(declaration); }
+		Map<string, bool> unshadowed = {};
+		Vector<Map<string, bool>> scopes = [];
+		for declaration in program.declarations() {
+			stack.push(declaration);
+			scopes.push(unshadowed);
+		}
 		Vector<Node> children = [];
 		while (stack.len > 0) {
 			Node node = stack.pop();
+			Map<string, bool> shadowed = scopes.pop();
 			if (node.kind == NK_TYPE_EXPR) {
-				self.normalizeRecordTag(node);
+				self.normalizeRecordTag(node, shadowed);
 			} else if (node.kind == NK_TYPEDEF_DECL && DeclarationRegistry.namesItsOwnTag(node)) {
-				for argument in node.original.genericArgs() { stack.push(argument); }
+				for argument in node.original.genericArgs() {
+					stack.push(argument);
+					scopes.push(shadowed);
+				}
 				continue;
+			}
+			if (node.genericParams().len > 0) {
+				Map<string, bool> inner = {};
+				for name in shadowed.keys() { inner.put(name, true); }
+				for name in node.genericParams() { inner.put(name, true); }
+				shadowed = inner;
 			}
 			children.clear();
 			AstStructure.children(node, children);
-			for child in children { stack.push(child); }
+			for child in children {
+				stack.push(child);
+				scopes.push(shadowed);
+			}
 		}
 	}
 
-	private void normalizeRecordTag(Node typeExpr) {
+	private void normalizeRecordTag(Node typeExpr, Map<string, bool> shadowed) {
 		string name = SemanticTypeSystem.recordTagName(typeExpr.base);
-		if (name == typeExpr.base || name.contains(" ") || !self.analyzed.structTable.has(name)) { return; }
+		if (name == typeExpr.base || name.contains(" ") || shadowed.has(name) || !self.analyzed.structTable.has(name)) { return; }
 		Node record = self.analyzed.structTable.get(name);
 		if (SemanticTypeSystem.recordKeyword(record) + " " + name == typeExpr.base && !self.analyzed.isNativeDeclaration(record)) { typeExpr.base = name; }
 	}

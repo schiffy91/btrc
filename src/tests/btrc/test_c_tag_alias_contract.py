@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import build_and_run_strict
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.process_limits import TRANSPILE_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
@@ -177,3 +179,52 @@ def test_a_tag_never_names_a_function(semantic_btrcc: Path, tmp_path: Path) -> N
             command, cwd=REPO, env=environment, capture_output=True, text=True, timeout=TRANSPILE_TIMEOUT
         )
         assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("header", "body"),
+    [
+        ("struct Timer { long ticks; };", "struct Timer timer; timer.ticks = 3; return (int)timer.ticks - 3;"),
+        (
+            "struct ListNode { int v; struct ListNode* next; };",
+            "struct ListNode node; node.v = 2; node.next = NULL; return node.v - 2;",
+        ),
+        ("enum Result { RESULT_OK, RESULT_BAD };", "enum Result result = RESULT_OK; return (int)result;"),
+        ("union Path { int i; float f; };", "union Path path; path.i = 5; return path.i - 5;"),
+    ],
+    ids=["struct-Timer", "struct-ListNode", "enum-Result", "union-Path"],
+)
+def test_a_headers_own_tag_needs_no_stdlib_import(
+    semantic_btrcc: Path, tmp_path: Path, header: str, body: str
+) -> None:
+    """A C header's own `struct Timer` is not the stdlib's Timer: a tag
+    resolves only among types the program declares, never through the stdlib
+    symbol index for a module the program does not contain."""
+
+    (tmp_path / "linked.h").write_text(f"#ifndef LINKED_H\n#define LINKED_H\n{header}\n#endif\n", encoding="utf-8")
+    main = tmp_path / "Main.btrc"
+    main.write_text(f'#include "linked.h"\nint main() {{ {body} }}\n', encoding="utf-8")
+    environment = {**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")}
+    reference_c, selfhost_c = tmp_path / "reference.c", tmp_path / "selfhost.c"
+    reference = subprocess.run(
+        [sys.executable, "-m", "src.compiler.python.main", str(main), "--no-cache", "-o", str(reference_c)],
+        cwd=REPO,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=TRANSPILE_TIMEOUT,
+    )
+    assert reference.returncode == 0, reference.stderr
+    selfhost = subprocess.run(
+        [str(semantic_btrcc), str(main), "--no-cache"],
+        cwd=REPO,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=TRANSPILE_TIMEOUT,
+    )
+    assert selfhost.returncode == 0, selfhost.stderr
+    selfhost_c.write_text(selfhost.stdout, encoding="utf-8")
+    for generated in (reference_c, selfhost_c):
+        for compiler in HOST_C_COMPILERS:
+            build_and_run_strict(generated, tmp_path / f"{generated.stem}-{Path(compiler).name}", compiler)

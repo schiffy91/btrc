@@ -2046,6 +2046,7 @@ class ExpressionAnalyzer:
             if id(expr) not in self.session.lambda_body_facts:
                 self.session.error("Lambda body was not prepared by statement analysis", expr.line, expr.col)
         elif isinstance(expr, NewExpr):
+            self.types.validate_tag_keyword(expr.type, expr.line, expr.col)
             # A re-analysed tree already carries the implicit class pointer.
             written_depth = expr.type.pointer_depth - int(getattr(expr.type, "auto_upgraded", False))
             if written_depth or expr.type.is_array or expr.type.is_nullable:

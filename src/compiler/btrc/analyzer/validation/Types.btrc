@@ -1151,7 +1151,10 @@ class TypeValidator {
 				}
 				if (declaration.isUnion) { self.validateUnionMembers(declaration); }
 			} else if (declaration.kind == NK_TYPEDEF_DECL) {
-				self.validateDeclaredType(declaration.original, "Typedef '" + declaration.alias + "'", "alias", declaration);
+				/* `typedef union P P;` over a source record P claims the record's
+				 * name: the name-claim diagnostic reports it, not the keyword. */
+				bool claimsRecordName = DeclarationRegistry.namesItsOwnTag(declaration) && self.state.analyzed.structTable.has(declaration.alias) && !self.state.analyzed.isNativeDeclaration(declaration);
+				if (!claimsRecordName) { self.validateDeclaredType(declaration.original, "Typedef '" + declaration.alias + "'", "alias", declaration); }
 			} else if (declaration.kind == NK_INTERFACE_DECL) {
 				Map<string, bool> previousParams = self.cloneFlags(self.state.typeParams);
 				self.state.typeParams = self.typeParamSet(declaration.genericParams());

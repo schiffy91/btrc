@@ -636,7 +636,13 @@ class ImportVisibilityChecker:
             None,
         )
 
-    def _symbol_files(self) -> dict[str, set[str]]:
+    def _symbol_files(self) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+        """Map each name to its declaring files: every symbol, and separately
+        the types this program declares. A C tag (`struct X`) resolves only
+        among the latter: the external symbol index may name a stdlib module
+        that is not in the program, and a header's own `struct Timer` is not
+        the stdlib's Timer."""
+        types: dict[str, set[str]] = {}
         symbols = {
             name: {SourceDependencyGraph.canonical_file(path) for path in paths}
             for name, paths in self.external_symbol_files.items()
@@ -664,6 +670,8 @@ class ImportVisibilityChecker:
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
             if name:
                 symbols.setdefault(name, set()).add(canonical_file)
+                if isinstance(declaration, _TYPE_DECLS):
+                    types.setdefault(name, set()).add(canonical_file)
             if isinstance(declaration, ast.EnumDecl):
                 for value in declaration.values:
                     if value.name:
@@ -672,7 +680,7 @@ class ImportVisibilityChecker:
                 for variant in declaration.variants:
                     if variant.name:
                         symbols.setdefault(variant.name, set()).add(canonical_file)
-        return symbols
+        return symbols, types
 
     @staticmethod
     def _macro_references(declaration: ast.PreprocessorDirective) -> list[ImportReference]:
@@ -685,21 +693,6 @@ class ImportVisibilityChecker:
             for name in directive.replacement_identifiers()
             if name not in members
         ]
-
-    def _value_only_names(self) -> set[str]:
-        """Names the program declares only as values (functions, globals,
-        enum constants), never as types: a C tag cannot name them. An indexed
-        symbol (the stdlib's) may be a type, so it is never exempt."""
-        values: set[str] = set()
-        types: set[str] = set()
-        for declaration in self.program.declarations:
-            if isinstance(declaration, _TYPE_DECLS):
-                types.add(self._decl_name(declaration))
-            elif isinstance(declaration, (ast.FunctionDecl, ast.VarDeclStmt)):
-                values.add(declaration.name)
-            if isinstance(declaration, ast.EnumDecl):
-                values.update(value.name for value in declaration.values)
-        return values - types - set(self.external_symbol_files)
 
     def _references(self, declaration) -> list[ImportReference]:
         if isinstance(declaration, ast.PreprocessorDirective):
@@ -732,8 +725,7 @@ class ImportVisibilityChecker:
     ) -> list[ImportVisibilityFailure]:
         """Return structured references hidden by missing imports."""
 
-        symbol_files = self._symbol_files()
-        value_names = self._value_only_names()
+        symbol_files, type_files = self._symbol_files()
         reachable_cache: dict[str, set[str]] = {}
         failures: list[ImportVisibilityFailure] = []
         canonical_active = SourceDependencyGraph.canonical_file(active_file) if active_file is not None else None
@@ -772,9 +764,7 @@ class ImportVisibilityChecker:
                     reference,
                 ):
                     continue
-                if reference.tag and reference.name in value_names:
-                    continue
-                declaring = symbol_files.get(reference.name)
+                declaring = (type_files if reference.tag else symbol_files).get(reference.name)
                 if not declaring or declaring & reachable:
                     continue
                 failures.append(

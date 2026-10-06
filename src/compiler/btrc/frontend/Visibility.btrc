@@ -431,29 +431,29 @@ class FeImportVisibilityChecker {
 		}
 	}
 
-	/* Names the program declares only as values (functions, globals, enum
-	 * constants), never as types: a C tag cannot name them. */
-	private Map<string, bool> valueOnlyNames() {
-		Map<string, bool> values = {};
-		Map<string, bool> types = {};
+	/* The name a declaration gives a type, or "" when it declares none. */
+	private string typeName(Node declaration) {
+		int kind = declaration.kind;
+		if (kind == NK_CLASS_DECL || kind == NK_INTERFACE_DECL || kind == NK_STRUCT_DECL || kind == NK_ENUM_DECL || kind == NK_RICH_ENUM_DECL) { return declaration.name; }
+		if (kind == NK_TYPEDEF_DECL) { return declaration.alias; }
+		return "";
+	}
+
+	/* The files declaring each type this program contains. A C tag (`struct
+	 * X`) resolves only among them: the stdlib symbol index may name a module
+	 * that is not in the program, and a header's own `struct Timer` is not
+	 * the stdlib's Timer. */
+	private Map<string, Vector<string>> localTypeFiles() {
+		Map<string, Vector<string>> types = {};
+		for imported in self.resolved.nativeDeclarations {
+			if (imported.declaration.kind == NK_TYPEDEF_DECL && self.compilerImplicitSymbols.has(imported.declaration.alias)) { continue; }
+			self.addSymbolOwner(types, self.typeName(imported.declaration), imported.module);
+		}
 		for declaration in self.program.declarations() {
-			int kind = declaration.kind;
-			if (kind == NK_CLASS_DECL || kind == NK_INTERFACE_DECL || kind == NK_STRUCT_DECL || kind == NK_ENUM_DECL || kind == NK_RICH_ENUM_DECL) {
-				types.put(declaration.name, true);
-			} else if (kind == NK_TYPEDEF_DECL) {
-				types.put(declaration.alias, true);
-			} else if (kind == NK_FUNCTION_DECL || kind == NK_VAR_DECL_STMT) {
-				values.put(declaration.name, true);
-			}
-			if (kind == NK_ENUM_DECL) {
-				for value in declaration.values() { values.put(value.name, true); }
-			}
+			FeLine? line = self.resolved.userLineForCombined(declaration.line);
+			if (line != null) { self.addSymbolOwner(types, self.typeName(declaration), line.sourceFile); }
 		}
-		Map<string, bool> result = {};
-		for name in values.keys() {
-			if (!types.has(name)) { result.put(name, true); }
-		}
-		return result;
+		return types;
 	}
 
 	private Map<string, Vector<string>> localSymbolFiles() {
@@ -597,11 +597,7 @@ class FeImportVisibilityChecker {
 		}
 		self.stdlibSymbols.mergeInto(symbols);
 		Vector<FeVisibilityDiagnostic> diagnostics = [];
-		Map<string, bool> valueNames = self.valueOnlyNames();
-		/* An indexed stdlib symbol may be a type, so it is never exempt. */
-		Map<string, Vector<string>> indexedSymbols = {};
-		self.stdlibSymbols.mergeInto(indexedSymbols);
-		for indexedName in indexedSymbols.keys() { valueNames.remove(indexedName); }
+		Map<string, Vector<string>> types = self.localTypeFiles();
 		int declarationIndex = 0;
 		while (declarationIndex < self.program.declarations().len) {
 			Node declaration = self.program.declarations().get(declarationIndex);
@@ -636,12 +632,13 @@ class FeImportVisibilityChecker {
 				string key = f"{reference.name}|{reference.line}|{reference.col}";
 				if (seen.has(key)) { continue; }
 				seen.put(key, true);
-				if (!symbols.has(reference.name)) { continue; }
-				if (reference.tag && valueNames.has(reference.name)) { continue; }
+				Map<string, Vector<string>> declaring = symbols;
+				if (reference.tag) { declaring = types; }
+				if (!declaring.has(reference.name)) { continue; }
 				if (self.compilerStdlibSource(sourceFile) && self.compilerImplicitSymbols.has(reference.name)) {
 					continue;
 				}
-				Vector<string> owners = symbols.get(reference.name);
+				Vector<string> owners = declaring.get(reference.name);
 				if (self.anyOwnerVisible(sourceIdentity, owners, reachable)) { continue; }
 				owners.sortBy((string left, string right) => Strings.lessThan(left, right));
 				string owner = self.sourcePaths.baseName(owners.get(0));

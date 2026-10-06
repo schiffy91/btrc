@@ -812,6 +812,7 @@ VLA_DIVERGENT_REFUSALS = [
 BOX = "class Box<T> { public T value; public Box(T value) { self.value = value; } }\n"
 UNION_PLAIN = "; a union cannot tell which member is live, so its members must be plain C values"
 MAIN_LINE = "\nint main() { return 0; }"
+NOT_UNION = "'union P' does not name a union: 'P' is a struct"
 
 # Row 9 (docs/design/c-compatibility.md "Refusals", records and tags). The
 # struct messages were made identical first; each union message derives from
@@ -1126,6 +1127,53 @@ RECORD_REFUSALS = [
         "union U { int i; };\nint main() { U* p = new U(); return 0; }",
         ("new requires a class type, got 'U'", 2, 21),
         id="r09-union-new",
+    ),
+    # Both compilers check the keyword of a `new` type, generic arguments
+    # included, before the expression's other checks.
+    *(
+        pytest.param("struct P { int x; };\n" + BOX + body, (message, 3, col), id=f"r09-new-tag-{name}")
+        for name, body, message, col in (
+            ("compare", "int main() { if (new Box<union P*>(null) != null) { return 1; } return 0; }", NOT_UNION, 26),
+            ("member", "int main() { bool e = new Box<union P*>(null).value == null; return e ? 0 : 1; }", NOT_UNION, 31),
+            ("bool", "int main() { bool z = new Box<union P*>(null) != null; return z ? 0 : 1; }", NOT_UNION, 31),
+            ("address", "int main() { P p = {1}; var b = new Box<union P*>(&p); return 0; }", NOT_UNION, 41),
+            ("declared", "int main() { Box<P*> b = new Box<union P*>(null); return 0; }", NOT_UNION, 34),
+            ("return", "Box<P*> make() { return new Box<union P*>(null); }\nint main() { make(); return 0; }", NOT_UNION, 33),
+            (
+                "assignment",
+                "int main() { Box<P*> b = new Box<P*>(null); b = new Box<union P*>(null); return 0; }",
+                NOT_UNION,
+                57,
+            ),
+        )
+    ),
+    pytest.param(
+        "union U { int a; float b; };\n" + BOX + "int main() { U u = {1}; var b = new Box<struct U>(u); return 0; }",
+        ("'struct U' does not name a struct: 'U' is a union", 3, 41),
+        id="r09-new-tag-struct-of-union",
+    ),
+    pytest.param(
+        "struct P { int x; };\ninterface IShow<T> { int show(T value); }\nint use(IShow<union P*> s) { return 0; }"
+        + MAIN_LINE,
+        (NOT_UNION, 3, 15),
+        id="r09-generic-interface-argument-tag",
+    ),
+    # A typedef named for its own tag claims the record's name; that claim is
+    # the diagnostic whichever keyword it spells.
+    pytest.param(
+        "struct P { int v; };\ntypedef union P P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 17),
+        id="r09-identity-typedef-other-keyword",
+    ),
+    pytest.param(
+        "union U { int v; };\ntypedef struct U U;" + MAIN_LINE,
+        ("Top-level name 'U' is declared as both union and typedef", 2, 18),
+        id="r09-identity-typedef-struct-of-union",
+    ),
+    pytest.param(
+        "struct P { int v; };\ntypedef union P* P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 18),
+        id="r09-identity-typedef-other-keyword-pointer",
     ),
 ]
 
