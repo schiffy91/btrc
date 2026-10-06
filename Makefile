@@ -148,23 +148,30 @@ $(BTRCC_MACOS_C): $(BTRCC_INPUTS) | generated-check
 # release gate regenerates it for the other row and requires byte identity; a
 # row whose C differs needs its own release C file
 # (platform-target-contract.md §1.8). The Linux and macOS rows differ (their
-# stdlib providers do), so each has its own file.
+# stdlib providers do), so each has its own file. A stamp per checked row keeps
+# the check incremental: it reruns only when the C file or its inputs change.
+BTRCC_RELEASE_C_ROOT := $(BTRCC_BUILD_ROOT)/release-c
 # $(call btrcc_row_identity,C file,row label)
 define btrcc_row_identity
-	@mkdir -p $(BTRCC_BUILD_ROOT)/release-c
-	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/BtrccMain.btrc --strict-imports --no-cache --target $(2) -o $(BTRCC_BUILD_ROOT)/release-c/$(2).c
-	@cmp -s $(1) $(BTRCC_BUILD_ROOT)/release-c/$(2).c || { echo "error: $(1) differs for $(2); that row needs its own release C file" >&2; exit 1; }
+	@mkdir -p $(BTRCC_RELEASE_C_ROOT)
+	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/BtrccMain.btrc --strict-imports --no-cache --target $(2) -o $(BTRCC_RELEASE_C_ROOT)/$(2).c
+	@cmp -s $(1) $(BTRCC_RELEASE_C_ROOT)/$(2).c || { echo "error: $(1) differs for $(2); that row needs its own release C file" >&2; exit 1; }
+	@touch $@
 endef
 
-btrcc-release-c: btrcc-release-c-linux btrcc-release-c-macos
-
-btrcc-release-c-linux: generated-check
-	$(MAKE) --no-print-directory $(BTRCC_C)
+$(BTRCC_RELEASE_C_ROOT)/linux-aarch64.ok: $(BTRCC_C) $(BTRCC_INPUTS) | generated-check
 	$(call btrcc_row_identity,$(BTRCC_C),linux-aarch64)
 
-btrcc-release-c-macos: generated-check
-	$(MAKE) --no-print-directory $(BTRCC_MACOS_PORTABLE_C)
+$(BTRCC_RELEASE_C_ROOT)/macos-aarch64.ok: $(BTRCC_MACOS_PORTABLE_C) $(BTRCC_INPUTS) | generated-check
 	$(call btrcc_row_identity,$(BTRCC_MACOS_PORTABLE_C),macos-aarch64)
+
+btrcc-release-c: btrcc-release-c-linux btrcc-release-c-macos ## Generate and row-check every portable release C file
+
+btrcc-release-c-linux: generated-check ## Generate dist/btrcc.c (linux-x86_64) and prove it for linux-aarch64
+	$(MAKE) --no-print-directory $(BTRCC_RELEASE_C_ROOT)/linux-aarch64.ok
+
+btrcc-release-c-macos: generated-check ## Generate dist/btrcc-macos.c (macos-x86_64) and prove it for macos-aarch64
+	$(MAKE) --no-print-directory $(BTRCC_RELEASE_C_ROOT)/macos-aarch64.ok
 
 btrcc: $(BTRCC_NATIVE) ## Build the self-hosted compiler for THIS machine -> bin/btrcc
 
@@ -216,10 +223,10 @@ WIN_PATH_SAMPLE := src/tests/stdlib/PathWindowsLexical.btrc
 test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run sample under wine if present
 	@mkdir -p dist
 	@echo "==> cross-compiling sample btrc program to a Windows .exe"
-	$(NIX) python3 -m src.compiler.python.main $(WIN_SAMPLE) --no-cache -o dist/win_sample.c
+	$(NIX) python3 -m src.compiler.python.main $(WIN_SAMPLE) --no-cache --target windows-x86_64 -o dist/win_sample.c
 	$(ZIG) cc -target x86_64-windows-gnu $(NATIVE_CFLAGS) -O2 $(WIN_COMPAT) dist/win_sample.c -o dist/win_sample.exe -lm
 	@echo "    built dist/win_sample.exe"
-	$(NIX) python3 -m src.compiler.python.main $(WIN_PATH_SAMPLE) --no-cache -o dist/win_paths.c
+	$(NIX) python3 -m src.compiler.python.main $(WIN_PATH_SAMPLE) --no-cache --target windows-x86_64 -o dist/win_paths.c
 	$(ZIG) cc -target x86_64-windows-gnu $(NATIVE_CFLAGS) -O2 $(WIN_COMPAT) dist/win_paths.c -o dist/win_paths.exe -lm
 	@echo "    built dist/win_paths.exe"
 	@if command -v wine64 >/dev/null 2>&1; then WINE=wine64; \

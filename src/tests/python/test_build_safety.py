@@ -11,6 +11,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from src.tests.process_limits import TOOL_TIMEOUT, TRANSPILE_TIMEOUT
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -376,24 +378,40 @@ def test_btrcc_release_targets_publish_bundles_not_raw_dist_binaries():
     assert "tools.compiler_codegen.main check" in linux + windows
 
 
-def test_release_c_files_are_generated_for_their_rows_and_checked_per_row():
+# Each Unix bundle: its release C file, the row that file is generated for, the
+# other row whose identity the gate proves, and the other OS's file it must not use.
+RELEASE_C_BUNDLES = {
+    "btrcc-linux-x64": ("dist/btrcc.c", "linux-x86_64", "linux-aarch64", "linux-x64", "dist/btrcc-macos.c"),
+    "btrcc-linux-arm64": ("dist/btrcc.c", "linux-x86_64", "linux-aarch64", "linux-arm64", "dist/btrcc-macos.c"),
+    "btrcc-macos-x64": ("dist/btrcc-macos.c", "macos-x86_64", "macos-aarch64", "macos-x64", "dist/btrcc.c "),
+    "btrcc-macos-arm64": ("dist/btrcc-macos.c", "macos-x86_64", "macos-aarch64", "macos-arm64", "dist/btrcc.c "),
+}
+
+
+@pytest.mark.parametrize("bundle", sorted(RELEASE_C_BUNDLES))
+def test_release_c_files_are_generated_for_their_rows_and_checked_per_row(bundle: str):
     """Each release C file is generated for an explicit row, never the host, and
-    the gate proves it byte-identical for its other architecture
-    (platform-target-contract.md §1.8)."""
+    the gate proves it byte-identical for its other architecture through an
+    incremental stamp (platform-target-contract.md §1.8)."""
 
-    linux = _make_dry_run("--always-make", "btrcc-linux-x64", "NIX=")
-    macos = _make_dry_run("--always-make", "btrcc-macos-arm64", "NIX=")
-    windows = _make_dry_run("--always-make", "btrcc-windows-x64", "NIX=")
+    c_file, row, checked_row, build, other_file = RELEASE_C_BUNDLES[bundle]
+    output = _make_dry_run("--always-make", bundle, "NIX=")
+    stamp = f"build/btrcc/release-c/{checked_row}"
 
-    assert "BtrccMain.btrc --strict-imports --no-cache --target linux-x86_64 -o dist/btrcc.c" in linux
-    assert "--target linux-aarch64 -o build/btrcc/release-c/linux-aarch64.c" in linux
-    assert "cmp -s dist/btrcc.c build/btrcc/release-c/linux-aarch64.c" in linux
-    assert "dist/btrcc.c -o build/btrcc/linux-x64/btrcc" in linux
-    assert "BtrccMain.btrc --strict-imports --no-cache --target macos-x86_64 -o dist/btrcc-macos.c" in macos
-    assert "cmp -s dist/btrcc-macos.c build/btrcc/release-c/macos-aarch64.c" in macos
-    assert "dist/btrcc-macos.c -o build/btrcc/macos-arm64/btrcc" in macos
-    assert "dist/btrcc.c" not in macos
+    assert f"BtrccMain.btrc --strict-imports --no-cache --target {row} -o {c_file}" in output
+    assert f"--target {checked_row} -o {stamp}.c" in output
+    assert f"cmp -s {c_file} {stamp}.c" in output
+    assert f"touch {stamp}.ok" in output
+    assert f"{c_file} -o build/btrcc/{build}/btrcc" in output
+    assert other_file not in output
+
+
+def test_windows_release_c_and_samples_are_generated_for_windows_x86_64():
+    windows = _make_dry_run("--always-make", "test-windows", "NIX=")
+
     assert "WindowsMain.btrc --strict-imports --no-cache --target windows-x86_64 -o dist/btrcc-windows.c" in windows
+    assert "--no-cache --target windows-x86_64 -o dist/win_sample.c" in windows
+    assert "--no-cache --target windows-x86_64 -o dist/win_paths.c" in windows
 
 
 def test_explicit_generation_target_forces_regeneration_without_aliases():
