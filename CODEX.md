@@ -242,9 +242,14 @@ owner, the exact prerequisite and the next acceptance.
 - **`CX-UIA-11` residuals** (after batch 38). Owner: Claude for the flake/nix
   pins (WORKSTREAMS §3.3.1 hotspots); Codex re-runs the acceptance once they
   land. Prerequisites: a libdecor 0.2.5 fix for the Wayland
-  selfhost+sanitizer restore-61 timeout; `libdecor-0.pc` in the dev shell, so CI
-  compiles `LibdecorPending`; a pinned SDL fix for the X11 BadWindow clipboard
-  crash. Per-worker Xvfb is an integrator mitigation. Next acceptance: Codex
+  selfhost+sanitizer restore-61 timeout (still open); `libdecor-0.pc` in the
+  dev shell, so CI compiles `LibdecorPending` (landed in batch 41: the dev shell
+  carries `libdecor.dev`); a pinned SDL fix for the X11 BadWindow clipboard
+  crash (landed in batch 41: `nix/sdl3-x11-selection-requestor.patch`, guarded
+  by `test_native_ui_sdl_clipboard_requestor.py`, which runs
+  `ClipboardRequestor` mode 1 and passes). Codex may now add the
+  `LibdecorPending` compile test and re-record the destroyed-requestor
+  `ClipboardRequestor` row in `evidence/ui1-linux.toml`. Next acceptance: Codex
   re-runs the Wayland acceptance row and the `LibdecorPending` CI build; Wayland
   4/4 rows and the X11 clipboard probe pass.
 - **`CX-P1-02` platform inventory.** Owner: the owner (sign-off), then Codex

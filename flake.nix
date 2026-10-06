@@ -59,6 +59,7 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
+            libdecor.dev   # libdecor-0.pc: the Wayland decoration probe (src/tests/native/gui/shell/probes/linux/LibdecorPending.c)
             (sdl3Patched pkgs).dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
             # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
