@@ -230,7 +230,7 @@ def test_aggregate_mutations_survive_optimized_longjmp(
         }
     """)
     assert "volatile int values[1]" in generated
-    assert "volatile struct Probe probe" in generated
+    assert "volatile Probe probe" in generated
     _strict_build_and_run(
         generated,
         tmp_path,
@@ -266,7 +266,7 @@ def test_read_only_pointer_calls_do_not_force_aggregate_volatile(
             return run(probe) == 42 ? 0 : 1;
         }
     """)
-    assert "volatile struct Probe" not in generated
+    assert "volatile Probe" not in generated
     _strict_build_and_run(
         generated,
         tmp_path,

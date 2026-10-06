@@ -130,17 +130,17 @@ def test_real_runtime_runs_from_both_frontends_with_strict_compilers(semantic_bt
         assert "btrcRealtimeClipTransportProcess" in emitted
         assert "RealtimeClipTransport_open" in emitted
         snapshot_zero = (
-            "struct BtrcRealtimeClipTransportSnapshotValue snapshot = "
-            "(struct BtrcRealtimeClipTransportSnapshotValue){.token = 0};"
+            "BtrcRealtimeClipTransportSnapshotValue snapshot = "
+            "(BtrcRealtimeClipTransportSnapshotValue){.token = 0};"
         )
         assert emitted.count(snapshot_zero) == 2
         assert (
-            "struct BtrcRealtimeClipPracticeTelemetryValue telemetry = "
-            "(struct BtrcRealtimeClipPracticeTelemetryValue){.deviceFrame = 0};"
+            "BtrcRealtimeClipPracticeTelemetryValue telemetry = "
+            "(BtrcRealtimeClipPracticeTelemetryValue){.deviceFrame = 0};"
         ) in emitted
         assert (
-            "struct BtrcRealtimeClipPracticeInputValue sample = "
-            "(struct BtrcRealtimeClipPracticeInputValue){.deviceFrame = 0};"
+            "BtrcRealtimeClipPracticeInputValue sample = "
+            "(BtrcRealtimeClipPracticeInputValue){.deviceFrame = 0};"
         ) in emitted
         for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"runtime-{frontend}-{Path(compiler).name}"

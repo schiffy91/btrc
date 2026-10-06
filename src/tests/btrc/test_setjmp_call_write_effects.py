@@ -46,8 +46,8 @@ def test_read_only_source_calls_do_not_qualify_addressed_storage(
     for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stderr
         emitted = generated.read_text()
-        assert "int run(struct Probe probe)" in emitted
-        assert "volatile struct Probe" not in emitted
+        assert "int run(Probe probe)" in emitted
+        assert "volatile Probe" not in emitted
         strict_build_and_run(
             generated,
             tmp_path / f"read-only-call-{index}",

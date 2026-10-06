@@ -87,7 +87,7 @@ def test_borrowed_operations_are_one_realtime_safe_composition() -> None:
     assert "SPSCQueues_nextCursor" in push
     assert "SPSCQueues_nextCursor" in pop
     assert "const void* value" in generated
-    assert "struct SPSCQueueStorage* queue" in generated
+    assert "SPSCQueueStorage* queue" in generated
 
 
 def test_managed_typed_wrapper_delegates_to_the_canonical_storage() -> None:

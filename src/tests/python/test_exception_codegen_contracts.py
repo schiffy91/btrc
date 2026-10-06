@@ -174,8 +174,8 @@ def test_try_local_c_aggregate_is_not_volatile():
     """)
 
     assert "int run(volatile int outer)" in emitted
-    assert "struct Probe probe;" in emitted
-    assert "volatile struct Probe probe;" not in emitted
+    assert "Probe probe;" in emitted
+    assert "volatile Probe probe;" not in emitted
 
 
 def test_unmodified_aggregate_parameter_is_not_volatile():
@@ -196,8 +196,8 @@ def test_unmodified_aggregate_parameter_is_not_volatile():
         int main() { struct Probe probe = {21}; return run(probe) == 42 ? 0 : 1; }
     """)
 
-    assert "int run(struct Probe probe)" in emitted
-    assert "volatile struct Probe" not in emitted
+    assert "int run(Probe probe)" in emitted
+    assert "volatile Probe" not in emitted
 
 
 @pytest.mark.parametrize(
