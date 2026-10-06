@@ -45,8 +45,10 @@ One archive generation contains:
   globals, and shared helpers.
 
 The manifest is the partition contract. A consumer validates its schema,
-toolchain fingerprint, canonical stdlib-source hash, and the SHA-256 digest of
-both C artifacts before changing the program IR.
+toolchain fingerprint, the target row the archive was analysed for (schema 6;
+an archive for another row is refused before the source hash is compared),
+canonical stdlib-source hash, and the SHA-256 digest of both C artifacts before
+changing the program IR.
 
 The three files are staged privately and published as one crash-recoverable
 generation. Publication serializes writers, rejects links/reparse points at the
@@ -117,7 +119,8 @@ The implementation is covered by contracts that require:
 - program-only C to be smaller than the inline translation unit;
 - program-specific generic instances to remain available;
 - archive-owned globals and helpers to have exactly one definition;
-- strict manifest schema, artifact hashes, and toolchain/stdlib fingerprints;
+- strict manifest schema, artifact hashes, toolchain/stdlib fingerprints and
+  the target row;
 - retryable reader behavior during publication;
 - concurrent writers to leave one complete valid generation; and
 - interrupted publication to restore the previous complete generation.

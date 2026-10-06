@@ -573,11 +573,14 @@ class SourceMacroRules {
 	private TokenVocabulary vocabulary;
 	private Map<string, bool> hostedNames;
 	private Map<string, bool> foreignNames;
+	/* Every predefined-macro row name and derived name, on any row (M3). */
+	private Map<string, bool> predefinedNames;
 
-	public SourceMacroRules(TokenVocabulary vocabulary, Map<string, bool> hostedNames, Map<string, bool> foreignNames) {
+	public SourceMacroRules(TokenVocabulary vocabulary, Map<string, bool> hostedNames, Map<string, bool> foreignNames, Map<string, bool> predefinedNames) {
 		self.vocabulary = vocabulary;
 		self.hostedNames = hostedNames;
 		self.foreignNames = foreignNames;
+		self.predefinedNames = predefinedNames;
 	}
 
 	/* The compiler-reserved prefix of a declaration name, if any. */
@@ -608,7 +611,7 @@ class SourceMacroRules {
 
 	/* The message refusing #define/#undef of `name`, or "". */
 	public string violation(string name, bool define) {
-		if (name == "defined") { return "'defined' cannot be #define'd or #undef'd (C11 6.10.8p2)"; }
+		if (name == "defined" || self.predefinedNames.has(name)) { return f"'{name}' cannot be #define'd or #undef'd (C11 6.10.8p2)"; }
 		if (self.keyword(name)) { return f"'{name}' is a reserved word and cannot be used as a name"; }
 		string prefix = SourceMacroRules.macroReservedPrefix(name);
 		if (!prefix.isEmpty() && !(define && SourceMacroRules.runtimeOverride(name))) {

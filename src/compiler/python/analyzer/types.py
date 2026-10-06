@@ -10,6 +10,8 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import ClassVar
 
+from src.compiler.python.abi.generated import GeneratedTargetRow
+from src.compiler.python.abi.hosted import TargetRepository, TargetSelectionError
 from src.compiler.python.analyzer.program import (
     AnalysisSession,
     DeclarationIndex,
@@ -125,15 +127,18 @@ class CIntegerWidths:
     long_long: int
 
     @classmethod
-    def native(cls) -> CIntegerWidths:
-        """Describe the ABI targeted by the running compiler process."""
-        return cls(
-            char=struct.calcsize("@b") * 8,
-            short=struct.calcsize("@h") * 8,
-            int_=struct.calcsize("@i") * 8,
-            long=struct.calcsize("@l") * 8,
-            long_long=struct.calcsize("@q") * 8,
-        )
+    def for_target(cls, row: GeneratedTargetRow | None = None) -> CIntegerWidths:
+        """The widths of one target row; ``None`` is the host's row.
+
+        Only ``long`` varies: char, short, int and long long are pinned
+        across every row (platform-target-contract.md §1.8), and no width
+        depends on the Python process.
+        """
+        if row is None:
+            row = TargetRepository.host()
+            if row is None:
+                raise TargetSelectionError(TargetRepository.UNKNOWN_HOST_MESSAGE)
+        return cls(char=8, short=16, int_=32, long=row.sizeof_long * 8, long_long=64)
 
 
 class NumericLiteralSemantics:
@@ -166,7 +171,7 @@ class NumericLiteralSemantics:
     )
 
     def __init__(self, widths: CIntegerWidths | None = None) -> None:
-        self.widths = widths if widths is not None else CIntegerWidths.native()
+        self.widths = widths if widths is not None else CIntegerWidths.for_target()
         self._signed_limits = MappingProxyType(
             {
                 "signed char": self._signed_range(self.widths.char),
@@ -185,6 +190,11 @@ class NumericLiteralSemantics:
                 "unsigned long long": self._unsigned_range(self.widths.long_long),
             }
         )
+
+    @classmethod
+    def for_target(cls, row: GeneratedTargetRow | None = None) -> NumericLiteralSemantics:
+        """The literal semantics of one target row; ``None`` is the host's row."""
+        return cls(CIntegerWidths.for_target(row))
 
     def integer_type(self, raw: str, value: int) -> str:
         """Return the first C11 candidate type that can represent ``value``."""

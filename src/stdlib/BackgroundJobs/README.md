@@ -112,9 +112,11 @@ and the root `WorkerPoolProvider` opens a single `InlineWorkerPool` on
 windows. Consumers never name a provider.
 
 One documented exception: the self-hosted compiler's `cli/WindowsMain.btrc`
-passes no factory. Its C (`dist/btrcc-windows.c`) is transpiled on the build
-host, so provider selection would choose the host's fork provider, whose
-POSIX calls the Windows cross build cannot link. Without a factory,
+passes no factory. Its C (`dist/btrcc-windows.c`) used to be transpiled for
+the build host, where provider selection would have chosen the host's fork
+provider, whose POSIX calls the Windows cross build cannot link. Since Stage
+24 commit 1c it is transpiled with `--target windows-x86_64`, so selection
+would choose the windows provider; the entry still passes no factory, and
 `ModuleUnitCompiler` uses `InlineWorkerPool` directly, which is what the
 windows provider would open. The Unix entries (`BtrccMain`, `MacOSMain`) pass
 `HostWorkerPools`.

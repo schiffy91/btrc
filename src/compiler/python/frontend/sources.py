@@ -23,6 +23,7 @@ import src.compiler.python.syntax.ast.generated as ast
 
 from ..abi.generated import (
     TARGET_FOREIGN_MACRO_NAMES,
+    TARGET_PREDEFINED_MACRO_NAMES,
     TARGET_PREDEFINED_MACRO_ROWS,
     TARGET_ROWS,
     TARGET_UNDEFINED_MACRO_NAMES,
@@ -961,6 +962,9 @@ _MACRO_RESERVED_PREFIXES = (*_COMPILER_RESERVED_PREFIXES, "BTRC_")
 # The runtime's embedder hooks: btrc_rt.h defines each only under #ifndef, so a
 # program may #define it first (test_runtime_dependencies.py pins the GPU one).
 _RUNTIME_OVERRIDE_MACROS = frozenset({"BTRC_RT_ARENA_BYTES", "BTRC_RT_GPU_HEADER"})
+# M3 (C11 6.10.8p2): every predefined-macro row name and derived name, on any
+# row, like ``defined`` itself (platform-target-contract.md §1.3).
+_PREDEFINED_MACRO_NAMES = frozenset(TARGET_PREDEFINED_MACRO_NAMES)
 
 
 class SourceMacroRules:
@@ -988,8 +992,8 @@ class SourceMacroRules:
     def violation(cls, name: str, *, define: bool) -> str | None:
         """The message refusing ``#define``/``#undef`` of ``name``, if any."""
 
-        if name == "defined":
-            return "'defined' cannot be #define'd or #undef'd (C11 6.10.8p2)"
+        if name == "defined" or name in _PREDEFINED_MACRO_NAMES:
+            return f"'{name}' cannot be #define'd or #undef'd (C11 6.10.8p2)"
         if name in TokenVocabulary.canonical().keywords:
             return f"'{name}' is a reserved word and cannot be used as a name"
         prefix = cls.macro_reserved_prefix(name)
@@ -1120,7 +1124,7 @@ class ConditionalEnvironment:
 
     @classmethod
     def every_target(cls) -> tuple[ConditionalEnvironment, ...]:
-        return tuple(cls(PackageTarget(row.operating_system, row.architecture)) for row in TARGET_ROWS)
+        return tuple(cls(PackageTarget.from_row(row)) for row in TARGET_ROWS)
 
     @property
     def target(self) -> PackageTarget | None:
@@ -1128,8 +1132,7 @@ class ConditionalEnvironment:
 
     @property
     def label(self) -> str:
-        target = self._target
-        return f"{target.operating_system}-{target.architecture}" if target is not None else ""
+        return self._target.label if self._target is not None else ""
 
     def require(self, path: str, line: int, col: int) -> None:
         """Fail an evaluated conditional when there is no target (D13)."""
@@ -1148,8 +1151,10 @@ class ConditionalEnvironment:
             values: dict[str, int] = {}
             if target is not None:
                 for row in TARGET_PREDEFINED_MACRO_ROWS:
-                    if (not row.operating_systems or target.operating_system in row.operating_systems) and (
-                        not row.architectures or target.architecture in row.architectures
+                    if (
+                        (not row.operating_systems or target.operating_system in row.operating_systems)
+                        and (not row.architectures or target.architecture in row.architectures)
+                        and (not row.environments or target.environment in row.environments)
                     ):
                         values[row.name] = row.value
             self._values = values
