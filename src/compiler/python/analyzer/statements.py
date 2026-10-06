@@ -1119,20 +1119,31 @@ class StatementAnalyzer:
 
         An empty ``[]`` or ``{}`` inside a literal whose type is inferred has no
         element type of its own; it takes the one the literal infers, as it
-        would from a declared type."""
-        if inferred is not None and self._has_empty_literal_part(literal):
-            self.expressions.apply_initializer_plan(
-                self.aggregates.plan_collection_initializer(inferred, literal, subject, literal.line, literal.col)
-            )
+        would from a declared type. A nested literal that does not fit its own
+        first element keeps that diagnostic, as the self-hosted validator
+        reports it, so the literal is then left unplanned."""
+        if inferred is None:
+            return
+        parts = list(self._nested_literal_parts(literal))
+        if not any(self.types.is_empty_contextual_literal(part) for part in parts):
+            return
+        pending = {id(mismatch[0]) for mismatch in self.session.inferred_literal_mismatches}
+        if any(id(part) in pending for part in parts):
+            return
+        self.expressions.apply_initializer_plan(
+            self.aggregates.plan_collection_initializer(inferred, literal, subject, literal.line, literal.col)
+        )
 
-    def _has_empty_literal_part(self, literal) -> bool:
+    def _nested_literal_parts(self, literal) -> Iterator[object]:
         if isinstance(literal, ListLiteral):
             parts = list(literal.elements)
         elif isinstance(literal, MapLiteral):
             parts = [part for entry in literal.entries for part in (entry.key, entry.value)]
         else:
-            return False
-        return any(self.types.is_empty_contextual_literal(part) or self._has_empty_literal_part(part) for part in parts)
+            return
+        for part in parts:
+            yield part
+            yield from self._nested_literal_parts(part)
 
     def _report_literal_mismatch(self, literal, message, line, col) -> None:
         # An unresolved name is the cause; report it, not its consequence.

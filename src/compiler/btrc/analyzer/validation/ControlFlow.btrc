@@ -649,7 +649,8 @@ class ControlFlowValidator {
 	}
 
 	public void validateVariable(Node declaration, Map<string, Node> vars) {
-		if (self.state.owner == "") {
+		bool isGlobal = self.state.globalDeclaration == declaration;
+		if (isGlobal) {
 			self.names.validateDeclaredName(declaration.name, "Variable", declaration);
 		} else {
 			self.names.validateLexicalBindingName(declaration.name, "Variable", declaration);
@@ -658,12 +659,11 @@ class ControlFlowValidator {
 		if (preliminaryType == null && declaration.initializer != null) {
 			preliminaryType = self.types.inferType(declaration.initializer, vars);
 		}
-		if (self.state.owner != "") {
+		if (!isGlobal) {
 			self.ownership.rejectThreadOwnerShadow(declaration.name, preliminaryType, vars, declaration);
 		}
 		self.ownership.validateMutexPayloadsInType(preliminaryType, declaration);
-		self.storage.validateThreadVariableOwner(declaration, preliminaryType, self.state.owner == "");
-		bool isGlobal = self.state.globalDeclaration == declaration;
+		self.storage.validateThreadVariableOwner(declaration, preliminaryType, isGlobal);
 		self.storage.validateVariableStorage(declaration, isGlobal, vars);
 		self.types.rejectRuntimeInterfaceType(declaration.type, declaration);
 		self.expressions.contextualizeGenericConstructor(declaration.type, declaration.initializer, vars);

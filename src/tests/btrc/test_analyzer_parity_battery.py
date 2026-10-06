@@ -482,6 +482,12 @@ INVALID_PROBES = (
         COLLECTIONS + ANIMALS + "Vector<Animal> make() {\n\treturn [Dog(), 3];\n}\nint main() {\n\treturn 0;\n}\n",
         GpuDiagnostic("Return value expects 'Animal*' elements but got 'int'", 6, 17),
     ),
+    # A nested literal keeps its own mismatch beside an empty sibling.
+    ParityProbe(
+        "list-literal-nested-mismatch-beside-empty",
+        COLLECTIONS + 'int main() {\n\tvar xs = [[1, "a"], []];\n\treturn 0;\n}\n',
+        GpuDiagnostic("List element 1 has type 'string' but expected 'int'", 4, 16),
+    ),
 )
 
 VALID_PROBES = (
@@ -528,6 +534,12 @@ VALID_PROBES = (
         "field-default-lambda-locals",
         "int helper(int x) { return x * 3; }\nclass Calc {\n\tpublic __fn_ptr<int, int> op = (int x) => {\n"
         + "\t\tvar y = x * 2;\n\t\tint z = helper(y);\n\t\treturn z + 1;\n\t};\n}\n"
+        + "int main() {\n\treturn Calc().op(1);\n}\n",
+    ),
+    ParityProbe(
+        "field-default-lambda-thread-local",
+        "class Calc {\n\tpublic __fn_ptr<int, int> op = (int x) => {\n"
+        + "\t\tThread<int> worker = spawn(() => x);\n\t\treturn worker.join();\n\t};\n}\n"
         + "int main() {\n\treturn Calc().op(1);\n}\n",
     ),
 )

@@ -350,7 +350,7 @@ class ExpressionValidator {
 		Node? canonical = self.types.resolveAliases(representedExpected);
 		if (canonical == null) { return; }
 		if (value.kind == NK_MAP_LITERAL) {
-			self.markContextualLiteral(value);
+			if (canonical.base == "Map" && canonical.genericArgs().len == 2) { self.markContextualLiteral(value); }
 			self.validateMapInitializer(canonical, value, subject, vars);
 			return;
 		}
