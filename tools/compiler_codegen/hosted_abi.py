@@ -1178,6 +1178,10 @@ class TargetManifest:
                 raise HostedAbiManifestError(f"foreign macro name {name!r} is a reserved name")
             if name in hosted:
                 raise HostedAbiManifestError(f"foreign macro name {name!r} is already a hosted-ABI name")
+            # A predefined name is refused by M3, and #if reads its row; listing
+            # it as foreign too would let the two classifications drift.
+            if name in selections:
+                raise HostedAbiManifestError(f"foreign macro name {name!r} is also a predefined macro")
 
 
 class TargetUnion:

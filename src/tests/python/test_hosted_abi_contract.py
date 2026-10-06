@@ -744,6 +744,10 @@ TARGET_RULE_VIOLATIONS = {
         lambda document: document["conditionals"].update(foreign_macro_names=["printf"]),
         "foreign macro name 'printf' is already a hosted-ABI name",
     ),
+    "predefined-foreign": (
+        lambda document: document["conditionals"].update(foreign_macro_names=["NDEBUG", "TARGET_OS_IPHONE"]),
+        "foreign macro name 'TARGET_OS_IPHONE' is also a predefined macro",
+    ),
     "unsorted": (
         lambda document: document["conditionals"].update(foreign_macro_names=["bool", "NDEBUG"]),
         "foreign_macro_names must be sorted and unique",
