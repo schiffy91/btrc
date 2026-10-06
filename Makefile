@@ -1,4 +1,4 @@
-.PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
+.PHONY: all help build package wheel btrcc btrcc-release-c btrcc-release-c-linux btrcc-release-c-macos btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         skip-gate qualification-report \
@@ -88,13 +88,15 @@ wheel: generated-check ## Build the installable Python wheel -> dist/
 
 # --- Self-hosted compiler (btrcc) native + cross builds ----------------------
 # btrcc is btrc source -> transpiled to C by btrcpy -> compiled by a C toolchain.
-# Unix hosts use dist/btrcc.c; Windows uses its capability-specific entry point
-# in dist/btrcc-windows.c. Cross
+# Linux uses dist/btrcc.c and macOS cross releases dist/btrcc-macos.c (the
+# stdlib's platform providers differ between them); Windows uses its
+# capability-specific entry point in dist/btrcc-windows.c. Cross
 # builds use `zig cc` (one host -> many OS/arch). Release targets place private
 # raw binaries under build/btrcc/, then publish relocatable bundles containing
 # bin/btrcc plus share/btrc/{language,stdlib} and deterministic archives.
 ZIG     := $(NIX) zig
 BTRCC_C := dist/btrcc.c
+BTRCC_MACOS_PORTABLE_C := dist/btrcc-macos.c
 BTRCC_WINDOWS_C := dist/btrcc-windows.c
 BTRCC_MACOS_C := dist/btrcc-macos-native.c
 BTRCC_NATIVE_C := $(if $(filter Darwin,$(shell uname -s)),$(BTRCC_MACOS_C),$(BTRCC_C))
@@ -125,11 +127,15 @@ WIN_COMPAT := -I src/runtime/windows -include src/runtime/windows/btrc_win_compa
 
 $(BTRCC_C): $(BTRCC_INPUTS) | generated-check
 	@mkdir -p dist
-	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/BtrccMain.btrc --strict-imports --no-cache -o $(BTRCC_C)
+	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/BtrccMain.btrc --strict-imports --no-cache --target linux-x86_64 -o $(BTRCC_C)
+
+$(BTRCC_MACOS_PORTABLE_C): $(BTRCC_INPUTS) | generated-check
+	@mkdir -p dist
+	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/BtrccMain.btrc --strict-imports --no-cache --target macos-x86_64 -o $(BTRCC_MACOS_PORTABLE_C)
 
 $(BTRCC_WINDOWS_C): $(BTRCC_INPUTS) | generated-check
 	@mkdir -p dist
-	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/cli/WindowsMain.btrc --strict-imports --no-cache -o $(BTRCC_WINDOWS_C)
+	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/cli/WindowsMain.btrc --strict-imports --no-cache --target windows-x86_64 -o $(BTRCC_WINDOWS_C)
 
 # This host-only entry imports a checked SDK digest provider. Cross releases
 # keep the portable Unix C above and do not acquire a macOS SDK dependency.
@@ -137,8 +143,33 @@ $(BTRCC_MACOS_C): $(BTRCC_INPUTS) | generated-check
 	@mkdir -p dist
 	$(NIX) sh -eu -c 'target=$$(python3 -c "from src.compiler.python.artifacts.archive import TargetCatalog; print(TargetCatalog().host_target())"); python3 -m src.compiler.python.main src/compiler/btrc/cli/MacOSMain.btrc --strict-imports --no-cache --target "$$target" -o "$(BTRCC_MACOS_C)"'
 
-btrcc-release-c: generated-check
-	$(MAKE) --no-print-directory $(BTRCC_C)
+# Each portable C file is generated for one LP64 desktop row and
+# cross-compiled for every architecture of its operating system, so the
+# release gate regenerates it for the other row and requires byte identity; a
+# row whose C differs needs its own release C file
+# (platform-target-contract.md §1.8). The Linux and macOS rows differ (their
+# stdlib providers do), so each has its own file. A stamp per checked row keeps
+# the check incremental: it reruns only when the C file or its inputs change.
+BTRCC_RELEASE_C_ROOT := $(BTRCC_BUILD_ROOT)/release-c
+# $(call btrcc_row_identity,C file,row label)
+define btrcc_row_identity
+	@mkdir -p $(BTRCC_RELEASE_C_ROOT)
+	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/BtrccMain.btrc --strict-imports --no-cache --target $(2) -o $(BTRCC_RELEASE_C_ROOT)/$(2).c
+	@cmp -s $(1) $(BTRCC_RELEASE_C_ROOT)/$(2).c || { echo "error: $(1) differs for $(2); that row needs its own release C file" >&2; exit 1; }
+	@touch $@
+endef
+
+$(BTRCC_RELEASE_C_ROOT)/linux-aarch64.ok: $(BTRCC_C) $(BTRCC_INPUTS) | generated-check
+	$(call btrcc_row_identity,$(BTRCC_C),linux-aarch64)
+
+$(BTRCC_RELEASE_C_ROOT)/macos-aarch64.ok: $(BTRCC_MACOS_PORTABLE_C) $(BTRCC_INPUTS) | generated-check
+	$(call btrcc_row_identity,$(BTRCC_MACOS_PORTABLE_C),macos-aarch64)
+
+btrcc-release-c: btrcc-release-c-linux btrcc-release-c-macos ## Generate and row-check every portable release C file
+
+btrcc-release-c-linux: $(BTRCC_RELEASE_C_ROOT)/linux-aarch64.ok ## Generate dist/btrcc.c (linux-x86_64) and prove it for linux-aarch64
+
+btrcc-release-c-macos: $(BTRCC_RELEASE_C_ROOT)/macos-aarch64.ok ## Generate dist/btrcc-macos.c (macos-x86_64) and prove it for macos-aarch64
 
 btrcc: $(BTRCC_NATIVE) ## Build the self-hosted compiler for THIS machine -> bin/btrcc
 
@@ -147,25 +178,25 @@ $(BTRCC_NATIVE): $(BTRCC_NATIVE_C)
 	$(NIX) $(HOST_CC) $(NATIVE_CFLAGS) -O2 $(BTRCC_NATIVE_C) -o $(BTRCC_NATIVE) -lm -lpthread
 	@echo "Built bin/btrcc (native $$(uname -s) $$(uname -m))"
 
-btrcc-macos-arm64: btrcc-release-c ## Build relocatable btrcc bundle for macOS arm64 -> dist/
+btrcc-macos-arm64: btrcc-release-c-macos ## Build relocatable btrcc bundle for macOS arm64 -> dist/
 	@mkdir -p $(BTRCC_BUILD_ROOT)/macos-arm64 dist
 	@if [ -e dist/btrcc-macos-arm64 ] && [ ! -d dist/btrcc-macos-arm64 ]; then rm -f dist/btrcc-macos-arm64; fi
-	$(ZIG) cc -target aarch64-macos $(NATIVE_CFLAGS) -O2 $(BTRCC_C) -o $(BTRCC_BUILD_ROOT)/macos-arm64/btrcc -lm
+	$(ZIG) cc -target aarch64-macos $(NATIVE_CFLAGS) -O2 $(BTRCC_MACOS_PORTABLE_C) -o $(BTRCC_BUILD_ROOT)/macos-arm64/btrcc -lm
 	$(BTRCC_BUNDLER) --binary $(BTRCC_BUILD_ROOT)/macos-arm64/btrcc --target macos-arm64 --output-dir dist --source-root .
 
-btrcc-macos-x64: btrcc-release-c ## Build relocatable btrcc bundle for macOS x86_64 -> dist/
+btrcc-macos-x64: btrcc-release-c-macos ## Build relocatable btrcc bundle for macOS x86_64 -> dist/
 	@mkdir -p $(BTRCC_BUILD_ROOT)/macos-x64 dist
 	@if [ -e dist/btrcc-macos-x64 ] && [ ! -d dist/btrcc-macos-x64 ]; then rm -f dist/btrcc-macos-x64; fi
-	$(ZIG) cc -target x86_64-macos $(NATIVE_CFLAGS) -O2 $(BTRCC_C) -o $(BTRCC_BUILD_ROOT)/macos-x64/btrcc -lm
+	$(ZIG) cc -target x86_64-macos $(NATIVE_CFLAGS) -O2 $(BTRCC_MACOS_PORTABLE_C) -o $(BTRCC_BUILD_ROOT)/macos-x64/btrcc -lm
 	$(BTRCC_BUNDLER) --binary $(BTRCC_BUILD_ROOT)/macos-x64/btrcc --target macos-x64 --output-dir dist --source-root .
 
-btrcc-linux-x64: btrcc-release-c ## Build relocatable btrcc bundle for Linux x86_64 -> dist/
+btrcc-linux-x64: btrcc-release-c-linux ## Build relocatable btrcc bundle for Linux x86_64 -> dist/
 	@mkdir -p $(BTRCC_BUILD_ROOT)/linux-x64 dist
 	@if [ -e dist/btrcc-linux-x64 ] && [ ! -d dist/btrcc-linux-x64 ]; then rm -f dist/btrcc-linux-x64; fi
 	$(ZIG) cc -target x86_64-linux-gnu $(NATIVE_CFLAGS) -O2 $(BTRCC_C) -o $(BTRCC_BUILD_ROOT)/linux-x64/btrcc -lm
 	$(BTRCC_BUNDLER) --binary $(BTRCC_BUILD_ROOT)/linux-x64/btrcc --target linux-x64 --output-dir dist --source-root .
 
-btrcc-linux-arm64: btrcc-release-c ## Build relocatable btrcc bundle for Linux arm64 -> dist/
+btrcc-linux-arm64: btrcc-release-c-linux ## Build relocatable btrcc bundle for Linux arm64 -> dist/
 	@mkdir -p $(BTRCC_BUILD_ROOT)/linux-arm64 dist
 	@if [ -e dist/btrcc-linux-arm64 ] && [ ! -d dist/btrcc-linux-arm64 ]; then rm -f dist/btrcc-linux-arm64; fi
 	$(ZIG) cc -target aarch64-linux-gnu $(NATIVE_CFLAGS) -O2 $(BTRCC_C) -o $(BTRCC_BUILD_ROOT)/linux-arm64/btrcc -lm
@@ -190,10 +221,10 @@ WIN_PATH_SAMPLE := src/tests/stdlib/PathWindowsLexical.btrc
 test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run sample under wine if present
 	@mkdir -p dist
 	@echo "==> cross-compiling sample btrc program to a Windows .exe"
-	$(NIX) python3 -m src.compiler.python.main $(WIN_SAMPLE) --no-cache -o dist/win_sample.c
+	$(NIX) python3 -m src.compiler.python.main $(WIN_SAMPLE) --no-cache --target windows-x86_64 -o dist/win_sample.c
 	$(ZIG) cc -target x86_64-windows-gnu $(NATIVE_CFLAGS) -O2 $(WIN_COMPAT) dist/win_sample.c -o dist/win_sample.exe -lm
 	@echo "    built dist/win_sample.exe"
-	$(NIX) python3 -m src.compiler.python.main $(WIN_PATH_SAMPLE) --no-cache -o dist/win_paths.c
+	$(NIX) python3 -m src.compiler.python.main $(WIN_PATH_SAMPLE) --no-cache --target windows-x86_64 -o dist/win_paths.c
 	$(ZIG) cc -target x86_64-windows-gnu $(NATIVE_CFLAGS) -O2 $(WIN_COMPAT) dist/win_paths.c -o dist/win_paths.exe -lm
 	@echo "    built dist/win_paths.exe"
 	@if command -v wine64 >/dev/null 2>&1; then WINE=wine64; \

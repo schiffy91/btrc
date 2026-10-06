@@ -304,6 +304,25 @@ owner, the exact prerequisite and the next acceptance.
   `macos-hosted-correctness` and `linux-devcontainer-automation` in
   `docs/design/native-ui-catalog/hosts.toml` (a `CX-UIA-06` path; notes only,
   no `status` or `blocked_by` change).
+- **UI2 landing chain** (batch 47: `CL-UIA-13` approved the UI2 contract in
+  `docs/design/ui-contracts/ui2-approved.md`). Owner: Codex. Prerequisite: none
+  for `CX-UIA-21`; `CX-UIA-22` and `CX-UIA-23` stack on it, and paths held by
+  `CX-STDLIB-01/02/03/05` become claimable once those integrate (D28).
+  `CX-UIA-21` writes the production interface exactly as the record's
+  "Approved interface diff" gives it (the `I*.btrc` changes, the `GUI.btrc`
+  facade mirrors, `GUI/ControlEvents.btrc`, the BackgroundJobs completion hook
+  with its README contract and test, the portable fixtures under
+  `src/tests/native/gui/ui2/`, the operation shard rows and
+  `amendments/cx-uia-21.toml`, and the E-case link hunk as a fragment). The
+  record's "Landing" section is authoritative for the owned paths each of
+  `CX-UIA-21/22/23` gains. Rules to keep: receivers have one distinctly named
+  method each; outcomes are owning classes with a `kind` enum, never rich enums
+  carrying managed payloads; worker publication uses the fixed non-generic
+  record; the macOS wake is a common-mode run-loop source (no `performBlock`);
+  Linux composition goes through `SDL_EVENT_TEXT_EDITING`, and E01's Linux undo
+  row stays missing for `CX-UIA-27`. Acceptance: `CL-UIA-14` lands the
+  interface, macOS and Linux atomically with E01–E04, E29, E31, E35, E39, E40
+  and E46 on both frontends.
 - **`CX-P1-02` platform inventory.** Owner: the owner (sign-off), then Codex
   (the 58 cells in `platform-inventory.toml`) and Claude (the
   `platform-parity.md` totals fragment). Prerequisite: the owner's sign-off on

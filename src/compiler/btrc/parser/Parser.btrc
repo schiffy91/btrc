@@ -2569,7 +2569,7 @@ class Parser {
 		if (tt == "INT_LIT") {
 			self.advance();
 			IntegerLiteral literal = IntegerLiteral(tok.value);
-			if (literal.typeName() == "") {
+			if (!literal.representable()) {
 				self.failAt("Invalid integer literal '" + tok.value + "'", tok);
 			}
 			Node n = Node();

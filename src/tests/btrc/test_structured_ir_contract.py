@@ -238,7 +238,7 @@ def test_selfhost_portability_lowering_is_structured() -> None:
     assert "class IntegerLiteral {" in literals
     assert "public string cSource(int storedValue)" in literals
     assert "IntegerLiteral(node.raw).cSource(node.valueInt)" in expressions
-    assert "NumericSemantics.integerLiteralType(node.raw)" in analyzer_expressions
+    assert "NumericSemantics.integerLiteralType(node.raw, a.longBits)" in analyzer_expressions
     assert "class NumericSemantics {" in numeric
     assert "class Node? resultType(" in numeric
     assert "class bool operandsNeedCast(" in numeric

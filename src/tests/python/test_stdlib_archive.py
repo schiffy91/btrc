@@ -21,6 +21,7 @@ from src.compiler.python.application.pipeline import CompilationPipeline, Stdlib
 from src.compiler.python.artifacts.publication import ArtifactPublisher, ArtifactStorage
 from src.compiler.python.artifacts.stdlib import StdlibArchivePublisher
 from src.compiler.python.cli.compiler import CompilerCommand
+from src.compiler.python.frontend.packages import PackageTarget
 from src.compiler.python.frontend.sources import CompilerStdlibSource, StdlibRepository
 from src.tests.c_toolchains import host_c_compiler
 
@@ -172,9 +173,11 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
         "artifacts": {sa.HEADER_NAME: "0" * 64, sa.IMPL_NAME: "0" * 64},
         "schema": sa.MANIFEST_SCHEMA,
         "stdlib_source": "0" * 64,
+        "target": "linux-x86_64",
         "toolchain": "test",
     }
-    assert manifest["schema"] == sa.MANIFEST_SCHEMA == 5
+    assert manifest["schema"] == sa.MANIFEST_SCHEMA == 6
+    assert archive.repository.manifest.valid(manifest)
     assert set(manifest["artifacts"]) == {sa.HEADER_NAME, sa.IMPL_NAME}
 
     mod = IRModule(
@@ -319,7 +322,9 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     assert "Built stdlib archive" in capsys.readouterr().out
     for name in (sa.HEADER_NAME, sa.IMPL_NAME, sa.MANIFEST_NAME):
         assert (out / name).exists(), name
-    manifest = sa.StdlibArtifactRepository(_archive_publisher()).load(str(out), StdlibRepository().source(""))
+    manifest = sa.StdlibArtifactRepository(_archive_publisher()).load(
+        str(out), StdlibRepository().source(""), PackageTarget.parse(None).label
+    )
     # The archive must provide a substantial, real interface.
     assert len(manifest["functions"]) > 100
     assert {macro["name"] for macro in manifest["macros"]} >= {
@@ -362,6 +367,29 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
 # --------------------------------------------------------------------------
 # end-to-end: reference build == inline build, but smaller
 # --------------------------------------------------------------------------
+
+
+def test_archive_built_for_one_row_is_refused_by_another(tmp_path, monkeypatch, capsys):
+    """Literal typing follows the row, so a linux-x86_64 archive cannot serve windows-x86_64."""
+
+    std = tmp_path / "std"
+    run_main(monkeypatch, ["--target", "linux-x86_64", "--build-stdlib", str(std)])
+    capsys.readouterr()
+    manifest = sa.StdlibArtifactRepository(_archive_publisher()).load(
+        str(std), StdlibRepository().source(""), "linux-x86_64"
+    )
+    assert manifest["target"] == "linux-x86_64"
+    prog = tmp_path / "p.btrc"
+    prog.write_text("int main() { return 0; }\n")
+    with pytest.raises(SystemExit):
+        run_main(
+            monkeypatch,
+            ["--no-cache", "--target", "windows-x86_64", "--stdlib", str(std), str(prog), "-o", str(tmp_path / "p.c")],
+        )
+    assert (
+        f"stdlib archive in '{std}' was built for target 'linux-x86_64', not 'windows-x86_64'; "
+        "regenerate it with --build-stdlib --target windows-x86_64"
+    ) in capsys.readouterr().err
 
 
 def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
