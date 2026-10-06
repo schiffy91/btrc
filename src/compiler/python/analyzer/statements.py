@@ -257,6 +257,61 @@ class StatementAnalyzer:
             return "integer" if self.types.is_integral_value(target) else "arithmetic"
         return None
 
+    def _report_static_float_conversion(self, expression) -> None:
+        """Refuse a static initializer whose cast takes a floating constant out
+        of its integer type's range: C leaves that conversion undefined
+        (C11 6.3.1.4p1), and strict C compilers reject it as a constant."""
+        problem = self._static_float_conversion(expression)
+        if problem is not None:
+            message, node = problem
+            self.session.error(message, node.line, node.col)
+
+    def _static_float_conversion(self, expression):
+        if isinstance(expression, (BraceInitializer, ListLiteral)):
+            children = expression.elements
+        elif isinstance(expression, UnaryExpr):
+            children = [expression.operand]
+        elif isinstance(expression, BinaryExpr):
+            children = [expression.left, expression.right]
+        elif isinstance(expression, TernaryExpr):
+            children = [expression.condition, expression.true_expr, expression.false_expr]
+        elif isinstance(expression, CastExpr):
+            problem = self._float_cast_problem(expression)
+            if problem is not None:
+                return (problem, expression)
+            children = [expression.expr]
+        else:
+            return None
+        for child in children:
+            problem = self._static_float_conversion(child)
+            if problem is not None:
+                return problem
+        return None
+
+    def _float_cast_problem(self, expression) -> str | None:
+        spelling, value = self._floating_constant(expression.expr)
+        if spelling is None:
+            return None
+        target = self.types.canonical_type(expression.target_type)
+        if target is None or target.base == "bool" or not self.types.is_integral_value(target):
+            return None
+        if not self.types.has_integral_range(target.base):
+            return None
+        if self.types.convert_integral_literal(value, target.base) is not None:
+            return None
+        return f"Floating constant '{spelling}' is out of range for '{target.base}' in a static initializer"
+
+    def _floating_constant(self, expression) -> tuple[str | None, float]:
+        """A floating literal under unary signs: its spelling and value."""
+        if isinstance(expression, FloatLiteral):
+            return (expression.raw, self.types.float_literal_value(expression.raw))
+        if isinstance(expression, UnaryExpr) and expression.op in {"+", "-"}:
+            spelling, value = self._floating_constant(expression.operand)
+            if spelling is None:
+                return (None, 0.0)
+            return (expression.op + spelling, -value if expression.op == "-" else value)
+        return (None, 0.0)
+
     def _names_file_scope(self, name: str) -> bool:
         """Whether ``name`` resolves past every local scope to file scope.
 
@@ -488,6 +543,8 @@ class StatementAnalyzer:
                     declaration.col,
                 )
         has_static_storage = is_global or type_expr.is_static
+        if has_static_storage and declaration.initializer is not None and (not type_expr.is_extern):
+            self._report_static_float_conversion(declaration.initializer)
         if (
             has_static_storage
             and declaration.initializer is not None
@@ -612,6 +669,8 @@ class StatementAnalyzer:
             self.session.error(
                 f"{subject} cannot initialize a scalar const class field after allocation", field.line, field.col
             )
+        if field.access == "class" and field.initializer is not None:
+            self._report_static_float_conversion(field.initializer)
         if (
             field.access == "class"
             and field.initializer is not None

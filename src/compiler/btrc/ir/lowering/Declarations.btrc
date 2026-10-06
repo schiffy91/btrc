@@ -2847,8 +2847,13 @@ class DeclarationLowerer {
 			m.globalDecls.push(global);
 			return;
 		}
+		/* An untyped `var` takes the type the analyzer inferred for it. */
+		Node? declaredType = d.type;
+		if (declaredType == null && self.analyzed.globalVarTypes.has(d.name)) {
+			declaredType = self.analyzed.globalVarTypes.get(d.name);
+		}
 		string ct = "int";
-		if (d.type != null) { ct = self.cTypes.lower(d.type); }
+		if (declaredType != null) { ct = self.cTypes.lower(declaredType); }
 		IRGlobalDecl global = IRGlobalDecl(ct, d.name);
 		global.isExtern = d.type != null && d.type.isExtern && !forceExternal;
 		global.isStatic = !(global.isExtern || forceExternal);

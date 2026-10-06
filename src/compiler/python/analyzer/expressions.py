@@ -2260,6 +2260,11 @@ class ExpressionAnalyzer:
             if expr.field not in {"RELAXED", "ACQUIRE", "RELEASE", "ACQ_REL", "SEQ_CST"}:
                 self.session.error(f"MemoryOrder has no member '{expr.field}'", expr.line, expr.col)
             return
+        if isinstance(expr.obj, (IntLiteral, FloatLiteral)):
+            # "5.f" is a floating constant; spaced or parenthesized, a numeric
+            # literal has no members.
+            self.session.error(f"Numeric literal '{expr.obj.raw}' has no field '{expr.field}'", expr.line, expr.col)
+            return
         if isinstance(expr.obj, Identifier):
             self._analyze_identifier_value(expr.obj, qualification_receiver=True)
         else:

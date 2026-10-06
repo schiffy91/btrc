@@ -184,10 +184,12 @@ class BtrcAstRenderer:
         "identifier": "string",
         "string": "string",
         "int": "int",
-        "float": "float",
+        # An ASDL float is a C double, as Python's float is: a literal keeps
+        # every value its spelling denotes, including those below FLT_MIN.
+        "float": "double",
         "bool": "bool",
     }
-    _SCALAR_TYPES = frozenset({"int", "bool", "string", "float"})
+    _SCALAR_TYPES = frozenset({"int", "bool", "string", "double"})
 
     def __init__(
         self,
@@ -519,7 +521,7 @@ class BtrcAstRenderer:
             "int": "0",
             "bool": "false",
             "string": '""',
-            "float": "0.0",
+            "double": "0.0",
             f"Vector<{self._node_name}>": "[]",
             "Vector<string>": "[]",
             self._node_name: "null",
@@ -568,7 +570,7 @@ class BtrcCanonicalRendererContract:
         "bool": "canonBool",
         "string": "canonStr",
         "string?": "canonOptStr",
-        "float": "canonFloat",
+        "double": "canonFloat",
         "Node": "canonNode",
         "Vector<Node>": "canonNodeList",
         "Vector<string>": "canonStrList",

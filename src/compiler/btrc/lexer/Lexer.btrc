@@ -49,6 +49,10 @@ class Lexer {
 				self.readChar();
 			} else if (Strings.isDigit(c)) {
 				self.readNumber();
+			} else if (c == '.' && Strings.isDigit(self.peek(1)) && !self.memberDot()) {
+				/* A leading-dot floating constant (C11 6.4.4.2), unless the
+				 * dot selects a member or tuple field of the operand before it. */
+				self.readNumber();
 			} else if (Strings.isAlpha(c) || c == '_') {
 				self.readIdentifier();
 			} else {
@@ -70,6 +74,26 @@ class Lexer {
 	}
 
 	private bool atEnd() { return self.pos >= self.sourceLen; }
+
+	private string previousType() {
+		if (self.tokens.len == 0) { return ""; }
+		return self.tokens.get(self.tokens.len - 1).type;
+	}
+
+	/* Whether a `.` here follows an operand whose member or tuple field
+	 * (`t.0`) it selects, so `.0` is never a floating constant there. `)`
+	 * and `}` are not such operands: `(int).5` casts a constant, and the
+	 * parser reads a plain `.N` after a postfix operand as its tuple field. */
+	private bool memberDot() {
+		string previous = self.previousType();
+		return previous == "IDENT" || previous == "INT_LIT" || previous == "FLOAT_LIT" || previous == "STRING_LIT" || previous == "CHAR_LIT" || previous == "FSTRING_LIT" || previous == "RBRACKET" || previous == "PLUS_PLUS" || previous == "MINUS_MINUS" || previous == "SELF" || previous == "SUPER" || previous == "TRUE" || previous == "FALSE" || previous == "NULL" || previous == "DOT" || previous == "QUESTION_DOT" || previous == "ARROW";
+	}
+
+	/* Whether digits here spell the field index of a `.` or `?.`. */
+	private bool tupleFieldIndex() {
+		string previous = self.previousType();
+		return previous == "DOT" || previous == "QUESTION_DOT";
+	}
 
 	private char peek(int off) {
 		int p = self.pos + off;
@@ -517,18 +541,27 @@ class Lexer {
 			if (self.failed) { return; }
 			self.ensureNumericBoundary(startPosition, line, col);
 		} else {
+			/* A tuple field index (`t.0.1`) is digits alone: its own `.` is
+			 * the next field's selector, never a fraction. */
+			bool fieldIndex = self.tupleFieldIndex();
+			if (self.peek(0) == '.') {
+				isFloat = true;
+				self.advance();
+			}
 			while (!self.atEnd() && Strings.isDigit(self.peek(0))) {
 				self.advance();
 			}
 			int integerEnd = self.pos;
-			if (self.peek(0) == '.' && Strings.isDigit(self.peek(1))) {
+			/* A decimal point with or without fraction digits (`5.5`, `5.`);
+			 * `5...` keeps its ellipsis. */
+			if (!isFloat && !fieldIndex && self.peek(0) == '.' && self.peek(1) != '.') {
 				isFloat = true;
 				self.advance();
 				while (!self.atEnd() && Strings.isDigit(self.peek(0))) {
 					self.advance();
 				}
 			}
-			if (self.peek(0) == 'e' || self.peek(0) == 'E') {
+			if (!fieldIndex && (self.peek(0) == 'e' || self.peek(0) == 'E')) {
 				isFloat = true;
 				self.advance();
 				if (self.peek(0) == '+' || self.peek(0) == '-') {

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-import struct
+from decimal import Decimal
+from fractions import Fraction
 from types import MappingProxyType
 
 from ..syntax.tokens import Token, TokenKind, TokenVocabulary
@@ -62,6 +63,11 @@ class LiteralDecoder:
     )
     _SIGNED_INTEGER_MAX = (1 << 63) - 1
     _UNSIGNED_INTEGER_MAX = (1 << 64) - 1
+    # A decimal at or past the first midpoint rounds out of binary32's finite
+    # range (to infinity, or to zero); ties go to the even neighbour, which
+    # at either edge is the one outside.
+    FLOAT32_OVERFLOW_MIDPOINT = Fraction((1 << 128) - (1 << 103))
+    FLOAT32_UNDERFLOW_MIDPOINT = Fraction(1, 1 << 150)
 
     @classmethod
     def valid_integer_suffix(cls, suffix: str) -> bool:
@@ -110,17 +116,31 @@ class LiteralDecoder:
 
     @classmethod
     def float32_problem(cls, raw: str, value: float) -> str | None:
-        """Explain a floating token that cannot retain a finite nonzero f32 value."""
+        """Explain a floating token that cannot retain a finite nonzero f32 value.
 
-        try:
-            narrowed = struct.unpack("=f", struct.pack("=f", value))[0]
-        except OverflowError:
-            narrowed = math.inf
-        if not math.isfinite(narrowed):
+        The decimal spelling rounds once, to binary32 (C11 6.4.4.2p4), so the
+        exact decimal value decides against the exact binary32 midpoints:
+        rounding through the double first would move a spelling just inside
+        either edge onto the midpoint, where ties-to-even leaves the range.
+        """
+
+        if not math.isfinite(value):
             return f"Floating literal '{raw}' is outside the finite float range"
-        if narrowed == 0.0 and cls._has_nonzero_significand(raw):
+        if value == 0.0:
+            if cls._has_nonzero_significand(raw):
+                return f"Floating literal '{raw}' underflows to zero as float"
+            return None
+        exact = abs(cls.exact_value(raw))
+        if exact >= cls.FLOAT32_OVERFLOW_MIDPOINT:
+            return f"Floating literal '{raw}' is outside the finite float range"
+        if exact <= cls.FLOAT32_UNDERFLOW_MIDPOINT:
             return f"Floating literal '{raw}' underflows to zero as float"
         return None
+
+    @staticmethod
+    def exact_value(raw: str) -> Fraction:
+        """The exact rational value a decimal floating spelling denotes."""
+        return Fraction(Decimal(raw.rstrip("fF")))
 
     @classmethod
     def decode_character(cls, raw: str) -> int | None:
@@ -615,20 +635,30 @@ class LiteralScanner:
             lex._emit(TokenKind.INT_LIT, lex.source[start : lex.pos], line, col)
             return
 
+        # A tuple field index (``t.0.1``) is digits alone: its own ``.`` is
+        # the next field's selector, never a fraction.
+        field_index = lex._tuple_field_index()
+
+        # Leading-dot fraction (``.5``)
+        if lex._peek() == ".":
+            is_float = True
+            lex._advance()  # .
+
         # Decimal digits
         while lex.pos < len(lex.source) and self.is_ascii_digit(lex._peek()):
             lex._advance()
         integer_end = lex.pos
 
-        # Decimal point
-        if lex._peek() == "." and self.is_ascii_digit(lex._peek(1)):
+        # Decimal point, with or without fraction digits (``5.5``, ``5.``);
+        # ``5...`` keeps its ellipsis
+        if not is_float and not field_index and lex._peek() == "." and lex._peek(1) != ".":
             is_float = True
             lex._advance()  # .
             while lex.pos < len(lex.source) and self.is_ascii_digit(lex._peek()):
                 lex._advance()
 
         # Exponent
-        if lex._peek() in ("e", "E"):
+        if not field_index and lex._peek() in ("e", "E"):
             is_float = True
             lex._advance()
             if lex._peek() in ("+", "-"):
@@ -762,8 +792,11 @@ class Lexer:
             # Char literal
             elif ch == "'":
                 self._literal_scanner.read_char()
-            # Number
-            elif self._literal_scanner.is_ascii_digit(ch):
+            # Number, or a leading-dot floating constant (C11 6.4.4.2) unless
+            # the dot selects a member or tuple field of the operand before it
+            elif self._literal_scanner.is_ascii_digit(ch) or (
+                ch == "." and self._literal_scanner.is_ascii_digit(self._peek(1)) and not self._member_dot()
+            ):
                 self._literal_scanner.read_number()
             # Identifier or keyword
             elif self._literal_scanner.is_ascii_alpha(ch) or ch == "_":
@@ -789,6 +822,41 @@ class Lexer:
         else:
             self.col += 1
         return ch
+
+    # Tokens that end an operand whose ``.`` then selects a member or a tuple
+    # field (``t.0``), so ``.0`` after one of them is never a floating
+    # constant. ``)`` and ``}`` are not here: ``(int).5`` casts a constant,
+    # and the parser reads a plain ``.N`` after a postfix operand as the
+    # tuple field it spells.
+    _MEMBER_OPERAND_TOKENS = frozenset(
+        {
+            TokenKind.IDENT,
+            TokenKind.INT_LIT,
+            TokenKind.FLOAT_LIT,
+            TokenKind.STRING_LIT,
+            TokenKind.CHAR_LIT,
+            TokenKind.FSTRING_LIT,
+            TokenKind.RBRACKET,
+            TokenKind.PLUS_PLUS,
+            TokenKind.MINUS_MINUS,
+            TokenKind.SELF,
+            TokenKind.SUPER,
+            TokenKind.TRUE,
+            TokenKind.FALSE,
+            TokenKind.NULL,
+            TokenKind.DOT,
+            TokenKind.QUESTION_DOT,
+            TokenKind.ARROW,
+        }
+    )
+
+    def _member_dot(self) -> bool:
+        """Whether a ``.`` here follows an operand it selects from."""
+        return bool(self.tokens) and self.tokens[-1].type in self._MEMBER_OPERAND_TOKENS
+
+    def _tuple_field_index(self) -> bool:
+        """Whether digits here spell the field index of a ``.`` or ``?.``."""
+        return bool(self.tokens) and self.tokens[-1].type in (TokenKind.DOT, TokenKind.QUESTION_DOT)
 
     def _at_line_start(self) -> bool:
         i = self.pos - 1

@@ -561,7 +561,7 @@ class AstCanonicalRenderer {
 			return out + ")";
 		} else if (node.kind == NK_FLOAT_LITERAL) {
 			string out = "(FloatLiteral";
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonFloat(node.valueFloat);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonFloat(node.valueDouble);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "raw=" + self.canonStr(node.raw);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
@@ -812,7 +812,16 @@ class AstCanonicalRenderer {
 
 	private string canonBool(bool b) { if (b) { return "true"; } return "false"; }
 
-	private string canonFloat(float f) { return f"{f}"; }
+	/* As the reference renderer does, a value prints at binary32 precision;
+	 * one at or past the overflow midpoint 2^128 - 2^103 prints as infinity
+	 * rather than converting out of range. */
+	private string canonFloat(double f) {
+		double overflow = 340282356779733661637539395458142568448.0;
+		if (f >= overflow) { return "inf"; }
+		if (f <= -overflow) { return "-inf"; }
+		float narrowed = (float)f;
+		return f"{narrowed}";
+	}
 
 	private string canonStr(string s) {
 		string out = "\"";
