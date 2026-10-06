@@ -1,0 +1,11 @@
+warning: GPU runtime names not read: probe macros failed (1):
+In file included from /var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/hosted-platform-runtime-ymfax1mm/probe.c:3:
+/Users/runner/work/btrc/btrc/src/runtime/gpu/btrc_gpu_async.h:6:10: fatal error: 'webgpu.h' file not found
+    6 | #include <webgpu.h>
+      |          ^~~~~~~~~~
+1 error generated.
+macos-aarch64: functions=99, macros=497, objects=26, types=21, typedefs=13 -> build/hosted-platform-apple/fragments/macos-aarch64.toml
+macos-x86_64: functions=95, macros=497, objects=26, types=21, typedefs=13 -> build/hosted-platform-apple/fragments/macos-x86_64.toml
+ios-aarch64: functions=103, macros=498, objects=26, types=22, typedefs=13 -> build/hosted-platform-apple/fragments/ios-aarch64.toml
+ios-aarch64-simulator: functions=103, macros=498, objects=26, types=22, typedefs=13 -> build/hosted-platform-apple/fragments/ios-aarch64-simulator.toml
+spot checks: passed

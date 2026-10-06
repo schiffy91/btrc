@@ -1,0 +1,33 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.3, pluggy-1.6.0 -- /nix/store/f9284vi3azq0v4c9bmcwav29cqsqs4bw-python3-3.14.6-env/bin/python3
+rootdir: /Users/runner/work/btrc/btrc
+configfile: pyproject.toml
+plugins: cov-7.1.0, xdist-3.8.0
+collecting ... collected 24 items
+
+src/tests/python/test_hosted_platform_extractor.py::test_the_prologue_matches_the_c_emitters PASSED [  4%]
+src/tests/python/test_hosted_platform_extractor.py::test_probe_includes_the_prologue_and_every_family_behind_has_include PASSED [  8%]
+src/tests/python/test_hosted_platform_extractor.py::test_macros_follow_linemarkers_and_undef PASSED [ 12%]
+src/tests/python/test_hosted_platform_extractor.py::test_ast_names_map_to_their_presumed_headers_by_offset PASSED [ 16%]
+src/tests/python/test_hosted_platform_extractor.py::test_the_text_dump_names_declarations_unavailable_on_a_platform PASSED [ 20%]
+src/tests/python/test_hosted_platform_extractor.py::test_fixture_headers_through_clang_give_platform_minus_declared PASSED [ 25%]
+src/tests/python/test_hosted_platform_extractor.py::test_the_probe_compiles_on_fixture_headers_alone PASSED [ 29%]
+src/tests/python/test_hosted_platform_extractor.py::test_apple_rows_hide_names_unavailable_on_their_platform PASSED [ 33%]
+src/tests/python/test_hosted_platform_extractor.py::test_runtime_and_stdlib_names_count_as_declared PASSED [ 37%]
+src/tests/python/test_hosted_platform_extractor.py::test_linux_rows_record_their_glibc_floor PASSED [ 41%]
+src/tests/python/test_hosted_platform_extractor.py::test_stdlib_self_declarations_are_read_at_file_scope PASSED [ 45%]
+src/tests/python/test_hosted_platform_extractor.py::test_runtime_names_come_only_from_the_gpu_runtime_and_are_best_effort PASSED [ 50%]
+src/tests/python/test_hosted_platform_extractor.py::test_ndk_rows_pass_the_triple_and_sysroot_and_never_android_api PASSED [ 54%]
+src/tests/python/test_hosted_platform_extractor.py::test_ndk_rows_need_an_ndk PASSED [ 58%]
+src/tests/python/test_hosted_platform_extractor.py::test_mingw_rows_use_zig_with_the_compat_overlay PASSED [ 62%]
+src/tests/python/test_hosted_platform_extractor.py::test_xcrun_rows_use_the_sdk_path PASSED [ 66%]
+src/tests/python/test_hosted_platform_extractor.py::test_the_msvc_row_cannot_be_extracted_directly PASSED [ 70%]
+src/tests/python/test_hosted_platform_extractor.py::test_every_row_is_in_exactly_one_extraction_set PASSED [ 75%]
+src/tests/python/test_hosted_platform_extractor.py::test_conservative_msvc_refuses_whatever_the_msvc_toolchain_may_lack PASSED [ 79%]
+src/tests/python/test_hosted_platform_extractor.py::test_extract_all_derives_the_msvc_row_from_its_gnu_sibling PASSED [ 83%]
+src/tests/python/test_hosted_platform_extractor.py::test_fragment_is_one_sorted_platform_targets_table PASSED [ 87%]
+src/tests/python/test_hosted_platform_extractor.py::test_spot_checks_read_the_declared_names PASSED [ 91%]
+src/tests/python/test_hosted_platform_extractor.py::test_main_writes_one_fragment_per_label_and_marks_failed_spot_checks PASSED [ 95%]
+src/tests/python/test_hosted_platform_extractor.py::test_main_labels_every_source_as_stand_in_evidence PASSED [100%]
+
+============================== 24 passed in 0.81s ==============================

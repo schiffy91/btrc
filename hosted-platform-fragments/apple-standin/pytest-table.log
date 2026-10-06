@@ -1,0 +1,45 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.3, pluggy-1.6.0 -- /nix/store/f9284vi3azq0v4c9bmcwav29cqsqs4bw-python3-3.14.6-env/bin/python3
+rootdir: /Users/runner/work/btrc/btrc
+configfile: pyproject.toml
+plugins: cov-7.1.0, xdist-3.8.0
+collecting ... collected 33 items
+
+src/tests/python/test_target_macro_table.py::test_every_spec_row_has_a_clang_triple PASSED [  3%]
+src/tests/python/test_target_macro_table.py::test_left_out_names_stay_out_of_the_table PASSED [  6%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[android-aarch64] PASSED [  9%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[android-x86_64] PASSED [ 12%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[ios-aarch64] PASSED [ 15%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[ios-aarch64-simulator] PASSED [ 18%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[linux-aarch64] PASSED [ 21%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[linux-x86_64] PASSED [ 24%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[macos-aarch64] PASSED [ 27%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[macos-x86_64] PASSED [ 30%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[windows-aarch64] PASSED [ 33%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[windows-aarch64-msvc] PASSED [ 36%]
+src/tests/python/test_target_macro_table.py::test_clang_defines_exactly_the_selected_table_rows[windows-x86_64] PASSED [ 39%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[android-aarch64] PASSED [ 42%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[android-x86_64] PASSED [ 45%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[ios-aarch64] PASSED [ 48%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[ios-aarch64-simulator] PASSED [ 51%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[linux-aarch64] PASSED [ 54%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[linux-x86_64] PASSED [ 57%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[macos-aarch64] PASSED [ 60%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[macos-x86_64] PASSED [ 63%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[windows-aarch64] PASSED [ 66%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[windows-aarch64-msvc] PASSED [ 69%]
+src/tests/python/test_target_macro_table.py::test_clang_maps_every_triple_alias_to_the_row_triple[windows-x86_64] PASSED [ 72%]
+src/tests/python/test_target_macro_table.py::test_host_gcc_agrees_on_its_own_target PASSED [ 75%]
+src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set[ios-aarch64] SKIPPED [ 78%]
+src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set[ios-aarch64-simulator] SKIPPED [ 81%]
+src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set[macos-aarch64] SKIPPED [ 84%]
+src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set[macos-x86_64] SKIPPED [ 87%]
+src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values[ios-aarch64] SKIPPED [ 90%]
+src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values[ios-aarch64-simulator] SKIPPED [ 93%]
+src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values[macos-aarch64] SKIPPED [ 96%]
+src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values[macos-x86_64] SKIPPED [100%]
+
+=========================== short test summary info ============================
+SKIPPED [4] src/tests/python/test_target_macro_table.py:248: Mac-bound: requires macOS with xcrun and Xcode 27A266a (MAC-P1-05); this host has 16F6
+SKIPPED [4] src/tests/python/test_target_macro_table.py:259: Mac-bound: requires macOS with xcrun and Xcode 27A266a (MAC-P1-05); this host has 16F6
+======================== 25 passed, 8 skipped in 2.68s =========================

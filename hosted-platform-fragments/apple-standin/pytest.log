@@ -1,0 +1,419 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.15, pytest-9.0.3, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.13/bin/python3
+rootdir: /Users/runner/work/btrc/btrc
+configfile: pyproject.toml
+collecting ... collected 33 items / 25 deselected / 8 selected
+
+src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set[ios-aarch64] FAILED [ 12%]
+src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set[ios-aarch64-simulator] FAILED [ 25%]
+src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set[macos-aarch64] FAILED [ 37%]
+src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set[macos-x86_64] FAILED [ 50%]
+src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values[ios-aarch64] FAILED [ 62%]
+src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values[ios-aarch64-simulator] FAILED [ 75%]
+src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values[macos-aarch64] FAILED [ 87%]
+src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values[macos-x86_64] FAILED [100%]
+
+=================================== FAILURES ===================================
+________ test_apple_clang_defines_the_table_target_os_set[ios-aarch64] _________
+
+label = 'ios-aarch64'
+
+    @pytest.mark.parametrize("label", _apple_labels())
+    def test_apple_clang_defines_the_table_target_os_set(label: str) -> None:
+        reason = _apple_toolchain()
+        if reason is not None:
+            pytest.skip(reason)
+        row = _row(label)
+        predefined = _predefines(_xcrun(row.sysroot_name, "clang", *row.target_arguments))
+        names = {name for name in _checked_names() | set(predefined) if APPLE_TARGET_NAME.fullmatch(name)}
+>       _assert_agrees(label, predefined, names)
+
+src/tests/python/test_target_macro_table.py:252: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+label = 'ios-aarch64'
+predefined = {'TARGET_IPHONE_SIMULATOR': 0, 'TARGET_OS_ARROW': 0, 'TARGET_OS_BRIDGE': 0, 'TARGET_OS_DRIVERKIT': 0, ...}
+names = {'TARGET_IPHONE_SIMULATOR', 'TARGET_OS_ARROW', 'TARGET_OS_BRIDGE', 'TARGET_OS_DRIVERKIT', 'TARGET_OS_EMBEDDED', 'TARGET_OS_IOS', ...}
+
+    def _assert_agrees(label: str, predefined: dict[str, int | None], names: set[str] | None = None) -> None:
+        names = _checked_names() if names is None else names
+        expected = {name: value for name, value in _selected(label).items() if name in names}
+        defined = {name: predefined[name] for name in names if name in predefined}
+>       assert defined == expected, f"{label}: compiler {defined!r} != table {expected!r}"
+E       AssertionError: ios-aarch64: compiler {'TARGET_IPHONE_SIMULATOR': 0, 'TARGET_OS_EMBEDDED': 1, 'TARGET_OS_TV': 0, 'TARGET_OS_WIN32': 0, 'TARGET_OS_ARROW': 0, 'TARGET_OS_IOSMAC': 0, 'TARGET_OS_MAC': 1, 'TARGET_OS_DRIVERKIT': 0, 'TARGET_OS_UIKITFORMAC': 0, 'TARGET_OS_XR': 0, 'TARGET_OS_WATCH': 0, 'TARGET_OS_LINUX': 0, 'TARGET_OS_NANO': 0, 'TARGET_OS_WINDOWS': 0, 'TARGET_OS_SIMULATOR': 0, 'TARGET_OS_IPHONE': 1, 'TARGET_OS_MACCATALYST': 0, 'TARGET_OS_VISION': 0, 'TARGET_OS_IOS': 1, 'TARGET_OS_BRIDGE': 0, 'TARGET_OS_UNIX': 0, 'TARGET_OS_OSX': 0} != table {'TARGET_IPHONE_SIMULATOR': 0, 'TARGET_OS_DRIVERKIT': 0, 'TARGET_OS_EMBEDDED': 1, 'TARGET_OS_IOS': 1, 'TARGET_OS_IPHONE': 1, 'TARGET_OS_LINUX': 0, 'TARGET_OS_MAC': 1, 'TARGET_OS_MACCATALYST': 0, 'TARGET_OS_NANO': 0, 'TARGET_OS_OSX': 0, 'TARGET_OS_SIMULATOR': 0, 'TARGET_OS_TV': 0, 'TARGET_OS_UEFI': 0, 'TARGET_OS_UIKITFORMAC': 0, 'TARGET_OS_UNIX': 0, 'TARGET_OS_VISION': 0, 'TARGET_OS_WATCH': 0, 'TARGET_OS_WIN32': 0, 'TARGET_OS_WINDOWS': 0}
+E       assert {'TARGET_IPHO...RKIT': 0, ...} == {'TARGET_IPHO..._IOS': 1, ...}
+E         
+E         Omitting 18 identical items, use -vv to show
+E         Left contains 4 more items:
+E         {'TARGET_OS_ARROW': 0,
+E          'TARGET_OS_BRIDGE': 0,
+E          'TARGET_OS_IOSMAC': 0,
+E          'TARGET_OS_XR': 0}
+E         Right contains 1 more item:
+E         {'TARGET_OS_UEFI': 0}
+E         
+E         Full diff:
+E           {
+E               'TARGET_IPHONE_SIMULATOR': 0,
+E         +     'TARGET_OS_ARROW': 0,
+E         +     'TARGET_OS_BRIDGE': 0,
+E               'TARGET_OS_DRIVERKIT': 0,
+E               'TARGET_OS_EMBEDDED': 1,
+E               'TARGET_OS_IOS': 1,
+E         +     'TARGET_OS_IOSMAC': 0,
+E               'TARGET_OS_IPHONE': 1,
+E               'TARGET_OS_LINUX': 0,
+E               'TARGET_OS_MAC': 1,
+E               'TARGET_OS_MACCATALYST': 0,
+E               'TARGET_OS_NANO': 0,
+E               'TARGET_OS_OSX': 0,
+E               'TARGET_OS_SIMULATOR': 0,
+E               'TARGET_OS_TV': 0,
+E         -     'TARGET_OS_UEFI': 0,
+E               'TARGET_OS_UIKITFORMAC': 0,
+E               'TARGET_OS_UNIX': 0,
+E               'TARGET_OS_VISION': 0,
+E               'TARGET_OS_WATCH': 0,
+E               'TARGET_OS_WIN32': 0,
+E               'TARGET_OS_WINDOWS': 0,
+E         +     'TARGET_OS_XR': 0,
+E           }
+
+src/tests/python/test_target_macro_table.py:160: AssertionError
+___ test_apple_clang_defines_the_table_target_os_set[ios-aarch64-simulator] ____
+
+label = 'ios-aarch64-simulator'
+
+    @pytest.mark.parametrize("label", _apple_labels())
+    def test_apple_clang_defines_the_table_target_os_set(label: str) -> None:
+        reason = _apple_toolchain()
+        if reason is not None:
+            pytest.skip(reason)
+        row = _row(label)
+        predefined = _predefines(_xcrun(row.sysroot_name, "clang", *row.target_arguments))
+        names = {name for name in _checked_names() | set(predefined) if APPLE_TARGET_NAME.fullmatch(name)}
+>       _assert_agrees(label, predefined, names)
+
+src/tests/python/test_target_macro_table.py:252: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+label = 'ios-aarch64-simulator'
+predefined = {'TARGET_IPHONE_SIMULATOR': 1, 'TARGET_OS_ARROW': 0, 'TARGET_OS_BRIDGE': 0, 'TARGET_OS_DRIVERKIT': 0, ...}
+names = {'TARGET_IPHONE_SIMULATOR', 'TARGET_OS_ARROW', 'TARGET_OS_BRIDGE', 'TARGET_OS_DRIVERKIT', 'TARGET_OS_EMBEDDED', 'TARGET_OS_IOS', ...}
+
+    def _assert_agrees(label: str, predefined: dict[str, int | None], names: set[str] | None = None) -> None:
+        names = _checked_names() if names is None else names
+        expected = {name: value for name, value in _selected(label).items() if name in names}
+        defined = {name: predefined[name] for name in names if name in predefined}
+>       assert defined == expected, f"{label}: compiler {defined!r} != table {expected!r}"
+E       AssertionError: ios-aarch64-simulator: compiler {'TARGET_IPHONE_SIMULATOR': 1, 'TARGET_OS_EMBEDDED': 0, 'TARGET_OS_TV': 0, 'TARGET_OS_WIN32': 0, 'TARGET_OS_ARROW': 0, 'TARGET_OS_IOSMAC': 0, 'TARGET_OS_MAC': 1, 'TARGET_OS_DRIVERKIT': 0, 'TARGET_OS_UIKITFORMAC': 0, 'TARGET_OS_XR': 0, 'TARGET_OS_WATCH': 0, 'TARGET_OS_LINUX': 0, 'TARGET_OS_NANO': 0, 'TARGET_OS_WINDOWS': 0, 'TARGET_OS_SIMULATOR': 1, 'TARGET_OS_IPHONE': 1, 'TARGET_OS_MACCATALYST': 0, 'TARGET_OS_VISION': 0, 'TARGET_OS_IOS': 1, 'TARGET_OS_BRIDGE': 0, 'TARGET_OS_UNIX': 0, 'TARGET_OS_OSX': 0} != table {'TARGET_IPHONE_SIMULATOR': 1, 'TARGET_OS_DRIVERKIT': 0, 'TARGET_OS_EMBEDDED': 0, 'TARGET_OS_IOS': 1, 'TARGET_OS_IPHONE': 1, 'TARGET_OS_LINUX': 0, 'TARGET_OS_MAC': 1, 'TARGET_OS_MACCATALYST': 0, 'TARGET_OS_NANO': 0, 'TARGET_OS_OSX': 0, 'TARGET_OS_SIMULATOR': 1, 'TARGET_OS_TV': 0, 'TARGET_OS_UEFI': 0, 'TARGET_OS_UIKITFORMAC': 0, 'TARGET_OS_UNIX': 0, 'TARGET_OS_VISION': 0, 'TARGET_OS_WATCH': 0, 'TARGET_OS_WIN32': 0, 'TARGET_OS_WINDOWS': 0}
+E       assert {'TARGET_IPHO...RKIT': 0, ...} == {'TARGET_IPHO..._IOS': 1, ...}
+E         
+E         Omitting 18 identical items, use -vv to show
+E         Left contains 4 more items:
+E         {'TARGET_OS_ARROW': 0,
+E          'TARGET_OS_BRIDGE': 0,
+E          'TARGET_OS_IOSMAC': 0,
+E          'TARGET_OS_XR': 0}
+E         Right contains 1 more item:
+E         {'TARGET_OS_UEFI': 0}
+E         
+E         Full diff:
+E           {
+E               'TARGET_IPHONE_SIMULATOR': 1,
+E         +     'TARGET_OS_ARROW': 0,
+E         +     'TARGET_OS_BRIDGE': 0,
+E               'TARGET_OS_DRIVERKIT': 0,
+E               'TARGET_OS_EMBEDDED': 0,
+E               'TARGET_OS_IOS': 1,
+E         +     'TARGET_OS_IOSMAC': 0,
+E               'TARGET_OS_IPHONE': 1,
+E               'TARGET_OS_LINUX': 0,
+E               'TARGET_OS_MAC': 1,
+E               'TARGET_OS_MACCATALYST': 0,
+E               'TARGET_OS_NANO': 0,
+E               'TARGET_OS_OSX': 0,
+E               'TARGET_OS_SIMULATOR': 1,
+E               'TARGET_OS_TV': 0,
+E         -     'TARGET_OS_UEFI': 0,
+E               'TARGET_OS_UIKITFORMAC': 0,
+E               'TARGET_OS_UNIX': 0,
+E               'TARGET_OS_VISION': 0,
+E               'TARGET_OS_WATCH': 0,
+E               'TARGET_OS_WIN32': 0,
+E               'TARGET_OS_WINDOWS': 0,
+E         +     'TARGET_OS_XR': 0,
+E           }
+
+src/tests/python/test_target_macro_table.py:160: AssertionError
+_______ test_apple_clang_defines_the_table_target_os_set[macos-aarch64] ________
+
+label = 'macos-aarch64'
+
+    @pytest.mark.parametrize("label", _apple_labels())
+    def test_apple_clang_defines_the_table_target_os_set(label: str) -> None:
+        reason = _apple_toolchain()
+        if reason is not None:
+            pytest.skip(reason)
+        row = _row(label)
+        predefined = _predefines(_xcrun(row.sysroot_name, "clang", *row.target_arguments))
+        names = {name for name in _checked_names() | set(predefined) if APPLE_TARGET_NAME.fullmatch(name)}
+>       _assert_agrees(label, predefined, names)
+
+src/tests/python/test_target_macro_table.py:252: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+label = 'macos-aarch64'
+predefined = {'TARGET_IPHONE_SIMULATOR': 0, 'TARGET_OS_ARROW': 1, 'TARGET_OS_BRIDGE': 0, 'TARGET_OS_DRIVERKIT': 0, ...}
+names = {'TARGET_IPHONE_SIMULATOR', 'TARGET_OS_ARROW', 'TARGET_OS_BRIDGE', 'TARGET_OS_DRIVERKIT', 'TARGET_OS_EMBEDDED', 'TARGET_OS_IOS', ...}
+
+    def _assert_agrees(label: str, predefined: dict[str, int | None], names: set[str] | None = None) -> None:
+        names = _checked_names() if names is None else names
+        expected = {name: value for name, value in _selected(label).items() if name in names}
+        defined = {name: predefined[name] for name in names if name in predefined}
+>       assert defined == expected, f"{label}: compiler {defined!r} != table {expected!r}"
+E       AssertionError: macos-aarch64: compiler {'TARGET_IPHONE_SIMULATOR': 0, 'TARGET_OS_EMBEDDED': 0, 'TARGET_OS_TV': 0, 'TARGET_OS_WIN32': 0, 'TARGET_OS_ARROW': 1, 'TARGET_OS_IOSMAC': 0, 'TARGET_OS_MAC': 1, 'TARGET_OS_DRIVERKIT': 0, 'TARGET_OS_UIKITFORMAC': 0, 'TARGET_OS_XR': 0, 'TARGET_OS_WATCH': 0, 'TARGET_OS_LINUX': 0, 'TARGET_OS_NANO': 0, 'TARGET_OS_WINDOWS': 0, 'TARGET_OS_SIMULATOR': 0, 'TARGET_OS_IPHONE': 0, 'TARGET_OS_MACCATALYST': 0, 'TARGET_OS_VISION': 0, 'TARGET_OS_IOS': 0, 'TARGET_OS_BRIDGE': 0, 'TARGET_OS_UNIX': 0, 'TARGET_OS_OSX': 1} != table {'TARGET_IPHONE_SIMULATOR': 0, 'TARGET_OS_DRIVERKIT': 0, 'TARGET_OS_EMBEDDED': 0, 'TARGET_OS_IOS': 0, 'TARGET_OS_IPHONE': 0, 'TARGET_OS_LINUX': 0, 'TARGET_OS_MAC': 1, 'TARGET_OS_MACCATALYST': 0, 'TARGET_OS_NANO': 0, 'TARGET_OS_OSX': 1, 'TARGET_OS_SIMULATOR': 0, 'TARGET_OS_TV': 0, 'TARGET_OS_UEFI': 0, 'TARGET_OS_UIKITFORMAC': 0, 'TARGET_OS_UNIX': 0, 'TARGET_OS_VISION': 0, 'TARGET_OS_WATCH': 0, 'TARGET_OS_WIN32': 0, 'TARGET_OS_WINDOWS': 0}
+E       assert {'TARGET_IPHO...RKIT': 0, ...} == {'TARGET_IPHO..._IOS': 0, ...}
+E         
+E         Omitting 18 identical items, use -vv to show
+E         Left contains 4 more items:
+E         {'TARGET_OS_ARROW': 1,
+E          'TARGET_OS_BRIDGE': 0,
+E          'TARGET_OS_IOSMAC': 0,
+E          'TARGET_OS_XR': 0}
+E         Right contains 1 more item:
+E         {'TARGET_OS_UEFI': 0}
+E         
+E         Full diff:
+E           {
+E               'TARGET_IPHONE_SIMULATOR': 0,
+E         +     'TARGET_OS_ARROW': 1,
+E         +     'TARGET_OS_BRIDGE': 0,
+E               'TARGET_OS_DRIVERKIT': 0,
+E               'TARGET_OS_EMBEDDED': 0,
+E               'TARGET_OS_IOS': 0,
+E         +     'TARGET_OS_IOSMAC': 0,
+E               'TARGET_OS_IPHONE': 0,
+E               'TARGET_OS_LINUX': 0,
+E               'TARGET_OS_MAC': 1,
+E               'TARGET_OS_MACCATALYST': 0,
+E               'TARGET_OS_NANO': 0,
+E               'TARGET_OS_OSX': 1,
+E               'TARGET_OS_SIMULATOR': 0,
+E               'TARGET_OS_TV': 0,
+E         -     'TARGET_OS_UEFI': 0,
+E               'TARGET_OS_UIKITFORMAC': 0,
+E               'TARGET_OS_UNIX': 0,
+E               'TARGET_OS_VISION': 0,
+E               'TARGET_OS_WATCH': 0,
+E               'TARGET_OS_WIN32': 0,
+E               'TARGET_OS_WINDOWS': 0,
+E         +     'TARGET_OS_XR': 0,
+E           }
+
+src/tests/python/test_target_macro_table.py:160: AssertionError
+________ test_apple_clang_defines_the_table_target_os_set[macos-x86_64] ________
+
+label = 'macos-x86_64'
+
+    @pytest.mark.parametrize("label", _apple_labels())
+    def test_apple_clang_defines_the_table_target_os_set(label: str) -> None:
+        reason = _apple_toolchain()
+        if reason is not None:
+            pytest.skip(reason)
+        row = _row(label)
+        predefined = _predefines(_xcrun(row.sysroot_name, "clang", *row.target_arguments))
+        names = {name for name in _checked_names() | set(predefined) if APPLE_TARGET_NAME.fullmatch(name)}
+>       _assert_agrees(label, predefined, names)
+
+src/tests/python/test_target_macro_table.py:252: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+label = 'macos-x86_64'
+predefined = {'TARGET_IPHONE_SIMULATOR': 0, 'TARGET_OS_ARROW': 0, 'TARGET_OS_BRIDGE': 0, 'TARGET_OS_DRIVERKIT': 0, ...}
+names = {'TARGET_IPHONE_SIMULATOR', 'TARGET_OS_ARROW', 'TARGET_OS_BRIDGE', 'TARGET_OS_DRIVERKIT', 'TARGET_OS_EMBEDDED', 'TARGET_OS_IOS', ...}
+
+    def _assert_agrees(label: str, predefined: dict[str, int | None], names: set[str] | None = None) -> None:
+        names = _checked_names() if names is None else names
+        expected = {name: value for name, value in _selected(label).items() if name in names}
+        defined = {name: predefined[name] for name in names if name in predefined}
+>       assert defined == expected, f"{label}: compiler {defined!r} != table {expected!r}"
+E       AssertionError: macos-x86_64: compiler {'TARGET_IPHONE_SIMULATOR': 0, 'TARGET_OS_TV': 0, 'TARGET_OS_EMBEDDED': 0, 'TARGET_OS_WIN32': 0, 'TARGET_OS_ARROW': 0, 'TARGET_OS_IOSMAC': 0, 'TARGET_OS_MAC': 1, 'TARGET_OS_DRIVERKIT': 0, 'TARGET_OS_UIKITFORMAC': 0, 'TARGET_OS_XR': 0, 'TARGET_OS_WATCH': 0, 'TARGET_OS_LINUX': 0, 'TARGET_OS_NANO': 0, 'TARGET_OS_WINDOWS': 0, 'TARGET_OS_SIMULATOR': 0, 'TARGET_OS_IPHONE': 0, 'TARGET_OS_MACCATALYST': 0, 'TARGET_OS_VISION': 0, 'TARGET_OS_IOS': 0, 'TARGET_OS_BRIDGE': 0, 'TARGET_OS_UNIX': 0, 'TARGET_OS_OSX': 1} != table {'TARGET_IPHONE_SIMULATOR': 0, 'TARGET_OS_DRIVERKIT': 0, 'TARGET_OS_EMBEDDED': 0, 'TARGET_OS_IOS': 0, 'TARGET_OS_IPHONE': 0, 'TARGET_OS_LINUX': 0, 'TARGET_OS_MAC': 1, 'TARGET_OS_MACCATALYST': 0, 'TARGET_OS_NANO': 0, 'TARGET_OS_OSX': 1, 'TARGET_OS_SIMULATOR': 0, 'TARGET_OS_TV': 0, 'TARGET_OS_UEFI': 0, 'TARGET_OS_UIKITFORMAC': 0, 'TARGET_OS_UNIX': 0, 'TARGET_OS_VISION': 0, 'TARGET_OS_WATCH': 0, 'TARGET_OS_WIN32': 0, 'TARGET_OS_WINDOWS': 0}
+E       assert {'TARGET_IPHO...RKIT': 0, ...} == {'TARGET_IPHO..._IOS': 0, ...}
+E         
+E         Omitting 18 identical items, use -vv to show
+E         Left contains 4 more items:
+E         {'TARGET_OS_ARROW': 0,
+E          'TARGET_OS_BRIDGE': 0,
+E          'TARGET_OS_IOSMAC': 0,
+E          'TARGET_OS_XR': 0}
+E         Right contains 1 more item:
+E         {'TARGET_OS_UEFI': 0}
+E         
+E         Full diff:
+E           {
+E               'TARGET_IPHONE_SIMULATOR': 0,
+E         +     'TARGET_OS_ARROW': 0,
+E         +     'TARGET_OS_BRIDGE': 0,
+E               'TARGET_OS_DRIVERKIT': 0,
+E               'TARGET_OS_EMBEDDED': 0,
+E               'TARGET_OS_IOS': 0,
+E         +     'TARGET_OS_IOSMAC': 0,
+E               'TARGET_OS_IPHONE': 0,
+E               'TARGET_OS_LINUX': 0,
+E               'TARGET_OS_MAC': 1,
+E               'TARGET_OS_MACCATALYST': 0,
+E               'TARGET_OS_NANO': 0,
+E               'TARGET_OS_OSX': 1,
+E               'TARGET_OS_SIMULATOR': 0,
+E               'TARGET_OS_TV': 0,
+E         -     'TARGET_OS_UEFI': 0,
+E               'TARGET_OS_UIKITFORMAC': 0,
+E               'TARGET_OS_UNIX': 0,
+E               'TARGET_OS_VISION': 0,
+E               'TARGET_OS_WATCH': 0,
+E               'TARGET_OS_WIN32': 0,
+E               'TARGET_OS_WINDOWS': 0,
+E         +     'TARGET_OS_XR': 0,
+E           }
+
+src/tests/python/test_target_macro_table.py:160: AssertionError
+__ test_target_conditionals_header_accepts_the_predefined_values[ios-aarch64] __
+
+label = 'ios-aarch64'
+tmp_path = PosixPath('/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade0')
+
+    @pytest.mark.parametrize("label", _apple_labels())
+    def test_target_conditionals_header_accepts_the_predefined_values(label: str, tmp_path: Path) -> None:
+        reason = _apple_toolchain()
+        if reason is not None:
+            pytest.skip(reason)
+        row = _row(label)
+        selected = {name: value for name, value in _selected(label).items() if APPLE_TARGET_NAME.fullmatch(name)}
+        probe = tmp_path / "conditionals.c"
+        probe.write_text(
+            "#include <TargetConditionals.h>\n"
+            + "".join(f'_Static_assert({name} == {value}, "{name}");\n' for name, value in sorted(selected.items()))
+        )
+        completed = subprocess.run(
+            [*_xcrun(IOS_SDK, "clang"), *row.target_arguments, "-std=c11", "-fsyntax-only", str(probe)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=C_COMPILE_TIMEOUT,
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: /private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade0/conditionals.c:14:16: error: use of undeclared identifier 'TARGET_OS_UEFI'
+E            14 | _Static_assert(TARGET_OS_UEFI == 0, "TARGET_OS_UEFI");
+E               |                ^
+E         1 error generated.
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['xcrun', '--sdk', 'iphoneos', 'clang', '--target=arm64-apple-ios17.0.0', '-std=c11', '-fsyntax-only', '/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade0/conditionals.c'], returncode=1, stdout='', stderr='/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade0/conditionals.c:14:16: error: use of undeclared identifier \'TARGET_OS_UEFI\'\n   14 | _Static_assert(TARGET_OS_UEFI == 0, "TARGET_OS_UEFI");\n      |                ^\n1 error generated.\n').returncode
+
+src/tests/python/test_target_macro_table.py:274: AssertionError
+_ test_target_conditionals_header_accepts_the_predefined_values[ios-aarch64-simulator] _
+
+label = 'ios-aarch64-simulator'
+tmp_path = PosixPath('/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade1')
+
+    @pytest.mark.parametrize("label", _apple_labels())
+    def test_target_conditionals_header_accepts_the_predefined_values(label: str, tmp_path: Path) -> None:
+        reason = _apple_toolchain()
+        if reason is not None:
+            pytest.skip(reason)
+        row = _row(label)
+        selected = {name: value for name, value in _selected(label).items() if APPLE_TARGET_NAME.fullmatch(name)}
+        probe = tmp_path / "conditionals.c"
+        probe.write_text(
+            "#include <TargetConditionals.h>\n"
+            + "".join(f'_Static_assert({name} == {value}, "{name}");\n' for name, value in sorted(selected.items()))
+        )
+        completed = subprocess.run(
+            [*_xcrun(IOS_SDK, "clang"), *row.target_arguments, "-std=c11", "-fsyntax-only", str(probe)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=C_COMPILE_TIMEOUT,
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: /private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade1/conditionals.c:14:16: error: use of undeclared identifier 'TARGET_OS_UEFI'
+E            14 | _Static_assert(TARGET_OS_UEFI == 0, "TARGET_OS_UEFI");
+E               |                ^
+E         1 error generated.
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['xcrun', '--sdk', 'iphoneos', 'clang', '--target=arm64-apple-ios17.0.0-simulator', '-std=c11', '-fsyntax-only', '/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade1/conditionals.c'], returncode=1, stdout='', stderr='/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade1/conditionals.c:14:16: error: use of undeclared identifier \'TARGET_OS_UEFI\'\n   14 | _Static_assert(TARGET_OS_UEFI == 0, "TARGET_OS_UEFI");\n      |                ^\n1 error generated.\n').returncode
+
+src/tests/python/test_target_macro_table.py:274: AssertionError
+_ test_target_conditionals_header_accepts_the_predefined_values[macos-aarch64] _
+
+label = 'macos-aarch64'
+tmp_path = PosixPath('/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade2')
+
+    @pytest.mark.parametrize("label", _apple_labels())
+    def test_target_conditionals_header_accepts_the_predefined_values(label: str, tmp_path: Path) -> None:
+        reason = _apple_toolchain()
+        if reason is not None:
+            pytest.skip(reason)
+        row = _row(label)
+        selected = {name: value for name, value in _selected(label).items() if APPLE_TARGET_NAME.fullmatch(name)}
+        probe = tmp_path / "conditionals.c"
+        probe.write_text(
+            "#include <TargetConditionals.h>\n"
+            + "".join(f'_Static_assert({name} == {value}, "{name}");\n' for name, value in sorted(selected.items()))
+        )
+        completed = subprocess.run(
+            [*_xcrun(IOS_SDK, "clang"), *row.target_arguments, "-std=c11", "-fsyntax-only", str(probe)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=C_COMPILE_TIMEOUT,
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: clang: warning: using sysroot for 'iPhoneOS' but targeting 'MacOSX' [-Wincompatible-sysroot]
+E         /private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade2/conditionals.c:14:16: error: use of undeclared identifier 'TARGET_OS_UEFI'
+E            14 | _Static_assert(TARGET_OS_UEFI == 0, "TARGET_OS_UEFI");
+E               |                ^
+E         1 error generated.
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['xcrun', '--sdk', 'iphoneos', 'clang', '--target=arm64-apple-macosx14.0.0', '-std=c11', '-fsyntax-only', '/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade2/conditionals.c'], returncode=1, stdout='', stderr='clang: warning: using sysroot for \'iPhoneOS\' but targeting \'MacOSX\' [-Wincompatible-sysroot]\n/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade2/conditionals.c:14:16: error: use of undeclared identifier \'TARGET_OS_UEFI\'\n   14 | _Static_assert(TARGET_OS_UEFI == 0, "TARGET_OS_UEFI");\n      |                ^\n1 error generated.\n').returncode
+
+src/tests/python/test_target_macro_table.py:274: AssertionError
+_ test_target_conditionals_header_accepts_the_predefined_values[macos-x86_64] __
+
+label = 'macos-x86_64'
+tmp_path = PosixPath('/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade3')
+
+    @pytest.mark.parametrize("label", _apple_labels())
+    def test_target_conditionals_header_accepts_the_predefined_values(label: str, tmp_path: Path) -> None:
+        reason = _apple_toolchain()
+        if reason is not None:
+            pytest.skip(reason)
+        row = _row(label)
+        selected = {name: value for name, value in _selected(label).items() if APPLE_TARGET_NAME.fullmatch(name)}
+        probe = tmp_path / "conditionals.c"
+        probe.write_text(
+            "#include <TargetConditionals.h>\n"
+            + "".join(f'_Static_assert({name} == {value}, "{name}");\n' for name, value in sorted(selected.items()))
+        )
+        completed = subprocess.run(
+            [*_xcrun(IOS_SDK, "clang"), *row.target_arguments, "-std=c11", "-fsyntax-only", str(probe)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=C_COMPILE_TIMEOUT,
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: clang: warning: using sysroot for 'iPhoneOS' but targeting 'MacOSX' [-Wincompatible-sysroot]
+E         /private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade3/conditionals.c:14:16: error: use of undeclared identifier 'TARGET_OS_UEFI'
+E            14 | _Static_assert(TARGET_OS_UEFI == 0, "TARGET_OS_UEFI");
+E               |                ^
+E         1 error generated.
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['xcrun', '--sdk', 'iphoneos', 'clang', '--target=x86_64-apple-macosx14.0.0', '-std=c11', '-fsyntax-only', '/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade3/conditionals.c'], returncode=1, stdout='', stderr='clang: warning: using sysroot for \'iPhoneOS\' but targeting \'MacOSX\' [-Wincompatible-sysroot]\n/private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/pytest-of-runner/pytest-0/test_target_conditionals_heade3/conditionals.c:14:16: error: use of undeclared identifier \'TARGET_OS_UEFI\'\n   14 | _Static_assert(TARGET_OS_UEFI == 0, "TARGET_OS_UEFI");\n      |                ^\n1 error generated.\n').returncode
+
+src/tests/python/test_target_macro_table.py:274: AssertionError
+======================= 8 failed, 25 deselected in 0.94s =======================

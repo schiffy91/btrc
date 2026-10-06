@@ -1,0 +1,43 @@
+runner: macos15 20260907.0337.1 arm64
+commit: 9c0d737d6e9245221bf052c3c3a5a5fe6caa3fbb
+--- system xcodebuild -version
+Xcode 16.4
+Build version 16F6
+--- system xcode-select -p
+/Applications/Xcode_16.4.app/Contents/Developer
+--- system xcrun --sdk macosx: version, path
+15.5
+/Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk
+--- system xcrun --sdk iphoneos: version, path
+18.5
+/Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk
+--- system xcrun --sdk iphonesimulator: version, path
+18.5
+/Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk
+--- system xcrun clang --version
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: arm64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+--- macosx SDK: fork in unistd.h
+451:pid_t	 fork(void) __WATCHOS_PROHIBITED __TVOS_PROHIBITED;
+610:pid_t	 vfork(void) __WATCHOS_PROHIBITED __TVOS_PROHIBITED;
+--- iphoneos SDK: fork in unistd.h
+451:pid_t	 fork(void) __WATCHOS_PROHIBITED __TVOS_PROHIBITED;
+610:pid_t	 vfork(void) __WATCHOS_PROHIBITED __TVOS_PROHIBITED;
+--- iphonesimulator SDK: fork in unistd.h
+451:pid_t	 fork(void) __WATCHOS_PROHIBITED __TVOS_PROHIBITED;
+610:pid_t	 vfork(void) __WATCHOS_PROHIBITED __TVOS_PROHIBITED;
+--- dev shell: which xcrun, DEVELOPER_DIR, SDKROOT
+building '/nix/store/pd7m5l5waw5r9cqpsx22x1ib5fbylk59-btrc-lsp.drv'...
+building '/nix/store/wsv22p9fh6krkic5h6scnwp8vys0xa2r-nix-shell-env.drv'...
+/nix/store/9c87rvz89dsdrdqah4ybh3qmg9bznkxs-xcbuild-0.1.1-unstable-2019-11-20-xcrun/bin/xcrun
+DEVELOPER_DIR=/nix/store/byqf5h6mkq7fd8f1z7dvas3rv3z4v7l9-apple-sdk-14.4
+SDKROOT=/nix/store/byqf5h6mkq7fd8f1z7dvas3rv3z4v7l9-apple-sdk-14.4/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
+--- dev shell: xcrun --sdk iphoneos --show-sdk-path
+error: unable to find sdk: 'iphoneos'
+(failed: 255)
+--- dev shell: xcrun xcodebuild -version
+Xcode 16.4
+Build version 16F6
+provenance: GitHub macos-15 runner, Xcode 16.4 (16F6), macosx SDK 15.5, iphoneos SDK 18.5, iphonesimulator SDK 18.5; re-extract with Xcode 27A266a (MAC-P1-05)
