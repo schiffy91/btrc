@@ -861,6 +861,7 @@ Lane parallelism in this bucket depends on D6(c). Without it, one bounded contra
   - The cache-poisoning matrix is green, and a quiet M11 re-measure shows no regression.
   - C4's iOS and Android rows are added if C4 landed.
 - **Depends on.** D21.
+- **Status (batch 48, 2026-10-06).** On main: commit 1a (`CL-P1-03`, targets.toml schema 2, batch 22), 1b (`CL-P1-04`, one target owner per compiler, batch 29), the hosted-platform extractor (`CL-P1-07`, batch 31) and 1c (`CL-P1-05`, the per-row data model, environment-aware macros, M3 and per-OS release C, batch 48). Next: 1d (`CL-P1-06`, the LSP `btrc.target` setting), then the sub-batch 1 gate.
 - **Parallelization: SERIAL spec, then a WORKFLOW of about 14 agents, at most 4 writers.**
   - **Spec.** 1 design agent plus 2 adversarial reviewers (Python/btrc parity including host inference; per-platform triple and sysroot rules).
   - **Fan-out:**
