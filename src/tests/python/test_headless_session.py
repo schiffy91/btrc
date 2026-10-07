@@ -202,6 +202,31 @@ def test_session_returns_the_command_status(mode):
 
 
 @pytest.mark.parametrize("mode", ["--x11", "--wayland"])
+def test_failed_session_preserves_diagnostics_before_removing_its_directory(mode):
+    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    command = """
+import os
+from pathlib import Path
+session = Path(os.environ["XDG_RUNTIME_DIR"]).parent
+(session / "failure.log").write_text("original session failure\\n")
+print(session, flush=True)
+raise SystemExit(7)
+"""
+    result = subprocess.run(
+        [str(SESSION), mode, "--", sys.executable, "-c", command],
+        cwd=ROOT,
+        env=_session_environment(),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 7, result.stderr
+    assert "headless-session: failure.log (last 200 lines)" in result.stderr
+    assert "original session failure" in result.stderr
+    assert not Path(result.stdout.strip()).exists()
+
+
+@pytest.mark.parametrize("mode", ["--x11", "--wayland"])
 def test_terminating_the_session_stops_the_command_and_the_servers(tmp_path, mode):
     """A TERM to the PID the caller holds, as subprocess timeouts send, reaches the
     session: the command is stopped and everything the session started with it."""
