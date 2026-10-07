@@ -652,7 +652,7 @@ root. `btrcpy`, `btrcc`, and the LSP keep package maps isolated per invocation
 or workspace, so one project's manifest cannot leak into another project.
 Native package tables can declare validated C, C++, Objective-C, and
 Objective-C++ units plus headers, includes, defines, frameworks, pkg-config
-requirements, and platform predicates. `--target OS-ARCH --emit-link-plan
+requirements, and platform predicates. `--target OS-ARCH[-ENV] --emit-link-plan
 PATH` emits the canonical plan for Make, Nix, or CMake to consume; manifests
 cannot inject flags, commands, or shell fragments. `btrcc` requires the target
 explicitly for every version-1 manifest and fails closed when it is omitted;
@@ -1995,6 +1995,15 @@ make btrcc-linux-arm64      # -> dist/btrcc-linux-arm64.tar.gz{,.sha256}
 make btrcc-windows-x64      # -> dist/btrcc-windows-x64.zip{,.sha256}
 make btrcc-dist             # all five distributions
 ```
+
+Each distribution is cross-compiled from C generated for one explicit target
+row, never the build host: `dist/btrcc.c` (`linux-x86_64`) for both Linux
+architectures, `dist/btrcc-macos.c` (`macos-x86_64`) for both macOS
+architectures, and `dist/btrcc-windows.c` (`windows-x86_64`) for Windows. The
+Linux and macOS files differ because their stdlib providers do. Before a
+Linux or macOS bundle is built, the release gate (`make btrcc-release-c`)
+regenerates its C file for the other architecture's row and requires byte
+identity; the check is stamped, so it reruns only when an input changes.
 
 Each archive has one self-contained layout:
 

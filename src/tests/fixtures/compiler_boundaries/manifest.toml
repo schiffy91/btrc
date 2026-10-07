@@ -569,9 +569,9 @@ channel = "artifact"
 baseline_path = "baseline/surface.python.ast.artifact.bin"
 baseline_sha256 = "d4391bc21cf3b1fe58345444199e2401d9c6414f2fdff088473a4f2259427a89"
 accepted_path = "accepted/surface.python.ast.artifact.bin"
-accepted_sha256 = "f85c8dd196bd13f148abb4028d09911eb57a39fc018f64f5bda4bbe0c6876c08"
-reason = "Function realtime annotations are now canonical AST data for transitive realtime verification."
-regressions = ["src/tests/btrc/test_realtime_parity.py", "src/tests/python/test_boundary_renderers.py"]
+accepted_sha256 = "a2dea6808f2d9c9ba77d407a1b87aae50ed357cfcc6ab6e02cc6dd4f51449074"
+reason = "TypeExpr carries inner array extents and outer pointers for C2/r17"
+regressions = ["src/tests/btrc/test_ast_structure_contract.py", "src/tests/btrc/test_parser_diagnostics.py", "src/tests/python/test_boundary_renderers.py"]
 
 [[records]]
 id = "surface.python.ast.status"
@@ -705,9 +705,9 @@ channel = "artifact"
 baseline_path = "baseline/surface.btrc.ast.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/surface.btrc.ast.artifact.bin"
-accepted_sha256 = "f85c8dd196bd13f148abb4028d09911eb57a39fc018f64f5bda4bbe0c6876c08"
-reason = "Function realtime annotations are now canonical AST data for transitive realtime verification."
-regressions = ["src/tests/btrc/test_realtime_parity.py", "src/tests/python/test_boundary_renderers.py"]
+accepted_sha256 = "a2dea6808f2d9c9ba77d407a1b87aae50ed357cfcc6ab6e02cc6dd4f51449074"
+reason = "TypeExpr carries inner array extents and outer pointers for C2/r17"
+regressions = ["src/tests/btrc/test_ast_structure_contract.py", "src/tests/btrc/test_parser_diagnostics.py", "src/tests/python/test_boundary_renderers.py"]
 
 [[records]]
 id = "surface.btrc.ast.status"

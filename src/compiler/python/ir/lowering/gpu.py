@@ -1066,7 +1066,7 @@ class GpuLowerer:
         kernel = self._gpu_kernels[function_name]
         declaration = self._analyzed.function_table[function_name]
         result_elem_type = self._result_element_type(declaration) if kernel.output_buffer is not None else ""
-        prefix = self._session.fresh_temp("__gpu_dispatch")
+        prefix = self._session.fresh_temp(GpuDispatchNames.STEM)
         parameter_c_names = tuple(
             (parameter.name, provenance.source_binding_c_name(parameter.name)) for parameter in declaration.params
         )
@@ -1098,7 +1098,7 @@ class GpuLowerer:
             declaration=declaration,
             names=names,
             helper_name=names.local("run"),
-            uniform_struct=names.local("uniforms_type"),
+            uniform_struct=names.local(GpuDispatchNames.UNIFORMS_ROLE),
             has_output=kernel.output_buffer is not None,
             total_bindings=len(kernel.param_buffers) + int(kernel.output_buffer is not None) + 2,
             buffers_by_name=tuple((buffer.name, buffer) for buffer in kernel.param_buffers),

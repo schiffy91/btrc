@@ -24,12 +24,12 @@ from src.compiler.python.abi.declarations import (
     AbiType,
     HostedFunction,
 )
-from src.compiler.python.abi.hosted import HOSTED_ABI
+from src.compiler.python.abi.hosted import HOSTED_ABI, TargetRepository, TargetSelectionError
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.analyzer.types import CIntegerWidths
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
-from src.compiler.python.frontend.packages import _TARGET_ARCHITECTURES, _TARGET_OPERATING_SYSTEMS, PackageTarget
+from src.compiler.python.frontend.packages import PackageTarget
 from src.compiler.python.frontend.sources import (
     CompilerStdlibSource,
     ConditionalEnvironment,
@@ -744,6 +744,10 @@ TARGET_RULE_VIOLATIONS = {
         lambda document: document["conditionals"].update(foreign_macro_names=["printf"]),
         "foreign macro name 'printf' is already a hosted-ABI name",
     ),
+    "predefined-foreign": (
+        lambda document: document["conditionals"].update(foreign_macro_names=["NDEBUG", "TARGET_OS_IPHONE"]),
+        "foreign macro name 'TARGET_OS_IPHONE' is also a predefined macro",
+    ),
     "unsorted": (
         lambda document: document["conditionals"].update(foreign_macro_names=["bool", "NDEBUG"]),
         "foreign_macro_names must be sorted and unique",
@@ -807,6 +811,10 @@ def test_generated_target_rows_equal_the_spec() -> None:
         (macro.name, macro.value, macro.operating_systems, macro.architectures, macro.environments)
         for macro in (*targets.predefined_macros, *targets.derived_macros)
     ]
+    # M3's name list must stay exactly the predefined and derived row names.
+    row_names = {row[0] for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS}
+    assert len(generated_abi.TARGET_PREDEFINED_MACRO_NAMES) == len(row_names)
+    assert set(generated_abi.TARGET_PREDEFINED_MACRO_NAMES) == row_names
     assert targets.undefined_macro_names == generated_abi.TARGET_UNDEFINED_MACRO_NAMES
     assert targets.foreign_macro_names == generated_abi.TARGET_FOREIGN_MACRO_NAMES
     assert targets.fingerprint == generated_abi.TARGET_SPEC_FINGERPRINT
@@ -819,6 +827,11 @@ def test_generated_target_rows_equal_the_spec() -> None:
     for target in targets.targets:
         assert f'built.push(GeneratedTargetRow("{target.label}", "{target.operating_system}", ' in tables
     assert 'built.put("x64", "x86_64");' in tables
+    btrc_names = re.findall(
+        r'values\.push\("([^"]+)"\);',
+        "".join(re.findall(r"void pushPredefinedMacroNames\d+\(Vector<string> values\) \{(.*?)\n\t\}", tables, re.S)),
+    )
+    assert sorted(btrc_names) == sorted(row_names)
     assert 'built.put("windows", "gnu");' in tables
     assert "public Map<string, string> architectureAliases() {" in tables
     assert "public Map<string, string> defaultEnvironments() {" in tables
@@ -886,31 +899,38 @@ def test_derived_macros_come_only_from_the_row_columns() -> None:
     assert any(macro.name == "__CHAR_UNSIGNED__" and macro.selects(linux) for macro in changed.derived_macros)
 
 
-def test_compiler_host_rows_select_the_same_macros_without_their_environment() -> None:
-    """Until Stage 24 commit 1b, both compilers select rows by operating system
-    and architecture only; on every row they can target that must give what
-    the environment-aware selection gives, or the spec changed a compile."""
+def test_conditional_environment_selects_rows_on_all_three_axes() -> None:
+    """Since Stage 24 commit 1c the reference selects by environment too, so
+    every row gets exactly its environment-aware rows; the self-hosted half
+    is test_preprocessor_conditionals.py's per-row probe."""
 
+    environment_dependent = set()
     for target in generated_abi.TARGET_ROWS:
-        if not target.compiler_host:
-            continue
+        exact = {row.name: row.value for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS if _row_selects(target, row)}
+        environment = ConditionalEnvironment(PackageTarget.from_row(target))
+        assert {name: environment.target_value(name) for name in exact} == exact, target.label
+        assert all(environment.selects(name) == (name in exact) for name in _predefined_names()), target.label
         pair = {
             (row.name, row.value)
             for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS
             if (not row.operating_systems or target.operating_system in row.operating_systems)
             and (not row.architectures or target.architecture in row.architectures)
         }
-        exact = {
-            (row.name, row.value) for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS if _row_selects(target, row)
-        }
-        assert pair == exact, target.label
+        if pair != set(exact.items()):
+            environment_dependent.add(target.label)
+    # The rows commit 1b selected wrongly, by operating system and architecture only.
+    assert {"ios-aarch64", "ios-aarch64-simulator", "windows-aarch64", "windows-aarch64-msvc"} <= environment_dependent
+
+
+def _predefined_names() -> set[str]:
+    return {row.name for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS}
 
 
 def test_target_union_merges_targets_and_names_a_disagreement() -> None:
     union = TargetUnion(TargetManifest.load(TARGET_SPEC, _hosted_manifest()))
-    # The conditional environments distinguish operating system and
-    # architecture until Stage 24 commit 1b adds the environment axis.
-    assert union.labels == tuple(dict.fromkeys("-".join(label.split("-")[:2]) for label in TARGET_LABELS))
+    # The conditional environments select by environment too (Stage 24
+    # commit 1c), so every row is its own key.
+    assert union.labels == TARGET_LABELS
     first, *rest = union.labels
     owners = union.owners(
         {label: {"Vector": {"Vector.btrc"}} for label in union.labels} | {first: {"Map": {"Map.btrc"}}}
@@ -933,14 +953,15 @@ _CANDIDATE_OPERATING_SYSTEMS = ("linux", "macos", "windows", "ios", "android")
 _CANDIDATE_ARCHITECTURES = ("x86_64", "aarch64", "riscv64")
 
 
-def _compiler_host_labels() -> set[str]:
-    """The labels both compilers accept today: the compiler-host rows.
+def _two_part_labels() -> set[str]:
+    """The rows an OS-ARCH spelling selects: each OS's default environment.
 
-    Stage 24 commit 1b makes both accept every row (platform-target-contract.md
-    §1.5); until then they parse OS-ARCH over the desktop rows only.
+    Both compilers accept every row (platform-target-contract.md §1.5); an
+    OS-ARCH spelling without an environment names the default-environment
+    rows, so the simulator and MSVC rows need their suffix.
     """
 
-    return {row.label for row in generated_abi.TARGET_ROWS if row.compiler_host}
+    return {row.label for row in generated_abi.TARGET_ROWS if row.label.count("-") == 1}
 
 
 def test_target_rows_equal_the_reference_package_targets() -> None:
@@ -952,13 +973,8 @@ def test_target_rows_equal_the_reference_package_targets() -> None:
                 target = PackageTarget.parse(label)
             except ValueError:
                 continue
-            accepted.add(f"{target.operating_system}-{target.architecture}")
-    assert accepted == _compiler_host_labels()
-    assert {
-        f"{operating_system}-{architecture}"
-        for operating_system in _TARGET_OPERATING_SYSTEMS
-        for architecture in _TARGET_ARCHITECTURES
-    } == _compiler_host_labels()
+            accepted.add(target.label)
+    assert accepted == _two_part_labels()
 
 
 def test_target_rows_equal_the_self_hosted_package_targets(tmp_path: Path, immutable_btrcc: Path) -> None:
@@ -983,8 +999,8 @@ def test_target_rows_equal_the_self_hosted_package_targets(tmp_path: Path, immut
             if result.returncode == 0:
                 accepted.add(label)
             else:
-                assert f"unsupported package target '{label}'" in result.stderr, result.stderr
-    assert accepted == _compiler_host_labels()
+                assert f"error: unsupported target '{label}'; expected one of " in result.stderr, result.stderr
+    assert accepted == _two_part_labels()
 
 
 def _target_row(label: str):
@@ -1021,9 +1037,20 @@ def _table_widths(label: str) -> tuple[int, int, int, int]:
 
 
 def test_reference_analyzer_widths_equal_every_target_row() -> None:
-    widths = CIntegerWidths.native()
     for label in TARGET_LABELS:
+        widths = CIntegerWidths.for_target(_target_row(label))
         assert _table_widths(label) == (widths.char, widths.short, widths.int_, widths.long_long), label
+        long_bits = _selected_value(label, "__CHAR_BIT__") * _selected_value(label, "__SIZEOF_LONG__")
+        assert widths.long == long_bits, label
+
+
+def test_reference_analyzer_target_less_widths_are_the_host_rows() -> None:
+    host = TargetRepository.host()
+    if host is None:
+        with pytest.raises(TargetSelectionError):
+            CIntegerWidths.for_target()
+    else:
+        assert CIntegerWidths.for_target() == CIntegerWidths.for_target(host)
 
 
 def test_self_hosted_analyzer_widths_equal_every_target_row(tmp_path: Path) -> None:

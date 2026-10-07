@@ -172,17 +172,19 @@ class ExpressionValidator {
 		if (initializer.kind != NK_BRACE_INITIALIZER) {
 			TypeValidator.fail(subject + " requires a brace initializer for " + "struct '" + name + "'", initializer);
 		}
-		if (initializer.elements().len > declaration.fields().len) {
-			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(declaration.fields().len) + " fields", initializer);
+		/* The initializer-slot owner: each element's member path, recorded for
+		 * every later reader (SemanticTypeSystem.initializerSlots). */
+		SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(declaration, initializer, self.state.analyzed);
+		self.state.analyzed.initializerPlans.put(AstIdentity.key(initializer), plan);
+		if (plan.excess > 0) {
+			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(plan.capacity) + " fields", initializer);
 		}
 		if (initializer.elements().len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
-		int index = 0;
-		while (index < initializer.elements().len) {
-			Node field = declaration.fields().get(index);
+		for slot in plan.slots {
+			Node field = slot.member();
 			Node? fieldValueType = self.storage.arrayFieldValueType(field);
 			if (fieldValueType == null) { fieldValueType = field.type; }
-			self.validateInitializerValue(fieldValueType, initializer.elements().get(index), subject + " field '" + field.name + "'", vars);
-			index = index + 1;
+			self.validateInitializerValue(fieldValueType, slot.element, subject + " field '" + field.name + "'", vars);
 		}
 	}
 
@@ -1090,10 +1092,8 @@ class ExpressionValidator {
 			}
 			if (self.state.analyzed.structTable.has(concrete.base)) {
 				Node structure = self.state.analyzed.structTable.get(concrete.base);
-				int fieldIndex = 0;
-				while (fieldIndex < expression.elements().len && fieldIndex < structure.fields().len) {
-					self.contextualizeGenericConstructor(structure.fields().get(fieldIndex).type, expression.elements().get(fieldIndex), variables);
-					fieldIndex = fieldIndex + 1;
+				for slot in SemanticTypeSystem.initializerSlots(structure, expression, self.state.analyzed).slots {
+					self.contextualizeGenericConstructor(slot.type, slot.element, variables);
 				}
 				return;
 			}

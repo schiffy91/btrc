@@ -225,18 +225,229 @@ class SemanticTypeSystem {
 		return "";
 	}
 
+	/* Record members (C11 6.7.2.1). Every walk over a struct's or union's
+	 * members goes through these class methods; the record-member contract
+	 * test refuses a raw fields() walk anywhere else. A record without
+	 * anonymous members or unnamed bit-fields answers with its own list. */
+
+	/* Every member declarator of a record or anonymous member, in source
+	 * order: named fields, unnamed bit-fields and anonymous members. Only
+	 * layout (emission and its type dependencies) reads unnamed bit-fields;
+	 * semantic walks read recordMembers or recordFields. */
+	class Vector<Node> recordDeclarators(Node record) { return record.fields(); }
+
+	class bool recordIsFlat(Node record) {
+		for member in record.fields() {
+			if (member.kind == NK_ANONYMOUS_MEMBER || member.name == "") { return false; }
+		}
+		return true;
+	}
+
+	/* The direct members, which are also the positional initializer slots:
+	 * named FieldDefs and AnonymousMembers. An unnamed bit-field is not a
+	 * member (C11 6.7.2.1p12). */
+	class Vector<Node> recordMembers(Node record) {
+		if (SemanticTypeSystem.recordIsFlat(record)) { return record.fields(); }
+		Vector<Node> members = [];
+		for member in record.fields() {
+			if (member.kind == NK_ANONYMOUS_MEMBER || member.name != "") { members.push(member); }
+		}
+		return members;
+	}
+
+	/* Every named member's FieldDef, flattened through anonymous members
+	 * (C11 6.7.2.1p13), in declaration order. */
+	class Vector<Node> recordFields(Node record) {
+		if (SemanticTypeSystem.recordIsFlat(record)) { return record.fields(); }
+		Vector<Node> fields = [];
+		SemanticTypeSystem.appendRecordFields(record, fields);
+		return fields;
+	}
+
+	class void appendRecordFields(Node record, Vector<Node> out) {
+		for member in record.fields() {
+			if (member.kind == NK_ANONYMOUS_MEMBER) {
+				SemanticTypeSystem.appendRecordFields(member, out);
+			} else if (member.name != "") {
+				out.push(member);
+			}
+		}
+	}
+
+	/* The member path of the named member fieldName: the anonymous members
+	 * it is reached through, then the FieldDef itself; null when absent. */
+	class Vector<Node>? recordMemberPath(Node record, string fieldName) {
+		if (fieldName == "") { return null; }
+		for member in record.fields() {
+			if (member.kind == NK_ANONYMOUS_MEMBER) {
+				Vector<Node>? nested = SemanticTypeSystem.recordMemberPath(member, fieldName);
+				if (nested != null) {
+					Vector<Node> path = [member];
+					for step in nested { path.push(step); }
+					return path;
+				}
+			} else if (member.name == fieldName) {
+				Vector<Node> path = [member];
+				return path;
+			}
+		}
+		return null;
+	}
+
+	/* The named member fieldName, found through anonymous members too. */
+	class Node? recordMember(Node record, string fieldName) {
+		if (fieldName == "") { return null; }
+		for member in record.fields() {
+			if (member.kind == NK_ANONYMOUS_MEMBER) {
+				Node? nested = SemanticTypeSystem.recordMember(member, fieldName);
+				if (nested != null) { return nested; }
+			} else if (member.name == fieldName) {
+				return member;
+			}
+		}
+		return null;
+	}
+
+	/* The complete record a by-value member type names, for designator chains. */
+	class Node? memberRecord(Node? memberType, Analyzed analyzed) {
+		Node? resolved = SemanticTypeSystem.resolveTypedefType(memberType, analyzed.typedefTable);
+		if (resolved == null || resolved.pointerDepth != 0 || resolved.isArray) { return null; }
+		string name = SemanticTypeSystem.resolvedStructName(resolved, analyzed);
+		if (name == "" || !analyzed.structTable.has(name)) { return null; }
+		Node declaration = analyzed.structTable.get(name);
+		if (declaration.isForward) { return null; }
+		return declaration;
+	}
+
+	/* Map each brace element to a member path of record (C11 6.7.9p17).
+	 * Positional elements fill the direct members in order (only the first
+	 * member of a union); an anonymous member is one slot that takes its own
+	 * braces, and unnamed bit-fields take none. A designated element names a
+	 * flattened member, and its chain continues through nested records and
+	 * array elements (the IndexDesignator itself is the step). A positional
+	 * element after a designated one continues at the next direct member. */
+	class SemanticInitializerPlan planInitializerSlots(Node record, Node initializer, Analyzed analyzed) {
+		Vector<Node> members = SemanticTypeSystem.recordMembers(record);
+		int capacity = members.len;
+		if (record.isUnion && capacity > 1) { capacity = 1; }
+		Vector<SemanticInitializerSlot> slots = [];
+		int excess = 0;
+		int cursor = 0;
+		/* Only a brace initializer carries designations; a map literal's
+		 * entries are its key/value pairs. */
+		Vector<Node> designations = [];
+		if (initializer.kind == NK_BRACE_INITIALIZER) { designations = initializer.entries(); }
+		int position = 0;
+		while (position < initializer.elements().len) {
+			Node element = initializer.elements().get(position);
+			bool designated = position < designations.len && designations.get(position).parts().len > 0;
+			if (designated) {
+				SemanticInitializerSlot? slot = SemanticTypeSystem.designatedSlot(record, element, designations.get(position).parts(), analyzed);
+				if (slot == null) {
+					excess = excess + 1;
+				} else {
+					slots.push(slot);
+					cursor = SemanticTypeSystem.memberPosition(members, slot.path.get(0)) + 1;
+				}
+			} else if (cursor >= capacity) {
+				excess = excess + 1;
+			} else {
+				Node member = members.get(cursor);
+				cursor = cursor + 1;
+				Vector<Node> path = [member];
+				Node? slotType = null;
+				if (member.kind != NK_ANONYMOUS_MEMBER) { slotType = member.type; }
+				slots.push(SemanticInitializerSlot(element, path, slotType));
+			}
+			position = position + 1;
+		}
+		return SemanticInitializerPlan(slots, capacity, excess);
+	}
+
+	class bool sameNode(Node left, Node right) { return (uintptr_t)left == (uintptr_t)right; }
+
+	/* The direct members a static initializer list zero-fills: those after the
+	 * plan's last initialized slot. A union's initializer names exactly one
+	 * member, so it fills none (a second element would be excess). */
+	class Vector<Node> zeroFilledMembers(Node record, SemanticInitializerPlan plan) {
+		Vector<Node> filled = [];
+		if (record.isUnion) { return filled; }
+		Vector<Node> members = SemanticTypeSystem.recordMembers(record);
+		int next = 0;
+		for slot in plan.slots {
+			int position = SemanticTypeSystem.memberPosition(members, slot.path.get(0)) + 1;
+			if (position > next) { next = position; }
+		}
+		while (next < members.len) {
+			filled.push(members.get(next));
+			next = next + 1;
+		}
+		return filled;
+	}
+
+	class int memberPosition(Vector<Node> members, Node member) {
+		int index = 0;
+		while (index < members.len) {
+			if (SemanticTypeSystem.sameNode(members.get(index), member)) { return index; }
+			index = index + 1;
+		}
+		return -1;
+	}
+
+	class SemanticInitializerSlot? designatedSlot(Node record, Node element, Vector<Node> parts, Analyzed analyzed) {
+		Node first = parts.get(0);
+		if (first.kind != NK_FIELD_DESIGNATOR) { return null; }
+		Vector<Node>? found = SemanticTypeSystem.recordMemberPath(record, first.field);
+		if (found == null) { return null; }
+		Vector<Node> steps = [];
+		for step in found { steps.push(step); }
+		Node? slotType = steps.get(steps.len - 1).type;
+		int index = 1;
+		while (index < parts.len) {
+			Node part = parts.get(index);
+			if (part.kind == NK_FIELD_DESIGNATOR) {
+				Node? nested = SemanticTypeSystem.memberRecord(slotType, analyzed);
+				if (nested == null) { return null; }
+				Vector<Node>? nestedPath = SemanticTypeSystem.recordMemberPath(nested, part.field);
+				if (nestedPath == null) { return null; }
+				for step in nestedPath { steps.push(step); }
+				slotType = steps.get(steps.len - 1).type;
+			} else {
+				if (slotType == null || !slotType.isArray) { return null; }
+				steps.push(part);
+				slotType = TypeShape.withoutOuterArray(slotType);
+			}
+			index = index + 1;
+		}
+		return SemanticInitializerSlot(element, steps, slotType);
+	}
+
+	/* The slot type of element in plan; null when the element found no slot
+	 * or initializes an anonymous member. */
+	class Node? initializerSlotType(SemanticInitializerPlan plan, Node element) {
+		for slot in plan.slots {
+			if (SemanticTypeSystem.sameNode(slot.element, element)) { return slot.type; }
+		}
+		return null;
+	}
+
+	/* The validator's recorded plan for initializer; an initializer validation
+	 * never typed as this record (a generic body's T x = {...}, a replayed
+	 * module-unit record) is planned again here, identically. */
+	class SemanticInitializerPlan initializerSlots(Node record, Node initializer, Analyzed analyzed) {
+		string key = AstIdentity.key(initializer);
+		if (analyzed.initializerPlans.has(key)) { return analyzed.initializerPlans.get(key); }
+		return SemanticTypeSystem.planInitializerSlots(record, initializer, analyzed);
+	}
+
 	class Node? structFieldFor(Node? typeExpr, string fieldName, Analyzed analyzed) {
 		string name = SemanticTypeSystem.resolvedStructName(typeExpr, analyzed);
 		if (name == "" || !analyzed.structTable.has(name)) { return null; }
 		Node declaration = analyzed.structTable.get(name);
 		if (declaration.isForward) { return null; }
-		int index = 0;
-		while (index < declaration.fields().len) {
-			Node field = declaration.fields().get(index);
-			if (field.name == fieldName) { return field.type; }
-			index = index + 1;
-		}
-		return null;
+		Node? field = SemanticTypeSystem.recordMember(declaration, fieldName);
+		if (field == null) { return null; }
+		return field.type;
 	}
 
 
@@ -497,13 +708,14 @@ class SemanticTypeSystem {
 			result.genericArgsStorage = arguments;
 			result.pointerDepth = typeExpr.pointerDepth;
 			result.isArray = typeExpr.isArray;
-			result.arraySize = typeExpr.arraySize;
+			TypeShape.copyArrayExtents(result, typeExpr);
 			result.isConst = typeExpr.isConst;
 			result.isNullable = typeExpr.isNullable;
 			result.nullableOuterDepth = typeExpr.nullableOuterDepth;
 			result.isStatic = typeExpr.isStatic;
 			result.isExtern = typeExpr.isExtern;
 			result.isVolatile = typeExpr.isVolatile;
+			result.arrayPointerDepth = typeExpr.arrayPointerDepth;
 			result.line = typeExpr.line;
 			result.col = typeExpr.col;
 			return result;

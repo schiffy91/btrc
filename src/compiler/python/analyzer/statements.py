@@ -1366,7 +1366,7 @@ class StatementAnalyzer:
             elif isinstance(declaration, InterfaceDecl):
                 self._validate_interface_declaration_types(declaration)
             elif isinstance(declaration, StructDecl) and (not declaration.is_forward):
-                for field in declaration.fields:
+                for field in self.types.record_fields(declaration):
                     self.types.validate_declared_type(
                         field.type,
                         f"Struct field '{declaration.name}.{field.name}'",

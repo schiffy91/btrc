@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from src.compiler.python.analyzer.program import (
     STRING_CONSTANT_NODES,
-    AnalysisContext,
     AnalysisSession,
     DeclarationIndex,
 )
@@ -148,7 +147,7 @@ class InitializerAnalyzer:
 
     _BRACE_SEQUENCE_COLLECTIONS = frozenset({"Array", "List", "Set", "Vector"})
 
-    def __init__(self, context: AnalysisContext, index: DeclarationIndex, types: InitializerTypeLayout) -> None:
+    def __init__(self, context: AnalysisSession, index: DeclarationIndex, types: InitializerTypeLayout) -> None:
         self.context = context
         self.index = index
         self.types = types
@@ -184,30 +183,39 @@ class InitializerAnalyzer:
         if declaration is not None and (not declaration.is_forward):
             if initializer.elements and getattr(declaration.source_file, "private_fields", False):
                 self.context.error("Native records with private fields cannot use positional initialization", line, col)
-            for field, element in zip(declaration.fields, initializer.elements):
+            plan = TypeSystem.plan_initializer_slots(declaration, initializer, self.index)
+            self.context.initializer_slot_plans[id(initializer)] = plan
+            for slot in plan.slots:
                 steps.append(
                     InitializerArrayFieldCheck(
-                        field,
-                        element,
-                        f"Field '{field.name}'",
-                        getattr(element, "line", line),
-                        getattr(element, "col", col),
+                        slot.member,
+                        slot.element,
+                        f"Field '{slot.member.name}'",
+                        getattr(slot.element, "line", line),
+                        getattr(slot.element, "col", col),
                     )
                 )
-            fields = [(field.name, self.types.array_field_value(field)) for field in declaration.fields]
+            slots = [(slot.element, slot.member.name, self.types.array_field_value(slot.member)) for slot in plan.slots]
+            capacity = plan.capacity
+            excess = plan.excess
             aggregate_name = f"struct '{struct_name}'"
         elif canonical.base == "Tuple":
-            fields = [(f"_{index}", argument) for index, argument in enumerate(canonical.generic_args)]
+            slots = [
+                (element, f"_{index}", argument)
+                for index, (element, argument) in enumerate(zip(initializer.elements, canonical.generic_args))
+            ]
+            capacity = len(canonical.generic_args)
+            excess = max(len(initializer.elements) - capacity, 0)
             aggregate_name = f"tuple '{self.types.format(canonical)}'"
         else:
             return InitializerPlan(False)
-        if len(initializer.elements) > len(fields):
+        if excess:
             self.context.error(
-                f"{subject} has {len(initializer.elements)} initializer elements but {aggregate_name} has {len(fields)} fields",
+                f"{subject} has {len(initializer.elements)} initializer elements but {aggregate_name} has {capacity} fields",
                 line,
                 col,
             )
-        for element, (field_name, field_type) in zip(initializer.elements, fields):
+        for element, field_name, field_type in slots:
             element_line = getattr(element, "line", line)
             element_col = getattr(element, "col", col)
             steps.append(
@@ -372,7 +380,7 @@ class AggregateAnalyzer:
         declaration = self.index.struct_table.get(struct_name)
         if declaration is None:
             return False
-        if not any(field.name == expression.field for field in declaration.fields):
+        if TypeSystem.record_member(declaration, expression.field) is None:
             self.session.error(
                 f"Struct '{struct_name}' has no field '{expression.field}'", expression.line, expression.col
             )
@@ -393,7 +401,7 @@ class AggregateAnalyzer:
         if isinstance(declaration, StructDecl) and (not declaration.is_forward):
             owners[declaration.name] = declaration
             graph[declaration.name] = set()
-            for field in declaration.fields:
+            for field in TypeSystem.record_fields(declaration):
                 subject = f"Struct field '{declaration.name}.{field.name}'"
                 self.validate_complete_aggregate_use(field.type, subject, field.line, field.col)
                 graph[declaration.name].update(self._value_aggregate_names(field.type))
@@ -748,14 +756,14 @@ class AggregateAnalyzer:
         canonical = self.types.canonical_type(type_expr)
         if canonical is None or canonical.base not in {"Array", "Vector"} or len(canonical.generic_args) != 1:
             return False
-        declaration = self.index.class_table.get(canonical.base)
-        if declaration is None or len(declaration.generic_params) != 1:
+        class_info = self.index.class_table.get(canonical.base)
+        if class_info is None or len(class_info.generic_params) != 1:
             return False
-        data = declaration.fields.get("data")
-        length = declaration.fields.get("len")
+        data = class_info.fields.get("data")
+        length = class_info.fields.get("len")
         if data is None or length is None:
             return False
-        substitutions = dict(zip(declaration.generic_params, canonical.generic_args))
+        substitutions = dict(zip(class_info.generic_params, canonical.generic_args))
         data_type = self.types.substitute_type(data.type, substitutions)
         length_type = self.types.substitute_type(length.type, substitutions)
         expected_data = self.types.add_outer_pointer(canonical.generic_args[0])
@@ -822,7 +830,7 @@ class AggregateAnalyzer:
         struct_name = receiver.base.removeprefix("struct ")
         structure = self.index.struct_table.get(struct_name)
         if structure is not None:
-            member = next((field for field in structure.fields if field.name == target.field), None)
+            member = TypeSystem.record_member(structure, target.field)
             if member is not None:
                 return (member, "struct-field")
         return (None, None)

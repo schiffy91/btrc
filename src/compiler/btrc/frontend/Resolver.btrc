@@ -317,6 +317,7 @@ class FeLexFailure {
 class FeConditionalEnvironment {
 	private string operatingSystem;
 	private string architecture;
+	private string environment;
 	private SourceMacroRules macroRules;
 	private GeneratedHostedAbiData data;
 	/* Every package -D name of the resolved graph, with its package. */
@@ -324,20 +325,24 @@ class FeConditionalEnvironment {
 	private Map<string, long long>? selectedValues = null;
 	private Map<string, bool>? targetNames = null;
 
-	public FeConditionalEnvironment(string operatingSystem, string architecture, SourceMacroRules macroRules, GeneratedHostedAbiData data, Map<string, string> packageDefines) {
+	public FeConditionalEnvironment(string operatingSystem, string architecture, string environment, SourceMacroRules macroRules, GeneratedHostedAbiData data, Map<string, string> packageDefines) {
 		self.operatingSystem = operatingSystem;
 		self.architecture = architecture;
+		self.environment = environment;
 		self.macroRules = macroRules;
 		self.data = data;
 		self.packageDefines = packageDefines;
 	}
 
-	/* The macro-name rules for a vocabulary, the hosted ABI's owned names
-	 * and the spec's foreign macro names. */
+	/* The macro-name rules for a vocabulary, the hosted ABI's owned names,
+	 * the spec's foreign macro names and its predefined-macro names. */
 	class SourceMacroRules macroRulesFor(TokenVocabulary vocabulary, Map<string, bool> hostedNames, GeneratedHostedAbiData data) {
 		Map<string, bool> foreign = {};
 		for name in data.foreignMacroNames() { foreign.put(name, true); }
-		return SourceMacroRules(vocabulary, hostedNames, foreign);
+		Map<string, bool> predefined = {};
+		/* The names alone: a compile with no #if never builds the rows. */
+		for name in data.predefinedMacroNames() { predefined.put(name, true); }
+		return SourceMacroRules(vocabulary, hostedNames, foreign, predefined);
 	}
 
 	/* The resolved target, with every package -D name of the graph foreign. */
@@ -355,7 +360,7 @@ class FeConditionalEnvironment {
 				if (item.kind == "define" && !defines.has(item.value)) { defines.put(item.value, item.packageName); }
 			}
 		}
-		return FeConditionalEnvironment(plan.target.operatingSystem, plan.target.architecture, macroRules, data, defines);
+		return FeConditionalEnvironment(plan.target.operatingSystem, plan.target.architecture, plan.target.environment, macroRules, data, defines);
 	}
 
 	/* The packages' target, else the host's, with the generated hosted-ABI
@@ -368,7 +373,7 @@ class FeConditionalEnvironment {
 		if (packages != null) { return FeConditionalEnvironment.forPackages(packages, rules, data); }
 		FePackageTarget host = FePackageTarget.host();
 		Map<string, string> none = {};
-		return FeConditionalEnvironment(host.operatingSystem, host.architecture, rules, data, none);
+		return FeConditionalEnvironment(host.operatingSystem, host.architecture, host.environment, rules, data, none);
 	}
 
 	class int compareNames(Vector<string> left, Vector<string> right) {
@@ -405,7 +410,7 @@ class FeConditionalEnvironment {
 		Vector<FeConditionalEnvironment> result = [];
 		for row in self.data.targetRows() {
 			Map<string, string> none = {};
-			result.push(FeConditionalEnvironment(row.operatingSystem, row.architecture, self.macroRules, self.data, none));
+			result.push(FeConditionalEnvironment(row.operatingSystem, row.architecture, row.environment, self.macroRules, self.data, none));
 		}
 		return result;
 	}
@@ -414,7 +419,7 @@ class FeConditionalEnvironment {
 
 	public bool hasTarget() { return !self.operatingSystem.isEmpty() && !self.architecture.isEmpty(); }
 
-	public string label() { return self.hasTarget() ? self.operatingSystem + "-" + self.architecture : ""; }
+	public string label() { return self.hasTarget() ? FePackageTarget(self.operatingSystem, self.architecture, self.environment).label() : ""; }
 
 	private bool rowSelects(Vector<string> values, string value) { return values.len == 0 || values.contains(value); }
 
@@ -424,7 +429,7 @@ class FeConditionalEnvironment {
 		Map<string, long long> values = {};
 		if (self.hasTarget()) {
 			for row in self.data.predefinedMacroRows() {
-				if (self.rowSelects(row.operatingSystems, self.operatingSystem) && self.rowSelects(row.architectures, self.architecture)) { values.put(row.name, row.value); }
+				if (self.rowSelects(row.operatingSystems, self.operatingSystem) && self.rowSelects(row.architectures, self.architecture) && self.rowSelects(row.environments, self.environment)) { values.put(row.name, row.value); }
 			}
 		}
 		self.selectedValues = values;

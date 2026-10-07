@@ -989,6 +989,9 @@ class BtrcFormatter:
         if current.text == "(":
             if previous.text in SourceView._CONTROL_WORDS or previous.text in {"return", "throw"}:
                 return True
+            if previous.text == ";":
+                # A `for` header clause that opens with a parenthesis keeps its space.
+                return True
             if previous.text in BtrcFormatter._ALWAYS_BINARY_OPERATORS:
                 return True
             if previous.text in BtrcFormatter._AMBIGUOUS_PREFIX_OPERATORS:

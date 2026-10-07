@@ -9,11 +9,28 @@ class TypeShape {
 
 	class Node copyWithArguments(Node typeExpr, Vector<Node> genericArgs) {
 		Node result = TypeShape.copyWithoutArraySize(typeExpr, genericArgs);
-		result.arraySize = typeExpr.arraySize;
+		TypeShape.copyArrayExtents(result, typeExpr);
 		return result;
 	}
 
-	/* Everything but the fixed array bound, which a fresh Node leaves null. */
+	/* Copy `source`'s outermost array bound and its inner extents (r17) onto
+	 * `target`. The extents are copied only when written: a reader's shared
+	 * empty list is never stored in a field, and an unwritten list costs no
+	 * store. Inner extents travel with the outer bound, replacing any `target`
+	 * had, so every copy that sets `arraySize` goes through here. */
+	class void copyArrayExtents(Node target, Node source) {
+		target.arraySize = source.arraySize;
+		if (source.elementsStorage != null) {
+			Vector<Node> extents = [];
+			for extent in source.elementsStorage { extents.push(extent); }
+			target.elementsStorage = extents;
+		} else if (target.elementsStorage != null) {
+			target.elementsStorage = null;
+		}
+	}
+
+	/* Everything but the fixed array extents, which a fresh Node leaves
+	 * unset. */
 	class Node copyWithoutArraySize(Node typeExpr, Vector<Node> genericArgs) {
 		Node result = Node();
 		result.kind = NK_TYPE_EXPR;
@@ -27,6 +44,7 @@ class TypeShape {
 		result.isStatic = typeExpr.isStatic;
 		result.isExtern = typeExpr.isExtern;
 		result.isVolatile = typeExpr.isVolatile;
+		result.arrayPointerDepth = typeExpr.arrayPointerDepth;
 		result.line = typeExpr.line;
 		result.col = typeExpr.col;
 		return result;
@@ -47,7 +65,7 @@ class TypeShape {
 	class Node withoutOuterArray(Node typeExpr) {
 		Node result = TypeShape.copyWithoutArraySize(typeExpr, typeExpr.genericArgs());
 		if (!result.isArray) {
-			result.arraySize = typeExpr.arraySize;
+			TypeShape.copyArrayExtents(result, typeExpr);
 		} else {
 			result.isArray = false;
 			if (typeExpr.nullableOuterDepth > 0) {
@@ -130,7 +148,7 @@ class TypeComposition {
 		result.pointerDepth = resolved.pointerDepth + appliedPointerDepth;
 		result.isArray = applied.isArray || resolved.isArray;
 		if (applied.arraySize != null) {
-			result.arraySize = applied.arraySize;
+			TypeShape.copyArrayExtents(result, applied);
 		}
 		result.isConst = applied.isConst || resolved.isConst;
 		result.isNullable = applied.isNullable || resolved.isNullable;

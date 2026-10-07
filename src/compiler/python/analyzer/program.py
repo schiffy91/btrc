@@ -387,6 +387,44 @@ class DeclarationIndex:
     definition_index: dict[str, tuple[object, str]] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class InitializerSlot:
+    """Where one brace element of a record initializer lands (C11 6.7.9p17).
+
+    ``path`` is the member path from a direct member of the current record,
+    through any anonymous members, to the initialized member; a designator
+    chain may continue it through nested records' members and through array
+    elements, whose step is the ``IndexDesignator`` itself. ``type`` is the
+    declared type of the initialized object, or ``None`` for an anonymous
+    member, which takes its own braces.
+    """
+
+    element: object
+    path: tuple
+    type: TypeExpr | None
+
+    @property
+    def member(self):
+        """The initialized member: a ``FieldDef`` or an ``AnonymousMember``."""
+        return self.path[-1]
+
+
+@dataclass(frozen=True)
+class InitializerSlotPlan:
+    """Every brace element of one record initializer mapped to its slot.
+
+    ``slots`` follow source order. ``capacity`` is the number of positional
+    slots the record offers, and ``excess`` counts elements that found no
+    slot (positional elements past the last member, or a designator that
+    names no member).
+    """
+
+    initializer: object
+    slots: tuple[InitializerSlot, ...]
+    capacity: int
+    excess: int
+
+
 @dataclass
 class AnalyzedProgram:
     program: Program
@@ -421,6 +459,7 @@ class AnalyzedProgram:
     rich_enum_unsafe_default_ids: set[int] = field(default_factory=set)
     array_iteration_capacity_ids: set[int] = field(default_factory=set)
     constant_array_bound_ids: set[int] = field(default_factory=set)
+    initializer_slot_plans: dict[int, InitializerSlotPlan] = field(default_factory=dict)
     source_macros: SourceMacroNamespace = field(default_factory=SourceMacroNamespace.empty)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -474,6 +513,7 @@ class AnalysisSession(AnalysisContext):
         self._analyzed_array_bounds: set[int] = set()
         self._array_bound_values: dict[int, int] = {}
         self.constant_array_bound_ids: set[int] = set()
+        self.initializer_slot_plans: dict[int, InitializerSlotPlan] = {}
         self.array_iteration_capacity_ids: set[int] = set()
         self.realtime_bounded_loop_ids: set[int] = set()
         self._nonnull_paths: set = set()
@@ -504,6 +544,7 @@ class AnalysisSession(AnalysisContext):
         self._analyzed_array_bounds = set()
         self._array_bound_values = {}
         self.constant_array_bound_ids = set()
+        self.initializer_slot_plans = {}
         self.rich_enum_unsafe_default_ids = set()
         self.generic_resolved_type_facts = []
         self.lambda_body_facts = {}

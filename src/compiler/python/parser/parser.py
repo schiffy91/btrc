@@ -919,7 +919,14 @@ class Parser:
         """The type every declarator of a declaration starts from: ``type_expr``
         as parsed before its first declarator, without the ``*``s that bind to
         that declarator. A copy, so the first declarator may reshape its own."""
-        return dataclasses.replace(type_expr, pointer_depth=0, array_size=None, nullable_outer_depth=0)
+        return dataclasses.replace(
+            type_expr,
+            pointer_depth=0,
+            array_size=None,
+            elements=[],
+            nullable_outer_depth=0,
+            array_pointer_depth=0,
+        )
 
     def _refuse_var_declarators(self) -> None:
         """``var`` infers one variable's type from its one initializer."""

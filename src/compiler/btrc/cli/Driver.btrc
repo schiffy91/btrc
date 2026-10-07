@@ -185,6 +185,7 @@ class BtrccRuntimePaths {
 
 class BtrccCommandLine {
 	private Vector<string> arguments;
+	private bool targetRepeated = false;
 
 	public BtrccCommandLine(int argc, char** argv) {
 		self.arguments = [];
@@ -199,7 +200,26 @@ class BtrccCommandLine {
 
 	public string argument(int index) { return self.arguments.get(index); }
 
-	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--emit-units PREFIX [--module-units [--jobs N]]] [--emit-ir | --emit-optimized-ir] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
+	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH[-ENV]] " + "[--emit-link-plan PATH] [--emit-units PREFIX [--module-units [--jobs N]]] [--emit-ir | --emit-optimized-ir] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve.\n" + "--target compiles for one of " + Strings.join(FePackageTarget.labels(), ", ") + " (x64 and arm64 are accepted architecture aliases; default: this host)."; }
+
+	/* Select the target after the argument errors and before any input is
+	 * read: the canonical label --target names, else the host's. Returns
+	 * the shared target message, or "" with options.target canonical. */
+	public string selectTarget(BtrccOptions options) {
+		if (self.targetRepeated) { return "--target may be specified only once"; }
+		if (!options.targetGiven) {
+			FePackageTarget host = FePackageTarget.host();
+			if (!host.known()) { return FePackageTarget.unknownHostMessage(); }
+			options.target = host.label();
+			return "";
+		}
+		try {
+			options.target = FePackageTarget.parse(options.target).label();
+		} catch (string error) {
+			return error;
+		}
+		return "";
+	}
 
 	private BtrccOptions invalid(BtrccOptions options, string diagnostic) {
 		options.valid = false;
@@ -235,13 +255,14 @@ class BtrccCommandLine {
 			} else if (option.equals("--stdlib-dir")) {
 				options.showStdlibDirectory = true;
 			} else if (option.equals("--target")) {
-				if (!options.target.isEmpty()) {
-					return self.invalid(options, "--target may be specified only once");
-				}
 				index++;
 				if (index >= self.arguments.len) {
-					return self.invalid(options, "--target requires OS-ARCH");
+					return self.invalid(options, "--target requires OS-ARCH[-ENV]");
 				}
+				/* A repeat is a target error, refused after the argument
+				 * errors as in the reference CLI, whatever the first value. */
+				if (options.targetGiven) { self.targetRepeated = true; }
+				options.targetGiven = true;
 				options.target = self.arguments.get(index);
 			} else if (option.equals("--emit-link-plan")) {
 				if (!options.linkPlanPath.isEmpty()) {
@@ -1899,6 +1920,13 @@ class BtrccDriver {
 		}
 		if (options.showHelp) {
 			return self.writeLine(self.commandLine.usage());
+		}
+		if (!options.showStdlibDirectory) {
+			string targetDiagnostic = self.commandLine.selectTarget(options);
+			if (!targetDiagnostic.isEmpty()) {
+				fprintf(stderr, "error: %s\n", targetDiagnostic);
+				return 1;
+			}
 		}
 
 		BtrccRuntimePaths runtimePaths = BtrccRuntimePaths(self.commandLine.executable());

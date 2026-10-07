@@ -1237,17 +1237,18 @@ def test_the_tracked_denominators_match_their_sources():
 
 
 SEED = "docs/design/native-ui-catalog.toml"
+FAMILIES = "docs/design/native-ui-catalog/families.toml"
 
 
 def _frozen_copy(tmp_path: Path, *, drop: str | None = None, rewrite=None) -> Path:
-    """The tracked manifest re-rooted at `tmp_path`, with one seed id's records dropped or a frozen value edited."""
+    """The tracked manifest re-rooted at `tmp_path`, with one UI ledger id's records dropped or a frozen value edited."""
 
     from tools.qualification.denominators import MANIFEST, REPO
 
-    for document in ("docs/design/native-ui-parity.md", SEED, "docs/design/platform-inventory.toml"):
+    for document in ("docs/design/native-ui-parity.md", SEED, FAMILIES, "docs/design/platform-inventory.toml"):
         text = (REPO / document).read_text(encoding="utf-8")
-        if drop is not None and document == SEED:
-            # The seed is one blank-line-separated `[[records]]` table per slot.
+        if drop is not None and document in (SEED, FAMILIES):
+            # Both ledgers are one blank-line-separated `[[records]]` table per slot.
             text = "\n\n".join(block for block in text.split("\n\n") if f'id = "{drop}",' not in block)
         (tmp_path / document).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / document).write_text(text, encoding="utf-8")
@@ -1279,14 +1280,20 @@ def test_a_shrunken_source_or_a_lowered_freeze_fails_the_denominator_check(tmp_p
         tmp_path, rewrite=lambda text: text.replace("ids = 47\nslots = 470", "ids = 46\nslots = 460")
     )
     assert "its source yields 47 ids, frozen at 46" in DenominatorManifest.load(lowered, repo=tmp_path).drift()[0]
+    families = _frozen_copy(tmp_path, drop="N60")
+    assert DenominatorManifest.load(families, repo=tmp_path).drift() == [
+        "family-cell denominator (release ui0-source-inventory-2026-09-21): its source yields 59 ids, frozen at 60"
+    ]
     renamed = _frozen_copy(tmp_path)
     seed = tmp_path / SEED
     seed.write_text(seed.read_text(encoding="utf-8").replace('id = "E47",', 'id = "E48",'), encoding="utf-8")
     assert "different ids than the frozen sha256" in DenominatorManifest.load(renamed, repo=tmp_path).drift()[0]
-    # The Markdown checklists no longer feed the frozen operation and case ids.
+    # The Markdown checklists no longer feed the frozen operation, case and family ids.
     unaffected = _frozen_copy(tmp_path)
     roadmap = tmp_path / "docs/design/native-ui-parity.md"
-    roadmap.write_text(roadmap.read_text(encoding="utf-8").replace("| E47 —", "| E48 —"), encoding="utf-8")
+    text = roadmap.read_text(encoding="utf-8")
+    assert "| E47 —" in text and "| N60 —" in text
+    roadmap.write_text(text.replace("| E47 —", "| E48 —").replace("| N60 —", "| N61 —"), encoding="utf-8")
     assert DenominatorManifest.load(unaffected, repo=tmp_path).drift() == []
     miscounted = _frozen_copy(tmp_path, rewrite=lambda text: text.replace("slots = 470", "slots = 47"))
     assert (
@@ -1297,6 +1304,7 @@ def test_a_shrunken_source_or_a_lowered_freeze_fails_the_denominator_check(tmp_p
     assert QualificationCommand().run(["denominators"]) == 0
     output = capsys.readouterr().out
     assert f"ui-case: 47 ids from {SEED}" in output and f"ui-operation: 162 ids from {SEED}" in output
+    assert f"family-cell: 60 ids from {FAMILIES} (frozen 60 in ui0-source-inventory-2026-09-21), 300 slots" in output
 
 
 def _release(release: str, ids: list[str], platforms: list[str], frontends: list[str]) -> str:
@@ -1736,12 +1744,17 @@ def test_ingest_keeps_raw_inputs_and_report_reads_every_ledger(tmp_path: Path, c
     assert all(record.evidence is None or record.evidence.artifact.startswith(str(store.root)) for record in records)
     capsys.readouterr()
 
-    assert QualificationCommand(store).run(["report", "--all-ledgers", "--format", "json"]) == 0
+    assert QualificationCommand(store).run(["report", "--no-ui-catalog", "--all-ledgers", "--format", "json"]) == 0
     rendered = json.loads(capsys.readouterr().out)
     assert {row["kind"]: row["slots"] for row in rendered["evidence"]} == {"scenario": 20, "test": 7}
     with pytest.raises(QualificationStoreError, match="run id"):
         store.ledger_path("../escape")
-    assert QualificationCommand(store).run(["report", "--budget", "noop:p50<=3", "--budget-bench", str(bench)]) == 2
+    assert (
+        QualificationCommand(store).run(
+            ["report", "--no-ui-catalog", "--budget", "noop:p50<=3", "--budget-bench", str(bench)]
+        )
+        == 2
+    )
 
 
 def test_the_report_command_fails_on_missing_frozen_slots_and_relabelled_runs(tmp_path: Path, capsys):
@@ -1753,9 +1766,17 @@ def test_the_report_command_fails_on_missing_frozen_slots_and_relabelled_runs(tm
     bench.write_text(json.dumps({"provenance": {**BENCH_HOST, "frontend": "selfhost"}, "scenarios": QUICK_BENCH}))
     budgets = ["--budget", "cold-transpile:median<=45", "--budget", "memory:max<=3758096384"]
 
-    assert QualificationCommand(store).run(["report", "--budget-bench", str(bench), *budgets]) == 0
+    assert QualificationCommand(store).run(["report", "--no-ui-catalog", "--budget-bench", str(bench), *budgets]) == 0
     assert "| cold-transpile | macos | selfhost | - | wall-time | s | 5 | 43.574 |" in capsys.readouterr().out
-    assert QualificationCommand(store).run(["report", "--budget-bench", str(bench), "--denominators"]) == 1
+    assert (
+        QualificationCommand(store).run(["report", "--no-ui-catalog", "--budget-bench", str(bench), "--denominators"])
+        == 1
+    )
     assert "family-cell: 300 of 300 declared slots have no record" in capsys.readouterr().err
-    assert QualificationCommand(store).run(["report", "--budget-bench", str(bench), "--frontend", "reference"]) == 2
+    assert (
+        QualificationCommand(store).run(
+            ["report", "--no-ui-catalog", "--budget-bench", str(bench), "--frontend", "reference"]
+        )
+        == 2
+    )
     assert "the run measured the selfhost frontend, not reference" in capsys.readouterr().err

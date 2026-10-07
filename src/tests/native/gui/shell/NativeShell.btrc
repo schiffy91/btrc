@@ -1,0 +1,221 @@
+/* One portable application; only test injection/observation uses ShellProbe.
+ * E01 Enter has no commit subscription yet. E46 dirty close is deliberately
+ * observed as missing, not implemented by the fixture. */
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IButton;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.IScrollView;
+import Library.GUI.IGPUView;
+import Library.GUI.IContainer;
+import Library.GPU.GPUReadback;
+import Library.Callback;
+import Library.GUI.IView;
+import Library.Vector;
+import Library.Timer;
+
+#include <assert.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+class ShellAction implements IButtonAction {
+	private char* _directory;
+	private int _sequence;
+	public int count = 0;
+	public ShellAction(char* directory, int sequence) { self._directory = directory; self._sequence = sequence; }
+
+	public void invoke() { self.count++; if (self._directory != null) { shellStateCommit(self._directory, self._sequence); } }
+}
+
+class ShellJourney implements IApplicationWork {
+	private IWindow _window;
+	private ITextField _field;
+	private IScrollView _scroll;
+	private IGPUView _gpu;
+	private ShellAction _action;
+	private Timer _deadline = Timer();
+	private int _step = 0;
+	private bool _restore;
+	private GPUReadback? _readback;
+	public bool done = false;
+	public bool frame = false;
+	public double anchor = 0.0;
+	public string draft = "";
+
+	public ShellJourney(IWindow window, ITextField field, IScrollView scroll, IGPUView gpu, ShellAction action, bool restore) {
+		self._window = window; self._field = field; self._scroll = scroll; self._gpu = gpu; self._action = action;
+		self._restore = restore;
+		self._deadline.start();
+	}
+
+	/* Injected input reaches the provider on a later event-loop turn, and on a
+	 * display shared by parallel test workers that can take longer than one
+	 * 10 ms tick. A step whose input has not landed yet runs again on the next
+	 * tick, until the journey's 15 s input budget is spent; then it asserts. */
+	private bool pending(bool landed) {
+		if (landed || self._deadline.elapsed() >= 15.0f) { return false; }
+		GUI.postAfter(0.01, self);
+		return true;
+	}
+
+	public void run() {
+		assert(self._deadline.elapsed() < 20.0f);
+		if (self._restore) {
+			if (self._step < 2) {
+				if (self._step == 0) { shellProbeObserve(); }
+				/* Read the live controls on two event-loop turns, with the
+				 * real button action registered against the side-effect journal. */
+				assert(self._field.text().equals((string)shellStateDraft()));
+				assert(self._scroll.scrollOffset() == shellStateAnchor());
+				assert(self._action.count == 0);
+				self.draft = self._field.text();
+				self.anchor = self._scroll.scrollOffset();
+				if (self._step == 1) { shellProbeClose(); }
+				self._step++;
+				GUI.postAfter(0.01, self);
+			} else {
+				/* A posted native close may be consumed after a scheduled
+				 * application callback. The journey's deadline bounds teardown. */
+				if (self._window.isOpen()) { GUI.postAfter(0.01, self); return; }
+				assert(self._action.count == 0);
+				self.done = true;
+				GUI.requestQuit();
+			}
+			return;
+		}
+		if (self._step == 0) {
+			shellProbeObserve();
+			shellProbeClick(70.0, 30.0);
+		} else if (self._step == 1) {
+			if (self.pending(shellProbeFocus() == 1)) { return; }
+			assert(shellProbeFocus() == 1);
+			shellProbeTab();
+		} else if (self._step == 2) {
+			/* The next packet classifies provider-specific Tab traversal;
+			 * the probe reports the actual responder after a real key. */
+			shellProbeDump();
+			shellProbeClick(70.0, 30.0);
+		} else if (self._step == 3) {
+			shellProbeText();
+			shellProbeEnter();
+		} else if (self._step == 4) {
+			if (self.pending(self._field.text().equals("draft"))) { return; }
+			assert(self._field.text().equals("draft"));
+			shellProbeClick(320.0, 30.0);
+		} else if (self._step == 5) {
+			/* Wait for the click, then require exactly one action. */
+			if (self.pending(self._action.count >= 1)) { return; }
+			assert(self._action.count == 1);
+			if (getenv("BTRC_UI_SHELL_NO_SCROLL") != null) { self._scroll.scrollTo(120.0); }
+			else { shellProbeScroll(); }
+		} else if (self._step == 6) {
+			if (self.pending(self._scroll.scrollOffset() > 0.0)) { return; }
+			assert(self._scroll.scrollOffset() > 0.0);
+			self.anchor = self._scroll.scrollOffset();
+			self.draft = self._field.text();
+		} else if (self._step == 7) {
+			if (!self._gpu.poll()) {
+				if (self._gpu.error().isEmpty() && self._deadline.elapsed() < 10.0f) { GUI.postAfter(0.01, self); return; }
+				print("GPU: not-ready");
+			} else {
+				if (self._readback == null) {
+					if (self._gpu.beginFrame(0.0, 0.5, 1.0) != GPU_SURFACE_FRAME_READY) { GUI.postAfter(0.01, self); return; }
+					self._readback = self._gpu.readback();
+					var readback = self._readback;
+					assert(readback != null && readback.submit());
+				}
+				var readback = self._readback;
+				if (readback == null) { throw "Missing GPU readback"; }
+				readback.poll();
+				if (readback.state() != GPU_READBACK_READY) { GUI.postAfter(0.01, self); return; }
+				var pixels = readback.takeImage();
+				var pixel = pixels.pixel(0, 0);
+				assert(pixel.red == 0 && pixel.green >= 127 && pixel.green <= 128 && pixel.blue == 255);
+				self.frame = true;
+			}
+		} else if (self._step == 8) {
+			/* Dirty draft remains present when the native close arrives. */
+			assert(self._field.text().equals("draft"));
+			shellProbeClose();
+		} else {
+			/* The native close, like injected input, can land after the next
+			 * tick (weston under the sanitizers); wait within the budget. */
+			if (self.pending(!self._window.isOpen())) { return; }
+			assert(!self._window.isOpen());
+			self.done = true;
+			GUI.requestQuit();
+			return;
+		}
+		self._step++;
+		GUI.postAfter(0.01, self);
+	}
+}
+
+int main(int argc, char** argv) {
+	bool restore = argc == 3 && strcmp(argv[2], "restore") == 0;
+	if (restore) { shellStateLoad(argv[1]); }
+	int cycles = restore ? 1 : (argc > 1 ? atoi(argv[1]) : 100);
+	assert(cycles > 0 && cycles <= 100);
+	int frames = 0;
+	int nativeHandles = 0;
+	int privateHandles = 0;
+	int liveRegistrations = 0;
+	for (int cycle = 0; cycle < cycles; cycle++) {
+		GUI.initialize();
+		var window = GUI.createWindow("BTRC native shell", 480.0, 360.0);
+		var root = GUI.createContainer();
+		var field = GUI.createTextField("", "Draft");
+		var button = GUI.createButton("Commit");
+		var scroll = GUI.createScrollView();
+		var gpu = GUI.createGPUView(true);
+		root.attach(field); root.attach(button); root.attach(scroll); root.attach(gpu);
+		window.attachRoot(root);
+		field.arrange(20.0, 16.0, 200.0, field.fittingHeight());
+		button.arrange(260.0, 16.0, 120.0, button.fittingHeight());
+		scroll.arrange(20.0, 80.0, 200.0, 240.0);
+		scroll.setContentSize(200.0, 1200.0);
+		var labels = new Vector<IView>();
+		for (int row = 0; row < 50; row++) {
+			var label = GUI.createLabel(f"Row {row}");
+			scroll.attach(label);
+			labels.push(label);
+			label.arrange(0.0, (double)row * 24.0, 180.0, 24.0);
+		}
+		gpu.arrange(250.0, 80.0, 200.0, 200.0);
+		var action = ShellAction(restore ? argv[1] : (argc == 3 ? argv[2] : null), cycle + 1);
+		var scope = CallbackScope();
+		var registration = button.onAction(action, scope);
+		if (restore) {
+			field.setText((string)shellStateDraft());
+			scroll.scrollTo(shellStateAnchor());
+		}
+		window.show();
+		var journey = ShellJourney(window, field, scroll, gpu, action, restore);
+		GUI.post(journey);
+		GUI.run();
+		assert(journey.done && !window.isOpen() && !root.isOpen() && !field.isOpen() && !gpu.isOpen());
+		for label in labels { assert(!label.isOpen()); }
+		assert(!button.isOpen() && !scroll.isOpen());
+		liveRegistrations = registration.isOpen() ? 1 : 0;
+		assert(liveRegistrations == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE);
+		shellProbeDrain();
+		nativeHandles = shellProbeNativeCount();
+		privateHandles = shellProbePrivateCount();
+		printf("SHELL teardown provider=%d private=%d registrations=%d\n", nativeHandles, privateHandles, liveRegistrations);
+		fflush(stdout);
+		assert(nativeHandles == 0);
+		if (journey.frame) { frames++; }
+		if (!restore && argc == 3) { shellStateCheckpoint(argv[2], (char*)journey.draft, journey.anchor, cycle + 1); }
+		if (restore) {
+			printf("RESTORE draft=%s anchor=%.0f commits=%d actions=%d\n", (char*)journey.draft, journey.anchor, shellStateCommits(), action.count);
+		} else {
+			printf("SHELL draft=%s anchor=%.0f commits=%d\n", (char*)journey.draft, journey.anchor, action.count);
+		}
+	}
+	printf("SHELL cycles=%d frames=%d native=%d private=%d registrations=%d dirty-close=missing\n", cycles, frames, nativeHandles, privateHandles, liveRegistrations);
+	return 0;
+}

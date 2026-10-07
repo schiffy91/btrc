@@ -532,6 +532,10 @@ class ModuleUnitDeclarations {
 	class void collectField(IRStructField field, Map<string, bool> out) {
 		ModuleUnitDeclarations.collectText(field.cType, out);
 		ModuleUnitDeclarations.collectNode(field.arraySize, out);
+		Vector<IRStructField>? record = field.recordFields;
+		if (record != null) {
+			for member in record { ModuleUnitDeclarations.collectField(member, out); }
+		}
 	}
 
 	/* Every name and C type an IR subtree mentions. */

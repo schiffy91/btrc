@@ -629,6 +629,22 @@ def test_declarator_lists_keep_each_declarators_pointer() -> None:
     assert formatted(source) == source
 
 
+def test_for_header_clause_opening_with_a_parenthesis_keeps_its_space() -> None:
+    # Reported from BTRSmith: `;(index < 3 …` lost the space after the first `;`.
+    source = (
+        "int main() {\n"
+        "\tint total = 0;\n"
+        "\tfor (int index = 0; (index < 3 || total == 0) && total < 10; (index++)) {\n"
+        "\t\ttotal += index;\n"
+        "\t}\n"
+        "\treturn total == 3 ? 0 : 1;\n"
+        "}\n"
+    )
+
+    assert formatted(source) == source
+    assert formatted(source.replace("; (", ";(")) == source
+
+
 def _in_main(body: str) -> str:
     return "int main() {\n\tint a = 1;\n\tint b = 1;\n\tint x = 0;\n" + body + "\treturn x;\n}\n"
 
