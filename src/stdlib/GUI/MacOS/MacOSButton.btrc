@@ -124,7 +124,8 @@ class MacOSButton implements IButton, IMacOSView {
 		bool titled = !self.title().isEmpty();
 		button.setImagePosition(titled ? NSImageLeading : NSImageOnly);
 		button.setImageHugsTitle(titled);
-		bool centered = self._explicitAlignment ? self._centered : !titled;
+		bool centered = !titled;
+		if (self._explicitAlignment) { centered = self._centered; }
 		button.setAlignment(centered ? NSTextAlignmentCenter : NSTextAlignmentLeft);
 	}
 
