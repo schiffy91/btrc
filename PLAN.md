@@ -140,6 +140,11 @@ patched source matches the reviewed draft; normal repository qualification is
 the next gate.
 The failed matrix and skip inventory remain preserved under
 `combined-06c3923a`; the candidate has no passing full result.
+The repaired candidate is frozen at `dff538ef`; its normal static checks and full
+`make test` (including serial bootstrap) are running under the gate lock. It
+reuses the fresh compiler only after confirming that its delta from `06c3923a`
+contains PLAN.md and the three audit files, with identical compiler binary hash.
+Explicit bootstrap, strict C11 and final main integration remain pending.
 The Darwin Python/libffi repair `2e8e3711` now passes the actual callback smoke,
 46 build-safety checks and upstream CFFI's 1,888 checks (161 skips, four deselected,
 four expected failures). Its four-platform package evaluation also passed;
@@ -165,7 +170,7 @@ same provider/fixture/driver bytes and its evidence report. Hosted branch and
 final combined-tree gates remain open; the repair is not yet on main. PR66's nine
 failed CI jobs in run `37652762370` never started: each has the same GitHub runner
 acquisition failure and zero executed steps. Their qualification remains missing;
-rerun only those failed jobs. Executed native Mac GUI and Linux X11/Wayland lanes
+attempt 2 now retries only those failed jobs. Executed native Mac GUI and Linux X11/Wayland lanes
 passed, along with bootstrap and the recorded successful shards.
 [PR67](https://github.com/schiffy91/btrc/pull/67) claims `CX-UIA-21`. Local source
 `ca4782e1` implements the approved 53 operations, values, facade and completion
@@ -184,7 +189,9 @@ and atomic UI2 acceptance remain outstanding.
 This register connects the goals to the next deliverable. Owners below are
 responsible roles, not claims that a builder is currently running. The October 7
 review used three read-only subagents (performance, platform/library and execution)
-plus the main integrator. Implementation assignments must also carry a live
+plus the main integrator. The October 8 implementation wave has produced the
+reviewed token-lifetime candidate `69ca0f17` and Linux scrollbar repair `6720fc0b`;
+their remaining qualification is recorded below. Implementation assignments must also carry a live
 WORKSTREAMS claim and exact base SHA. Update a row when its result or blocker
 changes; historical test totals alone do not advance its status.
 
@@ -196,7 +203,7 @@ changes; historical test totals alone do not advance its status.
 | UI2 events, executor and lifecycle on desktop | Contracts approved; local `ca4782e1` has 26 paired native/sanitizer BackgroundJobs passes and 114 catalog passes; desktop providers and atomic landing remain open | UI2 interface owner, then platform owners | Continue with the desktop providers and real UI2 probe collectors; there is no compiler prerequisite. Reconcile overlapping repairs first, then land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
 | Windows and mobile application-facing services | Fixture-host results above; complete providers not delivered | Platform slice owners | Use the per-platform checkpoints below: real Windows SDK/service operation; iOS and Android file persistence; then native button/text field/lifecycle. Each waits only for its own demonstrated ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Main `adb3276f`, compiler pin `05ec9cb7`; current requalification open | BTRSmith owner and integrator | Qualify the compiler pin and frontend/library smoke, then complete the MVP screen journeys and build/runtime budgets. Windows/mobile library completion is not a prerequisite for the macOS/Linux MVP; later platform releases remain separate outcomes. |
-| One qualified implementation on main | Integration `06c3923a` reconciles the runtime, native button repair, Apple schema/tables and plan; fresh build/static/generated/extension checks pass; full combined suite stopped with 17 failures, 17,838 passes and 168 skips; three audit repair drafts pass 186 isolated checks | Main integrator | Review bounded batches, qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
+| One qualified implementation on main | `06c3923a` stopped with 17 failures, 17,838 passes and 168 skips; its three audit repairs passed 186 isolated checks and are committed. Repaired candidate `dff538ef` is running normal static/full-suite gates | Main integrator | Qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
@@ -206,6 +213,14 @@ pass from a host fixture or create another percentage-complete denominator.
 The top-level platform table is a summary, not a substitute for those rows.
 
 ### Current performance prerequisite findings (2026-10-07)
+
+The bounded memory candidate `69ca0f17` ends lexer/parser/token-vector ownership
+after parsing while retaining the AST. Independent source review found no
+blocker, and its candidate build is active in the one permitted agent build
+slot. Emitted cleanup, runtime safety and current memory/instruction measurements
+remain unqualified. Historical retained-token attribution was 98.5 MiB; that is
+not a measured saving on this candidate and does not close the 1.5 GiB target or
+explain the outstanding Linux regression.
 
 The Stage 4 btrc close-out is already recorded; reuse the existing BTRSmith
 `stage4/pin-bump` branch at `8204b8a9` rather than repeating its rename/native-source
@@ -1068,7 +1083,7 @@ reconstruction. Independent repair units must not wait on this recovery.
 | CX-STDLIB-02 (from UIB26) | Grid and both Stack orientations invoke child layout so scroll offsets clamp after resize | Combined `0f6f3448967720480365d43980c74baf7280b7e4`; 40/40 final-source native cases | Port combined repair, wire normal driver, verify actual pixel/offset behavior and fixture discovery |
 | CX-STDLIB-03 (from UIB18) | Explicit Mac button alignment survives title/symbol updates; defaults preserved | Original `f6071c8a` unavailable; reconstructed in PR66 (`4f5c9b30`). Actual AppKit red: four failures; corrected integration `37a8ae67`: four passes through both compilers, plain/sanitized | Hosted branch checks, normal gate and final main integration remain; focused native proof and retained intermediate failure are recorded in the packet report |
 | CX-STDLIB-04 | Reject an invalid Linux grid replacement without losing the old child | Source finding: Linux detaches before validating; Mac validates/rolls back | Reproduce with an already-parented replacement; check old child identity/rendering, valid replacement, null clear and ownership cleanup; fix only after reproduction |
-| CX-STDLIB-05 | Keep scrollbar geometry valid in a tiny viewport | Source candidate: 24-point minimum thumb can exceed available track | Reproduce at small/normal sizes, overflow/non-overflow and actual pointer/pixel behavior; no executed failure or fix claimed |
+| CX-STDLIB-05 | Keep scrollbar geometry valid in a tiny viewport and at large finite content extents | Reviewed implementation `6720fc0b`; fixture-only parent `7c060d08` preserves the native red candidate. Thumb sizing/position and drag arithmetic use bounded fractions | Run the dedicated actual pixel/pointer/wheel regression through both compilers and sanitizer variants on Linux, including zero/tiny track and `1e308` content. No executed native failure/pass or main landing is claimed yet |
 
 ### Repair files and test admission
 
