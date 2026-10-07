@@ -407,6 +407,57 @@ class ExecutorProcessTests(unittest.TestCase):
 
 
 class SimulatorInventoryTests(unittest.TestCase):
+    def test_diagnostics_preserve_partial_output_and_continue_after_failure(self):
+        calls = []
+
+        def runner(command, **options):
+            calls.append(command)
+            self.assertEqual(options["timeout"], 10)
+            if command[0] == "xcrun":
+                raise subprocess.TimeoutExpired(command, 10, output=b"partial inventory", stderr=b"stalled")
+            if command[0] == "/usr/bin/vm_stat":
+                raise OSError("probe unavailable")
+            return subprocess.CompletedProcess(command, 0, stdout=b"observation", stderr=b"")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            IOSSimulatorHost(runner=runner).diagnose(output)
+            rows = json.loads((output / "commands.json").read_text())
+            self.assertEqual(len(calls), 5)
+            self.assertEqual((output / "devices.stdout").read_bytes(), b"partial inventory")
+            self.assertEqual((output / "devices.stderr").read_bytes(), b"stalled")
+            self.assertIn("TimeoutExpired", rows["devices"]["error"])
+            self.assertIn("probe unavailable", rows["memory"]["error"])
+            self.assertEqual(rows["services"]["returncode"], 0)
+            self.assertFalse(any(word in command for command in calls for word in ("boot", "shutdown", "erase")))
+
+    def test_failed_spike_retains_stage_cleanup_notes_and_diagnostic_failure(self):
+        from unittest.mock import Mock, patch
+
+        executor = Mock()
+        failure = SimulatorError("identity deadline")
+        failure.add_note("original launcher diagnostic")
+        executor.run.side_effect = failure
+        executor.close.side_effect = SimulatorError("shutdown failed")
+        executor.host.diagnose.side_effect = OSError("diagnostic disk failure")
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            with (
+                patch("tools.target_hosts.ios.spike.IOSSimulatorExecutor", return_value=executor),
+                self.assertRaises(SimulatorError) as caught,
+            ):
+                SimulatorSpike.run(output, output, device_class="iphone", mode="spawn")
+            self.assertIs(caught.exception, failure)
+            summary = json.loads((output / "iphone-spawn.json").read_text())
+            self.assertFalse(summary["complete"])
+            self.assertEqual(summary["results"], [])
+            self.assertEqual(summary["failed_stage"], "execute")
+            self.assertEqual(summary["failed_invocation"], "stdout")
+            self.assertIn("original launcher diagnostic", summary["error_notes"])
+            self.assertTrue(any("diagnostic disk failure" in note for note in summary["error_notes"]))
+            self.assertIn("shutdown failed", summary["cleanup_error"])
+            executor.close.assert_called_once()
+
     @staticmethod
     def inventory():
         return {

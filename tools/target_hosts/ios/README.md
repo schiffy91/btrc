@@ -57,6 +57,18 @@ retains its ordinary C entry point; local transport tests retain their explicitl
 branded non-iOS binaries. This small launcher does not qualify GUI or scene
 behavior. The launch repair still requires the complete hosted simulator matrix.
 
+The UIKit revision `3bd942dd` ran in
+[37560529912](https://github.com/schiffy91/btrc/actions/runs/37560529912):
+all thirteen iPhone app executions and two iPad spawn cases passed (15/50).
+Other paths failed at process-identity or app-launch deadlines, sometimes with
+simctl shutdown, terminate, uninstall or client-drain failures. These results
+do not establish a runtime incompatibility or justify longer fixture deadlines.
+On failure the spike now retains bounded read-only device, capacity, memory,
+process and CoreSimulator service-log observations, including partial output
+when a diagnostic times out. Summaries retain the failing invocation, stage
+and original exception notes alongside cleanup errors. The next native run
+must diagnose these host failures and pass the complete matrix.
+
 ## Lifetime and output protocol
 
 The host redirects stdin/stdout/stderr before publishing an atomic `process`

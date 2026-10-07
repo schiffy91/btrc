@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import subprocess
+import time
 from contextlib import suppress
 from pathlib import Path
 
@@ -165,6 +166,45 @@ class IOSSimulatorHost:
             "toolchain": version.stdout.decode().strip(),
             "evidence": "stand-in",
         }
+
+    def diagnose(self, output: Path) -> None:
+        """Retain bounded host observations without changing simulator state."""
+        output.mkdir(parents=True, exist_ok=True)
+        commands = {
+            "devices": ["xcrun", "simctl", "list", "devices", "-j"],
+            "capacity": ["/usr/sbin/sysctl", "hw.memsize", "hw.ncpu"],
+            "memory": ["/usr/bin/vm_stat"],
+            "processes": ["/bin/ps", "-axo", "pid,ppid,rss,stat,comm"],
+            "services": [
+                "/usr/bin/log",
+                "show",
+                "--last",
+                "5m",
+                "--style",
+                "compact",
+                "--predicate",
+                'process == "CoreSimulatorService" OR process == "launchd_sim" OR process == "SimulatorTrampoline"',
+            ],
+        }
+        observations = {}
+        for name, command in commands.items():
+            started = time.monotonic()
+            stdout = stderr = b""
+            row = {"command": command, "timeout_s": 10}
+            try:
+                result = self.runner(command, capture_output=True, timeout=10, check=False)
+                stdout, stderr = result.stdout, result.stderr
+                row["returncode"] = result.returncode
+            except subprocess.TimeoutExpired as error:
+                stdout, stderr = error.stdout or b"", error.stderr or b""
+                row["error"] = repr(error)
+            except Exception as error:
+                row["error"] = repr(error)
+            row["duration_s"] = time.monotonic() - started
+            (output / f"{name}.stdout").write_bytes(stdout)
+            (output / f"{name}.stderr").write_bytes(stderr)
+            observations[name] = row
+        (output / "commands.json").write_text(json.dumps(observations, indent=2) + "\n")
 
     @staticmethod
     def stop_launcher(process) -> tuple[bytes, bytes]:

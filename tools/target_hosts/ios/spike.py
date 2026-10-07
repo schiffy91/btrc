@@ -191,18 +191,26 @@ class SimulatorSpike:
         reports = []
         cases = (*cls.cases, "stdout") if mode == "app" else cls.cases
         primary_error = None
+        stage, invocation = "prepare", None
         try:
             executor.prepare(bundle, cls.target)
             for index, name in enumerate(cases):
-                result = executor.run(cls.request(name))
                 invocation = name if index < len(cls.cases) else f"{name}-repeat"
+                stage = "execute"
+                result = executor.run(cls.request(name))
+                stage = "record"
                 executor.write_result(result, output / device_class / mode / invocation)
+                stage = "validate"
                 cls.check(name, result)
                 reports.append(
                     {"fixture": name, "invocation": invocation, "passed": True, "provenance": result.provenance}
                 )
         except BaseException as error:
             primary_error = error
+            try:
+                executor.host.diagnose(output / device_class / mode / "host-diagnostics")
+            except Exception as diagnostic_error:
+                error.add_note(f"Host diagnostics also failed: {diagnostic_error!r}")
             raise
         finally:
             cleanup_error = None
@@ -219,6 +227,9 @@ class SimulatorSpike:
                 "results": reports,
                 "complete": len(reports) == len(cases) and cleanup_error is None,
                 "error": repr(primary_error) if primary_error is not None else None,
+                "error_notes": getattr(primary_error, "__notes__", []),
+                "failed_stage": stage if primary_error is not None else None,
+                "failed_invocation": invocation if primary_error is not None else None,
                 "cleanup_error": repr(cleanup_error) if cleanup_error is not None else None,
             }
             (output / f"{device_class}-{mode}.json").write_text(json.dumps(summary, indent=2) + "\n")
