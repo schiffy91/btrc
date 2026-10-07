@@ -9,6 +9,7 @@ broken image, not an absent capability."""
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -127,6 +128,46 @@ def test_wayland_session_offers_a_compositor_and_the_accessibility_bus():
     # The session stopped weston and removed its private runtime directory.
     assert _stopped(seen["socket"], seen["inode"])
     assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
+
+
+def test_wayland_session_survives_unmapped_subsurface_ordering(tmp_path):
+    _require_session_tools("weston", "cc", "pkg-config")
+    source = ROOT / "src/tests/native/gui/shell/probes/linux/UnmappedSubsurface.c"
+    executable = tmp_path / "UnmappedSubsurface"
+    flags = subprocess.run(
+        ["pkg-config", "--cflags", "--libs", "wayland-client"],
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert flags.returncode == 0, flags.stderr
+    build = subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-o",
+            str(executable),
+            *shlex.split(flags.stdout),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert build.returncode == 0, build.stderr
+    result = subprocess.run(
+        [str(SESSION), "--wayland", "--", str(executable)],
+        cwd=ROOT,
+        env=_session_environment(),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "100 unmapped subsurface cycles passed"
 
 
 def test_sessions_never_share_a_runtime_directory(tmp_path):

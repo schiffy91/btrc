@@ -20,6 +20,11 @@
       sdl3Patched = pkgs: pkgs.sdl3.overrideAttrs (old: {
         patches = (old.patches or [ ]) ++ [ ./nix/sdl3-x11-selection-requestor.patch ];
       });
+      # Weston 15.0.1 aborts when an unmapped subsurface has no views to
+      # invalidate. Backport the upstream fix without disabling assertions.
+      westonPatched = pkgs: pkgs.weston.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [ ./nix/weston-unmapped-subsurface.patch ];
+      });
       cfg = {
         name = "btrc";
         image = "btrc-devcontainer:latest";
@@ -69,7 +74,7 @@
             xvfb dbus (atSpiCore pkgs) gtk4.dev glib.dev
             (runCommand "weston-${weston.version}" { meta.mainProgram = "weston"; } ''
               mkdir -p "$out/bin"
-              ln -s ${weston}/bin/weston "$out/bin/weston"
+              ln -s ${westonPatched pkgs}/bin/weston "$out/bin/weston"
             '')
           ];
       };
