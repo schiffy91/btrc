@@ -22,5 +22,6 @@ int main() {
 	print(chain.next == null);
 	print(pair.next == null);
 	print(chain.walk(3));
+	print("PASS");
 	return 0;
 }
