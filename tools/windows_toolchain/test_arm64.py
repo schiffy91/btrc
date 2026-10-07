@@ -194,7 +194,14 @@ class Arm64EvidenceTests(unittest.TestCase):
         if sys.platform != "win32":
             self.skipTest("Windows host diagnostics require the native Job owner")
         evidence = Evidence(self.root, "zig")
-        evidence.diagnose_windows_failure()
+        try:
+            evidence.diagnose_windows_failure()
+        except RuntimeError as error:
+            self.fail(
+                f"{error}; metadata={evidence.report.get('host_diagnostics')}; "
+                f"stdout={(self.root / 'host-diagnostics.stdout').read_bytes()!r}; "
+                f"stderr={(self.root / 'host-diagnostics.stderr').read_bytes()!r}"
+            )
         report = json.loads((self.root / "host-diagnostics.stdout").read_bytes())
         self.assertEqual(report["schema"], "btrc.windows-host-diagnostics/1")
         self.assertGreater(report["capacity"]["TotalVisibleMemorySize"], 0)

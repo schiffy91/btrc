@@ -4,6 +4,19 @@ These CX-P1-03 tools separate the GNU compiler route from the MSVC GPU ABI.
 Linux can cross-build an ARM64 PE image and inspect it. Native bootstrap,
 MSVC CRT execution and wgpu callback evidence require a Windows ARM64 runner.
 
+## Current qualification
+
+Native run [37576400208](https://github.com/schiffy91/btrc/actions/runs/37576400208)
+stopped at the report regression: detached PowerShell returned success with no
+JSON, even with an encoded command. No native compiler or bootstrap was run.
+The launch gate now starts targets with `CREATE_NO_WINDOW` while the gate itself
+remains detached. Explicit standard handles and Job Object ownership are
+unchanged. Microsoft's [process creation flags](https://learn.microsoft.com/windows/win32/procthread/process-creation-flags)
+define this as console execution without a visible console window. The native
+report regression must pass before attributing the empty report to these flags
+or claiming this repair works on Windows. Local process regression coverage is
+116 passed, one native-only skip, and eight subtests under Python 3.13.
+
 ## Pinned inputs
 
 `pins.json` records the Zig 0.16.0 Windows ARM64 archive URL, size and SHA-256 from
