@@ -133,3 +133,22 @@ diagnostics and generated-source identity; a failed Windows command also
 collects read-only capacity and recent Zig/Clang/linker application crash
 events under a separate 20-second bound. Partial diagnostics and diagnostic
 failures cannot replace the original error or produce a passing report.
+
+At `347dca91`, [run 37567934632](https://github.com/schiffy91/btrc/actions/runs/37567934632)
+again passed the cross-build, native tooling and MSVC/wgpu checks. The native
+C build reached its unchanged 3,600-second deadline; no native btrcc execution
+or bootstrap occurred. Its generated C has the same hash above. Partial stderr
+contains one compiler-runtime archive command and does not identify the stalled
+phase. The diagnostic subprocess exited zero with empty stdout/stderr, leaving
+the host capacity and crash cause unobserved.
+
+The diagnostic command now uses PowerShell's documented
+[UTF-16LE `-EncodedCommand` argument](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_pwsh)
+and validates a versioned JSON report before accepting a successful diagnostic
+process. This removes multiline command quoting from the diagnostic path;
+it does not establish the cause of the empty output or the compiler timeout.
+A Windows-only regression executes the actual command through the shared Job
+owner and requires real host capacity in its report before the expensive native
+compiler step runs. Partial output and the original compiler error remain
+preserved if diagnostics fail. Native compiler/bootstrap qualification is still
+required.

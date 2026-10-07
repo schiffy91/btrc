@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -82,7 +83,7 @@ class Evidence:
     def diagnose_windows_failure(self) -> None:
         """Keep bounded, read-only crash observations without replacing the error."""
         script = """$ErrorActionPreference = 'Stop'
-$report = @{}
+$report = @{schema = 'btrc.windows-host-diagnostics/1'}
 try {
     $os = Get-CimInstance Win32_OperatingSystem
     $report.capacity = $os | Select-Object Caption, Version, OSArchitecture,
@@ -97,7 +98,10 @@ try {
 } catch { $report.events_error = $_.Exception.Message }
 $report | ConvertTo-Json -Depth 6
 """
-        command = ["pwsh", "-NoProfile", "-NonInteractive", "-Command", script]
+        # PowerShell receives one UTF-16LE encoded argument, independent of
+        # CreateProcess/CRT quoting of multiline command text.
+        encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+        command = ["pwsh", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
         result = run_process(command, cwd=ROOT, env=self.environment, timeout=20)
         (self.output / "host-diagnostics.stdout").write_bytes(result.stdout)
         (self.output / "host-diagnostics.stderr").write_bytes(result.stderr)
@@ -108,6 +112,13 @@ $report | ConvertTo-Json -Depth 6
             "error": result.error,
             "timeout_s": 20,
         }
+        if result.returncode == 0 and not result.timed_out and result.error is None:
+            try:
+                report = json.loads(result.stdout)
+            except (ValueError, UnicodeError) as error:
+                raise RuntimeError("host diagnostic did not emit a JSON report") from error
+            if not isinstance(report, dict) or report.get("schema") != "btrc.windows-host-diagnostics/1":
+                raise RuntimeError("host diagnostic emitted an invalid report")
 
     def build(self) -> Path:
         source, binary = self.output / "btrcc-windows.c", self.output / "btrcc.exe"

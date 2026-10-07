@@ -180,6 +180,25 @@ class Arm64EvidenceTests(unittest.TestCase):
         self.assertEqual(report["host_diagnostics_error"], "diagnostic failure")
         self.assertEqual(report["status"], "failed")
 
+    def test_empty_successful_diagnostic_is_not_accepted_as_host_evidence(self):
+        evidence = Evidence(self.root, "zig")
+        with (
+            patch("tools.windows_toolchain.arm64.run_process", return_value=Result(0, b"", b"", False)),
+            self.assertRaisesRegex(RuntimeError, "host diagnostic.*report"),
+        ):
+            evidence.diagnose_windows_failure()
+        self.assertEqual((self.root / "host-diagnostics.stdout").read_bytes(), b"")
+        self.assertEqual(evidence.report["host_diagnostics"]["exit_code"], 0)
+
+    def test_native_diagnostic_emits_a_host_report_through_the_actual_job(self):
+        if sys.platform != "win32":
+            self.skipTest("Windows host diagnostics require the native Job owner")
+        evidence = Evidence(self.root, "zig")
+        evidence.diagnose_windows_failure()
+        report = json.loads((self.root / "host-diagnostics.stdout").read_bytes())
+        self.assertEqual(report["schema"], "btrc.windows-host-diagnostics/1")
+        self.assertGreater(report["capacity"]["TotalVisibleMemorySize"], 0)
+
     def test_parent_exit_with_inherited_pipes_has_bounded_cleanup(self):
         child = "import time; time.sleep(60)"
         program = (
