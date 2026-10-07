@@ -50,8 +50,8 @@ issue is called complete merely because it applies without a Git conflict.
 ## Current status (2026-10-07)
 
 **Evidence boundary.** The implementation status below is a reconciliation of
-source, merge history and recorded evidence, not a fresh execution of the full
-Mac matrix. Upstream main's CI, macOS and Windows workflows are green at
+source, merge history and recorded evidence, including the partial fresh Mac
+matrix below. The earlier main CI, macOS and Windows workflows were green at
 `c011371b`: [CI](https://github.com/schiffy91/btrc/actions/runs/37507347390),
 [macOS](https://github.com/schiffy91/btrc/actions/runs/37507347352),
 [Windows](https://github.com/schiffy91/btrc/actions/runs/37507347358).
@@ -137,8 +137,16 @@ issue #16: both CLIs accept explicit `--emit-c`, preserve default output and
 link plans (including real module units), and reject conflicting dump modes
 before publication. All 151 CLI tests, lint, format and generated checks pass.
 The combined candidate at `18185f0b` has passed lint, formatting, generated-source
-checks, extension packaging and a fresh native compiler build. Its full local
-test/bootstrap/C11 sequence is running; no final green result is claimed.
+checks, extension packaging and a fresh native compiler build. `make test`
+passed: 17,182 tests, 161 expected skips, zero unexpected skips (159 covered
+elsewhere, two uncovered), followed by the serial bootstrap's fixed point.
+GCC strict-C11 `-O0`, `-O1` and `-O2` each passed all 1,982 corpus checks.
+At `-O3`, both frontends' `c_compat/VariableLengthArrays.btrc` failed to compile
+with `-Werror=dangling-pointer`; the other 1,980 checks passed. The gate stopped
+there, before the four Clang configurations and final hygiene. Investigate
+actual VLA scope/lifetime before changing lowering; do not suppress the warning.
+The combined hosted Windows workflow passed. Android's combined API 36 run
+failed as described below. No final green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
 pending their native failure investigations.
@@ -199,9 +207,10 @@ versioned; do not flatten retired or unavailable rows into passing rows.
    findings landed at `87dd60d7`; its missing native evidence stays open.
    PR51/52 require final review of their revision-5 contract corrections.
    PR53 reuses the merged Windows executor and needs real ARM64 acceptance.
-   PR34 has 50 local native passes and awaits the Xcode-27 hosted matrix.
-   PR35 has 56 native passes across API 29/36 and awaits the combined gate and
-   landing. Their general-provider/process-lifecycle gaps remain explicit.
+   PR34 has 50 local native passes; its pinned hosted run failed during host
+   preparation before any fixture executed. PR35's earlier 56 native passes
+   remain valid for that revision, but the combined API 36 run exposed activity
+   recreation during the large-output case; repair and requalify before landing. Their general-provider/process-lifecycle gaps remain explicit.
    Scope-only CI is insufficient.
 6. **Integrate bounded batches.** Reproduce each defect, apply the owner-layer
    fix, run focused red/green tests, inspect the final diff, then run D5 and
@@ -289,7 +298,7 @@ or merge. Retrieve each issue’s current acceptance before changing or closing 
 | [#14](https://github.com/schiffy91/btrc/issues/14) | Tech debt: two architecture contracts (test_lowering_architecture.py vs test_compiler_structure_contract.py) encode the same rules differently | PR60 adds the shared rule-to-check mapping and module-change procedure in [compiler structure](docs/design/compiler-structure.md#mapping-the-two-architecture-contracts); structural validation and landing remain pending. |
 | [#13](https://github.com/schiffy91/btrc/issues/13) | Tech debt: reference and self-host emit different C (runtime helper layout, ~1000 lines on small programs) | Resolved by shared runtime order and the pinned full-C identity sample at `362a43b7`; 776 cases pass. |
 | [#12](https://github.com/schiffy91/btrc/issues/12) | Tech debt: emitted C depends on temp numbering through the 1000-character wrap rule | Paired compiler regression and relevant C/IR stage |
-| [#11](https://github.com/schiffy91/btrc/issues/11) | Threaded lifecycle fixture fails under host load: destructor exception during final drain escapes the joiner | Main includes fixture-ordering repair `8333e10a`: the worker waits until the spawner has released its captures. Independent forced-schedule verification is queued; keep the issue open until the old failure and current success are confirmed. |
+| [#11](https://github.com/schiffy91/btrc/issues/11) | Threaded lifecycle fixture fails under host load: destructor exception during final drain escapes the joiner | Main includes fixture-ordering repair `8333e10a`: the worker waits until the spawner has released its captures. Closed after independent forced-schedule proof through both frontends and GCC/Clang: old variants drain on the joiner and fail; repaired variants drain on the worker and pass, including 80 old failures and 80 repaired passes under eight CPU-load processes. The runtime contract was already correct; the fixture ordering was defective. |
 | [#10](https://github.com/schiffy91/btrc/issues/10) | Self-host optimizer never sweeps unreferenced function-pointer typedefs (reference does) | Resolved on main by `f6edfdd1`; 776 full-C identity cases pass (see evidence below). |
 | [#9](https://github.com/schiffy91/btrc/issues/9) | Incremental floor: 2–5 second edit-to-run loop for BTRSmith | Stages 5–13: source-bound performance/acceptance evidence |
 | [#8](https://github.com/schiffy91/btrc/issues/8) | Content-addressed build cache for transpiled modules | Stages 5–13: source-bound performance/acceptance evidence |
@@ -507,7 +516,7 @@ owner, the exact prerequisite and the next acceptance.
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
-  locally validated head `347dca91`). Owner: this authorized integration session.
+  locally validated head `d07d8ba9`). Owner: this authorized integration session.
   Main `87dd60d7` is merged into the branch; the tooling now uses the shared Windows Job/gate, target
   flags, PE parser and build-process owner. The overall native deadline,
   component-qualified Visual Studio discovery and separate developer-command
@@ -528,7 +537,15 @@ owner, the exact prerequisite and the next acceptance.
   Native and cross builds used byte-identical generated C (70,724,834 bytes).
   Revision `347dca91` adds verbose compiler output and bounded read-only Windows
   crash/capacity diagnostics, preserving the original failure; 192 tests and
-  eight subtests pass locally. The new native run is pending.
+  eight subtests passed locally. [Run 37567934632](https://github.com/schiffy91/btrc/actions/runs/37567934632)
+  passed cross-build, native tooling and MSVC/wgpu but timed out in the native C
+  build at 3,600 seconds. The host diagnostic exited zero with empty output, so
+  no capacity/crash evidence was obtained. `d07d8ba9` rejects an empty diagnostic
+  report, uses a UTF-16LE encoded PowerShell command, and adds an actual Windows
+  Job/CIM regression before expensive compilation. Its portable suite passed
+  27 tests with one native-only skip; lint/format/diff checks passed.
+  [Run 37576400208](https://github.com/schiffy91/btrc/actions/runs/37576400208)
+  is qualifying that revision; no native compiler/bootstrap pass is claimed.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
@@ -559,7 +576,12 @@ owner, the exact prerequisite and the next acceptance.
   [published image inventory](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)
   lists that build and iOS 27.0. The image is a public preview; the new hosted
   [run 37572123758](https://github.com/schiffy91/btrc/actions/runs/37572123758)
-  has not qualified yet. The older Xcode-16.4/iOS-26.2 failures remain recorded;
+  failed in preparation with zero fixture executions: `xcodebuild -version`
+  timed out at 30 seconds in both iPhone modes and iPad spawn; the final iPad
+  app mode timed out in `simctl list` at 60 seconds. One owned iPad shutdown
+  also timed out. Retained diagnostics confirm a 7 GiB/3-CPU runner, memory
+  compression and stalled simulator queries. Pinning Xcode alone did not repair
+  hosted execution. The older Xcode-16.4/iOS-26.2 failures remain recorded;
   changing toolchains does not establish their cause. The iOS 17 runtime floor
   is still unqualified.
   Next: qualify the pinned hosted lane without weakening fixture deadlines:
@@ -588,9 +610,18 @@ owner, the exact prerequisite and the next acceptance.
   passed all 28 cases on each API at `68c7b553` (56 total), with retained
   stream/status, cleanup and separate launch-readiness timings. Both are
   x86_64 emulators on 4 KiB pages, NDK 29.0.14206865; boot took 18.89 / 36.89 s.
-  The two requested native matrices now pass at one revision; general CI and
-  integration gates remain. Neither later failure proves the earlier service
-  failure's cause.
+  The two requested native matrices passed at that revision. On combined
+  candidate `18185f0b`, [run 37570754359](https://github.com/schiffy91/btrc/actions/runs/37570754359)
+  passed API 29 but failed API 36 `app/large` after 22 successful checks. Logcat
+  records NativeActivity destruction/recreation in the same process and an old
+  worker trying to finish a destroyed activity. The host currently starts a
+  worker for each activity creation, risking repeated fixture execution and
+  output truncation. A deterministic lifecycle regression is queued; the exact
+  output mismatch was not retained by the old report. The reporting omission
+  has a reproduced fix with three passing tests, preserving failed byte counts,
+  hashes, status and timing separately from passing rows. Native requalification
+  remains required. Neither later failure proves the earlier service failure's
+  cause.
   The i686 compatibility-builder issue (`REQUEST(CL-P1-02)`), ARM64 16 KiB
   execution and general in-process provider safety remain separate gaps.
 - **PR42, `CX-UIB-07` accessibility spike** (findings head `6d62e046`, docs CI
