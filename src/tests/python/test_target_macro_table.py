@@ -9,8 +9,9 @@ undefined names the table selects, with the table's values; the host's gcc
 must agree on its own target. The names left out on purpose must stay out of
 the table.
 
-Two checks are Mac-bound (MAC-P1-05): Apple clang must predefine the same
-``TARGET_OS_*`` set as the table for the four Apple rows, and the iOS SDK's
+Two checks are Mac-bound (MAC-P1-05): Apple clang must agree with the portable
+``TARGET_OS_*`` table for the four Apple rows, with every vendor-only extra
+explicitly classified as foreign in the shared spec, and the iOS SDK's
 ``<TargetConditionals.h>`` must accept the predefined values. They run on the
 acceptance Mac, whose Xcode build the design pins, and are classified skips
 everywhere else.
@@ -22,11 +23,13 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.abi.generated import (
+    TARGET_FOREIGN_MACRO_NAMES,
     TARGET_PREDEFINED_MACRO_ROWS,
     TARGET_ROWS,
     TARGET_UNDEFINED_MACRO_NAMES,
@@ -34,6 +37,7 @@ from src.compiler.python.abi.generated import (
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.c_toolchains import HOST_CLANG, HOST_GCC
 from src.tests.process_limits import C_COMPILE_TIMEOUT
+from src.tests.python.native_import_fixtures import apple_environment
 
 # Left out on purpose (c-preprocessor-conditionals.md, "Left out on purpose",
 # and platform-target-contract.md §1.3, "Still left out"): toolchain or
@@ -94,7 +98,7 @@ def _unwrapped_clang() -> str | None:
     return HOST_CLANG
 
 
-def _predefines(command: list[str]) -> dict[str, int | None]:
+def _predefines(command: list[str], *, environment: dict[str, str] | None = None) -> dict[str, int | None]:
     """Every macro the compiler predefines, with its integer value (None when not an integer).
 
     An object-like alias (``__BYTE_ORDER__`` is ``__ORDER_LITTLE_ENDIAN__``,
@@ -109,6 +113,7 @@ def _predefines(command: list[str]) -> dict[str, int | None]:
         text=True,
         check=False,
         timeout=C_COMPILE_TIMEOUT,
+        env=environment,
     )
     assert completed.returncode == 0, completed.stderr
     replacements = {}
@@ -162,10 +167,15 @@ def _apple_toolchain() -> str | None:
     """Why the Mac-bound checks cannot run here, or None on the acceptance Mac's Xcode."""
 
     reason = f"Mac-bound: requires macOS with xcrun and Xcode {APPLE_XCODE_BUILD} (MAC-P1-05)"
-    if platform.system() != "Darwin" or shutil.which("xcrun") is None:
+    if platform.system() != "Darwin" or shutil.which("/usr/bin/xcrun") is None:
         return reason
     completed = subprocess.run(
-        ["xcrun", "xcodebuild", "-version"], capture_output=True, text=True, check=False, timeout=C_COMPILE_TIMEOUT
+        ["/usr/bin/xcrun", "xcodebuild", "-version"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=C_COMPILE_TIMEOUT,
+        env=apple_environment(),
     )
     build = re.search(r"Build version (\S+)", completed.stdout)
     if completed.returncode != 0 or build is None or build.group(1) != APPLE_XCODE_BUILD:
@@ -174,7 +184,22 @@ def _apple_toolchain() -> str | None:
 
 
 def _xcrun(sdk: str, *arguments: str) -> list[str]:
-    return ["xcrun", "--sdk", sdk, *arguments]
+    return ["/usr/bin/xcrun", "--sdk", sdk, *arguments]
+
+
+def test_apple_toolchain_uses_selected_xcode_when_shell_points_to_nix(monkeypatch):
+    monkeypatch.setenv("DEVELOPER_DIR", "/nix/store/apple-sdk")
+    monkeypatch.setenv("SDKROOT", "/nix/store/apple-sdk/MacOSX.sdk")
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(shutil, "which", lambda name: name)
+
+    def run(command, **options):
+        assert command == ["/usr/bin/xcrun", "xcodebuild", "-version"]
+        assert not {"DEVELOPER_DIR", "SDKROOT"} & options["env"].keys()
+        return subprocess.CompletedProcess(command, 0, f"Xcode 27.0\nBuild version {APPLE_XCODE_BUILD}\n", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert _apple_toolchain() is None
 
 
 def test_every_spec_row_has_a_clang_triple() -> None:
@@ -239,9 +264,25 @@ def test_apple_clang_defines_the_table_target_os_set(label: str) -> None:
     if reason is not None:
         pytest.skip(reason)
     row = _row(label)
-    predefined = _predefines(_xcrun(row.sysroot_name, "clang", *row.target_arguments))
-    names = {name for name in _checked_names() | set(predefined) if APPLE_TARGET_NAME.fullmatch(name)}
+    predefined = _predefines(_xcrun(row.sysroot_name, "clang", *row.target_arguments), environment=apple_environment())
+    # Every Apple name must be accounted for by the shared spec. Vendor-only
+    # names are explicitly foreign, so btrc refuses to evaluate or redefine
+    # them; any new, unclassified Apple name still fails this comparison.
+    names = {
+        name
+        for name in _checked_names() | set(predefined)
+        if APPLE_TARGET_NAME.fullmatch(name) and name not in TARGET_FOREIGN_MACRO_NAMES
+    }
     _assert_agrees(label, predefined, names)
+
+
+def test_apple_target_os_check_rejects_unclassified_vendor_names(monkeypatch):
+    label = _apple_labels()[0]
+    predefined = _selected(label) | {"TARGET_OS_UNCLASSIFIED": 1}
+    monkeypatch.setattr(sys.modules[__name__], "_apple_toolchain", lambda: None)
+    monkeypatch.setattr(sys.modules[__name__], "_predefines", lambda *args, **kwargs: predefined)
+    with pytest.raises(AssertionError, match="TARGET_OS_UNCLASSIFIED"):
+        test_apple_clang_defines_the_table_target_os_set(label)
 
 
 @pytest.mark.parametrize("label", _apple_labels())
@@ -258,6 +299,7 @@ def test_target_conditionals_header_accepts_the_predefined_values(label: str, tm
     )
     completed = subprocess.run(
         [*_xcrun(IOS_SDK, "clang"), *row.target_arguments, "-std=c11", "-fsyntax-only", str(probe)],
+        env=apple_environment(),
         capture_output=True,
         text=True,
         check=False,

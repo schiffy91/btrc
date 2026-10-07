@@ -80,7 +80,7 @@ This document is Stage 24's serial **Spec** step: the design that the fan-out im
 | Deployment minimum | One `minimum_version` column. It is fixed by the row, appears in the triple, and drives the derived version macros. There is no per-build override in Stage 24 (§1.6). |
 | Data model | Explicit per-row columns. The generator derives `__SIZEOF_LONG__`, `__SIZEOF_WCHAR_T__`, `__SIZEOF_LONG_DOUBLE__`, `__LP64__`, `_LP64`, `__CHAR_UNSIGNED__` and `__WCHAR_UNSIGNED__` from them, and both analyzers take their widths from the selected row. |
 | `__ANDROID_API__` | **Defined, not refused.** It equals `__ANDROID_MIN_SDK_VERSION__`, which equals the row's `minimum_version` (29). clang computes exactly this from the `android29` triple. |
-| `TARGET_OS_*` | **Rows, not foreign.** clang 21 predefines 18 `TARGET_OS_*` names and `TARGET_IPHONE_SIMULATOR` for every Darwin triple, and nothing for other triples. They become rows selected on macOS and iOS. `TARGET_CPU_*`, `TARGET_RT_*` and `TARGET_OS_BRIDGE` stay foreign. |
+| `TARGET_OS_*` | **Rows, not foreign.** clang 21 predefines 18 `TARGET_OS_*` names and `TARGET_IPHONE_SIMULATOR` for every Darwin triple, and nothing for other triples. They become rows selected on macOS and iOS. `TARGET_CPU_*`, `TARGET_RT_*` and the Apple-only `TARGET_OS_*` names described in §1.3 stay foreign. |
 | MSVC `__STDC__` | clang does not define `__STDC__` for `*-pc-windows-msvc`. The `__STDC__` row therefore excludes the `msvc` environment, and `#if __STDC__` on that row reads 0, as in C. |
 | Sysroots | A row names a sysroot **kind**: `none`, `xcrun`, `ndk`, `zig-mingw` or `windows-sdk`. The process that starts a compile resolves the path. The compiler validates it from files and hashes a version file into the **sysroot identity**. |
 | Hosted availability | `hosted_abi.toml` gains one `[[platform_targets]]` table per row, listing the `[platform]` names that are unavailable there. The optimizer refuses a reachable reference to an unavailable name. |
@@ -227,13 +227,22 @@ Every value below is clang 21.1.8 `-std=c11 -dM -E` for the row's triple.
 
 **`[conditionals]`.**
 - `undefined_macro_names` loses `__ANDROID__` and keeps `__cplusplus`.
-- `foreign_macro_names` loses the 16 names of C4's list that became rows (15 `TARGET_OS_*` names, all but `BRIDGE`, plus `TARGET_IPHONE_SIMULATOR`). `TARGET_OS_NANO`, `TARGET_OS_UEFI` and `TARGET_OS_UIKITFORMAC` were never listed and are new rows. It keeps `TARGET_OS_BRIDGE`, `TARGET_CPU_*` and `TARGET_RT_*`, which clang never defines, and gains `__BIONIC__` (bionic's `<sys/cdefs.h>`).
+- `foreign_macro_names` loses the 16 names of C4's list that became rows (15 `TARGET_OS_*` names, all but `BRIDGE`, plus `TARGET_IPHONE_SIMULATOR`). `TARGET_OS_NANO`, `TARGET_OS_UEFI` and `TARGET_OS_UIKITFORMAC` were never listed and are new rows. It keeps `TARGET_CPU_*` and `TARGET_RT_*`, which upstream clang does not predefine, and gains `__BIONIC__` (bionic's `<sys/cdefs.h>`). The Apple-only names `TARGET_OS_{ARROW, BRIDGE, FIRMWARE, IOSMAC, KERNELKIT, XR}` are foreign: none is predefined by upstream clang, so they are not portable facts for the same target triple. Both compilers reject evaluating them (I3) and defining or undefining them (M4).
 
 **C4's test 3** (`src/tests/python/test_target_macro_table.py`) takes its triples from `TARGET_ROWS[*].triple` instead of a list in the test. It covers all eleven rows on Linux, because clang needs no sysroot for `-dM`. It runs the **unwrapped** clang binary (the wrapper's `-fPIC` makes `*-pc-windows-msvc` fail with "unsupported option '-fPIC'", and it warns on every foreign target); the test reads its store path from the wrapper's `nix-support/orig-cc` and runs `<orig-cc>/bin/clang`. clang dumps `#define __ANDROID_API__ __ANDROID_MIN_SDK_VERSION__`, so the test resolves an object-like alias to its target's value before comparing, as C4 already does for `__BYTE_ORDER__`. Two checks stay Mac-bound:
-- `xcrun clang` (Apple clang from Xcode 27A266a) defines the same `TARGET_OS_*` set for the four Apple rows.
+- `/usr/bin/xcrun clang` (Apple clang from Xcode 27A266a) agrees with every portable `TARGET_OS_*` row for the four Apple targets. Every additional Apple name must be explicitly classified as foreign in the shared spec; an unclassified extra fails the check.
 - `<TargetConditionals.h>` from the iOS 27.0 SDK accepts the predefined values.
 
-The test names them as classified skips off the Mac.
+Qualification on 2026-10-07 found that Xcode 27A266a predefines the six
+Apple-only names above in addition to the portable set. `TARGET_OS_ARROW` is
+1 on macOS ARM64 and 0 on the other three Apple rows; the other five names
+are 0 on all four. This corrects the original claim that Apple and upstream
+clang define exactly the same full set. The portable values still agree,
+and all four SDK header checks pass. The native test invokes the system
+`xcrun` with Nix's `DEVELOPER_DIR` and `SDKROOT` removed, using the existing
+Apple test environment; otherwise Nix's SDK wrapper falsely reports that the
+required Xcode is absent. The test names these checks as classified skips
+off the acceptance Mac.
 
 ### 1.4 One target owner per compiler
 

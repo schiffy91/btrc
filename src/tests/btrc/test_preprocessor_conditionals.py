@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python import Compiler
-from src.compiler.python.abi.generated import TARGET_PREDEFINED_MACRO_ROWS, TARGET_ROWS
+from src.compiler.python.abi.generated import TARGET_FOREIGN_MACRO_NAMES, TARGET_PREDEFINED_MACRO_ROWS, TARGET_ROWS
 from src.compiler.python.application.results import CompilerOptions, CompilerOutput
 from src.compiler.python.frontend.packages import PackageTarget
 from src.compiler.python.frontend.sources import (
@@ -873,6 +873,33 @@ DIAGNOSTIC_CASES = [
         1,
     ),
 ]
+
+for foreign_name in TARGET_FOREIGN_MACRO_NAMES:
+    if not foreign_name.startswith("TARGET_OS_"):
+        continue
+    DIAGNOSTIC_CASES.append(
+        DiagnosticCase(
+            f"I3-apple-vendor-{foreign_name}",
+            {"Main.btrc": f"#if {foreign_name}\n#endif\nint main() {{ return 0; }}\n"},
+            f"'{foreign_name}' is defined by C headers or C compiler flags, not by btrc; "
+            "#if is evaluated before C compilation and cannot test it",
+            "Main.btrc",
+            1,
+            5,
+        )
+    )
+    for directive in ("define", "undef"):
+        suffix = " 1" if directive == "define" else ""
+        DIAGNOSTIC_CASES.append(
+            DiagnosticCase(
+                f"M4-apple-vendor-{directive}-{foreign_name}",
+                {"Main.btrc": f"#{directive} {foreign_name}{suffix}\nint main() {{ return 0; }}\n"},
+                f"'{foreign_name}' is set by C headers or compiler flags; btrc sources cannot #define or #undef it",
+                "Main.btrc",
+                1,
+                1,
+            )
+        )
 
 _RENDERED = re.compile(r"^error: (?P<message>.*)\n\s*--> (?P<path>.*):(?P<line>\d+):(?P<col>\d+)", re.MULTILINE)
 

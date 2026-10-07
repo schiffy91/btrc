@@ -592,9 +592,10 @@ operating_systems = ["ios", "macos"]
 # Reserved names that no target defines: #if reads 0 and defined() reads 0.
 undefined_macro_names = ["__cplusplus"]
 # Set by C headers or C compiler flags, never by btrc: #if refuses them and
-# sources cannot #define or #undef them (M4). clang predefines no
-# TARGET_CPU_*, TARGET_RT_* or TARGET_OS_BRIDGE name. The TARGET_OS_* names
-# clang does define are predefined rows, which M3 refuses instead
+# sources cannot #define or #undef them (M4). Upstream clang predefines no
+# TARGET_CPU_* or TARGET_RT_* name. The six TARGET_OS_* names below are
+# Apple-clang additions absent from upstream clang, not portable target facts.
+# The common TARGET_OS_* names are predefined rows, which M3 refuses instead
 # (platform-target-contract.md §1.3, Stage 24 commit 1c); the generator
 # refuses a name that is both foreign and predefined.
 foreign_macro_names = [
@@ -605,7 +606,12 @@ foreign_macro_names = [
   "TARGET_CPU_PPC64",
   "TARGET_CPU_X86",
   "TARGET_CPU_X86_64",
+  "TARGET_OS_ARROW",
   "TARGET_OS_BRIDGE",
+  "TARGET_OS_FIRMWARE",
+  "TARGET_OS_IOSMAC",
+  "TARGET_OS_KERNELKIT",
+  "TARGET_OS_XR",
   "TARGET_RT_64_BIT",
   "TARGET_RT_BIG_ENDIAN",
   "TARGET_RT_LITTLE_ENDIAN",

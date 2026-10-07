@@ -172,7 +172,7 @@ class GeneratedHostedAbiData {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
 		self.fingerprint = "b07b01e79a64ba737b576643e93e54c5dce217fdbe11a11c74a1a4ddc3b86fe2";
-		self.targetSpecFingerprint = "75ad61e9ebc3aacc6f60923304c08ec457e2f4a9f014ea81792e1771537d7eca";
+		self.targetSpecFingerprint = "e904db76e8ac1560728455a2796235537f2f71cb88d74f8be7a1bb47f3ee67b8";
 	}
 
 	/* Every table builds on first use. A compile that never asks for a
@@ -16467,7 +16467,12 @@ class GeneratedHostedAbiData {
 		values.push("TARGET_CPU_PPC64");
 		values.push("TARGET_CPU_X86");
 		values.push("TARGET_CPU_X86_64");
+		values.push("TARGET_OS_ARROW");
 		values.push("TARGET_OS_BRIDGE");
+		values.push("TARGET_OS_FIRMWARE");
+		values.push("TARGET_OS_IOSMAC");
+		values.push("TARGET_OS_KERNELKIT");
+		values.push("TARGET_OS_XR");
 		values.push("TARGET_RT_64_BIT");
 		values.push("TARGET_RT_BIG_ENDIAN");
 		values.push("TARGET_RT_LITTLE_ENDIAN");
