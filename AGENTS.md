@@ -42,7 +42,7 @@ D28 and D29 (PLAN.md). Both active queues are in [PLAN.md](PLAN.md).
   - `Makefile`, `flake.nix`, `flake.lock`, `nix/*`, `src/tests/conftest.py`,
     `src/tests/runner_capabilities.py`, `tools/native_plan.py`,
     `tools/budget_bench.py`, `.github/workflows/**` (and `ci/proposed/`),
-    CLAUDE.md (and the PLAN.md pointer), and this file.
+    PLAN.md, its CLAUDE.md/CODEX.md entry points, and this file.
 - **Integrator-owned data** (`btrc.toml` exports and native rows,
   expected-skip manifests, denominators, Makefile lines, `ci/tiers.toml`)
   changes only in a final `fragment: <what>` commit, and regenerated outputs

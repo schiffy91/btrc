@@ -250,11 +250,11 @@ versioned; do not flatten retired or unavailable rows into passing rows.
    findings landed at `87dd60d7`; its missing native evidence stays open.
    PR51/52 require final review of their revision-5 contract corrections.
    PR53 reuses the merged Windows executor and needs real ARM64 acceptance.
-   PR34 has 50 local native passes; its pinned hosted run failed during host
-   preparation before any fixture executed. PR35's earlier 56 native passes
-   remain valid for that revision; the combined API 36 run exposed activity
-   recreation during the large-output case, and the repair has now passed all
-   56 native executions again. Integrate it and qualify the resulting tree.
+   PR34 has historical local 50-case acceptance; its latest hosted run reached
+   launch but completed zero fixtures. The runtime-selection repair has a new
+   local matrix queued. PR35's activity-recreation repair is included in
+   `081aae51`, whose combined Android lane passed all 56 executions. Finish the
+   remaining combined gates before landing it.
    Their general-provider/process-lifecycle gaps remain explicit.
    Scope-only CI is insufficient.
 6. **Integrate bounded batches.** Reproduce each defect, apply the owner-layer
@@ -283,6 +283,15 @@ account or platform evidence as passed.
 The remote snapshot contains 183 branches: 151 tips are ancestors of main and
 32 are not. These are initial dispositions, not completed reviews. Local legacy
 branches must also be checked before deletion; nothing is deleted by this plan.
+
+The later integration branches are tracked separately from that frozen inventory:
+`codex/harmonize-plan` at `081aae51` is [PR60](https://github.com/schiffy91/btrc/pull/60)'s
+combined candidate; `codex/integrate-c2-arrays` at `618e9ae1` is
+[draft PR65](https://github.com/schiffy91/btrc/pull/65), which reconciles both C2 lanes
+and includes PR60's VLA/Android repairs. Its focused local checks are queued.
+C2's new hosted workflows are deferred while the existing combined and Windows
+ARM64 candidates occupy the shared CI allowance. Resume them at the same head
+when capacity is available; a canceled workflow is not qualification.
 
 The C4 branch comparison is complete: `db229df7` and main ancestor `245cc209`
 have the same full Git tree, `87666402b8638440ed04dff17664de955fb16c48`.
