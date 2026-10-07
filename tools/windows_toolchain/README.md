@@ -165,3 +165,18 @@ owner and requires real host capacity in its report before the expensive native
 compiler step runs. Partial output and the original compiler error remain
 preserved if diagnostics fail. Native compiler/bootstrap qualification is still
 required.
+
+
+At revision `9480f89f`, hosted run `37578721489` passed the actual native
+Job/CIM report regression and all 28 Python tooling tests. The console launch
+repair therefore has native evidence. The later deadline probe and MSVC setup
+failed with a sharing violation on a captured stderr file; compiler/bootstrap
+did not run. The exact holder was not identified.
+
+Capture disposal now retries only Windows sharing violations for at most five
+seconds after Job termination, gate reaping and the empty-Job check. A persistent
+lock still fails and retains the command status, partial streams and capture
+path instead of replacing them with a directory-cleanup exception. Fault-injected
+checks cover transient release, persistent lock and unrelated permission errors;
+they do not establish native Windows success. The actual deadline/MSVC and
+compiler/bootstrap lane must pass on the new revision.

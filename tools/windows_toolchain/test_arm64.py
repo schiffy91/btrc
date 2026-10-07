@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import struct
 import sys
 import tempfile
@@ -13,7 +14,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from tools.windows_toolchain.arm64 import PINS, ROOT, Evidence, main, pe_arm64
-from tools.windows_toolchain.process_runner import Result, run, run_windows
+from tools.windows_toolchain.process_runner import Result, _remove_capture, run, run_windows
 
 
 class Arm64EvidenceTests(unittest.TestCase):
@@ -273,6 +274,61 @@ class Arm64EvidenceTests(unittest.TestCase):
         job.release.assert_called_once()
         job.terminate.assert_called_once()
         job.close.assert_called_once()
+
+    def test_capture_cleanup_waits_for_a_transient_windows_sharing_violation(self):
+        directory = self.root / "capture"
+        directory.mkdir()
+        (directory / "stderr").write_bytes(b"child diagnostic")
+        blocked = PermissionError("capture still open")
+        blocked.winerror = 32
+        remove = shutil.rmtree
+        attempts = []
+
+        def release_then_remove(path):
+            attempts.append(path)
+            if len(attempts) == 1:
+                raise blocked
+            remove(path)
+
+        with patch("tools.windows_toolchain.process_runner.shutil.rmtree", side_effect=release_then_remove):
+            _remove_capture(directory)
+        self.assertEqual(len(attempts), 2)
+        self.assertFalse(directory.exists())
+
+    def test_persistent_capture_lock_retains_the_command_result_and_fails(self):
+        directory = self.root / "capture"
+        directory.mkdir()
+        (directory / "stderr").write_bytes(b"child diagnostic")
+        blocked = PermissionError("capture still open")
+        blocked.winerror = 32
+        with (
+            patch("tools.windows_toolchain.process_runner.tempfile.mkdtemp", return_value=str(directory)),
+            patch(
+                "tools.windows_toolchain.process_runner._run_windows_captured",
+                return_value=Result(None, b"child output", b"child diagnostic", True),
+            ),
+            patch("tools.windows_toolchain.process_runner.shutil.rmtree", side_effect=blocked),
+            patch("tools.windows_toolchain.process_runner.time.monotonic", side_effect=[0, 6]),
+        ):
+            result = run_windows(["fixture"], cwd=self.root, env=None, timeout=1)
+        self.assertTrue(result.timed_out)
+        self.assertEqual(result.stdout, b"child output")
+        self.assertTrue(result.stderr.startswith(b"child diagnostic"))
+        self.assertIn("Capture cleanup failed", result.error)
+        self.assertIn(str(directory), result.error)
+        self.assertEqual((directory / "stderr").read_bytes(), b"child diagnostic")
+
+    def test_capture_cleanup_does_not_retry_other_permission_errors(self):
+        with (
+            patch(
+                "tools.windows_toolchain.process_runner.shutil.rmtree", side_effect=PermissionError("denied")
+            ) as remove,
+            patch("tools.windows_toolchain.process_runner.time.sleep") as sleep,
+            self.assertRaisesRegex(PermissionError, "denied"),
+        ):
+            _remove_capture(self.root / "capture")
+        remove.assert_called_once()
+        sleep.assert_not_called()
 
     def test_windows_launch_diagnostic_keeps_executable_when_os_message_omits_it(self):
         process, job = Mock(), Mock()
