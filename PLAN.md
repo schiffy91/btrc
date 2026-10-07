@@ -267,8 +267,15 @@ with PR60's `56909225` Weston repair and the current plan; two documentation
 conflicts were reconciled. Its compiler, language, runtime and stdlib sources
 are unchanged from `98b88440`. PR65 is now published at `93856dfc`, combining
 those repairs, the AppKit comparison described below and the current plan.
-Its updated hosted CI, macOS, Windows and Android workflows have started;
-qualification of its complete tree remains pending.
+Its hosted [CI](https://github.com/schiffy91/btrc/actions/runs/37611484077),
+[macOS](https://github.com/schiffy91/btrc/actions/runs/37611484239),
+[Windows](https://github.com/schiffy91/btrc/actions/runs/37611484144) and
+[Android](https://github.com/schiffy91/btrc/actions/runs/37611484229) workflows
+are now terminal: 37 successful checks and three skipped checks. The skips are
+the static job and the two native-GUI jobs; the dedicated Linux GUI
+jobs passed, with Wayland still report-only. This qualifies those hosted checks
+at `93856dfc`, not the later combined tree or the outstanding C2 memory and
+independent-review exits.
 The subsequent local candidate `1fe1dc1e` adds the qualification and
 fork-safety review plan; its source owners remain unchanged. Its full local
 matrix stopped at the independent AppKit control failure detailed below. Hosted
@@ -569,14 +576,15 @@ failed runs and their evidence rather than replacing them with later passes.
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
 | PR60, `codex/harmonize-plan` | `50bf1c8c` | The completed local suite has 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The repaired combined tree is published with a new full serial gate running; it began with 81.21 GB free and all guests stopped. Full local and hosted qualification remain pending. |
-| PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Latest hosted snapshot has 35 successful checks, three skips and one running check. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
+| PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `bb40e39c` | Parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. Integrated into the combined candidate; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
-Two code candidates currently occupy the shared hosted CI allowance: PR65
-`93856dfc` and combined PR60 `50bf1c8c`. Recheck queued and running workflows
-before publishing another candidate.
+PR65 `93856dfc` has completed its hosted workflows and no longer occupies a
+running wave. Combined PR60 `50bf1c8c` remains active. Recheck actual queued and
+running workflows before publishing another candidate; the allowance remains
+at most two code candidates.
 Cancellation and scope-only jobs are not qualification. No branch is deleted.
 
 The C4 branch comparison is complete: `db229df7` and main ancestor `245cc209`
@@ -608,15 +616,15 @@ qualification claim follows from that source comparison.
 | `spike/stage6-records` | `88f82de0` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
 | `spike/stage6-visibility` | `8107ae1f` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
 | `stage16/c4-python` | `db229df7` | Already represented on main: its complete tree is identical to `245cc209`; later paired review fixes landed at `914ad585`. Preserve the historical branch; do not replay it. |
-| `stage17/c2-l1` | `4ef167af` | CL-C-09: repair generic/tag capture, typedef diagnostic order, native tag and LSP regressions; rerun paired review. |
-| `stage17/c2-l2` | `2e65f7c6` | CL-C-13: fix declaration-vs-shadow diagnostic order and callee-first checks for interface/Atomic/Mutex receivers. |
+| `stage17/c2-l1` | `4ef167af` | Preserved through merge `d49961cb`, with generic/tag scope, native-tag and LSP repairs, then combined in PR65 and PR60. PR65 hosted checks passed at `93856dfc`; independent review, quiet-host C2 memory comparison, combined-tree gates and main landing remain pending. |
+| `stage17/c2-l2` | `2e65f7c6` | Preserved in PR65 and PR60 with declaration/shadow and callee-first repairs; `c063cc18` reconciles union diagnostics and aggregate layout expectations. The 360-check focused repair run and PR65 hosted workflows pass. Independent review, quiet-host C2 memory comparison, combined-tree gates and main landing remain pending. |
 | `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Integrated through local `9a01104c` with nested payload-store repair. Native sanitizer cases passed at `2d645e27`; its inferred-global diagnostic ordering repair passed in the broader `cec4cc13` run. Final integrated qualification and owner-rebinding/shallow-struct gaps remain open. |
 | `stage18/req-ui2-dg` | `1cc97ab8` | Merged locally at `cec4cc13`, with realtime checks deferred until finite generic closure. All 20 diagnostic failures are resolved in `9a01104c`, whose native suite passed 1,179 checks with three platform skips. Final integrated matrix remains open. |
 | `stage18/req10-parity-gaps` | `e1bc5dfa` | Integrated with safe main-stack startup replacing the parked-thread fork exemption. Native single-thread startup/two-worker handoff and deep-expression parity passed in the recorded REQ-10 run; naming repair `148c3f42` and later integration are retained. Linux hard-limit paths and final matrix remain open. |
 | `stage18/req11-tuple-sizeof-recursion` | `271397d3` | Integrated through local `9a01104c` with paired finite-nullable-cycle repair. Native focused run at `f3a5d3c6` passed 1,210 checks; the two corpus marker checks passed at `d2ffae69`. Final integrated matrix remains open. |
-| `stage24/apple-standin-extraction` | `7b3d1195` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
-| `stage24/apple-standin-extraction-run` | `9c0d737d` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
-| `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08: wait for CL-P1-06 and qualified extractor inputs, then review schema/generation parity. |
+| `stage24/apple-standin-extraction` | `7b3d1195` | Contains the standalone Apple evidence workflow and extractor provenance option, neither present in PR60. Review any production port separately; its Xcode 16.4 results remain stand-in evidence. The local installed Xcode is now the pinned 27A266a, but the four-row re-extraction/diff has not run. |
+| `stage24/apple-standin-extraction-run` | `9c0d737d` | Its tree differs from `7b3d1195` only by the four-line scratch push trigger for this run branch. Preserve its evidence; never merge that trigger. Any reviewed workflow port must come from the base extraction branch without this scratch change. |
+| `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08 schema-3 candidate includes four Apple tables explicitly sourced from Xcode 16.4/SDK 15.5 or 18.5 and a conservative MSVC copy awaiting runner extraction. Wait for CL-P1-06 and qualified inputs, then review schema/generation parity. The current pinned local Xcode enables the Apple re-extraction; installed tooling alone is not qualification. |
 | `stage24/hosted-platform-fragments` | `10203072` | Keep as extractor evidence/input only; consume validated data in the hosted-ABI owner, never merge the fragment branch. |
 | `stage24/hosted-platform-fragments-apple-standin` | `c9dad69a` | Keep as extractor evidence/input only; consume validated data in the hosted-ABI owner, never merge the fragment branch. |
 | `stage24/lsp-target` | `3aef3988` | Preserved by the real merge into PR63 (`8f964c1b`), with the stale-cache race repaired and 476 LSP tests passing, including actual stdio target changes. Included in PR60; await its combined gate and main landing. |
@@ -635,9 +643,9 @@ or merge. Retrieve each issue’s current acceptance before changing or closing 
 | [#17](https://github.com/schiffy91/btrc/issues/17) | Feature: implement or drop the reserved keywords (override, goto, auto, register) | Paired compiler regression and relevant C/IR stage |
 | [#16](https://github.com/schiffy91/btrc/issues/16) | Feature: btrcc -o <file> and --emit-c, instead of C on stdout | `-o` landed at `d7f24d73`; current generation publication stages C, units and link plans with recovery/atomicity coverage, and btrcc still defaults to stdout. Explicit `--emit-c` now lands in this integration candidate at `186b5f7a`; 151 CLI tests pass, covering byte-identical default/named/module-unit output and conflict rejection before publication. Await final gates and main integration before closure. |
 | [#15](https://github.com/schiffy91/btrc/issues/15) | Tech debt: macOS native tests cannot run in the dev shell (nix cc-wrapper vs Xcode 27 SDK, no FreeType, no libasan) | Resolved by native Apple compiler/SDK routing and provisioned FreeType; restored local checks pass (see evidence below). |
-| [#14](https://github.com/schiffy91/btrc/issues/14) | Tech debt: two architecture contracts (test_lowering_architecture.py vs test_compiler_structure_contract.py) encode the same rules differently | PR60 adds the shared rule-to-check mapping and module-change procedure in [compiler structure](docs/design/compiler-structure.md#mapping-the-two-architecture-contracts); structural validation and landing remain pending. |
+| [#14](https://github.com/schiffy91/btrc/issues/14) | Tech debt: two architecture contracts (test_lowering_architecture.py vs test_compiler_structure_contract.py) encode the same rules differently | PR60 adds the shared rule-to-check mapping and module-change procedure in [compiler structure](docs/design/compiler-structure.md#mapping-the-two-architecture-contracts). The original mapping passed 111 structural checks; the later target-conditioned audit passes all 155 checks at `bb40e39c`. Final integrated qualification and main landing remain pending. |
 | [#13](https://github.com/schiffy91/btrc/issues/13) | Tech debt: reference and self-host emit different C (runtime helper layout, ~1000 lines on small programs) | Resolved by shared runtime order and the pinned full-C identity sample at `362a43b7`; 776 cases pass. |
-| [#12](https://github.com/schiffy91/btrc/issues/12) | Tech debt: emitted C depends on temp numbering through the 1000-character wrap rule | Paired compiler regression and relevant C/IR stage |
+| [#12](https://github.com/schiffy91/btrc/issues/12) | Tech debt: emitted C depends on temp numbering through the 1000-character wrap rule | Main already contains per-function numbering at `8549ddd6`. PR62 adds the paired whole-function byte-identity regression at `777cc4cc`, including unrelated lowering and a mutation check that detects disabled renumbering. Included in PR60; final integrated gates and main landing remain pending before issue closure. |
 | [#11](https://github.com/schiffy91/btrc/issues/11) | Threaded lifecycle fixture fails under host load: destructor exception during final drain escapes the joiner | Main includes fixture-ordering repair `8333e10a`: the worker waits until the spawner has released its captures. Closed after independent forced-schedule proof through both frontends and GCC/Clang: old variants drain on the joiner and fail; repaired variants drain on the worker and pass, including 80 old failures and 80 repaired passes under eight CPU-load processes. The runtime contract was already correct; the fixture ordering was defective. |
 | [#10](https://github.com/schiffy91/btrc/issues/10) | Self-host optimizer never sweeps unreferenced function-pointer typedefs (reference does) | Resolved on main by `f6edfdd1`; 776 full-C identity cases pass (see evidence below). |
 | [#9](https://github.com/schiffy91/btrc/issues/9) | Incremental floor: 2–5 second edit-to-run loop for BTRSmith | Stages 5–13: source-bound performance/acceptance evidence |
