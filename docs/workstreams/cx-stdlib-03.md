@@ -58,3 +58,30 @@ passing static checks do not qualify the AppKit behavior.
 - 16:21:30 onward: prepare handoff/report and local commits. Native qualification
   remains waiting for the existing serialized gate; no active gate time is
   attributable to this packet yet. Main owner records its eventual start/finish.
+
+## Native verification, 2026-10-07
+
+The main integrator ran the actual AppKit fixture on
+Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0.
+
+- Fixture-only integration `d248b742`: all four cases failed at the actual
+  alignment assertion (reference/selfhost, plain/ASan+UBSan), 54.12 seconds.
+- First repair `f320093c`: both compilers rejected the ternary's promoted integer
+  result when assigned to bool. Four compile failures were retained; this was not
+  a passing native run.
+- Corrected integration `37a8ae67`: **4 passed, 136 deselected, zero skips**,
+  52.80 seconds, including both compilers and both sanitizer configurations.
+
+Command: `python3 -m pytest -q -rs src/tests/python/test_native_gui_appkit.py -k ButtonAlignment`.
+The qualified Darwin Nix shell supplied Python; the self-host binary was the
+previously built `a8d92cb8` compiler, SHA-256
+`5d146acf85ee91345fd1833b6a5effa8151f618da334c1e1adf71de2076778b7`.
+The integrator verified its production compiler/spec/runtime tree was unchanged.
+The branch's provider, fixture and driver bytes match that passing integration.
+This is focused source-matched provider evidence, not full branch or combined-tree
+qualification. Hosted checks and final integration gates remain required.
+
+Retained evidence: `~/.cache/btrc/plan-consolidation-2026-10-07/subagent-delivery/button-alignment/`
+contains `red`, `green` (the rejected first repair) and `green-2` manifests,
+JUnit, logs and scratch. Native work ran 16:25:25–16:26:21, 16:26:48–16:27:09
+and 16:29:02–16:29:59 UTC respectively.
