@@ -158,9 +158,16 @@ passes 53 fresh-compiler checks, including strict GCC/Clang `-O3` execution,
 cleanup, loop exits, lambda captures and setjmp paths. The repair, qualified
 Android lifecycle change and current plan are incorporated into the next
 combined candidate `081aae51`. Its fresh lint, formatting, generated-source,
-extension and native compiler-build checks passed; the full test suite is running
-under the serial gate lock. Bootstrap, all eight strict-C11 configurations and
-final hygiene still require terminal results. The earlier `18185f0b` combined
+extension and native compiler-build checks passed. Its full suite ended with
+17,183 passed, 161 skipped and four failures. Three failures came from the
+qualification runner exporting an ancestor `--basetemp` to nested pytest runs;
+the runner now supplies that option only to the outer invocation. The fourth
+was a GPU assertion expecting the runtime array immediately after its captured
+bound: the new lifetime block correctly lies between them. The assertion now
+requires that block while retaining capacity, dispatch, strict compilation and
+CPU-fallback execution checks. Focused verification is queued; bootstrap, all
+eight strict-C11 configurations and final hygiene did not run after the failure.
+All 824 native GUI evidence files were retained. No full green result is claimed. The earlier `18185f0b` combined
 [Linux run 37570754386](https://github.com/schiffy91/btrc/actions/runs/37570754386)
 passed all eight strict-C11 configurations, including GCC `-O3`, and all
 remaining required shards. The combined macOS and Windows workflows also
@@ -168,6 +175,12 @@ passed. Their scope-skipped jobs do not supply native GUI evidence; the local
 native GUI artifacts remain separately recorded. The local Darwin GCC repair
 still awaits the full final gate. Android's older combined API 36 failure is
 recorded below; the new `081aae51` combined Android workflow passed both APIs.
+The `081aae51` hosted Wayland shard also failed after Weston aborted during
+native-shell restoration. Subsequent clients reported unavailable Wayland.
+The session wrapper deleted its compositor logs during cleanup; neither the
+compositor abort's cause nor a repair is established. The original job log and
+remaining GUI artifacts are retained. Wayland remains report-only, with this
+coverage gap explicit.
 No final green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
@@ -187,11 +200,14 @@ passed 331 tests. The broader C-compatibility/C-output run passed 1,239 tests;
 three new explicit-tag refusal checks failed only because their assertions
 expected uppercase `Incomplete` while the reference compiler reports lowercase
 `incomplete`. Both frontends rejected the programs. The assertions now accept
-the existing diagnostic capitalization, with those three reruns queued behind
-the full gate. The repaired L1 merge is committed locally at `d49961cb`; it is
-not published or integrated into the combined candidate. L2's merge preview
-has six conflicts to reconcile, including generic-scope and flexible-array
-validation. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
+the existing diagnostic capitalization; all three reruns passed. The repaired
+L1 merge `d49961cb` and L2 changes are now combined with `081aae51` in
+[PR65](https://github.com/schiffy91/btrc/pull/65), candidate `618e9ae1`.
+Six conflicts were reconciled while retaining generic-scope, tag-ownership and
+flexible-array checks. Static checks passed; the broader paired compiler,
+parser/analyzer and LSP qualification is running and has reported a failure
+whose terminal trace is pending. Hosted runs were deliberately deferred to
+respect the shared CI capacity limit; cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
 qualify the whole C2 merge.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
@@ -624,8 +640,15 @@ owner, the exact prerequisite and the next acceptance.
   plus elapsed command timings. Local process suites passed 122 tests and ten
   subtests with one native-only skip; lint, formatting and diff checks passed.
   [Run 37584587972](https://github.com/schiffy91/btrc/actions/runs/37584587972)
-  is queued to distinguish toolchain startup from large-input failure. It does
-  not replace full native compiler/bootstrap acceptance.
+  passed both version probes, 34 native Python tests and the separate MSVC/wgpu
+  lane, but the tiny C build crashed with `0xC0000005` in 0.158 seconds, with
+  empty stderr. Compiler transpilation and bootstrap never began; the large C
+  input is not required to reproduce this failure. Local revision `0423088d`
+  adds bounded failure-only driver, syntax, object, link and overlay diagnostics
+  without replacing the original qualification failure. Its local process
+  checks passed 124 tests and ten subtests, with one native-only skip; lint and
+  formatting passed. It is not published, and native diagnostic results remain
+  pending while existing CI occupies the shared allowance.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
@@ -678,8 +701,11 @@ owner, the exact prerequisite and the next acceptance.
   as required by D8. Three inventory cases failed before this change; all ten
   inventory/preparation checks now pass. This cannot repair an image containing
   only iOS 27.0 and does not qualify the iOS 17 floor. The unchanged 50-case
-  local matrix is queued at this exact revision under the guest/gate locks;
-  historical `532d4e45` evidence does not substitute for its result.
+  local matrix passed at this exact revision under the guest/gate locks:
+  twelve spawn and thirteen app executions on each device class, including
+  repeated app invocation. The manifest pins Xcode 27A266a and fixture hashes;
+  cleanup succeeded and both owned simulators were verified shut down. This
+  current local evidence does not resolve the separate hosted failure.
   Next: qualify the pinned hosted lane without weakening fixture deadlines:
   12 fixtures × spawn/app × iPhone/iPad plus one repeated app invocation per
   class (50 executions). Preserve Xcode/runtime provenance,
