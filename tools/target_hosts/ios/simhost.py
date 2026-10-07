@@ -26,6 +26,7 @@ class IOSSimulatorHost:
         self.udid: str | None = None
         self.runtime: dict = {}
         self.booted_here = False
+        self.toolchain: str | None = None
 
     def command(self, *args: str, timeout: float = 60, env: dict | None = None, check: bool = True):
         result = self.runner(["xcrun", "simctl", *args], capture_output=True, timeout=timeout, env=env, check=False)
@@ -54,6 +55,11 @@ class IOSSimulatorHost:
         if not available:
             raise SimulatorError("No available iOS >= 17 simulator runtime; install one on the Apple host")
         self.runtime = max(available, key=self._version)
+        # Query host tooling before a guest competes for the hosted runner's memory.
+        version = self.runner(["xcodebuild", "-version"], capture_output=True, check=True, timeout=30)
+        self.toolchain = version.stdout.decode().strip()
+        if not self.toolchain:
+            raise SimulatorError("xcodebuild returned empty toolchain provenance")
         name = f"btrc-host-{self.device_class}"
         family = "iPhone" if self.device_class == "iphone" else "iPad"
         candidates = [
@@ -156,14 +162,15 @@ class IOSSimulatorHost:
             self.booted_here = False
 
     def provenance(self) -> dict:
-        version = self.runner(["xcodebuild", "-version"], capture_output=True, check=True, timeout=30)
+        if not self.toolchain:
+            raise SimulatorError("Simulator host has no prepared toolchain provenance")
         return {
             "executor": "ios-simulator",
             "device": self.device(),
             "device_class": self.device_class,
             "runtime": self.runtime["identifier"],
             "os_build": self.runtime.get("buildversion", "unknown"),
-            "toolchain": version.stdout.decode().strip(),
+            "toolchain": self.toolchain,
             "evidence": "stand-in",
         }
 

@@ -479,7 +479,9 @@ class SimulatorInventoryTests(unittest.TestCase):
 
             def runner(command, calls=calls, **_kwargs):
                 calls.append(command)
-                if command[-2:] == ["list", "-j"]:
+                if command == ["xcodebuild", "-version"]:
+                    output = b"Xcode 27.0\nBuild version 27A266a\n"
+                elif command[-2:] == ["list", "-j"]:
                     output = json.dumps(self.inventory()).encode()
                 elif command[2] == "create":
                     output = b"test-udid\n"
@@ -533,12 +535,14 @@ class SimulatorInventoryTests(unittest.TestCase):
         def runner(command, **_kwargs):
             calls.append(command)
             output = json.dumps(inventory).encode() if command[-2:] == ["list", "-j"] else b""
+            if command == ["xcodebuild", "-version"]:
+                output = b"Xcode 27.0\nBuild version 27A266a\n"
             return subprocess.CompletedProcess(command, 0, stdout=output, stderr=b"")
 
         host = IOSSimulatorHost("ipad", runner=runner)
         host.prepare()
         host.close()
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
         inventory["devices"]["com.apple.CoreSimulator.SimRuntime.iOS-17-0"][0]["deviceTypeIdentifier"] = "phone"
         with self.assertRaisesRegex(SimulatorError, "device class"):
             IOSSimulatorHost("ipad", runner=runner).prepare()
@@ -552,11 +556,13 @@ class SimulatorInventoryTests(unittest.TestCase):
         def runner(command, **_kwargs):
             calls.append(command)
             output = json.dumps(inventory).encode() if command[-2:] == ["list", "-j"] else b"new-device\n"
+            if command == ["xcodebuild", "-version"]:
+                output = b"Xcode 27.0\nBuild version 27A266a\n"
             return subprocess.CompletedProcess(command, 0, stdout=output, stderr=b"")
 
         host = IOSSimulatorHost("iphone", runner=runner)
         host.prepare()
-        create = next(command for command in calls if command[2] == "create")
+        create = next(command for command in calls if command[2:3] == ["create"])
         self.assertEqual(create[4], "phone")
         host.close()
 
@@ -568,6 +574,59 @@ class SimulatorInventoryTests(unittest.TestCase):
         self.assertNotIn("SIMCTL_CHILD_OLD", values)
         self.assertEqual(values["SIMCTL_CHILD_CURRENT"], "new")
         self.assertEqual(values["HOST_ONLY"], "retained")
+
+
+class SimulatorPreparationTests(unittest.TestCase):
+    def test_toolchain_provenance_is_captured_before_guest_boot(self):
+        calls = []
+        booted = False
+
+        def runner(command, **_kwargs):
+            nonlocal booted
+            calls.append(command)
+            if command == ["xcodebuild", "-version"]:
+                if booted:
+                    raise subprocess.TimeoutExpired(command, 30)
+                output = b"Xcode 27.0\nBuild version 27A266a\n"
+            elif command == ["xcrun", "simctl", "list", "-j"]:
+                output = json.dumps(SimulatorInventoryTests.inventory()).encode()
+            elif command[2] == "create":
+                output = b"test-udid\n"
+            else:
+                if command[2] == "boot":
+                    booted = True
+                output = b""
+            return subprocess.CompletedProcess(command, 0, stdout=output, stderr=b"")
+
+        host = IOSSimulatorHost(runner=runner)
+        host.prepare()
+        first = host.provenance()
+        self.assertEqual(first["toolchain"], "Xcode 27.0\nBuild version 27A266a")
+        self.assertEqual(host.provenance(), first)
+        self.assertEqual(calls.count(["xcodebuild", "-version"]), 1)
+        self.assertLess(
+            calls.index(["xcodebuild", "-version"]),
+            next(index for index, command in enumerate(calls) if command[2:3] == ["create"]),
+        )
+
+    def test_toolchain_failure_precedes_device_mutation(self):
+        calls = []
+
+        def runner(command, **_kwargs):
+            calls.append(command)
+            if command == ["xcodebuild", "-version"]:
+                raise subprocess.TimeoutExpired(command, 30)
+            self.assertEqual(command, ["xcrun", "simctl", "list", "-j"])
+            return subprocess.CompletedProcess(
+                command, 0, stdout=json.dumps(SimulatorInventoryTests.inventory()).encode(), stderr=b""
+            )
+
+        host = IOSSimulatorHost(runner=runner)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            host.prepare()
+        self.assertEqual(calls, [["xcrun", "simctl", "list", "-j"], ["xcodebuild", "-version"]])
+        self.assertIsNone(host.udid)
+        self.assertFalse(host.booted_here)
 
 
 if __name__ == "__main__":

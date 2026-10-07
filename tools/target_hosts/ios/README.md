@@ -270,3 +270,13 @@ fixtures are trusted, do not create descendants, and cleanup remains explicitly
 sandbox; PID reuse and a forged initial identity need a stronger transport-level
 ownership proof before arbitrary corpus programs are admitted. These limitations
 are not solved by the delayed-launch regression or by green ordinary lane CI.
+
+
+The host captures Xcode provenance before creating or booting its owned guest
+and reuses that value in execution reports. This avoids launching `xcodebuild`
+after simulator boot has consumed host capacity. The ordering regression
+reproduced the old post-boot timeout through a controlled command transport;
+it is not native simulator qualification. Toolchain failures occur before any
+device mutation. Fixture binaries, timeouts, and the 50-invocation native matrix
+are unchanged. The Xcode-27 hosted failure above remains historical evidence;
+the reordered preparation still needs fresh hosted qualification.
