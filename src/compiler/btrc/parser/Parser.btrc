@@ -669,7 +669,7 @@ class Parser {
 		Node ftype = self.parseType();
 		Node specifier = Parser.declaratorSpecifier(ftype);
 		Node declarator = self.parseDeclaratorName(ftype);
-		if (specifier.isArray) {
+		if (!isUnion && specifier.isArray) {
 			// P1: the AST cannot tell `T[] name` from `T name[]`, which
 			// declares a flexible array member in a struct body.
 			Token nameTok = Parser.declaratorNameToken(declarator);

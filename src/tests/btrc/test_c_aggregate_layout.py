@@ -37,7 +37,7 @@ LAYOUT_PROGRAMS = {
         "Ints": {"data": "int"},
         "CharDoubles": {"d": "double"},
         "Tail": {"d": "char"},
-        "Pairs": {"items": "struct Pair"},
+        "Pairs": {"items": "Pair"},
         "Pointers": {"items": "void*"},
     },
 }

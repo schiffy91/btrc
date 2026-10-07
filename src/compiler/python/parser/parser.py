@@ -1250,7 +1250,7 @@ class Parser:
             field_type = self._parse_type_expr()
             specifier = self._declarator_specifier(field_type)
             name_tok, field_type = self._parse_declarator_name(field_type, "field name")
-            if specifier.is_array:
+            if not is_union and specifier.is_array:
                 # P1: the AST cannot tell `T[] name` from `T name[]`, which
                 # declares a flexible array member in a struct body.
                 raise ParseError(STRUCT_ARRAY_SPELLING.format(name_tok.value), name_tok.line, name_tok.col)
