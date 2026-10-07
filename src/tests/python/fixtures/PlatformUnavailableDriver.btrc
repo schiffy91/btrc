@@ -1,0 +1,47 @@
+/* Prints the self-hosted compiler's generated availability tables
+ * (GeneratedHostedAbiData.platformUnavailable) for each label named on the
+ * command line: one "LABEL KIND NAME" line per unavailable name, then
+ * "LABEL source SOURCE", or "LABEL missing" when the label has no table.
+ * Asking for a label twice proves the memoized row is the same table. */
+
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
+
+class PlatformUnavailableDump {
+	private GeneratedHostedAbiData data;
+
+	public PlatformUnavailableDump() { self.data = GeneratedHostedAbiData(); }
+
+	private void kind(string label, string name, Map<string, bool> names) {
+		for key in names.keys() { print(f"{label} {name} {key}"); }
+	}
+
+	public void dump(string label) {
+		GeneratedPlatformTargetRow? row = self.data.platformUnavailable(label);
+		if (row == null) {
+			print(f"{label} missing");
+			return;
+		}
+		GeneratedPlatformTargetRow? again = self.data.platformUnavailable(label);
+		if (again != row) { print(f"{label} not memoized"); }
+		self.kind(label, "functions", row.functions);
+		self.kind(label, "macros", row.macros);
+		self.kind(label, "objects", row.objects);
+		self.kind(label, "types", row.types);
+		self.kind(label, "typedefs", row.typedefs);
+		print(f"{label} source {row.source}");
+	}
+}
+
+int main(int argc, char** argv) {
+	PlatformUnavailableDump dump = PlatformUnavailableDump();
+	int index = 1;
+	while (index < argc) {
+		dump.dump(Strings.copy(argv[index]));
+		index = index + 1;
+	}
+	return 0;
+}
