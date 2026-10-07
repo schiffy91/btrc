@@ -8,13 +8,9 @@ belongs to CX-P1-09 after the target runner contract lands.
 
 The local unit tests use a stateful fake and real host-shell subprocesses to
 exercise quoting, binary file transfer, separate streams and command status.
-They are not Android execution evidence. The cloud container has no `/dev/kvm`;
-emulator boot, app installation, launch timings and on-device fixture results
-remain unverified until the requested `host-android.yml` workflow runs.
-No workflow file, including a proposed workflow, is added under the owner's
-explicit instruction in the standing goal: "Never edit ... CI-workflow files."
-The integrator's repository correction does not supersede that instruction;
-the workflow remains a concrete REQUEST in the PR body.
+They are not Android execution evidence. The hosted workflow uses KVM and
+retains native results separately. API 36 has passed its 28-case matrix; API 29
+qualification remains open as detailed below.
 
 ## Versions and setup
 
@@ -168,8 +164,11 @@ query proves the package is absent; a still-installed package fails before
 and uninstall, including a failed installation, and attaches cleanup errors to
 the original failure. A cleanup error after an otherwise successful fixture
 remains a host failure.
-The program deadline starts after `am start -W` returns; installation and launch
-retain their own bounded transport deadlines and separately recorded timings.
+The program deadline starts after `am start` accepts the launch; installation
+and launch retain their own bounded transport deadlines and separately recorded
+timings. It does not use `-W`: that option waits for a displayed activity, which
+a short fixture can finish before ever producing. Completion is established by
+the native host's terminal status, with the same bounded polling and cleanup.
 Fixture checks remain active under optimized Python (`python -O`). Harness
 files currently share the fixture cwd; separating control files from program
 data and proving cleanup of arbitrary descendants belong to CX-P1-09.
@@ -205,5 +204,12 @@ service. This is not a passing API 29 result or a 16 KiB qualification.
 The checker now retains completed fixture rows, the failing case/stage and
 cleanup errors in its JSON report. Before closing an owned failed emulator, it
 captures bounded logcat, properties and service-list diagnostics. Local
-transport/workflow tests pass (139 tests); a new emulator run is needed to
-diagnose the API 29 service failure. No retry or skip masks that failure.
+transport/workflow tests passed (139 tests). The next
+[hosted run 37560687135](https://github.com/schiffy91/btrc/actions/runs/37560687135)
+reached 25/28 API 29 cases, including every shell case and eleven app cases.
+Its `cwd` app reached `onCreate`, `onResume`, and `onDestroy` in under one second,
+but `am start -W` timed out waiting for a displayed frame. The launcher now
+uses the native result protocol independently of display acknowledgement;
+its regression models completion before the first displayed frame. The new
+head still needs both emulator matrices. The earlier unavailable-service
+failure remains recorded; this later failure is not evidence of its cause.

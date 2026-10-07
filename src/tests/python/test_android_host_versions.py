@@ -390,6 +390,25 @@ def test_app_timeout_force_stops_and_verifies_process_exit(tmp_path):
     assert any(args[:2] == ["shell", "pidof"] for args, _ in transport.calls)
 
 
+def test_app_can_finish_before_its_first_displayed_frame(tmp_path):
+    class FinishesBeforeDisplay(FakeAdb):
+        def __call__(self, command, **options):
+            result = super().__call__(command, **options)
+            if command[3:6] == ["shell", "am", "start"] and "-W" in command:
+                # API 29 run 37560687135: onCreate/onResume/onDestroy all
+                # completed, but the display acknowledgement never arrived.
+                assert self.files["exit_status"] == b"3\n"
+                raise subprocess.TimeoutExpired(command, options["timeout"])
+            return result
+
+    transport = FinishesBeforeDisplay(pending_polls=1)
+    executor = executor_bundle(tmp_path, transport, "app")
+    result = executor.run(ExecutionRequest("probe"))
+    assert result.exit_status == 3 and not result.timed_out
+    assert result.stdout == b"app\x00stdout" and result.stderr == b"app\x00stderr"
+    assert transport.status_polls == 2 and not transport.installed
+
+
 def test_app_poll_timeout_is_bounded_by_remaining_program_budget(tmp_path):
     transport = FakeAdb(status_error="timeout")
     executor = executor_bundle(tmp_path, transport, "app")

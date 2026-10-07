@@ -234,7 +234,11 @@ class AndroidEmulatorExecutor:
             for name, payload in (("request.bin", self.configuration(request)), ("stdin", request.stdin)):
                 self.remote("run-as", package, "sh", "-c", f"cat > files/{name}", input=payload)
             launched = time.monotonic()
-            self.adb("shell", "am", "start", "-W", "-n", f"{package}/android.app.NativeActivity")
+            # -W waits for a displayed activity. A fixture can publish its
+            # terminal status and finish before the first frame, leaving that
+            # display wait pending even though the program has completed.
+            # Wait on the native host's result protocol below instead.
+            self.adb("shell", "am", "start", "-n", f"{package}/android.app.NativeActivity")
             self.provenance["launch_s"] = time.monotonic() - launched
             deadline = time.monotonic() + request.timeout_s
             status = None
