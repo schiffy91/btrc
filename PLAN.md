@@ -5,10 +5,12 @@ Updated **2026-10-07**. The initial reconciliation used upstream main
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
 Current upstream main is `87dd60d7`. PR60 is published at `50bf1c8c`,
 combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
-and diagnostic corrections. Its completed local suite found nine failures in
+and diagnostic corrections. Predecessor `b5e3f81a` found nine failures in
 the structural audit's raw-source parser. Repair `bb40e39c` passes the expanded
 155-check structural audit and Linux-target compiler transpilation; the combined
-candidate has started a fresh full serial matrix and still needs main landing.
+candidate is running its fresh full serial matrix. Its native Linux ARM64
+bundle passes, while the hosted benchmark reports two peak-memory regressions
+that need investigation before main landing.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -299,6 +301,13 @@ are recorded in `docs/design/claude-integration-record.md`, Batch 25. The final
 C2 integration still needs the memory comparison required by
 `docs/design/c-compatibility.md` under a quiet host, in addition to review and
 the full correctness matrix. The 360-check repair run does not prove those exits.
+A read-only dry run of `tools/bench/scripts/ccompat_checkpoint.sh --memory`
+exposed a qualification-helper gap: all six instruction/footprint samples run
+without the required automated quiet check, although budget runs use it. Repair
+that orchestration before taking the C2 measurements. The check must validate the
+actual measured workspace: `instr.sh` uses BTRSmith in place, while budget_bench
+copies its input into the budget output's `ws` directory. No measurement was run
+and no earlier result is retroactively qualified by this review.
 
 The fresh full C2 run at `1fe1dc1e` ended with **17,431 passed, 166 skipped
 and one failure** in 1,881.71 seconds. Lint, formatting, generated-source,
@@ -575,11 +584,25 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `50bf1c8c` | The completed local suite has 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The repaired combined tree is published with a new full serial gate running; it began with 81.21 GB free and all guests stopped. Full local and hosted qualification remain pending. |
+| PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The repaired combined tree is published with a new full serial gate running; it began with 81.21 GB free and all guests stopped. Full local and hosted qualification remain pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `bb40e39c` | Parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. Integrated into the combined candidate; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
+
+At `50bf1c8c`, the [native Linux ARM64 release job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636879)
+passes archive construction, checksum, relocatable stdlib discovery and compilation
+and execution of its strict-C11 fixture. The [benchmark job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636710)
+fails two peak-memory checks: BenchCollections rises from 22,134,784 to 23,195,648
+bytes, and CompileStdlibHeavy from 44,789,760 to 45,895,680 bytes. Both exceed the
+existing 1 MiB minimum allowance, by 12,288 and 57,344 bytes respectively. All
+emitted-C size/line/parity comparisons pass. The benchmark's GitHub merge commit
+`01b70d67` has exactly the candidate's tree, so this is source-matched evidence.
+The original log and artifact are retained. One unchanged-tree repetition was
+requested to test repeatability, but GitHub rejected it while the containing
+workflow is still running; no retry has started. Keep the baseline and tolerances
+unchanged while isolating the growth. This failure is independent of the local
+quiet-helper omission above.
 
 PR65 `93856dfc` has completed its hosted workflows and no longer occupies a
 running wave. Combined PR60 `50bf1c8c` remains active. Recheck actual queued and
