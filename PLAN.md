@@ -401,14 +401,22 @@ refused. This preserves the original instantiation-site payload diagnostics.
 All 127 reference analyzer probes, all ten realtime payload refusal cases,
 and the valid payload example's reference transpilation pass; lint, Python/btrc
 formatting, generated-source and diff checks pass. Native parity qualification
-is running and includes the B/C ordering repair. It has reported failures, so
-the candidate remains unqualified while the full report is collected. REQ-11's
-generic-growth and nesting-limit errors still use direct combined-position
-printing; those paths must be reconciled with the new diagnostic owner. Merge resolution preserves
+at `cec4cc13` completed with **1,159 passes, 20 failures and three skips** in
+661.15 seconds. The B/C ordering repair and valid realtime payload example passed
+through both compilers. Nineteen failures came from REQ-11 generic-growth errors
+still using direct combined-position printing. The remaining test expected the
+constructor's line 35 instead of the invalid field's line 33; inspection also
+found that self-hosted validation pointed at `public` rather than the type.
+Local `9a01104c` routes generic-growth and nesting-limit errors through the
+source diagnostic owner, points the invalid SPSC payload at its type, and pins
+its full line/column identity. Analyzer parity now checks file-local lines even
+with stdlib imports. Ruff, full btrc formatting and diff checks pass; a fresh
+compiler and the same focused native suite are running. The candidate remains
+unqualified pending that result and the final matrix. Merge resolution preserves
 C2's union admission logic in the shared realtime owner and its union refusal
 regressions. The intentional positioned-diagnostic boundary update retains
-311 records and its reviewed SHA-256. No main landing, self-hosted D/G result,
-or full-matrix qualification is claimed yet.
+311 records and its reviewed SHA-256. No main landing or full-matrix
+qualification is claimed yet.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
