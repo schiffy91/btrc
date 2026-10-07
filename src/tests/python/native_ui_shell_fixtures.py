@@ -324,10 +324,22 @@ def exercise_macos_control(tmp_path, sanitized):
     ]
     assert [row[0] for row in rows] == list(range(1, 101))
     assert all(row[1] == 0 for row in rows), rows
+    initialization = re.findall(r"^APPKIT initialization owned=(\d+) private=(\d+)$", result.stdout, re.MULTILINE)
+    assert len(initialization) == 1, result.stdout
+    initialized_owned, initialized_private = map(int, initialization[0])
+    assert initialized_owned == 0, initialization
+    classes = macos_private_survivors(result.stderr, [initialized_private, *(row[2] for row in rows)])
     return {
         "kind": "public-appkit-only; no BTRC runtime/provider or GPU proof",
+        "initialization": {
+            "cycles": 1,
+            "owned": initialized_owned,
+            "private": initialized_private,
+            "private_classes": classes[0],
+            "weak_observations_preserved": True,
+        },
         "teardown": rows,
-        "private_classes": macos_private_survivors(result.stderr, [row[2] for row in rows]),
+        "private_classes": classes[1:],
         "source_sha256": {source.name: hashlib.sha256(source.read_bytes()).hexdigest() for source in sources},
         "build_command": command,
         "compiler": subprocess.check_output(

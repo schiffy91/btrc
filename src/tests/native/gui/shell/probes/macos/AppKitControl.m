@@ -73,7 +73,9 @@
  * editing, AX inspection, real event loop and teardown, in a fresh process.
  * No BTRC runtime, callback bridge or GUI provider is linked. The ordinary
  * NSView in the GPU slot provides no rendering or GPU-lifetime evidence.
- * Weak probe sets survive all 100 cycles; no survivor whitelist is encoded. */
+ * One initialization cycle lets AppKit construct its process-level editing
+ * services before the 100 measured cycles. Weak probe sets survive all 101
+ * cycles, including initialization; no survivor whitelist is encoded. */
 int main(void) {
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
@@ -84,7 +86,7 @@ int main(void) {
         }
         [app finishLaunching];
     }
-    for (int cycle = 0; cycle < 100; cycle++) {
+    for (int cycle = 0; cycle <= 100; cycle++) {
         @autoreleasepool {
             NSWindow *window = [NSWindow new];
             window.releasedWhenClosed = NO;
@@ -150,7 +152,10 @@ int main(void) {
         shellProbeDrain();
         int provider = shellProbeNativeCount();
         int retained = shellProbePrivateCount();
-        printf("APPKIT cycle=%d owned=%d private=%d\n", cycle + 1, provider, retained);
+        if (cycle == 0)
+            printf("APPKIT initialization owned=%d private=%d\n", provider, retained);
+        else
+            printf("APPKIT cycle=%d owned=%d private=%d\n", cycle, provider, retained);
         fflush(stdout);
         if (provider) { return 4; }
     }
