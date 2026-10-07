@@ -153,6 +153,33 @@ class Arm64EvidenceTests(unittest.TestCase):
         self.assertEqual((self.root / "timeout.stdout").read_bytes(), b"partial")
         self.assertTrue(evidence.report["steps"][0]["timed_out"])
 
+    def test_crash_diagnostics_keep_partial_output_under_a_separate_bound(self):
+        evidence = Evidence(self.root, "zig")
+        evidence.deadline = 0  # Failure diagnostics still have their own bounded budget.
+        with patch(
+            "tools.windows_toolchain.arm64.run_process",
+            return_value=Result(None, b"partial crash event", b"probe stalled", True),
+        ) as execute:
+            evidence.diagnose_windows_failure()
+        self.assertEqual(execute.call_args.kwargs["timeout"], 20)
+        self.assertEqual((self.root / "host-diagnostics.stdout").read_bytes(), b"partial crash event")
+        self.assertEqual((self.root / "host-diagnostics.stderr").read_bytes(), b"probe stalled")
+        self.assertTrue(evidence.report["host_diagnostics"]["timed_out"])
+        self.assertEqual(evidence.report["status"], "failed")
+
+    def test_diagnostic_failure_cannot_replace_the_original_compiler_error(self):
+        with (
+            patch("sys.argv", ["arm64.py", "cross", "--out", str(self.root)]),
+            patch("tools.windows_toolchain.arm64.sys.platform", "win32"),
+            patch.object(Evidence, "identify", side_effect=RuntimeError("original build crash")),
+            patch.object(Evidence, "diagnose_windows_failure", side_effect=OSError("diagnostic failure")),
+        ):
+            self.assertEqual(main(), 1)
+        report = json.loads((self.root / "summary.json").read_text())
+        self.assertEqual(report["error"], "original build crash")
+        self.assertEqual(report["host_diagnostics_error"], "diagnostic failure")
+        self.assertEqual(report["status"], "failed")
+
     def test_parent_exit_with_inherited_pipes_has_bounded_cleanup(self):
         child = "import time; time.sleep(60)"
         program = (

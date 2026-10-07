@@ -79,6 +79,36 @@ class Evidence:
             raise RuntimeError(f"expected pinned Zig {PINS['zig_version']}, got {version}")
         self.report["zig_version"] = version
 
+    def diagnose_windows_failure(self) -> None:
+        """Keep bounded, read-only crash observations without replacing the error."""
+        script = """$ErrorActionPreference = 'Stop'
+$report = @{}
+try {
+    $os = Get-CimInstance Win32_OperatingSystem
+    $report.capacity = $os | Select-Object Caption, Version, OSArchitecture,
+        TotalVisibleMemorySize, FreePhysicalMemory, TotalVirtualMemorySize, FreeVirtualMemory
+} catch { $report.capacity_error = $_.Exception.Message }
+try {
+    $events = Get-WinEvent -FilterHashtable @{
+        LogName = 'Application'; Id = 1000, 1001; StartTime = (Get-Date).AddMinutes(-15)
+    } -MaxEvents 50
+    $report.crashes = @($events | Where-Object { $_.Message -match 'zig|clang|lld' } |
+        Select-Object TimeCreated, Id, ProviderName, Message)
+} catch { $report.events_error = $_.Exception.Message }
+$report | ConvertTo-Json -Depth 6
+"""
+        command = ["pwsh", "-NoProfile", "-NonInteractive", "-Command", script]
+        result = run_process(command, cwd=ROOT, env=self.environment, timeout=20)
+        (self.output / "host-diagnostics.stdout").write_bytes(result.stdout)
+        (self.output / "host-diagnostics.stderr").write_bytes(result.stderr)
+        self.report["host_diagnostics"] = {
+            "argv": command,
+            "exit_code": result.returncode,
+            "timed_out": result.timed_out,
+            "error": result.error,
+            "timeout_s": 20,
+        }
+
     def build(self) -> Path:
         source, binary = self.output / "btrcc-windows.c", self.output / "btrcc.exe"
         self.run(
@@ -95,7 +125,11 @@ class Evidence:
         )
         if any(line.startswith(b"warning:") for line in (self.output / "transpile.stderr").read_bytes().splitlines()):
             raise RuntimeError("Windows compiler transpile emitted analyzer warnings")
-        self.run([self.zig, "cc", "-target", TARGET, *FLAGS, source, "-o", binary, "-lm"], "build")
+        self.report["generated_c"] = {
+            "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "bytes": source.stat().st_size,
+        }
+        self.run([self.zig, "cc", "-v", "-target", TARGET, *FLAGS, source, "-o", binary, "-lm"], "build")
         self.report["compiler"] = pe_arm64(binary)
         return binary
 
@@ -189,6 +223,11 @@ def main() -> int:
         return 0
     except Exception as error:
         evidence.report["error"] = str(error)
+        if sys.platform == "win32":
+            try:
+                evidence.diagnose_windows_failure()
+            except Exception as diagnostic_error:
+                evidence.report["host_diagnostics_error"] = str(diagnostic_error)
         if evidence.report["native_execution"] == "running":
             evidence.report["native_execution"] = "failed"
         print(str(error), file=sys.stderr)

@@ -120,3 +120,16 @@ check failed because Windows' error message omitted the executable name; the
 capture now explicitly retains that name beside the structured Win32 error.
 The failed tooling step prevented native compiler/bootstrap execution, which
 remains unqualified until a new complete run passes.
+
+At `bd36d38b`, [run 37564453309](https://github.com/schiffy91/btrc/actions/runs/37564453309)
+passed the repaired tooling, Linux cross-build and MSVC/wgpu probe. Native
+Python transpilation succeeded, but Zig's native C build exited with
+`0xC0000005` and no stderr, before a native btrcc executable or bootstrap was
+produced. The Linux and Windows generated C files were byte-identical
+(70,724,834 bytes, SHA-256
+`c83fe2d954d7791966a589b42fcc51bfcc8167b742d491070f1983c6106654a5`).
+The crash cause remains unqualified. Builds now retain verbose compiler
+diagnostics and generated-source identity; a failed Windows command also
+collects read-only capacity and recent Zig/Clang/linker application crash
+events under a separate 20-second bound. Partial diagnostics and diagnostic
+failures cannot replace the original error or produce a passing report.
