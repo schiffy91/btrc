@@ -1270,7 +1270,8 @@ supplied managed fixture executable. Move shell rendering and signal/Unix-only
 adversarial behavior to `DaemonPosix.btrc` with its own golden output and explicit
 POSIX capability selection. Preserve every moved assertion and the existing
 timeout/error messages; never skip the whole original test to obtain Windows
-green. Register any imported helper in INCLUDE_FIXTURES as usual.
+green. Imported helpers are discovered by `include_fixtures()` from their
+include/import references; no separate fixture-registration list is maintained.
 
 The Windows native daemon fixture supplies a test-only barrier that stops the
 supervisor's capability-polling loop after record publication while keeping its
