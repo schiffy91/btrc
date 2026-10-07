@@ -12,7 +12,7 @@ candidate completed 17,803 local tests with zero failures and 168 skips, then
 failed its skip audit on two unclassified Linux-only stack-limit cases. Local
 repair `8c71dda6` classifies those cases; `e497ac98` repairs the checkpoint
 quiet-check omission. Their 106 focused checks pass. Local bootstrap passes;
-strict-C11 is running, with GCC -O0 at 2,036 passed and zero skips. The native Linux ARM64 bundle passes, while the hosted
+strict-C11 is running: GCC -O0 through -O3 and Clang -O0 each passed 2,036 checks with zero skips. The native Linux ARM64 bundle passes, while the hosted
 benchmark reports two peak-memory regressions requiring investigation.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
@@ -595,7 +595,7 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. Strict-C11 is running under the host locks; GCC -O0 passed all 2,036 checks without skips. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
+| PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. Strict-C11 is running under the host locks; GCC -O0 through -O3 and Clang -O0 each passed all 2,036 checks without skips. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `bb40e39c` | Parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. Integrated into the combined candidate; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
@@ -611,10 +611,16 @@ emitted-C size/line/parity comparisons pass. The benchmark's GitHub merge commit
 `01b70d67` has exactly the candidate's tree, so this is source-matched evidence.
 The original log and artifact are retained. The first repetition request was
 rejected while the workflow was still running. After it finished, one unchanged-
-source benchmark repeat started at attempt 2, job `112835659915`; no baseline
-or tolerance changed. Its outcome remains pending. Keep the baseline and
-tolerances unchanged while isolating the growth. This failure is independent of the local
-quiet-helper omission above.
+source benchmark repeat completed at attempt 2,
+[job `112835659915`](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112835659915),
+with two memory failures. CompileStdlibHeavy reached 45,993,984 bytes, exceeding
+the allowance by 155,648 bytes; it fails both attempts. RunDispatch reached
+19,017,728 against a 17,924,096-byte baseline, exceeding the allowance by 45,056
+bytes. BenchCollections passed the repeat at 22,917,120 bytes. Artifact
+`11490775379` retains the repeated measurements at the same merge revision;
+size, line and parity checks still pass. No further unchanged rerun is requested.
+Keep the baseline and tolerances unchanged while isolating the growth. The
+cause remains unproved and is independent of the local quiet-helper omission.
 
 The completed Linux btrc shard at `50bf1c8c` passed **5,850 tests with 34 skips**.
 Artifact `11486902534` confirms both native hard-stack-limit cases passed: the
@@ -994,6 +1000,13 @@ owner, the exact prerequisite and the next acceptance.
   crash. The verbose object probe retained 10,395 bytes of Clang command and
   include-search diagnostics, with no stack trace. No full compiler execution
   or bootstrap began, and the crash cause remains unproved.
+  A local diagnostic candidate on `codex/windows-arm64-crash-location` adds a
+  bounded child debugger after an access violation, recording fatal exception
+  addresses and loaded modules. It follows only its newly launched process tree,
+  retains kill-on-debugger-exit and the existing Windows Job, and has a 20-second
+  inner deadline with a 30-second outer deadline. Portable ABI/event/harness tests
+  are queued behind the current gate; neither their result nor native crash-location
+  evidence is available yet. The candidate has not been published.
   The qualification command, pinned toolchain, Job containment and deadlines
   are unchanged; diagnostic success cannot turn the original failure green.
   Updating this existing PR stays within the two-active-code-PR allowance.
