@@ -211,8 +211,12 @@ retains that assertion only for surfaces with views. Backport `5dbf80a1` applies
 that exact change to the pinned source through the Linux Nix dependency and
 adds a real Wayland client exercising 100 unmapped subsurface-order cycles.
 Patch application, Nix syntax, Python syntax, lint, formatting and diff checks
-passed. Native Linux regression and full GUI qualification remain pending;
-other GTK/accessibility warnings are not claimed fixed. The next published
+passed. At `56909225`, the repaired hosted Wayland GUI shard passed 210
+checks with 195 expected skips and no unexpected skips in 606.68 seconds;
+retained JUnit and skip artifacts confirm the result. Its X11 sibling also
+passed. The new standalone unmapped-subsurface regression belongs to the unit
+shard, whose result remains pending; it has not been run against unpatched
+Weston. Other GTK/accessibility warnings are not claimed fixed. The next published
 candidate includes this backport and the current plan; its CI must qualify
 that new tree. No final green result is claimed.
 Main remains at `87dd60d7` until
@@ -251,7 +255,10 @@ with PR60's `56909225` Weston repair and the current plan; two documentation
 conflicts were reconciled. Its compiler, language, runtime and stdlib sources
 are unchanged from `98b88440`. PR65 remains published at `618e9ae1`; publish the
 new candidate when CI capacity is available, then qualify its complete tree.
-Hosted runs on the older head were deliberately deferred to respect the shared
+The next local candidate `1fe1dc1e` adds the current qualification and
+fork-safety review plan; its source owners remain unchanged, and its full local
+matrix is running under gate/guest/GUI locks. Keep that checkout frozen until
+the run completes. Hosted runs on the older head were deliberately deferred to respect the shared
 CI capacity limit; cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
 qualify the whole C2 merge.
 
@@ -377,7 +384,7 @@ branches must also be checked before deletion; nothing is deleted by this plan.
 The later integration branches are tracked separately from that frozen inventory:
 `codex/harmonize-plan` is [PR60](https://github.com/schiffy91/btrc/pull/60)'s
 combined candidate, now adding Weston backport `5dbf80a1` and the current plan
-to `ad72af03`. The local gate stays on `ad72af03` until terminal completion. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
+to `ad72af03`. The local `ad72af03` matrix completed successfully; later changes require their own qualification. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
 `codex/integrate-c2-arrays`, is published at `618e9ae1`; local candidate
 `0a332665` combines `98b88440`'s three failure repairs and 360 passing focused
 checks with `56909225`'s Weston repair and the current plan. Its full integrated
