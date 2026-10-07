@@ -48,7 +48,8 @@ _PLATFORM_STRUCT_MEMBERS = frozenset(
         "pw_dir",
         "pw_name",
         "pw_uid",  # struct passwd
-        "rlim_cur",  # struct rlimit
+        "rlim_cur",
+        "rlim_max",  # struct rlimit
         "rm_eo",
         "rm_so",  # regmatch_t
         "ru_maxrss",
