@@ -219,8 +219,8 @@ skips and zero unexpected skips, including the new standalone unmapped-subsurfac
 regression and all 29 headless-session cases. Its retained skip report records
 CI merge revision `377666fe`; the complete Linux workflow is green. The new
 regression has not been run against unpatched Weston. Other GTK/accessibility
-warnings are not claimed fixed. The macOS unit shard remains running; other
-macOS shards passed. No final integrated green result is claimed.
+warnings are not claimed fixed. The complete macOS workflow is now also green. Scope-skipped native-GUI
+jobs remain excluded from coverage. No final integrated green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
 pending their native failure investigations.
@@ -280,6 +280,19 @@ C2 integration still needs the memory comparison required by
 `docs/design/c-compatibility.md` under a quiet host, in addition to review and
 the full correctness matrix. The 360-check repair run does not prove those exits.
 
+The fresh full C2 run at `1fe1dc1e` ended with **17,431 passed, 166 skipped
+and one failure** in 1,881.71 seconds. Lint, formatting, generated-source,
+extension and the fresh Clang compiler build passed; bootstrap and strict-C11
+stopped behind the suite failure. All 824 GUI evidence files are retained.
+`test_macos_native_shell[sanitized-selfhost]` failed because the independent
+public-AppKit control retained seven private objects after its first cycle and
+eight thereafter: `NSTextInsertionIndicator` appears in cycles 2–100. BTRC has
+no such survivor. Its probe was inactive/non-key in all cycles; the control was
+active/key in all cycles. This shows an unstable control baseline, not BTRC
+retention growth, and does not justify loosening the retention assertion. Repair
+and qualify the control before rerunning the final matrix. REQ-10's pinned
+focused gate has started; REQ-11 remains queued under the same serial lock.
+
 `CL-REQ-10` (`e1bc5dfa`) remains unmerged after a blocking source review:
 `BtrccCompilerStack.run` marks its parent parked before `pthread_create`, while
 `ForkedWorkerPool.start` subtracts parked threads from its fork-safety count.
@@ -317,6 +330,19 @@ their expected results through the reference compiler; the new corpus also
 transpiles. Lint, Python/btrc formatting, generated-source and plan/hygiene
 checks pass. Self-hosted parity, native corpus execution and the final
 integrated matrix remain pending; this is a local checkpoint, not a main merge.
+
+Local candidate `e151f6be` merges the rich-enum B/C packet into `e1787f9b`,
+with a repair for writes into nested payload storage. The original branch
+accepts a store through `saved.data.Held.wrapped.child` whose generated C
+releases the new payload owner before its following read. Both analyzers now
+follow inline struct, tuple and array projections, stopping when a projection
+crosses a pointer or managed object. Four new refusal cases cover nested storage;
+the existing sanitizer execution fixture also checks allowed nested object
+writes. All 67 rich-enum reference checks and 127 analyzer reference probes pass;
+lint, formatting, generated-source and plan/hygiene checks pass. Native parity
+and sanitizer results remain pending. External owner rebinding and shallow
+struct escapes remain separate gaps; universal lifetime safety is not claimed.
+The iOS `1844837b` branch is preserved while its idle clone hosts this checkpoint.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -453,7 +479,7 @@ qualification claim follows from that source comparison.
 | `stage16/c4-python` | `db229df7` | Already represented on main: its complete tree is identical to `245cc209`; later paired review fixes landed at `914ad585`. Preserve the historical branch; do not replay it. |
 | `stage17/c2-l1` | `4ef167af` | CL-C-09: repair generic/tag capture, typedef diagnostic order, native tag and LSP regressions; rerun paired review. |
 | `stage17/c2-l2` | `2e65f7c6` | CL-C-13: fix declaration-vs-shadow diagnostic order and callee-first checks for interface/Atomic/Mutex receivers. |
-| `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
+| `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Integrated locally at `e151f6be` with nested payload-store repair; 67 rich-enum and 127 analyzer reference checks pass. Native parity/sanitizers remain pending; owner rebinding and shallow-struct escapes remain gaps. |
 | `stage18/req-ui2-dg` | `1cc97ab8` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
 | `stage18/req10-parity-gaps` | `e1bc5dfa` | CL-REQ-10: preserve collection-literal and static-storage repairs, but replace the unsafe parked-thread fork exemption; retain deep-expression support and module-worker parallelism with native handoff proof. |
 | `stage18/req11-tuple-sizeof-recursion` | `271397d3` | CL-REQ-11: integrated locally at `e1787f9b` with paired finite-nullable-cycle repair; 127 reference probes pass. Native parity, corpus execution and final matrix remain pending. |
