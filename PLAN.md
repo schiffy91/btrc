@@ -3,9 +3,9 @@
 Updated **2026-10-07**. The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`. PR60 combines the `ad72af03` integration
-with the `5dbf80a1` Weston backport; qualification and remaining work are
-recorded below.
+Current upstream main is `87dd60d7`. PR60 is published at `1424c2db`,
+combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
+and diagnostic corrections. Final-tree qualification is running as recorded below.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -415,7 +415,10 @@ same native suite passed **1,179 checks with three platform skips** in 625.74
 seconds, resolving all 20 prior failures. The skips are Linux resource-limit
 and `/dev/full` paths. A combined candidate now includes this repair, PR65
 `93856dfc` and the current plan; its production sources match `9a01104c`.
-The full serial matrix is prepared and remains outstanding. Merge resolution preserves
+The combined tree is published in PR60 at `1424c2db`. Its full local serial
+matrix and hosted workflows are running. Initial local lint, formatting,
+generated-source and extension checks passed; compiler build, main suite,
+bootstrap and C11 results remain pending. Merge resolution preserves
 C2's union admission logic in the shared realtime owner and its union refusal
 regressions. The intentional positioned-diagnostic boundary update retains
 311 records and its reviewed SHA-256. No main landing or full-matrix
@@ -518,14 +521,15 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `56909225` | All four hosted workflows passed. The earlier local `ad72af03` full matrix passed; later changes still need final-tree qualification and landing. |
+| PR60, `codex/harmonize-plan` | `1424c2db` | Combined C2/REQ-10/11/rich-enum/diagnostic candidate. Full local serial matrix and hosted workflows are running. Initial static/generated/extension checks passed; final-tree qualification and landing remain pending. Prior `56909225` hosted and `ad72af03` local green results remain historical evidence. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Its four hosted workflows are running; both Android emulator jobs passed. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
-| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification passed 1,179 checks with three platform skips, resolving the predecessor's 20 failures. Combined with PR65 locally; full matrix and main landing remain pending. |
+| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification passed 1,179 checks with three platform skips, resolving the predecessor's 20 failures. Included with PR65 in published PR60 `1424c2db`; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
-One code candidate currently occupies the shared hosted CI allowance: PR65.
-Recheck queued and running workflows before publishing another candidate.
+Two code candidates currently occupy the shared hosted CI allowance: PR65
+`93856dfc` and combined PR60 `1424c2db`. Recheck queued and running workflows
+before publishing another candidate.
 Cancellation and scope-only jobs are not qualification. No branch is deleted.
 
 The C4 branch comparison is complete: `db229df7` and main ancestor `245cc209`
