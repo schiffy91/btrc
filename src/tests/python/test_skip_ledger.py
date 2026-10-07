@@ -27,6 +27,7 @@ from tools.qualification.skips import (
     SkipGate,
     SkipLedgerError,
 )
+from tools.qualification.tiers import TierManifest
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -378,13 +379,22 @@ def test_the_hosted_macos_manifest_expects_only_platform_and_hardware_skips():
 
 
 def test_ci_manifests_name_coverage_that_ci_reports_can_confirm():
-    """Linux and Windows claim macOS coverage from the hosted runner, whose reports every push uploads."""
+    """Linux and Windows claim macOS coverage from the hosted runner, whose reports every push uploads.
 
+    A rule may also name one of ci/tiers.toml's hardware runners, which CI
+    never reports from: the ledger bundle records it as awaiting until its
+    evidence arrives. The only such claim is the physical Linux desktop's."""
+
+    awaiting = {runner.runner for runner in TierManifest.load().hardware}
+    confirmable = {"macos-hosted", "linux-devcontainer", "windows"}
     for runner in ("linux-devcontainer", "windows"):
         manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
         claimed = {other for rule in manifest.rules for other in rule.covered_by}
         assert "macos-hosted" in claimed, runner
-        assert claimed <= {"macos-hosted", "linux-devcontainer", "windows"}, runner
+        assert claimed <= confirmable | awaiting, runner
+        for rule in manifest.rules:
+            if set(rule.covered_by) - confirmable:
+                assert rule.id == "linux-real-desktop-session", (runner, rule.id)
 
 
 def test_macos_ci_classifies_every_session_as_the_hosted_runner():

@@ -2,8 +2,9 @@
  * through btrc's FeSourceConditionals for linux-x86_64, printing one outcome
  * per case: "1" when the group is taken, "0" when it is not, or
  * "error LINE:COL MESSAGE". `--no-target` conditions with an empty target
- * instead, the D13 seam of an unrecognized host; `--file PATH` conditions one
- * whole file and prints its conditioned text, or its error. */
+ * instead, the D13 seam of an unrecognized host, and `--target LABEL` for that
+ * row; `--file PATH` conditions one whole file and prints its conditioned
+ * text, or its error. */
 
 import Library.IO;
 import Library.Map;
@@ -13,18 +14,19 @@ import Library.Vector;
 import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
 import ../../../compiler/btrc/syntax/Grammar.btrc;
 import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/frontend/Packages.btrc;
 import ../../../compiler/btrc/frontend/Resolver.btrc;
 
 class ConditionalBattery {
 	private FeSourceConditionals conditionals;
 
-	public ConditionalBattery(GrammarInfo grammar, string operatingSystem, string architecture) {
+	public ConditionalBattery(GrammarInfo grammar, FePackageTarget target) {
 		GeneratedHostedAbiData data = GeneratedHostedAbiData();
 		Map<string, bool> hosted = {};
 		for name in data.ownedNames() { hosted.put(name, true); }
 		var rules = FeConditionalEnvironment.macroRulesFor(grammar.vocabulary, hosted, data);
 		Map<string, string> defines = {};
-		self.conditionals = FeSourceConditionals(FeConditionalEnvironment(operatingSystem, architecture, rules, data, defines), grammar);
+		self.conditionals = FeSourceConditionals(FeConditionalEnvironment(target.operatingSystem, target.architecture, target.environment, rules, data, defines), grammar);
 	}
 
 	private string outcome(FeConditionedSource conditioned, string taken) {
@@ -58,15 +60,17 @@ class ConditionalBattery {
 int main(int argc, char** argv) {
 	if (argc < 3) { return 2; }
 	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
-	string operatingSystem = "linux";
-	string architecture = "x86_64";
+	FePackageTarget target = FePackageTarget.parse("linux-x86_64");
 	int index = 2;
 	if (Strings.copy(argv[index]) == "--no-target") {
-		operatingSystem = "";
-		architecture = "";
+		target = FePackageTarget("", "", "");
 		index++;
+	} else if (Strings.copy(argv[index]) == "--target") {
+		if (index + 1 >= argc) { return 2; }
+		target = FePackageTarget.parse(Strings.copy(argv[index + 1]));
+		index += 2;
 	}
-	var battery = ConditionalBattery(grammar, operatingSystem, architecture);
+	var battery = ConditionalBattery(grammar, target);
 	if (Strings.copy(argv[index]) == "--file") {
 		if (index + 1 >= argc) { return 2; }
 		print(battery.file(Path.readAll(Strings.copy(argv[index + 1]))));

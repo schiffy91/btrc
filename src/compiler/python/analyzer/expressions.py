@@ -1562,7 +1562,7 @@ class ExpressionAnalyzer:
             if target is None:
                 return (False, None)
             if isinstance(expression.expr, FloatLiteral):
-                return self._converted_constant(expression.expr.value, target.base)
+                return self._converted_constant(self.types.float_literal_value(expression.expr.raw), target.base)
             valid, value = self._integer_constant_node(expression.expr, enum_owner, allowed)
             if not valid or value is None:
                 return (valid, value)

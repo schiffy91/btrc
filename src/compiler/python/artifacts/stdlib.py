@@ -79,7 +79,9 @@ class ArchiveVersionError(ValueError):
 class StdlibArchiveManifest:
     """Own archive manifest schema, loading, and integrity checks."""
 
-    SCHEMA = 5
+    # Schema 6 records the target row the archive was analysed for: literal
+    # typing and constant casts follow the row (platform-target-contract.md §1.8).
+    SCHEMA = 6
     MAX_BYTES = 16 * 1024 * 1024
     MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
     ARTIFACT_NAMES = ("btrc_stdlib.h", "btrc_stdlib.c")
@@ -97,6 +99,7 @@ class StdlibArchiveManifest:
             "artifacts",
             "schema",
             "stdlib_source",
+            "target",
             "toolchain",
             "macros",
             *LIST_FIELDS,
@@ -125,6 +128,8 @@ class StdlibArchiveManifest:
             and set(manifest) == self._FIELDS
             and manifest.get("schema") == self.SCHEMA
             and isinstance(manifest.get("stdlib_source"), str)
+            and isinstance(manifest.get("target"), str)
+            and bool(manifest["target"])
             and isinstance(manifest.get("toolchain"), str)
             and isinstance(manifest.get("artifacts"), dict)
             and set(manifest["artifacts"]) == set(self.ARTIFACT_NAMES)
@@ -137,8 +142,8 @@ class StdlibArchiveManifest:
             )
         )
 
-    def load(self, stdlib_dir: str, stdlib_source: str) -> dict:
-        """Load and authenticate one archive against compiler and stdlib."""
+    def load(self, stdlib_dir: str, stdlib_source: str, target: str) -> dict:
+        """Load and authenticate one archive against compiler, stdlib and target row."""
 
         if self.publisher.publication_in_progress(stdlib_dir):
             raise ArchiveVersionError(
@@ -161,6 +166,14 @@ class StdlibArchiveManifest:
                 f"stdlib archive in '{stdlib_dir}' was built by a different "
                 f"compiler version (archive: {stamped or 'unstamped'}, current: "
                 f"{current}); regenerate it with --build-stdlib"
+            )
+        # The row comes before the source hash: once the stdlib is conditioned
+        # on the target, an archive for another row also hashes a different
+        # source, and only the row message names the remedy.
+        if manifest["target"] != target:
+            raise ArchiveVersionError(
+                f"stdlib archive in '{stdlib_dir}' was built for target '{manifest['target']}', "
+                f"not '{target}'; regenerate it with --build-stdlib --target {target}"
             )
         if manifest["stdlib_source"] != self.source_hash(stdlib_source):
             raise ArchiveVersionError(
@@ -280,8 +293,9 @@ class StdlibArtifactRepository:
         header: str,
         implementation: str,
         metadata: dict,
+        target: str,
     ) -> dict:
-        """Stamp and atomically publish one application-prepared payload."""
+        """Stamp and atomically publish one application-prepared payload for one target row."""
 
         manifest = {
             **metadata,
@@ -291,6 +305,7 @@ class StdlibArtifactRepository:
             },
             "schema": MANIFEST_SCHEMA,
             "stdlib_source": self.manifest.source_hash(stdlib_source),
+            "target": target,
             "toolchain": self.fingerprint.digest("full"),
         }
         if not self.manifest.valid(manifest):
@@ -306,7 +321,7 @@ class StdlibArtifactRepository:
         )
         return manifest
 
-    def load(self, stdlib_dir: str, stdlib_source: str) -> dict:
-        """Load and validate an archive against the canonical whole stdlib."""
+    def load(self, stdlib_dir: str, stdlib_source: str, target: str) -> dict:
+        """Load and validate an archive against the canonical whole stdlib and target row."""
 
-        return self.manifest.load(stdlib_dir, stdlib_source)
+        return self.manifest.load(stdlib_dir, stdlib_source, target)

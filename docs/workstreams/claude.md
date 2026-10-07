@@ -3696,7 +3696,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 1. Python: CIntegerWidths.for_target(row) from sizeof_long (char 8, short 16, int 32, long long 64). NumericLiteralSemantics and SemanticAnalyzer take the row; the about 118 target-less callers default to TargetRepository.host()'s row.
 2. btrc: Constants.btrc, Literals.btrc (via Operators.btrc:138-142 and NativeImports.btrc:1530) take the row's sizeofLong, threaded through the analyzer context that CompilerPipeline fills. All three sites change in this commit, so the two compilers never split on literal typing.
 3. Widths contract in test_hosted_abi_contract.py gains __SIZEOF_LONG__ vs for_target for every row.
-4. test_target_data_model.py: for linux-x86_64, windows-x86_64 and windows-aarch64-msvc, the 'long' out-of-range refusal, the cast-range checks and the typing of 3000000000 are identical in both compilers and follow the row, not the host.
+4. test_target_data_model.py: for linux-x86_64, windows-x86_64 and windows-aarch64-msvc, the cast-range checks and the typing of 3000000000 are identical in both compilers and follow the row, not the host.
 5. test_preprocessor_conditionals.py: per-target selection over all 11 rows; TARGET_OS_IPHONE and __ANDROID_API__ >= 29 select; #define TARGET_OS_IPHONE 1 is refused with M3's message. The rows must select by environment: today ios-aarch64 gets TARGET_OS_EMBEDDED=0 and __APPLE_EMBEDDED_SIMULATOR__=1, ios-aarch64-simulator gets TARGET_OS_SIMULATOR=0 and TARGET_IPHONE_SIMULATOR=0, and windows-aarch64-msvc gets __MINGW32__, __MINGW64__, __SEH__ and __STDC__=1. Pin the correct value of each in both compilers. This commit lands before the Stage 24 sub-batch 1 gate.
 6. Makefile: generate dist/btrcc-windows.c with --target windows-x86_64. The release gate regenerates dist/btrcc.c for each of the four LP64 desktop rows and requires byte identity; any row that differs gets its own C file.
 
@@ -3709,7 +3709,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 **Risks**
 
-- Observable change: a Linux-to-windows-x86_64 compile now refuses long x = 3000000000; this is intended and pinned.
+- Observable change: on windows-* rows the literal 3000000000 is typed `long long` (LLP64), so `long x = 3000000000;` is a narrowing initialization. Neither compiler refuses it, as for `int` narrowing on every row; the emitted C fails `zig cc -target x86_64-windows-gnu -Werror` with `-Wconstant-conversion`. Batch 48 recorded that as a follow-up REQ item (platform-target-contract.md §1.8), not a P1-05 refusal.
 - Hotspot overlap with Stage 19 lanes (Literals.btrc, Constants.btrc): the integrator sequences them.
 
 <a id="cl-p1-06"></a>
@@ -6093,7 +6093,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 **Must not touch**
 
 - docs/design/plan-reference.md
-- the E40 reproduction branch (never merged before CX-UIA-23)
+- the E40 reproduction branch (never merged before CX-STDLIB-01, which lands it with its fix; D28)
 
 **Steps**
 
@@ -6220,13 +6220,13 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 **Steps**
 
 1. Combine the contract, macOS and Linux branches into one commit on integ/ui2, apply the fragments and regenerate the derived files.
-2. Run the full batch gate in the cloud: make test (sharded), make bootstrap (BackgroundJobs is a compiler import), make test-c11, lint, format-check, generated-check, extension, git diff --check and the zero-warning transpiles. Then push main and read all three workflows.
+2. Run the full batch gate in the cloud: make test (sharded), make bootstrap, make test-c11, lint, format-check, generated-check, extension, git diff --check and the zero-warning transpiles. Then push main and read all three workflows.
 3. Ingest the E-case results, and add the API changes to the BTRSmith rename table with the D24 shim noted.
 
 **Acceptance**
 
 - [ ] One atomic commit on main with a green gate and green CI (run ids).
-- [ ] Stage 32 exit evidence: E01-E04, E29, E31, E35, E39, E40 and E46 pass on macOS and Linux with sanitizers, and the E40 repair landed with its reproduction.
+- [ ] Stage 32 exit evidence: E01-E04, E29, E31, E35, E39, E40 and E46 pass on macOS and Linux with sanitizers, and E40 is re-verified on the UI2 provider (the repair landed in CX-STDLIB-01, D28).
 
 **Risks**
 

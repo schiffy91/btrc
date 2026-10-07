@@ -6,9 +6,12 @@ import math
 import struct
 from collections.abc import Callable, Iterable, Mapping, Set
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from types import MappingProxyType
 from typing import ClassVar
 
+from src.compiler.python.abi.generated import GeneratedTargetRow
+from src.compiler.python.abi.hosted import TargetRepository, TargetSelectionError
 from src.compiler.python.analyzer.program import (
     AnalysisSession,
     DeclarationIndex,
@@ -124,15 +127,18 @@ class CIntegerWidths:
     long_long: int
 
     @classmethod
-    def native(cls) -> CIntegerWidths:
-        """Describe the ABI targeted by the running compiler process."""
-        return cls(
-            char=struct.calcsize("@b") * 8,
-            short=struct.calcsize("@h") * 8,
-            int_=struct.calcsize("@i") * 8,
-            long=struct.calcsize("@l") * 8,
-            long_long=struct.calcsize("@q") * 8,
-        )
+    def for_target(cls, row: GeneratedTargetRow | None = None) -> CIntegerWidths:
+        """The widths of one target row; ``None`` is the host's row.
+
+        Only ``long`` varies: char, short, int and long long are pinned
+        across every row (platform-target-contract.md §1.8), and no width
+        depends on the Python process.
+        """
+        if row is None:
+            row = TargetRepository.host()
+            if row is None:
+                raise TargetSelectionError(TargetRepository.UNKNOWN_HOST_MESSAGE)
+        return cls(char=8, short=16, int_=32, long=row.sizeof_long * 8, long_long=64)
 
 
 class NumericLiteralSemantics:
@@ -165,7 +171,7 @@ class NumericLiteralSemantics:
     )
 
     def __init__(self, widths: CIntegerWidths | None = None) -> None:
-        self.widths = widths if widths is not None else CIntegerWidths.native()
+        self.widths = widths if widths is not None else CIntegerWidths.for_target()
         self._signed_limits = MappingProxyType(
             {
                 "signed char": self._signed_range(self.widths.char),
@@ -185,6 +191,11 @@ class NumericLiteralSemantics:
             }
         )
 
+    @classmethod
+    def for_target(cls, row: GeneratedTargetRow | None = None) -> NumericLiteralSemantics:
+        """The literal semantics of one target row; ``None`` is the host's row."""
+        return cls(CIntegerWidths.for_target(row))
+
     def integer_type(self, raw: str, value: int) -> str:
         """Return the first C11 candidate type that can represent ``value``."""
         body, suffix = LiteralDecoder.integer_parts(raw)
@@ -200,6 +211,34 @@ class NumericLiteralSemantics:
     @staticmethod
     def float_type(raw: str) -> str:
         return "float" if raw.endswith(("f", "F")) else "double"
+
+    @staticmethod
+    def float_value(raw: str) -> float:
+        """Return a floating literal's value at its C type (C11 6.4.4.2p4).
+
+        A float literal rounds once, from its decimal spelling, to binary32.
+        Rounding through the double differs only when the double lands exactly
+        on a binary32 midpoint; then the exact decimal decides the side.
+        """
+        body = raw.rstrip("fF")
+        value = float(body)
+        if body == raw:
+            return value
+        try:
+            narrowed = struct.unpack("=f", struct.pack("=f", value))[0]
+        except OverflowError:
+            return math.inf
+        if narrowed == value:
+            return value
+        bits = struct.unpack("=I", struct.pack("=f", narrowed))[0]
+        neighbour = struct.unpack("=f", struct.pack("=I", bits + 1 if narrowed < value else bits - 1))[0]
+        if not math.isfinite(neighbour) or value != (narrowed + neighbour) / 2:
+            return narrowed
+        # Decimal compares the spelling exactly without building its integer.
+        exact = Decimal(body)
+        if exact == Decimal(value):
+            return narrowed
+        return max(narrowed, neighbour) if exact > Decimal(value) else min(narrowed, neighbour)
 
     def has_integral_range(self, target_base: str) -> bool:
         """Whether constant conversion to ``target_base`` has known bounds."""
@@ -1338,6 +1377,10 @@ class TypeSystem:
     def float_literal_type(self, raw: str) -> TypeExpr:
         """Decode a floating literal suffix into its semantic type."""
         return TypeExpr(base=self._numeric_literals.float_type(raw))
+
+    def float_literal_value(self, raw: str) -> float:
+        """Decode a floating literal at its C type."""
+        return self._numeric_literals.float_value(raw)
 
     def has_integral_range(self, target_base: str) -> bool:
         """Whether constant conversion to ``target_base`` has known bounds."""
