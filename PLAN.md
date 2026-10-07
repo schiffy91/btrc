@@ -255,12 +255,16 @@ all 360 checks. The fixes are committed as `c063cc18` and merged with `ad72af03`
 in local candidate `98b88440`. Follow-up `0a332665` combines that compiler tree
 with PR60's `56909225` Weston repair and the current plan; two documentation
 conflicts were reconciled. Its compiler, language, runtime and stdlib sources
-are unchanged from `98b88440`. PR65 remains published at `618e9ae1`; publish the
-new candidate when CI capacity is available, then qualify its complete tree.
+are unchanged from `98b88440`. PR65 is now published at `93856dfc`, combining
+those repairs, the AppKit comparison described below and the current plan.
+Its updated hosted CI, macOS, Windows and Android workflows have started;
+qualification of its complete tree remains pending.
 The subsequent local candidate `1fe1dc1e` adds the qualification and
 fork-safety review plan; its source owners remain unchanged. Its full local
-matrix stopped at the independent AppKit control failure detailed below. Hosted runs on the older head were deliberately deferred to respect the shared
-CI capacity limit; cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
+matrix stopped at the independent AppKit control failure detailed below. Hosted
+runs on the older head were deferred to respect the shared CI capacity limit;
+the current publication began after the prior workflows completed. Cancellation
+is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
 qualify the whole C2 merge.
 
 **Stage 17 remains broader than PR65.** At local candidate `0a332665`, the
@@ -397,7 +401,10 @@ refused. This preserves the original instantiation-site payload diagnostics.
 All 127 reference analyzer probes, all ten realtime payload refusal cases,
 and the valid payload example's reference transpilation pass; lint, Python/btrc
 formatting, generated-source and diff checks pass. Native parity qualification
-is running and includes the B/C ordering repair. Merge resolution preserves
+is running and includes the B/C ordering repair. It has reported failures, so
+the candidate remains unqualified while the full report is collected. REQ-11's
+generic-growth and nesting-limit errors still use direct combined-position
+printing; those paths must be reconciled with the new diagnostic owner. Merge resolution preserves
 C2's union admission logic in the shared realtime owner and its union refusal
 regressions. The intentional positioned-diagnostic boundary update retains
 311 records and its reviewed SHA-256. No main landing, self-hosted D/G result,
