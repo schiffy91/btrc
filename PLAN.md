@@ -255,12 +255,16 @@ all 360 checks. The fixes are committed as `c063cc18` and merged with `ad72af03`
 in local candidate `98b88440`. Follow-up `0a332665` combines that compiler tree
 with PR60's `56909225` Weston repair and the current plan; two documentation
 conflicts were reconciled. Its compiler, language, runtime and stdlib sources
-are unchanged from `98b88440`. PR65 remains published at `618e9ae1`; publish the
-new candidate when CI capacity is available, then qualify its complete tree.
+are unchanged from `98b88440`. PR65 is now published at `93856dfc`, combining
+those repairs, the AppKit comparison described below and the current plan.
+Its updated hosted CI, macOS, Windows and Android workflows have started;
+qualification of its complete tree remains pending.
 The subsequent local candidate `1fe1dc1e` adds the qualification and
 fork-safety review plan; its source owners remain unchanged. Its full local
-matrix stopped at the independent AppKit control failure detailed below. Hosted runs on the older head were deliberately deferred to respect the shared
-CI capacity limit; cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
+matrix stopped at the independent AppKit control failure detailed below. Hosted
+runs on the older head were deferred to respect the shared CI capacity limit;
+the current publication began after the prior workflows completed. Cancellation
+is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
 qualify the whole C2 merge.
 
 **Stage 17 remains broader than PR65.** At local candidate `0a332665`, the
@@ -397,11 +401,22 @@ refused. This preserves the original instantiation-site payload diagnostics.
 All 127 reference analyzer probes, all ten realtime payload refusal cases,
 and the valid payload example's reference transpilation pass; lint, Python/btrc
 formatting, generated-source and diff checks pass. Native parity qualification
-is running and includes the B/C ordering repair. Merge resolution preserves
+at `cec4cc13` completed with **1,159 passes, 20 failures and three skips** in
+661.15 seconds. The B/C ordering repair and valid realtime payload example passed
+through both compilers. Nineteen failures came from REQ-11 generic-growth errors
+still using direct combined-position printing. The remaining test expected the
+constructor's line 35 instead of the invalid field's line 33; inspection also
+found that self-hosted validation pointed at `public` rather than the type.
+Local `9a01104c` routes generic-growth and nesting-limit errors through the
+source diagnostic owner, points the invalid SPSC payload at its type, and pins
+its full line/column identity. Analyzer parity now checks file-local lines even
+with stdlib imports. Ruff, full btrc formatting and diff checks pass; a fresh
+compiler and the same focused native suite are running. The candidate remains
+unqualified pending that result and the final matrix. Merge resolution preserves
 C2's union admission logic in the shared realtime owner and its union refusal
 regressions. The intentional positioned-diagnostic boundary update retains
-311 records and its reviewed SHA-256. No main landing, self-hosted D/G result,
-or full-matrix qualification is claimed yet.
+311 records and its reviewed SHA-256. No main landing or full-matrix
+qualification is claimed yet.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -494,18 +509,21 @@ The remote snapshot contains 183 branches: 151 tips are ancestors of main and
 32 are not. These are initial dispositions, not completed reviews. Local legacy
 branches must also be checked before deletion; nothing is deleted by this plan.
 
-The later integration branches are tracked separately from that frozen inventory:
-`codex/harmonize-plan` is [PR60](https://github.com/schiffy91/btrc/pull/60)'s
-combined candidate, now adding Weston backport `5dbf80a1` and the current plan
-to `ad72af03`. The local `ad72af03` matrix completed successfully; later changes require their own qualification. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
-`codex/integrate-c2-arrays`, is published at `618e9ae1`; local candidate
-`0a332665` combines `98b88440`'s three failure repairs and 360 passing focused
-checks with `56909225`'s Weston repair and the current plan. Its full integrated
-qualification and native Linux Weston proof remain outstanding.
-C2's new hosted workflows are deferred while the existing combined and Windows
-ARM64 candidates occupy the shared CI allowance. Publish and qualify the new
-head when capacity is available; rerunning the canceled old-head workflows
-would not qualify the current candidate.
+The later integration branches are tracked separately from that frozen inventory.
+These are the current checkpoints; the detailed status above retains the earlier
+failed runs and their evidence rather than replacing them with later passes.
+
+| Integration checkpoint | Current head | Qualification / remaining work |
+|---|---|---|
+| PR60, `codex/harmonize-plan` | `56909225` | All four hosted workflows passed. The earlier local `ad72af03` full matrix passed; later changes still need final-tree qualification and landing. |
+| PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Its four hosted workflows are running; both Android emulator jobs passed. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
+| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification is running after the predecessor's 20 diagnostic failures. Not yet published or merged into main. |
+| PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
+| PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
+
+One code candidate currently occupies the shared hosted CI allowance: PR65.
+Recheck queued and running workflows before publishing another candidate.
+Cancellation and scope-only jobs are not qualification. No branch is deleted.
 
 The C4 branch comparison is complete: `db229df7` and main ancestor `245cc209`
 have the same full Git tree, `87666402b8638440ed04dff17664de955fb16c48`.
@@ -538,10 +556,10 @@ qualification claim follows from that source comparison.
 | `stage16/c4-python` | `db229df7` | Already represented on main: its complete tree is identical to `245cc209`; later paired review fixes landed at `914ad585`. Preserve the historical branch; do not replay it. |
 | `stage17/c2-l1` | `4ef167af` | CL-C-09: repair generic/tag capture, typedef diagnostic order, native tag and LSP regressions; rerun paired review. |
 | `stage17/c2-l2` | `2e65f7c6` | CL-C-13: fix declaration-vs-shadow diagnostic order and callee-first checks for interface/Atomic/Mutex receivers. |
-| `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Integrated locally at `e151f6be` with nested payload-store repair; 67 rich-enum and 127 analyzer reference checks pass. Native parity/sanitizers remain pending; owner rebinding and shallow-struct escapes remain gaps. |
-| `stage18/req-ui2-dg` | `1cc97ab8` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
-| `stage18/req10-parity-gaps` | `e1bc5dfa` | CL-REQ-10: preserve collection-literal and static-storage repairs, but replace the unsafe parked-thread fork exemption; retain deep-expression support and module-worker parallelism with native handoff proof. |
-| `stage18/req11-tuple-sizeof-recursion` | `271397d3` | CL-REQ-11: integrated locally at `e1787f9b` with paired finite-nullable-cycle repair; 127 reference probes pass. Native parity, corpus execution and final matrix remain pending. |
+| `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Integrated through local `9a01104c` with nested payload-store repair. Native sanitizer cases passed at `2d645e27`; its inferred-global diagnostic ordering repair passed in the broader `cec4cc13` run. Final integrated qualification and owner-rebinding/shallow-struct gaps remain open. |
+| `stage18/req-ui2-dg` | `1cc97ab8` | Merged locally at `cec4cc13`, with realtime checks deferred until finite generic closure. Its 20 diagnostic failures are corrected in `9a01104c`; fresh native qualification is running. |
+| `stage18/req10-parity-gaps` | `e1bc5dfa` | Integrated with safe main-stack startup replacing the parked-thread fork exemption. Native single-thread startup/two-worker handoff and deep-expression parity passed in the recorded REQ-10 run; naming repair `148c3f42` and later integration are retained. Linux hard-limit paths and final matrix remain open. |
+| `stage18/req11-tuple-sizeof-recursion` | `271397d3` | Integrated through local `9a01104c` with paired finite-nullable-cycle repair. Native focused run at `f3a5d3c6` passed 1,210 checks; the two corpus marker checks passed at `d2ffae69`. Final integrated matrix remains open. |
 | `stage24/apple-standin-extraction` | `7b3d1195` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
 | `stage24/apple-standin-extraction-run` | `9c0d737d` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
 | `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08: wait for CL-P1-06 and qualified extractor inputs, then review schema/generation parity. |
