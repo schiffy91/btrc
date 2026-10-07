@@ -476,8 +476,12 @@ owner, the exact prerequisite and the next acceptance.
   missing-executable diagnostic omitted its filename. The repair preserves the
   executable identity alongside the OS error; 190 tests and eight subtests
   passed locally. The earlier failed tooling step prevented compiler/bootstrap
-  execution. [Current run 37564453309](https://github.com/schiffy91/btrc/actions/runs/37564453309)
-  is qualifying the repair.
+  execution. [Run 37564453309](https://github.com/schiffy91/btrc/actions/runs/37564453309)
+  passed the repaired tooling, Linux cross-build and MSVC/wgpu probe, then
+  failed in the native Zig 0.16.0 C build with `0xC0000005` and empty stderr.
+  Python transpilation completed; no native-built btrcc or bootstrap result
+  was produced. Retained source and exact command identify the failing tool;
+  its crash cause still needs native diagnostics rather than a relaxed gate.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
