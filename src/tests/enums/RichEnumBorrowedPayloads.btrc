@@ -1,0 +1,73 @@
+/* A rich enum whose payloads hold strings, classes, interfaces or collections
+ * never retains them: it is a lexical borrow, like Span<T>. It may be a local
+ * or a parameter, and reading a payload into a managed local or returning it
+ * takes a real reference, so the value read outlives the enum. The escape and
+ * payload-store restrictions are checked by test_rich_enum_payload_borrows.py;
+ * rebinding an external payload owner remains a separate lifetime gap. */
+import Library.Vector;
+
+#include <assert.h>
+
+interface INamed {
+	string name();
+}
+
+class Probe implements INamed {
+	public int id;
+	public Probe(int id) { self.id = id; }
+
+	public string name() { return f"probe-{self.id}"; }
+}
+
+enum class Outcome {
+	Count(int value),
+	Label(string text),
+	Detached(Probe child),
+	Viewed(INamed view),
+	Batch(Vector<Probe> probes)
+}
+
+int weigh(Outcome outcome) {
+	switch (outcome.tag) {
+		case Outcome.Count: return outcome.data.Count.value;
+		case Outcome.Label: return outcome.data.Label.text.length();
+		case Outcome.Detached: return outcome.data.Detached.child.id;
+		case Outcome.Viewed: return outcome.data.Viewed.view.name().length();
+		case Outcome.Batch: return outcome.data.Batch.probes.len;
+	}
+	return -1;
+}
+
+/* A payload read out of a borrowed enum is retained by the return. */
+Probe detachedChild(Outcome outcome) { return outcome.data.Detached.child; }
+
+int main() {
+	Probe child = Probe(42);
+	string label = f"label-{child.id}";
+	Vector<Probe> probes = [];
+	probes.push(child);
+	probes.push(Probe(5));
+
+	Outcome count = Outcome.Count(3);
+	Outcome text = Outcome.Label(label);
+	Outcome detached = Outcome.Detached(child);
+	Outcome viewed = Outcome.Viewed(child);
+	Outcome batch = Outcome.Batch(probes);
+	Outcome copy = detached;
+	print(f"{weigh(count)} {weigh(text)} {weigh(detached)} {weigh(viewed)} {weigh(batch)} {weigh(copy)}");
+
+	Probe kept = Probe(0);
+	{
+		Probe inner = Probe(9);
+		Outcome scoped = child.id > 0 ? Outcome.Detached(inner) : Outcome.Count(0);
+		kept = detachedChild(scoped);
+		Probe read = scoped.data.Detached.child;
+		assert(read.id == 9);
+	}
+	assert(kept.id == 9);
+	assert(detachedChild(Outcome.Detached(child)).id == 42);
+	print(f"kept={kept.id} batch={batch.data.Batch.probes.get(1).id} text={text.data.Label.text}");
+
+	print("PASS: test_rich_enum_borrowed_payloads");
+	return 0;
+}

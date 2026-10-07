@@ -711,6 +711,17 @@ class GenericAnalyzer:
             return False
         if not self._reject_flexible_array_method_arguments(owner, dependency):
             return False
+        for index, argument in enumerate(dependency.method_arguments, 1):
+            contained = self.types.contains_nonescaping_rich_enum(argument)
+            if contained is not None:
+                self.types.report_type_shape_error(
+                    f"Generic argument {index} for method '{dependency.method_name}' cannot contain "
+                    f"nonescaping rich enum '{contained}'",
+                    None,
+                    dependency.line,
+                    dependency.col,
+                )
+                return False
         substitutions = dict(zip(cls.generic_params, dependency.class_arguments))
         substitutions.update(zip(method.generic_params, dependency.method_arguments))
         signature_types = [method.return_type, *(parameter.type for parameter in method.params)]

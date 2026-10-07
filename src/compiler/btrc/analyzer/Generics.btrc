@@ -1153,6 +1153,17 @@ class GenericSpecializer {
 			Map<string, bool> unresolved = {};
 			SemanticTypeSystem.upgradeTypeGenericArgs(d.type, a, unresolved);
 			self.upgradeExprGenericArgs(d.initializer, a, unresolved);
+		} else if (d.kind == NK_RICH_ENUM_DECL) {
+			/* A payload slot is a parameter of the variant constructor: its
+			 * nested class arguments use the same pointer representation as
+			 * the locals passed to it (`Vector<IProbeView>` payloads). */
+			Map<string, bool> unresolved = {};
+			for variant in d.variants() {
+				for parameter in variant.params() {
+					SemanticTypeSystem.upgradeTypeGenericArgs(parameter.type, a, unresolved);
+					self.upgradeExprGenericArgs(parameter.default_, a, unresolved);
+				}
+			}
 		}
 	}
 

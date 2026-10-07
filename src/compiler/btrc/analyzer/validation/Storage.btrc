@@ -862,6 +862,24 @@ class StorageValidator {
 		}
 	}
 
+	/* Refuse a variable that would let a borrowing rich enum outlive its
+	 * owners. A declared type is checked before the initializer and an
+	 * inferred `var` type after it, as the reference compiler orders them. */
+	public void validateNonescapingVariable(Node declaration, Node? type, bool isGlobal) {
+		Node? canonical = self.types.resolveAliases(type);
+		if (canonical == null) { return; }
+		string subject = (isGlobal ? "Global '" : "Variable '") + declaration.name + "'";
+		self.types.validateNonescapingRichEnumRole(canonical, subject, "object", declaration);
+		string richEnum = self.types.nonescapingRichEnum(canonical);
+		if (richEnum == "" || canonical.pointerDepth != 0 || canonical.isArray) { return; }
+		if (isGlobal || canonical.isStatic || canonical.isExtern) {
+			TypeValidator.fail(subject + " cannot store nonescaping rich enum '" + richEnum + "'; " + TypeValidator.nonescapingRichEnumReason(), declaration);
+		}
+		if (declaration.initializer == null) {
+			TypeValidator.fail(subject + " must initialize its nonescaping rich enum '" + richEnum + "' borrow", declaration);
+		}
+	}
+
 	public void validateVariableStorage(Node declaration, bool isGlobal, Map<string, Node> vars) {
 		string subject = isGlobal ? "Global '" : "Variable '";
 		subject = subject + declaration.name + "'";
@@ -875,6 +893,7 @@ class StorageValidator {
 				TypeValidator.fail(subject + " must initialize its Span<T> borrow", declaration);
 			}
 		}
+		self.validateNonescapingVariable(declaration, declaration.type, isGlobal);
 		if (canonical != null && canonical.base == "Atomic" && canonical.pointerDepth == 0 && declaration.initializer != null) {
 			Node initializer = declaration.initializer;
 			bool validConstructor = initializer.kind == NK_CALL_EXPR && initializer.callee != null && initializer.callee.kind == NK_IDENTIFIER && initializer.callee.name == "Atomic";
@@ -1434,6 +1453,29 @@ class StorageValidator {
 		}
 	}
 
+	/* Refuse a store that could make a borrowing rich enum outlive its payload owners. */
+	private void rejectNonescapingRichEnumStore(Node expression, Node? canonicalTarget, Map<string, Node> vars) {
+		string richEnum = self.types.nonescapingRichEnum(canonicalTarget);
+		if (richEnum != "") {
+			TypeValidator.fail("Nonescaping rich enum '" + richEnum + "' cannot be reassigned; " + TypeValidator.nonescapingRichEnumReason() + ", so declare a new local", expression);
+		}
+		/* Inline struct, tuple and array projections stay in the enum's
+		 * storage. Crossing a pointer or managed object reaches other storage. */
+		Node? node = expression.target;
+		while (node != null && (node.kind == NK_FIELD_ACCESS_EXPR || node.kind == NK_INDEX_EXPR)) {
+			Node current = node;
+			if (current.kind == NK_FIELD_ACCESS_EXPR && current.field == "data") {
+				richEnum = self.types.nonescapingRichEnum(self.types.inferType(current.obj, vars));
+				if (richEnum != "") {
+					TypeValidator.fail("Payload of nonescaping rich enum '" + richEnum + "' cannot be reassigned; " + TypeValidator.nonescapingRichEnumReason() + ", so declare a new local", expression);
+				}
+			}
+			Node? receiver = self.types.resolveAliases(self.types.inferType(current.obj, vars));
+			if (receiver != null && !receiver.isArray && (receiver.pointerDepth > 0 || self.types.managedOwnershipType(receiver) || SemanticTypeSystem.isString(receiver))) { break; }
+			node = current.obj;
+		}
+	}
+
 	public void validateAssignment(Node expression, Map<string, Node> vars) {
 		if (!self.isLvalue(expression.target, vars)) {
 			TypeValidator.fail("Assignment target is not assignable", expression);
@@ -1448,6 +1490,7 @@ class StorageValidator {
 			// C11 6.7.2.1p25 copies only the members before the flexible array.
 			TypeValidator.fail("Struct '" + flexibleStruct + "' with a flexible array member cannot be assigned or copied", expression);
 		}
+		self.rejectNonescapingRichEnumStore(expression, canonicalStorageTarget, vars);
 		bool gpuArrayOutput = expression.op == "=" && self.types.gpuArrayResultCall(expression.valueNode, vars);
 		bool gpuCollectionOutput = gpuArrayOutput && self.gpuOutputCollectionTarget(expression.target, storageTarget, vars);
 		bool gpuTargetHasCapacity = gpuArrayOutput && self.arrayTargetHasCapacity(expression.target, storageTarget, vars) && (!self.types.gpuOutputCollectionType(storageTarget) || gpuCollectionOutput);

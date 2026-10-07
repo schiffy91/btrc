@@ -11,6 +11,8 @@ from src.compiler.python.analyzer.ownership import MutexDestroyReceiverPlan
 from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES, DeclarationIndex, Occurrence
 from src.compiler.python.analyzer.types import (
     _RUNTIME_AGGREGATE_BASES,
+    NONESCAPING_RICH_ENUM_REASON,
+    THREAD_AGGREGATE_RESULT_MESSAGE,
     OperatorTypeError,
     TypeIdentity,
 )
@@ -161,6 +163,9 @@ class ExpressionAnalyzer:
             )
         if isinstance(expression.fn, LambdaExpr):
             self._validate_spawn_captures(expression)
+            result = self._infer_spawn_return_type(expression.fn)
+            if self.types.contains_nonescaping_rich_enum(result) is not None:
+                self.session.error(THREAD_AGGREGATE_RESULT_MESSAGE, expression.line, expression.col)
 
     def _validate_spawn_captures(self, expression) -> None:
         for capture in expression.fn.captures:
@@ -645,6 +650,41 @@ class ExpressionAnalyzer:
         if zero:
             self.session.error("Division by zero", operand.line, operand.col)
 
+    def _reject_nonescaping_rich_enum_store(self, expression, canonical_target) -> bool:
+        """Refuse a store that could make a borrowing rich enum outlive its payload owners."""
+        rich_enum = self.types.nonescaping_rich_enum(canonical_target)
+        if rich_enum is not None:
+            self.session.error(
+                f"Nonescaping rich enum '{rich_enum}' cannot be reassigned; "
+                f"{NONESCAPING_RICH_ENUM_REASON}, so declare a new local",
+                expression.line,
+                expression.col,
+            )
+            return True
+        # Inline struct, tuple and array projections stay in the enum's
+        # storage. Crossing a pointer or managed object reaches other storage.
+        node = expression.target
+        while isinstance(node, (FieldAccessExpr, IndexExpr)):
+            if isinstance(node, FieldAccessExpr) and node.field == "data":
+                rich_enum = self.types.nonescaping_rich_enum(self.infer_type(node.obj))
+                if rich_enum is not None:
+                    self.session.error(
+                        f"Payload of nonescaping rich enum '{rich_enum}' cannot be reassigned; "
+                        f"{NONESCAPING_RICH_ENUM_REASON}, so declare a new local",
+                        expression.line,
+                        expression.col,
+                    )
+                    return True
+            receiver = self.types.canonical_type(self.infer_type(node.obj))
+            if (
+                receiver is not None
+                and not receiver.is_array
+                and (receiver.pointer_depth > 0 or self.ownership.is_managed_result_type(receiver))
+            ):
+                break
+            node = node.obj
+        return False
+
     def _validate_assignment(self, expression):
         if isinstance(expression.target, FieldAccessExpr) and expression.target.optional:
             self.session.error("Optional-chain expression is not assignable", expression.line, expression.col)
@@ -687,6 +727,8 @@ class ExpressionAnalyzer:
                 expression.line,
                 expression.col,
             )
+            return
+        if self._reject_nonescaping_rich_enum_store(expression, canonical_target):
             return
         if self._reject_borrowed_managed_rebind(expression, canonical_target):
             return
@@ -2222,6 +2264,8 @@ class ExpressionAnalyzer:
                 self.session.error(
                     "spawn expressions are not supported inside generic declarations", expr.line, expr.col
                 )
+            if isinstance(expr.fn, LambdaExpr):
+                self.session.spawned_lambda_ids.add(id(expr.fn))
             self._analyze_expr(expr.fn)
             self._validate_spawn_expr(expr)
             ret_type = self._infer_spawn_return_type(expr.fn)
@@ -2234,6 +2278,27 @@ class ExpressionAnalyzer:
         inferred = self._infer_type(expr)
         if inferred:
             self.session.record_node_type(expr, inferred)
+        self._reject_nonescaping_construction(expr, inferred)
+
+    def _reject_nonescaping_construction(self, expr, inferred) -> None:
+        """A constructed class instance may not hold a nonescaping rich enum."""
+        construction = isinstance(expr, NewExpr) or (
+            isinstance(expr, CallExpr)
+            and isinstance(expr.callee, Identifier)
+            and self.session.scope.lookup(expr.callee.name) is None
+            and expr.callee.name in self.index.class_table
+        )
+        constructed = self.types.canonical_type(inferred) if construction else None
+        if constructed is None or self.types.nonescaping_rich_enum(constructed) is not None:
+            return
+        contained = self.types.contains_nonescaping_rich_enum(constructed)
+        if contained is not None:
+            self.session.error(
+                f"Constructed '{constructed.base}' cannot contain nonescaping rich enum '{contained}' "
+                "in aggregate or managed storage",
+                expr.line,
+                expr.col,
+            )
 
     def sizeof_value_operand(self, expression) -> Identifier | None:
         """The object a ``sizeof(name)`` operand names when ``name`` is a binding in scope."""

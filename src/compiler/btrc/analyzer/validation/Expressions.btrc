@@ -829,6 +829,7 @@ class ExpressionValidator {
 			self.names.deferGeneratedSymbolCall(expression, vars);
 			self.calls.validateCall(expression,  vars);
 			self.validateCollectionArguments(vars);
+			self.rejectNonescapingMethodArguments(expression);
 		} else if (expression.kind == NK_INDEX_EXPR) {
 			self.validateExpr(expression.obj,  vars);
 			self.validateExpr(expression.index,  vars);
@@ -860,6 +861,13 @@ class ExpressionValidator {
 			self.validateFlexibleArrayOperand(expression, "Conditional expression", vars);
 		} else {
 			self.validateExprChildren(expression,  vars);
+		}
+		self.rejectNonescapingConstruction(expression, vars);
+	}
+
+	public void recordSpawnedLambda(Node expression) {
+		if (expression.kind == NK_SPAWN_EXPR && expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
+			self.state.spawnedLambdas.put(AstIdentity.key(expression.fn), true);
 		}
 	}
 
@@ -1065,6 +1073,14 @@ class ExpressionValidator {
 		}
 
 		plan.resultType = self.expressionTypes.lambdaReturnType(expression, vars);
+		if (expression.returnType == null && !self.state.spawnedLambdas.has(AstIdentity.key(expression))) {
+			self.types.validateNonescapingRichEnumRole(self.types.resolveAliases(plan.resultType), "Lambda return type", "return", expression);
+		}
+		for name in names {
+			if (vars.has(name) && self.state.localBindings.has(name) && self.types.nonescapingRichEnum(vars.get(name)) != "") {
+				TypeValidator.fail("A lambda cannot capture nonescaping rich enum '" + name + "'", expression);
+			}
+		}
 		Node? representedResult = self.types.arrayValueType(plan.resultType);
 		if (representedResult != null) {
 			plan.resultType = representedResult;
@@ -1370,9 +1386,15 @@ class ExpressionValidator {
 			if (self.state.typeParams.len > 0 && (expression.fn == null || expression.fn.kind != NK_LAMBDA_EXPR)) {
 				TypeValidator.fail("spawn expressions are not supported inside generic declarations", expression);
 			}
+			self.recordSpawnedLambda(expression);
 			self.validateExpr(expression.fn,  vars);
 			if (expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
 				self.validateSpawnCaptures(expression,  vars);
+				Node? thread = self.types.resolveAliases(self.types.inferType(expression, vars));
+				Map<string, bool> visiting = {};
+				if (thread != null && thread.genericArgs().len == 1 && self.types.containsNonescapingRichEnum(thread.genericArgs().get(0), visiting) != "") {
+					TypeValidator.fail(TypeValidator.threadAggregateResultMessage(), expression);
+				}
 			}
 			Node? callable = self.types.inferType(expression.fn,  vars);
 			if (expression.fn == null || (expression.fn.kind != NK_LAMBDA_EXPR && (callable == null || (callable.base != "__fn_ptr" && callable.base != "__realtime_fn_ptr")))) {
@@ -1383,6 +1405,36 @@ class ExpressionValidator {
 					TypeValidator.fail("Non-lambda spawn requires __fn_ptr<void*, void*>; use a " + "lambda adapter for other signatures", expression);
 				}
 			}
+		}
+	}
+
+	/* A generic method's type arguments may not hold a nonescaping rich enum:
+	 * its body could store or return them inside managed storage. */
+	private void rejectNonescapingMethodArguments(Node call) {
+		if (call.callee == null || call.callee.kind != NK_FIELD_ACCESS_EXPR) { return; }
+		Vector<Node>? arguments = self.state.analyzed.methodCallArguments(call);
+		if (arguments == null) { return; }
+		Vector<Node> methodArguments = arguments;
+		for (int index = 0; index < methodArguments.len; index++) {
+			Map<string, bool> visiting = {};
+			string contained = self.types.containsNonescapingRichEnum(methodArguments.get(index), visiting);
+			if (contained != "") {
+				TypeValidator.fail("Generic argument " + Strings.fromInt(index + 1) + " for method '" + call.callee.field + "' cannot contain nonescaping rich enum '" + contained + "'", call);
+			}
+		}
+	}
+
+	/* A constructed class instance (`new Box<E>(...)`, or `Box(...)` inferred)
+	 * is managed storage, so it may not hold a nonescaping rich enum. */
+	private void rejectNonescapingConstruction(Node expression, Map<string, Node> vars) {
+		bool construction = expression.kind == NK_NEW_EXPR || (expression.kind == NK_CALL_EXPR && expression.callee != null && expression.callee.kind == NK_IDENTIFIER && !vars.has(expression.callee.name) && (self.state.analyzed.isClass(expression.callee.name) || self.state.analyzed.isGenericClass(expression.callee.name)));
+		if (!construction) { return; }
+		Node? constructed = self.types.resolveAliases(self.types.inferType(expression, vars));
+		if (constructed == null || self.types.nonescapingRichEnum(constructed) != "") { return; }
+		Map<string, bool> visiting = {};
+		string contained = self.types.containsNonescapingRichEnum(constructed, visiting);
+		if (contained != "") {
+			TypeValidator.fail("Constructed '" + constructed.base + "' cannot contain nonescaping rich enum '" + contained + "' in aggregate or managed storage", expression);
 		}
 	}
 

@@ -20,6 +20,7 @@ gap ID.
 | — | A null raw pointer to `string` warns | `string* p = null;` warns `Possibly-null value stored in non-nullable variable 'p' of type 'string'`: the nullable check reads the pointer as its pointee, and a raw pointer may hold null; both compilers warn alike. Found by the Stage 16 C1 exit. | `python/analyzer/flow.py`, `btrc/analyzer` nullable flow |
 | — | A collection literal in other value positions of a program without the class | A `var` initializer and a for-in iterable report `List literal needs the Vector class` (or `Map`) when no module declares the class. A literal in other value positions that becomes a collection, such as a lambda result (`() => [1, 2]`), a return, an argument, an assignment or a conditional for-in iterable (`for x in (c ? [1] : [2])`), is accepted by the reference compiler, whose C names an undeclared `btrc_Vector_*` type; `btrcc` rejects the conditional iterable with a for-in protocol diagnostic. A list or map literal argument to a `Set`, pointer or array parameter is accepted by `btrcc` with invalid C where the reference compiler rejects it. An empty first value in an inferred map literal (`{"a": [], "b": [1]}`) is inferred by the reference compiler and refused by `btrcc`. A literal argument's element errors are reported after its call's other argument errors in `btrcc`. Found by the `CL-REQ-10` reviews. | `python/analyzer/statements.py`, `btrc/analyzer/validation/ControlFlow.btrc` |
 | — | Collection literal typing left after `CL-REQ-10` | Both compilers check an inferred literal (one in no typed position) against its first element or entry, wherever it stands; that refuses `{"a": 1, "b": true}`, a null first entry (`{"a": null, "b": Point(1)}`, as `[null, Point(1)]` always was), and a literal mixing a type parameter with a concrete type in a generic body. A literal in a typed position is checked against that type instead. What remains: a declared ternary of two heterogeneous literals (`Vector<Animal> zoo = c ? [Dog(), Bird()] : [Bird()]`) is refused by both with `Ternary branches have incompatible types`, the reference compiler spelling the types `Vector<Dog*>*`, `btrcc` `Vector<Dog*>`; a typedef of a collection of collections (`typedef Map<string, Vector<double>> Table`) makes `btrcc` store the inner collection by value, and a collection of such a typedef (`Vector<Weights>`, `Map<string, Doubles>`) gives invalid C in both; an inferred global taking another global's address (`var p = &base;`) runs in the reference compiler and is `Unresolved identifier 'p'` in `btrcc`, and `var values = [];` or `var pair = ([1, 2], 3);` at file scope give different first diagnostics; an inferred map entry from a raw `char*` (`{"a": "x", "b": raw}`) fails in the reference compiler's IR without a location and is accepted by `btrcc`; numeric entries narrow silently to the first entry's type (`{"a": 'c', "b": 300}`), as an assignment does; a map literal's typed-position diagnostic reads `Return value value expects …` in both, and a positional argument is `Argument '1'` in `btrcc` and `Argument 1` in the reference compiler. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc`, `btrc/ir/lowering/Expressions.btrc` |
+| — | Shallow structs holding managed fields escape | `struct S { Probe p; }` built from a local and returned (or stored past the local's scope) reads freed memory in both compilers; rich enums with managed payloads are nonescaping (see below), structs are not yet. Reassigning a borrowed payload's owner while a rich enum or `Span<T>` still holds it is also unchecked. Found by CL-REQ-UI2-C. | `python/analyzer/types.py`, `btrc/analyzer/validation/Types.btrc` |
 | — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
 | — | `for`-in over an array a lambda captured | A lambda captures an array as a pointer, so `for (int v in captured)` inside it iterates the pointer's decayed shape (summing 3 where the array sums 45), in both compilers. `sizeof(captured)` there is refused instead (CL-REQ-11). | `python/ir/lowering`, `btrc/ir/lowering` lambda capture of arrays |
 | — | Tuple misuse that reaches C | `int x = w._0;` on an array of tuples, `(int)t` and `if (t)` on a tuple value are not refused; both compilers emit C that does not compile. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
@@ -466,6 +467,46 @@ first piece:
 |--------|------------|
 | an f-string beside a literal (`f"{n}" " tail"`) | `An f-string cannot be concatenated with an adjacent string literal` |
 | a piece naming anything but a source macro that expands to string literals, including a native macro such as `PRId64` that the front end cannot resolve (D20) | `Cannot concatenate 'PRId64' with an adjacent string literal: it is not a source macro that expands to a string literal` |
+
+## Rich enums with managed payloads are lexical borrows
+
+A rich-enum value is a by-value tagged union that never retains its payloads.
+A rich enum whose payloads hold (directly, or through a struct, tuple, array
+or nested rich enum) a `string`, a class, an interface or a collection is
+therefore **nonescaping**, like `Span<T>`
+([realtime-primitives.md](language/realtime-primitives.md#borrowed-spans)): it
+may be one direct local, initialized where it is declared, or a parameter.
+A payload read out of it (`Probe p = r.data.Detached.child;`, or a `return` of
+one) takes an ordinary reference that outlives the enum. A rich enum with only
+scalar payloads is an ordinary value and is unrestricted.
+
+The following escape and storage flows are refused, with the same diagnostic
+in both compilers (`btrc/test_rich_enum_payload_borrows.py`;
+allowed flows in `enums/RichEnumBorrowedPayloads.btrc`). The reason clause
+`R` is `its managed payloads are borrowed references that it never retains`:
+
+| Flow | Diagnostic |
+|------|------------|
+| a function, method, interface-method or declared lambda return type | `Return type of function 'f' cannot be nonescaping rich enum 'E'; R` |
+| a lambda whose inferred return is one, or contains one (an immediately invoked lambda too) | `Lambda return type cannot be nonescaping rich enum 'E'; R` (`… cannot contain nonescaping rich enum 'E' in aggregate or managed storage`) |
+| a constructed class instance that would hold one (`new Box<E>(…)`, an inferred `Box(e)`) | `Constructed 'Box' cannot contain nonescaping rich enum 'E' in aggregate or managed storage` |
+| a generic method type argument that is or holds one | `Generic argument 1 for method 'm' cannot contain nonescaping rich enum 'E'` |
+| a class or struct field, a rich-enum payload | `Field 'C.f' cannot store nonescaping rich enum 'E'; R` |
+| a global, `static` or `extern` variable | `Global 'g' cannot store nonescaping rich enum 'E'; R` |
+| a `var` whose inferred type is or contains one, at file scope or in a disallowed shape | the same diagnostics as the declared type |
+| a local without an initializer | `Variable 'v' must initialize its nonescaping rich enum 'E' borrow` |
+| reassigning it, or storing into its own payload slots, including nested structs, tuples and arrays (a write through a managed payload object is allowed) | `Nonescaping rich enum 'E' cannot be reassigned; R, so declare a new local` (`Payload of nonescaping rich enum …` for a payload store) |
+| any collection, tuple, generic, `Thread<T>` or `Mutex<T>` that contains one | `Variable 'v' cannot contain nonescaping rich enum 'E' in aggregate or managed storage` |
+| a pointer, nullable or array shape | `Rich enum 'E' borrows its managed payloads and must be one direct value; pointer, nullable and array shapes are not supported` |
+| a spawned lambda whose result is or contains one, stored or joined at once (`spawn(…).join()`) | `Thread<T> aggregate result type cannot contain string or class references; return the managed value directly or use a scalar-only aggregate` |
+| a lambda or `spawn` capture | `A lambda cannot capture nonescaping rich enum 'v'` |
+
+Two hazards remain, shared with `Span<T>` and every shallow aggregate: the
+rule does not stop the payload's owner itself from being reassigned or
+released while the enum is alive (`Probe c = Probe(1); E r = E.Held(c); c =
+Probe(2);` leaves `r` dangling), and a struct with a class field
+(`struct S { Probe p; }`) is not yet nonescaping, so returning one built from a
+local reads freed memory in both compilers.
 
 ## Nullable references are checked by warnings
 

@@ -307,6 +307,18 @@ transpiles. This is reference-only evidence: self-hosted parity, native corpus
 execution and the final integrated matrix remain pending. Generated catalogs
 were regenerated from the merged specs, retaining C2 data.
 
+The rich-enum B/C packet is integrated locally for qualification, with a
+review repair for writes into nested payload storage. The original branch
+accepts a store of a shorter-lived owner through `saved.data.Held.wrapped.child`;
+its generated C releases that owner before the following read. Both analyzers
+now follow inline struct, tuple and array projections and stop when a projection
+crosses a pointer or managed object, preserving writes through payload objects.
+Four new refusal cases cover nested storage and a sanitizer execution case
+covers the allowed nested object write. All 67 rich-enum reference checks pass;
+native parity and sanitizer results remain pending. The packet still does not
+solve rebinding an external payload owner or shallow-struct escapes, and its
+documentation no longer claims universal lifetime safety.
+
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
 | Stages 1–4 | Pre-flight history, Stage 2 fixes, measurement harness and extensive stdlib drift repairs landed. Daemon failures were races/zombie handling, not a deadline to relax. | Disk headroom restored; finish Mac and BTRSmith requalification and pin; reconcile residual findings before closing Stage 4. |

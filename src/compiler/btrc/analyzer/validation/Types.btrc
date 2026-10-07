@@ -51,6 +51,9 @@ class SemanticValidationState {
 	 * initializer (a lambda local) or inside a field default has no owner
 	 * either, but it is not a global. */
 	public Node? globalDeclaration = null;
+	/* Lambda literals spawned directly, keyed by AstIdentity.key: their
+	 * results are Thread<T> results. */
+	public Map<string, bool> spawnedLambdas;
 
 	public SemanticValidationState(Analyzed analyzed) {
 		self.analyzed = analyzed;
@@ -76,6 +79,7 @@ class SemanticValidationState {
 		self.rawBorrowVisiting = {};
 		self.allowOwnedOpaqueVariable = false;
 		self.inParameterDefault = false;
+		self.spawnedLambdas = {};
 	}
 }
 
@@ -433,6 +437,129 @@ class TypeValidator {
 	public bool containsAtomicStorage(Node? typeExpr) {
 		Map<string, bool> visiting = {};
 		return self.aggregateTypeMatches(typeExpr, 7, visiting);
+	}
+
+	class string recordName(string base) { return base.startsWith("struct ") ? base.substring(7, base.length() - 7) : base; }
+
+	class string threadAggregateResultMessage() { return "Thread<T> aggregate result type cannot contain string or class references; return the managed value directly or use a scalar-only aggregate"; }
+
+	class string nonescapingRichEnumReason() { return "its managed payloads are borrowed references that it never retains"; }
+
+	/* A rich-enum value never retains its payloads, so one that carries a
+	 * string, class, interface or collection is a lexical borrow like Span<T>.
+	 * Returns that enum's name, or "" when the type is not one. */
+	public string nonescapingRichEnum(Node? typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null || !self.state.analyzed.richEnumTable.has(canonical.base)) { return ""; }
+		Node declaration = self.state.analyzed.richEnumTable.get(canonical.base);
+		Map<string, bool> visiting = {};
+		visiting.put("rich-enum:" + declaration.name, true);
+		for variant in declaration.variants() {
+			for parameter in variant.params() {
+				if (self.payloadBorrowsManagedReference(parameter.type, visiting)) { return declaration.name; }
+			}
+		}
+		return "";
+	}
+
+	private bool payloadBorrowsManagedReference(Node? typeExpr, Map<string, bool> visiting) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null) { return false; }
+		if (canonical.isArray) { return self.payloadBorrowsManagedReference(TypeShape.withoutOuterArray(canonical), visiting); }
+		if (TypeComposition.isSemanticScalarString(canonical)) { return true; }
+		if (canonical.pointerDepth <= 1 && (self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isInterface(canonical.base) || (canonical.genericArgs().len > 0 && self.state.analyzed.isGenericClass(canonical.base)))) {
+			return true;
+		}
+		if (canonical.pointerDepth > 0 || canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") { return false; }
+		if (canonical.base == "Tuple") {
+			for argument in canonical.genericArgs() {
+				if (self.payloadBorrowsManagedReference(argument, visiting)) { return true; }
+			}
+			return false;
+		}
+		Map<string, bool>? nested = self.nestedAggregateVisit(canonical, visiting);
+		if (nested == null) { return false; }
+		Map<string, bool> fieldVisiting = nested;
+		for field in self.aggregateFieldTypes(canonical) {
+			if (self.payloadBorrowsManagedReference(field, fieldVisiting)) { return true; }
+		}
+		return false;
+	}
+
+	/* The nonescaping rich enum this storage transitively contains, or "". */
+	public string containsNonescapingRichEnum(Node? typeExpr, Map<string, bool> visiting) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null) { return ""; }
+		string direct = self.nonescapingRichEnum(canonical);
+		if (direct != "") { return direct; }
+		/* Thread<T> results have their own refusal: an aggregate result with a
+		 * string or class reference, which every nonescaping rich enum carries. */
+		if (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr" || canonical.base == "Thread") { return ""; }
+		for argument in canonical.genericArgs() {
+			string contained = self.containsNonescapingRichEnum(argument, visiting);
+			if (contained != "") { return contained; }
+		}
+		if (canonical.pointerDepth > 0) { return ""; }
+		Map<string, bool>? nested = self.nestedAggregateVisit(canonical, visiting);
+		if (nested == null) { return ""; }
+		Map<string, bool> fieldVisiting = nested;
+		for field in self.aggregateFieldTypes(canonical) {
+			string contained = self.containsNonescapingRichEnum(field, fieldVisiting);
+			if (contained != "") { return contained; }
+		}
+		return "";
+	}
+
+	/* The visiting set for one struct or rich-enum layer, or null when that
+	 * layer is already on the path (mirrors the reference `_aggregate_field_types`). */
+	private Map<string, bool>? nestedAggregateVisit(Node canonical, Map<string, bool> visiting) {
+		string name = TypeValidator.recordName(canonical.base);
+		string key = (self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:") + name;
+		if (visiting.has(key)) { return null; }
+		Map<string, bool> nested = self.cloneFlags(visiting);
+		nested.put(key, true);
+		return nested;
+	}
+
+	private Vector<Node> aggregateFieldTypes(Node canonical) {
+		Vector<Node> fieldTypes = [];
+		string name = TypeValidator.recordName(canonical.base);
+		if (self.state.analyzed.structTable.has(name)) {
+			Node declaration = self.state.analyzed.structTable.get(name);
+			if (!declaration.isForward) {
+				for field in SemanticTypeSystem.recordFields(declaration) { fieldTypes.push(field.type); }
+			}
+			return fieldTypes;
+		}
+		if (self.state.analyzed.richEnumTable.has(name)) {
+			for variant in self.state.analyzed.richEnumTable.get(name).variants() {
+				for parameter in variant.params() { fieldTypes.push(parameter.type); }
+			}
+		}
+		return fieldTypes;
+	}
+
+	/* A borrowing rich enum is a direct lexical local or parameter only. */
+	public void validateNonescapingRichEnumRole(Node? canonical, string subject, string role, Node site) {
+		if (canonical == null) { return; }
+		string richEnum = self.nonescapingRichEnum(canonical);
+		if (richEnum == "") {
+			Map<string, bool> visiting = {};
+			string contained = self.containsNonescapingRichEnum(canonical, visiting);
+			if (contained != "") {
+				TypeValidator.fail(subject + " cannot contain nonescaping rich enum '" + contained + "' in aggregate or managed storage", site);
+			}
+			return;
+		}
+		if (canonical.pointerDepth > 0 || canonical.isArray || canonical.isNullable) {
+			TypeValidator.fail("Rich enum '" + richEnum + "' borrows its managed payloads and must be one direct value; " + "pointer, nullable and array shapes are not supported", site);
+		}
+		if (role == "field" || role == "stable_field") {
+			TypeValidator.fail(subject + " cannot store nonescaping rich enum '" + richEnum + "'; " + TypeValidator.nonescapingRichEnumReason(), site);
+		}
+		if (role == "return") {
+			TypeValidator.fail(subject + " cannot be nonescaping rich enum '" + richEnum + "'; " + TypeValidator.nonescapingRichEnumReason(), site);
+		}
 	}
 
 	public bool threadAggregateHasManagedReference(Node? typeExpr, Map<string, bool> visiting) { return self.aggregateTypeMatches(typeExpr, 5, visiting); }
@@ -1146,6 +1273,7 @@ class TypeValidator {
 		if (canonical != null && canonical.base != "Span" && self.containsSpanStorage(canonical)) {
 			TypeValidator.fail(subject + " cannot contain nonescaping Span<T> in aggregate or managed " + "storage", site);
 		}
+		self.validateNonescapingRichEnumRole(canonical, subject, role, site);
 		if (canonical != null && canonical.base != "Atomic" && self.containsAtomicStorage(canonical)) {
 			TypeValidator.fail(subject + " cannot embed an Atomic<T> owner in shallow copyable storage; " + "keep Atomic<T> as a direct class field or local owner", site);
 		}
@@ -1175,7 +1303,7 @@ class TypeValidator {
 				TypeValidator.fail("Thread<T> result type cannot contain a Mutex handle", site);
 			}
 			if (!self.directManagedThreadResult(resultType) && self.threadAggregateHasManagedReference(resultType, visiting)) {
-				TypeValidator.fail("Thread<T> aggregate result type cannot contain string or " + "class references; return the managed value directly " + "or use a scalar-only aggregate", site);
+				TypeValidator.fail(TypeValidator.threadAggregateResultMessage(), site);
 			}
 		}
 		if (role != "return" && role != "alias" && TypeValidator.scalarVoid(canonical)) {
@@ -1226,12 +1354,12 @@ class TypeValidator {
 				int methodIndex = 0;
 				while (methodIndex < declaration.methods().len) {
 					Node method = declaration.methods().get(methodIndex);
-					self.validateDeclaredType(method.returnType, "Interface method '" + declaration.name + "." + method.name + "' return", "return", method);
+					self.validateDeclaredType(method.returnType, "Return type of interface method '" + declaration.name + "." + method.name + "'", "return", method);
 					self.validateArrayReturn(method, "Interface method '" + declaration.name + "." + method.name + "'");
 					int parameterIndex = 0;
 					while (parameterIndex < method.params().len) {
 						Node parameter = method.params().get(parameterIndex);
-						self.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
+						self.validateDeclaredType(parameter.type, "Parameter '" + declaration.name + "." + method.name + "." + parameter.name + "'", "parameter", parameter);
 						parameterIndex = parameterIndex + 1;
 					}
 					methodIndex = methodIndex + 1;
