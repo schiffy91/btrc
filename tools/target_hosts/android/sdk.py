@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from xml.dom import minidom
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -51,6 +52,39 @@ class SDKVersions:
     def cache_key(self):
         return hashlib.sha256(json.dumps(vars(self), sort_keys=True).encode()).hexdigest()
 
+    def register_archive(self, root, package, registration):
+        """Keep sdkmanager's registration when replacing a generic archive."""
+        expected = {"emulator": self.emulator, "platform-tools": self.platform_tools}[package]
+        directory = Path(root) / package
+        self.verify_revision(directory, expected)
+        document = minidom.parseString(registration)
+        rows = document.getElementsByTagName("localPackage")
+        if len(rows) != 1 or rows[0].getAttribute("path") != package:
+            raise ValueError(f"{package}: SDK registration has the wrong package identity")
+        revisions = rows[0].getElementsByTagName("revision")
+        if len(revisions) != 1:
+            raise ValueError(f"{package}: SDK registration must contain one revision")
+        metadata = json.loads((REPO / "nix/android-repo-overlay.json").read_text())["packages"][package][expected]
+        if metadata.get("dependencies"):
+            raise ValueError(f"{package}: pinned archive dependencies require explicit registration support")
+        for dependencies in list(rows[0].getElementsByTagName("dependencies")):
+            rows[0].removeChild(dependencies)
+        revision = document.createElement("revision")
+        for name, value in zip(("major", "minor", "micro"), expected.split("."), strict=True):
+            part = document.createElement(name)
+            part.appendChild(document.createTextNode(value))
+            revision.appendChild(part)
+        rows[0].replaceChild(revision, revisions[0])
+        # DOM serialization preserves xmlns declarations used by xsi:type values.
+        (directory / "package.xml").write_bytes(document.toxml(encoding="utf-8"))
+
+    @staticmethod
+    def verify_revision(directory, expected):
+        properties = (directory / "source.properties").read_text()
+        match = re.search(r"^Pkg.Revision\s*=\s*(\S+)", properties, re.MULTILINE)
+        if not match or match[1] != expected:
+            raise ValueError(f"{directory}: expected revision {expected}, found {match[1] if match else 'missing'}")
+
     def verify(self, root):
         root = Path(root)
         versions = {
@@ -61,10 +95,7 @@ class SDKVersions:
         }
         versions.update({f"build-tools/{version}": version for version in self.build_tools})
         for relative, expected in versions.items():
-            properties = (root / relative / "source.properties").read_text()
-            match = re.search(r"^Pkg.Revision\s*=\s*(\S+)", properties, re.MULTILINE)
-            if not match or match[1] != expected:
-                raise ValueError(f"{relative}: expected revision {expected}, found {match[1] if match else 'missing'}")
+            self.verify_revision(root / relative, expected)
         for api in self.apis:
             for relative in (
                 f"platforms/android-{api}/android.jar",

@@ -11,6 +11,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+from xml.dom import minidom
 
 import pytest
 
@@ -88,6 +89,54 @@ def test_installed_sdk_revisions_are_checked(tmp_path):
     (tmp_path / "emulator/source.properties").write_text("Pkg.Revision = 99.0.0\n")
     with pytest.raises(ValueError, match="expected revision"):
         versions.verify(tmp_path)
+
+
+@pytest.mark.parametrize("package", ["emulator", "platform-tools"])
+def test_pinned_archive_keeps_sdk_registration_with_actual_revision(tmp_path, package):
+    versions = SDKVersions()
+    expected = {"emulator": versions.emulator, "platform-tools": versions.platform_tools}[package]
+    directory = tmp_path / package
+    directory.mkdir()
+    (directory / "source.properties").write_text(f"Pkg.Revision={expected}\n")
+    registration = f'''<repository xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns:generic="http://schemas.android.com/repository/android/generic/02">
+        <license id="android-sdk-license" type="text">original license</license>
+        <localPackage path="{package}" obsolete="false">
+        <type-details xsi:type="generic:genericDetailsType"/>
+        <revision><major>99</major><minor>0</minor><micro>1</micro><preview>2</preview></revision>
+        <dependencies><dependency path="future-package"/></dependencies>
+        <display-name>Android tools</display-name><uses-license ref="android-sdk-license"/>
+        </localPackage></repository>'''
+    versions.register_archive(tmp_path, package, registration)
+    document = minidom.parse(str(directory / "package.xml"))
+    row = document.getElementsByTagName("localPackage")[0]
+    assert row.getAttribute("path") == package
+    revision = row.getElementsByTagName("revision")[0]
+    assert (
+        ".".join(revision.getElementsByTagName(part)[0].firstChild.data for part in ("major", "minor", "micro"))
+        == expected
+    )
+    assert not revision.getElementsByTagName("preview")
+    assert not row.getElementsByTagName("dependencies")
+    assert document.documentElement.getAttribute("xmlns:generic").endswith("/generic/02")
+    assert row.getElementsByTagName("type-details")[0].getAttribute("xsi:type") == "generic:genericDetailsType"
+    assert document.getElementsByTagName("license")[0].firstChild.data == "original license"
+
+
+def test_archive_registration_refuses_wrong_payload_and_identity(tmp_path):
+    versions = SDKVersions()
+    directory = tmp_path / "emulator"
+    directory.mkdir()
+    properties = directory / "source.properties"
+    properties.write_text("Pkg.Revision=99.0.0\n")
+    with pytest.raises(ValueError, match="expected revision"):
+        versions.register_archive(tmp_path, "emulator", "<repository/>")
+    properties.write_text(f"Pkg.Revision={versions.emulator}\n")
+    with pytest.raises(ValueError, match="wrong package identity"):
+        versions.register_archive(
+            tmp_path, "emulator", '<repository><localPackage path="platform-tools"/></repository>'
+        )
+    assert not (directory / "package.xml").exists()
 
 
 def test_gradle_wrapper_is_the_pinned_official_artifact():
