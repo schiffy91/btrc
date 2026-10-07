@@ -193,9 +193,10 @@ extension checks passed. Its full suite passed 17,187 tests with 163 expected
 skips and zero unexpected skips in 1,819.62 seconds. The skip ledger identifies
 161 skips covered on other runners and two uncovered Linux-native-reader cases.
 Serial bootstrap passed its fixed-point test in 575.05 seconds with no skips.
-The first two strict-C11 configurations, GCC at `-O0` and `-O1`, each passed
-all 1,982 checks with no skips; the remaining six configurations and hygiene
-remain pending.
+All eight strict-C11 configurations, GCC and Clang at `-O0` through `-O3`,
+each passed all 1,982 checks with no skips. Final plan/link/frozen-reference
+and diff hygiene checks passed; the serial local matrix completed successfully.
+All 824 native GUI evidence files were retained.
 The native compiler binary is reused from the source-matched `081aae51` build,
 not newly rebuilt. Hosted [Windows run 37588790879](https://github.com/schiffy91/btrc/actions/runs/37588790879)
 passed tests and bootstrap. [Android run 37588790885](https://github.com/schiffy91/btrc/actions/runs/37588790885)
@@ -269,6 +270,18 @@ are recorded in `docs/design/claude-integration-record.md`, Batch 25. The final
 C2 integration still needs the memory comparison required by
 `docs/design/c-compatibility.md` under a quiet host, in addition to review and
 the full correctness matrix. The 360-check repair run does not prove those exits.
+
+`CL-REQ-10` (`e1bc5dfa`) remains unmerged after a blocking source review:
+`BtrccCompilerStack.run` marks its parent parked before `pthread_create`, while
+`ForkedWorkerPool.start` subtracts parked threads from its fork-safety count.
+The child can start before the parent reaches its join. Moreover, the
+[POSIX fork contract](https://pubs.opengroup.org/onlinepubs/9799919799/functions/fork.html)
+restricts a multithreaded fork's child to async-signal-safe operations until
+`exec`; these workers instead perform managed compilation directly. The added
+fixture explicitly marks a thread parked without parking it, so it proves only
+the accounting change. Replace that exemption with a safe large-stack startup
+strategy and a native handoff regression, preserving the branch's 2,000-term
+expression support, module-worker parallelism and collection-literal repairs.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -407,7 +420,7 @@ qualification claim follows from that source comparison.
 | `stage17/c2-l2` | `2e65f7c6` | CL-C-13: fix declaration-vs-shadow diagnostic order and callee-first checks for interface/Atomic/Mutex receivers. |
 | `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
 | `stage18/req-ui2-dg` | `1cc97ab8` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
-| `stage18/req10-parity-gaps` | `e1bc5dfa` | CL-REQ-10: resolve map-literal inference/static storage and later-entry checks; preserve reviewed runtime fixes. |
+| `stage18/req10-parity-gaps` | `e1bc5dfa` | CL-REQ-10: preserve collection-literal and static-storage repairs, but replace the unsafe parked-thread fork exemption; retain deep-expression support and module-worker parallelism with native handoff proof. |
 | `stage18/req11-tuple-sizeof-recursion` | `271397d3` | CL-REQ-11: prove tuple indexing, sizeof retention and polymorphic-recursion termination in both compilers. |
 | `stage24/apple-standin-extraction` | `7b3d1195` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
 | `stage24/apple-standin-extraction-run` | `9c0d737d` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
@@ -726,9 +739,17 @@ owner, the exact prerequisite and the next acceptance.
   adds `-c` to isolate those frontend probes and adds a verbose object compile
   to distinguish diagnostic-output handling from linking. The focused evidence
   suite passed 35 tests and ten subtests, with one native-only skip, before and
-  after the change; lint, formatting and diff checks passed. Native results
-  for the corrected probes are pending in
-  [run 37595036759](https://github.com/schiffy91/btrc/actions/runs/37595036759).
+  after the change; lint, formatting and diff checks passed. Native
+  [run 37595036759](https://github.com/schiffy91/btrc/actions/runs/37595036759)
+  passed the cross-build and separate MSVC/wgpu lane, but the original GNU
+  probe still crashed with `0xC0000005` after 0.162 seconds. The actual CI merge
+  checkout is `5cfee395`. Object generation and overlay preprocessing passed.
+  Driver-plan and default-target syntax now exit 1 with `FileNotFound` after
+  compile-only operation; that does not establish that the existing input is
+  missing. Explicit-target syntax, verbose object compilation and linking still
+  crash. The verbose object probe retained 10,395 bytes of Clang command and
+  include-search diagnostics, with no stack trace. No full compiler execution
+  or bootstrap began, and the crash cause remains unproved.
   The qualification command, pinned toolchain, Job containment and deadlines
   are unchanged; diagnostic success cannot turn the original failure green.
   Updating this existing PR stays within the two-active-code-PR allowance.
