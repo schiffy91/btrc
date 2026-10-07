@@ -121,6 +121,57 @@ The macOS Python/libffi repair is still under verification and currently blocks
 qualification of the new Windows crash-location diagnostic. Neither repair is
 reported as a compiler-speed improvement or a delivered GUI feature.
 
+### Outcome execution register
+
+This register connects the goals to the next deliverable. Owners below are
+responsible roles, not claims that a builder is currently running. The October 7
+review used three read-only subagents (performance, platform/library and execution)
+plus the main integrator. Implementation assignments must also carry a live
+WORKSTREAMS claim and exact base SHA. Update a row when its result or blocker
+changes; historical test totals alone do not advance its status.
+
+| Outcome | Current state / evidence | Responsible role | Next acceptance and actual blocker |
+|---|---|---|---|
+| Current compiler speed and memory matrix | Historical `65057cb` values above; no current product acceptance | Performance owner; main session runs quiet measurements | Qualify the D9 measurement copy/pin and run Stage 5's complete matrix with compiler, application and toolchain SHAs, sample counts, median/p95/max and footprint. Stage 4/pin prerequisites and quiet host remain open. Earlier diagnostics must be labelled pre-Stage-4 and cannot close Stage 5. |
+| Faster incremental edits | Exactly-one-changed-group reuse remains unqualified | Incremental compiler owner | Follow Stages 6–9: reviewed keys/journal, invalidation regressions, unchanged groups not lowered, then edit median/p95 and memory versus the same baseline. Select optimizations from measured attribution. |
+| Useful desktop library improvement | `CX-STDLIB-01`…`05` acceptance defined; original first-three commit objects unavailable in the checked clones | Provider repair owner | Recover verifiable source or reconstruct the smallest current-source repair with a failing regression; `CX-STDLIB-03` is a bounded Mac button alignment delivery. Run the real control through both compilers and required sanitizer cases. Recovery is not a prerequisite for independent `04`/`05` reproduction. |
+| UI2 events, executor and lifecycle on desktop | Contracts approved; production implementation and atomic provider landing open | UI2 interface owner, then platform owners | Start `CX-UIA-21` against the approved record now; it has no compiler prerequisite. Coordinate provider files with the repair queue; land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
+| Windows and mobile application-facing services | Fixture-host results above; complete providers not delivered | Platform slice owners | Use the per-platform checkpoints below: real Windows SDK/service operation; iOS and Android file persistence; then native button/text field/lifecycle. Each waits only for its own demonstrated ABI/host/ownership prerequisites. |
+| BTRSmith macOS/Linux MVP on the current stack | Main `adb3276f`, compiler pin `05ec9cb7`; current requalification open | BTRSmith owner and integrator | Qualify the compiler pin and frontend/library smoke, then complete the MVP screen journeys and build/runtime budgets. Windows/mobile library completion is not a prerequisite for the macOS/Linux MVP; later platform releases remain separate outcomes. |
+| One qualified implementation on main | Integration `a8d92cb8`, Apple schema/table candidate `ba6c221d`, plan branch; combined qualification open | Main integrator | Review bounded batches, qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
+
+For usable-library status, use the existing native catalog and platform inventory
+as the source of operation IDs and denominators. Each delivery report records
+operation/family, platform, implemented revision, native-qualified revision,
+merged revision, evidence link and missing acceptance. Do not infer a provider
+pass from a host fixture or create another percentage-complete denominator.
+The top-level platform table is a summary, not a substitute for those rows.
+
+### Delivery review and progress measurement (2026-10-07)
+
+The review found that the old immediate queue scheduled reconciliation and
+integration without explicitly scheduling current performance evidence or the
+BTRSmith pin. It also repeated completed startup work, retained a Stage 1
+Ultracode restart and asserted recovery bundles without a verified retrievable
+location. Those instructions are corrected below. Existing compiler repairs do
+not block UI2's approved interface: see the approved record's Compiler gaps.
+
+The host is a real throughput constraint. The recorded full suite took 1,863.14 s
+(about 31 minutes). The separate `checkpoint-skip-final/remaining-gates-manifest.json`
+run took about 70 minutes for static checks, bootstrap and C11, including about
+58 minutes for C11. These are observations from prior runs, not a forecast or
+current-tree qualification. Runtime environment repair has also required failed
+build attempts. There is no complete accounting that establishes which category
+consumed most elapsed time, or that the model is the limiting factor.
+
+For the next implementation pilot, record start/finish times for implementation,
+review/rework, environment repair, gate execution, gate waiting and evidence
+recovery, plus accepted outcomes and commits landed. Record overlapping intervals
+rather than summing parallel time. Compare useful accepted output and waiting
+time before increasing concurrency. Report progress as changed goal evidence,
+shipped capability, blocker removed and next acceptance; keep infrastructure
+activity subordinate to the outcome it enables.
+
 ## Owner update: one plan and integration (2026-10-07)
 
 **D29.** The owner requested one detailed, current plan, then instructed this
@@ -645,43 +696,43 @@ versioned; do not flatten retired or unavailable rows into passing rows.
 
 ## Immediate execution order
 
-1. **Reconcile safely.** Pin the base SHA, inventory every local/remote branch,
-   inspect live claims, preserve evidence and recover disk. Keep main fast-forward
-   only; use a hub clone outside Drive for edits and gates. No system-setting
-   changes and no deletion of cited outputs.
-2. **Publish one coherent plan.** Preserve all 43 stages, the 286 item map,
-   D1–D28 history and provider assignments; point executable roadmap consumers at
-   PLAN.md and retain CI's test-read classification. Verify links, anchors,
-   item coverage and unchanged frozen reference.
-3. **Resolve active compiler blockers in dependency order.** Finish `CL-C-09`
-   generic/tag collisions and `CL-C-13` first-diagnostic parity before C2
-   integration. Complete `CL-REQ-10/11` and rich-enum fixes only with paired
-   regressions. Land the tested `CL-P1-06` candidate before hosted-ABI availability. Preserve the
-   schema/writer serialization in the stage contracts.
-4. **Deliver independent provider repairs.** Port `CX-STDLIB-01`…`05`, admit
-   fixtures through normal drivers, and qualify both frontends. `02` precedes
-   `04` because both own LinuxGrid. UI2 public-interface work remains an atomic
-   interface/macOS/Linux landing; the existing-interface fixes need not wait.
-5. **Finish the remaining five implementation/contract PRs.** PR42
-   findings landed at `87dd60d7`; its missing native evidence stays open.
-   PR51/52 require final review of their revision-5 contract corrections.
-   PR53 reuses the merged Windows executor and needs real ARM64 acceptance.
-   PR34's runtime-selection candidate `1844837b` passed the current local
-   50-case matrix; its latest hosted run reached launch but completed zero
-   fixtures. Hosted launch and the iOS 17 floor remain unqualified.
-   PR35's activity-recreation repair is included in `ad72af03`, whose combined
-   Android lane passed all 56 executions. Finish the
-   remaining combined gates before landing it.
-   Their general-provider/process-lifecycle gaps remain explicit.
-   Scope-only CI is insufficient.
-6. **Integrate bounded batches.** Reproduce each defect, apply the owner-layer
-   fix, run focused red/green tests, inspect the final diff, then run D5 and
-   required native checks. Recheck main and claims before each merge. Record
-   exact source SHA, host/toolchain, commands, outcomes, skips and retained logs.
-7. **Close the loop.** Update each branch/issue disposition and qualification
-   row after its evidence lands. Run the final full matrix on the actual merged
-   tree. Report harmonized only when the agreed integration scope is resolved;
-   distinguish pending product-roadmap, physical and account requirements.
+This is the current continuation queue. Initial inventory and plan consolidation
+are done on the candidate branch; main publication and final implementation
+qualification remain open. Recheck changed heads, claims and host capacity rather
+than restarting completed work within Stages 1–4 or repeating entire audits.
+
+1. **Finish the in-flight qualification and reconcile one candidate.** Preserve
+   the running Darwin runtime repair and its dependent checks. Record exact
+   terminal results, commit only passing repairs, and reconcile the Apple candidate
+   and other ready changes into bounded reviewed batches. Failed native or memory
+   checks remain explicit; do not replace the full final gate with focused checks.
+2. **Give performance and BTRSmith their own next action.** Identify and close the
+   remaining Stage 4/pin prerequisites for the D9 measurement copy. Qualify the
+   current application smoke and capture Stage 5's matrix at the next passing quiet
+   window. Prepare run manifests and analyze existing memory failures while the
+   host is busy. A pre-Stage-4 diagnostic is permitted as labelled evidence, not
+   final acceptance. Then implement the measured bottleneck and Stage B reuse with
+   paired correctness and before/after evidence; never silently refresh targets.
+3. **Run independent GUI delivery alongside permitted review/build work.** Start
+   the approved `CX-UIA-21` interface packet without waiting for all compiler issues.
+   Assign a disjoint small provider repair with an actual application-facing exit.
+   `CX-STDLIB-02` precedes `04` on LinuxGrid. Recover or reconstruct unavailable
+   patches; never wait indefinitely for an unverified bundle. UI2 still lands
+   atomically with macOS and Linux providers after their required acceptance.
+4. **Advance platform slices on their own prerequisites.** Review PR51/52 service
+   contracts; investigate PR53's native ARM64 failure; qualify PR34's hosted/iOS 17
+   cases and PR35's combined Android host. Follow each with its small service or
+   GUI operation. These gaps do not block independent Mac/Linux MVP validation.
+5. **Integrate, rerun and report outcomes.** For each changed packet reproduce the
+   defect, apply the owner-layer fix, review and run focused regressions. Use the
+   bounded batch gate and affected native checks, then the full matrix on the final
+   combined tree. Update the outcome register, catalog, issue evidence and branch
+   dispositions when each result lands. Report harmonized only under the completion
+   contract below, with product-roadmap and physical/account gaps still explicit.
+
+Use the [Ultracode recommendation](#ultracode-recommendation) for the bounded
+subagent rerun. Parallel assignment never overrides shared-file ownership, host
+locks, quiet measurement rules or CI concurrency limits.
 
 ## Completion contract
 
@@ -709,7 +760,7 @@ failed runs and their evidence rather than replacing them with later passes.
 |---|---|---|
 | PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. All eight strict-C11 configurations (GCC and Clang, -O0 through -O3) passed 2,036 checks each without skips. The serialized remaining-gate run finished successfully, including the plan and diff checks. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
-| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `bb40e39c` | Parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. Integrated into the combined candidate; full matrix and main landing remain pending. |
+| Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge and full qualification/main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
@@ -905,9 +956,13 @@ unpublished revision do not qualify a new port.
 
 These are small repair units extracted from the named older packets, not claims
 that those entire future milestones are complete. Check live path claims before
-opening each implementation branch. Existing unpublished source revisions below
-are preserved in the Codex workspace and recovery bundles; they are not yet
-remote branches or merged code. Publish reviewable repair commits with their tests.
+opening each implementation branch. The first three unpublished revisions below
+were reported by the earlier cloud session. Their commit objects are unavailable in the checked local clones, and
+this review has not verified a retrievable recovery bundle. Mark their source
+**recovery pending**, not preserved-and-ready. Recover and verify the complete
+source, or reproduce and reconstruct each minimal repair on current source.
+Publish reviewable commits and rerun their tests; old results do not qualify a
+reconstruction. Independent repair units must not wait on this recovery.
 
 | Unit | Outcome and scope | Starting evidence | Remaining acceptance |
 |---|---|---|---|
@@ -2397,15 +2452,15 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
   - `ui-2-btrsmith-subscriptions`
   - `btrsmith-libraryui-split`
 - **Exit.**
-  - You approve the interface diff.
+  - Interface approval is already recorded below; preserve its reviewed contract. A material contract change follows the standing design-review rule.
   - E01–E04, E29, E31, E35, E39, E40 and E46 pass on macOS and Linux with sanitizers.
   - **The E40 repair lands with its Stage 31 reproduction:** 0 lost events across bursts of 4,095, 4,096, 4,097 and 8,193 events, with progress for input, rendering and close (D28: lands earlier as CX-STDLIB-01; Stage 32 re-verifies the 4,095/4,096/4,097/8,193 bursts on the UI2 provider).
   - BTRSmith idle wakeups are measured before and after.
   - Library.UI is limited to the musical surfaces.
 - **Approval (batch 47, 2026-10-06).** `ui-2-contract-review` (`CL-UIA-13`): the three UI2 drafts are approved under the standing design rule in [`ui2-approved.md`](docs/design/ui-contracts/ui2-approved.md), the frozen interface diff and the operation ids the catalog gains, with the review files under `docs/design/ui-contracts/reviews/ui2/` (two feasibility reviewers, a reconciler and a parity reviewer; eight findings raised as blocking were each verified not to block and are closed by decisions in the record). The host link (`IApplication.attachHost` and its types) is provisional everywhere; the Windows, iOS and Android rows stay provisional until `CL-UIA-22`. Next: `CX-UIA-21` writes the production interface from the record, `CX-UIA-22` (macOS) and `CX-UIA-23` (Linux) stack on it, and `CL-UIA-14` lands all three atomically.
 - **Parallelization: WORKFLOW, about 12 agents.**
-  - **Drafting.** 3 drafters on disjoint files: control events; executor; lifecycle, which is the only IView writer.
-  - **Review.** 2 feasibility reviewers using the real Stage 31 shells, plus 1 reconciler. Then your approval.
+  - **Completed design work.** The control-events, executor and lifecycle drafts and their approval are recorded above. Do not restart drafting or request the same approval again.
+  - **Remaining implementation review.** Review production changes against that approved record and actual provider acceptance. Material contract changes use the standing feasibility/parity review rule.
   - **Providers.** macOS and Linux agents start from the approved draft.
   - **Atomic landing.** The contract, macOS and Linux land in one commit. The Windows, iOS and Android shells keep compiling by throwing a typed "unsupported" error, recorded as "missing" in the catalog.
   - **BTRSmith.** Then 1 subscriptions agent.
@@ -2674,50 +2729,45 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
 
 ## Ultracode recommendation
 
-**Yes, at the named fan-out points, after a measured pilot.**
+**Use the owner's requested independent rerun with bounded subagents, beginning
+at the current outcome register.** The October 7 review has one main integrator
+and three read-only specialists: performance, platforms/library and execution.
+"Ultracode" is the retained workflow name here; it is not proof that a particular
+model, plugin or CLI has been selected. Record the actual available tool/model
+when resolved; do not silently substitute one or claim a mode switch.
 
-Progress is bounded by:
-- the serial gate and schema/interop chains
-- quiet measurement windows
-- hardware and accounts that only you can provide (D7, D8)
-- one window server and GPU
-- disk
-- integration throughput
+This session exposes four agent slots total. The larger agent counts retained in
+stage designs describe work decomposition, not simultaneous runnable workers.
+Batch those roles within current capacity and preserve independent reviewers.
+Do not restart Stage 1, reimplement the landed daemon repair, or rerun completed
+contract drafting merely to populate a new wave.
 
-Agent count is not the limit. Ultracode pays off where work is token-bound, read-only, or confined to disjoint files. It also shortens the implementation-bound stages (16–19, 25, 28, 34–36). Each Workflow stage gets one integrator sub-agent running the merge-batch procedure, so the main session stays coordinator and gate runner.
+| Wave | Main session | Up to three subagent roles | Exit |
+|---|---|---|---|
+| Review (performed October 7) | Reconcile supported findings and update PLAN | Performance; platform/library; execution review | Goals, evidence gaps, actual dependencies and stale instructions reviewed |
+| Bounded implementation pilot (next) | Integrate and schedule gates | UI2 interface writer; disjoint provider repair writer; reviewer/performance preparation | Reviewable current-source commits with narrow acceptance; elapsed work/wait/rework recorded |
+| Qualification | Own exact candidate and serialized gates | Read-only evidence analysis only when host rules permit; independent remote work within CI cap | Full required combined-tree gates and affected native checks; failures become bounded owner tasks |
+| Quiet performance round | Run the approved benchmark matrix | All agents paused as required by the quiet rule | Source-matched samples, instructions/footprint and goal deltas; missing samples stay unqualified |
+| Product acceptance | Coordinate qualified BTRSmith pin and screen journeys | Disjoint product/provider work as prerequisites become ready | Demonstrated MVP journeys and budgets; additional platform releases tracked separately |
 
-| Use a Workflow | Shape | Fan-out width (agents) |
-|---|---|---|
-| 2 | Nix agent first, then ledger schema, CI health, trigger, manifests | 8–9 |
-| 3 | Harness, peak guard, batch proposal (overlapping 2) | 3 |
-| 4 | Structure and native-migration audit (waves ≤10), then serial apply | 23 + 2 |
-| 6 | Floor spikes (patches), key/journal spec with reviewers, attribution, native | 13 |
-| 7 | Acceptance-test authors, setjmp pair, generics audit, M10 lane, BTRSmith net | 19 (≤5 worktrees) |
-| 8, 9, 11, 12 | Python Stage B slices, Stage B completion, edit-path lanes, hotspot cuts, conditional audits | 10–14 each |
-| 14, 16, 17, 19 | C inventory authors, construct lanes, 1 parity reviewer per construct | 7–15 each |
-| 22, 25, 28 | P0 swarm, corpus triage over runner logs, dependency cross-builds | 22–25 each |
-| 24, 26, 27, 29 | Paired consumers, P3 slices, ownership design plus serial interop, platform lanes (D6c) | 10–20 each |
-| 30–37 | UI0 swarm, five shells, contract drafters and reviewers, per-platform tracks, BTRSmith slices | 10–15 each |
-| 39, 41–43 | One runner per host or device | 6–8 |
+A writer starts only with a base SHA, owned paths, exact deliverable and regression
+acceptance. One writer per hotspot; at most two code branches per integration
+batch under the existing protocol. Approved interfaces retain atomic provider
+landing. Use existing clones within the six-clone cap. The main session owns
+integration and resource scheduling; a second integrator must not race it.
 
-**Do not use a Workflow for:**
-- Stages 1, 5, 13, 15, 18 (first half), 20, 21, 40 and 43
-- gates, wall-clock measurements, schema or runtime commits, or physical sessions
+"Rerun everything" means independently review all goal areas and complete the
+required validation on the final combined tree. During development, reuse valid
+source-matched evidence and rerun checks affected by new changes or failures.
+Record the reason for an unchanged expensive rerun; never bypass a required final
+check. Platform qualification needs that platform, and a model switch does not
+turn unavailable hardware or native evidence into a pass.
 
-**Starting sequence:**
-- **Decisions:** all resolved; Stage 1 carries out D2 and D3.
-- **Stage 1**, serially in the main session.
-- **Stages 2 and 3 overlapped:** the nix agent first, then the fan-outs.
-- **Stage 4 wave 1:** the read-only audit, inside Stage 2/3 gate windows.
-- **Pilot before fanning out:** run one builder agent (the daemon-deadline fix) and one auditor, measure their token use from the session usage report, and size the next fan-outs from those numbers.
-- **Stretch:** Stage 4's btrc-side apply plus its gate.
-- **Waits:** the BTRSmith pin bump follows the first D4 push; Stage 5 follows the pin bump and the automated quiet check. An overnight pre-Stage-4 diagnostic is fine, but it does not satisfy Stage 5.
-
-**Usage rules:**
-- Read-only auditors are much cheaper than builder agents; size builder fan-outs from the pilot's measured cost.
-- Check the session usage report after every stage.
-- If the remaining weekly budget runs low, stop at a commit boundary and save state.
-- More tokens shorten the implementation-bound stages, but not the serial chains, quiet windows, approvals or hardware lead times.
+Measure this pilot before increasing fan-out. More independent implementation
+and review may shorten delivery; serial gates, quiet windows and hardware remain
+constraints. Neither agent count nor model quality has been established as the
+principal delay. Apply the progress-measurement categories above and size the
+next wave from accepted outcomes and measured waiting time.
 
 ## Appendix: every mapped item → stage (286 items)
 
