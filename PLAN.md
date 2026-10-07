@@ -155,8 +155,14 @@ compiler qualification: the test still expected nine diagnostic commands, while
 Windows correctly adds a tenth crash-location command. Fix `483e5bab` explicitly
 checks the Windows, macOS and Linux command sequences and bounds; its 36-test
 module has 35 passes and one native-only skip locally. The correction was
-published normally to PR53 at `483e5bab`; native Windows run `37701082806` is
-active. The underlying GNU ARM64 compiler crash remains unresolved. These repairs
+published normally to PR53 at `483e5bab`; native Windows run `37701082806` passed
+preflight but failed before BTRC/bootstrap execution. Minimal ARM64 objects build,
+while direct linking crashes in the root Zig process at `zig.exe + 0x910f34`.
+The artifact records an access violation but no stack; it does not establish an
+LLD child crash. Reviewed local diagnostic `75c00a96` bypasses the driver with the
+pinned direct COFF linker under existing process limits; 37 portable tests pass,
+with one native-only skip. Publication awaits the shared CI slot. The underlying
+GNU ARM64 compiler crash remains unresolved. These repairs
 restore verification capability; they do not demonstrate compiler speed gains.
 The plan-reader modules passed 155 checks at `27417a89`.
 
@@ -220,10 +226,14 @@ blocker. Its native build and self-transpilation passed; both compilers' emitted
 cleanup was reviewed. It passed 120 focused production diagnostic assertions,
 eight paired literal/ownership cases and 18 scope/capture cases, with no skips;
 two representative programs retained byte-identical C and diagnostics against
-the baseline. Final branch `274ced90` adds only the evidence report to the tested
-production source. Instrumented-compiler lifetime safety, full bootstrap/C11,
-and current memory/instruction measurements remain unqualified. The build slot
-is released. Historical retained-token attribution was 98.5 MiB; that is
+the baseline. The instrumented compiler also passes all 146 bounded checks with
+zero ASan/UBSan reports. It observes 51 lexer-error, 16 parser-error and 26 success
+paths, releasing all 2,296 watched tokens and their parse owners before the
+asserted boundaries. This uses Apple Clang 21.0.0 after the Nix sanitizer's trivial
+startup probe timed out; the original failure is retained, and leak detection is
+disabled. Final branch `d6309c7c` adds only evidence documentation to the tested
+production source. Full bootstrap/C11 and current memory/instruction measurements
+remain unqualified. Historical retained-token attribution was 98.5 MiB; that is
 not a measured saving on this candidate and does not close the 1.5 GiB target or
 explain the outstanding Linux regression.
 
@@ -233,6 +243,21 @@ guard work. That branch still pins `cdf9d952`; application main still pins
 `05ec9cb7`. The remaining work includes the current compiler pin, findings ledger
 and actual application requalification, then the frozen D9 measurement copy.
 The `stage4-requal` and `stage5` runbook presets already exist.
+
+The exact `8204b8a9` product source is now checked out from the outside-Drive hub
+for current-compiler diagnosis, without changing its lock. The two original
+`BuildArtifacts.test_import_content_touch_edit_and_removal` tests reproduce the
+warm-build defect against compiler `dff538ef`: both frontends compile zero native
+units but relink once instead of zero times. Product Make signs the executable
+after native-plan records its output hash; retained receipts and final signed
+executables differ in both cases, so receipt validation correctly rejects reuse.
+The fix must preserve stable signing identity, unchanged warm/touch inode, mtime
+and bytes, and failure-safe publication without weakening the original checks.
+The first diagnostic attempt stopped at an unset Nix wrapper build-directory
+variable; after correcting only that external runner environment, the actual
+product failures reproduced. This is source-override diagnosis, not locked-pin
+or packaged-product qualification. Both attempts and failure artifacts remain
+preserved.
 
 A concrete qualification blocker was found: the expected
 `stage2-qualifying-failures.txt` is absent, and the runbook's pytest-style failure
@@ -877,7 +902,7 @@ failed runs and their evidence rather than replacing them with later passes.
 | PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. All eight strict-C11 configurations (GCC and Clang, -O0 through -O3) passed 2,036 checks each without skips. The serialized remaining-gate run finished successfully, including the plan and diff checks. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge is now included in `06c3923a`; full qualification/main landing remain pending. |
-| PR53, Windows ARM64 host | Published `53da5fd0`; local `483e5bab` | Bounded child-only crash-location diagnostic passes 130 portable checks, one native-only skip and ten subtests. Native run 37651593291 failed before qualification on the stale nine-command test expectation. Local fix explicitly verifies all three host paths and passes its 36-test module (35 passed, one native-only skip); publication/native rerun remains pending. The preceding GNU-route tiny C build still crashes before compiler/bootstrap execution; neither portable tests nor separate MSVC/wgpu evidence closes this gap. |
+| PR53, Windows ARM64 host | Published `483e5bab`; local `75c00a96` | Native run 37701082806 passes preflight but fails minimal linking before compiler/bootstrap. ARM64 object compilation passes; the root Zig process records an access violation without a stack. A direct bundled-LLD probe is reviewed locally (37 passed, one native-only skip), awaiting a CI slot. Neither portable tests nor separate MSVC/wgpu evidence closes native BTRC qualification. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 At `50bf1c8c`, the [native Linux ARM64 release job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636879)
@@ -1088,7 +1113,7 @@ reconstruction. Independent repair units must not wait on this recovery.
 | CX-STDLIB-02 (from UIB26) | Grid and both Stack orientations invoke child layout so scroll offsets clamp after resize | Combined `0f6f3448967720480365d43980c74baf7280b7e4`; 40/40 final-source native cases | Port combined repair, wire normal driver, verify actual pixel/offset behavior and fixture discovery |
 | CX-STDLIB-03 (from UIB18) | Explicit Mac button alignment survives title/symbol updates; defaults preserved | Original `f6071c8a` unavailable; reconstructed in PR66 (`4f5c9b30`). Actual AppKit red: four failures; corrected integration `37a8ae67`: four passes through both compilers, plain/sanitized | Hosted branch checks, normal gate and final main integration remain; focused native proof and retained intermediate failure are recorded in the packet report |
 | CX-STDLIB-04 | Reject an invalid Linux grid replacement without losing the old child | Source finding: Linux detaches before validating; Mac validates/rolls back | Reproduce with an already-parented replacement; check old child identity/rendering, valid replacement, null clear and ownership cleanup; fix only after reproduction |
-| CX-STDLIB-05 | Keep scrollbar geometry valid in a tiny viewport and at large finite content extents | Reviewed implementation `6720fc0b`; fixture-only parent `7c060d08` preserves the native red candidate. Thumb sizing/position and drag arithmetic use bounded fractions | Run the dedicated actual pixel/pointer/wheel regression through both compilers and sanitizer variants on Linux, including zero/tiny track and `1e308` content. No executed native failure/pass or main landing is claimed yet |
+| CX-STDLIB-05 | Keep scrollbar geometry valid in a tiny viewport and at large finite content extents | Reviewed provider `6720fc0b`, final admission checkpoint `e3281e6e`; fixture-only parent `7c060d08` preserves the native red candidate. Formatting, discovery and import checks pass (10 checks); four Mac platform skips are classified with no Linux allowance | Run the dedicated actual pixel/pointer/wheel regression through both compilers and sanitizer variants on Linux, including zero/tiny track and `1e308` content. Mac skip admission is not native Linux evidence. No executed native failure/pass or main landing is claimed yet |
 
 ### Repair files and test admission
 
