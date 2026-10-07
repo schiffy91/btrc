@@ -3,7 +3,7 @@
 Updated **2026-10-07**. The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`; the combined candidate is `081aae51` in
+Current upstream main is `87dd60d7`; the combined candidate is `ad72af03` in
 PR60. Subsequent integration and host changes are recorded below.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
@@ -186,7 +186,15 @@ status and cleanup are preserved, failure tails are now retained, and successful
 runs stay quiet. The two added real X11/Wayland regressions still need Linux
 execution; this diagnostic change does not qualify or repair the compositor. Wayland remains report-only, with this
 coverage gap explicit.
-No final green result is claimed.
+The current combined candidate `ad72af03` includes the GPU assertion and
+failure-log retention repairs. Its local lint, formatting, generated-source and
+extension checks passed; the full suite is running against this frozen revision,
+with serial bootstrap, all eight C11 configurations and hygiene still pending.
+The native compiler binary is reused from the source-matched `081aae51` build,
+not newly rebuilt. Hosted [Windows run 37588790879](https://github.com/schiffy91/btrc/actions/runs/37588790879)
+passed tests and bootstrap. [Android run 37588790885](https://github.com/schiffy91/btrc/actions/runs/37588790885)
+passed all 56 executions, verified from the two retained 28-case summaries.
+Linux and macOS qualification is still running. No final green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
 pending their native failure investigations.
@@ -210,16 +218,18 @@ L1 merge `d49961cb` and L2 changes are now combined with `081aae51` in
 [PR65](https://github.com/schiffy91/btrc/pull/65), candidate `618e9ae1`.
 Six conflicts were reconciled while retaining generic-scope, tag-ownership and
 flexible-array checks. Static checks passed; the broader paired compiler,
-parser/analyzer and LSP qualification is running and has reported a failure
-whose terminal trace is now recorded: 2,474 passed and three failed. Both
+parser/analyzer and LSP qualification ended with 2,474 passed and three failed. Both
 parsers applied a struct-only spelling refusal before the existing union
 refusal; the guard is now restricted to structs. Two layout expectations still
 spelled `struct Pair`, although L1 normalizes that type to `Pair`; both compilers
 already agreed and the native C layout checks passed. Their expected spelling
 is corrected without changing the unsized-array or layout requirements. A fresh
-compiler run of refusals, layouts, flexible-array checks and parser tests is
-in progress. Hosted runs were deliberately deferred to
-respect the shared CI capacity limit; cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
+compiler run of refusals, layouts, flexible-array checks and parser tests passed
+all 360 checks. The fixes are committed as `c063cc18` and merged with `ad72af03`
+in local candidate `98b88440`. PR65 remains published at `618e9ae1`; publish the
+new candidate when CI capacity is available, then qualify its complete tree.
+Hosted runs on the older head were deliberately deferred to respect the shared
+CI capacity limit; cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
 qualify the whole C2 merge.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
@@ -278,10 +288,11 @@ versioned; do not flatten retired or unavailable rows into passing rows.
    findings landed at `87dd60d7`; its missing native evidence stays open.
    PR51/52 require final review of their revision-5 contract corrections.
    PR53 reuses the merged Windows executor and needs real ARM64 acceptance.
-   PR34 has historical local 50-case acceptance; its latest hosted run reached
-   launch but completed zero fixtures. The runtime-selection repair has a new
-   local matrix queued. PR35's activity-recreation repair is included in
-   `081aae51`, whose combined Android lane passed all 56 executions. Finish the
+   PR34's runtime-selection candidate `1844837b` passed the current local
+   50-case matrix; its latest hosted run reached launch but completed zero
+   fixtures. Hosted launch and the iOS 17 floor remain unqualified.
+   PR35's activity-recreation repair is included in `ad72af03`, whose combined
+   Android lane passed all 56 executions. Finish the
    remaining combined gates before landing it.
    Their general-provider/process-lifecycle gaps remain explicit.
    Scope-only CI is insufficient.
@@ -313,13 +324,15 @@ The remote snapshot contains 183 branches: 151 tips are ancestors of main and
 branches must also be checked before deletion; nothing is deleted by this plan.
 
 The later integration branches are tracked separately from that frozen inventory:
-`codex/harmonize-plan` at `081aae51` is [PR60](https://github.com/schiffy91/btrc/pull/60)'s
-combined candidate; `codex/integrate-c2-arrays` at `618e9ae1` is
-[draft PR65](https://github.com/schiffy91/btrc/pull/65), which reconciles both C2 lanes
-and includes PR60's VLA/Android repairs. Its focused local checks are queued.
+`codex/harmonize-plan` at `ad72af03` is [PR60](https://github.com/schiffy91/btrc/pull/60)'s
+combined candidate. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
+`codex/integrate-c2-arrays`, is published at `618e9ae1`; local candidate
+`98b88440` adds the three failure repairs, 360 passing focused checks and the
+latest PR60 tree. Its full integrated qualification remains outstanding.
 C2's new hosted workflows are deferred while the existing combined and Windows
-ARM64 candidates occupy the shared CI allowance. Resume them at the same head
-when capacity is available; a canceled workflow is not qualification.
+ARM64 candidates occupy the shared CI allowance. Publish and qualify the new
+head when capacity is available; rerunning the canceled old-head workflows
+would not qualify the current candidate.
 
 The C4 branch comparison is complete: `db229df7` and main ancestor `245cc209`
 have the same full Git tree, `87666402b8638440ed04dff17664de955fb16c48`.
@@ -598,7 +611,7 @@ owner, the exact prerequisite and the next acceptance.
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
-  locally validated head `f2476cc2`). Owner: this authorized integration session.
+  published head `0423088d`). Owner: this authorized integration session.
   Main `87dd60d7` is merged into the branch; the tooling now uses the shared Windows Job/gate, target
   flags, PE parser and build-process owner. The overall native deadline,
   component-qualified Visual Studio discovery and separate developer-command
@@ -655,12 +668,13 @@ owner, the exact prerequisite and the next acceptance.
   passed both version probes, 34 native Python tests and the separate MSVC/wgpu
   lane, but the tiny C build crashed with `0xC0000005` in 0.158 seconds, with
   empty stderr. Compiler transpilation and bootstrap never began; the large C
-  input is not required to reproduce this failure. Local revision `0423088d`
+  input is not required to reproduce this failure. Published revision `0423088d`
   adds bounded failure-only driver, syntax, object, link and overlay diagnostics
   without replacing the original qualification failure. Its local process
   checks passed 124 tests and ten subtests, with one native-only skip; lint and
-  formatting passed. It is not published, and native diagnostic results remain
-  pending while existing CI occupies the shared allowance.
+  formatting passed. [Run 37589160851](https://github.com/schiffy91/btrc/actions/runs/37589160851)
+  passed the cross-build; the native diagnostic lane remains pending. Updating
+  this existing PR stays within the two-active-code-PR allowance.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
@@ -715,8 +729,9 @@ owner, the exact prerequisite and the next acceptance.
   only iOS 27.0 and does not qualify the iOS 17 floor. The unchanged 50-case
   local matrix passed at this exact revision under the guest/gate locks:
   twelve spawn and thirteen app executions on each device class, including
-  repeated app invocation. The manifest pins Xcode 27A266a and fixture hashes;
-  cleanup succeeded and both owned simulators were verified shut down. This
+  repeated app invocation. The manifest pins Xcode 27A266a, iOS 26.4 build
+  23E254a and fixture hashes; all 26 app invocations used fresh containers and
+  fresh markers. Cleanup succeeded and both owned simulators were verified shut down. This
   current local evidence does not resolve the separate hosted failure.
   Next: qualify the pinned hosted lane without weakening fixture deadlines:
   12 fixtures × spawn/app × iPhone/iPad plus one repeated app invocation per
@@ -760,7 +775,11 @@ owner, the exact prerequisite and the next acceptance.
   passed both APIs: retained summaries prove **56/56 executions**, 14 shell
   and 14 app cases on each API. The change is integrated into PR60 candidate
   `081aae51`; its [combined Android run 37581622992](https://github.com/schiffy91/btrc/actions/runs/37581622992)
-  passed tooling and both API jobs. The other combined gates remain required.
+  passed tooling and both API jobs. Current candidate `ad72af03` also passed
+  [run 37588790885](https://github.com/schiffy91/btrc/actions/runs/37588790885):
+  retained summaries report 28 cases per API, 56 total. These remain trusted C
+  stand-ins on x86_64 emulators, not physical ARM64 or provider qualification.
+  The other combined gates remain required.
   Neither later failure proves the
   earlier service failure's cause.
   The i686 compatibility-builder issue (`REQUEST(CL-P1-02)`), ARM64 16 KiB
