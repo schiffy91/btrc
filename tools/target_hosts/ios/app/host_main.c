@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,8 +18,12 @@ int btrc_program_main(int argc, char **argv);
 static int signal_fd = -1;
 static char signal_pending[PATH_MAX];
 static char signal_final[PATH_MAX];
+/* UIKit runs other threads: a thread-local signal mask cannot arbitrate the
+ * process's terminal result. C11 atomic_flag is guaranteed lock-free. */
+static atomic_flag terminal_claimed = ATOMIC_FLAG_INIT;
 
 static void signal_result(int number) {
+    if (atomic_flag_test_and_set(&terminal_claimed)) { return; }
     /* write/rename/raise are async-signal-safe; no stdio or allocation here. */
     char value[4];
     size_t count = 0;
@@ -94,6 +99,11 @@ int main(int argc, char **argv) {
     }
     if (!acknowledged) { return 125; }
     int result = btrc_program_main(argc, argv);
+    if (atomic_flag_test_and_set(&terminal_claimed)) {
+        /* A signal handler owns publication and will terminate the process.
+         * Never race it by returning from main or publishing a second result. */
+        for (;;) { (void)pause(); }
+    }
     /* Freeze the terminal disposition before publishing normal completion. */
     sigset_t terminal_signals;
     if (sigemptyset(&terminal_signals) != 0) { return 125; }

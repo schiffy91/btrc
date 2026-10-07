@@ -16,8 +16,9 @@ branded `local-host-check-only` and rejected by simulator `prepare`.
 - `executor.py`: `prepare(bundle_dir, label)`, `run(ExecutionRequest)` and
   `close()`, with CL-P1-17's documented request/result fields. Only
   `ios-aarch64-simulator` is accepted. No registry or runner-core edit is made.
-- `app/`: strict C11/POSIX main wrapper and Info.plist declaring minimum iOS
-  17.0, `UIDeviceFamily [1,2]` and an ad-hoc-signed simulator executable.
+- `app/`: strict C11/POSIX fixture wrapper, a thin UIKit app launcher and
+  Info.plist declaring minimum iOS 17.0, `UIDeviceFamily [1,2]` and an
+  ad-hoc-signed simulator executable.
 - `fixtures/fixture.c`: twelve separately built programs for stdout, stderr,
   exit 3, abort, timeout ignoring TERM, 1 MiB output, argv, environment, cwd,
   binary stdin (including NUL/non-UTF-8 bytes), and ordinary exits 124/137
@@ -42,10 +43,19 @@ one; no compiler workaround belongs here. Direct fixture calls to `exit` or
 `_Exit` bypass the normal return-status wrapper and are not qualified by these
 fixtures. Abrupt exit without a status is a host error, never a successful run.
 
-This is a short-lived C test-host process launched as an app bundle, not the
-later UIApplicationMain/scene host. Whether SpringBoard accepts short-lived
-non-UIKit fixture launches with these exact semantics is part of the hosted
-spike. No native GUI behavior is implemented here.
+The first hosted run (`37554311440`, revision `ddc26d0a`) passed all twelve
+iPhone spawn fixtures, then timed out launching the first iPhone app bundle.
+The independent iPad steps passed twelve spawn and thirteen app executions:
+37 of 50 scheduled executions passed overall, with thirteen iPhone app cases
+uncompleted. Thus the timeout alone does not establish the plain-C entry point
+as its cause. The revised app host uses UIKit’s normal launch lifecycle to avoid
+waiting for the executor on the application launch thread. App mode now enters `UIApplicationMain` and returns from its launch delegate
+while a worker runs the same C fixture wrapper. This lets UIKit complete its
+launch handshake while the wrapper waits for the executor acknowledgement.
+The worker exits the process after publishing the fixture result. Spawn mode
+retains its ordinary C entry point; local transport tests retain their explicitly
+branded non-iOS binaries. This small launcher does not qualify GUI or scene
+behavior. The launch repair still requires the complete hosted simulator matrix.
 
 ## Lifetime and output protocol
 
@@ -61,9 +71,11 @@ real host; stale inherited child assignments are cleared between requests.
 Normal return flushes byte streams and atomically publishes `exit_status`.
 Handled fatal signals (ABRT, TERM, INT, SEGV, BUS, ILL, FPE, TRAP, PIPE and SYS)
 publish `signal_status` with async-signal-safe operations and re-raise with the
-default disposition; abort is distinct from exit 3. Normal completion blocks
-those signals before publishing `exit_status` and closing the signal descriptor,
-so a late handled signal cannot publish a second terminal result. Uncatchable
+default disposition; abort is distinct from exit 3. A lock-free C11 atomic flag arbitrates terminal publication across UIKit
+threads and the fixture worker. The winning signal handler publishes its result
+and terminates the process; normal completion claims the same flag before
+blocking signals on its own thread, publishing `exit_status` and closing the
+signal descriptor. A late handler cannot publish a second terminal result. Uncatchable
 SIGKILL and direct `exit`/`_Exit` still require a runner-core fallback before
 full corpus integration; this spike reports a host error when no status exists.
 The parent waits for process disappearance as well as a terminal status.
@@ -125,7 +137,9 @@ Actual CoreSimulator container behavior still needs hosted validation.
 The October 7 Mac check at `97f31e31` passed 23 local tests plus 36 subtests
 using pytest; lint and format checks also passed. The test fixture resolves its
 temporary root before bypassing `prepare`, matching production's canonical path
-handling on macOS. These are local process results, not simulator evidence.
+handling on macOS. The UIKit-launcher revision also passes all 23 tests and 36 subtests (11.32 s),
+and all twelve app bundles compile and ad-hoc sign with the local simulator SDK.
+These are local process/build results, not simulator execution evidence.
 
 
 From the repository root, using the pinned development shell:

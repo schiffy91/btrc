@@ -47,6 +47,40 @@ class SimulatorSpike:
         subprocess.run(
             [*cc, *cls.flags, "-c", str(cls.root / "app/host_main.c"), "-o", str(host_object)], check=True, timeout=120
         )
+        app_objects = []
+        if not local_cc:
+            app_host = output / "app_host.o"
+            launcher = output / "launcher.o"
+            subprocess.run(
+                [
+                    *cc,
+                    *cls.flags,
+                    "-Dmain=btrc_fixture_host_main",
+                    "-c",
+                    str(cls.root / "app/host_main.c"),
+                    "-o",
+                    str(app_host),
+                ],
+                check=True,
+                timeout=120,
+            )
+            subprocess.run(
+                [
+                    *cc,
+                    "-fobjc-arc",
+                    "-fblocks",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-c",
+                    str(cls.root / "app/launcher.m"),
+                    "-o",
+                    str(launcher),
+                ],
+                check=True,
+                timeout=120,
+            )
+            app_objects = [str(app_host), str(launcher)]
         programs = {}
         for mode, name in enumerate(cls.cases, 1):
             object_path = output / f"{name}.o"
@@ -70,7 +104,24 @@ class SimulatorSpike:
             )
             app = output / f"{name}.app"
             app.mkdir(exist_ok=True)
-            shutil.copy2(executable, app / "TestHost")
+            if local_cc:
+                shutil.copy2(executable, app / "TestHost")
+            else:
+                subprocess.run(
+                    [
+                        *cc,
+                        *app_objects,
+                        str(object_path),
+                        "-framework",
+                        "UIKit",
+                        "-framework",
+                        "Foundation",
+                        "-o",
+                        str(app / "TestHost"),
+                    ],
+                    check=True,
+                    timeout=120,
+                )
             metadata = dict(template, CFBundleIdentifier=f"dev.btrc.testhost.{name}")
             (app / "Info.plist").write_bytes(plistlib.dumps(metadata))
             if not local_cc:
