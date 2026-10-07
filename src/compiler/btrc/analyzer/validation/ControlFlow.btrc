@@ -704,8 +704,8 @@ class ControlFlowValidator {
 			if (declared == null) {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
 			}
-			self.storage.validateInferredStaticStorage(declaration, declared, isGlobal);
 			self.storage.validateNonescapingVariable(declaration, declared, isGlobal);
+			self.storage.validateInferredStaticStorage(declaration, declared, isGlobal);
 		} else if (actual != null && !self.types.assignmentCompatible(declared, actual) && !self.expressions.contextualAggregateInitializer(declaration.initializer) && !self.storage.charArrayStringInitializer(declared, declaration.initializer, vars)) {
 			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'" + TypeValidator.commaTupleHint(declaration.initializer, declared), declaration);
 		}
