@@ -300,9 +300,15 @@ may first appear after cycle one, but its allowance never increases; disappearin
 and returning with more instances still fails. Unknown BTRC classes, excess
 BTRC instances, owned objects and live registrations still fail. All 37 focused
 checks pass, including two lazy-initialization cases that failed before the
-change and two subsequent-growth refusals. Native qualification is queued;
-this comparison repair does not excuse the separate provider survivor or
-qualify the final matrix.
+change and two subsequent-growth refusals. Fresh native qualification at
+`a696ccf4` passed all **41 checks** in 654.39 seconds: both compilers, plain
+and ASan/UBSan, each completed 100 lifecycle cycles and 100 fresh-process
+restores with zero provider/registration survivors. Two independent controls
+actually exhibited seven private objects initially and eight later, exercising
+the lazy-class comparison. Keyboard traversal and GPU focusability remain
+explicit gaps. The earlier restore-54 provider survivor was not reproduced;
+this successful rerun does not establish its cause or resolution. The final
+full matrix remains pending.
 
 `CL-REQ-10` (`e1bc5dfa`) remains unmerged after a blocking source review:
 `BtrccCompilerStack.run` marks its parent parked before `pthread_create`, while
@@ -349,8 +355,8 @@ checks pass. The fresh focused native qualification at `f3a5d3c6` now has
 The nine new corpus cases ran through both compilers: 16 checks passed, while
 both nullable-cycle checks produced the expected `true`, `true`, `3` output but
 failed the corpus runner's required `PASS` marker. Local correction `d2ffae69`
-adds that marker and its golden; the two checks are queued for rerun. Compiler
-production sources are unchanged. The final integrated matrix remains pending;
+adds that marker and its golden; both checks now pass (1.55 seconds), and the
+fixture formatting check passes. Compiler production sources are unchanged. The final integrated matrix remains pending;
 this is a local checkpoint, not a main merge.
 
 Local candidate `e151f6be` merges the rich-enum B/C packet into `e1787f9b`,
@@ -362,7 +368,16 @@ crosses a pointer or managed object. Four new refusal cases cover nested storage
 the existing sanitizer execution fixture also checks allowed nested object
 writes. All 67 rich-enum reference checks and 127 analyzer reference probes pass;
 lint, formatting, generated-source and plan/hygiene checks pass. Native parity
-and sanitizer qualification are running at `2d645e27`. Earlier attempts stopped
+and sanitizer qualification at `2d645e27` completed with **328 passing checks
+and one diagnostic-parity failure** in 397.84 seconds. All four allowed-flow
+sanitizer cases passed through both compilers, including nested payload-object
+writes. For an inferred global, self-hosted validation reported static-initializer
+admissibility before the nonescaping-enum storage error. Local `2a0af4c6` checks
+the nonescaping role first, matching the reference, and also includes the nullable
+corpus marker fix. Native verification of this repair is included in the D/G
+candidate below. A separate retry stopped before tests because its launcher
+entered Nix before the simulator preflight, where `simctl` was unavailable;
+that is not a compiler result. Earlier attempts stopped
 at the stopped-guest preflight while the shared `semu-release-build` container
 was active; it was left intact. The fresh runs began after the VM was observed
 stopped, without stopping it ourselves. Neither earlier preflight stop is a
@@ -372,15 +387,21 @@ from `e1787f9b` and `e151f6be`, respectively. External owner rebinding and shall
 struct escapes remain separate gaps; universal lifetime safety is not claimed.
 The iOS `1844837b` branch is preserved while its idle clone hosts this checkpoint.
 
-The rich-enum D/G branch `1cc97ab8` remains unmerged. A source-only combined
-preview against `2d645e27` confirms a new integration blocker: the incoming
-realtime-payload recursion turns `Chain<T>` → `Chain<(T, int)>` into
-“expression or declaration nested too deeply to compile”, replacing the current
-precise growing-specialization diagnostic. The preview resolves the Python
-method conflict by retaining both incoming payload validation and the current
-scope/use tracking. Reconcile this traversal with REQ-11's termination model
-in both compilers before integration; do not replace its diagnostic with an
-arbitrary depth limit. No self-hosted D/G qualification is claimed.
+Local D/G candidate `cec4cc13` merges `1cc97ab8` into `2a0af4c6`. Review
+reproduced a conflict with REQ-11: incoming realtime-payload recursion turned
+`Chain<T>` → `Chain<(T, int)>` into “expression or declaration nested too deeply
+to compile”, replacing the precise growing-specialization diagnostic. Both
+compilers now retain each instantiation site's payload check and execute it
+after their generic expansion has completed and growing cycles have been
+refused. This preserves the original instantiation-site payload diagnostics.
+All 127 reference analyzer probes, all ten realtime payload refusal cases,
+and the valid payload example's reference transpilation pass; lint, Python/btrc
+formatting, generated-source and diff checks pass. Native parity qualification
+is running and includes the B/C ordering repair. Merge resolution preserves
+C2's union admission logic in the shared realtime owner and its union refusal
+regressions. The intentional positioned-diagnostic boundary update retains
+311 records and its reviewed SHA-256. No main landing, self-hosted D/G result,
+or full-matrix qualification is claimed yet.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
