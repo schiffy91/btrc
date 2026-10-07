@@ -1528,7 +1528,7 @@ class FeNativeDeclarationImporter {
 		bool negative = decimal.startsWith("-");
 		string magnitude = negative ? decimal.substring(1, decimal.length() - 1) : decimal;
 		var literal = IntegerLiteral(magnitude + suffix);
-		if (literal.typeName().isEmpty()) { self.fail("native constant exceeds supported integer storage"); }
+		if (!literal.representable()) { self.fail("native constant exceeds supported integer storage"); }
 		Node result = self.node(NK_INT_LITERAL);
 		result.raw = magnitude + suffix;
 		result.valueInt = literal.storedValue();

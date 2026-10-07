@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.compiler.python.abi.generated import GeneratedTargetRow
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.compiler.python.syntax.ast.generated import Program, RichEnumDecl, TypedefDecl
@@ -34,10 +35,14 @@ class SemanticAnalyzer:
         numeric_literals: NumericLiteralSemantics | None = None,
         type_identity: TypeIdentity | None = None,
         runtime_catalog: RuntimeHelperCatalog | None = None,
+        target: GeneratedTargetRow | None = None,
     ) -> None:
+        """``target`` is the selected row whose data model types literals; the host's when unset."""
         session = AnalysisSession()
         identity = type_identity if type_identity is not None else TypeIdentity()
-        literal_semantics = numeric_literals if numeric_literals is not None else NumericLiteralSemantics()
+        literal_semantics = (
+            numeric_literals if numeric_literals is not None else NumericLiteralSemantics.for_target(target)
+        )
         runtime_helpers = runtime_catalog if runtime_catalog is not None else RuntimeHelperCatalog()
         session.source_visible_runtime_names = runtime_helpers.source_visible_names
         index = DeclarationIndex()
@@ -199,6 +204,7 @@ class SemanticAnalyzer:
             rich_enum_unsafe_default_ids=set(state.rich_enum_unsafe_default_ids),
             array_iteration_capacity_ids=set(state.array_iteration_capacity_ids),
             constant_array_bound_ids=set(state.constant_array_bound_ids),
+            initializer_slot_plans=dict(state.initializer_slot_plans),
             source_macros=self.index.source_macros,
             errors=state.errors,
             warnings=state.warnings,

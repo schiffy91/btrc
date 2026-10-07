@@ -1,5 +1,7 @@
 # WORKSTREAMS packets: Codex
 
+> **D28 (2026-10-06).** Codex's active queue and results are now in [CODEX.md](../../CODEX.md). The packets here stay for traceability and for the scope of new contracts, and their ids keep their meaning. Their **Start now**, **Why not now** and **Depends on** fields do not gate CODEX.md units. Where a packet here conflicts with D28 or CODEX.md, CODEX.md governs ([CLAUDE.md D28](../../CLAUDE.md#decisions-all-resolved-2026-09-30)). The workflow files that packets below list as owned paths (`host-ios.yml`, `host-android.yml`, `windows-arm64.yml` and the rest) are Claude's, under D28 and the owner's restriction: Codex edits no workflow or `ci/proposed/` file, and the packet supplies the commands in a `REQUEST` block in its PR body. Those paths stay listed for traceability.
+
 Part of [WORKSTREAMS.md](../../WORKSTREAMS.md), the shared plan for Claude, Codex and the owner. That file holds the purpose, decision D27, the coordination protocol, the assignment matrix, the timeline and the open questions; this file holds the Codex packets in full. `packets.json` beside it is the same packet set in machine-readable form.
 
 
@@ -7,7 +9,7 @@ Grouped by owner, then by stage (the first stage a packet's `plan_stage` names),
 
 ### 6.2 Codex packets
 
-Codex: read §2 (D27) and §3 (protocol) before your first packet. Every packet below follows the branch, PR, fragment, skip-rule and report rules in §3, even where its own text is shorter or older: §3.5 says how to read older fragment wording, §3.11 how to run every command, and a **Review change** note on a packet overrides its body.
+Codex: read [CODEX.md](../../CODEX.md) first (D28), then §2 (D27) and §3 (protocol) before your first packet. Every packet below follows the branch, PR, fragment, skip-rule and report rules in §3, even where its own text is shorter or older: §3.5 says how to read older fragment wording, §3.11 how to run every command, and a **Review change** note on a packet overrides its body.
 
 #### What Codex inherits: GUI, UI, Tray and App on `430a892`
 
@@ -1376,6 +1378,8 @@ The Codex packets below build the rest, platform by platform:
 - **Why not now:** Sequenced after the Windows FileSystem merge (CX-P2-05) per items.json. It also needs the approved mobile contract and Stage 25's mobile hosts and platform codes 4/5.
 - **Parallel-safe with:** CX-P2-10, CX-P2-11, CX-P2-12, CX-P2-15
 
+> **D28 note:** The iOS and Android app-private file slices ([CODEX.md](../../CODEX.md#platform-slices-beyond-the-repairs)) wait only for their own prerequisites. `CX-P2-05` and `CL-P2-27` remain a single-writer order for the shared `FileSystem` and `IO.btrc` files, not a platform gate.
+
 > **Review change:** Waits for `CL-P1-15` (cache identity, after `CL-P1-14`'s platform-directory rule): Stage 24's exit, zero foreign SDK imports and the cache-poisoning matrix, is what a new `{Windows,IOS,Android}` directory relies on (§10 P8).
 
 > **Review change:** Waits for `CL-P2-27`: PLAN puts the mobile filesystem after the `FileSystem.btrc` merge (§10 C7).
@@ -2276,7 +2280,7 @@ The Codex packets below build the rest, platform by platform:
 
 **Steps**
 
-1. Handle startup, foreground and background, memory warnings, termination and relaunch, and deliver IApplication.post on the main executor. GUI.run and poll adapt to the OS-owned loop with no busy polling.
+1. Handle startup, foreground and background, memory warnings, termination and relaunch, and deliver IApplication.post on the application's UI executor thread. The host entry calls `GUI.attachHost` (ui2-approved.md, provisional host link); poll adapts to the OS-owned loop with no busy polling.
 2. Run 100 background/foreground/memory-warning cycles on the simulator through both frontends, then open a draft PR from codex/cx-p2-36.
 
 **Acceptance**
@@ -3140,6 +3144,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Why not now:** Needs the completed operation map (CX-UIA-03/04), the case map (CX-UIA-30), the broader surface (CX-UIA-05) and the BTRSmith caller counts (CL-UIA-03).
 - **Parallel-safe with:** CX-UIA-09, CX-UIA-10, CX-UIA-11, CX-UIA-12, CX-UIA-13, CX-UIA-18, CX-UIA-19, CX-UIA-20, CL-UIA-04
 
+> **D28 note:** This packet gates nothing. It is Stage 30 doc work only: apart from Stage 30's own exit batch (`CL-UIA-05`), no packet or [CODEX.md](../../CODEX.md) unit waits for it, and `CX-UIA-21` no longer lists it.
+
 > **Review change:** Catalog layout per §7 Q36: PR #21's seed `docs/design/native-ui-catalog.toml` plus sibling shard documents under `docs/design/native-ui-catalog/`, checked by `test_ui0_catalog.py` and `ui_catalog.py` (§10 F3).
 
 > **Review change:** Excludes `native-ui-parity.md`'s Review checkpoint section, which `CL-P1-01` edits (§10 C16).
@@ -3156,7 +3162,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 **Must not touch**
 
-- PLAN.md (send section text to Claude in the PR body)
+- CLAUDE.md (the roadmap) and the PLAN.md pointer (send section text to Claude in the PR body)
 - docs/design/plan-reference.md
 - `src/stdlib/**/*.btrc`
 - src/tests/python/test_ui0_catalog.py and every shard under docs/design/native-ui-catalog/
@@ -3553,6 +3559,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Why not now:** Bucket 3 prerequisites are missing on 8b73c79: no iOS target in either compiler (Stage 24), no simulator runtime or test host (Stages 23 and 25), and no UIApplicationDelegate/scene adapters or CAMetalLayer hosting (Stage 29).
 - **Parallel-safe with:** CX-UIA-15, CX-UIA-17, CX-UIA-24, CX-UIA-25, CX-UIA-26, CX-UIA-27
 
+> **D28 note:** The first iOS GUI slice ([CODEX.md](../../CODEX.md#platform-slices-beyond-the-repairs)) is lifecycle, one native button and one editable field, with events and safe teardown. It starts once the checked UIKit adapters (`CL-P2-21`) and the iOS host exist. The GPU dependency (`CX-P2-39`) and the CAMetalLayer-backed WebGPU view in step 2 apply only to the later GPU-view milestone.
+
 > **Review change:** Adds the landed UI2/UI3 surface, implemented or typed-unsupported (§10 P5).
 
 > **Review change:** Runs on its host lane's provider-suite job (`CX-P1-07/08/09`), not on windows.yml or a nonexistent macos.yml simulator job, and owns its rows in the shared shell test (§10 C6, F6).
@@ -3576,7 +3584,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 **Steps**
 
-1. Use UIApplicationMain with a process-scoped app delegate and an instance-scoped scene delegate, through Stage 29's instantiated Objective-C adapters. GUI.run maps to the OS-owned loop, which feeds ui-2-contract-executor.
+1. Use UIApplicationMain with a process-scoped app delegate and an instance-scoped scene delegate, through Stage 29's instantiated Objective-C adapters. The host entry calls `GUI.attachHost` (ui2-approved.md, provisional host link) instead of GUI.run; the OS-owned loop feeds ui-2-contract-executor.
 2. Add UITextField, UIButton, UIScrollView and a CAMetalLayer-backed WebGPU view.
 3. Add an accessibility probe through UIAccessibility/XCUITest, and run 100 scene connect/disconnect cycles.
 4. Build and run on a GitHub macOS runner's simulator. Prepare tools/ui/run-ios-shell.sh for the owner's Mac.
@@ -3600,6 +3608,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Depends on:** [CX-UIA-09](#cx-uia-09); [CX-UIA-13](#cx-uia-13); platforms-p1-target-spec → [CL-P1-06](claude.md#cl-p1-06); tooling-android-sdk-ndk → [CL-P1-02](claude.md#cl-p1-02), [MAC-P1-03](owner.md#mac-p1-03); platforms-p1-host-android → [CX-P1-09](#cx-p1-09); tooling-android-ci-emulator → [CX-P1-05](#cx-p1-05); platforms-a1-checked-jni → [CL-P2-24](claude.md#cl-p2-24); platforms-a1-activity-lifecycle → [CX-P2-41](#cx-p2-41); [CX-P2-44](#cx-p2-44); [CL-P1-15](claude.md#cl-p1-15)
 - **Why not now:** Bucket 3 prerequisites are missing on 8b73c79: no Android target (Stage 24), no SDK/NDK or emulator host (Stages 23 and 25), and no checked JNI or Activity lifecycle (Stages 27 and 29), nor the Android GPU surface (CX-P2-44) its WebGPU SurfaceView needs.
 - **Parallel-safe with:** CX-UIA-15, CX-UIA-16, CX-UIA-24, CX-UIA-25, CX-UIA-26, CX-UIA-27
+
+> **D28 note:** The first Android GUI slice ([CODEX.md](../../CODEX.md#platform-slices-beyond-the-repairs)) is lifecycle, one native button and one editable field, with events and safe teardown. It starts once the checked JNI and Looper seam (`CL-P2-24`) and the Android host exist. The GPU dependency (`CX-P2-44`) and the WebGPU SurfaceView apply only to the later GPU-view milestone.
 
 > **Review change:** Adds the landed UI2/UI3 surface, implemented or typed-unsupported (§10 P5).
 
@@ -3769,9 +3779,11 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 - **Owner:** Codex · **Group:** UIA · **Stage:** Stage 32 (UI2) · **Environment:** Linux cloud · **Start now:** no · **Estimate:** 6 agent-hours
 - **PLAN items:** `ui-2-contract-control-events#interfaces`; `ui-2-contract-executor#interfaces`; `ui-2-contract-lifecycle#interfaces`
-- **Depends on:** [CL-UIA-13](claude.md#cl-uia-13); [CL-UIA-12](claude.md#cl-uia-12); [CX-UIA-07](#cx-uia-07)
+- **Depends on:** [CL-UIA-13](claude.md#cl-uia-13); [CL-UIA-12](claude.md#cl-uia-12)
 - **Why not now:** Needs the approved UI2 diff (CL-UIA-13) and the shell harness on main (CL-UIA-12).
 - **Parallel-safe with:** CL-UIA-08, CX-UIA-14
+
+> **D28 note:** No longer waits for `CX-UIA-07`. For the `(ready)` dependencies of `CX-UIA-22` and `CX-UIA-23`, this branch is ready when `CL-UIA-13` has approved its interface diff and its catalog, format and static checks are green. Provider acceptance is judged on the combined interface and provider tree at `CL-UIA-14`, whose full batch gate keeps `make bootstrap`. This branch needs no bootstrap of its own.
 
 > **Review change:** Catalog layout per §7 Q36: PR #21's seed `docs/design/native-ui-catalog.toml` plus sibling shard documents under `docs/design/native-ui-catalog/`, checked by `test_ui0_catalog.py` and `ui_catalog.py` (§10 F3).
 
@@ -3807,13 +3819,11 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 **Acceptance**
 
 - [ ] test_ui0_catalog.py (and ui_catalog.py's shard check) passes with the new ids, and the changed .btrc pass the btrc-format check.
-- [ ] test_bootstrap.py reaches its fixed point, and the self-host transpiles have zero warnings with the BackgroundJobs change.
 - [ ] The PR-body report names CX-UIA-22 and CX-UIA-23 as the stacked branches.
 
 **Risks**
 
 - Alone, the branch leaves the providers unimplemented, so CI means something only on the stacked branches.
-- The BackgroundJobs change affects the compiler's own build.
 
 <a id="cx-uia-22"></a>
 
@@ -3848,13 +3858,14 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 1. MacOSTextField: NSTextField delegate draft, commit and cancel events that keep the field editor, selection and undo.
 2. MacOSSelect: keyed NSPopUpButton items. MacOSSlider: continuous tracking with one end commit. MacOSScrollView: two-axis offsets from bounds-changed notifications.
-3. MacOSWindow: windowShouldClose becomes the decision hook, with an asynchronous sheet. MacOSApplication: a thread-safe wakeup (CFRunLoopSource or performBlock) for worker publication, with no polling timer.
+3. MacOSWindow: windowShouldClose becomes the decision hook, with an asynchronous sheet. MacOSApplication: a thread-safe common-mode wakeup (a CFRunLoopSource added to the main run loop's common modes, per ui2-approved.md) for worker publication, with no polling timer and no performBlock.
 4. Audit final release for every native owner (E31), keep image presentation (E35) and honor effective visibility (E39). Run the portable fixtures through both frontends, plain and ASan/UBSan.
 
 **Acceptance**
 
 - [ ] On macos.yml for the stacked draft PR (and focus=native-gui): E01-E03 produce one product command per commit and 0 setter actions; E04 wakes an idle loop with no timer armed; E29 and E31 pass; E35, E39 and E46 pass at 100 cycles. Both frontends, plain and sanitized (run ids).
 - [ ] GPU-dependent rows are left for owner-Mac confirmation. The PR-body report follows the protocol.
+- [ ] E40 (ui2-approved.md): 100 bursts at 4,095/4,096/4,097/8,193 events with 0 unexplained losses, plus the macOS tracking trials (delivery during menu, slider and scroller tracking and live resize). Return and Escape rows of E01-E03, E33 and E34 count only from a run that shows `window_key=true` or a declared delivery route (ui1-feasibility.md).
 
 **Risks**
 
@@ -3868,8 +3879,10 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Owner:** Codex · **Group:** UIA · **Stage:** Stage 32 (UI2) · **Environment:** Linux cloud · **Start now:** no · **Estimate:** 12 agent-hours
 - **PLAN items:** `ui-2-linux`
 - **Depends on:** [CX-UIA-21](#cx-uia-21) (ready); [CX-UIA-11](#cx-uia-11)
-- **Why not now:** Stacks on the UI2 interface branch (CX-UIA-21), and brings in CX-UIA-11's E40 reproduction.
+- **Why not now:** Stacks on the UI2 interface branch (CX-UIA-21). Until they are integrated (D28), CX-STDLIB-01 holds four of its Linux provider files (LinuxApplication, LinuxWindow, LinuxTextField, LinuxSelect), its Linux probes and the E40 reproduction, and CX-STDLIB-05 holds LinuxScrollView.
 - **Parallel-safe with:** CX-UIA-22, CL-UIA-08, CX-UIA-14
+
+> **D28 note (split):** Queued-input retention (step 2's lossless pump), external hide/show rendering (step 3's exposure tracking) and landing CX-UIA-11's E40 reproduction (step 5) are now `CX-STDLIB-01` in [CODEX.md](../../CODEX.md#first-delivery-queue). The review change below that has this packet land the reproduction branch, and the `LinuxEventBoundary.btrc` owned path, no longer apply. This packet keeps the UI2 contract implementation and re-verifies E40 (the first acceptance item) on the UI2 pump. Its paths that `CX-STDLIB-01` holds, and `LinuxScrollView`, which `CX-STDLIB-05` holds, are not claimable until those units are integrated.
 
 > **Review change:** Dependencies marked `(ready)` are stacked contract or base branches that only a landing packet merges; they are met when acceptance is ticked and draft-PR CI is green (§3.2 stacked branches, §3.10; §10 C5).
 
@@ -3905,7 +3918,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 - [ ] Under tools/ui/headless-session.sh --x11 and --wayland, both frontends, plain and sanitized: E40 passes 100 bursts at 4,095/4,096/4,097/8,193 events with 0 unexplained losses.
 - [ ] On plain builds, the 10-minute load keeps p95 delivery ≤ 100 ms and service gaps ≤ 250 ms, and close starts within 250 ms; sanitized runs check counts and losses only.
-- [ ] E01-E04, E29, E35, E39 and E46 pass as on macOS, and LinuxGUIControls still passes.
+- [ ] E01-E04, E29, E31, E35, E39 and E46 pass as on macOS, and LinuxGUIControls still passes. E01's composition rows use the `SDL_EVENT_TEXT_EDITING` path (stand-in until an owner IME session); its Linux undo-preservation row stays missing for CX-UIA-27 and is not counted at UI2 (ui2-approved.md).
 - [ ] ci.yml is green on the stacked draft PR (run id). The PR-body report follows the protocol.
 
 **Risks**
@@ -4051,6 +4064,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Depends on:** [CX-UIA-25](#cx-uia-25) (ready)
 - **Why not now:** Stacks on the UI3 interface branch (CX-UIA-25).
 - **Parallel-safe with:** CX-UIA-26, CL-UIA-17, CL-UIA-18
+
+> **D28 note (split):** Step 3's cut-failure preservation (a cut keeps the text and selection when the clipboard write fails) moved to `CX-STDLIB-01` in [CODEX.md](../../CODEX.md#first-delivery-queue). Everything else stays here, including undo, preedit, the paste read error and UTF-8 validation. Owned paths that `CX-STDLIB-01` holds (`LinuxWindow`, `LinuxTextField`, `LinuxSelect` and that unit's event fixture under `src/tests/native/gui/linux/`), and `LinuxScrollView`, which `CX-STDLIB-05` holds, are not claimable until those units are integrated.
 
 > **Review change:** Dependencies marked `(ready)` are stacked contract or base branches that only a landing packet merges; they are met when acceptance is ticked and draft-PR CI is green (§3.2 stacked branches, §3.10; §10 C5).
 
@@ -4919,6 +4934,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Why not now:** The contract packet is not approved; Stages 30-33 have not started.
 - **Parallel-safe with:** CX-UIB-19, CX-UIB-20, CX-UIB-21, CX-UIB-23
 
+> **D28 note (split):** Keeping an explicit button alignment across title and symbol updates is `CX-STDLIB-03` in [CODEX.md](../../CODEX.md#first-delivery-queue). It holds `MacOSButton.btrc` and `controls/macos/ButtonAlignment.btrc` (inside this packet's `Button*.btrc` glob) until it is integrated. The UI4 feature scope here keeps this packet's gate.
+
 > **Review change:** Dependencies marked `(ready)` are stacked contract or base branches that only a landing packet merges; they are met when acceptance is ticked and draft-PR CI is green (§3.2 stacked branches, §3.10; §10 C5).
 
 **Owned paths**
@@ -5262,6 +5279,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Why not now:** Landing L1 has not happened.
 - **Parallel-safe with:** CX-UIB-25, CX-UIB-27
 
+> **D28 note (split):** The Grid and Stack scroll-offset clamp after resize is `CX-STDLIB-02`, and rejecting an invalid grid replacement is `CX-STDLIB-04`, both in [CODEX.md](../../CODEX.md#first-delivery-queue). Until each is integrated, `CX-STDLIB-02` holds `LinuxGrid.btrc`, `LinuxStack.btrc` and their resize fixtures under `src/tests/native/gui/layout/linux/`, `CX-STDLIB-04` then holds `LinuxGrid.btrc`, and `CX-STDLIB-01` holds `LinuxApplication.btrc`. Constrained measurement, navigation, theming, RTL and the close veto keep this packet's L2 gate.
+
 > **Review change:** If D23 picks GTK4, waits for the GTK4 core landing `CL-UIA-23` (§10 P7).
 
 **Owned paths**
@@ -5460,6 +5479,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Depends on:** [CL-UIB-06](claude.md#cl-uib-06); [CX-UIB-33](#cx-uib-33) (ready; it owns LinuxWindow; the deliverScroll hunk follows its merge)
 - **Why not now:** It follows L2.
 - **Parallel-safe with:** CX-UIB-29, CX-UIB-30, CX-UIB-32, CX-UIB-34
+
+> **D28 note:** Two [CODEX.md](../../CODEX.md#first-delivery-queue) units hold this packet's files first: `CX-STDLIB-05` (a valid scrollbar thumb in a tiny viewport) holds `LinuxScrollView.btrc`, and `CX-STDLIB-01` (popup hit testing that matches the painted position) holds `LinuxSelect.btrc`. This packet keeps the boundary handoff, the horizontal axis, honest phase reporting and the viewport-bounded popup.
 
 > **Review change:** Dependencies marked `(ready)` are stacked contract or base branches that only a landing packet merges; they are met when acceptance is ticked and draft-PR CI is green (§3.2 stacked branches, §3.10; §10 C5).
 
@@ -5879,6 +5900,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Why not now:** The Windows shell (Stage 31) and W1 (Stages 27-28) have not landed.
 - **Parallel-safe with:** CX-UIB-50, CX-UIB-58
 
+> **D28 note:** This track waits only for the Windows shell and its own seams, not for the iOS and Android shells. `CL-UIA-22` remains the contract re-check for Windows.
+
 > **Review change:** Waits for `CL-UIA-22`: the toolkit decision and the UI2/UI3 re-check on the real shells (§10 P6).
 
 **Owned paths**
@@ -6161,6 +6184,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Why not now:** The iOS shell (Stage 31) and I1 (Stage 29) have not landed; the iOS target is still unimplemented (Stage 24).
 - **Parallel-safe with:** CX-UIB-42, CX-UIB-58
 
+> **D28 note:** This track waits only for the iOS shell and its own seams, not for the Windows and Android shells. `CL-UIA-22` remains the contract re-check for iOS.
+
 > **Review change:** Waits for `CL-UIA-22`: the toolkit decision and the UI2/UI3 re-check on the real shells (§10 P6).
 
 **Owned paths**
@@ -6441,6 +6466,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Depends on:** PLAN:ui-1-android-shell (Stage 31) → [CX-UIA-17](#cx-uia-17); PLAN:ui-3-contract-input → [CL-UIA-20](claude.md#cl-uia-20); PLAN:platforms-a1-checked-jni → [CL-P2-24](claude.md#cl-p2-24); PLAN:platforms-a1-activity-lifecycle → [CX-P2-41](#cx-p2-41); PLAN:qualification-ci-android → [CX-P2-50](#cx-p2-50); [CL-UIB-11](claude.md#cl-uib-11); [CL-UIB-14](claude.md#cl-uib-14); [CL-UIA-22](claude.md#cl-uia-22)
 - **Why not now:** The Android shell (Stage 31) and A1 (Stage 29) have not landed; the Android targets are still unimplemented (Stage 24).
 - **Parallel-safe with:** CX-UIB-42, CX-UIB-50
+
+> **D28 note:** This track waits only for the Android shell and its own seams, not for the Windows and iOS shells. `CL-UIA-22` remains the contract re-check for Android.
 
 > **Review change:** Waits for `CL-UIA-22`: the toolkit decision and the UI2/UI3 re-check on the real shells (§10 P6).
 

@@ -1,0 +1,33 @@
+#include <stdio.h>
+
+// Canonical UTF-8 TSV, LF terminated. Titles contain no tabs or newlines.
+// R: key, numeric sort key, facet, title. D: step, deleted key.
+// I: step, inserted key, numeric sort key, facet, title.
+// Each D/I pair replaces one record without reusing a stable key.
+// Universal-character escapes keep source columns identical in both lexers.
+// The emitted UTF-8 bytes remain frozen by records.sha256.
+const char* recordTitle(int index) {
+	switch (index % 8) {
+		case 0: return "A";
+		case 1: return "An intentionally long collection title for clipping and variable row measurement";
+		case 2: return "\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645";
+		case 3: return "\u05e9\u05dc\u05d5\u05dd \u05e2\u05d5\u05dc\u05dd";
+		case 4: return "\U0001f3b8 Music \U0001f3b5";
+		case 5: return "Cafe\u0301";
+		case 6: return "\u6771\u4eac\u306e\u97f3\u697d";
+		default: return "";
+	}
+}
+
+int main() {
+	printf("btrc.collection-records\t1\n");
+	for (int index = 0; index < 100000; index++) {
+		printf("R\tk%06d\t%d\t%d\t%s\n", index, (index * 7919) % 100000, index % 17, recordTitle(index));
+	}
+	for (int step = 0; step < 1000; step++) {
+		int inserted = 100000 + step;
+		printf("D\t%d\tk%06d\n", step, step * 97);
+		printf("I\t%d\tk%06d\t%d\t%d\t%s\n", step, inserted, (inserted * 7919) % 100000, inserted % 17, recordTitle(inserted));
+	}
+	return fflush(stdout) == 0 && ferror(stdout) == 0 ? 0 : 1;
+}

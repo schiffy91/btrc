@@ -247,6 +247,21 @@
       "note": "The C oracle compares btrc's linux-x86_64 selection with the host gcc and clang -E, so only an x86_64 Linux host runs it; the devcontainer does (CL-C-06)."
     },
     {
+      "id": "linux-real-desktop-session",
+      "files": [
+        "src/tests/python/test_native_ui_shell_linux.py"
+      ],
+      "nodes": [
+        "*::test_linux_real_desktop_session"
+      ],
+      "reason": "^requires Linux SDL native shell$",
+      "category": "platform",
+      "covered_by": [
+        "linux"
+      ],
+      "note": "The real X11 and Wayland desktop check (CL-UIA-11) runs only on a physical Linux desktop, PLAN D7's host; the devcontainer skips it as awaiting hardware, so it is not covered there."
+    },
+    {
       "id": "ui-shell-linux-only",
       "files": [
         "src/tests/python/test_native_ui_shell_linux.py"
@@ -257,6 +272,18 @@
         "linux-devcontainer"
       ],
       "note": "CX-UIA-09 shell requires its host provider; both frontends and sanitizer modes run on the named stand-in."
+    },
+    {
+      "id": "sdl-clipboard-requestor-linux-only",
+      "files": [
+        "src/tests/python/test_native_ui_sdl_clipboard_requestor.py"
+      ],
+      "reason": "^requires Linux X11 SDL$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The patched SDL's X11 clipboard path (nix/sdl3-x11-selection-requestor.patch) exists only on Linux; the probe runs under the Linux virtual display."
     }
   ]
 }

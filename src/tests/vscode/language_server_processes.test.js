@@ -35,7 +35,11 @@ async function waitUntil(predicate, timeoutMs = 2000) {
     return false;
 }
 
-async function waitUntilDead(pid, timeoutMs = 2000) {
+// A Windows tree kill finishes in the background when taskkill outruns the
+// stop budget, so death on a loaded runner can take seconds.
+const DEATH_TIMEOUT_MS = process.platform === 'win32' ? 10000 : 2000;
+
+async function waitUntilDead(pid, timeoutMs = DEATH_TIMEOUT_MS) {
     return waitUntil(() => {
         try {
             process.kill(pid, 0);

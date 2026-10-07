@@ -25,6 +25,7 @@ import ./Callables.btrc;
 import ./Context.btrc;
 import ./Expressions.btrc;
 import ./Functions.btrc;
+import ./Generics.btrc;
 import ./ownership/CycleBoundaries.btrc;
 import ./ownership/Lifetime.btrc;
 import ./ownership/ManagedTypes.btrc;
@@ -33,6 +34,47 @@ import ./Types.btrc;
 
 /* Module declaration, class storage, field/property, preprocessor, and
  * concrete specialization materialization. */
+
+/* Mutable state of one tuple-shape scan: the shapes found so far, in
+ * discovery order, plus the generic context of the declaration being walked
+ * (the active instance substitution and the type parameters still unbound). */
+class TupleShapeScan {
+	public Map<string, bool> seen;
+	public Vector<string> order;
+	public Vector<Node> tupleTypes;
+	public Map<string, Node> substitutions;
+	public Vector<string> unbound;
+
+	public TupleShapeScan() {
+		self.seen = {};
+		self.order = [];
+		self.tupleTypes = [];
+		self.substitutions = {};
+		self.unbound = [];
+	}
+
+	/* Mark type parameters unbound for a nested walk; returns the previous
+	 * set, which the caller restores afterwards. */
+	public Vector<string> bindUnbound(Vector<string> parameters) {
+		Vector<string> previous = self.unbound;
+		if (parameters.len == 0) { return previous; }
+		Vector<string> next = [];
+		for (int index = 0; index < previous.len; index++) { next.push(previous.get(index)); }
+		for (int index = 0; index < parameters.len; index++) { next.push(parameters.get(index)); }
+		self.unbound = next;
+		return previous;
+	}
+
+	/* Whether a type still names an unbound type parameter anywhere. */
+	public bool namesUnbound(Node t) {
+		if (self.unbound.len == 0) { return false; }
+		if (self.unbound.contains(t.base)) { return true; }
+		for (int index = 0; index < t.genericArgs().len; index++) {
+			if (self.namesUnbound(t.genericArgs().get(index))) { return true; }
+		}
+		return false;
+	}
+}
 
 class DeclarationLowerer {
 	private Analyzed analyzed;
@@ -1447,7 +1489,7 @@ class DeclarationLowerer {
 			if (declared) { continue; }
 			var definition = IRStructDef();
 			definition.name = name;
-			for field in record.fields() { definition.fields.push(IRStructField(self.cTypes.lower(field.type), field.name)); }
+			for field in SemanticTypeSystem.recordDeclarators(record) { definition.fields.push(IRStructField(self.cTypes.lower(field.type), field.name)); }
 			native.structForwards.push(IRStructForward(name));
 			native.structDefs.push(definition);
 			module.structForwards.push(IRStructForward(name));
@@ -1463,7 +1505,7 @@ class DeclarationLowerer {
 		Node record = self.analyzed.structTable.get(type.base);
 		Vector<string> names = [];
 		Vector<IRNode> values = [];
-		for field in record.fields() {
+		for field in SemanticTypeSystem.recordFields(record) {
 			names.push(field.name);
 			values.push(self.objectiveCValue(field.type, IRNode.fieldAccess(value, field.name, false), toNative));
 		}
@@ -2740,9 +2782,10 @@ class DeclarationLowerer {
 		if (self.context.packAlignments.has(declarationKey)) {
 			sd.packAlignment = self.context.packAlignments.get(declarationKey);
 		}
+		Vector<Node> declarators = SemanticTypeSystem.recordDeclarators(d);
 		int i = 0;
-		while (i < d.fields().len) {
-			Node f = d.fields().get(i);
+		while (i < declarators.len) {
+			Node f = declarators.get(i);
 			if (f.type != null && f.type.isArray && f.type.arraySize != null) {
 				Node baseType = TypeShape.withoutOuterArray(f.type);
 				Map<string, Node> empty = {};
@@ -3945,74 +3988,63 @@ class DeclarationLowerer {
 		}
 	}
 
-	/* Scan all declarations (function return/param types, class method return
-     * types) and bodies for tuple types, then emit one struct def + forward
-     * typedef per unique mangled tuple. Mirrors legacy tuple emission
-     * (the body walk substitutes for Python's node_types scan). */
+	/* Scan all declarations (function and method signatures, class fields,
+     * globals, structs, typedefs, enums, interfaces) and bodies for tuple
+     * types, then emit one struct def + forward typedef per unique mangled
+     * tuple. Like Python's scan, generic classes and generic methods are
+     * walked only through their concrete instances, and a shape that still
+     * names an unbound type parameter is never recorded. */
 	public void emitTupleStructs(Node prog, IRModule m) {
-		Map<string, bool> seen = {};
-		Vector<string> order = [];
-		Vector<Node> tupleTypes = [];
+		TupleShapeScan scan = TupleShapeScan();
 		int i = 0;
 		while (i < prog.declarations().len) {
 			Node d = prog.declarations().get(i);
 			if (d.kind == NK_FUNCTION_DECL) {
-				self.collectTupleTypes(d.returnType, seen, order, tupleTypes);
-				int p = 0;
-				while (p < d.params().len) {
-					self.collectTupleTypes(d.params().get(p).type, seen, order, tupleTypes);
-					p = p + 1;
-				}
-				self.collectTupleTypesBody(d.bodyNode, seen, order, tupleTypes);
+				self.collectSignatureTupleTypes(d, scan);
+				self.collectTupleTypesBody(d, scan);
 			} else if (d.kind == NK_CLASS_DECL) {
-				int mi = 0;
-				while (mi < d.members().len) {
-					Node mem = d.members().get(mi);
-					if (mem.kind == NK_METHOD_DECL) {
-						self.collectTupleTypes(mem.returnType, seen, order, tupleTypes);
-						int mp = 0;
-						while (mp < mem.params().len) {
-							self.collectTupleTypes(mem.params().get(mp).type, seen, order, tupleTypes);
-							mp = mp + 1;
-						}
-						self.collectTupleTypesBody(mem.bodyNode, seen, order, tupleTypes);
-					} else if (mem.kind == NK_FIELD_DECL) {
-						/* A class field of tuple type (e.g. `(int,int) pos;`)
-                         * references the tuple struct in the class body, so its
-                         * typedef must be emitted. Python catches this via the
-                         * field-access node_types scan. */
-						self.collectTupleTypes(mem.type, seen, order, tupleTypes);
-					} else if (mem.kind == NK_PROPERTY_DECL) {
-						self.collectTupleTypes(mem.type, seen, order, tupleTypes);
-					}
-					mi = mi + 1;
-				}
+				if (d.genericParams().len == 0) { self.collectClassTupleTypes(d, scan); }
+			} else if (d.kind == NK_INTERFACE_DECL) {
+				Vector<string> unbound = scan.bindUnbound(d.genericParams());
+				self.collectTupleTypesBody(d, scan);
+				scan.unbound = unbound;
+			} else if (d.kind == NK_VAR_DECL_STMT || d.kind == NK_STRUCT_DECL || d.kind == NK_TYPEDEF_DECL || d.kind == NK_ENUM_DECL || d.kind == NK_RICH_ENUM_DECL) {
+				/* A global (static or not), struct field, typedef target,
+                 * enum value or rich-enum payload may be the only spelling of
+                 * a tuple type. */
+				self.collectTupleTypesBody(d, scan);
 			}
 			i = i + 1;
 		}
-		int instanceIndex = 0;
-		while (instanceIndex < self.analyzed.genericInstances.len) {
-			GenInstance instance = self.analyzed.genericInstances.get(instanceIndex);
-			if (self.analyzed.genericClassTable.has(instance.base)) {
-				Node genericDeclaration = self.analyzed.genericClassTable.get(instance.base);
-				Node concreteInstanceType = SemanticTypeSystem.primitive(instance.base);
-				concreteInstanceType.genericArgsStorage = instance.args;
-				Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(self.analyzed, concreteInstanceType);
-				int memberIndex = 0;
-				while (memberIndex < genericDeclaration.members().len) {
-					Node genericMember = genericDeclaration.members().get(memberIndex);
-					if (genericMember.kind == NK_FIELD_DECL || genericMember.kind == NK_PROPERTY_DECL) {
-						self.collectTupleTypes(SemanticTypeSystem.resolveGenericType(genericMember.type, substitutions, self.analyzed), seen, order, tupleTypes);
-					}
-					memberIndex = memberIndex + 1;
-				}
-			}
-			instanceIndex = instanceIndex + 1;
+		GenericLowerer generics = GenericLowerer(self.analyzed);
+		/* Each instance walk runs inside the analyzer's instance context, as
+         * its lowering does, so inferred types see that instance's call
+         * arguments. Any type parameter the substitution leaves behind stays
+         * unbound. */
+		for classPlan in generics.classPlans() {
+			scan.substitutions = classPlan.substitutions;
+			Vector<string> unbound = scan.bindUnbound(classPlan.declaration.genericParams());
+			string previousInstance = self.analyzed.beginInstance(GenericSpecializer.classInstanceContext(classPlan.instance));
+			self.collectClassTupleTypes(classPlan.declaration, scan);
+			self.analyzed.endInstance(previousInstance);
+			scan.unbound = unbound;
 		}
+		for methodPlan in generics.methodPlans() {
+			scan.substitutions = methodPlan.substitutions;
+			Vector<string> parameters = [];
+			for (int index = 0; index < methodPlan.owner.genericParams().len; index++) { parameters.push(methodPlan.owner.genericParams().get(index)); }
+			for (int index = 0; index < methodPlan.method.genericParams().len; index++) { parameters.push(methodPlan.method.genericParams().get(index)); }
+			Vector<string> unbound = scan.bindUnbound(parameters);
+			string previousInstance = self.analyzed.beginInstance(GenericSpecializer.methodInstanceContext(methodPlan.instance));
+			self.collectTupleTypesBody(methodPlan.method, scan);
+			self.analyzed.endInstance(previousInstance);
+			scan.unbound = unbound;
+		}
+		scan.substitutions = {};
 		int s = 0;
-		while (s < order.len) {
-			string mangled = order.get(s);
-			Node tt = tupleTypes.get(s);
+		while (s < scan.order.len) {
+			string mangled = scan.order.get(s);
+			Node tt = scan.tupleTypes.get(s);
 			IRStructDef sd = IRStructDef();
 			sd.name = mangled;
 			int f = 0;
@@ -4030,57 +4062,159 @@ class DeclarationLowerer {
 		}
 	}
 
-	/* Recursively collect tuple types from a type expression (mirrors
-     * legacy tuple collection). A tuple type has base "Tuple" with
-     * generic_args holding the element types; nested tuples are collected too. */
-	public void collectTupleTypes(Node? t, Map<string, bool> seen, Vector<string> order, Vector<Node> tupleTypes) {
-		if (t == null) { return; }
-		/* Recurse into element types FIRST so that a nested tuple used as a
-         * field (e.g. the (string,bool) inside (int,(string,bool))) is emitted
-         * before the enclosing struct that contains it — otherwise the outer
-         * struct references an incomplete type. (Python gets this ordering
-         * incidentally via its node_types scan, which sees the inner tuple's
-         * standalone use first; doing dependencies-first here is robust.) */
-		int i = 0;
-		while (i < t.genericArgs().len) {
-			self.collectTupleTypes(t.genericArgs().get(i), seen, order, tupleTypes);
-			i = i + 1;
+	/* A class's signature types first, then its members, as Python collects a
+     * class view. A generic method contributes only the signature types that
+     * do not name its own type parameters; its body is walked through each
+     * method instance. */
+	private void collectClassTupleTypes(Node declaration, TupleShapeScan scan) {
+		for (int index = 0; index < declaration.members().len; index++) {
+			Node member = declaration.members().get(index);
+			if (member.kind == NK_METHOD_DECL) {
+				Vector<string> unbound = scan.bindUnbound(member.genericParams());
+				self.collectSignatureTupleTypes(member, scan);
+				scan.unbound = unbound;
+			} else if (member.kind == NK_FIELD_DECL || member.kind == NK_PROPERTY_DECL) {
+				self.collectTupleTypes(member.type, scan);
+			}
 		}
-		if (t.base == "Tuple" && t.genericArgs().len > 0) {
-			string mangled = TypeIdentity.mangleGenericSymbol("Tuple", t.genericArgs());
-			if (!seen.has(mangled)) {
-				seen.put(mangled, true);
-				order.push(mangled);
-				tupleTypes.push(t);
+		for (int index = 0; index < declaration.members().len; index++) {
+			Node member = declaration.members().get(index);
+			if (member.kind != NK_METHOD_DECL || member.genericParams().len == 0) {
+				self.collectTupleTypesBody(member, scan);
 			}
 		}
 	}
 
-	/* Walk a function/method body for tuple types appearing on local var decls
-     * and tuple literals. This stands in for the Python node_types scan, which
-     * the on-demand inference design of this compiler doesn't maintain. */
-	public void collectTupleTypesBody(Node? n, Map<string, bool> seen, Vector<string> order, Vector<Node> tupleTypes) {
+	/* Collect the tuple shapes of one type expression after the scan's active
+     * generic substitution. */
+	public void collectTupleTypes(Node? t, TupleShapeScan scan) {
+		if (t == null) { return; }
+		Node resolved = t;
+		if (scan.substitutions.len > 0) {
+			resolved = SemanticTypeSystem.resolveGenericType(t, scan.substitutions, self.analyzed);
+		}
+		self.recordTupleShapes(resolved, scan);
+	}
+
+	/* Recursively record tuple types from a resolved type expression. A tuple
+     * type has base "Tuple" with generic_args holding the element types;
+     * nested tuples are recorded too. */
+	private void recordTupleShapes(Node t, TupleShapeScan scan) {
+		/* Recurse into element types FIRST so that a nested tuple used as a
+         * field (e.g. the (string,bool) inside (int,(string,bool))) is emitted
+         * before the enclosing struct that contains it — otherwise the outer
+         * struct references an incomplete type. */
+		int i = 0;
+		while (i < t.genericArgs().len) {
+			self.recordTupleShapes(t.genericArgs().get(i), scan);
+			i = i + 1;
+		}
+		if (t.base == "Tuple" && t.genericArgs().len > 0 && !scan.namesUnbound(t)) {
+			string mangled = TypeIdentity.mangleGenericSymbol("Tuple", t.genericArgs());
+			if (!scan.seen.has(mangled)) {
+				scan.seen.put(mangled, true);
+				scan.order.push(mangled);
+				scan.tupleTypes.push(t);
+			}
+		}
+	}
+
+	/* Walk a declaration, statement or expression for every type expression it
+     * spells (var decls, casts, compound literals, sizeof operands, struct
+     * fields, typedef targets) and for inferred local tuple types. This stands
+     * in for the Python node_types scan, which the on-demand inference design
+     * of this compiler doesn't maintain. */
+	public void collectTupleTypesBody(Node? n, TupleShapeScan scan) {
 		if (n == null) { return; }
+		if (n.kind == NK_TYPE_EXPR) {
+			self.collectTupleTypes(n, scan);
+			self.collectTupleTypesBody(n.arraySize, scan);
+			if (n.elementsStorage != null) { self.collectTupleTypesList(n.elementsStorage, scan); }
+			return;
+		}
 		if (n.kind == NK_VAR_DECL_STMT) {
-			self.collectTupleTypes(n.type, seen, order, tupleTypes);
+			self.collectTupleTypesBody(n.type, scan);
 			/* `var t = (1, 2)` declares t with an inferred tuple type and a null
              * annotation, so scanning n.type alone misses the tuple. Infer the
              * type from the initializer (Python catches this via node_types). */
 			if (n.type == null && n.initializer != null) {
 				Map<string, Node> vt = {};
 				Node? it = self.expressions.resolvedExpressionType(n.initializer, vt);
-				self.collectTupleTypes(it, seen, order, tupleTypes);
+				self.collectTupleTypes(it, scan);
 			}
+			self.collectTupleTypesBody(n.initializer, scan);
+			return;
 		}
-		int si = 0;
-		while (si < n.statements().len) {
-			self.collectTupleTypesBody(n.statements().get(si), seen, order, tupleTypes);
-			si = si + 1;
+		if (n.kind == NK_DO_WHILE_STMT) {
+			self.collectTupleTypesBody(n.bodyNode, scan);
+			self.collectTupleTypesBody(n.condition, scan);
+			return;
 		}
-		self.collectTupleTypesBody(n.thenBlock, seen, order, tupleTypes);
-		self.collectTupleTypesBody(n.elseBlock, seen, order, tupleTypes);
-		self.collectTupleTypesBody(n.bodyNode, seen, order, tupleTypes);
-		if (n.ifStmt != null) { self.collectTupleTypesBody(n.ifStmt, seen, order, tupleTypes); }
+		/* Every other node: skip unset fields and unwritten lists. The order
+		 * follows the ASDL field order of each constructor, so shapes are
+		 * discovered in the order Python's scan walks the same fields. */
+		if (n.returnType != null) { self.collectTupleTypesBody(n.returnType, scan); }
+		if (n.original != null) { self.collectTupleTypesBody(n.original, scan); }
+		if (n.type != null) { self.collectTupleTypesBody(n.type, scan); }
+		if (n.targetType != null) { self.collectTupleTypesBody(n.targetType, scan); }
+		if (n.paramsStorage != null) { self.collectTupleTypesList(n.paramsStorage, scan); }
+		if (n.fieldsStorage != null) { self.collectTupleTypesList(n.fieldsStorage, scan); }
+		if (n.methodsStorage != null) { self.collectTupleTypesList(n.methodsStorage, scan); }
+		if (n.valuesStorage != null) { self.collectTupleTypesList(n.valuesStorage, scan); }
+		if (n.variantsStorage != null) { self.collectTupleTypesList(n.variantsStorage, scan); }
+		if (n.default_ != null) { self.collectTupleTypesBody(n.default_, scan); }
+		if (n.key != null) { self.collectTupleTypesBody(n.key, scan); }
+		if (n.target != null) { self.collectTupleTypesBody(n.target, scan); }
+		if (n.init != null) { self.collectTupleTypesBody(n.init, scan); }
+		if (n.declarationsStorage != null) { self.collectTupleTypesList(n.declarationsStorage, scan); }
+		if (n.expression != null) { self.collectTupleTypesBody(n.expression, scan); }
+		if (n.iterable != null) { self.collectTupleTypesBody(n.iterable, scan); }
+		if (n.condition != null) { self.collectTupleTypesBody(n.condition, scan); }
+		if (n.update != null) { self.collectTupleTypesBody(n.update, scan); }
+		if (n.valueNode != null) { self.collectTupleTypesBody(n.valueNode, scan); }
+		if (n.initializer != null) { self.collectTupleTypesBody(n.initializer, scan); }
+		if (n.expr != null) { self.collectTupleTypesBody(n.expr, scan); }
+		if (n.left != null) { self.collectTupleTypesBody(n.left, scan); }
+		if (n.right != null) { self.collectTupleTypesBody(n.right, scan); }
+		if (n.operand != null) { self.collectTupleTypesBody(n.operand, scan); }
+		if (n.callee != null) { self.collectTupleTypesBody(n.callee, scan); }
+		if (n.obj != null) { self.collectTupleTypesBody(n.obj, scan); }
+		if (n.index != null) { self.collectTupleTypesBody(n.index, scan); }
+		if (n.trueExpr != null) { self.collectTupleTypesBody(n.trueExpr, scan); }
+		if (n.falseExpr != null) { self.collectTupleTypesBody(n.falseExpr, scan); }
+		if (n.fn != null) { self.collectTupleTypesBody(n.fn, scan); }
+		if (n.argsStorage != null) { self.collectTupleTypesList(n.argsStorage, scan); }
+		if (n.elementsStorage != null) { self.collectTupleTypesList(n.elementsStorage, scan); }
+		if (n.entriesStorage != null) { self.collectTupleTypesList(n.entriesStorage, scan); }
+		if (n.partsStorage != null) { self.collectTupleTypesList(n.partsStorage, scan); }
+		if (n.statementsStorage != null) { self.collectTupleTypesList(n.statementsStorage, scan); }
+		if (n.casesStorage != null) { self.collectTupleTypesList(n.casesStorage, scan); }
+		if (n.bodyNodeListStorage != null) { self.collectTupleTypesList(n.bodyNodeListStorage, scan); }
+		if (n.thenBlock != null) { self.collectTupleTypesBody(n.thenBlock, scan); }
+		if (n.elseBlock != null) { self.collectTupleTypesBody(n.elseBlock, scan); }
+		if (n.ifStmt != null) { self.collectTupleTypesBody(n.ifStmt, scan); }
+		if (n.bodyNode != null) { self.collectTupleTypesBody(n.bodyNode, scan); }
+		if (n.tryBlock != null) { self.collectTupleTypesBody(n.tryBlock, scan); }
+		if (n.catchType != null) { self.collectTupleTypesBody(n.catchType, scan); }
+		if (n.catchBlock != null) { self.collectTupleTypesBody(n.catchBlock, scan); }
+		if (n.finallyBlock != null) { self.collectTupleTypesBody(n.finallyBlock, scan); }
+		if (n.getterBody != null) { self.collectTupleTypesBody(n.getterBody, scan); }
+		if (n.setterBody != null) { self.collectTupleTypesBody(n.setterBody, scan); }
+		if (n.capturesStorage != null) { self.collectTupleTypesList(n.capturesStorage, scan); }
+	}
+
+	/* A function's or method's return and parameter types. */
+	private void collectSignatureTupleTypes(Node callable, TupleShapeScan scan) {
+		self.collectTupleTypes(callable.returnType, scan);
+		for (int index = 0; index < callable.params().len; index++) {
+			self.collectTupleTypes(callable.params().get(index).type, scan);
+		}
+	}
+
+	private void collectTupleTypesList(Vector<Node> nodes, TupleShapeScan scan) {
+		for (int index = 0; index < nodes.len; index++) {
+			self.collectTupleTypesBody(nodes.get(index), scan);
+		}
 	}
 
 

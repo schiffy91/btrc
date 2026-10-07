@@ -238,7 +238,7 @@ class NameValidator {
 					methodIndex = methodIndex + 1;
 				}
 			} else if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
-				self.validateUniqueNodeNames(declaration.fields(), "Struct field", "struct '" + declaration.name + "'", false, "field");
+				self.validateUniqueNodeNames(SemanticTypeSystem.recordFields(declaration), "Struct field", "struct '" + declaration.name + "'", false, "field");
 			} else if (declaration.kind == NK_ENUM_DECL) {
 				self.validateUniqueNodeNames(declaration.values(), "Enum value", "enum '" + declaration.name + "'", declaration.name != "");
 				if (declaration.name == "") {
@@ -469,7 +469,7 @@ class NameValidator {
 			Node declaration = program.declarations().get(index);
 			if (self.namedTopLevel(declaration)) {
 				string name = self.topLevelName(declaration);
-				if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward && declaration.fields().len == 0 && !self.state.analyzed.isNativeDeclaration(declaration)) {
+				if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward && SemanticTypeSystem.recordDeclarators(declaration).len == 0 && !self.state.analyzed.isNativeDeclaration(declaration)) {
 					TypeValidator.fail("Struct definition '" + name + "' must contain at least one field", declaration);
 				}
 				if (declarations.has(name)) {

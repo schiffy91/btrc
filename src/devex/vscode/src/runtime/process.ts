@@ -6,6 +6,9 @@ import crossSpawn from 'cross-spawn';
 
 const DEFAULT_TERMINATION_TIMEOUT_MS = 1000;
 
+/** How a `taskkill /T` request stood when its time budget ran out. */
+export type WindowsTreeTermination = 'terminated' | 'failed' | 'pending';
+
 export type ProcessSpawner = (
     command: string,
     args: string[],
@@ -129,7 +132,19 @@ export class HostRuntime {
             : 'taskkill.exe';
     }
 
-    terminateWindowsTree(pid: number, timeoutMs: number): Promise<boolean> {
+    /**
+     * Runs `taskkill /T /F` on `pid` and reports how it ended within
+     * `timeoutMs`. A taskkill still running at the deadline is left to finish
+     * in the background ('pending'): killing it mid-walk, or killing the root
+     * before it gets there, strands the tree's descendants, because Windows
+     * does not reparent them. If a pending taskkill later fails, `onLateFailure`
+     * runs once.
+     */
+    terminateWindowsTree(
+        pid: number,
+        timeoutMs: number,
+        onLateFailure: () => void = () => {},
+    ): Promise<WindowsTreeTermination> {
         return new Promise((resolve) => {
             let killer: ChildProcess;
             try {
@@ -139,20 +154,28 @@ export class HostRuntime {
                     { stdio: 'ignore', windowsHide: true },
                 );
             } catch {
-                resolve(false);
+                resolve('failed');
                 return;
             }
 
-            let settled = false;
+            let outcome: WindowsTreeTermination | undefined;
+            let completed = false;
             const finish = (success: boolean) => {
-                if (settled) { return; }
-                settled = true;
+                if (completed) { return; }
+                completed = true;
+                if (outcome === 'pending') {
+                    if (!success) { onLateFailure(); }
+                    return;
+                }
                 clearTimeout(timer);
-                resolve(success);
+                outcome = success ? 'terminated' : 'failed';
+                resolve(outcome);
             };
             const timer = setTimeout(() => {
-                try { killer.kill('SIGKILL'); } catch { /* already exited */ }
-                finish(false);
+                if (completed) { return; }
+                outcome = 'pending';
+                killer.unref();
+                resolve(outcome);
             }, Math.max(1, timeoutMs));
             killer.once('error', () => finish(false));
             killer.once('exit', (code, signal) => {
@@ -235,14 +258,15 @@ export class ProcessTree {
         }
 
         if (this.host.platform === 'win32') {
-            if (
-                this.isRunning()
-                && !await this.host.terminateWindowsTree(
+            if (this.isRunning()) {
+                const termination = await this.host.terminateWindowsTree(
                     pid,
                     this.remainingTime(deadline),
-                )
-            ) {
-                this.killDirectly();
+                    () => this.killDirectly(),
+                );
+                // A pending taskkill still owns the tree; killing its root
+                // now would orphan the descendants it has yet to reach.
+                if (termination === 'failed') { this.killDirectly(); }
             }
         } else if (this.detached) {
             try {

@@ -135,8 +135,9 @@ class NumericSemantics {
 		return signedRank > unsignedRank;
 	}
 
-	class Node? integerLiteralType(string raw) {
-		string name = IntegerLiteral(raw).typeName();
+	/* `longBits` is the selected row's long width (Analyzed.longBits). */
+	class Node? integerLiteralType(string raw, int longBits) {
+		string name = IntegerLiteral(raw).typeName(longBits);
 		if (name == "") { return null; }
 		return SemanticTypeSystem.primitive(name);
 	}
