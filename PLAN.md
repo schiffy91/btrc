@@ -111,8 +111,11 @@ The local full pytest suite passed 17,038 tests with 169 skips, but its skip
 audit failed on eight unexpected Apple macro checks, so bootstrap did not run.
 Nix's SDK environment hid the installed required Xcode. Restoring the system
 Xcode invocation exposed six Apple-only predefined names absent from upstream
-clang; their explicit foreign classification and paired diagnostics are under
-qualification. The final integrated matrix is still outstanding.
+clang. [PR64](https://github.com/schiffy91/btrc/pull/64) qualifies the explicit
+foreign classification and system-Xcode invocation: 443 tests passed, including
+all eight Apple checks and both compilers' vendor-name diagnostics; 41 Linux-only
+oracle cases skipped. Full lint, format and generated checks passed. The final
+integrated matrix is still outstanding.
 
 [PR62](https://github.com/schiffy91/btrc/pull/62) adds issue #12's paired
 function-temporary identity regression: byte-identical output survives repeated
@@ -124,6 +127,11 @@ target branch and repairs a reproduced stale-cache publication race during a
 target change. All 476 LSP tests pass, including real stdio retargeting; lint,
 format, generated-source checks and extension packaging also pass (83 extension
 tests, two platform skips). Its final integration gates remain outstanding.
+
+The local integration candidate now merges PR35, PR61, PR62, PR63 and PR64
+with this plan, preserving their histories. Main remains at `87dd60d7` until
+the combined tree passes its required gates. iOS and Windows ARM64 are separate
+pending their native failure investigations.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -516,8 +524,13 @@ owner, the exact prerequisite and the next acceptance.
   the available iOS 26.2 runtime. Root cause and complete acceptance remain
   open; the UIKit change has not qualified the whole matrix. Revision
   `532d4e45` adds bounded read-only simulator diagnostics and retains failure
-  stages and partial results independently of cleanup. Its new native matrix
-  is pending.
+  stages and partial results independently of cleanup. Its hosted run
+  [37567969350](https://github.com/schiffy91/btrc/actions/runs/37567969350)
+  passed all twelve iPhone spawn cases but failed the other three modes on
+  launch/identity deadlines. Diagnostics record 7 GiB RAM, three CPUs, heavy
+  memory compression and device-list queries timing out. Host pressure is a
+  supported hypothesis, not a proven cause. The same fixtures are being run on
+  the acceptance Mac's installed iOS 26.4.1 runtime without changing deadlines.
   Next: diagnose host launch/readiness failures without weakening fixture
   deadlines, then pass 12 fixtures × spawn/app × iPhone/iPad plus one repeated
   app invocation per class (50 executions). Preserve Xcode/runtime provenance,
