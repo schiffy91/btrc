@@ -3,7 +3,7 @@
 Updated **2026-10-07**. The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`; the combined candidate is `18185f0b` in
+Current upstream main is `87dd60d7`; the combined candidate is `081aae51` in
 PR60. Subsequent integration and host changes are recorded below.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
@@ -74,7 +74,7 @@ Recovery evidence is at `~/.cache/semu/recovery/cleanup-2026-10-07/`.
 The 01:45 BST recheck found **105.15 GB free (97.93 GiB)**, above the 80 GB
 implementation and 100 GB Stage 23 thresholds at that moment. Recheck at each
 stage start; this is not reserved capacity. The later repair-stage check found
-88 GiB free; the 100 GB Stage 23 threshold must be re-established before that stage.
+87 GiB free; the 100 GB Stage 23 threshold must be re-established before that stage.
 
 The active `podman-machine-default` is shared with SEMU: **8 CPUs, 28 GiB RAM,
 180 GiB virtual disk**. It and its containers/volumes were left intact. Do not
@@ -157,14 +157,18 @@ prototypes. Revision `1c9839cb` adds paired structured-IR lifetime scopes and
 passes 53 fresh-compiler checks, including strict GCC/Clang `-O3` execution,
 cleanup, loop exits, lambda captures and setjmp paths. The repair, qualified
 Android lifecycle change and current plan are incorporated into the next
-combined candidate; full final-tree gates remain required. The combined
+combined candidate `081aae51`. Its fresh lint, formatting, generated-source,
+extension and native compiler-build checks passed; the full test suite is running
+under the serial gate lock. Bootstrap, all eight strict-C11 configurations and
+final hygiene still require terminal results. The earlier `18185f0b` combined
 [Linux run 37570754386](https://github.com/schiffy91/btrc/actions/runs/37570754386)
 passed all eight strict-C11 configurations, including GCC `-O3`, and all
 remaining required shards. The combined macOS and Windows workflows also
 passed. Their scope-skipped jobs do not supply native GUI evidence; the local
-native GUI artifacts remain separately recorded. The local Darwin GCC failure
-remains open. Android's combined API 36 run
-failed as described below. No final green result is claimed.
+native GUI artifacts remain separately recorded. The local Darwin GCC repair
+still awaits the full final gate. Android's older combined API 36 failure is
+recorded below; the new `081aae51` combined Android workflow passed both APIs.
+No final green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
 pending their native failure investigations.
@@ -179,10 +183,16 @@ in both compilers: a generic field `T` was mistaken for a forward record `T`,
 even when the explicit record was used only through a pointer. Completeness
 validation now respects class and method generic scope, including tuple members.
 The corrected analyzer suite passed 478 tests and a fresh paired compiler run
-passed 331 tests. Explicit tagged-value refusals and broader C-compatibility/C
-output parity are under qualification. These findings keep `CL-C-09` open;
-narrow green
-suites do not qualify the whole C2 merge.
+passed 331 tests. The broader C-compatibility/C-output run passed 1,239 tests;
+three new explicit-tag refusal checks failed only because their assertions
+expected uppercase `Incomplete` while the reference compiler reports lowercase
+`incomplete`. Both frontends rejected the programs. The assertions now accept
+the existing diagnostic capitalization, with those three reruns queued behind
+the full gate. The repaired L1 merge is committed locally at `d49961cb`; it is
+not published or integrated into the combined candidate. L2's merge preview
+has six conflicts to reconcile, including generic-scope and flexible-array
+validation. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
+qualify the whole C2 merge.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -551,7 +561,7 @@ owner, the exact prerequisite and the next acceptance.
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
-  locally validated head `9480f89f`). Owner: this authorized integration session.
+  locally validated head `f2476cc2`). Owner: this authorized integration session.
   Main `87dd60d7` is merged into the branch; the tooling now uses the shared Windows Job/gate, target
   flags, PE parser and build-process owner. The overall native deadline,
   component-qualified Visual Studio discovery and separate developer-command
@@ -589,12 +599,28 @@ owner, the exact prerequisite and the next acceptance.
   passed the actual native Job/CIM report regression and all 28 tooling tests,
   establishing the PowerShell repair. The run then failed in the deadline probe
   and MSVC setup because a captured `stderr` file remained locked
-  (`WinError 32`). Native compiler/bootstrap did not run; investigate capture
-  ownership and retain the underlying result when cleanup fails.
+  (`WinError 32`). Native compiler/bootstrap did not run. Revision `7cb3770b`
+  separates capture from disposal, retries only sharing violations for at most
+  five seconds, and preserves the original result and capture path if disposal
+  still fails. Fault-injection and process suites passed 119 tests and eight
+  subtests, with one native-only skip. The exact original lock holder remains
+  unproven. [Run 37581720184](https://github.com/schiffy91/btrc/actions/runs/37581720184)
+  passed cross-build, all 31 native tooling tests, deadline/PowerShell checks
+  and native MSVC/wgpu. Its C compiler again exited with `0xC0000005` and empty
+  stderr; native btrcc execution and bootstrap did not run. The generated C
+  hash is unchanged. The valid host report records about 12.8 GiB free physical
+  memory after the failure and no matching crash event, without proving peak
+  memory or the cause. Revision `f2476cc2` adds a small strict-C11 ARM64 build
+  and stdout/stderr execution check through the same Job before the full build,
+  plus elapsed command timings. Local process suites passed 122 tests and ten
+  subtests with one native-only skip; lint, formatting and diff checks passed.
+  [Run 37584587972](https://github.com/schiffy91/btrc/actions/runs/37584587972)
+  is queued to distinguish toolchain startup from large-input failure. It does
+  not replace full native compiler/bootstrap acceptance.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
-  head `f49c5fe1`). Main `87dd60d7` is merged into the branch. The UIKit app entry now has a responsive
+  published head `f49c5fe1`, local candidate `1844837b`). Main `87dd60d7` is merged into the branch. The UIKit app entry now has a responsive
   main loop and a fixture worker, with terminal publication arbitrated across
   threads. All twelve app bundles compile/sign with the local iOS SDK; local
   process tests pass (25 tests and 36 subtests). These are not simulator proof.
@@ -634,8 +660,17 @@ owner, the exact prerequisite and the next acceptance.
   also proves no device mutation. The full local suite passed 26 tests before
   the second focused case was added, then both preparation cases passed. Lint,
   format and diff checks passed. [Run 37579929097](https://github.com/schiffy91/btrc/actions/runs/37579929097)
-  passed tooling, local host tests and fixture builds; native execution remains
-  in progress. This is not yet current-head simulator acceptance.
+  passed tooling, local host tests and fixture builds, then failed all four
+  modes on the first fixture's launch/identity deadline: zero of 50 executions
+  completed. The iPad spawn mode also failed shutdown cleanup. Only iOS 27.0
+  was available, with no initially booted devices. Preparation now works; hosted
+  launch acceptance remains unresolved. Local revision `1844837b` corrects
+  runtime selection to prefer the oldest available version at or above iOS 17,
+  as required by D8. Three inventory cases failed before this change; all ten
+  inventory/preparation checks now pass. This cannot repair an image containing
+  only iOS 27.0 and does not qualify the iOS 17 floor. The unchanged 50-case
+  local matrix is queued at this exact revision under the guest/gate locks;
+  historical `532d4e45` evidence does not substitute for its result.
   Next: qualify the pinned hosted lane without weakening fixture deadlines:
   12 fixtures × spawn/app × iPhone/iPad plus one repeated app invocation per
   class (50 executions). Preserve Xcode/runtime provenance,
@@ -676,8 +711,10 @@ owner, the exact prerequisite and the next acceptance.
   comparisons now retain byte counts, hashes, status and timing separately from
   passing rows. [Run 37578476126](https://github.com/schiffy91/btrc/actions/runs/37578476126)
   passed both APIs: retained summaries prove **56/56 executions**, 14 shell
-  and 14 app cases on each API. Integration into PR60 and the resulting
-  combined gates remain required. Neither later failure proves the
+  and 14 app cases on each API. The change is integrated into PR60 candidate
+  `081aae51`; its [combined Android run 37581622992](https://github.com/schiffy91/btrc/actions/runs/37581622992)
+  passed tooling and both API jobs. The other combined gates remain required.
+  Neither later failure proves the
   earlier service failure's cause.
   The i686 compatibility-builder issue (`REQUEST(CL-P1-02)`), ARM64 16 KiB
   execution and general in-process provider safety remain separate gaps.
