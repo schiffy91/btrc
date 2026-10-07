@@ -476,7 +476,16 @@ The check runs in the **optimizer stage** (pipeline stage 5, not PLAN Stage 5), 
 
 | Test | What it proves |
 |------|----------------|
-| `src/tests/python/test_hosted_abi_platform_names.py` (extended) | Every row has a table. The lists are subsets. No ISO C or runtime name is listed. `source` is set. Spot names: `fork` unavailable on both ios rows; `GetFileAttributesA` unavailable on every non-windows row; `arc4random_uniform` available on macos, ios and android but not linux-gnu; `explicit_bzero` available on linux and unavailable on android (bionic in NDK r29 declares it at no API level); `environ` available on linux and unavailable on `windows-aarch64-msvc`; `PATH_MAX`, `STDIN_FILENO`, `S_ISDIR`, `O_ACCMODE`, `timerisset`, the type `timezone`, `daylight` and `tzname` unavailable on `windows-aarch64-msvc`. |
+| `src/tests/python/test_hosted_abi_platform_names.py` (extended) | Every row has a table. The lists are subsets. No ISO C or runtime name is listed. `source` is set. Spot names: `clock_settime` unavailable on both ios rows and declared on both macos rows; `GetFileAttributesA` unavailable on every non-windows row; `arc4random_uniform` available on macos, ios and android but not linux-gnu; `explicit_bzero` available on linux and unavailable on android (bionic in NDK r29 declares it at no API level); `environ` available on linux and unavailable on `windows-aarch64-msvc`; `PATH_MAX`, `STDIN_FILENO`, `S_ISDIR`, `O_ACCMODE`, `timerisset`, the type `timezone`, `daylight` and `tzname` unavailable on `windows-aarch64-msvc`. |
+
+The Apple spot name is `clock_settime`, not `fork`: the pinned Xcode 27A266a
+extraction on 2026-10-07 (macOS, iPhoneOS and iPhoneSimulator SDK 27.0)
+confirmed that both iOS header sets declare `fork`. Their declaration prohibits
+watchOS and tvOS, not iOS. The four extracted rows keep `clock_settime` unavailable
+on iOS and declared on macOS, matching the candidate's existing test. This is
+header-declaration evidence under §2.3; it makes no claim that an iOS application
+can successfully fork at runtime.
+
 | `src/tests/btrc/test_hosted_availability.py` (new; both compilers) | For `linux-x86_64`, `windows-x86_64`, `ios-aarch64` and `android-aarch64`: a reachable reference gives the identical message and exit 1; an unreachable one compiles; a C4-guarded one compiles. The `--no-dce` behaviour. |
 | Corpus and BTRSmith | The full corpus through both compilers, and BTRSmith's `application-frontend-check`, stay green on linux-x86_64 and macos-aarch64. This proves the desktop lists are not too strict. |
 
