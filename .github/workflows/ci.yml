@@ -6,8 +6,8 @@ on:
   pull_request:
     branches: [main]
   # Manual dispatch (`gh workflow run`) reruns these hosted jobs without a push:
-  # `-f focus=native-gui` runs only the native-GUI job, `-f focus=extended`
-  # the extended tier.
+  # `-f focus=native-gui` runs only the native-GUI job and the Linux GUI shard,
+  # `-f focus=extended` the extended tier.
   workflow_dispatch:
     inputs:
       focus:
@@ -434,6 +434,71 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: skip-report-ci-native-gui
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # The Linux GUI and audio shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
+  # `make test-shard-gui` once per display protocol, each inside its own
+  # tools/ui/headless-session.sh session (Xvfb, or weston's headless backend)
+  # with lavapipe as the GPU adapter and the null ALSA PCM as the sound card.
+  # Unlike the native-gui job it runs on every push, and under Wayland too.
+  # Each row keeps its session's AT-SPI dump, the native-shell ledgers, the
+  # shell and restore logs pytest left, and its JUnit results.
+  linux-gui:
+    needs: scope
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['linux-gui'] }}
+    name: linux-gui (${{ matrix.session }})
+    # ci/tiers.toml marks a row report-only while its session is not yet stable.
+    continue-on-error: ${{ matrix.report_only == 'true' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - run: make devcontainer
+      - run: chmod -R a+w .
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} test-shard-gui
+      # pytest makes its working directories private (0700) as the container's
+      # user, which the runner cannot read back to upload.
+      - name: Open the session evidence to the runner
+        if: always()
+        run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest chmod -R a+rX build/linux-gui build/ui-shell
+        continue-on-error: true
+      - name: Retain the session evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gui-evidence-ci-linux-gui-${{ matrix.session }}
+          path: |
+            build/linux-gui/${{ matrix.session }}/atspi.json
+            build/ui-shell/
+            build/linux-gui/${{ matrix.session }}/pytest/**/*.stdout
+            build/linux-gui/${{ matrix.session }}/pytest/**/*.stderr
+            build/linux-gui/${{ matrix.session }}/pytest/**/*.json
+            build/linux-gui/${{ matrix.session }}/pytest/**/*.ppm
+            build/linux-gui/${{ matrix.session }}/pytest/**/*.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Retain the JUnit results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-ci-linux-gui-${{ matrix.session }}
+          path: build/linux-gui/${{ matrix.session }}/junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-ci-linux-gui-${{ matrix.session }}
           path: build/skip-report*.json
           if-no-files-found: warn
           retention-days: 14

@@ -141,7 +141,7 @@ Analysts wrote cross-group dependencies as PLAN item ids. Each resolves to the p
 
 ### Appendix B. PLAN items → packets
 
-Every PLAN item named in a packet's `plan_items`. A `[part]`, `#part` or `(part)` suffix in a packet's own list shows which share it carries.
+Every PLAN item named in a packet's `plan_items`. A `[part]`, `#part` or `(part)` suffix in a packet's own list shows which share it carries. A `(+ CX-STDLIB-0N)` suffix names the [CODEX.md](../../CODEX.md#first-delivery-queue) unit that took over that item's existing-interface repair (D28); it is not a packet.
 
 | PLAN item | Packets |
 |---|---|
@@ -376,7 +376,7 @@ Every PLAN item named in a packet's `plan_items`. A `[part]`, `#part` or `(part)
 | `ui-2-contract-executor` | [CX-UIA-19](codex.md#cx-uia-19), [CX-UIA-21](codex.md#cx-uia-21) |
 | `ui-2-contract-lifecycle` | [CX-UIA-20](codex.md#cx-uia-20), [CX-UIA-21](codex.md#cx-uia-21) |
 | `ui-2-contract-review` | [CL-UIA-13](claude.md#cl-uia-13) |
-| `ui-2-linux` | [CL-UIA-23](claude.md#cl-uia-23), [CX-UIA-23](codex.md#cx-uia-23), [CX-UIA-29](codex.md#cx-uia-29) |
+| `ui-2-linux` | [CL-UIA-23](claude.md#cl-uia-23), [CX-UIA-23](codex.md#cx-uia-23), [CX-UIA-29](codex.md#cx-uia-29) (+ CX-STDLIB-01) |
 | `ui-2-macos` | [CX-UIA-22](codex.md#cx-uia-22) |
 | `ui-3-contract-input` | [CL-UIA-19](claude.md#cl-uia-19), [CX-UIA-24](codex.md#cx-uia-24), [CX-UIA-25](codex.md#cx-uia-25) |
 | `ui-3-linux` | [CL-UIA-23](claude.md#cl-uia-23), [CX-UIA-27](codex.md#cx-uia-27), [CX-UIA-29](codex.md#cx-uia-29), [MAC-UIA-06](owner.md#mac-uia-06) |
@@ -385,10 +385,10 @@ Every PLAN item named in a packet's `plan_items`. A `[part]`, `#part` or `(part)
 | `ui-4-btrsmith-settings` | [CX-UIB-68](codex.md#cx-uib-68) |
 | `ui-4-contract-controls` | [CX-UIB-01](codex.md#cx-uib-01), [CX-UIB-10](codex.md#cx-uib-10), [CX-UIB-11](codex.md#cx-uib-11), [CX-UIB-17](codex.md#cx-uib-17) |
 | `ui-4-linux` | [CX-UIB-20](codex.md#cx-uib-20), [CX-UIB-21](codex.md#cx-uib-21) |
-| `ui-4-macos` | [CX-UIB-18](codex.md#cx-uib-18), [CX-UIB-19](codex.md#cx-uib-19) |
+| `ui-4-macos` | [CX-UIB-18](codex.md#cx-uib-18), [CX-UIB-19](codex.md#cx-uib-19) (+ CX-STDLIB-03) |
 | `ui-5-btrsmith-adaptive` | [CX-UIB-69](codex.md#cx-uib-69), [CX-UIB-70](codex.md#cx-uib-70) |
 | `ui-5-contract-layout` | [CX-UIB-02](codex.md#cx-uib-02), [CX-UIB-12](codex.md#cx-uib-12) |
-| `ui-5-linux` | [CX-UIB-26](codex.md#cx-uib-26), [CX-UIB-27](codex.md#cx-uib-27) |
+| `ui-5-linux` | [CX-UIB-26](codex.md#cx-uib-26), [CX-UIB-27](codex.md#cx-uib-27) (+ CX-STDLIB-02) |
 | `ui-5-macos` | [CX-UIB-25](codex.md#cx-uib-25) |
 | `ui-6-btrsmith-library` | [CX-UIB-71](codex.md#cx-uib-71) |
 | `ui-6-contract-collections` | [CX-UIB-03](codex.md#cx-uib-03), [CX-UIB-06](codex.md#cx-uib-06), [CX-UIB-14](codex.md#cx-uib-14) |
@@ -852,6 +852,8 @@ The six analysts' packets are reproduced faithfully in §6, except for the chang
 17. **UI parallel plan (2026-10-03, after the owner asked for all the UI work in parallel).** Four packets were added: `CX-UIA-30` (the 470 ui-case slots no packet owned), `CL-UIA-24` (several ledger releases per kind, the retired disposition, frozen UI sources read from the seed ledger), `CL-R-50` (path-selective lane tier) and `CL-P2-29` (the wgpu flake wiring split out of `CL-P2-17`, which keeps only the BTRSmith lock merges). `CX-P1-03…06` start now under Q20's default; Q48–Q51 were added. The Codex-facing summary is `docs/workstreams/codex-ui-lanes.md`. The §10.1 counts stay the review's historical counts; WORKSTREAMS.md §1 carries the current ones.
 
 ## 10. Review
+
+> **D28 (2026-10-06):** this review record and §9 are historical. Where its scheduling outcomes conflict with D28 or [CODEX.md](../../CODEX.md), D28 governs ([CLAUDE.md D28](../../CLAUDE.md#decisions-all-resolved-2026-09-30)).
 
 Three adversarial reviewers read the first version of this doc, each through one lens:
 - **Plan:** sequencing, dependencies, and agreement with PLAN.md's decisions and stage exits.

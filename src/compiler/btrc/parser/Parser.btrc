@@ -1525,6 +1525,7 @@ class Parser {
 	class Node declaratorSpecifier(Node typeExpr) {
 		Node specifier = Parser.copyTypeShape(typeExpr, false);
 		specifier.pointerDepth = 0;
+		specifier.arrayPointerDepth = 0;
 		specifier.nullableOuterDepth = 0;
 		return specifier;
 	}
@@ -1536,20 +1537,29 @@ class Parser {
 	class Node copySpecifier(Node source) { return Parser.copyTypeShape(source, true); }
 
 	/* A deep copy of a TypeExpr; without `withArraySize` the copy has no array
-	 * bound, as a fresh node has none. */
+	 * extents, as a fresh node has none. Inner extents are copied only when
+	 * written, so a reader's shared empty list is never stored. */
 	class Node copyTypeShape(Node source, bool withArraySize) {
 		Node duplicate = Node();
 		duplicate.kind = NK_TYPE_EXPR;
 		duplicate.base = source.base;
 		duplicate.pointerDepth = source.pointerDepth;
 		duplicate.isArray = source.isArray;
-		if (withArraySize) { duplicate.arraySize = source.arraySize; }
+		if (withArraySize) {
+			duplicate.arraySize = source.arraySize;
+			if (source.elementsStorage != null) {
+				Vector<Node> extents = [];
+				for extent in source.elementsStorage { extents.push(extent); }
+				duplicate.elementsStorage = extents;
+			}
+		}
 		duplicate.isConst = source.isConst;
 		duplicate.isNullable = source.isNullable;
 		duplicate.nullableOuterDepth = source.nullableOuterDepth;
 		duplicate.isStatic = source.isStatic;
 		duplicate.isExtern = source.isExtern;
 		duplicate.isVolatile = source.isVolatile;
+		duplicate.arrayPointerDepth = source.arrayPointerDepth;
 		duplicate.line = source.line;
 		duplicate.col = source.col;
 		Vector<Node> arguments = [];
@@ -2553,7 +2563,7 @@ class Parser {
 		if (tt == "INT_LIT") {
 			self.advance();
 			IntegerLiteral literal = IntegerLiteral(tok.value);
-			if (literal.typeName() == "") {
+			if (!literal.representable()) {
 				self.failAt("Invalid integer literal '" + tok.value + "'", tok);
 			}
 			Node n = Node();

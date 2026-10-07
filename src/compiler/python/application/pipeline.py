@@ -62,9 +62,10 @@ class StdlibArchivePort(Protocol):
         header: str,
         implementation: str,
         metadata: dict,
+        target: str,
     ) -> dict: ...
 
-    def load(self, stdlib_dir: str, stdlib_source: str) -> dict: ...
+    def load(self, stdlib_dir: str, stdlib_source: str, target: str) -> dict: ...
 
 
 class StdlibArchiveError(ValueError):
@@ -84,13 +85,14 @@ class DisabledStdlibArchive:
         header: str,
         implementation: str,
         metadata: dict,
+        target: str,
     ) -> dict:
-        del out_dir, stdlib_source, header, implementation, metadata
+        del out_dir, stdlib_source, header, implementation, metadata, target
         raise StdlibArchiveError("stdlib archive persistence is not configured")
 
     @staticmethod
-    def load(stdlib_dir: str, stdlib_source: str) -> dict:
-        del stdlib_dir, stdlib_source
+    def load(stdlib_dir: str, stdlib_source: str, target: str) -> dict:
+        del stdlib_dir, stdlib_source, target
         raise StdlibArchiveError("stdlib archive persistence is not configured")
 
 
@@ -190,7 +192,8 @@ class StdlibArchiveAdapter:
         self.runtime_catalog = runtime_catalog
         self.emitter = emitter
 
-    def publish(self, out_dir: str, module, stdlib_source: str) -> dict:
+    def publish(self, out_dir: str, module, stdlib_source: str, target: str) -> dict:
+        """Publish the archive of one target row, by its canonical label."""
         shared, declarations = self.transform_module(module)
         header = self.emitter.emit_header(module, declarations)
         implementation = self.emitter.emit_impl(module, self.repository.header_name, set(shared))
@@ -201,15 +204,17 @@ class StdlibArchiveAdapter:
                 header,
                 implementation,
                 self.metadata(module, shared),
+                target,
             )
         except StdlibArchiveError:
             raise
         except (OSError, ValueError) as error:
             raise StdlibArchiveError(str(error)) from error
 
-    def consume(self, module, program, archive_dir: str, stdlib_source: str) -> None:
+    def consume(self, module, program, archive_dir: str, stdlib_source: str, target: str) -> None:
+        """Link an archive built for ``target``, the compile's canonical row label."""
         try:
-            manifest = self.repository.load(archive_dir, stdlib_source)
+            manifest = self.repository.load(archive_dir, stdlib_source, target)
         except StdlibArchiveError:
             raise
         except (OSError, ValueError) as error:
@@ -469,7 +474,6 @@ class CompilationPipeline:
     ) -> None:
         if frontend is not None and resolver is not None and frontend.resolver is not resolver:
             raise ValueError("CompilationPipeline frontend and resolver must share one owner")
-        literal_semantics = numeric_literals if numeric_literals is not None else NumericLiteralSemantics()
         stdlib = (
             frontend.stdlib
             if frontend is not None
@@ -482,7 +486,10 @@ class CompilationPipeline:
             stdlib,
             resolver=resolver,
         )
-        self.numeric_literals = literal_semantics
+        # An injected semantics types every compile; otherwise each compile's
+        # selected target row does (platform-target-contract.md §1.8).
+        self.numeric_literals = numeric_literals
+        self._target_literals: dict[str, NumericLiteralSemantics] = {}
         repository = archive_repository if archive_repository is not None else DisabledStdlibArchive()
         self.stdlib_archive = StdlibArchiveAdapter(
             repository,
@@ -495,9 +502,20 @@ class CompilationPipeline:
         if profile is not None:
             profile[label] = time.perf_counter() - start
 
-    def _new_analyzer(self) -> SemanticAnalyzer:
+    def _literal_semantics(self, target: PackageTarget | None) -> NumericLiteralSemantics:
+        if self.numeric_literals is not None:
+            return self.numeric_literals
+        row = target.row if target is not None else None
+        key = row.label if row is not None else ""
+        semantics = self._target_literals.get(key)
+        if semantics is None:
+            semantics = NumericLiteralSemantics.for_target(row)
+            self._target_literals[key] = semantics
+        return semantics
+
+    def _new_analyzer(self, target: PackageTarget | None = None) -> SemanticAnalyzer:
         return SemanticAnalyzer(
-            numeric_literals=self.numeric_literals,
+            numeric_literals=self._literal_semantics(target),
             type_identity=self.type_identity,
             runtime_catalog=self.runtime_catalog,
         )
@@ -578,9 +596,10 @@ class CompilationPipeline:
             profile=profile,
         )
 
-    def analyze(self, program: Program, profile: dict[str, float] | None = None):
+    def analyze(self, program: Program, profile: dict[str, float] | None = None, target: PackageTarget | None = None):
+        """Analyze for ``target``'s data model, the host's when unset."""
         start = time.perf_counter()
-        analyzed = self._new_analyzer().analyze(program)
+        analyzed = self._new_analyzer(target).analyze(program)
         self._timed(profile, "analyze", start)
         return analyzed
 
@@ -756,7 +775,7 @@ class CompilationPipeline:
         if options.output is CompilerOutput.AST:
             return self._result(source, options, profile, tokens=parsed.tokens, program=program)
 
-        analyzed = self.analyze(program, profile)
+        analyzed = self.analyze(program, profile, source.native_plan.target)
         common = {
             "tokens": parsed.tokens,
             "program": program,
@@ -830,6 +849,7 @@ class CompilationPipeline:
                     program,
                     options.stdlib_archive,
                     self.frontend.stdlib.source("", ConditionalEnvironment(source.native_plan.target)),
+                    source.native_plan.target.label,
                 )
                 self._finalize_optimized_ir(module)
                 self._timed(profile, "stdlib_archive", start)
@@ -874,7 +894,7 @@ class CompilationPipeline:
         parsed = self.parse(resolved, filename or os.path.basename(source_path), options, profile)
         if parsed.program is None:
             raise AssertionError("front-end parse result unexpectedly omitted program")
-        analyzed = self.analyze(parsed.program, profile)
+        analyzed = self.analyze(parsed.program, profile, resolved.native_plan.target)
         return FrontendResult(
             source=resolved.source,
             user_source=resolved.user_source,
@@ -913,7 +933,7 @@ class CompilationPipeline:
         for declaration in program.declarations:
             declaration.source_file = CompilerStdlibSource()
             CompilerStdlibSource.stamp_nested(declaration)
-        analyzed = self.analyze(program)
+        analyzed = self.analyze(program, target=environment.target)
         diagnostics = self._analyzer_diagnostics(analyzed)
         if any(diagnostic.severity == "error" for diagnostic in diagnostics):
             return CompilerActionResult(
@@ -941,7 +961,7 @@ class CompilationPipeline:
                 split_source_spaces=False,
             )
             module = self.optimize(module, options)
-            self.stdlib_archive.publish(out_dir, module, stdlib_source)
+            self.stdlib_archive.publish(out_dir, module, stdlib_source, environment.target.label)
         except (CodegenError, StdlibArchiveError) as error:
             failure = self.failure_for(error)
             return CompilerActionResult(failure=failure)

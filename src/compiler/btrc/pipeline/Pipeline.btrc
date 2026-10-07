@@ -112,7 +112,7 @@ class CompilerPipeline {
 		Vector<FeConditionalEnvironment>? existing = self.targetEnvironmentsValue;
 		if (existing != null) { return existing; }
 		Map<string, string> none = {};
-		Vector<FeConditionalEnvironment> built = FeConditionalEnvironment("", "", self.macroRules(), self.hostedAbi.tables(), none).everyTarget();
+		Vector<FeConditionalEnvironment> built = FeConditionalEnvironment("", "", "", self.macroRules(), self.hostedAbi.tables(), none).everyTarget();
 		self.targetEnvironmentsValue = built;
 		return built;
 	}
@@ -203,7 +203,7 @@ class CompilerPipeline {
 		GeneratedRuntimeCatalogData runtimeData = GeneratedRuntimeCatalogData();
 		SourceRuntimeSymbols sourceRuntimeSymbols = SourceRuntimeSymbols(runtimeData.rows, runtimeData.intrinsicEffects);
 		RuntimeHelperCatalog runtimeHelpers = RuntimeHelperCatalog(runtimeData.rows, runtimeData.intrinsicEffects);
-		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols, self.macroRules());
+		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols, self.macroRules(), packages.linkPlan.target.row());
 		analyzer.configureNativeDeclarations(resolved.nativeDeclarations);
 		analyzer.configureUnmodeledIncludes(program, resolved.stdlibLineCount, resolved.userLines);
 		BtrccPhaseTimer.mark("catalog");

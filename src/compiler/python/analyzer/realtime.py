@@ -793,7 +793,7 @@ class RealtimeAnalyzer:
             return self._managed_type(alias, (*seen, base))
         struct = self.index.struct_table.get(base)
         if struct is not None:
-            return any(self._managed_type(field.type, (*seen, base)) for field in struct.fields)
+            return any(self._managed_type(field.type, (*seen, base)) for field in TypeSystem.record_fields(struct))
         rich_enum = self.index.rich_enum_table.get(base)
         if rich_enum is not None:
             return any(

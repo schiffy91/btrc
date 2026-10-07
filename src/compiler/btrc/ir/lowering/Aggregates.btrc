@@ -166,7 +166,7 @@ class AggregateValueLowerer {
 		exit(1);
 	}
 
-	private Node? contextualElementType(Node? aggregateType, int index, OwnershipOperandEnvironment environment) {
+	private Node? contextualElementType(Node? aggregateType, Node aggregate, int index, OwnershipOperandEnvironment environment) {
 		if (aggregateType == null) { return null; }
 		Node concrete = self.operandPlanner.resolveType(aggregateType, environment);
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(concrete, self.analyzed.typedefTable);
@@ -185,17 +185,18 @@ class AggregateValueLowerer {
 			return null;
 		}
 		Node declaration = self.analyzed.structTable.get(structName);
-		if (declaration.isForward || index >= declaration.fields().len) {
+		if (declaration.isForward) {
 			return null;
 		}
-		return declaration.fields().get(index).type;
+		SemanticInitializerPlan plan = SemanticTypeSystem.initializerSlots(declaration, aggregate, self.analyzed);
+		return SemanticTypeSystem.initializerSlotType(plan, aggregate.elements().get(index));
 	}
 
 	private void collectOperands(Node aggregate, Node? aggregateType, OwnershipOperandEnvironment environment, Vector<AggregateOperandPlan> operands) {
 		int index = 0;
 		while (index < aggregate.elements().len) {
 			Node element = aggregate.elements().get(index);
-			Node? contextualType = self.contextualElementType(aggregateType, index, environment);
+			Node? contextualType = self.contextualElementType(aggregateType, aggregate, index, environment);
 			Node? elementType = self.operandPlanner.expressionType(element, environment);
 			if (elementType == null) {
 				elementType = contextualType;

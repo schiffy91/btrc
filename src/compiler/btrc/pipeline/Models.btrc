@@ -50,7 +50,11 @@ class BtrccOptions {
 	public bool runDce;
 	public bool showHelp;
 	public bool showStdlibDirectory;
+	/* The canonical target label once the driver selects it. --target was
+	 * given when targetGiven is set, so an explicit empty value is refused
+	 * rather than read as "infer the host". */
 	public string target;
+	public bool targetGiven = false;
 	public string linkPlanPath;
 	/* Split the emitted C into units written as <prefix>.unit-<k>.c; empty means one unit. */
 	public string unitsPrefix = "";

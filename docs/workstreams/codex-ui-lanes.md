@@ -1,24 +1,33 @@
 # Codex UI lanes (2026-10-03)
 
-This is the file Codex's standing goal waits for: the owner asked for Codex to do all the native-UI work, with
-macOS, Linux, iOS/iPadOS, Android and Windows parallelized. It is Claude's assignment as integrator under PLAN.md
-D27 and WORKSTREAMS.md §2–§3. Where it and `docs/workstreams/codex.md` disagree, this file wins until Claude folds
-it into codex.md. Claude rewrites it whenever the lanes change; read the version on `origin/main` before each new
-packet.
+> **Historical assignment (2026-10-03/04). Superseded for scheduling by [CODEX.md](../../CODEX.md) (D28).** Codex's
+> active queue is now CODEX.md. Packet ids here stay for traceability. Where this file conflicts with D28 or
+> CODEX.md, CODEX.md governs ([CLAUDE.md D28](../../CLAUDE.md#decisions-all-resolved-2026-09-30)).
+
+This was the file Codex's standing goal waited for: the owner asked for Codex to do all the native-UI work, with
+macOS, Linux, iOS/iPadOS, Android and Windows parallelized. It was Claude's assignment as integrator under
+CLAUDE.md D27 and WORKSTREAMS.md §2–§3. It no longer takes precedence over `docs/workstreams/codex.md`; both yield
+to CODEX.md. Queue changes now go in CODEX.md: read it on `origin/main` before each new unit.
 
 ## Corrections (2026-10-04)
 
-- **Lane workflows are yours.** The goal text the owner pasted said never to edit "CI-workflow files". That was the integrator's wording, and it was too broad. Only `.github/workflows/{ci,macos,windows,release}.yml` are Claude's. A packet's own lane workflow (`host-android.yml`, `host-ios.yml`, `host-windows.yml`, `windows-arm64.yml`, …) is that packet's owned path. Commit it in the lane-workflow class (CI policy, item 8). If the token lacks the `workflows` permission, commit it as `ci/proposed/<name>.yml` instead, and Claude installs and dispatches it.
-- **Evidence artifacts.** Codex's token gets HTTP 403 on `gh run download` for the shared UI0 runs. Claude can download them. Until the token can, leave cells implemented-unverified and say so in the PR, as `CX-UIA-03`, `04` and `30` did. Claude promotes the evidence in a follow-up. If your environment can read artifacts, cite the `[runs.ui0-*]` headers in the cells.
+- **Lane workflows are yours (superseded by D28).** Under D28 Codex edits no workflow or `ci/proposed/` file. Claude adds lane workflows from the PR's `REQUEST` block. The 2026-10-04 text follows, kept as history. The goal text the owner pasted said never to edit "CI-workflow files". That was the integrator's wording, and it was too broad. Only `.github/workflows/{ci,macos,windows,release}.yml` are Claude's. A packet's own lane workflow (`host-android.yml`, `host-ios.yml`, `host-windows.yml`, `windows-arm64.yml`, …) is that packet's owned path. Commit it in the lane-workflow class (CI policy, item 8). If the token lacks the `workflows` permission, commit it as `ci/proposed/<name>.yml` instead, and Claude installs and dispatches it.
+- **Evidence artifacts.** Codex's token gets HTTP 403 on `gh run download` for the shared UI0 runs. Claude can download them. Until the token can, leave cells implemented-unverified and say so in the PR, as `CX-UIA-03`, `04` and `30` did. Claude promotes the evidence in a follow-up. If your environment can read artifacts, cite the `[runs.ui0-*]` headers in the cells. The first promotion landed on `main` 2b33cdaa (`evidence/ui0-junit-2026-10-04.toml`, 438 operation cells).
+- **Three Stage 26 designs returned (2026-10-04).** `CL-P2-01` reviewed `windows-os-services.md` (`CX-P2-01`), `http-transport.md` (`CX-P2-02`) and `mobile-storage.md` (`CX-P2-03`). All three need a revision: 7, 5 and 1 blocking findings. The findings, resolutions, assumed adaptation defaults and the requests to Claude are posted on PRs #37, #39 and #36. Revise each design in a new docs-only PR (`codex/cx-p2-0N-r2`). The docs tier is uncapped. These revisions come before any `CX-P2-04…16` provider code, which waits for the approval.
+- **`CX-C-01` follow-up.** PR #26 is integrated. Its five minor follow-ups, posted on the PR, go in one small PR.
 
 ## Where each platform stands
 
-Only UI0's serial foundation has landed: PR #21's catalog seed and drift gate (`b7aa53f`, batch 11), the focused
+UI0's serial foundation landed first: PR #21's catalog seed and drift gate (`b7aa53f`, batch 11), the focused
 `make test-native-gui` gate (batch 13), the CI tiers with the macOS `native-gui` job in the lane tier, the headless
-Linux session (`tools/ui/headless-session.sh`) and the `.#platforms` Android toolchain shell. No UI1 shell exists
-yet, and `src/stdlib/GUI` has only `MacOS/`, `Linux/` and `FreeType/`.
+Linux session (`tools/ui/headless-session.sh`) and the `.#platforms` Android toolchain shell. Since then `main` has
+gained the catalog shard loader (`CX-UIA-02` follow-up, batch 20), the UI1 shell fixture (`CX-UIA-09`, batch 30),
+the Linux SDL shell evidence (`CX-UIA-11`, batches 34 and 38) and the macOS accessibility evidence (`CX-UIA-10`,
+batch 36). `src/stdlib/GUI` still has only `MacOS/`, `Linux/` and `FreeType/`. For current readiness and each
+platform's next checkpoint, read [CODEX.md](../../CODEX.md#platform-slices-beyond-the-repairs). The table below is
+the 2026-10-03 snapshot, kept as history.
 
-| Platform | Can start now | What blocks the native shell and its UI tracks |
+| Platform | Can start now (2026-10-03, historical) | What blocks the native shell and its UI tracks |
 |---|---|---|
 | macOS | `CX-UIA-09` (shell fixture, macOS probes), `CX-UIA-01` remainder, UI2 drafts `CX-UIA-18/19/20`, `CX-UIB-07/08` | `CX-UIA-10` waits for `CX-UIA-09` and the `CX-UIA-02` follow-up; UI2/UI3 follow the Stage 31–33 chain |
 | Linux | `CX-UIA-09` (Linux probes), `CX-UIA-12` (GTK4/WebGPU pre-spike), `CX-UIA-06` (hosts, desktop check) | `CX-UIA-11` as macOS; the btrc-hosted GTK4 spike waits for the GObject binding (after interop) and D23 |
@@ -32,7 +41,9 @@ evidence), never as a separate agent on the same files.
 
 The new-platform shells (`CX-UIA-15/16/17`) are roughly 290–350 agent-hours of Claude-side compiler, host and
 interop work away. Until then a Windows, iOS or Android agent can do the foundations only (host spikes, shell notes,
-designs: about 40–50 agent-hours), and those foundations do gate the shells, so do them early.
+designs: about 40–50 agent-hours), and those foundations do gate the shells, so do them early. **D28:** the
+per-platform slices in [CODEX.md](../../CODEX.md#platform-slices-beyond-the-repairs) start on their own
+prerequisites.
 
 ## Lanes that can run at the same time
 
@@ -42,12 +53,12 @@ shared bottleneck (see the CI policy below).
 | Lane | Packets now → next | Owned paths | CI tier |
 |---|---|---|---|
 | 0. Bucket-2 tooling | `CX-C-01` (about 3 h; the owner's C4 checkpoint `MAC-C-02` needs it the moment C4 lands) | `tools/bench/scripts/ccompat_checkpoint.sh`, one README row, `test_ccompat_checkpoint_script.py` | lane (first in the CI queue) |
-| 1. Catalog (the Stage 30 critical path) | `CX-UIA-02` follow-up → (integrated) `CX-UIA-03` → `04` → `30` → `05` → `CX-UIA-07` (after `CL-UIA-03`) | `ui_catalog.py`, `test_ui0_catalog.py`, `native-ui-catalog/{README.md,families.toml}`, the amendments, `ui0-catalog.md`, one D068 bullet; then `operations/*.toml`, `cases/*.toml`, `surface/*.toml`, `test_ui0_surface.py` | lane |
+| 1. Catalog (the Stage 30 critical path) | `CX-UIA-02` follow-up → (integrated) `CX-UIA-03` → `04` → `30` → `05` → `CX-UIA-07` (after `CL-UIA-03`; `CX-UIA-07` gates nothing under D28) | `ui_catalog.py`, `test_ui0_catalog.py`, `native-ui-catalog/{README.md,families.toml}`, the amendments, `ui0-catalog.md`, one D068 bullet; then `operations/*.toml`, `cases/*.toml`, `surface/*.toml`, `test_ui0_surface.py` | lane |
 | 2. macOS + Linux shells | `CX-UIA-09` and the `CX-UIA-01` remainder → `CX-UIA-10` ∥ `CX-UIA-11` | `src/tests/native/gui/shell/**`, `test_native_ui_shell{,_macos,_linux}.py`, fixtures; the runbook, `test_native_gui_target.py`, `tools/ui/codex-setup.sh`; then `probes/{macos,linux}`, `evidence/ui1-{macos,linux}.toml` | lane |
 | 3. Contracts, notes, spikes, designs | `CX-UIA-19` ∥ `20` ∥ `18`; `CX-UIA-13` split per platform (with iPadOS); `CX-UIA-12` (prototype on a no-PR spike branch); `CX-P2-01/02/03` | `docs/design/ui-contracts/{index,ui2-*}.md`, `docs/design/native-ui-shells/{windows,ios,android}.md`, `docs/design/linux-gtk4-feasibility.md`, the three design docs | docs (uncapped) |
-| 4. Host spikes and Linux extras | `CX-P1-05` → `CX-P1-04` (with iPad) → `CX-P1-06` → `CX-P1-03`; `CX-UIA-06`; `CX-P1-02` | `tools/target_hosts/{android,ios,windows}/**`, `host-*.yml`, `windows-arm64.yml`, `tools/windows_toolchain/**`, append-only rows in `test_ci_workflow_contracts.py`; `hosts.toml`, `test_native_ui_hosts.py`, `linux-desktop-check.sh`; `platform-adaptations.md` and inventory cells | lane plus the packet's own workflow |
+| 4. Host spikes and Linux extras | `CX-P1-05` → `CX-P1-04` (with iPad) → `CX-P1-06` → `CX-P1-03`; `CX-UIA-06`; `CX-P1-02` | `tools/target_hosts/{android,ios,windows}/**`, `host-*.yml` and `windows-arm64.yml` (Claude's under D28; see Corrections), `tools/windows_toolchain/**`, append-only rows in `test_ci_workflow_contracts.py`; `hosts.toml`, `test_native_ui_hosts.py`, `linux-desktop-check.sh`; `platform-adaptations.md` and inventory cells | lane plus the packet's own workflow |
 
-Claude, meanwhile: lands C4 (`CL-C-06`), then Stage 24 sub-batch 1 (`CL-P1-03`→`06`, which adds the `ios` and
+Claude, meanwhile (2026-10-03, historical): lands C4 (`CL-C-06`), then Stage 24 sub-batch 1 (`CL-P1-03`→`06`, which adds the `ios` and
 `android` target rows) and on through Stage 25 (`CL-P1-16/17`, which open `CX-P1-07/08/09`); adds
 `test_native_webgpu_imports.py` to `NATIVE_GUI_TESTS`; lands `CL-R-50` (a path-selective lane tier, which lets
 catalog-data and tools-only Codex PRs run a few jobs instead of the full lane matrix, and then raises the Codex CI cap
@@ -62,9 +73,9 @@ the seed ledger) before `CX-UIA-05` integrates; and reviews the drafts that gate
 ### Context
 - **Catalog status.**
   - PR #21's commit `b7aa53f` is on `main` (batch 11), and PR #21 is closed. Its CI was green: ci.yml 37090470053, macos.yml 37090470052, windows.yml 37090470074.
-  - **The CX-UIA-02 follow-up has not been started.** `tools/qualification/ui_catalog.py` and `docs/design/native-ui-catalog/` do not exist yet.
+  - **The CX-UIA-02 follow-up was integrated in batch 20** (PR #22). `tools/qualification/ui_catalog.py` now exists and is a Claude hotspot.
 - **Stage 24's early start is approved** (owner, 2026-10-03). The Windows, iOS and Android host lanes open once Stage 25's runner core lands.
-- **Read first:** AGENTS.md's Codex section, then WORKSTREAMS.md §2–§3. Where this text and `docs/workstreams/codex.md` disagree, this text wins; Claude is updating codex.md to match.
+- **Read first:** AGENTS.md's Codex section, then [CODEX.md](../../CODEX.md), then WORKSTREAMS.md §2–§3. Where this text conflicts with D28 or CODEX.md, CODEX.md governs.
 - **Environment.**
   - Run `export BTRC_TEST_RUNNER=linux-devcontainer`.
   - Run every command through `nix develop --command …`; inside an open shell, use `make NIX= …`.
@@ -86,13 +97,13 @@ the seed ledger) before `CX-UIA-05` integrates; and reviews the drafts that gate
      nix develop --command gh api "repos/schiffy91/btrc/actions/runs?per_page=50" --jq '.workflow_runs[]|select(.head_branch|startswith("codex/"))|select(.status!="completed")|"\(.id) \(.head_branch) \(.name) \(.status)"'
      ```
      If another Codex branch has a run listed, keep working locally and push when it completes.
-   - **Advisory priority:** CX-C-01, then the CX-UIA-02 follow-up, then CX-UIA-09, then CX-P1-05, then the rest.
+   - **Priority:** follow the order of [CODEX.md](../../CODEX.md#first-delivery-queue)'s queue (D28). The 2026-10-03 advisory order (CX-C-01, then the CX-UIA-02 follow-up, then CX-UIA-09, then CX-P1-05, then the rest) is historical.
    - **When it rises:** Claude raises the cap to two once CL-R-50 (path-selective lane tier) lands and the first lane run's runner-minutes are recorded.
 3. **Before every push:**
    - the packet's acceptance commands pass locally;
    - for any branch that adds or changes Python, shell or btrc files: the whole unit shard passes locally (`nix develop --command make NIX= test-unit`), not only your new tests. Three of the first ten Codex code pushes went red on `test_subprocess_timeouts.py` alone: every waited `subprocess` call in `src/tests/**` and `tools/bench/**` passes `timeout=` (use `src/tests/process_limits.py`). A macOS-facing change also needs the macOS `native-gui` job green before hand-back, and if a fixture cannot pass there, say so instead of handing back;
    - `git diff --name-only origin/main...HEAD` lists only owned paths (plus any `fragment:`/`derived:` commits). A stacked packet diffs against its base branch instead.
-4. **Push budget: at most four pushes per packet.** That is the claim, the final commit and two fixes.
+4. **Push budget: batch corrections (D28).** Aim for four pushes per packet: the claim, the final commit and two fixes. Four is not a hard stop, and the count must not strand a verified repair. The cap in item 2 still applies; avoid redundant runs.
    - Claim with your first real commit.
    - Where the packet owns a Markdown file outside the test-read set, the claim commit may carry only that file, so the claim runs the docs tier.
 5. **Find the runs, then watch the fast jobs first.**
@@ -101,11 +112,11 @@ the seed ledger) before `CX-UIA-05` integrates; and reviews the drafts that gate
    ```
    - Watch `release` (generated-check, lint, format, packaging), `tests (unit)`, `tests (btrc)` and, where it runs, macOS `native-gui`, using `gh run view <id> --json jobs`.
    - On red, run `gh run view <id> --log-failed`, fix inside your owned paths and re-push at once.
-6. **Then wait for the whole run** with `gh run watch <id> --exit-status --interval 120`, for at most **180 minutes** after your final push. If it has not finished, record the run ids in the PR body and hand back; Claude's `@codex` comment loop (§3.2) takes over.
+6. **Then wait for the whole run** with `gh run watch <id> --exit-status --interval 120`, for at most **180 minutes** after your final push. If it has not finished, record the run ids in the PR body and hand back; Claude's `@codex` comment loop (§3.2) takes over. Then continue another independent CODEX.md unit (D28).
 7. **A red job your diff cannot affect** (C11, bootstrap, corpus or bench on a docs/tools/tests-only change):
    - compare it with `main`'s latest run;
    - for an infrastructure failure only, rerun once with `gh run rerun <id> --failed`;
-   - otherwise record the job, run id and log lines in the PR body and hand back.
+   - otherwise record the job, run id and log lines in the PR body and hand back, then continue another independent CODEX.md unit (D28).
 8. **Never:**
    - add `ci:full`;
    - dispatch `full` or `extended`;
@@ -113,9 +124,9 @@ the seed ledger) before `CX-UIA-05` integrates; and reviews the drafts that gate
 
    **About fragments.** Such a fragment puts the PR in the main tier, and it takes the single CI slot. Prefer a `REQUEST(…)` when Claude can land the line first.
 
-   **Lane workflows.** If your workflow has a matrix job that runs pytest, it needs a `fragment: ci/tiers.toml` row: `test_ci_workflow_contracts.py:564` looks up every matrix pytest job of every workflow in that file.
+   **Lane workflows** (superseded by D28: Claude writes lane workflows; see Corrections). If your workflow has a matrix job that runs pytest, it needs a `fragment: ci/tiers.toml` row: `test_ci_workflow_contracts.py:564` looks up every matrix pytest job of every workflow in that file.
 9. **Dispatches** (`gh workflow run … -f focus=native-gui`) need `actions:write`. Use at most one per workflow per packet. If the dispatch is refused, ask Claude in the PR to dispatch and post the run id.
-10. **Hand back** when every scheduled job is green, after a third red, or at the time box.
+10. **Hand back** when every scheduled job is green, after a third red, or at the time box, then continue another independent CODEX.md unit (D28).
     - In the lane tier, windows.yml runs only `scope` and still concludes success. Record it as "green (scope only)".
     - Never merge, close or mark your PR ready; it stays a draft.
 
@@ -446,6 +457,8 @@ Only Markdown outside `TEST_READ_MARKDOWN`. Each item is its own packet and PR.
 1. **CX-P1-05**, Android. It gates CX-P1-09 → CL-P2-09 → every new-platform shell.
 2. **CX-P1-04**, iOS, with an iPad simulator destination and an Info.plist `UIDeviceFamily [1,2]` check.
 3. **CX-P1-06**, then **CX-P1-03**.
+
+**Superseded by D28 (workflow files):** Codex edits no workflow or `ci/proposed/` file. Claude adds lane workflows from the PR's `REQUEST` block. The workflow and `ci/proposed/` instructions in the next two paragraphs are history.
 
 **They start now.** CL-UIA-02 is on `main`, and Q20's default ("Yes") is in force. If the token lacks the workflows permission, commit `ci/proposed/<name>.yml` (Q20's fallback); the evidence then arrives one batch later.
 

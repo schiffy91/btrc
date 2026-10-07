@@ -776,12 +776,10 @@ class CallableFlowState {
 			}
 			Node? declaration = values.structDeclaration(canonical);
 			if (declaration != null) {
-				int index = 0;
-				while (index < value.elements().len && index < declaration.fields().len) {
-					if (self.unsafePersistentValue(declaration.fields().get(index).type, value.elements().get(index), values, currentContext)) {
+				for slot in values.recordInitializerSlots(declaration, value).slots {
+					if (self.unsafePersistentValue(slot.type, slot.element, values, currentContext)) {
 						unsafe = true;
 					}
-					index = index + 1;
 				}
 				return unsafe;
 			}

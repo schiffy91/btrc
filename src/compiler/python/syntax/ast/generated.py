@@ -79,8 +79,9 @@ class FunctionDecl:
 @dataclass(kw_only=True)
 class StructDecl:
     name: str = ""
-    fields: list[FieldDef] = _dc_field(default_factory=list)
+    fields: list[field_def] = _dc_field(default_factory=list)
     is_forward: bool = False
+    is_union: bool = False
     name_line: int = _dc_field(default=0, compare=False)
     name_col: int = _dc_field(default=0, compare=False)
     line: int = _dc_field(default=0, compare=False)
@@ -153,12 +154,14 @@ class TypeExpr:
     pointer_depth: int = 0
     is_array: bool = False
     array_size: Optional[expr] = None
+    elements: list[expr] = _dc_field(default_factory=list)
     is_const: bool = False
     is_nullable: bool = False
     nullable_outer_depth: int = 0
     is_static: bool = False
     is_extern: bool = False
     is_volatile: bool = False
+    array_pointer_depth: int = 0
     line: int = _dc_field(default=0, compare=False)
     col: int = _dc_field(default=0, compare=False)
 
@@ -253,6 +256,15 @@ class RichEnumVariant:
 class FieldDef:
     type: TypeExpr
     name: str = ""
+    value: Optional[expr] = None
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
+@dataclass(kw_only=True)
+class AnonymousMember:
+    is_union: bool = False
+    fields: list[field_def] = _dc_field(default_factory=list)
     line: int = _dc_field(default=0, compare=False)
     col: int = _dc_field(default=0, compare=False)
 
@@ -587,6 +599,7 @@ class MapLiteral:
 @dataclass(kw_only=True)
 class BraceInitializer:
     elements: list[expr] = _dc_field(default_factory=list)
+    entries: list[Designation] = _dc_field(default_factory=list)
     line: int = _dc_field(default=0, compare=False)
     col: int = _dc_field(default=0, compare=False)
 
@@ -646,6 +659,14 @@ class CommaExpr:
 
 
 @dataclass(kw_only=True)
+class CompoundLiteral:
+    target_type: TypeExpr
+    initializer: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
+@dataclass(kw_only=True)
 class SizeofType:
     type: TypeExpr
 
@@ -687,18 +708,39 @@ class Capture:
     type: TypeExpr
 
 
+@dataclass(kw_only=True)
+class Designation:
+    parts: list[designator] = _dc_field(default_factory=list)
+
+
+@dataclass(kw_only=True)
+class FieldDesignator:
+    field: str = ""
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
+@dataclass(kw_only=True)
+class IndexDesignator:
+    index: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
 # --- Union type aliases for sum types ---
 
 decl = Union[PreprocessorDirective, ImportDecl, ClassDecl, InterfaceDecl, FunctionDecl, StructDecl, EnumDecl, RichEnumDecl, TypedefDecl]
 import_spec = Union[LibraryGlob, LibraryModules, PackagePath, RelativePath, QuotedPath]
 class_member = Union[FieldDecl, MethodDecl, PropertyDecl]
+field_def = Union[FieldDef, AnonymousMember]
 stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt]
 if_else = Union[ElseBlock, ElseIf]
 for_init = Union[ForInitVar, ForInitExpr]
-expr = Union[IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral, Identifier, SelfExpr, SuperExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, FieldAccessExpr, CastExpr, SizeofExpr, TernaryExpr, AssignExpr, ListLiteral, MapLiteral, BraceInitializer, FStringLiteral, NewExpr, TupleLiteral, LambdaExpr, SpawnExpr, StringConcat, CommaExpr]
+expr = Union[IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral, Identifier, SelfExpr, SuperExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, FieldAccessExpr, CastExpr, SizeofExpr, TernaryExpr, AssignExpr, ListLiteral, MapLiteral, BraceInitializer, FStringLiteral, NewExpr, TupleLiteral, LambdaExpr, SpawnExpr, StringConcat, CommaExpr, CompoundLiteral]
 sizeof_operand = Union[SizeofType, SizeofExprOp]
 fstring_part = Union[FStringText, FStringExpr]
 lambda_body = Union[LambdaBlock, LambdaExprBody]
+designator = Union[FieldDesignator, IndexDesignator]
 
 
 # --- Product type aliases ---
@@ -710,8 +752,8 @@ param = Param
 method_sig = MethodSig
 enum_value = EnumValue
 rich_enum_variant = RichEnumVariant
-field_def = FieldDef
 block = Block
 case_clause = CaseClause
 map_entry = MapEntry
 capture = Capture
+designation = Designation

@@ -7,17 +7,21 @@ from typing import ClassVar
 
 from .nodes import (
     CType,
+    GpuDispatchNames,
     IRAddressOf,
     IRBlock,
     IRCall,
     IRCast,
     IRCleanupSlot,
+    IRCompoundLiteral,
     IRCxxDelete,
     IRCxxExceptionBoundary,
     IRCxxNew,
+    IRDesignation,
     IRDoWhile,
     IREnumDef,
     IRExpr,
+    IRFieldAccess,
     IRFor,
     IRFunctionDecl,
     IRFunctionDef,
@@ -27,6 +31,8 @@ from .nodes import (
     IRGpuKernel,
     IRHelperDecl,
     IRInclude,
+    IRIndex,
+    IRInitializerList,
     IRLiteral,
     IRMacroDef,
     IRMacroUndef,
@@ -40,6 +46,7 @@ from .nodes import (
     IRObjectiveCMethod,
     IRObjectiveCSelector,
     IRStructDef,
+    IRStructField,
     IRStructForward,
     IRTaggedUnionDef,
     IRTypedefDef,
@@ -56,6 +63,10 @@ class IRVerifier:
         "__btrc_register_cleanup": 4,
         "__btrc_register_direct_cleanup": 3,
     }
+    # C types strict C11 accepts for a bit-field under -pedantic-errors (C2/r12).
+    _BIT_FIELD_TYPES: ClassVar[frozenset[str]] = frozenset(
+        {"_Bool", "bool", "int", "signed", "signed int", "unsigned", "unsigned int"}
+    )
 
     def __init__(self, module: IRModule) -> None:
         self.module = module
@@ -113,7 +124,11 @@ class IRVerifier:
             if unit.language not in ("objective-c", "c++") or unit.native_units:
                 raise ValueError("native adapter must be a standalone Objective-C or C++ unit")
             IRVerifier(unit).validate_schema()
+        designations: list[IRDesignation] = []
+        designation_slots: set[int] = set()
         for node in self.module.walk():
+            if isinstance(node, (IRAddressOf, IRDesignation, IRInitializerList, IRCompoundLiteral)):
+                self._validate_initializer_or_address(node, designations, designation_slots)
             if isinstance(node, (IRFunctionDecl, IRFunctionDef)) and node.c_linkage:
                 if self.module.language != "c++" or node.is_static:
                     raise ValueError("C language linkage requires a nonstatic C++ adapter function")
@@ -167,6 +182,11 @@ class IRVerifier:
                 if isinstance(node, IRObjectiveCExceptionBoundary) and not isinstance(node.failure, IRBlock):
                     raise TypeError("Objective-C exception boundary requires an IRBlock failure path")
 
+        if any(id(designation) not in designation_slots for designation in designations):
+            raise ValueError(
+                "IRDesignation is legal only as an IRInitializerList element or a positional IRCompoundLiteral value"
+            )
+
         for field_name in ("freestanding", "needs_runtime", "debug"):
             if not isinstance(getattr(self.module, field_name), bool):
                 raise TypeError(f"IRModule.{field_name} requires bool")
@@ -209,6 +229,8 @@ class IRVerifier:
                         f"IRModule.{field_name} requires {expected_type.__name__}, got {type(declaration).__name__}"
                     )
 
+        self._validate_record_shapes()
+
         classes = {declaration.name for declaration in self.module.objective_c_classes}
         if len(classes) != len(self.module.objective_c_classes):
             raise ValueError("Objective-C class declarations require distinct names")
@@ -236,6 +258,110 @@ class IRVerifier:
                 )
             if isinstance(declaration, (IRMacroDef, IRMacroUndef)):
                 declaration.validate()
+
+    def _validate_initializer_or_address(
+        self, node: IRExpr, designations: list[IRDesignation], designation_slots: set[int]
+    ) -> None:
+        """Check designations, their slots, and that no address reaches a bit-field."""
+
+        if isinstance(node, IRInitializerList):
+            designation_slots.update(id(element) for element in node.elements if isinstance(element, IRDesignation))
+        elif isinstance(node, IRCompoundLiteral):
+            designation_slots.update(
+                id(value) for name, value in node.fields if name == "" and isinstance(value, IRDesignation)
+            )
+        elif isinstance(node, IRDesignation):
+            if not isinstance(node.field, str) or (node.field == "") == (node.index is None):
+                raise ValueError("IRDesignation requires exactly one of a field name and an index")
+            if node.index is not None and not isinstance(node.index, IRLiteral):
+                raise TypeError("IRDesignation.index requires a folded IRLiteral")
+            if not isinstance(node.value, IRExpr):
+                raise TypeError("IRDesignation.value requires an IRExpr")
+            designations.append(node)
+        elif self._bit_field_root(node.expr):
+            raise ValueError("the address of a bit-field cannot be taken")
+
+    @staticmethod
+    def _bit_field_root(expr: object) -> bool:
+        """Whether an lvalue path reaches a bit-field member."""
+
+        while isinstance(expr, (IRFieldAccess, IRIndex)):
+            if isinstance(expr, IRFieldAccess) and expr.bit_field:
+                return True
+            expr = expr.obj
+        return False
+
+    def _validate_record_shapes(self) -> None:
+        """Enforce the one IRStructField shape invariant (C2 schema)."""
+
+        for declaration in self.module.struct_forwards:
+            if not isinstance(declaration.is_union, bool):
+                raise TypeError("IRStructForward.is_union requires bool")
+        for struct in self.module.struct_defs:
+            if not isinstance(struct.is_union, bool):
+                raise TypeError("IRStructDef.is_union requires bool")
+            if not struct.name:
+                raise ValueError("an untagged record is legal only as an anonymous member")
+            self._validate_record(
+                struct.fields,
+                fam_allowed=not struct.is_union,
+                plain=GpuDispatchNames.is_uniforms_record(struct.name),
+            )
+        for tagged in self.module.tagged_union_defs:
+            for variant in tagged.variants:
+                for value in variant.fields:
+                    self._validate_plain_field(value, "tagged-union payload")
+        for declaration in self.module.objective_c_classes:
+            for value in declaration.fields:
+                self._validate_plain_field(value, "Objective-C")
+
+    def _validate_record(self, fields: list[IRStructField], *, fam_allowed: bool, plain: bool) -> None:
+        """One record's members; a flexible array member only in a named struct."""
+
+        named_before = False
+        last = len(fields) - 1
+        for index, value in enumerate(fields):
+            if not isinstance(value, IRStructField):
+                raise TypeError("a record's fields require IRStructField")
+            if plain:
+                self._validate_plain_field(value, "GPU")
+            facets = (
+                value.array_size is not None,
+                value.is_unsized_array,
+                value.bit_width is not None,
+                value.record_fields is not None,
+            )
+            if sum(facets) > 1:
+                raise ValueError(f"IRStructField '{value.name}' combines array, bit-field or record shapes")
+            if value.name == "" and value.bit_width is None and value.record_fields is None:
+                raise ValueError("an unnamed IRStructField must be a bit-field or an anonymous member")
+            keyword = value.c_type.text if isinstance(value.c_type, CType) else ""
+            if (value.record_fields is not None) != (keyword in ("struct", "union")):
+                raise ValueError("an IRStructField record requires the C type 'struct' or 'union', and only it")
+            if value.record_fields is not None:
+                if not isinstance(value.record_fields, list) or not value.record_fields or value.name:
+                    raise ValueError("an anonymous member is an unnamed field holding a non-empty record")
+                self._validate_record(value.record_fields, fam_allowed=False, plain=plain)
+            if value.is_unsized_array is not True and value.is_unsized_array is not False:
+                raise TypeError("IRStructField.is_unsized_array requires bool")
+            if value.is_unsized_array and (not fam_allowed or index != last or not named_before):
+                raise ValueError(
+                    "a flexible array member must be the last field of a named struct, after a named field"
+                )
+            if value.bit_width is not None:
+                width = value.bit_width
+                if isinstance(width, bool) or not isinstance(width, int) or width < 0:
+                    raise TypeError("IRStructField.bit_width requires a non-negative int")
+                if width == 0 and value.name:
+                    raise ValueError("only an unnamed bit-field may have width 0")
+                if keyword.removeprefix("const ") not in self._BIT_FIELD_TYPES:
+                    raise ValueError(f"bit-field '{value.name}' requires an int or bool C type, got '{keyword}'")
+            named_before = named_before or bool(value.name) or value.record_fields is not None
+
+    @staticmethod
+    def _validate_plain_field(value: IRStructField, owner: str) -> None:
+        if value.record_fields is not None or value.is_unsized_array or value.bit_width is not None or not value.name:
+            raise ValueError(f"{owner} fields cannot be anonymous members, flexible arrays or bit-fields")
 
     def validate_type_declarations(self) -> None:
         """Reject a stale optimizer-owned strict-C declaration order."""

@@ -97,18 +97,34 @@ class IntegerLiteral {
 		return IntegerLiteralInfo(true, magnitude, suffix, decimal);
 	}
 
-	public string typeName() {
+	/* The largest value of a signed or unsigned C integer type `bits` wide,
+	 * for 1 <= bits <= 64. */
+	class unsigned long long signedMaximum(int bits) { return bits >= 64 ? (unsigned long long)LLONG_MAX : (1ULL << (bits - 1)) - 1ULL; }
+
+	class unsigned long long unsignedMaximum(int bits) { return bits >= 64 ? ULLONG_MAX : (1ULL << bits) - 1ULL; }
+
+	/* Whether some C11 candidate type holds the literal. long long follows
+	 * long in every candidate list, so the answer does not depend on the
+	 * width of long. */
+	public bool representable() { return !self.typeName(64).isEmpty(); }
+
+	/* The first C11 candidate type that holds the literal, on a target whose
+	 * long is `longBits` wide (the selected row's sizeof_long); "" when none
+	 * does. int is 32 and long long 64 bits on every row. */
+	public string typeName(int longBits) {
 		if (!self.detailsValue.valid) { return ""; }
 		unsigned long long value = self.detailsValue.magnitude;
 		string suffix = self.detailsValue.suffix;
+		unsigned long long longMaximum = IntegerLiteral.signedMaximum(longBits);
+		unsigned long long unsignedLongMaximum = IntegerLiteral.unsignedMaximum(longBits);
 
 		if (suffix == "") {
 			if (value <= (unsigned long long)INT_MAX) { return "int"; }
 			if (!self.detailsValue.decimal && value <= (unsigned long long)UINT_MAX) {
 				return "unsigned int";
 			}
-			if (value <= (unsigned long long)LONG_MAX) { return "long"; }
-			if (!self.detailsValue.decimal && value <= (unsigned long long)ULONG_MAX) {
+			if (value <= longMaximum) { return "long"; }
+			if (!self.detailsValue.decimal && value <= unsignedLongMaximum) {
 				return "unsigned long";
 			}
 			if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
@@ -117,12 +133,12 @@ class IntegerLiteral {
 		}
 		if (suffix == "u") {
 			if (value <= (unsigned long long)UINT_MAX) { return "unsigned int"; }
-			if (value <= (unsigned long long)ULONG_MAX) { return "unsigned long"; }
+			if (value <= unsignedLongMaximum) { return "unsigned long"; }
 			return "unsigned long long";
 		}
 		if (suffix == "l") {
-			if (value <= (unsigned long long)LONG_MAX) { return "long"; }
-			if (!self.detailsValue.decimal && value <= (unsigned long long)ULONG_MAX) {
+			if (value <= longMaximum) { return "long"; }
+			if (!self.detailsValue.decimal && value <= unsignedLongMaximum) {
 				return "unsigned long";
 			}
 			if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
@@ -130,7 +146,7 @@ class IntegerLiteral {
 			return "";
 		}
 		if (suffix == "ul" || suffix == "lu") {
-			if (value <= (unsigned long long)ULONG_MAX) {
+			if (value <= unsignedLongMaximum) {
 				return "unsigned long";
 			}
 			return "unsigned long long";
@@ -217,6 +233,13 @@ class FloatLiteral {
 	}
 
 	public double doubleValue() { return strtod(self.numericBody(), NULL); }
+
+	// The value at the literal's C type (C11 6.4.4.2p4): a float literal
+	// rounds once, from its decimal spelling, to float.
+	public double typedValue() {
+		if (self.narrow()) { return (double)strtof(self.numericBody(), NULL); }
+		return self.doubleValue();
+	}
 
 	private bool hasNonzeroSignificand() {
 		int index = 0;

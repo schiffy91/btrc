@@ -5,11 +5,9 @@ Read this ENTIRE file before writing any code.
 
 ## Second agent: Codex
 
-OpenAI Codex builds in this repository beside Claude under PLAN.md's decision
-D27. [`WORKSTREAMS.md`](WORKSTREAMS.md) assigns every remaining PLAN.md item as
-a work packet; Codex's are in
-[`docs/workstreams/codex.md`](docs/workstreams/codex.md). Read WORKSTREAMS.md
-§2 and §3 before taking a packet.
+OpenAI Codex builds in this repository beside Claude under D27 as amended by
+D28 (CLAUDE.md). Codex's active queue is [CODEX.md](CODEX.md).
+[`WORKSTREAMS.md`](WORKSTREAMS.md) §3 holds claims and protocol.
 
 - **Applies to Codex:** everything here about architecture, the pipeline,
   parity, strict imports, naming, generated files, and the Hard Rules.
@@ -35,8 +33,8 @@ a work packet; Codex's are in
     §3.4), unless the packet names the file;
   - `Makefile`, `flake.nix`, `flake.lock`, `nix/*`, `src/tests/conftest.py`,
     `src/tests/runner_capabilities.py`, `tools/native_plan.py`,
-    `tools/budget_bench.py`, `.github/workflows/{ci,macos,windows}.yml`,
-    PLAN.md and this file.
+    `tools/budget_bench.py`, `.github/workflows/**` (and `ci/proposed/`),
+    CLAUDE.md (and the PLAN.md pointer), and this file.
 - **Integrator-owned data** (`btrc.toml` exports and native rows,
   expected-skip manifests, denominators, Makefile lines, `ci/tiers.toml`)
   changes only in a final `fragment: <what>` commit, and regenerated outputs
@@ -51,8 +49,9 @@ This project is too large for a single context window. You WILL run out of memor
 
 ### Current state (2026-09-30)
 
-Work happens directly on `main`. [`PLAN.md`](PLAN.md) is the sequential
-43-stage roadmap for everything that remains, with every decision resolved;
+Work happens directly on `main`. [`CLAUDE.md`](CLAUDE.md) is the sequential
+43-stage roadmap for everything that remains, with every decision resolved
+(it moved there from PLAN.md on 2026-10-06; PLAN.md is a pointer);
 the previous plan is frozen verbatim in `docs/design/plan-reference.md` and
 cited as `ref:N`. Never edit the frozen reference.
 

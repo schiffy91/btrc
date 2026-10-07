@@ -27,6 +27,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
+from src.compiler.python.abi.hosted import TargetRepository
 from src.compiler.python.artifacts.publication import ArtifactPublisher
 
 MAX_PLAN_BYTES = 8 * 1024 * 1024
@@ -196,6 +197,17 @@ class NativeBuildPlan:
     emitted_units: int = 0
     emitted_paths: tuple[Path, ...] = ()
 
+    @property
+    def label(self) -> str:
+        """The canonical label of the plan's target row (its OS's default environment)."""
+
+        row = TargetRepository.row(
+            self.operating_system, self.architecture, TargetRepository.default_environment(self.operating_system)
+        )
+        if row is None:
+            raise NativePlanError(f"unsupported native link plan target {self.operating_system}-{self.architecture}")
+        return row.label
+
 
 class NativePlanReader:
     """Own bounded canonical JSON reads and closed schema validation."""
@@ -319,7 +331,14 @@ class NativePlanReader:
         target = PlanJson.exact_mapping(root["target"], frozenset({"arch", "os"}), "native link plan target")
         operating_system = PlanJson.text(target["os"], "native link plan target.os")
         architecture = PlanJson.text(target["arch"], "native link plan target.arch")
-        if operating_system not in TARGET_OPERATING_SYSTEMS or architecture not in TARGET_ARCHITECTURES:
+        if (
+            operating_system not in TARGET_OPERATING_SYSTEMS
+            or architecture not in TARGET_ARCHITECTURES
+            or TargetRepository.row(
+                operating_system, architecture, TargetRepository.default_environment(operating_system)
+            )
+            is None
+        ):
             raise NativePlanError(f"unsupported native link plan target {operating_system}-{architecture}")
 
         package_roots = self._packages(root["packages"])
@@ -927,7 +946,7 @@ class NativePlanBuilder:
         generated_c = generated_c.parent.resolve(strict=True) / generated_c.name
         with self._reader.generation(plan_path, generated_c) as plan:
             report = NativeBuildReport(
-                f"{plan.operating_system}-{plan.architecture}",
+                plan.label,
                 optimization,
                 debug_info,
                 jobs,

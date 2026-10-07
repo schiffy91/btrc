@@ -1470,11 +1470,8 @@ class ExpressionLowerer:
         if plan is None:
             return StaticInitializerMaterialization(source=node, plan=None), ((node, target_type),)
         child_targets: tuple[TypeExpr | None, ...]
-        if plan.field_types is not None:
-            child_targets = tuple(
-                plan.field_types[index] if index < len(plan.field_types) else None
-                for index in range(len(node.elements))
-            )
+        if plan.element_types is not None:
+            child_targets = plan.element_types
         else:
             canonical_target = self._types.canonical_type(target_type)
             element_target = (

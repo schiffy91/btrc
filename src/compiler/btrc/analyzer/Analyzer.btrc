@@ -3,6 +3,7 @@
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import ../generated/hosted_abi/Tables.btrc;
 import ../frontend/Models.btrc;
 import ../frontend/Timing.btrc;
 import ../parser/SourceMacros.btrc;
@@ -35,8 +36,10 @@ class SemanticAnalyzer {
 	/* The #define/#undef name rules conditioning shares (M1-M4). */
 	private SourceMacroRules macroRules;
 
-	public SemanticAnalyzer(SourceRuntimeSymbols sourceRuntimeSymbols, SourceMacroRules macroRules) {
+	/* `target` is the selected row, whose data model the analysis follows. */
+	public SemanticAnalyzer(SourceRuntimeSymbols sourceRuntimeSymbols, SourceMacroRules macroRules, GeneratedTargetRow target) {
 		self.analysis = Analyzed();
+		self.analysis.longBits = target.sizeofLong * 8;
 		self.sourceRuntimeSymbols = sourceRuntimeSymbols;
 		self.macroRules = macroRules;
 	}

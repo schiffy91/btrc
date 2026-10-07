@@ -10,6 +10,7 @@ bare cwd.
 import hashlib
 import json
 import os
+import re
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -32,6 +33,10 @@ STDLIB = StdlibRepository()
 
 def _archive_publisher() -> StdlibArchivePublisher:
     return StdlibArchivePublisher(ArtifactPublisher(ArtifactStorage()))
+
+
+# The canonical row label an archive is stamped with (schema 6).
+ARCHIVE_TARGET = "linux-x86_64"
 
 
 def _archive_service() -> stdlib_archive.StdlibArtifactRepository:
@@ -296,6 +301,7 @@ def _archive_manifest(stdlib_source: str, **overrides):
         },
         "schema": stdlib_archive.MANIFEST_SCHEMA,
         "stdlib_source": _archive_service().manifest.source_hash(stdlib_source),
+        "target": ARCHIVE_TARGET,
         "toolchain": ToolchainFingerprint().digest("full"),
         "macros": [],
         **{field: [] for field in stdlib_archive.StdlibArchiveManifest.LIST_FIELDS},
@@ -327,7 +333,7 @@ def test_archive_manifest_is_stamped_and_validated(tmp_path):
     source = "stdlib source"
     manifest = _archive_manifest(source)
     _write_archive(tmp_path, manifest)
-    assert _archive_service().load(str(tmp_path), source)["types"] == []
+    assert _archive_service().load(str(tmp_path), source, ARCHIVE_TARGET)["types"] == []
 
 
 @pytest.mark.skipif(os.name == "nt", reason="final-symlink archive contract is POSIX-only")
@@ -344,7 +350,7 @@ def test_archive_validation_accepts_final_symlink_manifest_and_artifacts(tmp_pat
         path.rename(target)
         path.symlink_to(target.name)
 
-    assert _archive_service().load(str(tmp_path), source)["types"] == []
+    assert _archive_service().load(str(tmp_path), source, ARCHIVE_TARGET)["types"] == []
 
 
 @pytest.mark.parametrize(
@@ -365,7 +371,7 @@ def test_archive_manifest_rejects_missing_or_empty_artifacts(tmp_path, name, con
     _write_archive(tmp_path, manifest, artifacts)
 
     with pytest.raises(stdlib_archive.ArchiveVersionError, match=message):
-        _archive_service().load(str(tmp_path), source)
+        _archive_service().load(str(tmp_path), source, ARCHIVE_TARGET)
 
 
 def test_archive_manifest_rejects_modified_artifact(tmp_path):
@@ -375,7 +381,7 @@ def test_archive_manifest_rejects_modified_artifact(tmp_path):
         header.write("/* tampered */\n")
 
     with pytest.raises(stdlib_archive.ArchiveVersionError, match="modified"):
-        _archive_service().load(str(tmp_path), source)
+        _archive_service().load(str(tmp_path), source, ARCHIVE_TARGET)
 
 
 @pytest.mark.parametrize(
@@ -404,7 +410,7 @@ def test_archive_manifest_refuses_invalid_typed_macro_records(
         stdlib_archive.ArchiveVersionError,
         match="invalid or unsupported",
     ):
-        _archive_service().load(str(tmp_path), source)
+        _archive_service().load(str(tmp_path), source, ARCHIVE_TARGET)
 
 
 def test_archive_manifest_refused_on_toolchain_mismatch(tmp_path):
@@ -412,7 +418,7 @@ def test_archive_manifest_refused_on_toolchain_mismatch(tmp_path):
     stale = _archive_manifest(source, toolchain="0" * 16)
     (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(stale))
     with pytest.raises(stdlib_archive.ArchiveVersionError, match="different compiler"):
-        _archive_service().load(str(tmp_path), source)
+        _archive_service().load(str(tmp_path), source, ARCHIVE_TARGET)
 
 
 def test_archive_manifest_refused_on_stdlib_source_mismatch(tmp_path):
@@ -423,7 +429,53 @@ def test_archive_manifest_refused_on_stdlib_source_mismatch(tmp_path):
         _archive_service().load(
             str(tmp_path),
             "current or user-overridden stdlib",
+            ARCHIVE_TARGET,
         )
+
+
+@pytest.mark.parametrize(
+    ("archive_row", "current_row"),
+    [
+        ("linux-x86_64", "windows-x86_64"),
+        # Rows that differ only in their environment are different targets.
+        ("windows-aarch64", "windows-aarch64-msvc"),
+        ("ios-aarch64-simulator", "ios-aarch64"),
+    ],
+)
+def test_archive_manifest_refused_for_another_target_row(tmp_path, archive_row, current_row):
+    source = "stdlib source"
+    _write_archive(tmp_path, _archive_manifest(source, target=archive_row))
+
+    assert _archive_service().load(str(tmp_path), source, archive_row)["types"] == []
+    with pytest.raises(
+        stdlib_archive.ArchiveVersionError,
+        match=re.escape(
+            f"was built for target '{archive_row}', not '{current_row}'; "
+            f"regenerate it with --build-stdlib --target {current_row}"
+        ),
+    ):
+        _archive_service().load(str(tmp_path), source, current_row)
+
+
+def test_archive_manifest_for_another_row_names_the_row_before_the_source(tmp_path):
+    _write_archive(tmp_path, _archive_manifest("linux stdlib", target="linux-x86_64"))
+
+    with pytest.raises(
+        stdlib_archive.ArchiveVersionError,
+        match=re.escape("was built for target 'linux-x86_64', not 'windows-x86_64'"),
+    ):
+        _archive_service().load(str(tmp_path), "windows stdlib", "windows-x86_64")
+
+
+def test_archive_manifest_without_a_target_requires_regeneration(tmp_path):
+    source = "stdlib source"
+    unstamped = _archive_manifest(source)
+    unstamped.pop("target")
+    unstamped["schema"] = 5
+    _write_archive(tmp_path, unstamped)
+
+    with pytest.raises(stdlib_archive.ArchiveVersionError, match=r"invalid or unsupported.*regenerate"):
+        _archive_service().load(str(tmp_path), source, ARCHIVE_TARGET)
 
 
 def test_raw_top_level_manifest_requires_regeneration(tmp_path):
@@ -440,7 +492,7 @@ def test_raw_top_level_manifest_requires_regeneration(tmp_path):
         stdlib_archive.ArchiveVersionError,
         match=r"invalid or unsupported.*regenerate",
     ):
-        _archive_service().load(str(tmp_path), source)
+        _archive_service().load(str(tmp_path), source, ARCHIVE_TARGET)
 
 
 @pytest.mark.parametrize("payload", ["not json", "{}", '{"schema":1,"types":"wrong"}'])
@@ -448,7 +500,7 @@ def test_archive_manifest_refuses_corrupt_or_unsupported_schema(tmp_path, payloa
     (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(payload)
 
     with pytest.raises(stdlib_archive.ArchiveVersionError, match="invalid or unsupported"):
-        _archive_service().load(str(tmp_path), "stdlib source")
+        _archive_service().load(str(tmp_path), "stdlib source", ARCHIVE_TARGET)
 
 
 def test_compiled_generation_concurrent_readers_never_observe_mixed_payloads(tmp_path, monkeypatch):
