@@ -289,8 +289,8 @@ eight thereafter: `NSTextInsertionIndicator` appears in cycles 2–100. BTRC has
 no such survivor. Its probe was inactive/non-key in all cycles; the control was
 active/key in all cycles. This shows an unstable control baseline, not BTRC
 retention growth, and does not justify loosening the retention assertion. Repair
-and qualify the control before rerunning the final matrix. REQ-10's pinned
-focused gate has started; REQ-11 remains queued under the same serial lock.
+and qualify the control before rerunning the final matrix. The REQ-10 results
+and later preflight stops are recorded below.
 
 `CL-REQ-10` (`e1bc5dfa`) remains unmerged after a blocking source review:
 `BtrccCompilerStack.run` marks its parent parked before `pthread_create`, while
@@ -313,9 +313,14 @@ again checks the actual live-thread count. The new native regression requires
 one startup thread and two distinct worker processes; Linux cases check 16 and
 64 MiB hard limits. A native C prototype proves the Darwin stack/fork strategy,
 and Python syntax, lint/format, btrc formatting and generated-source checks
-pass. Actual integrated compiler/parity/native results remain pending: the
-focused gate has started after the C2 run ended, with the REQ-10 checkout
-pinned and unchanged. The local candidate is not published or landed on main.
+pass. Its focused run completed with **1,170 passed, three platform skips and
+one naming-audit failure**. The actual Mac startup/fork regression, both deep
+expression shapes and their execution tests passed; the two Linux resource-limit
+cases were skipped on this Mac. The sole failure was the compiler naming audit
+omitting the existing system-struct field exceptions for `rlim_cur`/`rlim_max`.
+Correction `148c3f42` preserves the real C field spellings and passes all seven
+naming tests. The full integrated matrix and Linux limit tests remain pending;
+the local candidate is not published or landed on main.
 
 Local candidate `e1787f9b` merges `CL-REQ-11` into `226506eb` for qualification.
 Its tuple-array indexing, `sizeof` binding/retention and generic-termination
@@ -339,8 +344,12 @@ crosses a pointer or managed object. Four new refusal cases cover nested storage
 the existing sanitizer execution fixture also checks allowed nested object
 writes. All 67 rich-enum reference checks and 127 analyzer reference probes pass;
 lint, formatting, generated-source and plan/hygiene checks pass. Native parity
-and sanitizer qualification is queued behind REQ-10/11, with the candidate
-pinned and unchanged. External owner rebinding and shallow
+and sanitizer qualification remain unrun: this candidate and REQ-11 stopped at
+the stopped-guest preflight after the shared Podman VM started. The running
+`semu-release-build` container was left intact. Neither preflight stop is a
+compiler-test result. The naming correction is propagated through local
+REQ-11 `f3a5d3c6` and rich-enum `2d645e27`; their production sources are unchanged
+from `e1787f9b` and `e151f6be`, respectively. External owner rebinding and shallow
 struct escapes remain separate gaps; universal lifetime safety is not claimed.
 The iOS `1844837b` branch is preserved while its idle clone hosts this checkpoint.
 
