@@ -1,4 +1,4 @@
-"""Linux process tests for executor mechanics; never simulator evidence."""
+"""Local process tests for executor mechanics; never simulator evidence."""
 
 from __future__ import annotations
 
@@ -160,7 +160,7 @@ class ExecutorProcessTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temporary = tempfile.TemporaryDirectory(prefix="btrc-ios-local-test-")
-        cls.root = Path(cls.temporary.name)
+        cls.root = Path(cls.temporary.name).resolve()
         cls.bundle = cls.root / "bundle"
         SimulatorSpike.build(cls.bundle, local_cc="cc")
         cls.programs = json.loads((cls.bundle / "programs.json").read_text())["programs"]
