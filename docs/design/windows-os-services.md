@@ -1,8 +1,9 @@
 # Windows OS-services providers
 
-Status: CX-P2-01 revision 4, approval pending. Round-3 review: PR #52, comment
-6000316321; current-main cross-check: `45416fd0` (batch 36). The branch base remains
-`72592d36f560517a39e54f4b92b0149d44bef4d6`.
+Status: CX-P2-01 revision 5, approval pending. This revision addresses the six
+round-4 findings on PR #52 and includes current main `87dd60d7` by merge.
+The earlier implementation audit used `45416fd0` (batch 36); the revised seams
+below are proposals, not implemented or qualified native behavior.
 CL-P2-01 must review this design and record approval in PLAN.md before it becomes
 an implementation contract. This document does not claim Windows runtime parity.
 
@@ -354,9 +355,12 @@ handle/token/DACL checks. The portable identity packet owns this explicit
 Windows comparison policy and its cacheToken-v2 encoding atomically.
 
 Win32/NTSTATUS failures need a native-code domain alongside FileSystemError's
-existing channel, with an additive atomically landed contract; convert NTSTATUS
-with RtlNtStatusToDosError for common categorization while preserving raw code
-and domain. Apply semantic checks before the native mapping: invalid input ->
+existing channel, with an additive atomically landed contract. Classify the
+original NTSTATUS before RtlNtStatusToDosError: STATUS_FILE_IS_A_DIRECTORY and
+STATUS_NOT_A_DIRECTORY from an operation requiring the opposite kind mean
+FS_WRONG_TYPE, even if their Win32 mapping loses that distinction. Preserve the
+raw code and domain, then convert remaining statuses for common categorization.
+Apply semantic checks before the native mapping: invalid input ->
 FS_INVALID_ARGUMENT; name-surrogate -> FS_SYMLINK; verified wrong kind ->
 FS_WRONG_TYPE; identity/revision mismatch -> FS_CHANGED; a closed owner -> FS_CLOSED;
 a refused capability -> FS_UNSUPPORTED. Then map native failures as follows:
@@ -364,7 +368,8 @@ a refused capability -> FS_UNSUPPORTED. Then map native failures as follows:
 | Win32 code (including the mapped NTSTATUS category) | FileSystemErrorKind |
 | --- | --- |
 | ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND | FS_NOT_FOUND |
-| ERROR_ACCESS_DENIED, ERROR_PRIVILEGE_NOT_HELD, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION, ERROR_WRITE_PROTECT | FS_ACCESS_DENIED |
+| ERROR_ACCESS_DENIED, ERROR_PRIVILEGE_NOT_HELD, ERROR_SHARING_VIOLATION, ERROR_WRITE_PROTECT; ERROR_LOCK_VIOLATION from ordinary mandatory-lock-conflicting I/O | FS_ACCESS_DENIED |
+| ERROR_LOCK_VIOLATION from nonblocking LockFileEx acquisition contention | FS_RESOURCE_EXHAUSTED |
 | ERROR_INVALID_PARAMETER, ERROR_INVALID_NAME, ERROR_BAD_PATHNAME, ERROR_FILENAME_EXCED_RANGE | FS_INVALID_ARGUMENT |
 | ERROR_NOT_ENOUGH_MEMORY, ERROR_OUTOFMEMORY, ERROR_TOO_MANY_OPEN_FILES, ERROR_DISK_FULL, ERROR_HANDLE_DISK_FULL | FS_RESOURCE_EXHAUSTED |
 | ERROR_NOT_SUPPORTED, ERROR_CALL_NOT_IMPLEMENTED, ERROR_INVALID_FUNCTION | FS_UNSUPPORTED |
@@ -517,7 +522,9 @@ retain `ENABLE_LINE_INPUT` and `ENABLE_PROCESSED_INPUT`, and restore the mode on
 control-event cancellation. Preserve the existing 4096-byte password limit and
 never log input. A process-global control handler signals cancellation through a
 minimal native trampoline; it must not allocate BTRC objects, throw or run user
-callbacks. Restore mode and handler registration before propagating interruption.
+callbacks. Restore console mode before passing interruption to Windows' handler
+chain. The native trampoline and its synchronization storage have process
+lifetime; do not unregister it during password-session cleanup.
 
 For redirected stdin, match the tested POSIX promptPassword behavior: bounded
 reading with the same overflow/error semantics, without pretending a pipe has
@@ -526,14 +533,27 @@ refusal (which tells the caller to supply stdin immediately after refusing it);
 CL-P2-01 must record the adaptation decision for both platforms before delivery.
 No secret is logged. For a blocking console reader, duplicate its real thread
 handle for CancelSynchronousIo, signal cancellation via a native event, and
-restore mode/handler registration after drain. Ctrl-C is not converted into an
-ordinary empty password. For CTRL_C_EVENT, the native handler signals cancellation
-and waits on a bounded native restoration event; the input owner cancels/drains,
-restores mode/registration and unlocks before signalling it. The handler then
-returns FALSE so Windows dispatches to the existing previous/default handlers;
-there is no unsupported attempt to enumerate or manually invoke their chain.
-Native handler storage remains alive until the entered handler returns. Failed
-restoration/drain is a fatal cleanup failure after best-effort restore, not a
+restore mode after drain. For CTRL_C_EVENT, the native trampoline atomically
+pins the active session, signals cancellation and waits on a bounded restoration
+event. The input owner cancels/drains and restores the mode, then signals that
+event **without removing the handler or waiting for handler exit first**. The
+trampoline drops its session pin and returns FALSE; Windows continues its normal
+handler chain. The owner detaches the session atomically and waits for existing
+pins before releasing session events or unlocking for another prompt. Inactive
+trampoline calls return FALSE without touching session storage. Pin acquisition
+and detachment must share one native synchronization protocol, proved by an
+adversarial concurrent-entry fixture; a load-then-increment raw pointer is unsafe.
+
+If a preexisting handler returns TRUE and execution continues, promptPassword
+returns empty after cleanup, matching the Unix interruption outcome. If no
+handler handles the event, Windows' default termination remains effective. Do
+not enumerate, invoke or rebroadcast the handler chain. Register the trampoline
+once for a console attachment; console detach/reattach requires serialized
+re-registration before a new prompt. Concurrent foreign handler registration or
+console replacement during a prompt is outside the supported embedding contract
+and must be prevented by the caller. This ordering follows the documented
+[SetConsoleCtrlHandler dispatch rules](https://learn.microsoft.com/en-us/windows/console/setconsolectrlhandler).
+Failed restoration/drain is a fatal cleanup failure after best-effort restore, not a
 successful empty-password result or an indefinitely blocked control-handler
 thread. Keep the fatal cleanup policy explicit in the Terminal fixture. Do not
 rebroadcast Ctrl-C to another process group. Never GenerateConsoleCtrlEvent.
@@ -571,6 +591,26 @@ an invented kernel32 hash. Both unpackaged corpus output and relocatable/MSIX
 bundles carry this pair; no download or PATH search supplies a missing image.
 No auxiliary is emitted for unrelated/non-Windows programs.
 
+The metadata carrier is a generated **data-only C translation unit**, compiled
+as a required object in the existing native link plan. Its one strong immutable
+definition, `__btrc_windows_daemon_metadata`, contains `sha256[32]`, protocol u32,
+the canonical target ABI string from the shared target table and the derived
+sibling basename. The SDK-free runtime header declares its value type and extern
+symbol. The retained image-verification routine references this symbol directly;
+there is no weak default, runtime setter, environment fallback or handwritten
+digest in BTRC source. A retained Daemon-start capability requires the object;
+missing metadata must fail the link. Unrelated consumers and the leaf supervisor
+must neither emit nor retain that reference. Both frontends use the same shared
+auxiliary declaration and value encoding, with content digests in cache keys.
+
+The auxiliary declaration marks DaemonSupervisorMain as an executable entry,
+not a public library module. CL-P1-11 must teach stdlib discovery, symbol and lock
+generation, LSP indexing and package validation to exclude that entry from
+ordinary library imports while including its source in the auxiliary build.
+Retained-source and dead-code tests cover both frontends, including a consumer
+that imports Daemon but does not retain start. Explicit manifest classification
+owns this distinction; no basename-based exception or second package model.
+
 The runtime obtains the running module's absolute path with GetModuleFileNameW
 and derives this sibling only. Open/hash the image with no FILE_SHARE_WRITE or
 FILE_SHARE_DELETE; check expected bytes, protocol and the exact supervisor ABI.
@@ -595,7 +635,13 @@ There are no imaginary Windows std-handle slots. The reserved invocation is
 `"<absolute sibling>" --btrc-daemon-bootstrap-v1 <request-read> <reply-write>`.
 The two values are unsigned decimal HANDLE bit patterns, fitting uintptr_t with
 no sign/leading-zero spelling, and are the only extra inherited handles beyond
-three explicit stdio handles. They are capabilities but **not secret tokens**;
+three explicit stdio handles. The supervisor's stdin, stdout and stderr are
+three separately owned NUL handles opened by the launcher, never copies of the
+launcher's stdin/capture pipes. STARTUPINFOEX's handle list contains exactly
+these five handles, even when the launcher itself uses redirected output. The
+supervisor switches its own diagnostics to the verified append log only after
+prepare; managed-child stdio follows the separate log policy below. No diagnostic
+may use a bootstrap pipe. They are capabilities but **not secret tokens**;
 no command, token, environment, cwd or log path is placed in argv. The runtime
 accept entry parses this exact grammar from GetCommandLineW, checks pipe handle
 kind/direction and distinctness, and clears HANDLE_FLAG_INHERIT immediately on
@@ -647,12 +693,21 @@ then attempts COMMIT. **Once any COMMIT write is attempted**, failure is
 indeterminate (partial delivery must not be assumed reversible). The receiver
 requires the complete authenticated COMMIT before committing. The BTRC entry
 then publishes the unchanged v1 record through DaemonControlFiles; runtime ACK
-checks that record. Only after ACK is sent may policy start the managed command.
+checks that record. Complete authenticated COMMIT is the final authorization:
+after accepting it, request EOF is ignored as a launcher-liveness signal. A
+verified published record gates managed execution; successful ACK delivery does
+not. The runtime attempts ACK within the remaining bootstrap budget and reports
+delivery separately, then drains/closes bootstrap I/O. A broken reply pipe or
+lost ACK must not roll back a verified committed daemon.
 On accepted COMMIT, later launcher loss does not kill an independent daemon;
 parent-contained lifetime below still applies. ACK loss returns indeterminate
 start and reconciles the token-authenticated record/liveness probe; never launch
-a replacement automatically. Failure to publish before ACK cleans the owned
-job/record and exits; the launcher still reconciles instead of guessing.
+a replacement automatically. Failure to publish or verify the record cleans the
+owned job and only a record matching the exact token/PID/identity, then exits;
+the launcher still reconciles instead of guessing. A replaced or tampered record
+is never removed as though it were owned. A valid record alone is not liveness:
+indeterminate start requires the existing token-bound challenge/acknowledgement
+probe, with its deadline, before reporting a live daemon.
 
 ### Token, containment and portable outcomes
 
@@ -1006,7 +1061,6 @@ typedef struct {
     uint32_t supervisor_pid, lifetime; /* lifetime: 0 independent, 1 contained */
 } __btrc_windows_transfer_result;
 int __btrc_windows_supervisor_image_verify(
-    const unsigned char expected_sha256[32], uint32_t protocol_version,
     __btrc_windows_image_owner **out, __btrc_windows_launch_error *error);
 int __btrc_windows_supervisor_transfer(
     const __btrc_windows_image_owner *image,
@@ -1025,6 +1079,7 @@ int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
 int __btrc_windows_supervisor_ready_wait_commit(
     __btrc_windows_supervisor_owner *owner, __btrc_windows_launch_error *error);
 int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
+    uint32_t *ack_delivered,
     __btrc_windows_launch_error *error);
 int __btrc_windows_supervisor_spawn_managed(
     __btrc_windows_supervisor_owner *owner, __btrc_windows_launch_error *error);
@@ -1044,7 +1099,9 @@ override for that image. Its command executable is the *managed command*, resolv
 under Process policy. Result state is meaningful even on error: any attempted
 COMMIT write sets state 2 until confirmed ACK plus protected-record verification;
 no caller infers retry safety from a nonzero return alone. Image close releases
-verification handles only, never the committed supervisor.
+verification handles only, never the committed supervisor. Image verification
+reads the required generated metadata symbol described above, including ABI;
+callers cannot substitute a hash, protocol or image path.
 
 `accept` parses the reserved invocation, validates and clears inherit flags,
 owns both bootstrap ends and a complete validated INIT buffer, and sets a deadline
@@ -1059,10 +1116,16 @@ all three. `ready_wait_commit` sends READY and monitors the sole request writer 
 read/EOF/deadline until complete authenticated COMMIT; it never starts user code.
 On precommit failure it aborts the job and signals its caller to exit.
 
-After that call succeeds, BTRC policy publishes the v1 record. `ack` reopens and
-verifies the protected record's token/PID/identity before sending ACK, then closes
-and scrubs bootstrap storage. It never acknowledges a record the runtime did not
-verify. `spawn_managed` requires committed+acknowledged state, creates suspended,
+After that call succeeds, BTRC policy publishes the v1 record. `ack` initializes
+`ack_delivered` to zero, reopens/verifies the protected record's token/PID/identity
+and records verified-publication state before attempting ACK. A record failure
+returns nonzero and leaves spawn forbidden. After successful verification, ACK
+delivery failure or expiry returns zero with `ack_delivered=0`; successful
+delivery sets it to one. Both paths cancel/drain, close and scrub bootstrap
+storage. Cleanup failure still returns a poisoned-owner error and forbids spawn;
+it is not treated as ordinary ACK loss. No acknowledgement is sent for an
+unverified record. `spawn_managed` requires committed+verified-publication state
+and complete bootstrap cleanup, irrespective of delivery, creates suspended,
 assigns the retained managed job and only then resumes. It refuses an active
 previous tree. `poll_managed` is nonblocking; running remains true while any
 managed descendant remains, and exit code becomes valid only after the tree is
@@ -1083,7 +1146,7 @@ Blocks: CX-P2-04/05/06/08/16 and CL-P2-27. Workaround: retain refusals until thi
 
 REQUEST(CL-P1-11): Add the sibling-image and isolated-runtime-object builder prerequisites before Stage 26; CL-P2-19 preserves them in schema 6.
 Repro: Today the package/link plan and runner build one executable; neither can produce or place the consumer-named sibling supervisor for an unpackaged Daemon corpus program.
-Expected / actual: Paired package/plan writers declare target-filtered auxiliary executable source/basename/protocol, one runtime-manifest external-object/system-library carrier, and package native.system-libraries. Extend native_plan, Makefile, runner.py, bootstrap_harness and bundle metadata/verification; arrange workflow adoption through the integrator. Package the sibling beside every Windows Daemon consumer in isolated corpus output and relocatable/MSIX bundles. Bind final post-signing whole-file SHA-256/ABI/protocol in generated consumer metadata; enforce the system32-only dependent-loader flag and static non-system dependencies, and derive the companion name from the complete primary basename. No PATH lookup or pre-main compiler hook.
+Expected / actual: Paired package/plan writers declare target-filtered auxiliary executable source/basename/protocol, one runtime-manifest external-object/system-library carrier, and package native.system-libraries. Extend native_plan, Makefile, runner.py, bootstrap_harness and bundle metadata/verification; arrange workflow adoption through the integrator. Package the sibling beside every Windows Daemon consumer in isolated corpus output and relocatable/MSIX bundles. Bind final post-signing whole-file SHA-256/ABI/protocol in the required generated data-only C metadata object described above, with strong-symbol missing-object link failure and retained-capability tests. Exclude the auxiliary entry from ordinary stdlib imports, symbol/lock generation and LSP library indexing through shared manifest classification. Enforce the system32-only dependent-loader flag and static non-system dependencies, and derive the companion name from the complete primary basename. No PATH lookup or pre-main compiler hook.
 Blocks: CX-P2-08's unpackaged and bundled acceptance, runtime-object linking, CL-P2-27. Workaround: no shell supervisor or unverified loose image.
 
 REQUEST(CL-P2-01): Amend CX-P2-08's dependency, owned paths and acceptance around the selected sibling mechanism.
@@ -1164,6 +1227,63 @@ qualification requires a native ARM64 host; emulation is separate evidence.
 | Channel: `test_windows_local_application_channel.py` | `local_application_channel_windows/` | First-instance exclusivity plus multiple owned listening instances, remote rejection, same-user success, other-user SID rejection, impersonation restoration on every error, server owner/token authentication/PID reuse, disconnect/restart refusal without replay, unchanged exact wire bytes (no hello), empty/malformed/oversize/partial frames, slow peers, cancellation and one deadline, bounded nonblocking poll. Cross-user identity requires a provisioned second account and an explicit runner capability. |
 | Jobs: `test_windows_background_jobs.py` | `background_jobs_windows/` | Worker/pending bounds, rejected ownership, one completion, owner-thread delivery, cancellation, lost-wakeup stress, DRAIN/CANCEL_PENDING, failed-join retry, foreign-thread exceptions and teardown leaks, thread count accuracy. Native Windows x64 and ARM64 required. |
 | Process pools: `test_windows_worker_pools.py` | `worker_pools_windows/` | Inline-only refusal before CL-P2-12; after it lands, serialized startup, framing, crash isolation, resource accounting and cancellation. Do not mark multiprocess parity complete from thread tests. |
+
+Round-4 regression cases are required members of those rows:
+
+- Filesystem: two-process nonblocking lock contention returns
+  FS_RESOURCE_EXHAUSTED; ordinary conflicting read/write returns FS_ACCESS_DENIED.
+  Exercise both original wrong-kind NTSTATUS values before Win32 conversion.
+  Preserve the existing portable FileSystem fixtures and their expected errors;
+  do not rewrite them to accommodate a lossy provider mapping. Pending overlapped
+  acquisition is not an error classification; its storage survives until drain.
+  The distinction follows [LockFileEx's acquisition behavior](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex).
+- Terminal: a preinstalled handler returns TRUE after observing restored mode;
+  the prompt returns empty, its next invocation works, and repeated concurrent
+  Ctrl-C delivery neither deadlocks nor accesses a detached session. Separately
+  run the default-handler case in a disposable process and verify restoration
+  before process termination. Do not unregister a waiting handler to satisfy
+  cleanup, and do not count successful process termination as session-drain proof.
+- Daemon: kill the launcher after complete COMMIT but before ACK; the verified
+  daemon must answer its token-bound probe and execute exactly once. Test a
+  dropped ACK with a living launcher, incomplete COMMIT, supervisor loss before
+  and after record publication, and a replaced record between publication and
+  verification. No automatic retry, unauthorized record removal or managed
+  execution after failed record verification. Capture the launcher with stdin,
+  stdout and stderr pipes: output EOFs and closure of the stdin reader must be
+  observable promptly after its exit while the independent daemon remains alive.
+  This proves the supervisor
+  did not inherit the launcher's pipe endpoints.
+- Builder: both frontends reject a missing metadata object at link time; changing
+  signed supervisor bytes invalidates the consumer metadata/cache; retained and
+  dead Daemon-start cases emit exactly the required artifacts. Ordinary stdlib
+  symbol/lock generation and LSP discovery must never treat the executable entry
+  as an importable library main.
+
+### Portable Daemon corpus and adversarial host fixtures
+
+`src/tests/stdlib/Daemon.btrc` currently mixes portable controller behavior with
+`/bin/sh`, POSIX signals and SIGSTOP adversarial checks. It cannot be run unchanged
+as a Windows portable acceptance case. CX-P2-08 must split it before advertising
+that exit: keep specification validation, record parsing and common
+start/status/stop/restart assertions in `Daemon.btrc`, using the qualified host's
+supplied managed fixture executable. Move shell rendering and signal/Unix-only
+adversarial behavior to `DaemonPosix.btrc` with its own golden output and explicit
+POSIX capability selection. Preserve every moved assertion and the existing
+timeout/error messages; never skip the whole original test to obtain Windows
+green. Register any imported helper in INCLUDE_FIXTURES as usual.
+
+The Windows native daemon fixture supplies a test-only barrier that stops the
+supervisor's capability-polling loop after record publication while keeping its
+process and managed tree alive. An external test controller releases that barrier
+after the ordinary stop deadline and reaps the fixture. Assert error 124 and
+`daemon did not confirm termination before the deadline`, bounded caller return,
+then complete native cleanup. This is the deterministic analogue of the paused
+POSIX supervisor case; do not use arbitrary thread suspension, timing sleeps or
+a weakened timeout. The barrier is compiled only into the native fixture, has no
+public Daemon API or production environment switch, and must leave a separate
+unmodified production-supervisor lifecycle case. Both frontends run the portable
+corpus within the existing 15-second per-program budget; POSIX and Windows
+adversarial cases retain separate explicit evidence and denominators.
 
 ### Capability tiers and achievable outcomes
 
