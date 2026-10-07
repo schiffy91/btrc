@@ -1902,16 +1902,19 @@ class BtrccCompilerStack {
 			fprintf(stderr, "btrcc: error: cannot read compiler stack limit\n");
 			return 1;
 		}
-		rlim_t reservation = (rlim_t)536870912;
-		if (limit.rlim_max != (rlim_t)RLIM_INFINITY && limit.rlim_max < reservation) { reservation = limit.rlim_max; }
-		if (limit.rlim_cur < reservation) {
-			limit.rlim_cur = reservation;
+		unsigned long long hardLimit = (unsigned long long)limit.rlim_max;
+		unsigned long long currentLimit = (unsigned long long)limit.rlim_cur;
+		unsigned long long reservation = 536870912ULL;
+		if (hardLimit != (unsigned long long)RLIM_INFINITY && hardLimit < reservation) { reservation = hardLimit; }
+		if (currentLimit < reservation) {
+			limit.rlim_cur = (rlim_t)reservation;
 			if (setrlimit((int)RLIMIT_STACK, &limit) != 0) {
 				fprintf(stderr, "btrcc: error: cannot reserve compiler stack\n");
 				return 1;
 			}
+			currentLimit = reservation;
 		}
-		if (limit.rlim_cur < (rlim_t)67108864) {
+		if (currentLimit < 67108864ULL) {
 			fprintf(stderr, "btrcc: error: compiler requires at least 64 MiB of stack\n");
 			return 1;
 		}

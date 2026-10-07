@@ -9,6 +9,9 @@ from dataclasses import fields, is_dataclass
 from functools import cache
 from pathlib import Path
 
+import pytest
+
+from src.compiler.python.frontend.sources import ConditionalEnvironment, SourceConditionals
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -233,10 +236,21 @@ def _path(relative: str) -> Path:
     return SELFHOST / relative
 
 
+@pytest.fixture(params=ConditionalEnvironment.every_target(), ids=lambda environment: environment.label)
+def environment(request: pytest.FixtureRequest) -> ConditionalEnvironment:
+    return request.param
+
+
 @cache
-def _program(relative: str):
+def _parsed_program(source: str, path: str):
+    return Parser(Lexer(source, path).tokenize()).parse()
+
+
+@cache
+def _program(relative: str, environment: ConditionalEnvironment):
     path = _path(relative)
-    return Parser(Lexer(path.read_text(), str(path)).tokenize()).parse()
+    source = SourceConditionals(environment).condition(path.read_text(), str(path)).text
+    return _parsed_program(source, str(path))
 
 
 def _local_imports(relative: str) -> tuple[str, ...]:
@@ -274,10 +288,10 @@ def _cycle_residue(graph: dict[str, set[str]]) -> set[str]:
     return {node for node, degree in indegree.items() if degree != 0}
 
 
-def _class_declarations() -> dict[str, tuple[str, object]]:
+def _class_declarations(environment: ConditionalEnvironment) -> dict[str, tuple[str, object]]:
     declarations: dict[str, tuple[str, object]] = {}
     for relative in EXPECTED_BTRC_FILES:
-        for declaration in _program(relative).declarations:
+        for declaration in _program(relative, environment).declarations:
             if type(declaration).__name__ != "ClassDecl":
                 continue
             assert declaration.name not in declarations, f"duplicate class owner: {declaration.name}"
@@ -292,8 +306,8 @@ def _type_bases(type_expr) -> set[str]:
     return bases
 
 
-def _retained_owner_graph() -> dict[str, set[str]]:
-    declarations = _class_declarations()
+def _retained_owner_graph(environment: ConditionalEnvironment) -> dict[str, set[str]]:
+    declarations = _class_declarations(environment)
     graph = {name: set() for name in declarations}
     for name, (_, declaration) in declarations.items():
         for member in declaration.members:
@@ -579,10 +593,10 @@ def test_reference_scanner_distinguishes_interface_implementations_with_shared_n
     assert _interface_method_targets(classes, interfaces, "First", "helper") == set()
 
 
-def test_every_unit_parses_and_behavior_files_have_complete_owners() -> None:
+def test_every_unit_parses_and_behavior_files_have_complete_owners(environment: ConditionalEnvironment) -> None:
     missing_classes: list[str] = []
     for relative in EXPECTED_BTRC_FILES:
-        declarations = _program(relative).declarations
+        declarations = _program(relative, environment).declarations
         if relative in STAGE_MANIFESTS or relative in PUBLIC_ENTRY_POINTS:
             continue
         if not any(type(declaration).__name__ == "ClassDecl" for declaration in declarations):
@@ -590,7 +604,7 @@ def test_every_unit_parses_and_behavior_files_have_complete_owners() -> None:
 
     assert missing_classes == []
 
-    classes = _class_declarations()
+    classes = _class_declarations(environment)
     missing_owners = {relative: owner for relative, owner in REQUIRED_OWNER_BY_PATH.items() if owner not in classes}
     misplaced_owners = {
         relative: (owner, classes[owner][0])
@@ -601,14 +615,14 @@ def test_every_unit_parses_and_behavior_files_have_complete_owners() -> None:
     assert misplaced_owners == {}
 
 
-def test_call_lowering_has_one_typed_target_resolution_owner() -> None:
+def test_call_lowering_has_one_typed_target_resolution_owner(environment: ConditionalEnvironment) -> None:
     calls = _path("ir/lowering/Calls.btrc").read_text()
     expressions = _path("ir/lowering/Expressions.btrc").read_text()
     operators = _path("analyzer/Operators.btrc").read_text()
     ownership_calls = _path("ir/lowering/ownership/Calls.btrc").read_text()
     statements = _path("ir/lowering/Statements.btrc").read_text()
 
-    declarations = _program("ir/lowering/Calls.btrc").declarations
+    declarations = _program("ir/lowering/Calls.btrc", environment).declarations
     classes = {declaration.name for declaration in declarations if type(declaration).__name__ == "ClassDecl"}
     assert {
         "CallSignature",
@@ -640,14 +654,14 @@ def test_call_lowering_has_one_typed_target_resolution_owner() -> None:
     assert "expression.callee.kind == NK_FIELD_ACCESS_EXPR" in operators
 
 
-def test_default_helpers_share_call_claim_and_function_body_owners() -> None:
+def test_default_helpers_share_call_claim_and_function_body_owners(environment: ConditionalEnvironment) -> None:
     definitions: dict[str, list[str]] = {
         "ensureDefaultHelper": [],
         "materializeDefaultHelper": [],
         "materializeDeferredClosure": [],
     }
     for relative in EXPECTED_BTRC_FILES:
-        for declaration in _program(relative).declarations:
+        for declaration in _program(relative, environment).declarations:
             if type(declaration).__name__ != "ClassDecl":
                 continue
             for member in declaration.members:
@@ -672,13 +686,13 @@ def test_default_helpers_share_call_claim_and_function_body_owners() -> None:
     assert lowerer.count("self.functions.materializeDeferredClosure()") == 1
 
 
-def test_gpu_call_classification_has_one_semantic_owner() -> None:
+def test_gpu_call_classification_has_one_semantic_owner(environment: ConditionalEnvironment) -> None:
     definitions: dict[str, list[str]] = {
         "callResolvesToIntrinsic": [],
         "callResolvesToSourceSymbol": [],
     }
     for relative in EXPECTED_BTRC_FILES:
-        for declaration in _program(relative).declarations:
+        for declaration in _program(relative, environment).declarations:
             if type(declaration).__name__ != "ClassDecl":
                 continue
             for member in declaration.members:
@@ -705,10 +719,10 @@ def test_gpu_call_classification_has_one_semantic_owner() -> None:
     assert "callResolvesToBuiltin(" not in wgsl
 
 
-def test_member_indexes_share_analyzed_canonical_identity() -> None:
+def test_member_indexes_share_analyzed_canonical_identity(environment: ConditionalEnvironment) -> None:
     definitions: list[str] = []
     for relative in EXPECTED_BTRC_FILES:
-        for declaration in _program(relative).declarations:
+        for declaration in _program(relative, environment).declarations:
             if type(declaration).__name__ != "ClassDecl":
                 continue
             definitions.extend(
@@ -726,7 +740,7 @@ def test_member_indexes_share_analyzed_canonical_identity() -> None:
     assert "DeclarationRegistry.memberKey(" not in declarations
 
 
-def test_managed_instance_field_stores_have_one_typed_owner() -> None:
+def test_managed_instance_field_stores_have_one_typed_owner(environment: ConditionalEnvironment) -> None:
     owned_methods = {
         "planStaticFieldStore",
         "materializeStaticFieldStore",
@@ -735,7 +749,7 @@ def test_managed_instance_field_stores_have_one_typed_owner() -> None:
     }
     definitions: list[str] = []
     for relative in EXPECTED_BTRC_FILES:
-        for declaration in _program(relative).declarations:
+        for declaration in _program(relative, environment).declarations:
             if type(declaration).__name__ != "ClassDecl":
                 continue
             definitions.extend(
@@ -765,9 +779,9 @@ def test_managed_instance_field_stores_have_one_typed_owner() -> None:
     assert "self.managedLifetime.replaceEdge(" not in expressions
 
 
-def test_static_initializer_classification_is_typed_and_storage_owned() -> None:
+def test_static_initializer_classification_is_typed_and_storage_owned(environment: ConditionalEnvironment) -> None:
     relative = "analyzer/validation/Storage.btrc"
-    declarations = _program(relative).declarations
+    declarations = _program(relative, environment).declarations
     category = next(
         declaration
         for declaration in declarations
@@ -842,8 +856,8 @@ def test_expression_lowering_has_no_uninitialized_managed_ir_locals() -> None:
     assert offenders == {}
 
 
-def test_ir_binary_nodes_use_the_canonical_typed_kind() -> None:
-    model = _program("ir/Model.btrc")
+def test_ir_binary_nodes_use_the_canonical_typed_kind(environment: ConditionalEnvironment) -> None:
+    model = _program("ir/Model.btrc", environment)
     ir_kind = next(
         declaration
         for declaration in model.declarations
@@ -864,10 +878,10 @@ def test_concurrency_requires_the_contexts_bound_module() -> None:
     assert "self.context.module.functions" not in concurrency
 
 
-def test_same_owner_method_calls_are_explicitly_qualified() -> None:
+def test_same_owner_method_calls_are_explicitly_qualified(environment: ConditionalEnvironment) -> None:
     unqualified: list[str] = []
     for relative in EXPECTED_BTRC_FILES:
-        for declaration in _program(relative).declarations:
+        for declaration in _program(relative, environment).declarations:
             if type(declaration).__name__ != "ClassDecl":
                 continue
             methods = [member for member in declaration.members if type(member).__name__ == "MethodDecl"]
@@ -883,12 +897,12 @@ def test_same_owner_method_calls_are_explicitly_qualified() -> None:
     assert unqualified == []
 
 
-def test_only_explicit_external_probes_are_definition_only() -> None:
-    classes = _class_declarations()
+def test_only_explicit_external_probes_are_definition_only(environment: ConditionalEnvironment) -> None:
+    classes = _class_declarations(environment)
     interfaces = {
         declaration.name: declaration
         for relative in EXPECTED_BTRC_FILES
-        for declaration in _program(relative).declarations
+        for declaration in _program(relative, environment).declarations
         if type(declaration).__name__ == "InterfaceDecl"
     }
     methods = {
@@ -926,7 +940,7 @@ def test_only_explicit_external_probes_are_definition_only() -> None:
             if type(member).__name__ == "MethodDecl" and member.body is not None:
                 count_callable(member.body, member.params, declaration.name)
     for relative in EXPECTED_BTRC_FILES:
-        for declaration in _program(relative).declarations:
+        for declaration in _program(relative, environment).declarations:
             if type(declaration).__name__ == "FunctionDecl" and declaration.body is not None:
                 count_callable(declaration.body, declaration.params, None)
 
@@ -951,8 +965,8 @@ def test_only_explicit_external_probes_are_definition_only() -> None:
     assert definition_only == INTENTIONAL_DEFINITION_ONLY_METHODS
 
 
-def test_lexer_owns_its_cursor_and_literal_scanning() -> None:
-    declarations = _program("lexer/Lexer.btrc").declarations
+def test_lexer_owns_its_cursor_and_literal_scanning(environment: ConditionalEnvironment) -> None:
+    declarations = _program("lexer/Lexer.btrc", environment).declarations
     classes = [declaration for declaration in declarations if type(declaration).__name__ == "ClassDecl"]
 
     assert [declaration.name for declaration in classes] == ["Lexer"]
@@ -1010,8 +1024,8 @@ def test_imports_resolve_form_a_dag_and_reach_every_unit() -> None:
     assert reachable == EXPECTED_BTRC_FILES
 
 
-def test_retained_collaborators_form_a_dag_without_composition_root_leaks() -> None:
-    graph = _retained_owner_graph()
+def test_retained_collaborators_form_a_dag_without_composition_root_leaks(environment: ConditionalEnvironment) -> None:
+    graph = _retained_owner_graph(environment)
 
     assert _cycle_residue(graph) == set()
 
@@ -1111,12 +1125,12 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
     assert service_location == {}
 
 
-def test_only_explicit_process_entry_points_have_top_level_behavior() -> None:
+def test_only_explicit_process_entry_points_have_top_level_behavior(environment: ConditionalEnvironment) -> None:
     actual: dict[str, list[str]] = {}
     for relative in EXPECTED_BTRC_FILES:
         functions = [
             declaration.name
-            for declaration in _program(relative).declarations
+            for declaration in _program(relative, environment).declarations
             if type(declaration).__name__ == "FunctionDecl"
         ]
         if functions:
