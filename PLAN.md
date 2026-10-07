@@ -165,7 +165,7 @@ the runner now supplies that option only to the outer invocation. The fourth
 was a GPU assertion expecting the runtime array immediately after its captured
 bound: the new lifetime block correctly lies between them. The assertion now
 requires that block while retaining capacity, dispatch, strict compilation and
-CPU-fallback execution checks. Focused verification is queued; bootstrap, all
+CPU-fallback execution checks. All 60 focused GPU and skip-ledger checks now pass. Bootstrap, all
 eight strict-C11 configurations and final hygiene did not run after the failure.
 All 824 native GUI evidence files were retained. No full green result is claimed. The earlier `18185f0b` combined
 [Linux run 37570754386](https://github.com/schiffy91/btrc/actions/runs/37570754386)
@@ -179,7 +179,12 @@ The `081aae51` hosted Wayland shard also failed after Weston aborted during
 native-shell restoration. Subsequent clients reported unavailable Wayland.
 The session wrapper deleted its compositor logs during cleanup; neither the
 compositor abort's cause nor a repair is established. The original job log and
-remaining GUI artifacts are retained. Wayland remains report-only, with this
+remaining GUI artifacts are retained. The next candidate includes `80b151ea`:
+failed sessions emit the last 200 lines of their owned logs before cleanup.
+The actual old/new teardown fragments were checked with real temporary files:
+status and cleanup are preserved, failure tails are now retained, and successful
+runs stay quiet. The two added real X11/Wayland regressions still need Linux
+execution; this diagnostic change does not qualify or repair the compositor. Wayland remains report-only, with this
 coverage gap explicit.
 No final green result is claimed.
 Main remains at `87dd60d7` until
@@ -206,7 +211,14 @@ L1 merge `d49961cb` and L2 changes are now combined with `081aae51` in
 Six conflicts were reconciled while retaining generic-scope, tag-ownership and
 flexible-array checks. Static checks passed; the broader paired compiler,
 parser/analyzer and LSP qualification is running and has reported a failure
-whose terminal trace is pending. Hosted runs were deliberately deferred to
+whose terminal trace is now recorded: 2,474 passed and three failed. Both
+parsers applied a struct-only spelling refusal before the existing union
+refusal; the guard is now restricted to structs. Two layout expectations still
+spelled `struct Pair`, although L1 normalizes that type to `Pair`; both compilers
+already agreed and the native C layout checks passed. Their expected spelling
+is corrected without changing the unsized-array or layout requirements. A fresh
+compiler run of refusals, layouts, flexible-array checks and parser tests is
+in progress. Hosted runs were deliberately deferred to
 respect the shared CI capacity limit; cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
 qualify the whole C2 merge.
 
