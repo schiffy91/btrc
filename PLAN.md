@@ -193,8 +193,10 @@ extension checks passed. Its full suite passed 17,187 tests with 163 expected
 skips and zero unexpected skips in 1,819.62 seconds. The skip ledger identifies
 161 skips covered on other runners and two uncovered Linux-native-reader cases.
 Serial bootstrap passed its fixed-point test in 575.05 seconds with no skips.
-The first strict-C11 configuration, GCC at `-O0`, passed all 1,982 checks with
-no skips; the remaining seven configurations and hygiene remain pending.
+All eight strict-C11 configurations, GCC and Clang at `-O0` through `-O3`,
+each passed all 1,982 checks with no skips. Final plan/link/frozen-reference
+and diff hygiene checks passed; the serial local matrix completed successfully.
+All 824 native GUI evidence files were retained.
 The native compiler binary is reused from the source-matched `081aae51` build,
 not newly rebuilt. Hosted [Windows run 37588790879](https://github.com/schiffy91/btrc/actions/runs/37588790879)
 passed tests and bootstrap. [Android run 37588790885](https://github.com/schiffy91/btrc/actions/runs/37588790885)
@@ -250,6 +252,34 @@ published or fully qualified. Hosted
 runs remain deliberately deferred to respect the shared CI capacity limit;
 cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open until
 required review and integrated gates prove the whole C2 change.
+
+**Stage 17 remains broader than PR65.** At local candidate `0a332665`, the
+23 recorded rows in `src/tests/btrc/fixtures/c_compat_probe/c2.toml` include
+three accepted positive cases (union declarations, flexible-array members and
+union typedefs), eight rejected positive cases, nine expected rejections and
+three known divergences. Typedef/anonymous-record forms, enum typedefs,
+designated initializers, compound literals and bitfields remain to be implemented; enum-tag behavior
+still has two recorded divergences. The remaining positive rank-2-array row
+belongs to Stage 18. D19 approves these constructs; their current rejection is
+an implementation gap, not a decision to refuse them. Union and FAM layout
+mirrors exist, while anonymous-member layout proof follows its implementation.
+The schema's historical `sizeof(Node) == 760` and +0.007% self-host peak result
+are recorded in `docs/design/claude-integration-record.md`, Batch 25. The final
+C2 integration still needs the memory comparison required by
+`docs/design/c-compatibility.md` under a quiet host, in addition to review and
+the full correctness matrix. The 360-check repair run does not prove those exits.
+
+`CL-REQ-10` (`e1bc5dfa`) remains unmerged after a blocking source review:
+`BtrccCompilerStack.run` marks its parent parked before `pthread_create`, while
+`ForkedWorkerPool.start` subtracts parked threads from its fork-safety count.
+The child can start before the parent reaches its join. Moreover, the
+[POSIX fork contract](https://pubs.opengroup.org/onlinepubs/9799919799/functions/fork.html)
+restricts a multithreaded fork's child to async-signal-safe operations until
+`exec`; these workers instead perform managed compilation directly. The added
+fixture explicitly marks a thread parked without parking it, so it proves only
+the accounting change. Replace that exemption with a safe large-stack startup
+strategy and a native handoff regression, preserving the branch's 2,000-term
+expression support, module-worker parallelism and collection-literal repairs.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -345,7 +375,7 @@ branches must also be checked before deletion; nothing is deleted by this plan.
 The later integration branches are tracked separately from that frozen inventory:
 `codex/harmonize-plan` is [PR60](https://github.com/schiffy91/btrc/pull/60)'s
 combined candidate, now adding Weston backport `5dbf80a1` and the current plan
-to `ad72af03`. The local gate stays on `ad72af03` until terminal completion. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
+to `ad72af03`. The local `ad72af03` matrix has completed successfully; later changes require their own qualification. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
 `codex/integrate-c2-arrays`, is published at `618e9ae1`; local candidate
 now combines `98b88440` (the three failure repairs, 360 passing focused checks
 and the `ad72af03` tree) with `56909225`'s Weston repair and the current plan.
@@ -389,7 +419,7 @@ qualification claim follows from that source comparison.
 | `stage17/c2-l2` | `2e65f7c6` | CL-C-13: fix declaration-vs-shadow diagnostic order and callee-first checks for interface/Atomic/Mutex receivers. |
 | `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
 | `stage18/req-ui2-dg` | `1cc97ab8` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
-| `stage18/req10-parity-gaps` | `e1bc5dfa` | CL-REQ-10: resolve map-literal inference/static storage and later-entry checks; preserve reviewed runtime fixes. |
+| `stage18/req10-parity-gaps` | `e1bc5dfa` | CL-REQ-10: preserve collection-literal and static-storage repairs, but replace the unsafe parked-thread fork exemption; retain deep-expression support and module-worker parallelism with native handoff proof. |
 | `stage18/req11-tuple-sizeof-recursion` | `271397d3` | CL-REQ-11: prove tuple indexing, sizeof retention and polymorphic-recursion termination in both compilers. |
 | `stage24/apple-standin-extraction` | `7b3d1195` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
 | `stage24/apple-standin-extraction-run` | `9c0d737d` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
@@ -708,9 +738,17 @@ owner, the exact prerequisite and the next acceptance.
   adds `-c` to isolate those frontend probes and adds a verbose object compile
   to distinguish diagnostic-output handling from linking. The focused evidence
   suite passed 35 tests and ten subtests, with one native-only skip, before and
-  after the change; lint, formatting and diff checks passed. Native results
-  for the corrected probes are pending in
-  [run 37595036759](https://github.com/schiffy91/btrc/actions/runs/37595036759).
+  after the change; lint, formatting and diff checks passed. Native
+  [run 37595036759](https://github.com/schiffy91/btrc/actions/runs/37595036759)
+  passed the cross-build and separate MSVC/wgpu lane, but the original GNU
+  probe still crashed with `0xC0000005` after 0.162 seconds. The actual CI merge
+  checkout is `5cfee395`. Object generation and overlay preprocessing passed.
+  Driver-plan and default-target syntax now exit 1 with `FileNotFound` after
+  compile-only operation; that does not establish that the existing input is
+  missing. Explicit-target syntax, verbose object compilation and linking still
+  crash. The verbose object probe retained 10,395 bytes of Clang command and
+  include-search diagnostics, with no stack trace. No full compiler execution
+  or bootstrap began, and the crash cause remains unproved.
   The qualification command, pinned toolchain, Job containment and deadlines
   are unchanged; diagnostic success cannot turn the original failure green.
   Updating this existing PR stays within the two-active-code-PR allowance.
@@ -1549,7 +1587,7 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
   - `ccompat-r19-comma-operator` (moved here from Stage 21)
   - `ccompat-r07-function-pointer-declarators`
   - `ccompat-c1-integrate`
-  - `ccompat-r18-preprocessor-conditionals` (C4, only if approved; after C1 integrates)
+  - `ccompat-r18-preprocessor-conditionals` (C4, approved by D19; after C1 integrates)
 - **Exit.**
   - Every C1 row is PASS in both compilers.
   - Raw IR is identical for braced and braceless bodies.
@@ -1562,7 +1600,7 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
     - a dead-branch import adds no edge
     - cache keys invalidate correctly
     - a quiet M11 re-measure shows no regression
-- **Depends on.** Stage 15. C4 follows only if approved (D18, D19).
+- **Depends on.** Stage 15. C4 follows C1 integration under D18 and D19.
 - **Parallelization: WORKFLOW, a serial first step, then 3 lanes.**
   1. **Serial.** r02 and r06 land as one shared `_parse_body` helper used by `_parse_for_stmt`, `_parse_if_stmt` and `_parse_while_stmt`, in both compilers.
   2. **Lanes.** Each does Python first, then the btrc port by the same agent in the same commit. Each lane builds its own btrcc under the semaphore.
@@ -1571,7 +1609,7 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
      - `wt/c1-sem`: r04.
   3. **Merge order:** refusal, r02/r06, r01, r05, r04, r03, r19, r07.
   4. **1 parity reviewer per construct** (semantics, diagnostics, ARC witnesses), reusing the lane's btrcc. C11 strictness is left to the gate.
-  5. **C4 (if approved), after `ccompat-c1-integrate`:**
+  5. **C4 (approved by D19), after `ccompat-c1-integrate`:**
      - spec and codegen, the only writer of the hosted-ABI generator
      - the Python evaluator
      - the btrc port
@@ -1587,20 +1625,20 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
   - `ccompat-r10-designated-init-compound-literals`
   - `ccompat-r13-flexible-array-members`
   - `ccompat-x-enum-tag-spelling`
-  - `ccompat-r12-bitfields` (only if D19 names a consumer; otherwise a documented refusal)
+  - `ccompat-r12-bitfields` (approved by D19, which names the probe battery and native headers as consumers)
   - `ccompat-c2-integrate`
 - **Exit.**
   - Approved C2 rows are PASS.
   - `sizeof` and `offsetof` match gcc and clang.
   - The flexible-array divergence and the misleading `{[2]=7}` diagnostic are gone.
-  - If bitfields land, no `&` is ever taken of one.
+  - No `&` is ever taken of a bitfield.
   - The memory delta is recorded.
 - **Parallelization: WORKFLOW.**
-  - 3 read-only spec drafters: unions, anonymous members and designators; flexible arrays; bitfields (if approved).
+  - 3 read-only spec drafters: unions, anonymous members and designators; flexible arrays; bitfields.
   - Then the serial schema commit, with 2 reviewers.
   - Then 2 lanes, because they share `ir/lowering/Aggregates.btrc`, Types and struct parsing:
     - **L1:** r09, then r08, then r10.
-    - **L2:** r13, then the enum-tag fix, then r12 if approved.
+    - **L2:** r13, then the enum-tag fix, then r12.
   - Merge order: r09, r08, r13, enum, r10, r12.
   - 1 parity reviewer per construct.
 
@@ -1608,7 +1646,6 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
 - **Items.** `ccompat-r17-multidimensional-arrays`.
 - **Exit.**
   - A 2D corpus passes through both compilers under strict C11, and the pinned rejection tests are inverted.
-  - If declined: a documented refusal is added in Stage 21.
 - **Parallelization: SERIAL first, then 2 lanes.**
   - The type representation and analyzer, then storage lowering, run serially on one branch.
   - After the representation lands, the GPU and the collections/iteration steps run in parallel, because their files are disjoint.
@@ -1623,7 +1660,7 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
   - `ccompat-r15d-alignment`
   - `ccompat-r16-wide-literals-long-double`
   - `ccompat-x-expression-stragglers`
-  - `ccompat-r14-variadic-definitions` (only if D19 names a consumer)
+  - `ccompat-r14-variadic-definitions` (approved by D19)
   - `ccompat-c3-integrate`
 - **Exit.**
   - Token vocabulary validates in both compilers, and the extension and LSP tests pass.
@@ -1637,7 +1674,7 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
     - r15d
     - r16 then the stragglers, by one agent (shared lexer)
     - r15a in the declarator lane
-    - r14 if approved
+    - r14
   - **Merge order:** r15b, r15c, r15d, r16, stragglers, r15a, then r14 as its own batch.
 - **Reconciled with Stage 20** (`c-vocabulary-specifiers.md`, `c-goto-labels.md`). The vocabulary commit reserves the goto design's schema at zero bytes: `GotoStmt(name, name_line, name_col)`, `LabelStmt(name)` (a label owns no statement), `IRGoto` and `IRLabel(falls_through)`. The pending-refusal tables hold no `goto` entry. The btrc lambda-termination parity commit (D-13) lands before this stage; r15b keeps the completion table and D-7's missing-return and lambda wording.
 
@@ -1646,7 +1683,6 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
 - **Exit.**
   - Every unsafe-path negative test gives identical diagnostics.
   - Positive cleanup programs are clean under the ARC witness.
-  - If declined: a documented refusal in Stage 21.
 - **Overlap.** It may **overlap Stage 19's r15c/r15d/r16 lanes**, rebasing after r15b (`_Noreturn` flow).
 - **Design** (`docs/design/c-goto-labels.md`).
   - `LabelStmt(name)` is a statement-list item that owns no statement; its schema lands in Stage 19's vocabulary commit.
@@ -2313,10 +2349,10 @@ Agent count is not the limit. Ultracode pays off where work is token-bound, read
 |---|---|
 | 14 | `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` |
 | 15 | `ccompat-c1-schema` |
-| 16 | `ccompat-r02-braceless-bodies`, `ccompat-r06-empty-statement`, `ccompat-r01-void-unnamed-params`, `ccompat-r05-adjacent-strings`, `ccompat-r04-char-array-string-init`, `ccompat-r03-multi-declarators`, `ccompat-r19-comma-operator` (moved from 21), `ccompat-r07-function-pointer-declarators`, `ccompat-c1-integrate`, `ccompat-r18-preprocessor-conditionals` (if approved, after C1; otherwise refused in 21) |
-| 17 | `ccompat-c2-schema`, `ccompat-r09-union-declarations`, `ccompat-r08-typedef-struct-anonymous-members`, `ccompat-r10-designated-init-compound-literals`, `ccompat-r12-bitfields` (only with a named consumer; otherwise refused), `ccompat-r13-flexible-array-members`, `ccompat-x-enum-tag-spelling`, `ccompat-c2-integrate` |
+| 16 | `ccompat-r02-braceless-bodies`, `ccompat-r06-empty-statement`, `ccompat-r01-void-unnamed-params`, `ccompat-r05-adjacent-strings`, `ccompat-r04-char-array-string-init`, `ccompat-r03-multi-declarators`, `ccompat-r19-comma-operator` (moved from 21), `ccompat-r07-function-pointer-declarators`, `ccompat-c1-integrate`, `ccompat-r18-preprocessor-conditionals` (approved by D19, after C1) |
+| 17 | `ccompat-c2-schema`, `ccompat-r09-union-declarations`, `ccompat-r08-typedef-struct-anonymous-members`, `ccompat-r10-designated-init-compound-literals`, `ccompat-r12-bitfields` (approved by D19), `ccompat-r13-flexible-array-members`, `ccompat-x-enum-tag-spelling`, `ccompat-c2-integrate` |
 | 18 | `ccompat-r17-multidimensional-arrays` |
-| 19 | `ccompat-c3-schema-vocabulary`, `ccompat-r15a-qualifiers-storage-classes`, `ccompat-r15b-inline-noreturn`, `ccompat-r15c-static-assert`, `ccompat-r15d-alignment`, `ccompat-r16-wide-literals-long-double`, `ccompat-x-expression-stragglers`, `ccompat-r14-variadic-definitions` (only with a named consumer), `ccompat-c3-integrate` |
+| 19 | `ccompat-c3-schema-vocabulary`, `ccompat-r15a-qualifiers-storage-classes`, `ccompat-r15b-inline-noreturn`, `ccompat-r15c-static-assert`, `ccompat-r15d-alignment`, `ccompat-r16-wide-literals-long-double`, `ccompat-x-expression-stragglers`, `ccompat-r14-variadic-definitions` (approved by D19), `ccompat-c3-integrate` |
 | 20 | `ccompat-r11-goto-labels` |
 | 21 | `ccompat-c5-docs-final` |
 
