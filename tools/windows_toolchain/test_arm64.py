@@ -187,6 +187,44 @@ class Arm64EvidenceTests(unittest.TestCase):
         build.assert_not_called()
         self.assertEqual(evidence.report["native_execution"], "not-run")
 
+    def test_tiny_build_crash_collects_bounded_diagnostics_and_still_fails(self):
+        evidence = Evidence(self.root, "zig")
+        with (
+            patch(
+                "tools.windows_toolchain.arm64.run_process",
+                side_effect=[
+                    Result(0, b"C frontend version\n", b"", False),
+                    Result(0xC0000005, b"", b"original crash", False),
+                    Result(0, b"", b"driver plan", False),
+                    Result(0xC0000005, b"", b"syntax crash", False),
+                    *[Result(0, b"diagnostic output", b"", False) for _ in range(4)],
+                ],
+            ) as execute,
+            self.assertRaisesRegex(RuntimeError, "toolchain-probe-build exited 3221225477"),
+        ):
+            evidence.probe_native_toolchain()
+        self.assertEqual(execute.call_count, 8)
+        self.assertEqual([call.kwargs["timeout"] for call in execute.call_args_list[2:]], [60] * 6)
+        self.assertEqual((self.root / "toolchain-probe-build.stderr").read_bytes(), b"original crash")
+        self.assertEqual((self.root / "diagnostic-native-syntax.stderr").read_bytes(), b"syntax crash")
+        self.assertEqual(list(evidence.report["c_frontend_diagnostics"]["failures"]), ["native-syntax"])
+        self.assertEqual(evidence.report["status"], "failed")
+        self.assertEqual(evidence.report["native_execution"], "not-run")
+
+    def test_tiny_build_diagnostic_error_preserves_the_original_failure(self):
+        evidence = Evidence(self.root, "zig")
+        with (
+            patch(
+                "tools.windows_toolchain.arm64.run_process",
+                side_effect=[Result(0, b"version", b"", False), Result(3, b"", b"build failed", False)],
+            ),
+            patch.object(evidence, "diagnose_c_frontend", side_effect=OSError("diagnostic write failed")),
+            self.assertRaisesRegex(RuntimeError, "toolchain-probe-build exited 3"),
+        ):
+            evidence.probe_native_toolchain()
+        self.assertEqual(evidence.report["c_frontend_diagnostics_error"], "diagnostic write failed")
+        self.assertEqual(evidence.report["status"], "failed")
+
     def test_timeout_retains_partial_output_and_step_metadata(self):
         evidence = Evidence(self.root, "zig")
         with (

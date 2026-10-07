@@ -198,3 +198,18 @@ separate stdout/stderr sentinels before the large compiler build begins. Each
 command records its elapsed duration. This distinguishes an early toolchain or
 stdio failure from one requiring the generated compiler input; it neither
 substitutes for bootstrap nor changes the compiler pin, flags or deadlines.
+
+At `f2476cc2`, [run 37584587972](https://github.com/schiffy91/btrc/actions/runs/37584587972)
+passed both version probes, 34 native Python tests and the separate MSVC/wgpu
+lane. The tiny C build exited with `0xC0000005` in 0.158 seconds and emitted no
+stderr, before compiler transpilation. The large generated input is therefore
+not required to reproduce the failure. Native GNU-route compilation and
+bootstrap remain unqualified.
+
+After a failed tiny build, six diagnostic commands now isolate the driver plan,
+native and explicit-target syntax checks, object generation, linking, and
+preprocessing with the Windows overlay. Each uses the same pinned Zig and Job
+owner with a 60-second limit inside the overall native deadline. Their results
+are diagnostic only; even if every diagnostic succeeds, the original build
+failure remains the qualification result. Native results for these additional
+diagnostics are pending.

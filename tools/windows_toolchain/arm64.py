@@ -159,17 +159,44 @@ $report | ConvertTo-Json -Depth 6
             "    return 0;\n}\n",
             encoding="utf-8",
         )
-        self.run(
-            [self.zig, "cc", "-v", "-target", TARGET, *FLAGS, source, "-o", binary, "-lm"],
-            "toolchain-probe-build",
-            timeout=240,
-        )
+        try:
+            self.run(
+                [self.zig, "cc", "-v", "-target", TARGET, *FLAGS, source, "-o", binary, "-lm"],
+                "toolchain-probe-build",
+                timeout=240,
+            )
+        except RuntimeError:
+            try:
+                self.diagnose_c_frontend(source)
+            except Exception as error:
+                self.report["c_frontend_diagnostics_error"] = str(error)
+            raise
         image = pe_arm64(binary)
         stdout = self.run([binary], "toolchain-probe-run", timeout=60)
         stderr = (self.output / "toolchain-probe-run.stderr").read_bytes()
         if stdout.splitlines() != [b"BTRC_TOOLCHAIN_STDOUT"] or stderr.splitlines() != [b"BTRC_TOOLCHAIN_STDERR"]:
             raise RuntimeError("native C toolchain probe did not preserve both output streams")
         self.report["native_toolchain_probe"] = {"status": "passed", "image": image}
+
+    def diagnose_c_frontend(self, source: Path) -> None:
+        """Isolate a failed tiny build without changing its qualification result."""
+        minimal = self.output / "minimal.c"
+        minimal.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+        probes = [
+            ("driver-plan", ["-###", minimal]),
+            ("native-syntax", ["-fsyntax-only", minimal]),
+            ("target-syntax", ["-target", TARGET, "-fsyntax-only", minimal]),
+            ("target-object", ["-target", TARGET, "-c", minimal, "-o", self.output / "minimal.o"]),
+            ("target-link", ["-target", TARGET, minimal, "-o", self.output / "minimal.exe"]),
+            ("overlay-preprocess", ["-target", TARGET, *FLAGS, "-E", source]),
+        ]
+        failures = {}
+        self.report["c_frontend_diagnostics"] = {"qualification": "not-run", "failures": failures}
+        for name, arguments in probes:
+            try:
+                self.run([self.zig, "cc", *arguments], f"diagnostic-{name}", timeout=60)
+            except RuntimeError as error:
+                failures[name] = str(error)
 
     def verify_cross(self, path: Path) -> None:
         data = path.read_bytes()
