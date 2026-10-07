@@ -73,7 +73,8 @@ with file contents and links verified, before the exact two images were removed.
 Recovery evidence is at `~/.cache/semu/recovery/cleanup-2026-10-07/`.
 The 01:45 BST recheck found **105.15 GB free (97.93 GiB)**, above the 80 GB
 implementation and 100 GB Stage 23 thresholds at that moment. Recheck at each
-stage start; this is not reserved capacity.
+stage start; this is not reserved capacity. The later repair-stage check found
+88 GiB free; the 100 GB Stage 23 threshold must be re-established before that stage.
 
 The active `podman-machine-default` is shared with SEMU: **8 CPUs, 28 GiB RAM,
 180 GiB virtual disk**. It and its containers/volumes were left intact. Do not
@@ -145,11 +146,29 @@ At `-O3`, both frontends' `c_compat/VariableLengthArrays.btrc` failed to compile
 with `-Werror=dangling-pointer`; the other 1,980 checks passed. The gate stopped
 there, before the four Clang configurations and final hygiene. Investigate
 actual VLA scope/lifetime before changing lowering; do not suppress the warning.
+The same warning now reproduces in a 20-line ordinary C11 program with an earlier
+inlined VLA function and a separate main-block VLA. Removing the prior call or
+making a captured bound volatile avoids it; neither is an accepted product fix.
+No runtime helper or btrc lowering is needed to reproduce it. GCC tree inspection
+is pending. The combined [Linux run 37570754386](https://github.com/schiffy91/btrc/actions/runs/37570754386)
+passed all eight strict-C11 configurations, including GCC `-O3`; its unit shard
+was still active when checked. The local Darwin GCC failure remains open.
 The combined hosted Windows workflow passed. Android's combined API 36 run
 failed as described below. No final green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
 pending their native failure investigations.
+
+The pending C2 tag integration has reproduced and repaired three paired managed
+union/formatting lookup omissions; 324 focused tests passed with a fresh compiler,
+followed by 1,385 parser/analyzer/LSP tests. Four further regressions then proved
+self-host-only acceptance of excess tagged-union initializers and incomplete
+records whose names collide with generic parameters. Their lookup repairs are
+under fresh qualification. A separate positive case remains broken in both
+compilers: a generic field `T` is mistaken for a forward record `T`, even when
+the explicit record is used only through a pointer. Preserve generic scope while
+checking record completeness. These findings keep `CL-C-09` open; narrow green
+suites do not qualify the whole C2 merge.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -516,7 +535,7 @@ owner, the exact prerequisite and the next acceptance.
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
-  locally validated head `d07d8ba9`). Owner: this authorized integration session.
+  locally validated head `9480f89f`). Owner: this authorized integration session.
   Main `87dd60d7` is merged into the branch; the tooling now uses the shared Windows Job/gate, target
   flags, PE parser and build-process owner. The overall native deadline,
   component-qualified Visual Studio discovery and separate developer-command
@@ -545,7 +564,14 @@ owner, the exact prerequisite and the next acceptance.
   Job/CIM regression before expensive compilation. Its portable suite passed
   27 tests with one native-only skip; lint/format/diff checks passed.
   [Run 37576400208](https://github.com/schiffy91/btrc/actions/runs/37576400208)
-  is qualifying that revision; no native compiler/bootstrap pass is claimed.
+  failed at the new report test: encoded PowerShell still exited zero without
+  JSON; the expensive compiler step did not run. Revision `9480f89f` launches
+  targets with `CREATE_NO_WINDOW` through the existing detached Job-owned gate,
+  preserving explicit streams and descendant cleanup. Its local Python 3.13
+  process suites passed 116 tests and eight subtests, with one native-only skip;
+  lint/format/diff passed. [Run 37578721489](https://github.com/schiffy91/btrc/actions/runs/37578721489)
+  must establish whether the change fixes native PowerShell and then qualify
+  the compiler. No native compiler/bootstrap pass is claimed.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
@@ -592,7 +618,7 @@ owner, the exact prerequisite and the next acceptance.
   provider. Afterwards: `CX-P1-08` (needs `CL-P1-17`, `CL-P1-13`, `CL-P1-16`),
   `REQUEST(CL-P1-17)` (protocol), `REQUEST(CL-P1-21)` (entry symbol).
 - **PR35, `CX-P1-05` Android host** (`codex/cx-p1-05`, locally validated head
-  `68c7b553`). Main `87dd60d7` is merged into the branch. SDK license handling and pinned archive package
+  `0c76ac27`). Main `87dd60d7` is merged into the branch. SDK license handling and pinned archive package
   registration are repaired; failed runs retain partial results and bounded
   guest diagnostics. Local transport/workflow checks pass (143 tests).
   API 36 passed all 28 shell/NativeActivity cases on 4 KiB pages in both
@@ -614,14 +640,18 @@ owner, the exact prerequisite and the next acceptance.
   candidate `18185f0b`, [run 37570754359](https://github.com/schiffy91/btrc/actions/runs/37570754359)
   passed API 29 but failed API 36 `app/large` after 22 successful checks. Logcat
   records NativeActivity destruction/recreation in the same process and an old
-  worker trying to finish a destroyed activity. The host currently starts a
-  worker for each activity creation, risking repeated fixture execution and
-  output truncation. A deterministic lifecycle regression is queued; the exact
-  output mismatch was not retained by the old report. The reporting omission
-  has a reproduced fix with three passing tests, preserving failed byte counts,
-  hashes, status and timing separately from passing rows. Native requalification
-  remains required. Neither later failure proves the earlier service failure's
-  cause.
+  worker trying to finish a destroyed activity. The actual C host failed a
+  deterministic lifecycle simulation by finishing a retired activity. Revision
+  `0c76ac27` gives the fixture process-owned execution/result state and a copied
+  sandbox path, with a mutex-protected live-activity registration. Recreation
+  during execution or after completion cannot rerun the fixture or truncate its
+  files. GCC and Clang strict-C11 `-O2` simulations pass using real threads,
+  fork and files; the host/workflow/skip-ledger matrix passed 204 tests. Failed
+  comparisons now retain byte counts, hashes, status and timing separately from
+  passing rows. [Run 37578476126](https://github.com/schiffy91/btrc/actions/runs/37578476126)
+  passed API 29; API 36 remains pending. Native requalification of both APIs
+  and integration into PR60 remain required. Neither later failure proves the
+  earlier service failure's cause.
   The i686 compatibility-builder issue (`REQUEST(CL-P1-02)`), ARM64 16 KiB
   execution and general in-process provider safety remain separate gaps.
 - **PR42, `CX-UIB-07` accessibility spike** (findings head `6d62e046`, docs CI
