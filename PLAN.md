@@ -1,6 +1,6 @@
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-07**. Read [AGENTS.md](AGENTS.md) first for architecture and
+Updated **2026-10-08**. Read [AGENTS.md](AGENTS.md) first for architecture and
 development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -121,9 +121,25 @@ The combined candidate `06c3923a` now includes that Apple merge, the current pla
 the runtime repair and the native button repair. Its fresh self-hosted compiler
 build, lint, formatting, generated-source and extension checks passed. The
 compiler SHA-256 is recorded with the source-pinned preparation evidence; the
-full behavioral/bootstrap/C11 matrix is now running serially on this frozen tree.
-The parallel suite has reported failures; preserve its complete inventory before
-repairing and requalifying. It has no passing result yet.
+full combined matrix stopped on October 7 at 17:54 UTC: **17 failed, 17,838
+passed, 168 skipped** in the parallel suite. Bootstrap and strict-C11 steps did
+not run after that failure. The 17 failures have three causes: 11 target-specific
+structure checks need the exact externally exercised `platformUnavailable`
+method recorded; five strict-import checks omit Python-owned BTRC fixtures and
+their generated table dependency; and the GUI discovery audit does not recognize
+the nested button fixture's exact root-relative path. The actual AppKit fixture
+already has the four native passes recorded below. Audit repair `3cf1b084` is now
+committed on the integration branch; it preserves exact-set coverage and adds
+omission/path regressions. Isolated checks
+against the read-only `06c3923a` tree reproduced exactly the 17 failed case names;
+the three repaired audit modules then passed all **186 checks**, with no skips or
+errors (70.81 seconds). Lint, formatting, patch applicability and independent
+review pass. These draft checks exclude the repository's root gate configuration
+and run no native/compiler builds. They do not replace the final matrix. The
+patched source matches the reviewed draft; normal repository qualification is
+the next gate.
+The failed matrix and skip inventory remain preserved under
+`combined-06c3923a`; the candidate has no passing full result.
 The Darwin Python/libffi repair `2e8e3711` now passes the actual callback smoke,
 46 build-safety checks and upstream CFFI's 1,888 checks (161 skips, four deselected,
 four expected failures). Its four-platform package evaluation also passed;
@@ -133,8 +149,9 @@ native-only skip and ten subtests. PR53's native run `37651593291` stopped befor
 compiler qualification: the test still expected nine diagnostic commands, while
 Windows correctly adds a tenth crash-location command. Fix `483e5bab` explicitly
 checks the Windows, macOS and Linux command sequences and bounds; its 36-test
-module has 35 passes and one native-only skip locally. Native rerun remains
-pending, and the underlying GNU ARM64 compiler crash is still unresolved. These repairs
+module has 35 passes and one native-only skip locally. The correction was
+published normally to PR53 at `483e5bab`; native Windows run `37701082806` is
+active. The underlying GNU ARM64 compiler crash remains unresolved. These repairs
 restore verification capability; they do not demonstrate compiler speed gains.
 The plan-reader modules passed 155 checks at `27417a89`.
 
@@ -145,7 +162,11 @@ presentation. The actual AppKit regression failed in all four configurations at
 reference/selfhost × plain/ASan+UBSan (four passes, no skips, 52.80 seconds).
 [PR66](https://github.com/schiffy91/btrc/pull/66), head `4f5c9b30`, contains the
 same provider/fixture/driver bytes and its evidence report. Hosted branch and
-final combined-tree gates remain open; the repair is not yet on main.
+final combined-tree gates remain open; the repair is not yet on main. PR66's nine
+failed CI jobs in run `37652762370` never started: each has the same GitHub runner
+acquisition failure and zero executed steps. Their qualification remains missing;
+rerun only those failed jobs. Executed native Mac GUI and Linux X11/Wayland lanes
+passed, along with bootstrap and the recorded successful shards.
 [PR67](https://github.com/schiffy91/btrc/pull/67) claims `CX-UIA-21`. Local source
 `ca4782e1` implements the approved 53 operations, values, facade and completion
 hook, plus portable fixtures and the final catalog fragment. Independent review
@@ -175,7 +196,7 @@ changes; historical test totals alone do not advance its status.
 | UI2 events, executor and lifecycle on desktop | Contracts approved; local `ca4782e1` has 26 paired native/sanitizer BackgroundJobs passes and 114 catalog passes; desktop providers and atomic landing remain open | UI2 interface owner, then platform owners | Continue with the desktop providers and real UI2 probe collectors; there is no compiler prerequisite. Reconcile overlapping repairs first, then land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
 | Windows and mobile application-facing services | Fixture-host results above; complete providers not delivered | Platform slice owners | Use the per-platform checkpoints below: real Windows SDK/service operation; iOS and Android file persistence; then native button/text field/lifecycle. Each waits only for its own demonstrated ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Main `adb3276f`, compiler pin `05ec9cb7`; current requalification open | BTRSmith owner and integrator | Qualify the compiler pin and frontend/library smoke, then complete the MVP screen journeys and build/runtime budgets. Windows/mobile library completion is not a prerequisite for the macOS/Linux MVP; later platform releases remain separate outcomes. |
-| One qualified implementation on main | Integration `06c3923a` reconciles the runtime, native button repair, Apple schema/tables and plan; fresh build/static/generated/extension checks pass; full combined qualification is running | Main integrator | Review bounded batches, qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
+| One qualified implementation on main | Integration `06c3923a` reconciles the runtime, native button repair, Apple schema/tables and plan; fresh build/static/generated/extension checks pass; full combined suite stopped with 17 failures, 17,838 passes and 168 skips; three audit repair drafts pass 186 isolated checks | Main integrator | Review bounded batches, qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
@@ -252,6 +273,17 @@ accounted for; it is not mechanically merged into production. Superseded patches
 are compared before disposition. A merged design is not an implemented provider,
 and a green hosted workflow is not physical-device qualification. No branch or
 issue is called complete merely because it applies without a Git conflict.
+
+### Execution access update (2026-10-08)
+
+The owner has prohibited new permission requests, including requests to use
+`gh`. Filesystem and network access are now enabled without approval prompts;
+continue authorized work with existing credentials and noninteractive commands.
+Never raise a permission or credential prompt. An action lacking usable access
+remains pending while independent work continues. The previously drafted audit
+repairs are now committed at `3cf1b084`; their isolated proof remains separate
+from the normal repository gate and main integration. Retain prior evidence and
+do not repeat a failed access request.
 
 ## Navigation
 
