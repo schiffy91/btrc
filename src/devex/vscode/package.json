@@ -166,6 +166,39 @@
           "default": true,
           "description": "When enabled, use a workspace shell.nix or flake.nix to run the language server in its pinned Nix environment. A local src/devex/lsp/.venv or an explicit btrc.pythonPath takes precedence. Disabling this setting bypasses Nix shell discovery but still permits workspace direnv."
         },
+        "btrc.target": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "android-aarch64",
+            "android-x86_64",
+            "ios-aarch64",
+            "ios-aarch64-simulator",
+            "linux-aarch64",
+            "linux-x86_64",
+            "macos-aarch64",
+            "macos-x86_64",
+            "windows-aarch64",
+            "windows-aarch64-msvc",
+            "windows-x86_64"
+          ],
+          "enumDescriptions": [
+            "The host this editor runs on.",
+            "The android-aarch64 target row.",
+            "The android-x86_64 target row.",
+            "The ios-aarch64 target row.",
+            "The ios-aarch64-simulator target row.",
+            "The linux-aarch64 target row.",
+            "The linux-x86_64 target row.",
+            "The macos-aarch64 target row.",
+            "The macos-x86_64 target row.",
+            "The windows-aarch64 target row.",
+            "The windows-aarch64-msvc target row.",
+            "The windows-x86_64 target row."
+          ],
+          "description": "The target the editor conditions #if regions and analyses for, as OS-ARCH[-ENV] (the compiler's --target). When empty, uses the host."
+        },
         "btrc.trace.server": {
           "type": "string",
           "enum": [
@@ -182,7 +215,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
-    "esbuild-test-modules": "esbuild ./src/language_server/launcher.ts ./src/language_server/session.ts ./src/debugger/launcher.ts ./src/runtime/process.ts ./src/runtime/python.ts --bundle --outbase=src --outdir=out --external:vscode --format=cjs --platform=node",
+    "esbuild-test-modules": "esbuild ./src/language_server/launcher.ts ./src/language_server/session.ts ./src/language_server/target.ts ./src/debugger/launcher.ts ./src/runtime/process.ts ./src/runtime/python.ts --bundle --outbase=src --outdir=out --external:vscode --format=cjs --platform=node",
     "compile": "node -e \"require('node:fs').rmSync('out',{recursive:true,force:true})\" && npm run esbuild-base",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && npm run compile && npm run esbuild-test-modules && node --test ../../../src/tests/vscode/*.test.js",

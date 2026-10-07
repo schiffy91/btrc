@@ -15,8 +15,10 @@ from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from src.compiler.python.abi.generated import GeneratedTargetRow
+from src.compiler.python.abi.hosted import TargetSelectionError
 from src.compiler.python.frontend.imports import ImportResolver
-from src.compiler.python.frontend.packages import IncludeResolutionError, ResolvedPackages
+from src.compiler.python.frontend.packages import IncludeResolutionError, PackageTarget, ResolvedPackages
 from src.compiler.python.frontend.sources import (
     ConditionalEnvironment,
     SourceConditionals,
@@ -29,6 +31,58 @@ from src.compiler.python.frontend.sources import (
 from src.compiler.python.syntax.ast.generated import Program
 from src.devex.lsp.workspace.cache import PackageResolutionCache, UnitCache, WorkspaceCache
 from src.devex.lsp.workspace.units import FileUnit
+
+# The row the editor analyses with on a host btrc does not target and no
+# ``btrc.target`` setting (platform-target-contract.md §1.7). Compiles never
+# use it, and conditioning keeps no target there, so D13 still reports a
+# file's first conditional.
+LSP_FALLBACK_TARGET = "linux-x86_64"
+
+
+@dataclass(frozen=True)
+class TargetSelection:
+    """The editor's target: what conditions files, what analyses, and why.
+
+    ``conditioning`` is ``None`` only on an unrecognized host with no valid
+    setting; ``analysis`` is then the fallback row. ``problems`` are the
+    workspace diagnostics: an invalid label, then an unknown host.
+    """
+
+    setting: str
+    conditioning: PackageTarget | None
+    analysis: GeneratedTargetRow
+    problems: tuple[str, ...]
+
+    @property
+    def resolution(self) -> PackageTarget:
+        """The target packages resolve for: the analysis row."""
+
+        return PackageTarget.from_row(self.analysis)
+
+    @classmethod
+    def resolve(cls, setting: object) -> TargetSelection:
+        """Select from a ``btrc.target`` value; empty (or unset) is the host."""
+
+        raw = "" if setting is None else str(setting)
+        problems: list[str] = []
+        target: PackageTarget | None = None
+        if raw:
+            try:
+                target = PackageTarget.parse(raw)
+            except TargetSelectionError as error:
+                problems.append(str(error))
+        if target is None:
+            try:
+                target = PackageTarget.parse(None)
+            except TargetSelectionError as error:
+                problems.append(str(error))
+        analysis = target.row if target is not None else PackageTarget.parse(LSP_FALLBACK_TARGET).row
+        return cls(
+            setting=raw,
+            conditioning=target,
+            analysis=analysis,
+            problems=tuple(problems),
+        )
 
 
 @dataclass
@@ -80,6 +134,7 @@ class Workspace:
         workspace_cache: WorkspaceCache | None = None,
         source_reader: SourceFileReader | None = None,
         directive_scanner: SourceDirectiveScanner | None = None,
+        target: object = None,
     ):
         self._cache = workspace_cache or WorkspaceCache()
         self._package_cache = package_cache or PackageResolutionCache()
@@ -89,11 +144,12 @@ class Workspace:
             source_reader=self._source_reader,
             directive_scanner=self._directives,
         )
-        # Files are conditioned for the host target. The environment is
-        # completed lazily, so on a host btrc does not target only a file with
-        # conditionals fails (D13), at its first evaluated conditional.
-        self._conditionals = SourceConditionals(ConditionalEnvironment.for_host())
-        self._unit_cache = unit_cache or UnitCache.from_environment()
+        # Files are conditioned for the selected target (``btrc.target``, else
+        # the host). The environment is completed lazily, so with no target
+        # only a file with conditionals fails (D13), at its first conditional.
+        self._target = TargetSelection.resolve(target)
+        self._conditionals = SourceConditionals(ConditionalEnvironment(self._target.conditioning))
+        self._unit_cache = (unit_cache or UnitCache.from_environment()).retargeted(self._conditionals.environment)
         self._imports = ImportResolver(
             self._stdlib,
             source_reader=self._source_reader,
@@ -104,6 +160,32 @@ class Workspace:
         # included paths -> AnalyzedProgram, LRU-capped (see _STDLIB_BASE_CACHE_MAX)
         self._stdlib_base_cache: OrderedDict[frozenset, object] = OrderedDict()
         self.overlay_provider = None  # Callable[[str], str | None]
+
+    @property
+    def target(self) -> TargetSelection:
+        return self._target
+
+    def set_target(self, setting: object) -> bool:
+        """Apply a ``btrc.target`` value; return whether analysis inputs changed.
+
+        A changed target rebuilds the lazy conditional environment, keys the
+        persistent unit cache for it, and drops every in-memory unit, stdlib
+        unit, stdlib base and snapshot conditioned or analysed for the old one.
+        The caller holds off analysis while this runs.
+        """
+
+        selection = TargetSelection.resolve(setting)
+        previous = self._target
+        self._target = selection
+        if (selection.conditioning, selection.analysis) == (previous.conditioning, previous.analysis):
+            return False
+        with self._stdlib_lock:
+            self._conditionals = SourceConditionals(ConditionalEnvironment(selection.conditioning))
+            self._unit_cache = self._unit_cache.retargeted(self._conditionals.environment)
+            self._stdlib_units = None
+            self._stdlib_base_cache.clear()
+            self._cache.clear()
+        return True
 
     def cached_units(self, root: str | None = None) -> list[FileUnit]:
         return self._cache.cached_units(root)
@@ -243,9 +325,9 @@ class Workspace:
         graph.ensure_source(active.path)
 
         try:
-            packages = self._package_cache.resolve_for(active.path)
+            packages = self._package_cache.resolve_for(active.path, self._target.resolution)
         except IncludeResolutionError as error:
-            packages = ResolvedPackages.empty()
+            packages = ResolvedPackages.empty(self._target.resolution)
             import_errors.append((1, str(error)))
 
         # An explicit stack keeps composition depth-first without host
@@ -324,13 +406,14 @@ class Workspace:
         """
         from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 
+        target = self._target.analysis
         base = self._stdlib_base(comp.stdlib)
         if base is None:
-            return SemanticAnalyzer(record_occurrences=True).analyze(comp.program)
+            return SemanticAnalyzer(record_occurrences=True, target=target).analyze(comp.program)
 
         # Record identifier resolutions for the user program only — the stdlib
         # base is analyzed separately (and cheaply) without recording.
-        analyzer = SemanticAnalyzer(record_occurrences=True, seed=base)
+        analyzer = SemanticAnalyzer(record_occurrences=True, seed=base, target=target)
 
         user_decls: list = []
         for u in comp.imported:
@@ -359,7 +442,7 @@ class Workspace:
             for u in stdlib:
                 decls.extend(u.decls)
             try:
-                base = SemanticAnalyzer().analyze(Program(declarations=decls))
+                base = SemanticAnalyzer(target=self._target.analysis).analyze(Program(declarations=decls))
             except Exception:
                 return None
             self._stdlib_base_cache[key] = base

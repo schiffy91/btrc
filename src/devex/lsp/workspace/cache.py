@@ -12,6 +12,7 @@ from weakref import WeakValueDictionary
 from src.compiler.python.frontend.packages import (
     IncludeResolutionError,
     PackageFileStore,
+    PackageTarget,
     PackageUniverse,
     ResolvedPackages,
 )
@@ -151,6 +152,16 @@ class UnitCache:
     def disabled(cls) -> UnitCache:
         return cls(None)
 
+    def retargeted(self, environment: ConditionalEnvironment) -> UnitCache:
+        """This cache directory keyed for ``environment``; other targets' entries stay unseen."""
+        return UnitCache(
+            self._directory,
+            unit_version=self._unit_version,
+            codec=self._codec,
+            file_store=self._file_store,
+            environment=environment,
+        )
+
     def entry_path(self, source: str) -> str | None:
         """Return the content-addressed path for one source snapshot."""
         if self._directory is None:
@@ -227,12 +238,14 @@ class PackageResolutionCache:
         self._manifest_locks: WeakValueDictionary[str, threading.Lock] = WeakValueDictionary()
         self._lock = threading.RLock()
 
-    def resolve_for(self, input_path: str) -> ResolvedPackages:
+    def resolve_for(self, input_path: str, target: PackageTarget | None = None) -> ResolvedPackages:
+        """Resolve for the workspace's target (the host's when unset); each target keeps its own entry."""
         manifest = self.manifest_for(input_path)
         if manifest is None:
-            return ResolvedPackages.empty()
-        key = os.path.normcase(os.path.realpath(manifest))
-        manifest_lock = self._manifest_lock(key)
+            return ResolvedPackages.empty(target)
+        manifest_key = os.path.normcase(os.path.realpath(manifest))
+        key = f"{target.label if target is not None else ''}:{manifest_key}"
+        manifest_lock = self._manifest_lock(manifest_key)
         with manifest_lock:
             for _attempt in range(self._STABLE_RESOLUTION_ATTEMPTS):
                 before = self._fingerprint(manifest)
@@ -241,7 +254,7 @@ class PackageResolutionCache:
                     if cached is not None and cached[0] == before:
                         self._entries.move_to_end(key)
                         return cached[1]
-                packages = self.resolver.resolve_for(input_path)
+                packages = self.resolver.resolve_for(input_path, target=target)
                 after = self._fingerprint(manifest)
                 if before != after:
                     continue
@@ -345,6 +358,12 @@ class WorkspaceCache:
             self.snapshot_cache.move_to_end(key)
             while len(self.snapshot_cache) > self._SNAPSHOT_CACHE_MAX:
                 self.snapshot_cache.popitem(last=False)
+
+    def clear(self) -> None:
+        """Drop every unit and snapshot, which a target change makes stale."""
+        with self._cache_lock:
+            self._file_cache.clear()
+            self.snapshot_cache.clear()
 
     def close_document(self, path: str) -> None:
         key = WorkspaceCache.path_identity(path)
