@@ -107,6 +107,8 @@ All four local reference/self-hosted × plain/sanitized variants passed, each wi
 focus under its existing input deadline. The native macOS release bundle and
 GUI job passed [run 37564440101](https://github.com/schiffy91/btrc/actions/runs/37564440101)
 at this head; the hosted GUI ledger records 339 passed and 67 skipped.
+Its full [Linux CI matrix 37564440031](https://github.com/schiffy91/btrc/actions/runs/37564440031)
+also passed, including bootstrap and all eight strict-C11 configurations.
 The local full pytest suite passed 17,038 tests with 169 skips, but its skip
 audit failed on eight unexpected Apple macro checks, so bootstrap did not run.
 Nix's SDK environment hid the installed required Xcode. Restoring the system
