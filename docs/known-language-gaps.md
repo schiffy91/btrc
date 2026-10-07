@@ -21,6 +21,14 @@ gap ID.
 | — | A collection literal in other value positions of a program without the class | A `var` initializer and a for-in iterable report `List literal needs the Vector class` (or `Map`) when no module declares the class. A literal in other value positions that becomes a collection, such as a lambda result (`() => [1, 2]`), a return, an argument, an assignment or a conditional for-in iterable (`for x in (c ? [1] : [2])`), is accepted by the reference compiler, whose C names an undeclared `btrc_Vector_*` type; `btrcc` rejects the conditional iterable with a for-in protocol diagnostic. A list or map literal argument to a `Set`, pointer or array parameter is accepted by `btrcc` with invalid C where the reference compiler rejects it. An empty first value in an inferred map literal (`{"a": [], "b": [1]}`) is inferred by the reference compiler and refused by `btrcc`. A literal argument's element errors are reported after its call's other argument errors in `btrcc`. Found by the `CL-REQ-10` reviews. | `python/analyzer/statements.py`, `btrc/analyzer/validation/ControlFlow.btrc` |
 | — | Collection literal typing left after `CL-REQ-10` | Both compilers check an inferred literal (one in no typed position) against its first element or entry, wherever it stands; that refuses `{"a": 1, "b": true}`, a null first entry (`{"a": null, "b": Point(1)}`, as `[null, Point(1)]` always was), and a literal mixing a type parameter with a concrete type in a generic body. A literal in a typed position is checked against that type instead. What remains: a declared ternary of two heterogeneous literals (`Vector<Animal> zoo = c ? [Dog(), Bird()] : [Bird()]`) is refused by both with `Ternary branches have incompatible types`, the reference compiler spelling the types `Vector<Dog*>*`, `btrcc` `Vector<Dog*>`; a typedef of a collection of collections (`typedef Map<string, Vector<double>> Table`) makes `btrcc` store the inner collection by value, and a collection of such a typedef (`Vector<Weights>`, `Map<string, Doubles>`) gives invalid C in both; an inferred global taking another global's address (`var p = &base;`) runs in the reference compiler and is `Unresolved identifier 'p'` in `btrcc`, and `var values = [];` or `var pair = ([1, 2], 3);` at file scope give different first diagnostics; an inferred map entry from a raw `char*` (`{"a": "x", "b": raw}`) fails in the reference compiler's IR without a location and is accepted by `btrcc`; numeric entries narrow silently to the first entry's type (`{"a": 'c', "b": 300}`), as an assignment does; a map literal's typed-position diagnostic reads `Return value value expects …` in both, and a positional argument is `Argument '1'` in `btrcc` and `Argument 1` in the reference compiler. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc`, `btrc/ir/lowering/Expressions.btrc` |
 | — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
+| — | `for`-in over an array a lambda captured | A lambda captures an array as a pointer, so `for (int v in captured)` inside it iterates the pointer's decayed shape (summing 3 where the array sums 45), in both compilers. `sizeof(captured)` there is refused instead (CL-REQ-11). | `python/ir/lowering`, `btrc/ir/lowering` lambda capture of arrays |
+| — | Tuple misuse that reaches C | `int x = w._0;` on an array of tuples, `(int)t` and `if (t)` on a tuple value are not refused; both compilers emit C that does not compile. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
+| — | `sizeof` of a name that is not a variable | `sizeof(LARGE)` for an enum constant, or `sizeof(gone)` for a variable out of scope, is read as a type name and emitted as written, so C reports an undeclared identifier, in both compilers. | `python/analyzer/aggregates.py`, `btrc/ir/lowering/Expressions.btrc` |
+| — | Shallow tuple elements of class type | A tuple stored in a class's array or field holds its class references without retaining them, so an element outlives an owner that dies first; and an indexed store does not retain its receiver while the right-hand side runs. Both compilers agree. | `python/ir/lowering/ownership.py`, `btrc/ir/lowering/ownership` |
+| — | A `Vector<Tree<T>>` field initializer in a generic class (btrcc) | `public Vector<Tree<T>> children = new Vector<Tree<T>>();` inside `class Tree<T>` is refused by btrcc (`expects 'Vector<Tree<T>*>' but got 'Vector<Tree<T>>*'`); the reference accepts it. | `btrc/analyzer/validation` field initializer typing |
+| — | A function-literal lambda in a generic class method (btrcc) | `var f = int function(int k) { ... };` inside a method of `class Box<T>` is refused by the reference ("Lambda expressions are not supported inside generic declarations") but compiled by btrcc, which scans its body under each specialization. | `btrc/analyzer/validation/Expressions.btrc` |
+| — | Uncalled methods of a generic class instance (btrcc) | btrcc specializes the generic-method calls in every method body of a generic class instance, called or not; the reference only in callables something uses. A growing call cycle through a method nothing calls is therefore refused by btrcc (`grows its own type arguments`) and accepted by the reference. | `btrc/analyzer/Generics.btrc` instance closure |
+| — | btrcc line numbers in importing programs | A diagnostic in a program that imports the stdlib reports a line counted across the prepended stdlib (516:12 where the reference says 5:12); messages and columns agree. | `btrc/frontend` source line mapping |
 
 ## Open native-platform defects
 
@@ -72,6 +80,20 @@ checks both shapes at 2,000 levels in both compilers.
 Exceptions carry string messages. A catch may be untyped or bind `string`; a
 different catch annotation is rejected explicitly. The stdlib error classes
 are ordinary values and do not introduce typed exception payloads.
+
+## Translation limits
+
+Generic specialization must end. A cycle of type-parameter uses that wraps a
+parameter (`class Chain<T>` with a field `Chain<(T, int)>?`, a generic method
+calling itself with `(item, depth)`, or two classes that specialize each other
+with a growing argument) is refused at the cycle's first growing use, with one
+diagnostic, in both compilers: `Generic class 'Chain' grows its own type
+arguments through this use, so its specializations never end`. As a
+backstop, a derived specialization whose type arguments nest deeper than 32
+levels (`limits.generic_argument_nesting` in `src/language/hosted_abi.toml`)
+is refused. Types a program writes out are not limited.
+[docs/language/translation-limits.md](language/translation-limits.md) states
+the rule.
 
 ## C that btrc rejects on purpose
 

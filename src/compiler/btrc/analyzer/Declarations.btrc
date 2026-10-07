@@ -92,6 +92,7 @@ class DeclarationRegistry {
 				if (d.type != null) {
 					self.analyzed.globalVarTypes.put(d.name, d.type);
 				}
+				if (d.initializer != null) { self.analyzed.globalInitializers.put(d.name, d.initializer); }
 				bool externOnly = d.type != null && d.type.isExtern && d.initializer == null;
 				if (!externOnly) { self.analyzed.globalHasDefinition.put(d.name, true); }
 			}

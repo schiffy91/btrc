@@ -470,6 +470,39 @@ class TypeIdentity:
     def reserved_prefix(self) -> str:
         return self._reserved_prefix
 
+    @staticmethod
+    def type_nesting_depth(type_expr: TypeExpr) -> int:
+        """Levels a type spells: 1 for ``int``, 2 for ``Vector<int>`` or ``int*``.
+
+        Each generic argument level, pointer level and array level counts."""
+        arguments = type_expr.generic_args or ()
+        deepest = max((TypeIdentity.type_nesting_depth(argument) for argument in arguments), default=0)
+        return 1 + type_expr.pointer_depth + int(type_expr.is_array) + deepest
+
+    @staticmethod
+    def ordinary_identifier(type_expr: TypeExpr | None) -> str | None:
+        """The name a parsed type spells when it is one bare identifier.
+
+        ``sizeof(x)`` parses ``x`` as a type name; C11 6.5.3.4 reads it as the
+        object when an ordinary identifier ``x`` is in scope, so the caller
+        checks the name against its own bindings."""
+        if (
+            type_expr is None
+            or type_expr.generic_args
+            or type_expr.pointer_depth
+            or type_expr.is_array
+            or type_expr.array_size is not None
+            or type_expr.elements
+            or type_expr.is_const
+            or type_expr.is_nullable
+            or type_expr.is_static
+            or type_expr.is_extern
+            or type_expr.is_volatile
+            or type_expr.array_pointer_depth
+        ):
+            return None
+        return type_expr.base
+
     @property
     def forbidden_generic_flags(self) -> tuple[tuple[str, str], ...]:
         return self._forbidden_generic_flags

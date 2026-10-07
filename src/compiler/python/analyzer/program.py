@@ -386,6 +386,20 @@ class DeclarationIndex:
     struct_definitions: dict[str, object] = field(default_factory=dict)
     definition_index: dict[str, tuple[object, str]] = field(default_factory=dict)
 
+    def declares_type_name(self, name: str) -> bool:
+        """Whether a class, struct, enum, interface or typedef is named ``name``."""
+        return any(
+            name in table
+            for table in (
+                self.class_table,
+                self.struct_table,
+                self.enum_table,
+                self.rich_enum_table,
+                self.interface_table,
+                self.typedef_table,
+            )
+        )
+
 
 @dataclass(frozen=True)
 class InitializerSlot:
@@ -444,6 +458,8 @@ class AnalyzedProgram:
     generic_method_call_args: dict[int, tuple] = field(default_factory=dict)
     function_table: dict[str, FunctionDecl] = field(default_factory=dict)
     global_var_types: dict[str, TypeExpr] = field(default_factory=dict)
+    # Each global's initializer, which completes an unsized array's extent.
+    global_initializers: dict[str, object] = field(default_factory=dict)
     defined_global_names: frozenset[str] = frozenset()
     native_owned_globals: frozenset[str] = frozenset()
     native_type_spellings: dict[str, str] = field(default_factory=dict)
@@ -465,6 +481,20 @@ class AnalyzedProgram:
     warnings: list[str] = field(default_factory=list)
     diags: list[Diag] = field(default_factory=list)
     occurrences: dict[int, Occurrence] = field(default_factory=dict)
+
+    def declares_type_name(self, name: str) -> bool:
+        """Whether a class, struct, enum, interface or typedef is named ``name``."""
+        return any(
+            name in table
+            for table in (
+                self.class_table,
+                self.struct_table,
+                self.enum_table,
+                self.rich_enum_table,
+                self.interface_table,
+                self.typedef_table,
+            )
+        )
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,26 @@
+class NullableChain<T> {
+	public NullableChain<T?>? next = null;
+
+	public int walk(int depth) {
+		if (depth == 0) { return 0; }
+		NullableChain<T?> child = new NullableChain<T?>();
+		return 1 + child.walk(depth - 1);
+	}
+}
+
+class NullableLeft<T> {
+	public NullableRight<T?>? next = null;
+}
+
+class NullableRight<T> {
+	public NullableLeft<T?>? next = null;
+}
+
+int main() {
+	NullableChain<int> chain = new NullableChain<int>();
+	NullableLeft<int> pair = new NullableLeft<int>();
+	print(chain.next == null);
+	print(pair.next == null);
+	print(chain.walk(3));
+	return 0;
+}

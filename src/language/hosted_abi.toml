@@ -7,6 +7,15 @@ schema_version = 2
 stdlib_source_marker = "compiler:stdlib"
 user_source_marker = "compiler:user"
 
+# Translation limits both compilers enforce, as C11 5.2.4.1 sets C's. A
+# specialization reached through recursive instantiation whose type arguments
+# nest deeper than this (counting generic, pointer and array levels) is
+# refused. It is a backstop: the compilers first refuse a cycle of type-
+# parameter uses that wraps a parameter (Chain<T> needing Chain<(T, int)>),
+# however many uses grow. Types a program writes out are not limited.
+[limits]
+generic_argument_nesting = 32
+
 [names]
 functions = [
   "GetFileAttributesA",

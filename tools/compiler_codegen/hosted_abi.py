@@ -162,6 +162,16 @@ class HostedAbiProvenanceSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class HostedAbiLimitsSpec:
+    """Translation limits both compilers enforce, like C11 5.2.4.1's."""
+
+    generic_argument_nesting: int
+
+    def canonical(self) -> dict[str, object]:
+        return {"generic_argument_nesting": self.generic_argument_nesting}
+
+
+@dataclass(frozen=True, slots=True)
 class HostedAbiManifest:
     """Validated authoritative hosted ABI shared by both compilers."""
 
@@ -169,12 +179,14 @@ class HostedAbiManifest:
 
     schema_version: int
     provenance: HostedAbiProvenanceSpec
+    limits: HostedAbiLimitsSpec
     names: HostedAbiNameSets
     platform: HostedAbiPlatformSets
     functions: tuple[HostedAbiFunctionSpec, ...]
 
-    _ROOT_KEYS = frozenset({"schema_version", "provenance", "names", "platform", "functions"})
+    _ROOT_KEYS = frozenset({"schema_version", "provenance", "limits", "names", "platform", "functions"})
     _PROVENANCE_KEYS = frozenset({"stdlib_source_marker", "user_source_marker"})
+    _LIMIT_KEYS = frozenset({"generic_argument_nesting"})
     _NAME_KEYS = frozenset(
         {
             "functions",
@@ -265,6 +277,12 @@ class HostedAbiManifest:
             user_source_marker=cls._FIELDS.string(provenance_table, "user_source_marker", "provenance"),
         )
 
+        limits_table = cls._FIELDS.table(document, "limits", "hosted ABI manifest")
+        cls._FIELDS.require_keys(limits_table, cls._LIMIT_KEYS, "limits")
+        limits = HostedAbiLimitsSpec(
+            generic_argument_nesting=cls._FIELDS.integer(limits_table, "generic_argument_nesting", "limits"),
+        )
+
         names_table = cls._FIELDS.table(document, "names", "hosted ABI manifest")
         cls._FIELDS.require_keys(names_table, cls._NAME_KEYS, "names")
         names = HostedAbiNameSets(
@@ -297,6 +315,7 @@ class HostedAbiManifest:
         manifest = cls(
             schema_version=schema_version,
             provenance=provenance,
+            limits=limits,
             names=names,
             platform=platform,
             functions=functions,
@@ -309,6 +328,7 @@ class HostedAbiManifest:
         payload = {
             "schema_version": self.schema_version,
             "provenance": self.provenance.canonical(),
+            "limits": self.limits.canonical(),
             "names": self.names.canonical(),
             "platform": self.platform.canonical(),
             "functions": [function.canonical() for function in self.functions],
@@ -399,6 +419,8 @@ class HostedAbiManifest:
         )
 
     def _validate(self, runtime: RuntimeManifest) -> None:
+        if self.limits.generic_argument_nesting < 1:
+            raise HostedAbiManifestError("limits.generic_argument_nesting must be at least 1")
         if self.provenance.stdlib_source_marker == self.provenance.user_source_marker:
             raise HostedAbiManifestError("hosted ABI provenance markers must be distinct")
         for marker in (
@@ -1345,6 +1367,7 @@ class HostedAbiCatalogGenerator:
             [
                 f"HOSTED_STDLIB_SOURCE_MARKER = {self._manifest.provenance.stdlib_source_marker!r}",
                 f"HOSTED_USER_SOURCE_MARKER = {self._manifest.provenance.user_source_marker!r}",
+                f"HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT = {self._manifest.limits.generic_argument_nesting}",
                 f"HOSTED_ABI_FINGERPRINT = {self._manifest.fingerprint!r}",
                 "",
             ]
@@ -1546,6 +1569,7 @@ class HostedAbiCatalogGenerator:
             "class GeneratedHostedAbiData {",
             "    public string stdlibSourceMarker;",
             "    public string userSourceMarker;",
+            "    public int genericArgumentNestingLimit;",
             "    public string fingerprint;",
             "    public string targetSpecFingerprint;",
             "    private Vector<GeneratedTargetRow>? targetRowsMemo = null;",
@@ -1585,6 +1609,7 @@ class HostedAbiCatalogGenerator:
                 "        self.stdlibSourceMarker = "
                 f"{GeneratedSourceStyle.btrc_string(self._manifest.provenance.stdlib_source_marker)};",
                 f"        self.userSourceMarker = {GeneratedSourceStyle.btrc_string(self._manifest.provenance.user_source_marker)};",
+                f"        self.genericArgumentNestingLimit = {self._manifest.limits.generic_argument_nesting};",
                 f"        self.fingerprint = {GeneratedSourceStyle.btrc_string(self._manifest.fingerprint)};",
                 f"        self.targetSpecFingerprint = {GeneratedSourceStyle.btrc_string(self._targets.fingerprint)};",
                 "    }",

@@ -12,6 +12,7 @@ from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES, Declarat
 from src.compiler.python.analyzer.types import (
     _RUNTIME_AGGREGATE_BASES,
     OperatorTypeError,
+    TypeIdentity,
 )
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.lexer.lexer import LiteralDecoder
@@ -1243,13 +1244,14 @@ class ExpressionAnalyzer:
     def infer_index_type(self, expression):
         object_type = self._infer_type(expression.obj)
         canonical = self.types.canonical_type(object_type)
-        if canonical and canonical.base in {"Vector", "List", "Array", "Set"} and (len(canonical.generic_args) == 1):
+        collection = canonical is not None and (not canonical.is_array)
+        if collection and canonical.base in {"Vector", "List", "Array", "Set"} and (len(canonical.generic_args) == 1):
             self.generics.record_class_method_use(
                 canonical,
                 "set" if self.session.analyzing_assignment_target else "get",
             )
             return canonical.generic_args[0]
-        if canonical and canonical.base == "Map" and (len(canonical.generic_args) == 2):
+        if collection and canonical.base == "Map" and (len(canonical.generic_args) == 2):
             self.generics.record_class_method_use(
                 canonical,
                 "set" if self.session.analyzing_assignment_target else "get",
@@ -2098,11 +2100,16 @@ class ExpressionAnalyzer:
             self._analyze_expr(expr.expr)
             self._validate_cast_expr(expr)
         elif isinstance(expr, SizeofExpr):
-            if isinstance(expr.operand, SizeofType):
-                self.generics.collect_type_instances(expr.operand.type)
-            elif isinstance(expr.operand, SizeofExprOp):
-                self._analyze_expr(expr.operand.expr)
-            self.aggregates.validate_sizeof_operand(expr)
+            value = self.sizeof_value_operand(expr)
+            if value is not None:
+                self._refuse_captured_array_sizeof(value)
+                self._analyze_expr(value)
+            else:
+                if isinstance(expr.operand, SizeofType):
+                    self.generics.collect_type_instances(expr.operand.type)
+                elif isinstance(expr.operand, SizeofExprOp):
+                    self._analyze_expr(expr.operand.expr)
+                self.aggregates.validate_sizeof_operand(expr)
         elif isinstance(expr, ListLiteral):
             for el in expr.elements:
                 self._analyze_expr(el)
@@ -2228,21 +2235,58 @@ class ExpressionAnalyzer:
         if inferred:
             self.session.record_node_type(expr, inferred)
 
+    def sizeof_value_operand(self, expression) -> Identifier | None:
+        """The object a ``sizeof(name)`` operand names when ``name`` is a binding in scope."""
+        operand = expression.operand
+        if not isinstance(operand, SizeofType):
+            return None
+        name = TypeIdentity.ordinary_identifier(operand.type)
+        symbol = None if name is None else self.session.scope.lookup(name)
+        if symbol is None:
+            return None
+        # A local binding hides any type of that name, as in C; a global does
+        # not hide a type parameter or a declared type (Map's sizeof(K) beside
+        # a user's global K measures the type).
+        if symbol is self.session.global_scope.lookup(name) and (
+            name in self.storage.active_type_parameters() or self.index.declares_type_name(name)
+        ):
+            return None
+        return Identifier(name=name, line=operand.type.line, col=operand.type.col)
+
+    def _refuse_captured_array_sizeof(self, value) -> None:
+        """A lambda captures an array as a pointer, so sizeof would measure the pointer."""
+        symbol = self.session.scope.lookup(value.name)
+        captured = symbol is not None and (
+            symbol.kind == "capture"
+            or any(outer.get(value.name) is symbol for outer, _captures in self.session.lambda_capture_contexts)
+        )
+        if captured and symbol.type is not None and symbol.type.is_array:
+            self.session.error(
+                f"sizeof cannot measure array '{value.name}' inside a lambda, which captures it as a pointer; "
+                "measure it outside the lambda",
+                value.line,
+                value.col,
+            )
+
     def _validate_index_expr(self, expression):
         object_type = self.types.canonical_type(self._infer_type(expression.obj))
         index_type = self._infer_type(expression.index)
         if object_type is None:
             return
-        if object_type.base == "Tuple":
+        if object_type.base == "Tuple" and not object_type.is_array and object_type.pointer_depth == 0:
             self.session.error(
                 "Tuple values are not dynamically indexable; use ._N fields", expression.line, expression.col
             )
             return
         expected_index = None
-        if object_type.base == "Map" and len(object_type.generic_args) == 2:
+        # An array of collections indexes its storage, not a collection.
+        collection = not object_type.is_array
+        if collection and object_type.base == "Map" and len(object_type.generic_args) == 2:
             expected_index = object_type.generic_args[0]
-        protocol = self.types.resolve_index_protocol(
-            object_type, active_type_params=self.storage.active_type_parameters()
+        protocol = (
+            self.types.resolve_index_protocol(object_type, active_type_params=self.storage.active_type_parameters())
+            if collection
+            else None
         )
         if expected_index is None and protocol is not None:
             assigning = self.session.analyzing_assignment_target

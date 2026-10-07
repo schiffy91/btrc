@@ -2164,8 +2164,57 @@ class ExpressionLowerer {
 		return IRNode.unary(op, operand, node.prefix);
 	}
 
+	/* Measure a global through its type, an array as element size times
+	 * extent, so a global used only inside sizeof stays unreferenced, as C
+	 * sees it, and is not an unneeded internal declaration. An array's extent
+	 * is lowered as its declaration lowers it, never copied from source text
+	 * (the reference's _sizeof_global). Null when the object must be measured. */
+	private IRNode? sizeofGlobal(string name, Map<string, Node> varTypes, CallableFlowState callableFlow) {
+		if (self.context.sourceLexicalBindings.has(name) || !self.analyzed.globalVarTypes.has(name)) { return null; }
+		Node binding = self.analyzed.globalVarTypes.get(name);
+		if (binding.arrayPointerDepth != 0 || binding.elements().len > 0) { return null; }
+		Node shape = TypeShape.copyWithoutArraySize(binding, binding.genericArgs());
+		shape.isStatic = false;
+		shape.isExtern = false;
+		if (!binding.isArray) { return IRNode.sizeofType(self.cTypes.lower(shape)); }
+		IRNode? extent = null;
+		if (binding.arraySize != null) {
+			extent = self.lowerExpr(binding.arraySize, varTypes, callableFlow);
+		} else if (self.analyzed.globalInitializers.has(name)) {
+			Node initializer = self.analyzed.globalInitializers.get(name);
+			if (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL) {
+				extent = IRNode.literal(Strings.fromInt(initializer.elements().len));
+			} else {
+				extent = self.stringArrayExtent(initializer);
+			}
+		}
+		if (extent == null) { return null; }
+		shape.isArray = false;
+		return IRNode.binary(IRNode.sizeofType(self.cTypes.lower(shape)), "*", IRNode.cast("size_t", extent));
+	}
+
 	public IRNode lowerSizeof(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node operand = node.operand;
+		/* sizeof(x) measures the object x when x is a binding, not a type
+		 * (C11 6.5.3.4); lowering the name keeps its C spelling and its use. */
+		string valueName = operand != null && operand.kind == NK_SIZEOF_TYPE ? TypeIdentity.ordinaryIdentifier(operand.type) : "";
+		bool lexicalValue = valueName != "" && self.context.sourceLexicalBindings.has(valueName) && varTypes.has(valueName);
+		/* A global hides neither a type parameter of the specialization being
+		 * lowered nor a declared type, as the reference decides. */
+		bool globalValue = valueName != "" && !lexicalValue && self.analyzed.globalVarTypes.has(valueName) && !self.context.activeTypeMap.has(valueName) && !self.analyzed.declaresTypeName(valueName);
+		if (lexicalValue || globalValue) {
+			IRNode? throughType = self.sizeofGlobal(valueName, varTypes, callableFlow);
+			if (throughType != null) { return throughType; }
+			Node value = Node();
+			value.kind = NK_IDENTIFIER;
+			value.name = valueName;
+			value.line = operand.type.line;
+			value.col = operand.type.col;
+			self.context.unevaluatedDepth = self.context.unevaluatedDepth + 1;
+			IRNode measured = self.lowerExpr(value, varTypes, callableFlow);
+			self.context.unevaluatedDepth = self.context.unevaluatedDepth - 1;
+			return IRNode.sizeofExpression(measured);
+		}
 		if (operand != null && operand.kind == NK_SIZEOF_TYPE) {
 			Node resolvedOperand = self.cTypes.resolveBodyType(operand.type, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 			string operandC = self.cTypes.lower(resolvedOperand);

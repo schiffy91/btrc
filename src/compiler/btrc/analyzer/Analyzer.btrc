@@ -49,7 +49,7 @@ class SemanticAnalyzer {
 		self.declarations = DeclarationRegistry(self.analysis, hostedAbi);
 		self.operators = OperatorSemantics(self.analysis);
 		self.expressions = ExpressionTypeResolver(self.analysis, hostedAbi, self.operators, self.types, self.declarations);
-		self.generics = GenericSpecializer(self.analysis, self.operators, self.expressions);
+		self.generics = GenericSpecializer(self.analysis, self.operators, self.expressions, hostedAbi.genericArgumentNestingLimit());
 		self.generics.useRecords(self.validationRecords);
 		self.gpu = GpuSemantics(self.analysis, hostedAbi, self.expressions);
 		self.managedValues = ManagedValueSemantics(self.analysis);

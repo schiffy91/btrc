@@ -1,0 +1,33 @@
+// sizeof names a global that nothing else uses: scalar, inferred, string,
+// character array and class-reference globals. Each is measured through its
+// type, so dead-code elimination may drop the global without leaving the
+// emitted C an undeclared name.
+
+class Point {
+	public int x = 0;
+	public int y = 0;
+}
+
+var rowProbeLiteral = 3000000000;
+long longGlobal = 7;
+double doubleGlobal = 1.5;
+string label = "abc";
+char name[] = "hello";
+Point? origin = null;
+var inferredDouble = 2.5;
+var inferredText = "xyz";
+
+int main() {
+	int failures = 0;
+	if (sizeof(rowProbeLiteral) != sizeof(long)) { failures = failures + 1; }
+	if (sizeof(longGlobal) != sizeof(long)) { failures = failures + 1; }
+	if (sizeof(doubleGlobal) != sizeof(double)) { failures = failures + 1; }
+	if (sizeof(label) != sizeof(char*)) { failures = failures + 1; }
+	if (sizeof(name) != sizeof(char) * (size_t)6) { failures = failures + 1; }
+	if (sizeof(origin) != sizeof(void*)) { failures = failures + 1; }
+	if (sizeof(inferredDouble) != sizeof(double)) { failures = failures + 1; }
+	if (sizeof(inferredText) != sizeof(char*)) { failures = failures + 1; }
+	print(f"failures {failures}");
+	if (failures == 0) { print("PASS: test_sizeof_scalar_globals"); }
+	return failures;
+}

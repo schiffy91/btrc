@@ -171,6 +171,11 @@ class SemanticAnalyzer:
                 for name, declaration in self.index.global_declarations.items()
                 if declaration.type is not None
             },
+            global_initializers={
+                name: declaration.initializer
+                for name, declaration in self.index.global_declarations.items()
+                if getattr(declaration, "initializer", None) is not None
+            },
             defined_global_names=frozenset(self.index.global_definitions),
             native_type_spellings={
                 declaration.alias: declaration.source_file.type_spelling

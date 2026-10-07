@@ -294,6 +294,19 @@ integrated compiler regressions, Linux limits and deep-expression parity remain
 unrun. Static checks and generated-source verification passed; no qualification
 or main landing is claimed. Keep the C2 baseline gate independent of this draft.
 
+`CL-REQ-11` is now merged into the local REQ-10 candidate for qualification.
+Its tuple-array indexing, `sizeof` binding/retention and generic-termination
+changes preserve the C2 flexible-array diagnostics at their merge conflicts.
+Source review reproduced a false rejection in the original branch: applying
+`T?` repeatedly stabilizes, but its parsed pointer layer was marked as growing.
+Both compilers now distinguish that nullable layer from a growing `T*?`
+constructor. Three accepting parity probes, one rejecting probe, and a runnable
+nullable-cycle corpus cover the repair. All 127 analyzer-battery probes match
+their expected results through the reference compiler; the new corpus also
+transpiles. This is reference-only evidence: self-hosted parity, native corpus
+execution and the final integrated matrix remain pending. Generated catalogs
+were regenerated from the merged specs, retaining C2 data.
+
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
 | Stages 1–4 | Pre-flight history, Stage 2 fixes, measurement harness and extensive stdlib drift repairs landed. Daemon failures were races/zombie handling, not a deadline to relax. | Disk headroom restored; finish Mac and BTRSmith requalification and pin; reconcile residual findings before closing Stage 4. |

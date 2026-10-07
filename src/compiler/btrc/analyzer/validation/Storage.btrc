@@ -1104,6 +1104,8 @@ class StorageValidator {
 	}
 
 	class Node? indexedMethod(Node objectType, string name, Analyzed analyzed) {
+		/* An array of collections indexes its storage, not a collection. */
+		if (objectType.isArray) { return null; }
 		if (analyzed.isGenericClass(objectType.base) && objectType.pointerDepth <= 1) {
 			return analyzed.genericClassMethod(objectType.base, name);
 		}
@@ -1146,7 +1148,7 @@ class StorageValidator {
 	}
 
 	public Node? indexResultTypeInState(Node? objectType) {
-		if (objectType == null || objectType.base == "Tuple") { return null; }
+		if (objectType == null || (objectType.base == "Tuple" && !objectType.isArray && objectType.pointerDepth == 0)) { return null; }
 		if (SemanticTypeSystem.isString(objectType)) {
 			Node character = SemanticTypeSystem.primitive("char");
 			character.isConst = objectType.isConst;
@@ -1195,7 +1197,7 @@ class StorageValidator {
 			TypeValidator.fail("Cannot determine whether expression is indexable", expression);
 		}
 		Node concreteObject = objectType;
-		if (concreteObject.base == "Tuple") {
+		if (concreteObject.base == "Tuple" && !concreteObject.isArray && concreteObject.pointerDepth == 0) {
 			TypeValidator.fail("Tuple values are not dynamically indexable; use ._N fields", expression);
 		}
 		bool rawIntegral = SemanticTypeSystem.isString(concreteObject) || concreteObject.isArray || self.rawIndexedPointerInState(concreteObject);
