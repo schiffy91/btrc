@@ -72,7 +72,7 @@ def test_unchanged_manifest_reuses_workspace_package_resolution(tmp_path, monkey
     first = workspace.compose(workspace.parse_active(str(active), source))
     assert [unit.path for unit in first.imported] == [str(module)]
 
-    def unexpected_resolution(_input_path):
+    def unexpected_resolution(_input_path, target=None):
         raise AssertionError("warm keystroke re-resolved unchanged packages")
 
     monkeypatch.setattr(
@@ -94,7 +94,7 @@ def test_package_resolution_retries_when_manifest_changes_during_save(tmp_path, 
     core = pkg.PackageUniverse()
     monkeypatch.setattr(core, "find_manifest", lambda _start: str(manifest))
 
-    def resolve(_input_path):
+    def resolve(_input_path, target=None):
         calls.append(manifest.read_text())
         if len(calls) == 1:
             manifest.write_text("[dependencies]\nfresh = '../fresh'\n")
@@ -129,7 +129,7 @@ def test_package_resolution_never_caches_repeatedly_changing_inputs(tmp_path, mo
     core = pkg.PackageUniverse()
     monkeypatch.setattr(core, "find_manifest", lambda _start: str(manifest))
 
-    def unstable(_input_path):
+    def unstable(_input_path, target=None):
         calls.append(len(calls) + 1)
         manifest.write_text(f"[dependencies]\ndep = '../version-{len(calls)}'\n")
         return pkg.ResolvedPackages(
@@ -214,7 +214,7 @@ def test_workspace_package_resolution_cache_is_lru_bounded(tmp_path, monkeypatch
     monkeypatch.setattr(
         core,
         "resolve_for",
-        lambda input_path: pkg.ResolvedPackages.empty(),
+        lambda input_path, target=None: pkg.ResolvedPackages.empty(target),
     )
     resolver = package_resolution.PackageResolutionCache(core)
 
