@@ -1,0 +1,18 @@
+Weston: retain the view-list assertion only when the surface has views.
+
+Backport of upstream f3e30e4692f02f3d6183a3c88b5ac59c9a8b610a to 15.0.1.
+https://gitlab.freedesktop.org/wayland/weston/-/commit/f3e30e4692f02f3d6183a3c88b5ac59c9a8b610a
+Mirror: https://github.com/wayland-mirror/weston/commit/f3e30e4692f02f3d6183a3c88b5ac59c9a8b610a
+Author: Derek Foreman <derek.foreman@collabora.com>
+
+The headless Wayland shard hit surface-state.c:282 while restoring native
+windows. With no views, weston_view_geometry_dirty is never called and need
+not set view_list_needs_rebuild. Keep the assertion for surfaces with views.
+Regression: src/tests/native/gui/shell/probes/linux/UnmappedSubsurface.c.
+
+--- a/libweston/surface-state.c
++++ b/libweston/surface-state.c
+@@ -282 +282,2 @@ weston_surface_apply_subsurface_order(struct weston_surface *surface)
+-	weston_assert_true(comp, comp->view_list_needs_rebuild);
++	if (!wl_list_empty(&surface->views))
++		weston_assert_true(comp, comp->view_list_needs_rebuild);
