@@ -204,14 +204,18 @@ claim Apple execution on Linux.
 ## Hosted simulator qualification
 
 The lane workflow now exists at
-[host-ios.yml](../../../.github/workflows/host-ios.yml). Refreshing this branch
-onto current main activates its simulator job because the host directory is
-present. Native results remain pending until that job executes successfully.
-This packet changes only `tools/target_hosts/ios/**`; it adds no runner-core,
-skip-manifest or tier fragment.
+[host-ios.yml](../../../.github/workflows/host-ios.yml). The host directory
+activates its simulator job. The workflow now uses the
+standard `xcode-27` image, whose [published inventory](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)
+includes Xcode 27A266a and iOS 27.0. This advances the hosted lane from its old
+Xcode 16.4 stand-in to D21's pinned toolchain; it does not assert that changing
+the image fixes the old runner's observed pressure. The image is currently a
+public preview, and its native matrix must qualify before acceptance.
 
-The macos-15 job records `xcodebuild -version` and
-`xcrun simctl list -j`, then uses an available Python >= 3.13 to run:
+The job selects `/Applications/Xcode_27.app/Contents/Developer` through its
+own `DEVELOPER_DIR`, verifies the exact Xcode build, and records the selected
+simctl path, simulator SDK version and complete runtime inventory. A different
+build fails before fixture compilation. It then uses Python 3.13 to run:
 
 ```sh
 python3 -m unittest tools.target_hosts.ios.test_executor -v
@@ -242,9 +246,10 @@ If the CI owner uses matrix pytest jobs instead, the matching `ci/tiers.toml`
 fragment and expected-skip/report policy remain its responsibility. Regular
 docs/lane CI does not discover these standalone tests or run a simulator.
 
-The runner's Xcode version is stand-in provenance, not the owner's pinned
-27A266a. Runtime selection chooses the newest installed available iOS >= 17;
-it does not prove the iOS 17 deployment-floor runtime, which remains a separate
+The hosted toolchain must match 27A266a. The execution results keep their
+existing `stand-in` designation because hosted hardware and runtime coverage
+are not the entire acceptance matrix. Runtime selection chooses the newest
+installed available iOS >= 17; it does not prove the iOS 17 deployment-floor runtime, which remains a separate
 MAC-P1-02 question. iPhone and iPad results share the ios family and record
 device_class. Physical devices and UI/IME/accessibility proof are outside this
 spike and remain D8-gated.
