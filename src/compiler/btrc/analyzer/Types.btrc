@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import ../frontend/Models.btrc;
 import ../syntax/Identity.btrc;
 import ../syntax/Types.btrc;
 import ./Models.btrc;
@@ -504,10 +505,7 @@ class SemanticTypeSystem {
      * the underlying shape so operators, members, calls, and generic arguments all
      * see one semantic type domain. */
 
-	class void typedefSemanticFail(string message, Node site) {
-		fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
-		exit(1);
-	}
+	class void typedefSemanticFail(string message, Node site) { FeDiagnosticSources.fail(message, site.line, site.col); }
 
 	class Node composeTypedefType(Node useType, Node originalType) {
 		if (useType.isArray && originalType.isArray) {

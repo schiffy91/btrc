@@ -407,7 +407,7 @@ class CallAnalyzer:
             actual = self.type_of(argument)
             if actual and (not self.types.types_compatible(expected, actual)):
                 self.session.error(
-                    f"Argument {index} to '{name}()' expects '{self.types.format_type(expected)}' but got '{self.types.format_type(actual)}'",
+                    f"Argument {index} to '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
                     getattr(argument, "line", expression.line),
                     getattr(argument, "col", expression.col),
                 )
@@ -586,7 +586,11 @@ class CallAnalyzer:
                     argument_col,
                 )
             )
-            if self.ownership.validate_callable_value(expected, argument, argument_line, argument_col):
+            # No callable value is a class or interface handle, so the type
+            # mismatch below is its diagnostic, whatever the callable captures.
+            if not self._object_handle_parameter(expected) and self.ownership.validate_callable_value(
+                expected, argument, argument_line, argument_col
+            ):
                 continue
             if self._contextualize_collection_argument(
                 expected, argument, f"Argument '{params[param_index].name}' to '{name}()'", argument_line, argument_col
@@ -610,7 +614,7 @@ class CallAnalyzer:
             compatible = actual and self.types.types_compatible(expected, actual)
             if actual and (not compatible):
                 self.session.error(
-                    f"Argument '{params[param_index].name}' to '{name}()' expects '{self.types.format_type(expected)}' but got '{self.types.format_type(actual)}'",
+                    f"Argument '{params[param_index].name}' to '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
                     argument_line,
                     argument_col,
                 )
@@ -620,6 +624,16 @@ class CallAnalyzer:
             self.ownership.validate_callable_value(
                 None, argument, getattr(argument, "line", line), getattr(argument, "col", col)
             )
+
+    def _object_handle_parameter(self, expected) -> bool:
+        """Whether a parameter takes exactly one class or interface handle."""
+        canonical = self.types.canonical_type(expected)
+        return (
+            canonical is not None
+            and canonical.pointer_depth == 1
+            and not canonical.is_array
+            and (canonical.base in self.index.class_table or canonical.base in self.index.interface_table)
+        )
 
     def _validate_callable_target(self, call) -> None:
         callee = call.callee
@@ -901,7 +915,7 @@ class CallAnalyzer:
             actual = self.type_of(arg)
             if actual and (not self.types.types_compatible(expected, actual)):
                 self.session.error(
-                    f"Argument {index} to '{name}()' expects '{self.types.format_type(expected)}' but got '{self.types.format_type(actual)}'",
+                    f"Argument {index} to '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
                     getattr(arg, "line", line),
                     getattr(arg, "col", col),
                 )
@@ -1545,7 +1559,7 @@ class CallAnalyzer:
                 and (not self.types.types_compatible(expected, actual))
             ):
                 self.session.error(
-                    f"Argument {index + 1} to hosted function '{name}()' expects '{self.types.format_type(expected)}' but got '{self.types.format_type(actual)}'",
+                    f"Argument {index + 1} to hosted function '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
                     getattr(argument, "line", call.line),
                     getattr(argument, "col", call.col),
                 )

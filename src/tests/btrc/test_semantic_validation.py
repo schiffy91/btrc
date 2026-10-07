@@ -429,7 +429,7 @@ def test_type_name_shadowing_uses_instance_member_lookup(
         ),
         (
             "class A { public int value; public int value; } int main() { return 0; }",
-            "Duplicate member 'A.value'",
+            "Duplicate field 'value' in class 'A'",
         ),
         (
             "class Base { public int run(int value) { return value; } } "

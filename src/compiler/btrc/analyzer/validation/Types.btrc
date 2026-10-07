@@ -5,10 +5,12 @@ import Library.Strings;
 import Library.Vector;
 
 import ../../generated/ast/Node.btrc;
+import ../../frontend/Models.btrc;
 import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
 import ../Expressions.btrc;
+import ../Generics.btrc;
 import ../GPU.btrc;
 import ../Models.btrc;
 import ../Operators.btrc;
@@ -102,10 +104,7 @@ class TypeValidator {
 
 	class bool scalarVoid(Node? typeExpr) { return typeExpr != null && typeExpr.base == "void" && typeExpr.pointerDepth == 0 && !typeExpr.isArray && typeExpr.genericArgs().len == 0; }
 
-	class void fail(string message, Node site) {
-		fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
-		exit(1);
-	}
+	class void fail(string message, Node site) { FeDiagnosticSources.fail(message, site.line, site.col); }
 
 	/* Explain a tuple literal flowing into a non-tuple (D19 row 19): btrc reads
 	 * a parenthesized comma list as a tuple; C's comma operator exists only in
@@ -121,8 +120,7 @@ class TypeValidator {
 	class void failAtName(string message, Node declaration) {
 		int line = declaration.nameLine != 0 ? declaration.nameLine : declaration.line;
 		int col = declaration.nameLine != 0 ? declaration.nameCol : declaration.col;
-		fprintf(stderr, "error: %s at %d:%d\n", message, line, col);
-		exit(1);
+		FeDiagnosticSources.fail(message, line, col);
 	}
 
 	class Map<string, Node> cloneTypes(Map<string, Node> source) {
@@ -997,57 +995,7 @@ class TypeValidator {
 
 	public bool explicitCTag(string base) { return base.startsWith("struct ") || base.startsWith("enum ") || base.startsWith("union "); }
 
-	public bool atomicPayload(Node? typeExpr) {
-		Node? canonical = self.resolveAliases(typeExpr);
-		if (canonical == null || canonical.isArray || canonical.isNullable || canonical.genericArgs().len > 0) {
-			return false;
-		}
-		if (canonical.pointerDepth > 0) {
-			return canonical.base != "string" && canonical.base != "Atomic" && canonical.base != "Span" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base) && !self.state.analyzed.isInterface(canonical.base);
-		}
-		if (canonical.isConst || canonical.isVolatile) { return false; }
-		return canonical.base == "bool" || canonical.base == "int" || canonical.base == "signed" || canonical.base == "signed int" || canonical.base == "uint" || canonical.base == "unsigned" || canonical.base == "unsigned int";
-	}
-
-	private bool realtimePodInner(Node? typeExpr, Map<string, bool> visiting) {
-		Node? canonical = self.resolveAliases(typeExpr);
-		if (canonical == null || canonical.isArray || canonical.isNullable) {
-			return false;
-		}
-		if (canonical.pointerDepth > 0) {
-			return canonical.base != "string" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base) && !self.state.analyzed.isInterface(canonical.base);
-		}
-		if (canonical.base == "__realtime_fn_ptr") { return true; }
-		if (canonical.genericArgs().len > 0) { return false; }
-		if (canonical.base == "bool" || NumericSemantics.isType(canonical, self.state.analyzed) || self.state.analyzed.isEnum(canonical.base)) {
-			return true;
-		}
-		string name = canonical.base;
-		name = SemanticTypeSystem.recordTagName(name);
-		if (visiting.has(name) || !self.state.analyzed.structTable.has(name)) {
-			return false;
-		}
-		Node declaration = self.state.analyzed.structTable.get(name);
-		if (declaration.isForward) { return false; }
-		/* Every union member is a plain C value (unionMemberBlocker). */
-		if (declaration.isUnion) { return true; }
-		Map<string, bool> nested = self.cloneFlags(visiting);
-		nested.put(name, true);
-		Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
-		int fieldIndex = 0;
-		while (fieldIndex < declarationFields.len) {
-			Node? payload = self.resolveAliases(declarationFields.get(fieldIndex).type);
-			if (payload != null && payload.isArray) {
-				if (payload.arraySize == null || payload.isNullable) { return false; }
-				payload = TypeShape.withoutOuterArray(payload);
-			}
-			if (!self.realtimePodInner(payload, nested)) {
-				return false;
-			}
-			fieldIndex = fieldIndex + 1;
-		}
-		return true;
-	}
+	public bool atomicPayload(Node? typeExpr) { return RealtimePayloadRules.atomicPayload(typeExpr, self.state.analyzed); }
 
 	/* Why a union cannot hold typeExpr, or an empty answer for a plain C
 	 * value. A union cannot tell which member is live, so its members are
@@ -1117,10 +1065,7 @@ class TypeValidator {
 		}
 	}
 
-	public bool realtimePod(Node? typeExpr) {
-		Map<string, bool> visiting = {};
-		return self.realtimePodInner(typeExpr, visiting);
-	}
+	public bool realtimePod(Node? typeExpr) { return RealtimePayloadRules.pod(typeExpr, self.state.analyzed); }
 
 	/* The struct with a flexible array member that typeExpr stores by value
 	 * (directly or as array storage), or "". */

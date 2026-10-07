@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.syntax.tokens import TokenVocabulary
+from src.tests.btrc.diagnostic_harness import rendered_at_file
 from src.tests.btrc.parser_driver_harness import DRIVER_SOURCES, REPO
 from src.tests.btrc.parser_driver_harness import selfhost_drivers as selfhost_drivers
 from src.tests.c_toolchains import configured_c_compiler, host_c_compiler
@@ -113,8 +114,12 @@ def test_invalid_program_stops_at_parser_boundary(
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert result.stderr == expected
-    assert str(program) not in result.stderr
+    if driver == "compiler":
+        # The compiler reports at the file's position, as the reference does.
+        assert result.stderr == rendered_at_file(program, source, expected.removeprefix("error: ").removesuffix("\n"))
+    else:
+        assert result.stderr == expected
+        assert str(program) not in result.stderr
 
 
 def test_valid_program_still_crosses_both_boundaries(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
@@ -361,8 +366,10 @@ def test_macro_replacement_rejects_language_callable_alias(
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert result.stderr == (
-        "error: Language callable 'retained_target' requires semantic call "
+    assert result.stderr == rendered_at_file(
+        program,
+        program.read_text(),
+        "Language callable 'retained_target' requires semantic call "
         "analysis and cannot be referenced from macro replacement "
-        "'CALL_TARGET' at 1:1\n"
+        "'CALL_TARGET' at 1:1",
     )

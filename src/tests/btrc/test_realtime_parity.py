@@ -111,7 +111,7 @@ def test_transitive_failure_has_the_same_effect_and_path(
     assert expected in reference.stderr
     assert expected in selfhost.stderr
     assert ":1:19" in reference.stderr
-    assert "at 1:19" in selfhost.stderr
+    assert ":1:19" in selfhost.stderr
 
 
 def test_call_through_a_global_function_pointer_is_indirect_in_both_compilers(

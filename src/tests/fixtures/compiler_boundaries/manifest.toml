@@ -1295,9 +1295,9 @@ channel = "stderr"
 baseline_path = "baseline/semantic-error.btrc.diagnostics.stderr.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/semantic-error.btrc.diagnostics.stderr.bin"
-accepted_sha256 = "f00c60233745eaab14522e9032ed3908d31dfdd485b41f87de03456fb4db4d7c"
-reason = "Stage 4 analyzer-parity lane (PLAN.md D14): btrcc reports an unresolved value identifier with the reference compiler's wording, \"Unresolved identifier 'x' used as a value\", instead of \"Unknown identifier 'x'\"."
-regressions = ["src/tests/btrc/test_driver_frontend_parity.py", "src/tests/btrc/test_analyzer_parity_battery.py", "src/tests/btrc/test_generated_symbol_call_boundary.py"]
+accepted_sha256 = "93707a550f366c3fbaadb521bad34da76fcab33b2a1e2278f8051df8b60a9401"
+reason = "CL-REQ-UI2-G (D14): btrcc renders a positioned error as the reference compiler does, at its own file's position with the source line and caret, so this stderr is now byte-identical to the reference's; earlier, Stage 4 aligned the wording \"Unresolved identifier 'x' used as a value\"."
+regressions = ["src/tests/btrc/test_driver_frontend_parity.py", "src/tests/btrc/test_analyzer_parity_battery.py", "src/tests/btrc/test_generated_symbol_call_boundary.py", "src/tests/btrc/test_diagnostic_position_parity.py"]
 
 [[records]]
 id = "strict-import-error.python.diagnostics.status"

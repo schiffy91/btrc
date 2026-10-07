@@ -93,7 +93,8 @@ def _reference_position(output: str) -> str:
 
 
 def _selfhost_position(output: str) -> str:
-    return output.split(" at ", 1)[1].split()[0]
+    # btrcc renders the position as the reference does.
+    return _reference_position(output)
 
 
 PROGRAMS = {

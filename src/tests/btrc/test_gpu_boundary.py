@@ -15,6 +15,7 @@ import pytest
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.btrc.diagnostic_harness import diagnostic_identity
 from src.tests.btrc.gpu_stub_harness import CC, FIXTURES, REPO, compile_with_stub, run_in_repo
 from src.tests.c_toolchains import host_c_compiler
 from src.tests.process_limits import TRANSPILE_TIMEOUT
@@ -1099,7 +1100,8 @@ def test_array_parameter_return_diagnostics_match_reference(
 
     assert reference.errors == [diagnostic]
     assert selfhost.returncode == 1
-    assert f"error: {diagnostic}" in selfhost.stderr
+    message, line, col = diagnostic_identity(selfhost.stderr)
+    assert f"{message} at {line}:{col}" == diagnostic
 
 
 @pytest.mark.parametrize("frontend", ["python", "btrc"])
@@ -1988,6 +1990,8 @@ def test_float_remainder_assignment_fails_closed(
     source.write_text("@gpu void invalid(float[] xs) { int i = gpu_id(); xs[i] %= 2.0; } int main() { return 0; }")
     result = run_in_repo([str(btrcc_driver), "--no-stdlib", str(source)], timeout=120)
     assert result.returncode == 1
-    assert (
-        "error: @gpu function 'invalid': remainder assignment target must be int, got 'float' at 1:51" in result.stderr
+    assert diagnostic_identity(result.stderr) == (
+        "@gpu function 'invalid': remainder assignment target must be int, got 'float'",
+        1,
+        51,
     )

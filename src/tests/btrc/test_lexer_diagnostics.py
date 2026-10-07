@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.diagnostic_harness import rendered_at_file
 from src.tests.c_toolchains import configured_c_compiler, host_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
@@ -142,8 +143,12 @@ def test_invalid_input_fails_closed_at_every_driver(
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert result.stderr == f"error: {diagnostic}\n"
-    assert str(program) not in result.stderr
+    if driver == "compiler":
+        # The compiler reports at the file's position, as the reference does.
+        assert result.stderr == rendered_at_file(program, source, diagnostic)
+    else:
+        assert result.stderr == f"error: {diagnostic}\n"
+        assert str(program) not in result.stderr
 
 
 def test_fstring_interpolation_lexing_is_deferred_to_the_parser(
@@ -180,7 +185,11 @@ def test_invalid_fstring_interpolation_propagates_sublexer_failure(
     assert result.returncode == 1
     assert result.stdout == ""
     # The interpolation is lexed at its own position in the file.
-    assert result.stderr == "error: Unexpected character '$' at 1:28\n"
+    diagnostic = "Unexpected character '$' at 1:28"
+    if driver == "compiler":
+        assert result.stderr == rendered_at_file(program, program.read_text(), diagnostic)
+    else:
+        assert result.stderr == f"error: {diagnostic}\n"
 
 
 def test_valid_literal_tokens_remain_reference_identical(

@@ -139,7 +139,8 @@ def test_spawn_capture_diagnostic_names_the_spawn(semantic_btrcc: Path, tmp_path
     reference, _ = compile_reference_snippet(tmp_path, source, "spawn-capture-position")
     assert selfhost.returncode != 0 and reference.returncode != 0
     assert (
-        f"spawn cannot capture array storage through 'zs'; copy it into a scalar-only struct or managed collection at 1:{column}"
+        "error: spawn cannot capture array storage through 'zs'; copy it into a scalar-only struct or managed collection"
         in selfhost.stderr
     )
+    assert f":1:{column}" in selfhost.stderr
     assert f":1:{column}" in reference.stderr

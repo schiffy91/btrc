@@ -555,21 +555,26 @@ class NameValidator {
 	}
 
 	public void validateClassMemberDuplicates(Node declaration) {
-		Map<string, Node> members = {};
-		int index = 0;
-		while (index < declaration.members().len) {
-			Node member = declaration.members().get(index);
-			/* Fields/properties and methods occupy separate source namespaces:
-             * `map.keys` names the backing field while `map.keys()` names the
-             * collection method.  Reject duplicates within either namespace. */
-			string namespace = "value:";
-			if (member.kind == NK_METHOD_DECL) { namespace = "method:"; }
-			string key = namespace + member.name;
-			if (members.has(key)) {
-				TypeValidator.fail("Duplicate member '" + declaration.name + "." + member.name + "'", member);
+		/* Fields, methods and properties are each their own namespace:
+		 * `map.keys` names the backing field while `map.keys()` names the
+		 * collection method. A property shares its name with neither. */
+		Map<string, string> kinds = {};
+		Map<string, bool> declared = {};
+		for member in declaration.members() {
+			string kind = "field";
+			if (member.kind == NK_METHOD_DECL) { kind = "method"; }
+			if (member.kind == NK_PROPERTY_DECL) { kind = "property"; }
+			if (declared.has(kind + ":" + member.name)) {
+				TypeValidator.fail("Duplicate " + kind + " '" + member.name + "' in class '" + declaration.name + "'", member);
 			}
-			members.put(key, member);
-			index = index + 1;
+			declared.put(kind + ":" + member.name, true);
+			if (kinds.has(member.name)) {
+				string existing = kinds.get(member.name);
+				if (existing != kind && (existing == "property" || kind == "property")) {
+					TypeValidator.fail("Member '" + member.name + "' in class '" + declaration.name + "' is declared as both " + existing + " and " + kind, member);
+				}
+			}
+			kinds.put(member.name, kind);
 		}
 	}
 
