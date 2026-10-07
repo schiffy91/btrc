@@ -63,13 +63,13 @@ Drive under the gate lock, with the qualified dev environment and native SDK
 configuration:
 
 ```sh
-python3 -m pytest -q src/tests/python/test_background_jobs_runtime.py::test_completion_ready_subscription --compilers=both
+python3 -m pytest -q src/tests/python/test_background_jobs_runtime.py::test_completion_ready_subscription src/tests/python/test_background_jobs_runtime.py::test_completion_ready_explicit_retry --compilers=both
 python3 -m pytest -q src/tests/python/test_background_jobs_runtime.py --compilers=both
 python3 -m pytest -q src/tests/python/test_ui0_catalog.py
 python3 -m tools.qualification.ui_catalog check
 ```
 
-The first command collects both compilers and plain/sanitized variants. Existing
+The first command collects eight cases: two regressions, both compilers and plain/sanitized variants. Existing
 BackgroundJobs conformance and failure-recovery checks cover the changed queue
 path. CX-UIA-22/23 must admit the portable GUI fixture modules through their real
 native drivers and complete the approved plain/sanitized E-case matrix. This
@@ -111,3 +111,21 @@ Apply these additional hunks at CL-UIA-14, without changing frozen IDs:
 - No source recovery or environment rebuild was needed for this interface packet.
 
 Source freeze: 2026-10-07T16:43:25.270020+00:00; native qualification remains pending.
+
+
+### Explicit native retry regression follow-up
+
+The final hook reviewer confirmed the sticky COMPLETE and RETRYABLE_FAILURE
+source fixes, then identified missing deterministic error-path coverage. The
+parent authorized extending the existing test-only NativeThreadFaults header,
+control enum and C interceptor. `CompletionReadyRetry.btrc` now injects EINVAL
+on exactly one trylock call; three polls must keep RETRYABLE_FAILURE without
+calling native retirement, while explicit cancel retries and completes. Later
+cancel/poll calls must keep COMPLETE without another trylock. The corresponding
+pytest case uses the real worker executor and existing native-binding package,
+with both frontends and plain/sanitized variants. No production source or
+runtime hook was changed by this follow-up. Native execution remains pending.
+
+The unpushed pre-reorder branch tip is retained by the local recovery tag
+`archive/cx-uia-21-before-retry-reorder`; the catalog fragment remains the final
+commit after the new test commit. The tag is local and was not pushed.

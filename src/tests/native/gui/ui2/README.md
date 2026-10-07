@@ -12,6 +12,7 @@ ASan/UBSan; label injected native input and host suspension as stand-in evidence
 | `Lifecycle.btrc` | E29 stable move/stale revision; E31 alias teardown; E35 retained image/closed alias; E39 detach; E46 stale save/cancel/no-handler; two-axis scroll | Native mutation rollback/quarantine, resource/drain counts and fatal off-executor case; two-window native close/quit; native image publication/close race |
 | `Executor.btrc` | E04/E40 ordered publication bursts 4095/4096/4097/8193; E30 cancel/defer/replace in injected host suspension | Real worker producer/publisher lifetime; native input/rendering fairness, bounded service gaps and close start; tracking/modal trials and declared monotonic clock |
 | `FacadeHost.btrc` | Real-provider host cancellation clears the facade slot, permits reinitialization and rejects a duplicate host | AppKit/SDL host fixture drivers |
+| `CompletionReadyRetry.btrc` | Injected native trylock EINVAL, repeated poll without native retry, explicit cancel retry to sticky COMPLETE | `test_background_jobs_runtime.py::test_completion_ready_explicit_retry`, paired frontends and plain/sanitized builds |
 | `BackgroundCompletionReady.btrc` | Actual worker wake/owner cancellation barrier; late subscription; level readiness across partial drain; stale token isolation; close | Admitted by `test_background_jobs_runtime.py::test_completion_ready_subscription`, paired frontends and plain/sanitized builds |
 
 `UI2Events` retains owning snapshots so assertions run after dispatch.
