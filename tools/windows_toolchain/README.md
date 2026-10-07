@@ -206,10 +206,19 @@ stderr, before compiler transpilation. The large generated input is therefore
 not required to reproduce the failure. Native GNU-route compilation and
 bootstrap remain unqualified.
 
-After a failed tiny build, six diagnostic commands now isolate the driver plan,
-native and explicit-target syntax checks, object generation, linking, and
-preprocessing with the Windows overlay. Each uses the same pinned Zig and Job
-owner with a 60-second limit inside the overall native deadline. Their results
-are diagnostic only; even if every diagnostic succeeds, the original build
-failure remains the qualification result. Native results for these additional
-diagnostics are pending.
+At `0423088d`, [run 37589160851](https://github.com/schiffy91/btrc/actions/runs/37589160851)
+again failed the tiny build before compiler transpilation. Its six diagnostic
+commands passed object generation and Windows-overlay preprocessing, but the
+driver-plan, two syntax and link commands crashed without output. These results
+do not yet distinguish frontend failure from link setup: the verified
+[Zig 0.16.0 source archive](https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz)
+shows `src/main.zig` defaulting `c_out_mode` to `.link`; forwarding `-###` or
+`-fsyntax-only` to Clang does not select object mode.
+
+The driver-plan and syntax diagnostics now also specify `-c`. A verbose object
+compile separately checks diagnostic output without requesting a linked image.
+The ordinary object, link and overlay-preprocessing probes remain. Each of the
+seven commands uses the same pinned Zig and Job owner with a 60-second limit
+inside the overall native deadline. Their results are diagnostic only; even if
+every diagnostic succeeds, the original build failure remains the qualification
+result. Native results for the corrected probes are pending.

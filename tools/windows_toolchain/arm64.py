@@ -182,11 +182,17 @@ $report | ConvertTo-Json -Depth 6
         """Isolate a failed tiny build without changing its qualification result."""
         minimal = self.output / "minimal.c"
         minimal.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+        # Zig 0.16 selects link mode unless -c/-S/-E changes c_out_mode;
+        # forwarding -### or -fsyntax-only to Clang does not change that mode.
         probes = [
-            ("driver-plan", ["-###", minimal]),
-            ("native-syntax", ["-fsyntax-only", minimal]),
-            ("target-syntax", ["-target", TARGET, "-fsyntax-only", minimal]),
+            ("driver-plan", ["-c", "-###", minimal]),
+            ("native-syntax", ["-c", "-fsyntax-only", minimal]),
+            ("target-syntax", ["-target", TARGET, "-c", "-fsyntax-only", minimal]),
             ("target-object", ["-target", TARGET, "-c", minimal, "-o", self.output / "minimal.o"]),
+            (
+                "verbose-object",
+                ["-v", "-target", TARGET, "-c", minimal, "-o", self.output / "minimal-verbose.o"],
+            ),
             ("target-link", ["-target", TARGET, minimal, "-o", self.output / "minimal.exe"]),
             ("overlay-preprocess", ["-target", TARGET, *FLAGS, "-E", source]),
         ]

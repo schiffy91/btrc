@@ -197,14 +197,14 @@ class Arm64EvidenceTests(unittest.TestCase):
                     Result(0xC0000005, b"", b"original crash", False),
                     Result(0, b"", b"driver plan", False),
                     Result(0xC0000005, b"", b"syntax crash", False),
-                    *[Result(0, b"diagnostic output", b"", False) for _ in range(4)],
+                    *[Result(0, b"diagnostic output", b"", False) for _ in range(5)],
                 ],
             ) as execute,
             self.assertRaisesRegex(RuntimeError, "toolchain-probe-build exited 3221225477"),
         ):
             evidence.probe_native_toolchain()
-        self.assertEqual(execute.call_count, 8)
-        self.assertEqual([call.kwargs["timeout"] for call in execute.call_args_list[2:]], [60] * 6)
+        self.assertEqual(execute.call_count, 9)
+        self.assertEqual([call.kwargs["timeout"] for call in execute.call_args_list[2:]], [60] * 7)
         self.assertEqual((self.root / "toolchain-probe-build.stderr").read_bytes(), b"original crash")
         self.assertEqual((self.root / "diagnostic-native-syntax.stderr").read_bytes(), b"syntax crash")
         self.assertEqual(list(evidence.report["c_frontend_diagnostics"]["failures"]), ["native-syntax"])
