@@ -100,8 +100,12 @@ repairs the separate button-input timing failure: all four original binaries
 failed serially, and all four repaired variants passed after one deferred poll.
 An independent native AppKit control reproduced the local seven private
 framework survivors without BTRC and without growth over 100 cycles; the
-measured comparison is being qualified before replacing the older one-object
-allowance. The full final matrix and other branch/issue resolutions remain open.
+measured comparison now replaces the older fixed allowance in `92c51bb2`.
+All four local reference/self-hosted × plain/sanitized variants passed, each with
+100 shell cycles, 100 independent control cycles and 100 fresh-process restores;
+33 validation tests also passed. The second text-field edit now awaits actual
+focus under its existing input deadline. Hosted qualification and the full
+final matrix remain pending, along with other branch/issue resolutions.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -427,7 +431,7 @@ owner, the exact prerequisite and the next acceptance.
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
-  validated head `957126d6`). Owner: this authorized integration session.
+  locally validated head `bd36d38b`). Owner: this authorized integration session.
   Main is merged; the tooling now uses the shared Windows Job/gate, target
   flags, PE parser and build-process owner. The overall native deadline,
   component-qualified Visual Studio discovery and separate developer-command
@@ -436,8 +440,11 @@ owner, the exact prerequisite and the next acceptance.
   passed the Linux cross-build and native MSVC/wgpu probe: MSVC 19.51.36260,
   SDK 10.0.26100.0, Clang 22.1.8, strict-C11 hello, instance creation and adapter
   callback (adapter present). Native tooling passed 22/23 checks; the Windows
-  missing-executable diagnostic omitted its filename. That repair is in
-  progress. The failed tooling step prevented compiler/bootstrap execution.
+  missing-executable diagnostic omitted its filename. The repair preserves the
+  executable identity alongside the OS error; 190 tests and eight subtests
+  passed locally. The earlier failed tooling step prevented compiler/bootstrap
+  execution. [Current run 37564453309](https://github.com/schiffy91/btrc/actions/runs/37564453309)
+  is qualifying the repair.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
@@ -458,19 +465,25 @@ owner, the exact prerequisite and the next acceptance.
   fixtures do not qualify arbitrary descendants or the eventual in-process
   provider. Afterwards: `CX-P1-08` (needs `CL-P1-17`, `CL-P1-13`, `CL-P1-16`),
   `REQUEST(CL-P1-17)` (protocol), `REQUEST(CL-P1-21)` (entry symbol).
-- **PR35, `CX-P1-05` Android host** (`codex/cx-p1-05`, validated head
-  `c9fb6571`). Main is merged. SDK license handling and pinned archive package
+- **PR35, `CX-P1-05` Android host** (`codex/cx-p1-05`, locally validated head
+  `68c7b553`). Main is merged. SDK license handling and pinned archive package
   registration are repaired; failed runs retain partial results and bounded
-  guest diagnostics. Local transport/workflow checks pass (139 tests).
+  guest diagnostics. Local transport/workflow checks pass (143 tests).
   API 36 passed all 28 shell/NativeActivity cases on 4 KiB pages in both
   [run 37557518213](https://github.com/schiffy91/btrc/actions/runs/37557518213)
   and [run 37560687135](https://github.com/schiffy91/btrc/actions/runs/37560687135).
   The first API 29 run lost package/activity services. The later run passed
   25/28 cases before `am start -W` timed out although the activity had already
-  completed its create/resume/destroy lifecycle. A repair makes terminal-result
-  polling independent of displayed-window acknowledgement; it still needs
-  native qualification. Neither observation proves the earlier service failure's
-  cause. Next acceptance: both API 29 and API 36 complete, preserving fresh
+  completed its create/resume/destroy lifecycle. Removing the display wait in
+  `f1cbf0db` passed all 28 API 29 cases in
+  [run 37563205491](https://github.com/schiffy91/btrc/actions/runs/37563205491),
+  but API 36 then failed after 21 cases because startup spent the one-second
+  fixture timeout. The latest native ready/start handshake separates bounded
+  launch readiness from the unchanged fixture execution budget.
+  [Run 37564454274](https://github.com/schiffy91/btrc/actions/runs/37564454274)
+  is qualifying both APIs at the same revision. Neither later failure proves
+  the earlier service failure's cause. Next acceptance: both API 29 and API 36
+  complete at the current head, preserving fresh
   sandboxes, cleanup, stream/status checks and boot/install/launch timings.
   The i686 compatibility-builder issue (`REQUEST(CL-P1-02)`), ARM64 16 KiB
   execution and general in-process provider safety remain separate gaps.
