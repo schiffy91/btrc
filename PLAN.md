@@ -104,8 +104,10 @@ measured comparison now replaces the older fixed allowance in `92c51bb2`.
 All four local reference/self-hosted × plain/sanitized variants passed, each with
 100 shell cycles, 100 independent control cycles and 100 fresh-process restores;
 33 validation tests also passed. The second text-field edit now awaits actual
-focus under its existing input deadline. Hosted qualification and the full
-final matrix remain pending, along with other branch/issue resolutions.
+focus under its existing input deadline. The native macOS release bundle at
+this head passed [run 37564440101](https://github.com/schiffy91/btrc/actions/runs/37564440101);
+its native GUI job and the local full matrix remain pending, along with other
+branch/issue resolutions.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -247,7 +249,7 @@ issue’s current acceptance before changing or closing it.
 | [#17](https://github.com/schiffy91/btrc/issues/17) | Feature: implement or drop the reserved keywords (override, goto, auto, register) | Paired compiler regression and relevant C/IR stage |
 | [#16](https://github.com/schiffy91/btrc/issues/16) | Feature: btrcc -o <file> and --emit-c, instead of C on stdout | Paired compiler regression and relevant C/IR stage |
 | [#15](https://github.com/schiffy91/btrc/issues/15) | Tech debt: macOS native tests cannot run in the dev shell (nix cc-wrapper vs Xcode 27 SDK, no FreeType, no libasan) | Resolved by native Apple compiler/SDK routing and provisioned FreeType; restored local checks pass (see evidence below). |
-| [#14](https://github.com/schiffy91/btrc/issues/14) | Tech debt: two architecture contracts (test_lowering_architecture.py vs test_compiler_structure_contract.py) encode the same rules differently | Structure/native-toolchain review and regression |
+| [#14](https://github.com/schiffy91/btrc/issues/14) | Tech debt: two architecture contracts (test_lowering_architecture.py vs test_compiler_structure_contract.py) encode the same rules differently | PR60 adds the shared rule-to-check mapping and module-change procedure in [compiler structure](docs/design/compiler-structure.md#mapping-the-two-architecture-contracts); structural validation and landing remain pending. |
 | [#13](https://github.com/schiffy91/btrc/issues/13) | Tech debt: reference and self-host emit different C (runtime helper layout, ~1000 lines on small programs) | Resolved by shared runtime order and the pinned full-C identity sample at `362a43b7`; 776 cases pass. |
 | [#12](https://github.com/schiffy91/btrc/issues/12) | Tech debt: emitted C depends on temp numbering through the 1000-character wrap rule | Paired compiler regression and relevant C/IR stage |
 | [#11](https://github.com/schiffy91/btrc/issues/11) | Threaded lifecycle fixture fails under host load: destructor exception during final drain escapes the joiner | Runtime/concurrency regression and native gate |
