@@ -203,6 +203,33 @@ $report | ConvertTo-Json -Depth 6
                 self.run([self.zig, "cc", *arguments], f"diagnostic-{name}", timeout=60)
             except RuntimeError as error:
                 failures[name] = str(error)
+        if sys.platform == "win32" and any(step.get("exit_code") == 0xC0000005 for step in self.report["steps"]):
+            report = self.output / "crash-location.json"
+            self.report["c_frontend_diagnostics"]["crash_location"] = str(report)
+            try:
+                self.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "tools.windows_toolchain.crash_probe",
+                        "--output",
+                        report,
+                        "--timeout",
+                        "20",
+                        "--",
+                        self.zig,
+                        "cc",
+                        "-target",
+                        TARGET,
+                        minimal,
+                        "-o",
+                        self.output / "minimal-debug.exe",
+                    ],
+                    "diagnostic-crash-location",
+                    timeout=30,
+                )
+            except RuntimeError as error:
+                failures["crash-location"] = str(error)
 
     def verify_cross(self, path: Path) -> None:
         data = path.read_bytes()
