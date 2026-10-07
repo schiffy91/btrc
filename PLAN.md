@@ -3,11 +3,12 @@
 Updated **2026-10-07**. The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`. PR60 is published at `b5e3f81a`,
+Current upstream main is `87dd60d7`. PR60 is published at `50bf1c8c`,
 combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
-and diagnostic corrections. Final-tree qualification has exposed a Linux
-compiler-startup build failure and local suite failures; the first repair is
-committed locally and queued for verification. No final-tree pass is claimed.
+and diagnostic corrections. Its completed local suite found nine failures in
+the structural audit's raw-source parser. Repair `bb40e39c` passes the expanded
+155-check structural audit and Linux-target compiler transpilation; the combined
+candidate has started a fresh full serial matrix and still needs main landing.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -78,6 +79,13 @@ The 01:45 BST recheck found **105.15 GB free (97.93 GiB)**, above the 80 GB
 implementation and 100 GB Stage 23 thresholds at that moment. Recheck at each
 stage start; this is not reserved capacity. The later repair-stage check found
 87 GiB free; the 100 GB Stage 23 threshold must be re-established before that stage.
+Completed test outputs later consumed that headroom. On October 7 at 12:31 UTC,
+this session's completed C2 pytest scratch was replaced by a compressed archive
+only after verifying all 121,990 entries, regular-file hashes, links, types and
+modes, and rechecking the unchanged source. The archive hash and complete index
+are retained beside that run; its logs and separate GUI evidence remain directly
+available. Free space rose from 78.86 GB to **81.33 GB**. This preserved generated
+test evidence; it did not remove additional user development data or change SEMU.
 
 The active `podman-machine-default` is shared with SEMU: **8 CPUs, 28 GiB RAM,
 180 GiB virtual disk**. It and its containers/volumes were left intact. Do not
@@ -435,16 +443,25 @@ Main-suite, bootstrap and C11 checks did not run at `1424c2db`. The reviewed
 correction is published as `b5e3f81a`; a new full serial run has started, reusing
 the production-source-identical compiler binary. Its lint/format/generated and
 extension checks passed again, and fresh boundary capture passed 287 checks with
-24 unchecked records. The main local suite is still running with failures whose
-complete inventory is pending. Hosted Linux release and btrc jobs reject the
+24 unchecked records. The main local suite completed with **17,664 passed,
+nine failed and 168 skipped** in 1,916.83 seconds. All nine failures are in the
+structural audit: its helper feeds raw `#if` lines inside the new startup method
+to the parser, bypassing the required conditional-preprocessing stage. Bootstrap
+and C11 did not follow the failed suite; 824 native GUI evidence files are retained.
+Hosted Linux release, btrc, C11, ARM64 bundle and X11 jobs reject the
 Linux-only startup expression `limit.rlim_max != (rlim_t)RLIM_INFINITY`:
 the left C field is opaque and cannot precede an ordered sibling without an
 explicit type. The release source position maps to `cli/Driver.btrc:1906`.
-Local commit `d941f74d` casts that field to its actual SDK type, `rlim_t`, without
-weakening the compiler's sequencing rule or changing the stack limits. Its
-Linux-target reference transpilation and formatting checks are queued behind
-the current gate. This check runs on macOS and does not establish native Linux
-execution; the existing Linux hard-limit cases and release build still must pass.
+The first local cast repair, `d941f74d`, was insufficient: `rlim_t` remains opaque
+to the analyzer, so its explicit comparison was rejected as an aggregate operation.
+Repair `bb40e39c` performs the bounded arithmetic in `unsigned long long` and
+converts back to `rlim_t` at the system boundary, preserving the 512 MiB request,
+hard-limit clamp and 64 MiB refusal. It also routes structural parsing through
+`SourceConditionals` for every target from the shared manifest, caching identical
+conditioned programs. All **155 structural checks pass**, as do lint and formatting.
+The complete strict-import, no-cache Linux-x64 compiler entry transpiles successfully
+through the reference compiler. This check runs on macOS and does not establish
+native Linux execution; the Linux hard-limit cases and release build still must pass.
 The hosted bootstrap job also stopped at boundary capture, with empty self-host
 artifacts; that result does not establish a bootstrap fixed point. Hosted checks
 must qualify the eventual corrected head;
@@ -461,7 +478,7 @@ qualification is claimed yet.
 | Stages 14–16 | C5 inventory, C1 schema/constructs and C4 integrated; C1 Linux evidence recorded. | Outstanding Mac memory/instructions and BTRSmith evidence do not disappear because implementation landed. |
 | Stages 17–21 | C2 schema and shared owners landed; declaration-order parity landed separately. | C2 L1/L2 reviews still have blockers; multidimensional arrays, C3, goto and final inventory closure remain. |
 | Stages 22–25 | P0 inventory, platform shell, target schema/owner, extractor, and target data model through `CL-P1-05` integrated. Windows host hardening merged in batch 42. The LSP target repair and Android host are qualified individually and included in PR60's combined candidate. | Land the combined gate; finish hosted ABI availability, target-aware readers/link plans/provider/cache isolation. iOS has a green local matrix but awaits its pinned hosted lane; Windows ARM64 native bootstrap remains unqualified. |
-| Stages 26–29 | Interop ownership design exists; HTTP and Windows service revision-5 drafts contain the reviewed corrections. PR52's latest lost-ACK outcome clarification is undergoing checks. | Complete PR51/52 contract review, then implement checked service/interop providers and qualify actual target ABIs and dependency closure. |
+| Stages 26–29 | Interop ownership design exists; HTTP and Windows service revision-5 drafts contain the reviewed corrections. PR52's latest lost-ACK outcome clarification passed static CI. | Complete PR51/52 contract review, then implement checked service/interop providers and qualify actual target ABIs and dependency closure. |
 | Stages 30–33 | UI catalog and macOS/Linux shell evidence landed; UI1 checkpoint recorded (batch 46); UI2 contract approved (batch 47). Linux X11 GUI/audio shard landed (batch 50). | Port independent repairs first; land UI2 interface and both providers atomically. Mac keyboard delivery and Wayland sanitizer evidence remain gaps. Other platform shells remain incomplete. |
 | Stages 34–37 | Drafts, model/accessibility spikes and fixtures exist. | Reviewed feature contracts and real providers; per-platform slices may advance when their own prerequisites work. No blanket all-platform qualification claim. |
 | Stages 38–43 | CI tiers and host workflows exist; a workflow that skips a missing host does not prove it. | Installed-product journeys, numeric budgets, physical/listening sessions, signing/account-dependent releases and final candidate gates remain open. |
@@ -551,14 +568,14 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `b5e3f81a` | Fresh local boundary capture passed 287 checks (24 unchecked); 13 manifest tests passed. The main local suite is running with failures, and hosted Linux release/btrc builds reject the untyped hard-stack-limit comparison. Bootstrap stopped at boundary capture. No full-matrix pass or main landing. |
+| PR60, `codex/harmonize-plan` | `50bf1c8c` | The completed local suite has 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The repaired combined tree is published with a new full serial gate running; it began with 81.21 GB free and all guests stopped. Full local and hosted qualification remain pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Latest hosted snapshot has 35 successful checks, three skips and one running check. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
-| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `d941f74d` | Parent `9a01104c` passed 1,179 native checks with three platform skips and is included in PR60. The new Linux-only stack-limit operand cast repairs the release-build diagnostic; verification is queued and it is not published. Full matrix and main landing remain pending. |
+| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `bb40e39c` | Parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. Integrated into the combined candidate; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 Two code candidates currently occupy the shared hosted CI allowance: PR65
-`93856dfc` and combined PR60 `b5e3f81a`. Recheck queued and running workflows
+`93856dfc` and combined PR60 `50bf1c8c`. Recheck queued and running workflows
 before publishing another candidate.
 Cancellation and scope-only jobs are not qualification. No branch is deleted.
 
@@ -813,7 +830,7 @@ Reconciled against main `c011371b` and the six open PR heads on 2026-10-07:
 - HTTP [PR51](https://github.com/schiffy91/btrc/pull/51), revision 5 `799c9de5`, and
   Windows services [PR52](https://github.com/schiffy91/btrc/pull/52), revision 5
   `6866eb3d`, address the round-4 findings. The earlier revision had green docs
-  CI; the latest clarification is undergoing its own checks. Contract
+  CI; the latest clarification also passed its static check. Contract
   review and implementation acceptance remain separate, as detailed below. That does not block unrelated Linux repairs.
 - Windows ARM64 toolchain [PR53](https://github.com/schiffy91/btrc/pull/53), mobile
   hosts PR34/35 remain open with their individual acceptance/dependency gaps,
@@ -1052,7 +1069,7 @@ owner, the exact prerequisite and the next acceptance.
 - **PR51, `CX-P2-02` HTTP contract** (revision 5 `799c9de5`) and
   **PR52, `CX-P2-01` Windows services design** (revision 5 `6866eb3d`).
   Both are refreshed onto main. Earlier docs/static checks passed; PR52's latest
-  clarification is being checked. The authorized
+  clarification passed static CI. The authorized
   integration session owns `CL-P2-01` round 5: the final review of the round-4 findings.
   - HTTP now requires provider-owned `Connection: close` on Android requests
     and redirects, bounded admission while native I/O drains, and hermetic
