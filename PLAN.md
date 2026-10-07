@@ -211,10 +211,16 @@ retains that assertion only for surfaces with views. Backport `5dbf80a1` applies
 that exact change to the pinned source through the Linux Nix dependency and
 adds a real Wayland client exercising 100 unmapped subsurface-order cycles.
 Patch application, Nix syntax, Python syntax, lint, formatting and diff checks
-passed. Native Linux regression and full GUI qualification remain pending;
-other GTK/accessibility warnings are not claimed fixed. The next published
-candidate includes this backport and the current plan; its CI must qualify
-that new tree. No final green result is claimed.
+passed. At `56909225`, the repaired hosted Wayland GUI shard passed 210
+checks with 195 expected skips and no unexpected skips in 606.68 seconds;
+retained JUnit and skip artifacts confirm the result. Its X11 sibling also
+passed. The Linux unit shard now passes 6,916 checks with 3,116 expected
+skips and zero unexpected skips, including the new standalone unmapped-subsurface
+regression and all 29 headless-session cases. Its retained skip report records
+CI merge revision `377666fe`; the complete Linux workflow is green. The new
+regression has not been run against unpatched Weston. Other GTK/accessibility
+warnings are not claimed fixed. The complete macOS workflow is now also green. Scope-skipped native-GUI
+jobs remain excluded from coverage. No final integrated green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
 pending their native failure investigations.
@@ -234,24 +240,28 @@ three new explicit-tag refusal checks failed only because their assertions
 expected uppercase `Incomplete` while the reference compiler reports lowercase
 `incomplete`. Both frontends rejected the programs. The assertions now accept
 the existing diagnostic capitalization; all three reruns passed. The repaired
-L1 merge `d49961cb` and L2 changes are combined in
-[PR65](https://github.com/schiffy91/btrc/pull/65), initially published at `618e9ae1`.
-The L2 merge `12eebb66` resolved six conflicts while retaining generic scopes,
-tag ownership, both refusal tables and both sets of LSP regressions; `039047ad`
-then incorporated the VLA and Android repairs. Static checks passed. The first
-combined paired compiler, parser/analyzer and LSP run ended with 2,474 passed
-and three failed. Both parsers applied a struct-only spelling refusal before
-the existing union refusal. Two layout assertions still expected `struct Pair`,
-although both compilers normalize that record type to `Pair` and the native C
-layout checks already passed. Repair `c063cc18` restricts the struct guard and
-reconciles the expected spelling, preserving the unsized-array and layout checks.
-All 360 fresh-compiler refusal, layout, flexible-array and parser checks now pass.
-The current local candidate incorporates `98b88440`'s compiler repairs,
-`56909225`'s Weston backport and the current qualification plan. It is not yet
-published or fully qualified. Hosted
-runs remain deliberately deferred to respect the shared CI capacity limit;
-cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open until
-required review and integrated gates prove the whole C2 change.
+L1 merge `d49961cb` and L2 changes are now combined with `081aae51` in
+[PR65](https://github.com/schiffy91/btrc/pull/65), candidate `618e9ae1`.
+Six conflicts were reconciled while retaining generic-scope, tag-ownership and
+flexible-array checks. Static checks passed; the broader paired compiler,
+parser/analyzer and LSP qualification ended with 2,474 passed and three failed. Both
+parsers applied a struct-only spelling refusal before the existing union
+refusal; the guard is now restricted to structs. Two layout expectations still
+spelled `struct Pair`, although L1 normalizes that type to `Pair`; both compilers
+already agreed and the native C layout checks passed. Their expected spelling
+is corrected without changing the unsized-array or layout requirements. A fresh
+compiler run of refusals, layouts, flexible-array checks and parser tests passed
+all 360 checks. The fixes are committed as `c063cc18` and merged with `ad72af03`
+in local candidate `98b88440`. Follow-up `0a332665` combines that compiler tree
+with PR60's `56909225` Weston repair and the current plan; two documentation
+conflicts were reconciled. Its compiler, language, runtime and stdlib sources
+are unchanged from `98b88440`. PR65 remains published at `618e9ae1`; publish the
+new candidate when CI capacity is available, then qualify its complete tree.
+The subsequent local candidate `1fe1dc1e` adds the qualification and
+fork-safety review plan; its source owners remain unchanged. Its full local
+matrix stopped at the independent AppKit control failure detailed below. Hosted runs on the older head were deliberately deferred to respect the shared
+CI capacity limit; cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
+qualify the whole C2 merge.
 
 **Stage 17 remains broader than PR65.** At local candidate `0a332665`, the
 23 recorded rows in `src/tests/btrc/fixtures/c_compat_probe/c2.toml` include
@@ -269,6 +279,37 @@ C2 integration still needs the memory comparison required by
 `docs/design/c-compatibility.md` under a quiet host, in addition to review and
 the full correctness matrix. The 360-check repair run does not prove those exits.
 
+The fresh full C2 run at `1fe1dc1e` ended with **17,431 passed, 166 skipped
+and one failure** in 1,881.71 seconds. Lint, formatting, generated-source,
+extension and the fresh Clang compiler build passed; bootstrap and strict-C11
+stopped behind the suite failure. All 824 GUI evidence files are retained.
+`test_macos_native_shell[sanitized-selfhost]` failed because the independent
+public-AppKit control retained seven private objects after its first cycle and
+eight thereafter: `NSTextInsertionIndicator` appears in cycles 2–100. BTRC has
+no such survivor. Its probe was inactive/non-key in all cycles; the control was
+active/key in all cycles. This shows an unstable control baseline, not BTRC
+retention growth. Two local experiments were rejected: an extra initialization
+cycle did not reproduce the active-window condition, and forced activation
+failed the native gate (`303d3353`: four failures, 37 passing checks). Three
+failures were control activation deadlines; the fourth was a surviving BTRC-owned
+`NSTextField` in fresh-process restore 54. That provider failure remains open.
+
+Local candidate `a696ccf4` restores the original control lifecycle and compares
+each private class against its first observed positive multiplicity. A helper
+may first appear after cycle one, but its allowance never increases; disappearing
+and returning with more instances still fails. Unknown BTRC classes, excess
+BTRC instances, owned objects and live registrations still fail. All 37 focused
+checks pass, including two lazy-initialization cases that failed before the
+change and two subsequent-growth refusals. Fresh native qualification at
+`a696ccf4` passed all **41 checks** in 654.39 seconds: both compilers, plain
+and ASan/UBSan, each completed 100 lifecycle cycles and 100 fresh-process
+restores with zero provider/registration survivors. Two independent controls
+actually exhibited seven private objects initially and eight later, exercising
+the lazy-class comparison. Keyboard traversal and GPU focusability remain
+explicit gaps. The earlier restore-54 provider survivor was not reproduced;
+this successful rerun does not establish its cause or resolution. The final
+full matrix remains pending.
+
 `CL-REQ-10` (`e1bc5dfa`) remains unmerged after a blocking source review:
 `BtrccCompilerStack.run` marks its parent parked before `pthread_create`, while
 `ForkedWorkerPool.start` subtracts parked threads from its fork-safety count.
@@ -280,6 +321,87 @@ fixture explicitly marks a thread parked without parking it, so it proves only
 the accounting change. Replace that exemption with a safe large-stack startup
 strategy and a native handoff regression, preserving the branch's 2,000-term
 expression support, module-worker parallelism and collection-literal repairs.
+
+Local candidate `226506eb` now merges that branch into C2 candidate `1fe1dc1e`
+and replaces the parked-thread exemption. The compiler stays on its original
+thread: macOS native/cross/bootstrap/test-cache/benchmark builds reserve a
+512 MiB main stack, and Linux startup adjusts only its process-local soft limit
+within the existing hard limit, diagnosing less than 64 MiB. The worker pool
+again checks the actual live-thread count. The new native regression requires
+one startup thread and two distinct worker processes; Linux cases check 16 and
+64 MiB hard limits. A native C prototype proves the Darwin stack/fork strategy,
+and Python syntax, lint/format, btrc formatting and generated-source checks
+pass. Its focused run completed with **1,170 passed, three platform skips and
+one naming-audit failure**. The actual Mac startup/fork regression, both deep
+expression shapes and their execution tests passed; the two Linux resource-limit
+cases were skipped on this Mac. The sole failure was the compiler naming audit
+omitting the existing system-struct field exceptions for `rlim_cur`/`rlim_max`.
+Correction `148c3f42` preserves the real C field spellings and passes all seven
+naming tests. The full integrated matrix and Linux limit tests remain pending;
+the local candidate is not published or landed on main.
+
+Local candidate `e1787f9b` merges `CL-REQ-11` into `226506eb` for qualification.
+Its tuple-array indexing, `sizeof` binding/retention and generic-termination
+changes preserve C2's flexible-array diagnostics at the merge conflicts.
+Review reproduced a false rejection in the original branch: applying `T?`
+repeatedly stabilizes, but its parsed pointer layer was marked as growing.
+Both compilers now distinguish that nullable layer from a growing `T*?`
+constructor. Three accepting parity probes, one rejecting probe, and a runnable
+nullable-cycle corpus cover the repair. All 127 analyzer-battery probes match
+their expected results through the reference compiler; the new corpus also
+transpiles. Lint, Python/btrc formatting, generated-source and plan/hygiene
+checks pass. The fresh focused native qualification at `f3a5d3c6` now has
+**1,210 passing checks and three platform skips**, including self-hosted parity.
+The nine new corpus cases ran through both compilers: 16 checks passed, while
+both nullable-cycle checks produced the expected `true`, `true`, `3` output but
+failed the corpus runner's required `PASS` marker. Local correction `d2ffae69`
+adds that marker and its golden; both checks now pass (1.55 seconds), and the
+fixture formatting check passes. Compiler production sources are unchanged. The final integrated matrix remains pending;
+this is a local checkpoint, not a main merge.
+
+Local candidate `e151f6be` merges the rich-enum B/C packet into `e1787f9b`,
+with a repair for writes into nested payload storage. The original branch
+accepts a store through `saved.data.Held.wrapped.child` whose generated C
+releases the new payload owner before its following read. Both analyzers now
+follow inline struct, tuple and array projections, stopping when a projection
+crosses a pointer or managed object. Four new refusal cases cover nested storage;
+the existing sanitizer execution fixture also checks allowed nested object
+writes. All 67 rich-enum reference checks and 127 analyzer reference probes pass;
+lint, formatting, generated-source and plan/hygiene checks pass. Native parity
+and sanitizer qualification at `2d645e27` completed with **328 passing checks
+and one diagnostic-parity failure** in 397.84 seconds. All four allowed-flow
+sanitizer cases passed through both compilers, including nested payload-object
+writes. For an inferred global, self-hosted validation reported static-initializer
+admissibility before the nonescaping-enum storage error. Local `2a0af4c6` checks
+the nonescaping role first, matching the reference, and also includes the nullable
+corpus marker fix. Native verification of this repair is included in the D/G
+candidate below. A separate retry stopped before tests because its launcher
+entered Nix before the simulator preflight, where `simctl` was unavailable;
+that is not a compiler result. Earlier attempts stopped
+at the stopped-guest preflight while the shared `semu-release-build` container
+was active; it was left intact. The fresh runs began after the VM was observed
+stopped, without stopping it ourselves. Neither earlier preflight stop is a
+compiler-test result. The naming correction is propagated through local
+REQ-11 `f3a5d3c6` and rich-enum `2d645e27`; their production sources are unchanged
+from `e1787f9b` and `e151f6be`, respectively. External owner rebinding and shallow
+struct escapes remain separate gaps; universal lifetime safety is not claimed.
+The iOS `1844837b` branch is preserved while its idle clone hosts this checkpoint.
+
+Local D/G candidate `cec4cc13` merges `1cc97ab8` into `2a0af4c6`. Review
+reproduced a conflict with REQ-11: incoming realtime-payload recursion turned
+`Chain<T>` → `Chain<(T, int)>` into “expression or declaration nested too deeply
+to compile”, replacing the precise growing-specialization diagnostic. Both
+compilers now retain each instantiation site's payload check and execute it
+after their generic expansion has completed and growing cycles have been
+refused. This preserves the original instantiation-site payload diagnostics.
+All 127 reference analyzer probes, all ten realtime payload refusal cases,
+and the valid payload example's reference transpilation pass; lint, Python/btrc
+formatting, generated-source and diff checks pass. Native parity qualification
+is running and includes the B/C ordering repair. Merge resolution preserves
+C2's union admission logic in the shared realtime owner and its union refusal
+regressions. The intentional positioned-diagnostic boundary update retains
+311 records and its reviewed SHA-256. No main landing, self-hosted D/G result,
+or full-matrix qualification is claimed yet.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -375,12 +497,11 @@ branches must also be checked before deletion; nothing is deleted by this plan.
 The later integration branches are tracked separately from that frozen inventory:
 `codex/harmonize-plan` is [PR60](https://github.com/schiffy91/btrc/pull/60)'s
 combined candidate, now adding Weston backport `5dbf80a1` and the current plan
-to `ad72af03`. The local `ad72af03` matrix has completed successfully; later changes require their own qualification. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
+to `ad72af03`. The local `ad72af03` matrix completed successfully; later changes require their own qualification. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
 `codex/integrate-c2-arrays`, is published at `618e9ae1`; local candidate
-now combines `98b88440` (the three failure repairs, 360 passing focused checks
-and the `ad72af03` tree) with `56909225`'s Weston repair and the current plan.
-The compiler source is unchanged from the 360-check candidate; native Linux
-Weston proof and the full integrated qualification remain outstanding.
+`0a332665` combines `98b88440`'s three failure repairs and 360 passing focused
+checks with `56909225`'s Weston repair and the current plan. Its full integrated
+qualification and native Linux Weston proof remain outstanding.
 C2's new hosted workflows are deferred while the existing combined and Windows
 ARM64 candidates occupy the shared CI allowance. Publish and qualify the new
 head when capacity is available; rerunning the canceled old-head workflows
@@ -417,10 +538,10 @@ qualification claim follows from that source comparison.
 | `stage16/c4-python` | `db229df7` | Already represented on main: its complete tree is identical to `245cc209`; later paired review fixes landed at `914ad585`. Preserve the historical branch; do not replay it. |
 | `stage17/c2-l1` | `4ef167af` | CL-C-09: repair generic/tag capture, typedef diagnostic order, native tag and LSP regressions; rerun paired review. |
 | `stage17/c2-l2` | `2e65f7c6` | CL-C-13: fix declaration-vs-shadow diagnostic order and callee-first checks for interface/Atomic/Mutex receivers. |
-| `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
+| `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Integrated locally at `e151f6be` with nested payload-store repair; 67 rich-enum and 127 analyzer reference checks pass. Native parity/sanitizers remain pending; owner rebinding and shallow-struct escapes remain gaps. |
 | `stage18/req-ui2-dg` | `1cc97ab8` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
 | `stage18/req10-parity-gaps` | `e1bc5dfa` | CL-REQ-10: preserve collection-literal and static-storage repairs, but replace the unsafe parked-thread fork exemption; retain deep-expression support and module-worker parallelism with native handoff proof. |
-| `stage18/req11-tuple-sizeof-recursion` | `271397d3` | CL-REQ-11: prove tuple indexing, sizeof retention and polymorphic-recursion termination in both compilers. |
+| `stage18/req11-tuple-sizeof-recursion` | `271397d3` | CL-REQ-11: integrated locally at `e1787f9b` with paired finite-nullable-cycle repair; 127 reference probes pass. Native parity, corpus execution and final matrix remain pending. |
 | `stage24/apple-standin-extraction` | `7b3d1195` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
 | `stage24/apple-standin-extraction-run` | `9c0d737d` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
 | `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08: wait for CL-P1-06 and qualified extractor inputs, then review schema/generation parity. |
