@@ -78,15 +78,30 @@ The active `podman-machine-default` is shared with SEMU: **8 CPUs, 28 GiB RAM,
 180 GiB virtual disk**. It and its containers/volumes were left intact. Do not
 apply the historical 40 GB btrc-machine recreation step to this shared VM.
 The guest/load/quiet rules still apply even though disk headroom is restored.
-No local compiler gate or quiet performance round has been claimed for this tree.
+A restored local full test run at plan revision `e3a6dea9` completed with
+17,018 passed, 169 skipped and eight failures: four button-input timing cases
+and four AppKit retention comparisons. Bootstrap did not run after that failure.
+The first attempt used a stale Nix shell referencing deleted tools; the restored
+shell was realized and pinned under `~/.cache/btrc/gcroots/harmonize-dev` before
+the recorded rerun. No quiet performance round or final green matrix is claimed.
 
 **Integration progress.** [PR42](https://github.com/schiffy91/btrc/pull/42)
 merged at `87dd60d7c602448cdd1bcf78ab3134b772e3aed5` after review and green
 docs CI. Only the accessibility findings note landed; AX trust remains unknown,
 and the prototype and native qualification remain outstanding. Plan consolidation
 is in [PR60](https://github.com/schiffy91/btrc/pull/60): the 153 affected reader
-tests and changed-file lint/format checks passed locally; hosted checks remain
-in progress. The full final matrix and other branch/issue resolutions are open.
+tests and full lint/format/generated-source checks passed locally.
+[Linux CI 37554065870](https://github.com/schiffy91/btrc/actions/runs/37554065870)
+passed, including 6,816 unit tests, 3,116 expected skips and zero unexpected
+skips. Its macOS native bundle passed; native GUI had one activation-policy
+failure late in the sanitized reference shell's 100-cycle run. Local shell
+runs did not reproduce that activation failure. [PR61](https://github.com/schiffy91/btrc/pull/61)
+repairs the separate button-input timing failure: all four original binaries
+failed serially, and all four repaired variants passed after one deferred poll.
+An independent native AppKit control reproduced the local seven private
+framework survivors without BTRC and without growth over 100 cycles; the
+measured comparison is being qualified before replacing the older one-object
+allowance. The full final matrix and other branch/issue resolutions remain open.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -376,10 +391,10 @@ Reconciled against main `c011371b` and the six open PR heads on 2026-10-07:
 - Windows host hardening [PR58](https://github.com/schiffy91/btrc/pull/58), head
   `6ec9b9dc`, merged in batch 42 with 16 native cases passing on each of x64 and
   ARM64. This is execution infrastructure, not a Windows GUI provider.
-- HTTP [PR51](https://github.com/schiffy91/btrc/pull/51), head `0fa4c093`, and
-  Windows services [PR52](https://github.com/schiffy91/btrc/pull/52), head
-  `d77b4b14`, have green docs CI but were returned in round 4; revision 5 must address the
-  confirmed findings listed below before contract approval. That does not block unrelated Linux repairs.
+- HTTP [PR51](https://github.com/schiffy91/btrc/pull/51), revision 5 `799c9de5`, and
+  Windows services [PR52](https://github.com/schiffy91/btrc/pull/52), revision 5
+  `d2fbb9ce`, address the round-4 findings and have green docs CI. Contract
+  review and implementation acceptance remain separate, as detailed below. That does not block unrelated Linux repairs.
 - Windows ARM64 toolchain [PR53](https://github.com/schiffy91/btrc/pull/53), mobile
   hosts PR34/35 remain open with their individual acceptance/dependency gaps,
   listed in the next section. Reuse these branches; do not duplicate their tools
@@ -404,45 +419,54 @@ owner, the exact prerequisite and the next acceptance.
   read-only retry, so a target that leaves a read-only file leaks its temp
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
-- **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`, head
-  `958d309b`). Owner: Codex (`tools/windows_toolchain/**`); Claude then adds the
-  drafted `windows-arm64.yml`. Returned in batch 36: it duplicates
-  `tools/target_hosts/windows` (`process_runner.run_windows` vs
-  `executor.WindowsJob`, `arm64.TARGET/FLAGS` vs `bundle.TARGETS`, `pe_arm64` vs
-  `bundle.pe_machine`). Prerequisite: PR58 integrated. Then rebase on main, use
-  `WindowsJob` and the executor gate, and drop the ephemeral-runner/taskkill
-  path. Non-blocking fixes: VsDevCmd `1>&2`; vswhere `-requires` ARM64 and Clang
-  with `installationVersion`; an overall deadline in `native()`; the README.
-  Next acceptance, on `windows-11-arm` (nothing has run there yet): PE ARM64
-  with a byte-identical 3-stage bootstrap; byte-identical C from cross and
-  native builds; `msvc_probe` cl.exe ≥19.40; an MSVC-ABI hello; a wgpu smoke.
-- **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`, head
-  `55a71b8c`, CI green, scope only). Owner: Codex for code; Claude for the
-  review. `host-ios.yml` landed in batch 43 (`REQUEST(CL-R-38)`): a macos-15
-  job runs the PR's six commands once `tools/target_hosts/ios/` is on the
-  revision, and skips otherwise. Next, owner Codex: rebase onto current main, dropping the `PLAN.md`/`WORKSTREAMS.md` edits (PLAN.md is
-  now canonical; the packet's record lives here). The rebased PR then gets its
-  first native simulator run. Then Claude reviews the repair (bounded launch
-  deadline, start/cancel handshake, late-identity reaping) with that run's
-  evidence. Next acceptance: 12 fixtures ×
-  spawn/app × iPhone/iPad, plus one repeated app invocation per class (50
-  executions), with Xcode/runtime provenance and `UIDeviceFamily [1,2]`. This is
-  the real Xcode simulator host the iOS private-file slice needs. Afterwards:
-  `CX-P1-08` (needs `CL-P1-17`, `CL-P1-13`, `CL-P1-16`), `REQUEST(CL-P1-17)`
-  (protocol) and `REQUEST(CL-P1-21)` (entry symbol).
-- **PR35, `CX-P1-05` Android host** (`codex/cx-p1-05`, head `628a4a54`, CI
-  green, scope only). Owner: Codex (`tools/target_hosts/android/**`); Claude for
-  the review and the i686 shell issue. `host-android.yml` landed in batch 43
-  from the PR's `REQUEST(CL-REQ)` KVM spec. It runs API 29 and 36 jobs that
-  install exactly `sdk packages`, take the pinned emulator and platform-tools
-  from `nix/android-repo-overlay.json` and run `sdk verify`, and a contract test
-  checks that. It skips until `tools/target_hosts/android/` is on the revision.
-  Next, owner Codex: rebase onto main, dropping the `PLAN.md`/`WORKSTREAMS.md`
-  edits; the rebased PR then gets its first emulator run. Then Claude
-  re-reviews the repair (returned in batch 23) with that evidence. `REQUEST(CL-P1-02)`: the `.#platforms` shell's i686 compatibility
-  builder fails on cloud kernels. Next acceptance: API 29 and 36 KVM emulators
-  boot and pass shell and NativeActivity modes, with boot/install/launch
-  timings. Later, the in-process provider mode named above.
+- **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
+  validated head `957126d6`). Owner: this authorized integration session.
+  Main is merged; the tooling now uses the shared Windows Job/gate, target
+  flags, PE parser and build-process owner. The overall native deadline,
+  component-qualified Visual Studio discovery and separate developer-command
+  diagnostics are implemented, and `windows-arm64.yml` is present.
+  [Run 37560567746](https://github.com/schiffy91/btrc/actions/runs/37560567746)
+  passed the Linux cross-build and native MSVC/wgpu probe: MSVC 19.51.36260,
+  SDK 10.0.26100.0, Clang 22.1.8, strict-C11 hello, instance creation and adapter
+  callback (adapter present). Native tooling passed 22/23 checks; the Windows
+  missing-executable diagnostic omitted its filename. That repair is in
+  progress. The failed tooling step prevented compiler/bootstrap execution.
+  Remaining acceptance: byte-identical three-stage native bootstrap and C
+  from cross/native compilers, plus the complete native lane on the final head.
+- **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
+  head `3bd942dd`). Main is merged. The UIKit app entry now has a responsive
+  main loop and a fixture worker, with terminal publication arbitrated across
+  threads. All twelve app bundles compile/sign with the local iOS SDK; local
+  process tests pass (23 tests and 36 subtests). These are not simulator proof.
+  The earlier plain-entry run passed 37/50 executions. The latest
+  [run 37560529912](https://github.com/schiffy91/btrc/actions/runs/37560529912)
+  passed all thirteen iPhone app cases and two iPad spawn cases, then failed
+  on launch/identity deadlines and simulator cleanup. It used Xcode 16.4 with
+  the available iOS 26.2 runtime. Root cause and complete acceptance remain
+  open; the UIKit change has not qualified the whole matrix.
+  Next: diagnose host launch/readiness failures without weakening fixture
+  deadlines, then pass 12 fixtures × spawn/app × iPhone/iPad plus one repeated
+  app invocation per class (50 executions). Preserve Xcode/runtime provenance,
+  fresh-container and `UIDeviceFamily [1,2]` proof. These trusted child-free C
+  fixtures do not qualify arbitrary descendants or the eventual in-process
+  provider. Afterwards: `CX-P1-08` (needs `CL-P1-17`, `CL-P1-13`, `CL-P1-16`),
+  `REQUEST(CL-P1-17)` (protocol), `REQUEST(CL-P1-21)` (entry symbol).
+- **PR35, `CX-P1-05` Android host** (`codex/cx-p1-05`, validated head
+  `c9fb6571`). Main is merged. SDK license handling and pinned archive package
+  registration are repaired; failed runs retain partial results and bounded
+  guest diagnostics. Local transport/workflow checks pass (139 tests).
+  API 36 passed all 28 shell/NativeActivity cases on 4 KiB pages in both
+  [run 37557518213](https://github.com/schiffy91/btrc/actions/runs/37557518213)
+  and [run 37560687135](https://github.com/schiffy91/btrc/actions/runs/37560687135).
+  The first API 29 run lost package/activity services. The later run passed
+  25/28 cases before `am start -W` timed out although the activity had already
+  completed its create/resume/destroy lifecycle. A repair makes terminal-result
+  polling independent of displayed-window acknowledgement; it still needs
+  native qualification. Neither observation proves the earlier service failure's
+  cause. Next acceptance: both API 29 and API 36 complete, preserving fresh
+  sandboxes, cleanup, stream/status checks and boot/install/launch timings.
+  The i686 compatibility-builder issue (`REQUEST(CL-P1-02)`), ARM64 16 KiB
+  execution and general in-process provider safety remain separate gaps.
 - **PR42, `CX-UIB-07` accessibility spike** (findings head `6d62e046`, docs CI
   green; prototype `codex/cx-uib-07-spike` `0d6127a6`). Owner: Codex for the
   note, Claude for the decision. macOS run 37217909473 failed at compile in both
@@ -454,29 +478,21 @@ owner, the exact prerequisite and the next acceptance.
   recorded as "unknown, blocked on CL-UIB-09". Missing evidence stays missing
   (D28), and the note meets `CL-UIB-09`'s gap-list dependency. The prototype
   remains unmerged; the native re-run follows `CL-UIB-09`.
-- **PR51, `CX-P2-02` HTTP contract** (rev 4 head `0fa4c093`) and **PR52,
-  `CX-P2-01` Windows services design** (rev 4 head `d77b4b14`). `CL-P2-01`
-  round 4 (2026-10-06) returned both; the confirmed findings are in each PR's
-  round-4 comment. Owner: Codex for revision 5, then Claude for round 5, which
-  checks only those points.
-  - **HTTP: 7 of 8 round-3 blockers resolved.** Two Android blockers remain.
-    First, an exposed 1xx or 101 returns the connection to OkHttp's process-wide
-    pool with the final response unread; the fix is a provider-owned
-    `Connection: close` plus second-request fixtures. Second, in-flight Java I/O
-    can never be aborted, so the quarantine is unbounded; either add a
-    qualified post-publication abort or record the adaptation. One
-    clarification is also required: the Windows revocation stance for fixture
-    leaves without a CRL Distribution Point.
-  - **Windows services: round-3 blockers resolved.** Six new ones:
-    - post-COMMIT supervisor outcomes;
-    - the carrier for the auxiliary image digest, protocol and ABI;
-    - lock contention mapping to `FS_RESOURCE_EXHAUSTED`;
-    - the Ctrl-C handler being unregistered during dispatch;
-    - the supervisor's own stdio;
-    - splitting `CX-P2-08`'s Daemon corpus into portable and POSIX-only
-      programs.
-  - On approval, the request lists become `CL-P2-02/03/04/14` scope. D28 lifts
-    the push stop.
+- **PR51, `CX-P2-02` HTTP contract** (revision 5 `799c9de5`) and
+  **PR52, `CX-P2-01` Windows services design** (revision 5 `d2fbb9ce`).
+  Both are refreshed onto main with green docs/static checks. The authorized
+  integration session owns the final review of the round-4 findings.
+  - HTTP now requires provider-owned `Connection: close` on Android requests
+    and redirects, bounded admission while native I/O drains, and hermetic
+    Windows revocation fixtures. Review those guarantees before implementing
+    the provider; no native transport has been qualified by this prose change.
+  - Windows services now specify post-COMMIT outcomes independent of ACK,
+    generated metadata ownership, operation-aware lock errors, a permanently
+    registered console trampoline, owned supervisor stdio, and portable/POSIX
+    Daemon corpus separation. Correct the remaining obsolete `INCLUDE_FIXTURES`
+    reference to the derived `include_fixtures()` owner before merge.
+  - Approval promotes the request lists to `CL-P2-02/03/04/14` scope. Design
+    merge, implementation and native qualification are separate acceptance steps.
 - **`CX-C-01` follow-ups** (batch 26 comment on PR26; no PR yet). Owner: Codex
   (`tools/bench/scripts/ccompat_checkpoint.sh`,
   `src/tests/python/test_ccompat_checkpoint_script.py`). Prerequisite: none.
