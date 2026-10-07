@@ -244,9 +244,13 @@ owner_action = "..."            # printed before the cell runs
 | `exit` | exit 0 | exit code |
 | `budget-bench` | exit 0 and `report.json` has no failure | per scenario median, p95, max, sample count, facts, metric medians |
 | `gate-summary` | exit 0 | every `batch_gate.sh` step's exit, duration and counts |
-| `failure-list` | test failures have stable identities and no non-test/unclassified failure is present | `failures` feeds the later `subset`; `non_test_failures` retains blocking diagnostic records with their category and log line. With `retries`, a run that names failures is repeated and only tests failing every attempt count (the rest are listed as `flaky`). Interrupted commands and missing logs fail closed. |
+| `failure-list` | test failures have stable identities and no non-test/unclassified failure is present | `failures` feeds the later `subset`; `non_test_failures` retains blocking diagnostic records with their category and log line. With `retries`, a run that names failures is repeated; only eligible, complete attempts can establish which failures persist and which are `flaky`. One eligible attempt retains its entire failure list. `attempt_history` preserves every raw result and log path, including incomplete attempts. Interrupted commands and missing logs fail closed. |
 | `instr` | `instr.sh` reports `rc=0` | instructions retired, peak footprint, real time |
 | `attribution` | exit 0 and `attribution.json` (`tools/perf.py --cprofile`) has no failure | the attributed fractions (overall, minimum, per scenario), the target and each scenario's owner shares; never ingested |
+
+The default pytest reader preserves spaces and ` - ` inside balanced parameter
+brackets. Unbalanced brackets make the identity ambiguous and fail qualification
+instead of truncating the name to a potentially allowed test.
 
 ## Rehearsed here, proven only on the Mac
 

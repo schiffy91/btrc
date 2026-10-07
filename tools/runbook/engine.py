@@ -721,9 +721,6 @@ class RunState:
 class Results:
     """Turn a finished command into (passed, results, message) by the cell's ``result`` kind."""
 
-    # Require a pytest node ID; unittest's "FAILED (failures=N)" is a summary.
-    DEFAULT_FAILURES = (r"^FAILED\s+(\S+::.+?)(?: - .*)?$",)
-
     @classmethod
     def read(cls, cell: CellSpec, code: int, out: Path, log: Path) -> tuple[bool, dict[str, object], str]:
         reader = {
@@ -796,7 +793,7 @@ class Results:
         unittest_counts = {"failures": 0, "errors": 0}
         test_exit = False
         make_depth: int | None = None
-        patterns = tuple(re.compile(pattern) for pattern in cell.failures or cls.DEFAULT_FAILURES)
+        patterns = tuple(re.compile(pattern) for pattern in cell.failures)
         for number, line in enumerate(text.splitlines(), 1):
             command = re.match(
                 r"^\s*(?:(?:[A-Za-z_]\w*=(?:'[^']*'|\"[^\"]*\"|\S+))\s+)*"
@@ -860,7 +857,10 @@ class Results:
                     other.append({"kind": "unclassified", "line": number, "detail": line})
                 make_depth = depth
                 continue
-            matched = False
+            name = cls.pytest_failure(line) if not patterns else None
+            matched = name is not None
+            if name is not None and name not in names:
+                names.append(name)
             for pattern in patterns:
                 match = pattern.search(line)
                 if match:
@@ -894,6 +894,28 @@ class Results:
         if code != 0 and not names:
             return False, results, f"exit {code} with no failure named in the log"
         return True, results, f"{len(names)} failure(s) named" if names else ""
+
+    @staticmethod
+    def pytest_failure(line: str) -> str | None:
+        """Keep message delimiters inside balanced parameter IDs in the identity."""
+
+        match = re.match(r"^FAILED\s+(\S+::.+)$", line)
+        if match is None:
+            return None
+        body = match[1]
+        depth = 0
+        for index, character in enumerate(body):
+            if depth == 0 and body.startswith(" - ", index):
+                return body[:index]
+            if character == "[":
+                depth += 1
+            elif character == "]":
+                depth -= 1
+                if depth < 0:
+                    return None
+            elif character.isspace() and depth == 0:
+                return None
+        return body if depth == 0 else None
 
     @staticmethod
     def unittest_script(arguments: str) -> str | None:
@@ -1397,6 +1419,8 @@ class RunbookEngine:
             Path(str(context["btrcc"])).parent.mkdir(parents=True, exist_ok=True)
         say(f"    log: {log}")
         attempts = cell.retries + 1
+        attempt_history: list[dict[str, object]] = []
+        eligible_failures: list[set[str]] = []
         for attempt in range(1, attempts + 1):
             outcome.attempts = attempt
             with self.locks.held(cell.lock):
@@ -1407,14 +1431,27 @@ class RunbookEngine:
                 attempt_log = log if attempt == 1 else log.with_suffix(f".attempt{attempt}.log")
                 code = self.execute(argv, cwd, environment, attempt_log, cell.timeout_s)
             passed, results, message = Results.read(cell, code, out, attempt_log)
-            if cell.result == "failure-list" and attempt > 1 and passed and outcome.results.get("failures"):
-                # A failure counts only if every attempt failed it; the rest were flakes the rerun cleared.
-                earlier = list(outcome.results.get("failures", []))  # type: ignore[arg-type]
-                now = list(results.get("failures", []))  # type: ignore[arg-type]
-                results["failures"] = [name for name in now if name in earlier]
-                results["flaky"] = sorted(set(earlier) ^ set(now))
-                count = len(results["failures"])  # type: ignore[arg-type]
-                message = f"{count} failure(s) named in every attempt" if count else ""
+            if cell.result == "failure-list":
+                # Preserve raw evidence before filtering. An incomplete command
+                # cannot prove that a test absent from its output passed.
+                attempt_history.append(
+                    {
+                        "attempt": attempt,
+                        "eligible": passed,
+                        "exit": code,
+                        "log": str(attempt_log),
+                        "results": dict(results),
+                    }
+                )
+                if passed:
+                    now = list(results.get("failures", []))  # type: ignore[arg-type]
+                    eligible_failures.append(set(now))
+                    if len(eligible_failures) > 1:
+                        stable = set.intersection(*eligible_failures)
+                        results["failures"] = [name for name in now if name in stable]
+                        results["flaky"] = sorted(set.union(*eligible_failures) - stable)
+                        message = f"{len(stable)} failure(s) named in every eligible attempt" if stable else ""
+                results["attempt_history"] = list(attempt_history)
             outcome.exit, outcome.results, outcome.message = code, results, message
             outcome.log = str(attempt_log)
             named = cell.result == "failure-list" and bool(results.get("failures"))

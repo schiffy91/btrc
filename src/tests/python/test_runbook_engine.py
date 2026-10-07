@@ -554,9 +554,19 @@ def test_release_results_keep_pytest_ids_and_custom_formats(tmp_path: Path) -> N
     assert passed and results["failures"] == ["widget.close"]
 
 
-def test_release_results_preserve_pytest_parameter_identity(tmp_path: Path) -> None:
-    passed, results, _ = read_failure_log(tmp_path, "FAILED tests/test_ui.py::test_title[two words] - AssertionError\n")
-    assert passed and results["failures"] == ["tests/test_ui.py::test_title[two words]"]
+@pytest.mark.parametrize("parameter", ["two words", "two - words", "two - different words"])
+def test_release_results_preserve_pytest_parameter_identity(tmp_path: Path, parameter: str) -> None:
+    passed, results, _ = read_failure_log(
+        tmp_path, f"FAILED tests/test_ui.py::test_title[{parameter}] - AssertionError\n"
+    )
+    assert passed and results["failures"] == [f"tests/test_ui.py::test_title[{parameter}]"]
+
+
+@pytest.mark.parametrize("node", ["test_title[unfinished", "test_title]extra", "test_title[extra]]"])
+def test_release_results_reject_ambiguous_pytest_identity(tmp_path: Path, node: str) -> None:
+    passed, results, _ = read_failure_log(tmp_path, f"FAILED tests/test_ui.py::{node} - AssertionError\n")
+    assert not passed and results["failures"] == []
+    assert results["non_test_failures"][0]["kind"] == "unclassified"
 
 
 @pytest.mark.parametrize(
@@ -693,6 +703,39 @@ def test_release_infrastructure_failure_blocks_push_despite_allowed_tests(
     assert release.results["non_test_failures"][0]["kind"] == "link"
     diff = state.checkpoint("qualifying-diff")
     assert diff is not None and diff.status != "passed"
+    push = state.checkpoint("push-btrsmith-main")
+    assert push is not None and push.status == "blocked"
+    assert git("rev-parse", "main", cwd=hubs["btrsmith_upstream"]) == git("rev-parse", "main", cwd=hubs["btrsmith"])
+
+
+def test_release_retry_cannot_erase_new_test_after_incomplete_attempt(tmp_path: Path, hubs: dict[str, Path]) -> None:
+    original = "echo 'FAILED tests/Drifted.py::test_{frontend}'; echo 'FAILED tests/Old.py::test_x'; exit 2"
+    retry = (
+        "if [ ! -e attempt-{frontend} ]; then touch attempt-{frontend}; "
+        "echo 'ld: undefined symbols'; echo 'FAILED tests/Old.py::test_x'; "
+        "else echo 'FAILED tests/New.py::test_{frontend}'; fi; exit 2"
+    )
+    preset = write_preset(
+        tmp_path,
+        REQUAL.replace(original, retry).replace('result = "failure-list"', 'result = "failure-list"\n    retries = 1'),
+    )
+    (tmp_path / "home").mkdir()
+    (tmp_path / "home" / "qualifying.txt").write_text("tests/Old.py::test_x\n")
+    engine = engine_for(preset, options(tmp_path, hubs, preset), system="Darwin")
+
+    assert engine.run() == 1
+    state = engine.state
+    assert state is not None
+    release = state.checkpoint("release-check-reference")
+    assert release is not None and release.status == "passed" and release.attempts == 2
+    assert release.results["failures"] == ["tests/New.py::test_reference"]
+    history = release.results["attempt_history"]
+    assert len(history) == 2 and not history[0]["eligible"] and history[1]["eligible"]
+    assert history[0]["results"]["non_test_failures"][0]["kind"] == "link"
+    assert Path(history[0]["log"]).is_file()
+    diff = state.checkpoint("qualifying-diff")
+    assert diff is not None and diff.status == "failed"
+    assert diff.results["new_failures"] == ["tests/New.py::test_reference", "tests/New.py::test_selfhost"]
     push = state.checkpoint("push-btrsmith-main")
     assert push is not None and push.status == "blocked"
     assert git("rev-parse", "main", cwd=hubs["btrsmith_upstream"]) == git("rev-parse", "main", cwd=hubs["btrsmith"])

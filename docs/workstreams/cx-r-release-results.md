@@ -34,7 +34,8 @@ instead of the two class/method identities. Four later adversarial cases also
 failed before their fixes: parameter IDs containing spaces, diagnostics inside a
 unittest traceback, a separate collection error, and a same-depth Make failure.
 
-The final focused module run passed **79 tests in 19.24 seconds**:
+The initial implementation's focused module run passed **79 tests in 19.24
+seconds**; independent review then found two additional defects, recorded below.
 
 ```sh
 python3 -m pytest -q -o addopts= src/tests/python/test_runbook_engine.py
@@ -57,12 +58,34 @@ Private product logs and identities are not copied into this public repository.
 No baseline allowance was created or changed, and the Stage 4 preset continues
 using the repaired default reader without a new result format.
 
+## Independent-review corrections
+
+Review found that a retry intersected its named failures with an earlier
+incomplete command. A linker failure plus allowed test A, followed by a complete
+run with new test B, could erase B and incorrectly allow the push. The regression
+reproduced that push into the isolated fake upstream. Attempts now retain their
+raw results and log paths in `attempt_history`; only eligible complete attempts
+participate in the intersection. A single eligible attempt retains every named
+failure. The corrected end-to-end regression proves that B remains new, the
+subset fails and the fake upstream does not advance, while the first attempt's
+link diagnostic remains in the checkpoint.
+
+Review also found that ` - ` inside a pytest parameter ID was truncated as a
+message delimiter, allowing distinct tests to collide. The default reader now
+recognizes delimiters only outside balanced brackets; ambiguous bracket syntax
+fails closed. Before these corrections, the focused cases produced **three
+failures and one pass**. Afterward those four cases passed; additional malformed
+identity cases also pass. The complete module now passes **85 tests in 33.87
+seconds**, with Ruff lint/format and `git diff --check` passing. These are pure
+Python tests using the same already-realized runtime; no native build ran.
+
 ## Timing and remaining work
 
 Implementation and review ran between 16:50:53 and 17:10:14 UTC, with a read-only
 pause while the integrator held the UI2 native gate. These are elapsed interval
 endpoints, not a claim that the whole interval was active implementation. This
-packet ran no gate or native build; the recorded pure Python suite took 19.24 s.
-Independent review, publication under the CI cap and combined qualification
+packet ran no gate or native build. Review corrections and their final checks
+finished at 17:19:35 UTC after the initial 17:10:14 checkpoint; the final pure
+Python suite took 33.87 s. Final review, publication under the CI cap and combined qualification
 remain with the integrator. The actual Stage 4 pin/release requalification is
 still open; repairing its result reader does not qualify the product.
