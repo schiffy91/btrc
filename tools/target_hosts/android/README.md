@@ -223,3 +223,24 @@ one-second timeout expired during activity startup, without the fixture's
 `started` output. The ready/start handshake separates that startup latency
 from the execution deadline; the one-second fixture limit stays unchanged.
 This repair requires a new complete two-API run.
+
+At `68c7b553`, [run 37564454274](https://github.com/schiffy91/btrc/actions/runs/37564454274)
+passed all 56 cases across API 29 and 36. The combined candidate's
+[run 37570754359](https://github.com/schiffy91/btrc/actions/runs/37570754359)
+then passed API 29 but failed API 36's large-output app after 22 successful
+checks. Logcat records NativeActivity recreation in the same process and the
+old worker finishing an activity whose native glue had already been destroyed.
+The previous report omitted the failing result; it now retains its stream byte
+counts/hashes, status, signal and timing separately from successful rows.
+
+Fixture execution is now owned by the process across activity recreation.
+The worker copies its input directory, runs only once, and finishes only the
+currently registered live activity. A recreated activity after completion
+observes the same terminal result without reopening or truncating output files.
+The lifecycle regression compiles the actual C host against a small native-glue
+simulator, using real threads, fork and files: it destroys the first activity
+while the fixture is running, recreates it before completion, and recreates it
+again afterwards. The original host fails by finishing a retired activity;
+the repair preserves one fixture invocation and complete output. This local
+simulation does not replace API 29/36 emulator qualification, which must pass
+again with the unchanged execution deadlines and exact stream assertions.

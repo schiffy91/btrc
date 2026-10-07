@@ -18,6 +18,7 @@ class HostFixtureCheck:
         self.executor = executor
         self.results = []
         self.current_case = None
+        self.failed_result = None
 
     def run(self):
         rows = self.results
@@ -48,6 +49,11 @@ class HostFixtureCheck:
                     1 if case == "timeout" else 15,
                 )
                 result = self.executor.run(request)
+                row = asdict(result)
+                for name in ("stdout", "stderr"):
+                    data = row.pop(name)
+                    row[name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+                self.failed_result = {"mode": mode, "case": case, **row}
                 expected = {
                     "stdout": (b"stdout\n", b""),
                     "stderr": (b"", b"stderr\n"),
@@ -77,11 +83,8 @@ class HostFixtureCheck:
                         or result.timed_out
                     ):
                         raise AssertionError(f"{mode}/{case}: exit status or deadline differs from expected")
-                row = asdict(result)
-                for name in ("stdout", "stderr"):
-                    data = row.pop(name)
-                    row[name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-                rows.append({"mode": mode, "case": case, **row})
+                rows.append(self.failed_result)
+                self.failed_result = None
         return rows
 
 
@@ -149,6 +152,8 @@ def main(argv=None):
             failure_stage=stage,
             current_case=checker.current_case,
         )
+        if checker.failed_result is not None:
+            report["failed_result"] = checker.failed_result
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     if failure:
         raise failure
