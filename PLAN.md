@@ -288,9 +288,21 @@ public-AppKit control retained seven private objects after its first cycle and
 eight thereafter: `NSTextInsertionIndicator` appears in cycles 2–100. BTRC has
 no such survivor. Its probe was inactive/non-key in all cycles; the control was
 active/key in all cycles. This shows an unstable control baseline, not BTRC
-retention growth, and does not justify loosening the retention assertion. Repair
-and qualify the control before rerunning the final matrix. The REQ-10 results
-and later preflight stops are recorded below.
+retention growth. Two local experiments were rejected: an extra initialization
+cycle did not reproduce the active-window condition, and forced activation
+failed the native gate (`303d3353`: four failures, 37 passing checks). Three
+failures were control activation deadlines; the fourth was a surviving BTRC-owned
+`NSTextField` in fresh-process restore 54. That provider failure remains open.
+
+Local candidate `a696ccf4` restores the original control lifecycle and compares
+each private class against its first observed positive multiplicity. A helper
+may first appear after cycle one, but its allowance never increases; disappearing
+and returning with more instances still fails. Unknown BTRC classes, excess
+BTRC instances, owned objects and live registrations still fail. All 37 focused
+checks pass, including two lazy-initialization cases that failed before the
+change and two subsequent-growth refusals. Native qualification is queued;
+this comparison repair does not excuse the separate provider survivor or
+qualify the final matrix.
 
 `CL-REQ-10` (`e1bc5dfa`) remains unmerged after a blocking source review:
 `BtrccCompilerStack.run` marks its parent parked before `pthread_create`, while
@@ -332,8 +344,14 @@ constructor. Three accepting parity probes, one rejecting probe, and a runnable
 nullable-cycle corpus cover the repair. All 127 analyzer-battery probes match
 their expected results through the reference compiler; the new corpus also
 transpiles. Lint, Python/btrc formatting, generated-source and plan/hygiene
-checks pass. Self-hosted parity, native corpus execution and the final
-integrated matrix remain pending; this is a local checkpoint, not a main merge.
+checks pass. The fresh focused native qualification at `f3a5d3c6` now has
+**1,210 passing checks and three platform skips**, including self-hosted parity.
+The nine new corpus cases ran through both compilers: 16 checks passed, while
+both nullable-cycle checks produced the expected `true`, `true`, `3` output but
+failed the corpus runner's required `PASS` marker. Local correction `d2ffae69`
+adds that marker and its golden; the two checks are queued for rerun. Compiler
+production sources are unchanged. The final integrated matrix remains pending;
+this is a local checkpoint, not a main merge.
 
 Local candidate `e151f6be` merges the rich-enum B/C packet into `e1787f9b`,
 with a repair for writes into nested payload storage. The original branch
@@ -344,14 +362,25 @@ crosses a pointer or managed object. Four new refusal cases cover nested storage
 the existing sanitizer execution fixture also checks allowed nested object
 writes. All 67 rich-enum reference checks and 127 analyzer reference probes pass;
 lint, formatting, generated-source and plan/hygiene checks pass. Native parity
-and sanitizer qualification remain unrun: this candidate and REQ-11 stopped at
-the stopped-guest preflight after the shared Podman VM started. The running
-`semu-release-build` container was left intact. Neither preflight stop is a
+and sanitizer qualification are running at `2d645e27`. Earlier attempts stopped
+at the stopped-guest preflight while the shared `semu-release-build` container
+was active; it was left intact. The fresh runs began after the VM was observed
+stopped, without stopping it ourselves. Neither earlier preflight stop is a
 compiler-test result. The naming correction is propagated through local
 REQ-11 `f3a5d3c6` and rich-enum `2d645e27`; their production sources are unchanged
 from `e1787f9b` and `e151f6be`, respectively. External owner rebinding and shallow
 struct escapes remain separate gaps; universal lifetime safety is not claimed.
 The iOS `1844837b` branch is preserved while its idle clone hosts this checkpoint.
+
+The rich-enum D/G branch `1cc97ab8` remains unmerged. A source-only combined
+preview against `2d645e27` confirms a new integration blocker: the incoming
+realtime-payload recursion turns `Chain<T>` → `Chain<(T, int)>` into
+“expression or declaration nested too deeply to compile”, replacing the current
+precise growing-specialization diagnostic. The preview resolves the Python
+method conflict by retaining both incoming payload validation and the current
+scope/use tracking. Reconcile this traversal with REQ-11's termination model
+in both compilers before integration; do not replace its diagnostic with an
+arbitrary depth limit. No self-hosted D/G qualification is claimed.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
