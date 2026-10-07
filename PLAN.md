@@ -188,6 +188,13 @@ The remote snapshot contains 183 branches: 151 tips are ancestors of main and
 32 are not. These are initial dispositions, not completed reviews. Local legacy
 branches must also be checked before deletion; nothing is deleted by this plan.
 
+The C4 branch comparison is complete: `db229df7` and main ancestor `245cc209`
+have the same full Git tree, `87666402b8638440ed04dff17664de955fb16c48`.
+This proves that the branch's entire snapshot landed, including its paired
+compiler implementation and tests, despite different commit ancestry. Main
+then received integrator fixes in `914ad585`. No branch deletion or new
+qualification claim follows from that source comparison.
+
 | Branch | Head | Disposition / next proof |
 |---|---|---|
 | `codex/cx-p1-03` | `958d309b` | Active PR; exact remaining acceptance is in the provider queue below. |
@@ -209,7 +216,7 @@ branches must also be checked before deletion; nothing is deleted by this plan.
 | `spike/stage6-parse` | `8a8733cd` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
 | `spike/stage6-records` | `88f82de0` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
 | `spike/stage6-visibility` | `8107ae1f` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
-| `stage16/c4-python` | `db229df7` | Intermediate Python-only C4 lane; reconcile against the paired C4 already on main, preserving parity. |
+| `stage16/c4-python` | `db229df7` | Already represented on main: its complete tree is identical to `245cc209`; later paired review fixes landed at `914ad585`. Preserve the historical branch; do not replay it. |
 | `stage17/c2-l1` | `4ef167af` | CL-C-09: repair generic/tag capture, typedef diagnostic order, native tag and LSP regressions; rerun paired review. |
 | `stage17/c2-l2` | `2e65f7c6` | CL-C-13: fix declaration-vs-shadow diagnostic order and callee-first checks for interface/Atomic/Mutex receivers. |
 | `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
