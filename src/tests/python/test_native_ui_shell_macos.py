@@ -62,7 +62,7 @@ def summarize_macos_shell(observations):
     assert all(len(row) == 3 and row[1] == 0 for row in baseline["teardown"])
     private_classes = observations.get("private_classes")
     assert isinstance(private_classes, list) and len(private_classes) == 100
-    allowance = baseline["private_classes"][0]
+    allowance = {}
     for rows, counts in (
         (baseline["private_classes"], [row[2] for row in baseline["teardown"]]),
         (private_classes, [int(row[1]) for row in teardown]),
@@ -73,6 +73,12 @@ def summarize_macos_shell(observations):
                 isinstance(name, str) and name and type(value) is int and value > 0 for name, value in classes.items()
             )
             assert sum(classes.values()) == count
+            if rows is baseline["private_classes"]:
+                # AppKit can lazily create a helper after the first lifecycle.
+                # Its first observed multiplicity is the bound, never a later
+                # maximum; growth remains a failure even after disappearance.
+                for name, value in classes.items():
+                    allowance.setdefault(name, value)
             assert all(value <= allowance.get(name, 0) for name, value in classes.items()), (classes, allowance)
     assert type(observations["private_objects"]) is int
     assert observations["private_objects"] == int(teardown[-1][1])
@@ -408,3 +414,33 @@ def test_macos_shell_observation_keeps_inactive_tab_context_a_gap(context_field)
     observed["probes"][37]["key_views"]["tab_context"][1][context_field] = False
     report = summarize_macos_shell(observed)
     assert report["key_view_traversal"]["status"] == report["gpu_focusability"]["status"] == "gap"
+
+
+@pytest.mark.parametrize("first_cycle", [1, 37])
+def test_macos_shell_private_control_allows_lazy_first_observation(first_cycle):
+    observed = _observation_fixture()
+    control = observed["appkit_control"]
+    for cycle in range(first_cycle, 100):
+        control["private_classes"][cycle]["LazyAppKitHelper"] = 1
+        control["teardown"][cycle][2] += 1
+    # The independent processes need not initialize toolkit helpers on the same
+    # cycle. BTRC still cannot retain more instances than the control first saw.
+    observed["private_classes"][0]["LazyAppKitHelper"] = 1
+    observed["teardown"][0][1] = "2"
+    report = summarize_macos_shell(observed)
+    assert report["appkit_control"] == control
+
+
+@pytest.mark.parametrize("disappears", [False, True])
+def test_macos_shell_private_control_rejects_growth_after_lazy_first_observation(disappears):
+    observed = _observation_fixture()
+    control = observed["appkit_control"]
+    control["private_classes"][1]["LazyAppKitHelper"] = 1
+    control["teardown"][1][2] = 2
+    for cycle in range(2, 100):
+        count = 2 if cycle >= 37 else (0 if disappears else 1)
+        if count:
+            control["private_classes"][cycle]["LazyAppKitHelper"] = count
+        control["teardown"][cycle][2] = 1 + count
+    with pytest.raises(AssertionError):
+        summarize_macos_shell(observed)
