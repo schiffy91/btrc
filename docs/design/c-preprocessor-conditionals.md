@@ -566,6 +566,7 @@ foreign_macro_names = ["NDEBUG", "TARGET_OS_MAC", "bool", "..."]   # set by head
   - `TARGET_CPU_{ARM, ARM64, X86, X86_64, PPC, PPC64}`;
   - `TARGET_RT_{64_BIT, LITTLE_ENDIAN, BIG_ENDIAN, MAC_MACHO, MAC_CFM}`.
 - Stage 24 makes the `TARGET_OS_*` names clang predefines, and `TARGET_IPHONE_SIMULATOR`, rows on macos and ios, so `#if` reads them. They stay in this list, so that M4 keeps refusing `#define` and `#undef` of them, until M3 refuses every predefined-macro row name and derived name; that commit removes the 16 names from the list ([platform-target-contract.md](platform-target-contract.md) §1.3).
+- The 2026-10-07 Xcode qualification keeps the vendor-only `TARGET_OS_{ARROW, BRIDGE, FIRMWARE, IOSMAC, KERNELKIT, XR}` names foreign. Upstream clang does not predefine them; btrc rejects reading them (I3) and source definitions or undefinitions (M4). The portable Apple rows remain readable ([platform-target-contract.md](platform-target-contract.md) §1.3).
 - `undefined_macro_names` loses `__ANDROID__`, which becomes a row on android (§1.3 of [platform-target-contract.md](platform-target-contract.md)).
 
 **Generator rules** (raised in the `HostedAbiManifestError` style):
