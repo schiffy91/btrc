@@ -74,12 +74,21 @@ session="$(mktemp -d "${TMPDIR:-/tmp}/btrc-headless.XXXXXX")"
 pids=()
 command_pid=""
 teardown() {
-  local index
+  local status=$? index log
   [[ -z "$command_pid" ]] || kill -TERM "$command_pid" 2>/dev/null || true
   for ((index = ${#pids[@]} - 1; index >= 0; index--)); do
     kill "${pids[index]}" 2>/dev/null || true
     wait "${pids[index]}" 2>/dev/null || true
   done
+  # A compositor may abort after readiness. Keep its diagnostic before removing
+  # the private session, including when the client reports only a broken pipe.
+  if ((status != 0)); then
+    for log in "$session"/*.log "$session"/*.out; do
+      [[ -f "$log" ]] || continue
+      printf 'headless-session: %s (last 200 lines)\n' "${log##*/}" >&2
+      tail -n 200 "$log" >&2 || true
+    done
+  fi
   rm -rf -- "$session"
 }
 trap teardown EXIT
