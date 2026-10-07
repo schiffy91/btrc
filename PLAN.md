@@ -122,7 +122,8 @@ the runtime repair and the native button repair. Its fresh self-hosted compiler
 build, lint, formatting, generated-source and extension checks passed. The
 compiler SHA-256 is recorded with the source-pinned preparation evidence; the
 full behavioral/bootstrap/C11 matrix is now running serially on this frozen tree.
-It has no passing result yet.
+The parallel suite has reported failures; preserve its complete inventory before
+repairing and requalifying. It has no passing result yet.
 The Darwin Python/libffi repair `2e8e3711` now passes the actual callback smoke,
 46 build-safety checks and upstream CFFI's 1,888 checks (161 skips, four deselected,
 four expected failures). Its four-platform package evaluation also passed;
@@ -200,11 +201,15 @@ source-test TSV failures are a different suite and must not be substituted as a
 release allowance. Normalize the release-result adapter with fixture-backed tests,
 keep infrastructure/compilation failures explicit, and reconstruct only allowances
 supported by qualifying pin evidence. An empty or guessed allowance is not valid.
-The bounded `codex/btrsmith-release-results` repair is now in implementation: its
-first 14 excerpt-driven cases reproduce the defect and pass after repair. Review
-is still closing provenance, mixed-failure and wrapper-propagation edges before
-final testing. It does not create an allowance or qualify the historical release
-run, which also contains independent build failures.
+The bounded `codex/btrsmith-release-results` repair is committed locally at
+`0fec0960`: 85 focused tests, lint and formatting pass, and independent review
+has no remaining blocker. It names unittest cases from observed command
+provenance, preserves full pytest parameter IDs, separates build/infrastructure
+failures, and prevents an invalid earlier attempt from erasing new retry failures
+or permitting a push. Replaying the retained release log yields two stable test
+IDs plus 38 non-test/unclassified diagnostic records and still fails qualification.
+It creates no allowance and does not qualify BTRSmith. Publication, combined
+integration and actual application requalification remain outstanding.
 
 ### Delivery review and progress measurement (2026-10-07)
 
