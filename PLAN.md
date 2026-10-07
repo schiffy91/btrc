@@ -189,8 +189,11 @@ execution; this diagnostic change does not qualify or repair the compositor. Way
 coverage gap explicit.
 The `ad72af03` validation candidate includes the GPU assertion and
 failure-log retention repairs. Its local lint, formatting, generated-source and
-extension checks passed; the full suite is running against this frozen revision,
-with serial bootstrap, all eight C11 configurations and hygiene still pending.
+extension checks passed. Its full suite passed 17,187 tests with 163 expected
+skips and zero unexpected skips in 1,819.62 seconds. The skip ledger identifies
+161 skips covered on other runners and two uncovered Linux-native-reader cases.
+Serial bootstrap is running against this frozen revision; all eight C11
+configurations and hygiene remain pending.
 The native compiler binary is reused from the source-matched `081aae51` build,
 not newly rebuilt. Hosted [Windows run 37588790879](https://github.com/schiffy91/btrc/actions/runs/37588790879)
 passed tests and bootstrap. [Android run 37588790885](https://github.com/schiffy91/btrc/actions/runs/37588790885)
@@ -627,7 +630,7 @@ owner, the exact prerequisite and the next acceptance.
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
-  published head `0423088d`). Owner: this authorized integration session.
+  published head `06870dfc`). Owner: this authorized integration session.
   Main `87dd60d7` is merged into the branch; the tooling now uses the shared Windows Job/gate, target
   flags, PE parser and build-process owner. The overall native deadline,
   component-qualified Visual Studio discovery and separate developer-command
@@ -696,7 +699,18 @@ owner, the exact prerequisite and the next acceptance.
   default-target syntax returned `3221225642`. All failing diagnostics retained
   empty stdout/stderr. The CI merge revision is `ac003239`; the evidence narrows
   the failure without proving its cause. No full compiler transpile or bootstrap
-  began. Updating this existing PR stays within the two-active-code-PR allowance.
+  began. Inspection of the verified Zig 0.16.0 source showed that these first
+  three diagnostics still selected link mode: forwarding `-###` and
+  `-fsyntax-only` does not change Zig's default output mode. Revision `06870dfc`
+  adds `-c` to isolate those frontend probes and adds a verbose object compile
+  to distinguish diagnostic-output handling from linking. The focused evidence
+  suite passed 35 tests and ten subtests, with one native-only skip, before and
+  after the change; lint, formatting and diff checks passed. Native results
+  for the corrected probes are pending in
+  [run 37595036759](https://github.com/schiffy91/btrc/actions/runs/37595036759).
+  The qualification command, pinned toolchain, Job containment and deadlines
+  are unchanged; diagnostic success cannot turn the original failure green.
+  Updating this existing PR stays within the two-active-code-PR allowance.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
