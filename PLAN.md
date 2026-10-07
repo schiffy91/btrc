@@ -212,7 +212,7 @@ qualification claim follows from that source comparison.
 | `codex/cx-uib-07` | `6d62e046` | PR42 findings note merged at `87dd60d7`; prototype stays separate and native AX evidence remains unavailable. |
 | `codex/cx-uib-07-spike` | `0d6127a6` | Preserve evidence/prototype; integrate findings or reviewed production port only. |
 | `evidence/cx-uia-11-e40-repro` | `bbe4f56e` | Preserve evidence/prototype; integrate findings or reviewed production port only. |
-| `integ/b17` | `fce184b6` | Historical WIP integration; compare intended deltas with later batches before any port. Do not replay its old plan wholesale. |
+| `integ/b17` | `fce184b6` | Superseded by main ancestor `9f33d2c3` (UI parallel plan): all 449 packet IDs, owners, stages and roadmap assignments retained; 434 packets identical, 15 revised for dependency, ownership and qualification corrections. Preserve WIP history without replay. |
 | `integ/b20` | `c6fe3a6b` | All three changed files are byte-identical to main ancestor `ce886ee4`: catalog implementation, tests and README. Already landed; preserve the historical branch without replay. |
 | `spike/stage6-composed` | `9ae0d17a` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
 | `spike/stage6-decl` | `1d546c26` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
