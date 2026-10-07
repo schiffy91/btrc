@@ -529,8 +529,13 @@ owner, the exact prerequisite and the next acceptance.
   passed all twelve iPhone spawn cases but failed the other three modes on
   launch/identity deadlines. Diagnostics record 7 GiB RAM, three CPUs, heavy
   memory compression and device-list queries timing out. Host pressure is a
-  supported hypothesis, not a proven cause. The same fixtures are being run on
-  the acceptance Mac's installed iOS 26.4.1 runtime without changing deadlines.
+  supported hypothesis, not a proven cause. The same revision and unchanged
+  fixture binaries passed all **50 executions** on the acceptance Mac, Xcode
+  27A266a and iOS 26.4.1 (23E254a), without changing deadlines. Both app modes
+  proved fresh containers including the repeat, cleanup completed and both
+  owned simulators were verified shut down. Retained manifests include fixture
+  hashes and per-case results. Hosted 26.2 reliability and the iOS 17 runtime
+  floor remain separate gaps.
   Next: diagnose host launch/readiness failures without weakening fixture
   deadlines, then pass 12 fixtures × spawn/app × iPhone/iPad plus one repeated
   app invocation per class (50 executions). Preserve Xcode/runtime provenance,
