@@ -42,3 +42,10 @@ then drives normal thumb dragging and wheel scrolling through SDL. Direct
 provider pointer calls cover a zero-length track and a thumb that fills its
 track. Both compiler frontends and sanitizer variants are collected by the
 normal native-GUI glob; their Linux execution is pending.
+
+Read-only independent review also confirmed that a finite `1e308` document
+extent overflows the original offset-position multiplication, and an overshoot
+drag can overflow before offset clamping and incorrectly return to the top.
+The same real fixture therefore covers visible thumb pixels at the maximum of
+that extent and direct drag overshoot to both boundaries. This remains an
+unexecuted regression, not a current native failure claim.

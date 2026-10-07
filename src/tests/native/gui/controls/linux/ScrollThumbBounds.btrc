@@ -92,6 +92,22 @@ class ScrollJourney implements IApplicationWork {
 			self._scroll.scrollTo(-1.0);
 			assert(self._scroll.scrollOffset() == 0.0);
 		}
+		/* A finite document extent must not overflow the position calculation
+		 * or turn a drag beyond the bottom into a jump back to the top. */
+		self._scroll.setContentSize(80.0, 100.0);
+		var baseline = self.capture();
+		self._scroll.setContentSize(80.0, 1.0e308);
+		self._scroll.scrollTo(1.0e308);
+		self.checkPixels(baseline, 100.0);
+		self._scroll.scrollTo(0.0);
+		assert(self.pointer(APP_POINTER_PRESSED, 6.0));
+		assert(self.pointer(APP_POINTER_DRAGGED, 222.0));
+		assert(self._scroll.scrollOffset() == 1.0e308);
+		assert(self.pointer(APP_POINTER_RELEASED, 222.0));
+		assert(self.pointer(APP_POINTER_PRESSED, 78.0));
+		assert(self.pointer(APP_POINTER_DRAGGED, -138.0));
+		assert(self._scroll.scrollOffset() == 0.0);
+		assert(self.pointer(APP_POINTER_RELEASED, -138.0));
 	}
 
 	public void run() {
