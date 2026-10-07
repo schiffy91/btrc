@@ -214,11 +214,13 @@ Patch application, Nix syntax, Python syntax, lint, formatting and diff checks
 passed. At `56909225`, the repaired hosted Wayland GUI shard passed 210
 checks with 195 expected skips and no unexpected skips in 606.68 seconds;
 retained JUnit and skip artifacts confirm the result. Its X11 sibling also
-passed. The new standalone unmapped-subsurface regression belongs to the unit
-shard, whose result remains pending; it has not been run against unpatched
-Weston. Other GTK/accessibility warnings are not claimed fixed. The next published
-candidate includes this backport and the current plan; its CI must qualify
-that new tree. No final green result is claimed.
+passed. The Linux unit shard now passes 6,916 checks with 3,116 expected
+skips and zero unexpected skips, including the new standalone unmapped-subsurface
+regression and all 29 headless-session cases. Its retained skip report records
+CI merge revision `377666fe`; the complete Linux workflow is green. The new
+regression has not been run against unpatched Weston. Other GTK/accessibility
+warnings are not claimed fixed. The macOS unit shard remains running; other
+macOS shards passed. No final integrated green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
 pending their native failure investigations.
@@ -302,6 +304,19 @@ and Python syntax, lint/format, btrc formatting and generated-source checks
 pass. Actual integrated compiler/parity/native results remain pending: the
 focused gate is queued behind the full C2 baseline, with both checkouts pinned
 and unchanged. The local candidate is not published or landed on main.
+
+Local candidate `e1787f9b` merges `CL-REQ-11` into `226506eb` for qualification.
+Its tuple-array indexing, `sizeof` binding/retention and generic-termination
+changes preserve C2's flexible-array diagnostics at the merge conflicts.
+Review reproduced a false rejection in the original branch: applying `T?`
+repeatedly stabilizes, but its parsed pointer layer was marked as growing.
+Both compilers now distinguish that nullable layer from a growing `T*?`
+constructor. Three accepting parity probes, one rejecting probe, and a runnable
+nullable-cycle corpus cover the repair. All 127 analyzer-battery probes match
+their expected results through the reference compiler; the new corpus also
+transpiles. Lint, Python/btrc formatting, generated-source and plan/hygiene
+checks pass. Self-hosted parity, native corpus execution and the final
+integrated matrix remain pending; this is a local checkpoint, not a main merge.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -441,7 +456,7 @@ qualification claim follows from that source comparison.
 | `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
 | `stage18/req-ui2-dg` | `1cc97ab8` | Review rich-enum payload/borrow/specialization repairs with lifetime and first-diagnostic parity tests. |
 | `stage18/req10-parity-gaps` | `e1bc5dfa` | CL-REQ-10: preserve collection-literal and static-storage repairs, but replace the unsafe parked-thread fork exemption; retain deep-expression support and module-worker parallelism with native handoff proof. |
-| `stage18/req11-tuple-sizeof-recursion` | `271397d3` | CL-REQ-11: prove tuple indexing, sizeof retention and polymorphic-recursion termination in both compilers. |
+| `stage18/req11-tuple-sizeof-recursion` | `271397d3` | CL-REQ-11: integrated locally at `e1787f9b` with paired finite-nullable-cycle repair; 127 reference probes pass. Native parity, corpus execution and final matrix remain pending. |
 | `stage24/apple-standin-extraction` | `7b3d1195` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
 | `stage24/apple-standin-extraction-run` | `9c0d737d` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
 | `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08: wait for CL-P1-06 and qualified extractor inputs, then review schema/generation parity. |
