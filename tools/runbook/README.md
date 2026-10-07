@@ -77,8 +77,20 @@ rerun); 130 interrupted.
   command and only the push runs.
 - **Stage 2's qualifying column.** `stage4-requal` compares release-check
   failures with `~/.cache/btrc/runbook/stage2-qualifying-failures.txt`, one test
-  per line as release-check prints it after `FAILED` (pin `05ec9cb`: the 5
-  pre-existing and 7 drifted tests). The run says so if the file is missing.
+  identity per line, derived from the actual qualifying release-check log.
+  Pytest identities retain their complete node ID. Unittest headers such as
+  `FAIL: test_warm (__main__.Artifacts.test_warm)` normalize to
+  `tests/packaging/Artifacts.py::Artifacts::test_warm` only when that script's
+  Python command appears in the log. Already module-qualified unittest IDs use
+  `unittest:package.module.Artifacts.test_warm`. A summary such as
+  `FAILED (failures=2)` is never an identity. Missing command provenance or
+  incomplete/mismatched unittest summaries stop qualification.
+  The run says so if the allowance file is missing; do not create an empty
+  allowance or substitute source-check TSVs for release-check evidence.
+  Compilation, linking, infrastructure and unclassified command failures are
+  recorded separately and block qualification even when all named tests are
+  allowed. Consecutive Make errors count as test-command propagation only
+  immediately after its recognized result and with decreasing recursion depth.
 - **Stage 5's baseline.** `stage13-final` compares self-compile and corpus with
   `~/.cache/btrc/runbook/stage5-summary.json` (copy it from Stage 5's workspace
   or evidence branch).
@@ -217,7 +229,7 @@ requires = ["make:test-determinism", "path:{btrc}/x"]
 provides = "btrcc"              # the build cell; --btrcc skips it, and cells using {btrcc} wait for it
 tree = "a637aed"                # {tree} is a worktree at this ref
 env = { NAME = "value" }
-failures = ["^FAILED\\s+(\\S+)"]   # failure-list: regexes whose group 1 names a failure
+failures = ["^CASE-FAIL (\\S+)$"]  # optional other test format; pytest/unittest work without this
 owner_action = "..."            # printed before the cell runs
 
 # Built-in actions instead of a command:
@@ -232,7 +244,7 @@ owner_action = "..."            # printed before the cell runs
 | `exit` | exit 0 | exit code |
 | `budget-bench` | exit 0 and `report.json` has no failure | per scenario median, p95, max, sample count, facts, metric medians |
 | `gate-summary` | exit 0 | every `batch_gate.sh` step's exit, duration and counts |
-| `failure-list` | the failures are named, whatever the exit | the failing tests (for a later `subset`); with `retries`, a run that names failures is repeated and only tests failing every attempt count (the rest are listed as `flaky`) |
+| `failure-list` | test failures have stable identities and no non-test/unclassified failure is present | `failures` feeds the later `subset`; `non_test_failures` retains blocking diagnostic records with their category and log line. With `retries`, a run that names failures is repeated and only tests failing every attempt count (the rest are listed as `flaky`). Interrupted commands and missing logs fail closed. |
 | `instr` | `instr.sh` reports `rc=0` | instructions retired, peak footprint, real time |
 | `attribution` | exit 0 and `attribution.json` (`tools/perf.py --cprofile`) has no failure | the attributed fractions (overall, minimum, per scenario), the target and each scenario's owner shares; never ingested |
 

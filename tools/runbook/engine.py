@@ -721,8 +721,8 @@ class RunState:
 class Results:
     """Turn a finished command into (passed, results, message) by the cell's ``result`` kind."""
 
-    # pytest's summary lines. Make's own "*** [target] Error" lines are not test names.
-    DEFAULT_FAILURES = (r"^FAILED\s+(\S+)",)
+    # Require a pytest node ID; unittest's "FAILED (failures=N)" is a summary.
+    DEFAULT_FAILURES = (r"^FAILED\s+(\S+::.+?)(?: - .*)?$",)
 
     @classmethod
     def read(cls, cell: CellSpec, code: int, out: Path, log: Path) -> tuple[bool, dict[str, object], str]:
@@ -787,19 +787,142 @@ class Results:
 
     @classmethod
     def failure_list(cls, cell: CellSpec, code: int, out: Path, log: Path) -> tuple[bool, dict[str, object], str]:
-        """A command whose failures are expected, as long as they are named (release-check)."""
+        """Name test failures without admitting unrelated command failures."""
 
         text = log.read_text(errors="replace") if log.is_file() else ""
         names: list[str] = []
-        for pattern in cell.failures or cls.DEFAULT_FAILURES:
-            for match in re.finditer(pattern, text, flags=re.MULTILINE):
-                name = match.group(1) if match.groups() else match.group(0)
-                if name not in names:
-                    names.append(name)
-        results: dict[str, object] = {"failures": names, "exit": code}
+        other: list[dict[str, object]] = []
+        script: str | None = None
+        unittest_counts = {"failures": 0, "errors": 0}
+        test_exit = False
+        make_depth: int | None = None
+        patterns = tuple(re.compile(pattern) for pattern in cell.failures or cls.DEFAULT_FAILURES)
+        for number, line in enumerate(text.splitlines(), 1):
+            command = re.match(
+                r"^\s*(?:(?:[A-Za-z_]\w*=(?:'[^']*'|\"[^\"]*\"|\S+))\s+)*"
+                r"(?:\S*/)?python(?:3(?:\.\d+)?)?\s+(.+)$",
+                line,
+            )
+            if command:
+                if any(unittest_counts.values()):
+                    other.append(
+                        {"kind": "unclassified", "line": number, "detail": "new command before unittest summary"}
+                    )
+                    unittest_counts = {"failures": 0, "errors": 0}
+                script = cls.unittest_script(command[1])
+            header = re.fullmatch(r"(FAIL|ERROR): (\w+) \(([\w.]+)\)", line)
+            if header:
+                unittest_counts["failures" if header[1] == "FAIL" else "errors"] += 1
+                identity = header[3]
+                parts = identity.split(".")
+                if len(parts) < 3 or parts[-1] != header[2] or (parts[0] == "__main__" and script is None):
+                    other.append({"kind": "unclassified", "line": number, "detail": line})
+                else:
+                    name = "::".join((script, *parts[1:])) if parts[0] == "__main__" else f"unittest:{identity}"
+                    if name not in names:
+                        names.append(name)
+                test_exit = False
+                continue
+            summary = re.fullmatch(r"FAILED \(([^)]+)\)", line)
+            if summary:
+                counts: dict[str, int] = {}
+                for part in summary[1].split(", "):
+                    count = re.fullmatch(r"(failures|errors|skipped|expected failures)=(\d+)", part)
+                    if count:
+                        counts[count[1]] = int(count[2])
+                test_exit = (
+                    len(counts) == len(summary[1].split(", "))
+                    and sum(unittest_counts.values()) > 0
+                    and all(counts.get(key, 0) == value for key, value in unittest_counts.items())
+                )
+                if not test_exit:
+                    other.append({"kind": "unclassified", "line": number, "detail": line})
+                unittest_counts = {"failures": 0, "errors": 0}
+                make_depth = None
+                continue
+            if any(unittest_counts.values()):
+                # Captured compiler output inside a unittest traceback belongs
+                # to that case. The matching aggregate must still close it.
+                continue
+            kind = cls.command_failure(line)
+            if kind and kind != "unclassified":
+                other.append({"kind": kind, "line": number, "detail": line})
+                test_exit = False
+                continue
+            make_error = re.match(r"^make(?:\[(\d+)\])?: \*\*\* \[.+\] (.+)$", line)
+            if make_error:
+                depth = int(make_error[1] or 0)
+                if not (
+                    test_exit
+                    and re.fullmatch(r"Error [12]", make_error[2])
+                    and (make_depth is None or depth < make_depth)
+                ):
+                    other.append({"kind": "unclassified", "line": number, "detail": line})
+                make_depth = depth
+                continue
+            matched = False
+            for pattern in patterns:
+                match = pattern.search(line)
+                if match:
+                    name = match.group(1) if match.groups() else match.group(0)
+                    if name not in names:
+                        names.append(name)
+                    matched = True
+            if matched:
+                test_exit = True
+                make_depth = None
+                continue
+            if kind:
+                other.append({"kind": kind, "line": number, "detail": line})
+            # Only adjacent Make propagation and pytest's final summary can
+            # belong to the just-identified failing test command.
+            if line.strip() and not (test_exit and re.fullmatch(r"=+ .*\b(?:failed|error|errors)\b.* =+", line)):
+                test_exit = False
+        if any(unittest_counts.values()):
+            other.append({"kind": "unclassified", "detail": "unittest failure headers have no complete summary"})
+        if code < 0 or code >= 124:
+            other.append({"kind": "infrastructure", "detail": f"command interrupted or could not execute: exit {code}"})
+        if not log.is_file():
+            other.append({"kind": "infrastructure", "detail": "command log is missing"})
+        results: dict[str, object] = {"failures": names, "non_test_failures": other, "exit": code}
+        if other:
+            return (
+                False,
+                results,
+                f"{len(other)} non-test or unclassified failure record(s); test allowance cannot qualify this run",
+            )
         if code != 0 and not names:
             return False, results, f"exit {code} with no failure named in the log"
         return True, results, f"{len(names)} failure(s) named" if names else ""
+
+    @staticmethod
+    def unittest_script(arguments: str) -> str | None:
+        """Use observed command provenance, never a traceback's temporary root."""
+
+        try:
+            tokens = shlex.split(arguments)
+        except ValueError:
+            return None
+        while tokens and tokens[0] in {"-u", "-B", "-I", "-E", "-s", "-S"}:
+            tokens.pop(0)
+        if not tokens:
+            return None
+        path = Path(tokens[0])
+        if path.is_absolute() or ".." in path.parts or path.suffix != ".py":
+            return None
+        return path.as_posix()
+
+    @staticmethod
+    def command_failure(line: str) -> str | None:
+        if re.match(r"^(?:ld: (?!warning:)|collect2: error:)", line) or "error: linker command failed" in line:
+            return "link"
+        if re.match(r"^.+:\d+(?::\d+)?: (?:fatal )?error:", line) or re.match(r"^(?:clang|gcc)(?:\+\+)?: error:", line):
+            return "compile"
+        if re.match(r"^(?:error:|fatal:|.*: command not found|.*: (?:Segmentation fault|Abort trap))", line):
+            return "infrastructure"
+        if re.match(r"^(?:FAILED|FAIL:|ERROR:?)(?:\s|$)", line):
+            return "unclassified"
+        return None
 
     @staticmethod
     def instr(cell: CellSpec, code: int, out: Path, log: Path) -> tuple[bool, dict[str, object], str]:

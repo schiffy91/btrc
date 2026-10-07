@@ -25,3 +25,44 @@ for release-check results, and this packet creates no baseline allowance file.
 Started 2026-10-07 at 16:50:53 UTC. Initial free space: 83,268,829,184 bytes.
 Only lightweight pure Python tests are authorized in this lane; native execution
 and full combined qualification stay with the integrator.
+
+## Results
+
+The initial 14 regression cases produced 11 failures and three passes before the
+repair. In particular, the observed unittest excerpt yielded `(failures=2)`
+instead of the two class/method identities. Four later adversarial cases also
+failed before their fixes: parameter IDs containing spaces, diagnostics inside a
+unittest traceback, a separate collection error, and a same-depth Make failure.
+
+The final focused module run passed **79 tests in 19.24 seconds**:
+
+```sh
+python3 -m pytest -q -o addopts= src/tests/python/test_runbook_engine.py
+```
+
+It covers the parser and an actual fake-hub run proving that even an allowance
+containing every test ID cannot permit a link failure or advance the fake
+BTRSmith upstream. Existing retry, checkpoint, subset and push tests remain
+green. Ruff lint/format and `git diff --check` pass. The Python runtime is the
+already-realized qualified `35r726j0hx21698i9p7ry53l1afprc84` Nix environment;
+no environment realization, compiler build, native GUI or benchmark ran.
+
+A read-only replay of the retained Stage 2 release log (SHA-256
+`772c88a371df315cf69b2d9f6b67927f45b1b753b28fe7efa1fe07af7eaed3b5`)
+identified two real unittest failures and still rejected qualification. It
+recorded 38 non-test/unclassified diagnostic lines: one infrastructure, one
+compile, eight link and 28 unclassified records. These are diagnostic records,
+not 38 independent root causes; nested Make propagation can repeat a failure.
+Private product logs and identities are not copied into this public repository.
+No baseline allowance was created or changed, and the Stage 4 preset continues
+using the repaired default reader without a new result format.
+
+## Timing and remaining work
+
+Implementation and review ran between 16:50:53 and 17:10:14 UTC, with a read-only
+pause while the integrator held the UI2 native gate. These are elapsed interval
+endpoints, not a claim that the whole interval was active implementation. This
+packet ran no gate or native build; the recorded pure Python suite took 19.24 s.
+Independent review, publication under the CI cap and combined qualification
+remain with the integrator. The actual Stage 4 pin/release requalification is
+still open; repairing its result reader does not qualify the product.
