@@ -246,12 +246,12 @@ issue’s current acceptance before changing or closing it.
 | [#18](https://github.com/schiffy91/btrc/issues/18) | Feature: analyzer-level pruning of stdlib bodies and a 'stdlib strict' CI mode | Stages 5–13: source-bound performance/acceptance evidence |
 | [#17](https://github.com/schiffy91/btrc/issues/17) | Feature: implement or drop the reserved keywords (override, goto, auto, register) | Paired compiler regression and relevant C/IR stage |
 | [#16](https://github.com/schiffy91/btrc/issues/16) | Feature: btrcc -o <file> and --emit-c, instead of C on stdout | Paired compiler regression and relevant C/IR stage |
-| [#15](https://github.com/schiffy91/btrc/issues/15) | Tech debt: macOS native tests cannot run in the dev shell (nix cc-wrapper vs Xcode 27 SDK, no FreeType, no libasan) | Structure/native-toolchain review and regression |
+| [#15](https://github.com/schiffy91/btrc/issues/15) | Tech debt: macOS native tests cannot run in the dev shell (nix cc-wrapper vs Xcode 27 SDK, no FreeType, no libasan) | Resolved by native Apple compiler/SDK routing and provisioned FreeType; restored local checks pass (see evidence below). |
 | [#14](https://github.com/schiffy91/btrc/issues/14) | Tech debt: two architecture contracts (test_lowering_architecture.py vs test_compiler_structure_contract.py) encode the same rules differently | Structure/native-toolchain review and regression |
 | [#13](https://github.com/schiffy91/btrc/issues/13) | Tech debt: reference and self-host emit different C (runtime helper layout, ~1000 lines on small programs) | Paired compiler regression and relevant C/IR stage |
 | [#12](https://github.com/schiffy91/btrc/issues/12) | Tech debt: emitted C depends on temp numbering through the 1000-character wrap rule | Paired compiler regression and relevant C/IR stage |
 | [#11](https://github.com/schiffy91/btrc/issues/11) | Threaded lifecycle fixture fails under host load: destructor exception during final drain escapes the joiner | Runtime/concurrency regression and native gate |
-| [#10](https://github.com/schiffy91/btrc/issues/10) | Self-host optimizer never sweeps unreferenced function-pointer typedefs (reference does) | Paired compiler regression and relevant C/IR stage |
+| [#10](https://github.com/schiffy91/btrc/issues/10) | Self-host optimizer never sweeps unreferenced function-pointer typedefs (reference does) | Resolved on main by `f6edfdd1`; 776 full-C identity cases pass (see evidence below). |
 | [#9](https://github.com/schiffy91/btrc/issues/9) | Incremental floor: 2–5 second edit-to-run loop for BTRSmith | Stages 5–13: source-bound performance/acceptance evidence |
 | [#8](https://github.com/schiffy91/btrc/issues/8) | Content-addressed build cache for transpiled modules | Stages 5–13: source-bound performance/acceptance evidence |
 | [#7](https://github.com/schiffy91/btrc/issues/7) | Per-module translation units with parallel C compilation | Stages 5–13: source-bound performance/acceptance evidence |
@@ -259,6 +259,31 @@ issue’s current acceptance before changing or closing it.
 | [#5](https://github.com/schiffy91/btrc/issues/5) | Whole-app-scale compile benchmark fixture and gate | Stages 5–13: source-bound performance/acceptance evidence |
 | [#4](https://github.com/schiffy91/btrc/issues/4) | Lazy analysis of unreached stdlib bodies | Stages 5–13: source-bound performance/acceptance evidence |
 | [#3](https://github.com/schiffy91/btrc/issues/3) | Epic: sub-minute clean builds for BTRSmith | Stages 5–13: source-bound performance/acceptance evidence |
+
+### Verified issue resolutions (2026-10-07)
+
+- **#10:** main includes `f6edfdd116d024148e237058311c3871fff2d9c5`,
+  which replaces struct-only pruning with keep-set closure over all six typed
+  declaration groups. It also includes the stronger whole-C identity gate in
+  `src/tests/btrc/test_c_output_parity.py`, introduced at `362a43b7`:
+  all **776 corpus programs** passed at `e3a6dea9`, with no skips. This compares
+  the complete translation unit, including types, using only checkout-path
+  normalization; temporary numbering is not masked. Both issue requirements
+  are present on main and verified, so #10 is resolved.
+- **#15:** the same restored Nix-shell run passed **172 native-import tests**
+  and all **eight FreeType setup/snapshot variants**, including both compilers
+  and sanitizer modes. Apple fixtures route through `/usr/bin/clang` and the
+  selected Apple environment; the shell provisions FreeType. The initial stale
+  Nix store references were repaired by realizing/pinning the development
+  profile. The eight remaining full-suite failures were the separately tracked
+  GUI input/retention cases, not native SDK/linker/FreeType environment failures.
+  Independent GCC/LLVM sanitizer-probe skips remain explicitly in the skip
+  ledger and are not claimed as executed coverage.
+
+These results are retained in the local full-suite test ledger and
+`~/.cache/btrc/plan-consolidation-2026-10-07/issues-10-15-evidence.json`.
+The full suite still requires the repaired final-tree run; these issue-specific
+resolutions do not claim whole-repository completion.
 
 ## Provider implementation queue
 
