@@ -92,7 +92,8 @@ jobs:
           mkdir -p build
           python3 -m tools.target_hosts.android.sdk packages | tee build/android-sdk-packages.txt
           sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" --licenses > /dev/null
+          # Keep sdkmanager’s status when its closed input makes yes exit on SIGPIPE.
+          "$sdkmanager" --licenses < <(yes) > /dev/null
           mapfile -t packages < build/android-sdk-packages.txt
           "$sdkmanager" --install "${packages[@]}" > build/android-sdkmanager.log
       - name: Install the pinned emulator and platform-tools archives

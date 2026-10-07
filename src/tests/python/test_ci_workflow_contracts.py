@@ -1308,6 +1308,26 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     assert _parsed("host-android.yml")["jobs"]["emulator"]["strategy"]["matrix"]["api"] == ["29", "36"]
 
 
+@pytest.mark.parametrize("sdk_exit", [0, 7])
+def test_android_license_acceptance_preserves_sdkmanager_status(sdk_exit: int) -> None:
+    job = _parsed("host-android.yml")["jobs"]["emulator"]
+    (command,) = [
+        line.strip() for step in job["steps"] for line in step.get("run", "").splitlines() if "--licenses" in line
+    ]
+    bash = shutil.which("bash")
+    assert bash, "the development shell provides bash"
+    # sdkmanager consumes a finite set of answers; yes can then receive SIGPIPE.
+    # Exercise the actual workflow command under GitHub's bash/pipefail settings.
+    script = (
+        'accept_sdk_licenses() { read -r answer; test "$answer" = y || return 9; '
+        f"return {sdk_exit}; }}\n"
+        "sdkmanager=accept_sdk_licenses\n"
+        f"{command}\n"
+    )
+    result = subprocess.run([bash, "-e", "-o", "pipefail", "-c", script], capture_output=True, timeout=10)
+    assert result.returncode == sdk_exit, result.stderr.decode(errors="replace")
+
+
 def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     """CL-UIA-11: the GUI and audio suites under X11 and Wayland, on every push."""
 

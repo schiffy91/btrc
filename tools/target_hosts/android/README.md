@@ -180,12 +180,15 @@ data and proving cleanup of arbitrary descendants belong to CX-P1-09.
 nix develop --command python3 -m pytest src/tests/python/test_android_host_versions.py -q -rs
 ```
 
-The requested workflow should install the emitted SDK package list, verify
-revisions, enable KVM, build the x86_64 app and arm64 compile-only artifacts,
-and run both API checks. It needs push/pull_request filters for its own file,
-this host directory and the version test, plus workflow_dispatch. Upload the
-JSON reports, emulator logs and LOAD tables even on failure. New workflow
-policy and any `ci/tiers.toml` integration remain integrator-owned; no missing
+The workflow now exists at
+[host-android.yml](../../../.github/workflows/host-android.yml). It installs the
+emitted SDK package list, verifies revisions, enables KVM, builds the x86_64 app
+and arm64 compile-only artifacts, and runs both API checks. It retains JSON
+reports, emulator logs and LOAD tables even on failure. License acceptance
+preserves sdkmanager’s exit status when its finite input consumption stops the
+answer producer; the workflow regression checks both success and failure.
+The October 7 refresh onto main passed all 56 local transport/version tests
+before and after the merge, plus changed-file lint/format checks. No missing
 emulator evidence is represented as passed or skipped unit coverage.
 Acceptance remains open until both emulator matrices actually execute and the
 run artifacts include LOAD tables, boot/install/launch timings and fixture
