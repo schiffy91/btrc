@@ -257,10 +257,9 @@ with PR60's `56909225` Weston repair and the current plan; two documentation
 conflicts were reconciled. Its compiler, language, runtime and stdlib sources
 are unchanged from `98b88440`. PR65 remains published at `618e9ae1`; publish the
 new candidate when CI capacity is available, then qualify its complete tree.
-The next local candidate `1fe1dc1e` adds the current qualification and
-fork-safety review plan; its source owners remain unchanged, and its full local
-matrix is running under gate/guest/GUI locks. Keep that checkout frozen until
-the run completes. Hosted runs on the older head were deliberately deferred to respect the shared
+The subsequent local candidate `1fe1dc1e` adds the qualification and
+fork-safety review plan; its source owners remain unchanged. Its full local
+matrix stopped at the independent AppKit control failure detailed below. Hosted runs on the older head were deliberately deferred to respect the shared
 CI capacity limit; cancellation is not qualification. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
 qualify the whole C2 merge.
 
@@ -315,8 +314,8 @@ one startup thread and two distinct worker processes; Linux cases check 16 and
 64 MiB hard limits. A native C prototype proves the Darwin stack/fork strategy,
 and Python syntax, lint/format, btrc formatting and generated-source checks
 pass. Actual integrated compiler/parity/native results remain pending: the
-focused gate is queued behind the full C2 baseline, with both checkouts pinned
-and unchanged. The local candidate is not published or landed on main.
+focused gate has started after the C2 run ended, with the REQ-10 checkout
+pinned and unchanged. The local candidate is not published or landed on main.
 
 Local candidate `e1787f9b` merges `CL-REQ-11` into `226506eb` for qualification.
 Its tuple-array indexing, `sizeof` binding/retention and generic-termination
@@ -340,7 +339,8 @@ crosses a pointer or managed object. Four new refusal cases cover nested storage
 the existing sanitizer execution fixture also checks allowed nested object
 writes. All 67 rich-enum reference checks and 127 analyzer reference probes pass;
 lint, formatting, generated-source and plan/hygiene checks pass. Native parity
-and sanitizer results remain pending. External owner rebinding and shallow
+and sanitizer qualification is queued behind REQ-10/11, with the candidate
+pinned and unchanged. External owner rebinding and shallow
 struct escapes remain separate gaps; universal lifetime safety is not claimed.
 The iOS `1844837b` branch is preserved while its idle clone hosts this checkpoint.
 
