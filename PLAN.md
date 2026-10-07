@@ -248,7 +248,7 @@ issue’s current acceptance before changing or closing it.
 | [#16](https://github.com/schiffy91/btrc/issues/16) | Feature: btrcc -o <file> and --emit-c, instead of C on stdout | Paired compiler regression and relevant C/IR stage |
 | [#15](https://github.com/schiffy91/btrc/issues/15) | Tech debt: macOS native tests cannot run in the dev shell (nix cc-wrapper vs Xcode 27 SDK, no FreeType, no libasan) | Resolved by native Apple compiler/SDK routing and provisioned FreeType; restored local checks pass (see evidence below). |
 | [#14](https://github.com/schiffy91/btrc/issues/14) | Tech debt: two architecture contracts (test_lowering_architecture.py vs test_compiler_structure_contract.py) encode the same rules differently | Structure/native-toolchain review and regression |
-| [#13](https://github.com/schiffy91/btrc/issues/13) | Tech debt: reference and self-host emit different C (runtime helper layout, ~1000 lines on small programs) | Paired compiler regression and relevant C/IR stage |
+| [#13](https://github.com/schiffy91/btrc/issues/13) | Tech debt: reference and self-host emit different C (runtime helper layout, ~1000 lines on small programs) | Resolved by shared runtime order and the pinned full-C identity sample at `362a43b7`; 776 cases pass. |
 | [#12](https://github.com/schiffy91/btrc/issues/12) | Tech debt: emitted C depends on temp numbering through the 1000-character wrap rule | Paired compiler regression and relevant C/IR stage |
 | [#11](https://github.com/schiffy91/btrc/issues/11) | Threaded lifecycle fixture fails under host load: destructor exception during final drain escapes the joiner | Runtime/concurrency regression and native gate |
 | [#10](https://github.com/schiffy91/btrc/issues/10) | Self-host optimizer never sweeps unreferenced function-pointer typedefs (reference does) | Resolved on main by `f6edfdd1`; 776 full-C identity cases pass (see evidence below). |
@@ -270,6 +270,12 @@ issue’s current acceptance before changing or closing it.
   the complete translation unit, including types, using only checkout-path
   normalization; temporary numbering is not masked. Both issue requirements
   are present on main and verified, so #10 is resolved.
+- **#13:** `362a43b7a35645972552aab7e8437e7fef1c7eba` puts both
+  runtime catalogs and materializers on the same dependency-first order and
+  adds the pinned whole-C identity gate. Its current 776-program sample passed
+  in the same run. Byte identity is enforced for every manifest member; removing
+  one requires a reviewed manifest change. This resolves the issue's runtime
+  order and corpus-sample contract requests, not every remaining corpus mismatch.
 - **#15:** the same restored Nix-shell run passed **172 native-import tests**
   and all **eight FreeType setup/snapshot variants**, including both compilers
   and sanitizer modes. Apple fixtures route through `/usr/bin/clang` and the
