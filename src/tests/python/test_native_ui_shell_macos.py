@@ -57,17 +57,13 @@ def summarize_macos_shell(observations):
     baseline = observations.get("appkit_control")
     assert isinstance(baseline, dict)
     assert baseline["kind"] == "public-appkit-only; no BTRC runtime/provider or GPU proof"
-    initialization = baseline.get("initialization")
-    assert isinstance(initialization, dict)
-    assert initialization["cycles"] == 1 and initialization["owned"] == 0
-    assert initialization["weak_observations_preserved"] is True
-    assert type(initialization["private"]) is int and initialization["private"] >= 0
-    assert isinstance(initialization["private_classes"], dict)
+    activation = baseline.get("activation_contexts")
+    assert isinstance(activation, list) and len(activation) == 100
     assert all(
-        isinstance(name, str) and name and type(count) is int and count > 0
-        for name, count in initialization["private_classes"].items()
+        len(contexts) == 3
+        and all(context["application_active"] is True and context["window_key"] is True for context in contexts)
+        for contexts in activation
     )
-    assert sum(initialization["private_classes"].values()) == initialization["private"]
     assert len(baseline["teardown"]) == len(baseline["private_classes"]) == 100
     assert [row[0] for row in baseline["teardown"]] == list(range(1, 101))
     assert all(len(row) == 3 and row[1] == 0 for row in baseline["teardown"])
@@ -271,13 +267,9 @@ def _observation_fixture():
         "private_classes": [{"AppKitHelper": 1} for _ in range(100)],
         "appkit_control": {
             "kind": "public-appkit-only; no BTRC runtime/provider or GPU proof",
-            "initialization": {
-                "cycles": 1,
-                "owned": 0,
-                "private": 0,
-                "private_classes": {},
-                "weak_observations_preserved": True,
-            },
+            "activation_contexts": [
+                [{"application_active": True, "window_key": True} for _ in range(3)] for _ in range(100)
+            ],
             "teardown": [[cycle + 1, 0, 1] for cycle in range(100)],
             "private_classes": [{"AppKitHelper": 1} for _ in range(100)],
         },
@@ -312,10 +304,10 @@ def test_macos_shell_observation_keeps_native_gaps_and_private_objects_explicit(
         "missing_control",
         "partial_control",
         "control_owned_leak",
-        "missing_control_initialization",
-        "control_initialization_leak",
-        "control_initialization_reset",
-        "control_initialization_count",
+        "missing_control_activation",
+        "partial_control_activation",
+        "inactive_control",
+        "nonkey_control",
         "control_growth",
         "unknown_private_class",
         "extra_private_instance",
@@ -362,14 +354,14 @@ def test_macos_shell_observation_rejects_incomplete_or_contradictory_proof(defec
         observed["appkit_control"]["teardown"].pop()
     elif defect == "control_owned_leak":
         observed["appkit_control"]["teardown"][37][1] = 1
-    elif defect == "missing_control_initialization":
-        del observed["appkit_control"]["initialization"]
-    elif defect == "control_initialization_leak":
-        observed["appkit_control"]["initialization"]["owned"] = 1
-    elif defect == "control_initialization_reset":
-        observed["appkit_control"]["initialization"]["weak_observations_preserved"] = False
-    elif defect == "control_initialization_count":
-        observed["appkit_control"]["initialization"]["private"] = 1
+    elif defect == "missing_control_activation":
+        del observed["appkit_control"]["activation_contexts"]
+    elif defect == "partial_control_activation":
+        observed["appkit_control"]["activation_contexts"][37].pop()
+    elif defect == "inactive_control":
+        observed["appkit_control"]["activation_contexts"][37][0]["application_active"] = False
+    elif defect == "nonkey_control":
+        observed["appkit_control"]["activation_contexts"][37][0]["window_key"] = False
     elif defect == "control_growth":
         observed["appkit_control"]["teardown"][37][2] = 2
         observed["appkit_control"]["private_classes"][37]["AppKitHelper"] = 2

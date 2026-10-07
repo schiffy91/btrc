@@ -23,6 +23,13 @@
     _window = window;
     _field = field;
     _scroll = scroll;
+    /* Establish the control's activation before observing its first field
+     * editor. Otherwise delayed activation creates additional AppKit editing
+     * descendants after the first-cycle retention baseline has been taken. */
+    if (@available(macOS 14.0, *))
+        [NSApp activate];
+    else
+        [NSRunningApplication.currentApplication activateWithOptions:NSApplicationActivateAllWindows];
     _deadline = NSProcessInfo.processInfo.systemUptime + 15;
     _timer = [NSTimer scheduledTimerWithTimeInterval:0.01 target:self selector:@selector(tick:)
         userInfo:nil repeats:YES];
@@ -42,7 +49,9 @@
         [self stop]; return;
     }
     switch (_step) {
-        case 0: shellProbeObserve(); shellProbeClick(70, 30); break;
+        case 0:
+            if (!NSApp.isActive || !_window.isKeyWindow) { return; }
+            shellProbeObserve(); shellProbeClick(70, 30); break;
         case 1:
             if (shellProbeFocus() != 1) { return; }
             shellProbeTab(); break;
@@ -73,9 +82,7 @@
  * editing, AX inspection, real event loop and teardown, in a fresh process.
  * No BTRC runtime, callback bridge or GUI provider is linked. The ordinary
  * NSView in the GPU slot provides no rendering or GPU-lifetime evidence.
- * One initialization cycle lets AppKit construct its process-level editing
- * services before the 100 measured cycles. Weak probe sets survive all 101
- * cycles, including initialization; no survivor whitelist is encoded. */
+ * Weak probe sets survive all 100 cycles; no survivor whitelist is encoded. */
 int main(void) {
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
@@ -86,7 +93,7 @@ int main(void) {
         }
         [app finishLaunching];
     }
-    for (int cycle = 0; cycle <= 100; cycle++) {
+    for (int cycle = 0; cycle < 100; cycle++) {
         @autoreleasepool {
             NSWindow *window = [NSWindow new];
             window.releasedWhenClosed = NO;
@@ -152,10 +159,7 @@ int main(void) {
         shellProbeDrain();
         int provider = shellProbeNativeCount();
         int retained = shellProbePrivateCount();
-        if (cycle == 0)
-            printf("APPKIT initialization owned=%d private=%d\n", provider, retained);
-        else
-            printf("APPKIT cycle=%d owned=%d private=%d\n", cycle, provider, retained);
+        printf("APPKIT cycle=%d owned=%d private=%d\n", cycle + 1, provider, retained);
         fflush(stdout);
         if (provider) { return 4; }
     }

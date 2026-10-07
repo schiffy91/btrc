@@ -324,22 +324,19 @@ def exercise_macos_control(tmp_path, sanitized):
     ]
     assert [row[0] for row in rows] == list(range(1, 101))
     assert all(row[1] == 0 for row in rows), rows
-    initialization = re.findall(r"^APPKIT initialization owned=(\d+) private=(\d+)$", result.stdout, re.MULTILINE)
-    assert len(initialization) == 1, result.stdout
-    initialized_owned, initialized_private = map(int, initialization[0])
-    assert initialized_owned == 0, initialization
-    classes = macos_private_survivors(result.stderr, [initialized_private, *(row[2] for row in rows)])
+    probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+    assert len(probes) == 100
+    activation = [probe["key_views"]["tab_context"] for probe in probes]
+    assert all(
+        len(contexts) == 3
+        and all(context["application_active"] is True and context["window_key"] is True for context in contexts)
+        for contexts in activation
+    ), activation
     return {
         "kind": "public-appkit-only; no BTRC runtime/provider or GPU proof",
-        "initialization": {
-            "cycles": 1,
-            "owned": initialized_owned,
-            "private": initialized_private,
-            "private_classes": classes[0],
-            "weak_observations_preserved": True,
-        },
+        "activation_contexts": activation,
         "teardown": rows,
-        "private_classes": classes[1:],
+        "private_classes": macos_private_survivors(result.stderr, [row[2] for row in rows]),
         "source_sha256": {source.name: hashlib.sha256(source.read_bytes()).hexdigest() for source in sources},
         "build_command": command,
         "compiler": subprocess.check_output(
