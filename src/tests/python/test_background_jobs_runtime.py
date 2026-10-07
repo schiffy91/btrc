@@ -415,3 +415,24 @@ def test_import_emits_and_links_sdk_declarations_without_native_executor(
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == "PASS: planned background jobs runtime\n"
     assert ran.stderr == ""
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_completion_ready_subscription(compiler, tmp_path, request, sanitized):
+    """Real worker/owner retirement, late readiness and stale-token isolation."""
+    if sanitized and sys.platform not in {"darwin", "linux"}:
+        pytest.skip("requires a supported POSIX sanitizer toolchain")
+    source = ROOT / "src/tests/native/gui/ui2/BackgroundCompletionReady.btrc"
+    generated = tmp_path / f"completion-ready-{compiler}.c"
+    executable = tmp_path / f"completion-ready-{compiler}"
+    _transpile(compiler, generated, request, source)
+    _compile(
+        "/usr/bin/clang" if sanitized and sys.platform == "darwin" else "clang",
+        generated,
+        executable,
+        sanitized=sanitized,
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "PASS: completion-ready subscription\n"
+    assert result.stderr == ""

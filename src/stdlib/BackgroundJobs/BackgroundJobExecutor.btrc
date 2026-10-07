@@ -3,6 +3,7 @@
 import Library.BackgroundJobs.NativeWorker;
 import Library.OwnedBuffer;
 import Library.Vector;
+import Library.Callback;
 
 enum BackgroundJobsOpenKind {
 	BACKGROUND_JOBS_OPENED = 0,
@@ -287,6 +288,54 @@ class BackgroundJobRing {
 	public void clear() { self.head = 0; self.size = 0; }
 }
 
+/* A borrowed native wake endpoint, not a domain callback. Called under queue
+ * synchronization: it must be bounded, nonthrowing, and must not reenter jobs.
+ * The context remains alive until registration cancellation is COMPLETE. */
+typedef CFunction<void, void*, bool> BackgroundJobCompletionWake;
+
+class BackgroundJobCompletionRegistration implements ICallbackRegistration {
+	private BackgroundJobQueue queue;
+	private pthread_t owner;
+	private unsigned long long epoch;
+	private CallbackCancellation cancellation;
+
+	public BackgroundJobCompletionRegistration(BackgroundJobQueue queue) {
+		self.queue = queue;
+		self.owner = pthread_self();
+		self.epoch = 0ULL;
+		self.cancellation = CALLBACK_CANCELLATION_NOT_REQUESTED;
+	}
+
+	private void requireOwner() {
+		if (pthread_equal(self.owner, pthread_self()) == 0) { throw "background completion registration requires its owner thread"; }
+	}
+
+	public void activate(BackgroundJobCompletionWake wake, void* context) {
+		self.requireOwner();
+		self.epoch = self.queue.subscribeCompletionReady(wake, context);
+	}
+
+	public bool isOpen() {
+		self.requireOwner();
+		return self.cancellation == CALLBACK_CANCELLATION_NOT_REQUESTED && self.epoch != 0ULL && self.queue.completionReadyRegistered(self.epoch);
+	}
+
+	public CallbackCancellation cancel() {
+		self.requireOwner();
+		if (self.cancellation == CALLBACK_CANCELLATION_COMPLETE) { return self.cancellation; }
+		self.cancellation = self.queue.cancelCompletionReady(self.epoch);
+		return self.cancellation;
+	}
+
+	public CallbackCancellation pollCompletion() {
+		self.requireOwner();
+		if (self.cancellation == CALLBACK_CANCELLATION_COMPLETE || self.cancellation == CALLBACK_CANCELLATION_RETRYABLE_FAILURE || self.cancellation == CALLBACK_CANCELLATION_FAILED) { return self.cancellation; }
+		if (self.isOpen()) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		self.cancellation = self.queue.cancelCompletionReady(self.epoch);
+		return self.cancellation;
+	}
+}
+
 class BackgroundJobQueue implements INativeWorkerBody {
 	private pthread_mutex_t* mutex;
 	private pthread_cond_t* available;
@@ -307,6 +356,10 @@ class BackgroundJobQueue implements INativeWorkerBody {
 	private int closedFailed;
 	private int closedCancelled;
 	private int closedDisposed;
+	private BackgroundJobCompletionWake completionWake;
+	private void* completionContext;
+	private unsigned long long completionEpoch;
+	private Atomic<bool> completionCancelling;
 
 	public BackgroundJobQueue(int capacity) {
 		self.mutex = null;
@@ -328,6 +381,10 @@ class BackgroundJobQueue implements INativeWorkerBody {
 		self.closedFailed = 0;
 		self.closedCancelled = 0;
 		self.closedDisposed = 0;
+		self.completionWake = (BackgroundJobCompletionWake)null;
+		self.completionContext = null;
+		self.completionEpoch = 0ULL;
+		self.completionCancelling.init(false);
 		if (!self.pending.opened() || !self.completed.opened()) { return; }
 		self.mutex = (pthread_mutex_t*)calloc(1, sizeof(pthread_mutex_t));
 		self.available = (pthread_cond_t*)calloc(1, sizeof(pthread_cond_t));
@@ -345,6 +402,49 @@ class BackgroundJobQueue implements INativeWorkerBody {
 	}
 
 	public BackgroundJobsOpenKind status() { return self.openKind; }
+
+	/* All ready transitions and endpoint retirement share the queue mutex.
+	 * Registration observes already-terminal slots before releasing the lock. */
+	private void publishCompletionReady() {
+		if (self.completionWake != null && !self.completionCancelling.load(MemoryOrder.ACQUIRE)) { self.completionWake(self.completionContext, self.completed.count() > 0); }
+	}
+
+	public unsigned long long subscribeCompletionReady(BackgroundJobCompletionWake wake, void* context) {
+		if (wake == null) { throw "background completion wake is null"; }
+		if (pthread_mutex_lock(self.mutex) != 0) { throw "background completion synchronization failed"; }
+		if (self.closing || self.completionWake != null || self.completionEpoch == 18446744073709551615ULL) {
+			pthread_mutex_unlock(self.mutex);
+			throw "background completion registration is closed, occupied or exhausted";
+		}
+		self.completionEpoch++;
+		self.completionCancelling.store(false, MemoryOrder.RELEASE);
+		self.completionWake = wake;
+		self.completionContext = context;
+		self.publishCompletionReady();
+		unsigned long long epoch = self.completionEpoch;
+		pthread_mutex_unlock(self.mutex);
+		return epoch;
+	}
+
+	public bool completionReadyRegistered(unsigned long long epoch) {
+		/* Owner-thread only: workers invoke but never change the endpoint. */
+		return self.mutexReady && self.completionWake != null && epoch == self.completionEpoch;
+	}
+
+	public CallbackCancellation cancelCompletionReady(unsigned long long epoch) {
+		if (!self.mutexReady || epoch == 0ULL) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (epoch == self.completionEpoch) { self.completionCancelling.store(true, MemoryOrder.RELEASE); }
+		int locked = pthread_mutex_trylock(self.mutex);
+		if (locked == EBUSY) { return CALLBACK_CANCELLATION_PENDING; }
+		if (locked != 0) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		if (epoch == self.completionEpoch && self.completionWake != null) {
+			self.completionWake(self.completionContext, false);
+			self.completionWake = (BackgroundJobCompletionWake)null;
+			self.completionContext = null;
+		}
+		pthread_mutex_unlock(self.mutex);
+		return CALLBACK_CANCELLATION_COMPLETE;
+	}
 
 	private void cancelPending() {
 		for slot in self.slots {
@@ -380,7 +480,7 @@ class BackgroundJobQueue implements INativeWorkerBody {
 			slot.result = result;
 			slot.state = BACKGROUND_SLOT_TERMINAL;
 			if (!self.completed.push(index)) { self.failLocked(); }
-			else { pthread_cond_signal(self.finished); }
+			else { self.publishCompletionReady(); pthread_cond_signal(self.finished); }
 			pthread_mutex_unlock(self.mutex);
 		}
 		return 1;
@@ -453,6 +553,7 @@ class BackgroundJobQueue implements INativeWorkerBody {
 		BackgroundJobCompletion completion = slot.completion();
 		slot.clear();
 		self.outstandingCount--;
+		self.publishCompletionReady();
 		pthread_mutex_unlock(self.mutex);
 		return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_READY, completion, "");
 	}
@@ -470,6 +571,7 @@ class BackgroundJobQueue implements INativeWorkerBody {
 				BackgroundJobCompletion completion = slot.completion();
 				slot.clear();
 				self.outstandingCount--;
+				self.publishCompletionReady();
 				pthread_mutex_unlock(self.mutex);
 				return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_READY, completion, "");
 			}
@@ -526,6 +628,9 @@ class BackgroundJobQueue implements INativeWorkerBody {
 			self.retired = true;
 			self.pending.clear();
 			self.completed.clear();
+			if (self.completionWake != null) { self.completionWake(self.completionContext, false); }
+			self.completionWake = (BackgroundJobCompletionWake)null;
+			self.completionContext = null;
 			self.outstandingCount = 0;
 			for slot in self.slots {
 				if (slot.state == BACKGROUND_SLOT_FREE) { continue; }
@@ -595,6 +700,19 @@ class BackgroundJobExecutor {
 	public bool isOpen() { return self.onOwner() && !self.closed && self.closingMode < 0; }
 
 	public int outstanding() { return self.isOpen() && self.onOwner() ? self.queue.outstanding() : 0; }
+
+	/* Owner-thread registration; only the native ready endpoint is invoked on
+	 * workers. poll()/awaitCompletion() retain sole ownership of result delivery. */
+	public ICallbackRegistration subscribeCompletionReady(BackgroundJobCompletionWake wake, void* context, CallbackScope owner) {
+		if (!self.onOwner()) { throw "background completion registration requires its owner thread"; }
+		if (!self.isOpen()) { throw "background job executor is closed"; }
+		if (owner == null || wake == null) { throw "background completion registration is incomplete"; }
+		owner.requireExecutor();
+		var registration = BackgroundJobCompletionRegistration(self.queue);
+		owner.track(registration);
+		registration.activate(wake, context);
+		return registration;
+	}
 
 	public BackgroundJobSubmitOutcome submit(BackgroundJobGeneration generation, BackgroundJobWork work, BackgroundJobAction action) {
 		if (!self.onOwner()) { return BackgroundJobSubmitOutcome(BACKGROUND_JOB_SUBMIT_NOT_OWNER, null, "background job submission requires its owner thread"); }

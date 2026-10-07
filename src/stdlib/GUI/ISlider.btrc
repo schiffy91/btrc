@@ -1,8 +1,18 @@
+import Library.Callback;
+import Library.GUI.ControlEvents;
 import Library.GUI.IView;
 
-/* Native tracking updates the value. Read after event dispatch before
- * republishing model state; programmatic values do not synthesize input. */
+/* The provider owns the authoritative double value and range. Equal endpoints
+ * are inert; step zero is continuous, ties snap upward. A changed model value
+ * cancels tracking as MODEL; an unchanged value is a no-op. Relative adjustments
+ * preserve intent and count; no native-value readback replaces that authority. */
 interface ISlider extends IView {
+	SliderRange range();
+	void setRange(double minimum, double maximum, double step);
+	void setRangeValue(SliderRange range, double value);
+	ICallbackRegistration onPreview(ISliderControlEventHandler handler, CallbackScope owner);
+	ICallbackRegistration onCommit(ISliderControlEventHandler handler, CallbackScope owner);
+	ICallbackRegistration onCancel(ISliderControlEventHandler handler, CallbackScope owner);
 	double value();
 	void setValue(double value);
 	void setEnabled(bool enabled);
@@ -13,3 +23,5 @@ interface ISlider extends IView {
 	/* The hover help text last set; empty when none. */
 	string toolTip();
 }
+
+interface ISliderControlEventHandler { void sliderEvent(SliderControlEvent event); }

@@ -1,9 +1,47 @@
 import Library.GUI.IView;
+import Library.Vector;
+import Library.Callback;
+
+enum ContainerEditKind {
+	CONTAINER_EDIT_INSERT,
+	CONTAINER_EDIT_MOVE,
+	CONTAINER_EDIT_DETACH
+};
+
+class ContainerEdit {
+	public ContainerEditKind kind;
+	public IView child;
+	public int index;
+}
+
+enum ContainerBatchResultKind {
+	CONTAINER_BATCH_COMMITTED,
+	CONTAINER_BATCH_REJECTED,
+	CONTAINER_BATCH_ROLLED_BACK,
+	CONTAINER_BATCH_FAILED_CONSISTENT,
+	CONTAINER_BATCH_FAILED_QUARANTINED
+};
+
+class ContainerBatchResult {
+	public ContainerBatchResultKind kind;
+	public long long treeRevision;
+	public int failedStep;
+	public string error;
+	public Vector<IView> detached;
+	public Vector<IView> retained;
+}
 
 /* Attachment transfers subtree lifecycle responsibility to the parent.
  * Detach returns the same still-open child. Reparent by detaching first;
- * aliases cannot close attached children. Parent close closes descendants. */
+ * aliases cannot close attached children. Parent close closes descendants.
+ * Child queries expose committed order. move never detaches or settles editing.
+ * applyBatch validates treeRevision and returns ownership even on rollback or
+ * quarantine; a faulted parent permits inspection and close/drain only. */
 interface IContainer extends IView {
+	void insert(IView child, int index);
+	void move(IView child, int destinationIndex);
+	ContainerBatchResult applyBatch(long long expectedTreeRevision, Vector<ContainerEdit> edits);
+	long long treeRevision();
 	void attach(IView child);
 	IView detach(IView child);
 	int childCount();
