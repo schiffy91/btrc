@@ -11,8 +11,8 @@ the structural audit's raw-source parser. Repair `bb40e39c` passes the expanded
 candidate completed 17,803 local tests with zero failures and 168 skips, then
 failed its skip audit on two unclassified Linux-only stack-limit cases. Local
 repair `8c71dda6` classifies those cases; `e497ac98` repairs the checkpoint
-quiet-check omission. Their 106 focused checks pass. Bootstrap and strict-C11
-remain outstanding. The native Linux ARM64 bundle passes, while the hosted
+quiet-check omission. Their 106 focused checks pass. Local bootstrap passes;
+strict-C11 is running, with GCC -O0 at 2,036 passed and zero skips. The native Linux ARM64 bundle passes, while the hosted
 benchmark reports two peak-memory regressions requiring investigation.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
@@ -595,7 +595,7 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and is running bootstrap followed by strict-C11 under the host locks. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
+| PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. Strict-C11 is running under the host locks; GCC -O0 passed all 2,036 checks without skips. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `bb40e39c` | Parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. Integrated into the combined candidate; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
@@ -609,11 +609,20 @@ bytes, and CompileStdlibHeavy from 44,789,760 to 45,895,680 bytes. Both exceed t
 existing 1 MiB minimum allowance, by 12,288 and 57,344 bytes respectively. All
 emitted-C size/line/parity comparisons pass. The benchmark's GitHub merge commit
 `01b70d67` has exactly the candidate's tree, so this is source-matched evidence.
-The original log and artifact are retained. One unchanged-tree repetition was
-requested to test repeatability, but GitHub rejected it while the containing
-workflow is still running; no retry has started. Keep the baseline and tolerances
-unchanged while isolating the growth. This failure is independent of the local
+The original log and artifact are retained. The first repetition request was
+rejected while the workflow was still running. After it finished, one unchanged-
+source benchmark repeat started at attempt 2, job `112835659915`; no baseline
+or tolerance changed. Its outcome remains pending. Keep the baseline and
+tolerances unchanged while isolating the growth. This failure is independent of the local
 quiet-helper omission above.
+
+The completed Linux btrc shard at `50bf1c8c` passed **5,850 tests with 34 skips**.
+Artifact `11486902534` confirms both native hard-stack-limit cases passed: the
+launcher refuses 16 MiB and succeeds at 64 MiB. Its workflow metadata pins the
+same source revision. The hosted macOS btrc shard passed 5,838 tests with 46 skips,
+then failed solely on those two Linux-only skips lacking a macOS classification;
+local `8c71dda6` supplies the narrow fix already exercised by the 61 ledger tests.
+The Linux workflow's first attempt finished with only the benchmark failing.
 
 PR65 `93856dfc` has completed its hosted workflows and no longer occupies a
 running wave. Combined PR60 `50bf1c8c` remains active. Recheck actual queued and
