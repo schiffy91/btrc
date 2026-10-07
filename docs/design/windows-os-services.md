@@ -709,6 +709,16 @@ is never removed as though it were owned. A valid record alone is not liveness:
 indeterminate start requires the existing token-bound challenge/acknowledgement
 probe, with its deadline, before reporting a live daemon.
 
+For transfer state 2, the launcher performs exactly one such reconciliation
+probe within the remaining existing 2500 ms liveness budget; it does not start
+a new budget or launch another supervisor. A matching response from the exact
+token-bound supervisor returns the existing public start success code 0. Retain
+the indeterminate transfer state in diagnostics so success does not fabricate
+an ACK. No response, an exhausted budget, a mismatched record or supervisor loss
+returns 125 with the start-indeterminate discriminator and message below. Record
+presence alone never produces success. Closing the verified image owner does
+not terminate a committed supervisor during either outcome.
+
 ### Token, containment and portable outcomes
 
 Use **one 128-bit random token**, generated with BCryptGenRandom. INIT/COMMIT/ACK
@@ -768,7 +778,9 @@ daemon specification`; unsafe log is 125/`unsafe daemon log file`; expired stop
 is 124/`daemon did not confirm termination before the deadline`. Preserve all
 other current DaemonController messages verbatim. Launch failure retains its
 code with `failed to launch daemon supervisor`; missing control state and failed
-liveness remain 125 with their current messages. The only new outcome is
+liveness remain 125 with their current messages. After an indeterminate transfer,
+successful token-bound reconciliation returns 0 as specified above; unresolved
+reconciliation has the new outcome
 125/`daemon start outcome is indeterminate; reconcile control state before retry`
 plus an additive typed start-indeterminate discriminator approved under D27;
 125 alone cannot tell a caller it is safe to retry. Match the existing launch,
@@ -1253,6 +1265,11 @@ Round-4 regression cases are required members of those rows:
   observable promptly after its exit while the independent daemon remains alive.
   This proves the supervisor
   did not inherit the launcher's pipe endpoints.
+  With a living launcher and a dropped ACK, require public start code 0 after
+  the matching liveness response and retain transfer state 2 in diagnostics.
+  Kill the supervisor after publication but before that probe: require 125 and
+  the start-indeterminate discriminator despite the record still being present.
+  Both cases use the original liveness budget and observe no replacement launch.
 - Builder: both frontends reject a missing metadata object at link time; changing
   signed supervisor bytes invalidates the consumer metadata/cache; retained and
   dead Daemon-start cases emit exactly the required artifacts. Ordinary stdlib
