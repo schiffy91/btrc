@@ -131,7 +131,8 @@ def run_windows(command: list[str], *, cwd: Path, env: dict[str, str] | None, ti
             return Result(None, stdout, stderr, True)
         if launch_error.exists():
             failure = json.loads(launch_error.read_text(encoding="utf-8"))
-            return Result(127, stdout, stderr + json.dumps(failure).encode(), False)
+            message = f"could not launch {command[0]}: {json.dumps(failure)}"
+            return Result(127, stdout, stderr + message.encode(), False)
         if not status.exists():
             return Result(None, stdout, stderr, False, "Windows launch gate exited without target status")
         return Result(int(status.read_text(encoding="ascii")), stdout, stderr, False)

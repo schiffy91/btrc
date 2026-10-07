@@ -221,6 +221,36 @@ class Arm64EvidenceTests(unittest.TestCase):
         job.terminate.assert_called_once()
         job.close.assert_called_once()
 
+    def test_windows_launch_diagnostic_keeps_executable_when_os_message_omits_it(self):
+        process, job = Mock(), Mock()
+        job.name = "fixture-event"
+        process.poll.return_value = 1
+
+        def gate(command, **_options):
+            request = json.loads(Path(command[-1]).read_text())
+            Path(request["launch_error"]).write_text(
+                json.dumps(
+                    {
+                        "stage": "CreateProcessW",
+                        "message": "The system cannot find the file specified",
+                        "winerror": 2,
+                    }
+                )
+            )
+            return process
+
+        with (
+            patch("tools.windows_toolchain.process_runner.WindowsJob", return_value=job),
+            patch("tools.windows_toolchain.process_runner.subprocess.Popen", side_effect=gate),
+        ):
+            result = run_windows(["missing-clang.exe"], cwd=self.root, env=None, timeout=10)
+        self.assertEqual(result.returncode, 127)
+        self.assertIn(b"missing-clang.exe", result.stderr)
+        self.assertIn(b"CreateProcessW", result.stderr)
+        self.assertIn(b"The system cannot find the file specified", result.stderr)
+        job.terminate.assert_called_once()
+        job.close.assert_called_once()
+
     def test_overall_deadline_caps_each_command_and_refuses_new_work(self):
         evidence = Evidence(self.root, "zig")
         evidence.deadline = 105

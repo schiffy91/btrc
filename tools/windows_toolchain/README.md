@@ -86,8 +86,8 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only \
 
 PowerShell parsing/version/hash cases are portable stand-ins, not MSVC runs.
 All Python helper commands have explicit subprocess deadlines. Windows-native
-containment and Visual Studio execution remain unverified until the requested
-hosted lane runs; portable mocks do not establish those behaviors.
+containment and Visual Studio execution require the hosted lane described below;
+portable mocks do not establish those behaviors.
 
 ## Hosted qualification
 
@@ -108,3 +108,15 @@ is the Visual Studio 2026 ARM64 image, not an x64 emulation substitute.
 Matrix/device updates wait for the actual run artifacts. GNU btrcc execution
 does not establish the MSVC GPU ABI route, and linking wgpu does not establish a
 usable GPU adapter or platform GUI implementation.
+
+At revision `957126d6`, [hosted run 37560567746](https://github.com/schiffy91/btrc/actions/runs/37560567746)
+passed the Linux cross-build and the native ARM64 MSVC/wgpu probe: Visual Studio
+18.10.12217.157, MSVC 19.51.36260, SDK 10.0.26100.0, Clang 22.1.8, strict-C11
+hello, wgpu instance creation and adapter callback (adapter present). These are
+stand-in execution results, not GUI/rendering or physical GPU qualification.
+
+The native Python tooling suite passed 22/23 tests. Its missing-executable
+check failed because Windows' error message omitted the executable name; the
+capture now explicitly retains that name beside the structured Win32 error.
+The failed tooling step prevented native compiler/bootstrap execution, which
+remains unqualified until a new complete run passes.
