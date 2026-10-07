@@ -84,6 +84,7 @@ class CompilerCommand:
             "(x64 and arm64 are accepted architecture aliases; default: this host)",
         )
         emit_group = parser.add_mutually_exclusive_group()
+        emit_group.add_argument("--emit-c", action="store_true", help="Generate C source (default)")
         emit_group.add_argument("--emit-tokens", action="store_true", help="Print token stream")
         emit_group.add_argument("--emit-ast", action="store_true", help="Print AST")
         emit_group.add_argument("--emit-ir", action="store_true", help="Print IR before optimization")

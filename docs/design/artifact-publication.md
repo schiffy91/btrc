@@ -40,6 +40,14 @@ artifact storage remain unfinished.
 
 ## Output publication
 
+Both CLIs accept `--emit-c` to explicitly select their default C output mode.
+It can accompany `-o PATH`, `--emit-units` and `--emit-link-plan`, with the same
+publication and cache behavior as an invocation without an output-mode flag.
+Without `-o`, `btrcc` writes C to stdout and `btrcpy` writes `<input>.c`.
+`--emit-c` cannot accompany an inspection mode (`--emit-ir`,
+`--emit-optimized-ir`, or the reference CLI's `--emit-tokens`/`--emit-ast`).
+Conflicting output modes fail before publication.
+
 The reference CLI now publishes regular primary C, secondary units and the
 requested link plan as one recoverable generation. A failed replacement rolls
 back; the next successful compilation recovers an interrupted attempt before
