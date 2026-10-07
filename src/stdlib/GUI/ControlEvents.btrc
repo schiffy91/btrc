@@ -1,0 +1,114 @@
+import Library.UI.Element;
+import Library.Vector;
+
+/* Owning snapshots. Generations, interactions and revisions never wrap.
+ * Receivers run after their native source returns, on the UI executor. */
+enum ControlOrigin {
+	CONTROL_ORIGIN_USER,
+	CONTROL_ORIGIN_MODEL,
+	CONTROL_ORIGIN_SYSTEM
+};
+
+enum ControlPhase {
+	CONTROL_PHASE_DRAFT,
+	CONTROL_PHASE_CHANGE,
+	CONTROL_PHASE_PREVIEW,
+	CONTROL_PHASE_COMMIT,
+	CONTROL_PHASE_CANCEL
+};
+
+enum ControlCancelReason {
+	CONTROL_CANCEL_NONE,
+	CONTROL_CANCEL_ESCAPE,
+	CONTROL_CANCEL_CAPTURE_LOSS,
+	CONTROL_CANCEL_ELIGIBILITY_LOSS,
+	CONTROL_CANCEL_MODEL_REPLACEMENT,
+	CONTROL_CANCEL_SOURCE_CLOSING,
+	CONTROL_CANCEL_PLATFORM_INTERRUPTION
+};
+
+class ControlEventContext {
+	public long long generation;
+	public long long interaction;
+	public long long sequence;
+	public long long modelRevision;
+	public ControlOrigin origin;
+}
+
+class TextControlEvent {
+	public ControlEventContext context;
+	public ControlPhase phase;
+	public string text;
+	public bool composing;
+	public ControlCancelReason cancelReason;
+}
+
+class SelectOption {
+	public string key;
+	public string title;
+	public bool enabled;
+}
+
+enum SelectAvailability {
+	SELECT_AVAILABILITY_READY,
+	SELECT_AVAILABILITY_LOADING,
+	SELECT_AVAILABILITY_EMPTY,
+	SELECT_AVAILABILITY_ERROR
+};
+
+class SelectModel {
+	public Vector<SelectOption> options;
+	public string? selectedKey;
+	public SelectAvailability availability;
+	public string statusText;
+}
+
+class SelectionControlEvent {
+	public ControlEventContext context;
+	public ControlPhase phase;
+	public string? previousKey;
+	public string? candidateKey;
+	public string? acceptedKey;
+	public ControlCancelReason cancelReason;
+}
+
+class SliderRange {
+	public double minimum;
+	public double maximum;
+	public double step;
+}
+
+enum SliderInputKind {
+	SLIDER_INPUT_ABSOLUTE_POINTER,
+	SLIDER_INPUT_RELATIVE_ADJUSTMENT,
+	SLIDER_INPUT_ABSOLUTE_ASSISTIVE
+};
+
+class SliderControlEvent {
+	public ControlEventContext context;
+	public ControlPhase phase;
+	public double value;
+	public long long rangeRevision;
+	public SliderInputKind input;
+	public UIRangeAdjustment adjustment;
+	public int count;
+	public ControlCancelReason cancelReason;
+}
+
+class ScrollOffset {
+	public double x;
+	public double y;
+}
+
+class ScrollRect {
+	public double x;
+	public double y;
+	public double width;
+	public double height;
+}
+
+class ScrollControlEvent {
+	public ControlEventContext context;
+	public ScrollOffset offset;
+	public ScrollRect visibleRect;
+}

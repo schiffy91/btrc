@@ -73,6 +73,8 @@ class GUI {
 
 	class IGrid createGrid(int columns, int rows, double columnSpacing = 0.0, double rowSpacing = 0.0) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createGrid(columns, rows, columnSpacing, rowSpacing); }
 
+	/* Legacy nested loop: excluded from executor fairness and forbidden inside
+	 * close-decision handlers. */
 	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) { GUIProvider.requireUIThread(); return GUIProvider.chooseDirectory(GUIApplicationSlot.require(), request); }
 
 	class void rasterizeText(TextRasterization request) { GUIProvider.requireUIThread(); GUIProvider.rasterizeText(GUIApplicationSlot.active, request); }
@@ -82,6 +84,36 @@ class GUI {
 	class void post(IApplicationWork work) { GUIProvider.requireUIThread(); GUIApplicationSlot.require().post(work); }
 
 	class ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().postAfter(delaySeconds, work); }
+
+	class ApplicationPublisherOutcome createPublisher(int capacity, IApplicationPublicationHandler handler, CallbackScope owner) {
+		GUIProvider.requireUIThread();
+		return GUIApplicationSlot.require().createPublisher(capacity, handler, owner);
+	}
+
+	class ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) {
+		GUIProvider.requireUIThread();
+		return GUIApplicationSlot.require().schedule(work, delaySeconds, policy, replacementKey);
+	}
+
+	/* The facade owns slot cleanup even when the host, not run(), drives turns. */
+	class ApplicationHostAttachOutcome attachHost(IApplicationHost host, CallbackScope owner) {
+		GUIProvider.requireUIThread();
+		if (owner == null) { throw "Application host requires a callback scope"; }
+		owner.requireExecutor();
+		if (!owner.isOpen()) { throw "Application host callback scope is closing"; }
+		var application = GUIApplicationSlot.require();
+		var attachmentScope = CallbackScope();
+		var attachment = GUIHostAttachment(application, attachmentScope);
+		/* Scope admission precedes native publication, so a rejecting owner can
+		 * never strand an attached host whose cancellation is still pending. */
+		owner.track(attachment);
+		var result = application.attachHost(host, attachmentScope);
+		if (result.kind == APPLICATION_HOST_ATTACHED && result.attachment != null) {
+			attachment.activate(result.attachment);
+			result.attachment = attachment;
+		}
+		return result;
+	}
 
 	class void requestQuit() { GUIProvider.requireUIThread(); GUIApplicationSlot.require().requestQuit(); }
 
@@ -99,5 +131,54 @@ class GUI {
 		var result = application.close();
 		if (result == CALLBACK_CANCELLATION_COMPLETE) { GUIApplicationSlot.active = null; }
 		return result;
+	}
+}
+
+/* Package-private lifecycle adapter; provider attachment state stays native.
+ * Scope cancellation and host-driven terminal turns both finish facade ownership. */
+class GUIHostAttachment implements IApplicationHostAttachment {
+	private IApplication application;
+	private IApplicationHostAttachment? attachment;
+	private CallbackScope scope;
+
+	public GUIHostAttachment(IApplication application, CallbackScope scope) {
+		self.application = application;
+		self.attachment = null;
+		self.scope = scope;
+	}
+
+	public void activate(IApplicationHostAttachment attachment) { self.attachment = attachment; }
+
+	private CallbackCancellation finish(CallbackCancellation status) {
+		if (status != CALLBACK_CANCELLATION_COMPLETE) { return status; }
+		status = self.application.close();
+		if (status == CALLBACK_CANCELLATION_COMPLETE && GUIApplicationSlot.active == self.application) { GUIApplicationSlot.active = null; }
+		return status;
+	}
+
+	public bool isOpen() { GUIProvider.requireUIThread(); return self.attachment != null && self.attachment.isOpen(); }
+
+	public CallbackCancellation cancel() { GUIProvider.requireUIThread(); if (self.attachment == null) { return self.scope.cancel(); } return self.finish(self.scope.cancel()); }
+
+	public CallbackCancellation pollCompletion() {
+		GUIProvider.requireUIThread();
+		if (self.attachment == null) { return self.scope.cancel(); }
+		var status = self.attachment.pollCompletion();
+		if (status == CALLBACK_CANCELLATION_COMPLETE) { return self.finish(self.scope.cancel()); }
+		return status;
+	}
+
+	public void serviceTurn() {
+		GUIProvider.requireUIThread();
+		if (self.attachment == null) { throw "Application host is not attached"; }
+		self.attachment.serviceTurn();
+		self.pollCompletion();
+	}
+
+	public void transition(ApplicationActivity activity) {
+		GUIProvider.requireUIThread();
+		if (self.attachment == null) { throw "Application host is not attached"; }
+		self.attachment.transition(activity);
+		self.pollCompletion();
 	}
 }

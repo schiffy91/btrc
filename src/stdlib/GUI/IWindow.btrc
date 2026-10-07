@@ -2,14 +2,93 @@ import Library.Callback;
 import Library.GUI.IView;
 import Library.App;
 
+enum ApplicationActivity {
+	APPLICATION_ACTIVITY_ACTIVE,
+	APPLICATION_ACTIVITY_INACTIVE,
+	APPLICATION_ACTIVITY_BACKGROUND,
+	APPLICATION_ACTIVITY_SUSPENDED,
+	APPLICATION_ACTIVITY_UNKNOWN
+};
+
+enum WindowCloseReason {
+	WINDOW_CLOSE_NATIVE_REQUEST,
+	WINDOW_CLOSE_APPLICATION_QUIT,
+	WINDOW_CLOSE_PROGRAM_REQUEST
+};
+
+enum WindowCloseDecision {
+	WINDOW_CLOSE_DECISION_SAVE,
+	WINDOW_CLOSE_DECISION_DISCARD,
+	WINDOW_CLOSE_DECISION_CANCEL
+};
+
+enum WindowCloseState {
+	WINDOW_CLOSE_OPEN,
+	WINDOW_CLOSE_AWAITING_DECISION,
+	WINDOW_CLOSE_SAVING,
+	WINDOW_CLOSE_AUTHORIZED,
+	WINDOW_CLOSE_CLOSING,
+	WINDOW_CLOSE_CANCELLED,
+	WINDOW_CLOSE_OWNER_LOST
+};
+
+enum WindowCloseOutcomeKind {
+	WINDOW_CLOSE_OUTCOME_APPLIED,
+	WINDOW_CLOSE_OUTCOME_STALE_REVISION,
+	WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT,
+	WINDOW_CLOSE_OUTCOME_NOT_PENDING
+};
+
+class WindowCloseOutcome {
+	public WindowCloseOutcomeKind kind;
+	public WindowCloseState state;
+	public long long attempt;
+}
+
+enum WindowCloseRequestOutcomeKind {
+	WINDOW_CLOSE_REQUEST_PENDING,
+	WINDOW_CLOSE_REQUEST_ALREADY_PENDING,
+	WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER,
+	WINDOW_CLOSE_REQUEST_CLOSING,
+	WINDOW_CLOSE_REQUEST_CLOSED
+};
+
+class WindowCloseRequestOutcome {
+	public WindowCloseRequestOutcomeKind kind;
+	public IWindowCloseTransaction? transaction;
+}
+
+class WindowState {
+	public double width;
+	public double height;
+	public double backingScale;
+	public bool requestedVisible;
+	public bool nativeVisible;
+	public bool minimized;
+	public bool windowActive;
+	public ApplicationActivity applicationActivity;
+	public WindowExposure exposure;
+	public WindowExposureReason notExposedReason;
+	public bool presentable;
+	public long long stateRevision;
+}
+
 /* Synchronous native key routing. True consumes the event; false preserves
  * the platform's normal editor/command handling. Ownership is scope-bound. */
 interface IWindowKeyHandler { bool key(AppKeyboardEvent event); }
 
 /* A window owns its attached root and descendants. Detach returns the same
  * open root; surviving aliases observe subtree shutdown when the window closes.
- * Dimensions are content-area logical points, excluding native window chrome. */
+ * Dimensions are content-area logical points, excluding native window chrome.
+ * requestClose is reversible through its live handler; close is prompt-free
+ * final teardown. Repeated requests return the same pending transaction.
+ * show/hide notify state and eligibility; showAlert is a legacy nested loop,
+ * excluded from fairness and forbidden inside close-decision handlers. */
 interface IWindow {
+	WindowCloseRequestOutcome requestClose(WindowCloseReason reason);
+	ICallbackRegistration onCloseRequested(IWindowCloseRequestHandler handler, CallbackScope owner);
+	WindowState state();
+	ICallbackRegistration onStateChanged(IWindowStateHandler handler, CallbackScope owner);
 	bool isOpen();
 	string title();
 	void setTitle(string title);
@@ -30,3 +109,14 @@ interface IWindow {
 	CallbackCancellation close();
 	CallbackCancellation pollClose();
 }
+
+interface IWindowStateHandler { void stateChanged(WindowState state); }
+
+/* SAVE attempts are fresh and positive. Stale revisions never authorize close. */
+interface IWindowCloseTransaction {
+	WindowCloseOutcome decide(WindowCloseDecision decision, long long documentRevision);
+	WindowCloseOutcome completeSave(long long attempt, long long savedRevision, bool succeeded, string error);
+	WindowCloseState state();
+}
+
+interface IWindowCloseRequestHandler { void closeRequested(IWindowCloseTransaction transaction); }
