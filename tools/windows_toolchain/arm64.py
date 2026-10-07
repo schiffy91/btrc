@@ -182,13 +182,15 @@ $report | ConvertTo-Json -Depth 6
         """Isolate a failed tiny build without changing its qualification result."""
         minimal = self.output / "minimal.c"
         minimal.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+        object_file = self.output / "minimal.o"
+        object_file.unlink(missing_ok=True)
         # Zig 0.16 selects link mode unless -c/-S/-E changes c_out_mode;
         # forwarding -### or -fsyntax-only to Clang does not change that mode.
         probes = [
             ("driver-plan", ["-c", "-###", minimal]),
             ("native-syntax", ["-c", "-fsyntax-only", minimal]),
             ("target-syntax", ["-target", TARGET, "-c", "-fsyntax-only", minimal]),
-            ("target-object", ["-target", TARGET, "-c", minimal, "-o", self.output / "minimal.o"]),
+            ("target-object", ["-target", TARGET, "-c", minimal, "-o", object_file]),
             (
                 "verbose-object",
                 ["-v", "-target", TARGET, "-c", minimal, "-o", self.output / "minimal-verbose.o"],
@@ -230,6 +232,40 @@ $report | ConvertTo-Json -Depth 6
                 )
             except RuntimeError as error:
                 failures["crash-location"] = str(error)
+            if "target-object" in failures or not object_file.is_file():
+                self.report["c_frontend_diagnostics"]["direct_linker_skipped"] = "no successful current target object"
+                return
+            # Zig 0.16's driver spawns `zig lld-link`. Bypass its CRT/setup path
+            # with the current object; exporting main keeps that section live.
+            report = self.output / "direct-linker-crash-location.json"
+            report.unlink(missing_ok=True)
+            self.report["c_frontend_diagnostics"]["direct_linker_crash_location"] = str(report)
+            try:
+                self.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "tools.windows_toolchain.crash_probe",
+                        "--output",
+                        report,
+                        "--timeout",
+                        "20",
+                        "--",
+                        self.zig,
+                        "lld-link",
+                        "/dll",
+                        "/noentry",
+                        "/nodefaultlib",
+                        "/machine:arm64",
+                        "/export:main",
+                        f"/out:{self.output / 'minimal-direct.dll'}",
+                        object_file,
+                    ],
+                    "diagnostic-direct-linker",
+                    timeout=30,
+                )
+            except RuntimeError as error:
+                failures["direct-linker"] = str(error)
 
     def verify_cross(self, path: Path) -> None:
         data = path.read_bytes()
