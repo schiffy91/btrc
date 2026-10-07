@@ -194,3 +194,16 @@ Acceptance remains open until both emulator matrices actually execute and the
 run artifacts include LOAD tables, boot/install/launch timings and fixture
 results. Previously reported cross-build and APK packaging success is historical
 build evidence, not a revalidated result of the transport repair.
+
+
+At revision `97a2a76a`, [hosted run 37557518213](https://github.com/schiffy91/btrc/actions/runs/37557518213)
+passed all 28 shell/NativeActivity fixtures on API 36 (4 KiB pages). API 29
+booted and completed its shell phase, but its first APK install failed because
+the package service was unavailable; cleanup also could not reach the activity
+service. This is not a passing API 29 result or a 16 KiB qualification.
+
+The checker now retains completed fixture rows, the failing case/stage and
+cleanup errors in its JSON report. Before closing an owned failed emulator, it
+captures bounded logcat, properties and service-list diagnostics. Local
+transport/workflow tests pass (139 tests); a new emulator run is needed to
+diagnose the API 29 service failure. No retry or skip masks that failure.

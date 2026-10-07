@@ -129,6 +129,23 @@ class AvdManager:
             self.log.close()
             self.log = None
 
+    def diagnostics(self):
+        """Retain guest evidence before tearing down this manager's emulator."""
+        if self.process is None:
+            return
+        self.state.mkdir(parents=True, exist_ok=True)
+        for name, arguments in (
+            ("logcat", ("logcat", "-d", "-b", "all", "-t", "10000")),
+            ("properties", ("shell", "getprop")),
+            ("services", ("shell", "service", "list")),
+        ):
+            path = self.state / f"{self.name}-{name}.log"
+            try:
+                result = self.adb(*arguments, timeout=15)
+                path.write_bytes(f"exit_status={result.returncode}\n".encode() + result.stdout + result.stderr)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                path.write_text(f"diagnostic capture failed: {error}\n")
+
     def snapshot(self):
         if self.process is None or self.process.poll() is not None:
             raise RuntimeError("boot this manager's AVD before saving a snapshot")

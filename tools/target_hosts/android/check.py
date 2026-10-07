@@ -16,9 +16,11 @@ from tools.target_hosts.android.executor import AndroidEmulatorExecutor, Executi
 class HostFixtureCheck:
     def __init__(self, executor):
         self.executor = executor
+        self.results = []
+        self.current_case = None
 
     def run(self):
-        rows = []
+        rows = self.results
         for mode in self.executor.programs:
             for case in (
                 "stdout",
@@ -36,6 +38,7 @@ class HostFixtureCheck:
                 "cwd",
                 "stdin",
             ):
+                self.current_case = {"mode": mode, "case": case}
                 arguments = (case, "space and ' quote", "", "$(touch should-not-exist)") if case == "argv" else (case,)
                 request = ExecutionRequest(
                     mode,
@@ -104,27 +107,52 @@ def main(argv=None):
     )
     host = None
     executor = AndroidEmulatorExecutor(args.sdk, args.serial)
+    checker = HostFixtureCheck(executor)
+    failure = None
+    stage = "boot"
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     try:
         if manager:
             manager.create()
             host = manager.boot()
             if args.save_snapshot:
                 manager.snapshot()
+        stage = "prepare"
         executor.prepare(args.bundle, "CX-P1-05 fixture proof")
-        results = HostFixtureCheck(executor).run()
-        args.output.write_text(
-            json.dumps(
-                {"schema": "btrc.android-host-spike/1", "stand_in": True, "host": host, "results": results}, indent=2
-            )
-            + "\n"
-        )
-        print(f"{len(results)} fixture executions passed")
-    finally:
+        stage = "fixtures"
+        checker.run()
+        stage = "cleanup"
+    except BaseException as error:
+        failure = error
+    cleanup = ([manager.diagnostics] if failure and manager else []) + [executor.close]
+    if manager:
+        cleanup.append(manager.close)
+    for action in cleanup:
         try:
-            executor.close()
-        finally:
-            if manager:
-                manager.close()
+            action()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+            else:
+                failure.add_note(f"{action.__qualname__} also failed: {error}")
+    report = {
+        "schema": "btrc.android-host-spike/1",
+        "stand_in": True,
+        "host": host,
+        "status": "failed" if failure else "passed",
+        "results": checker.results,
+    }
+    if failure:
+        report.update(
+            error=str(failure),
+            notes=getattr(failure, "__notes__", []),
+            failure_stage=stage,
+            current_case=checker.current_case,
+        )
+    args.output.write_text(json.dumps(report, indent=2) + "\n")
+    if failure:
+        raise failure
+    print(f"{len(checker.results)} fixture executions passed")
 
 
 if __name__ == "__main__":

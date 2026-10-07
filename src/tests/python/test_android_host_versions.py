@@ -637,3 +637,82 @@ def test_cleanup_failure_cannot_turn_a_successful_fixture_into_a_pass(tmp_path):
     with pytest.raises(ExceptionGroup, match="app cleanup failed"):
         executor.run(ExecutionRequest("probe"))
     assert not transport.installed
+
+
+def test_failed_fixture_retains_completed_rows_and_cleanup_errors(tmp_path, monkeypatch):
+    from tools.target_hosts.android import check
+    from tools.target_hosts.android.executor import ExecutionResult
+
+    actions = []
+
+    class Executor:
+        def __init__(self):
+            self.programs = {"shell": {}}
+
+        def prepare(self, *_):
+            pass
+
+        def run(self, request):
+            if request.argv == ("stdout",):
+                return ExecutionResult(0, None, b"stdout\n", b"", False, 0, {})
+            raise RuntimeError("package service disappeared")
+
+        def close(self):
+            actions.append("executor-close")
+            raise RuntimeError("cleanup service unavailable")
+
+    class Manager:
+        def create(self):
+            pass
+
+        def boot(self):
+            return {"api": "29"}
+
+        def diagnostics(self):
+            actions.append("diagnostics")
+
+        def close(self):
+            actions.append("manager-close")
+
+    monkeypatch.setattr(check, "AndroidEmulatorExecutor", lambda *_: Executor())
+    monkeypatch.setattr(check, "AvdManager", lambda *_, **__: Manager())
+    output = tmp_path / "evidence/results.json"
+    with pytest.raises(RuntimeError, match="package service disappeared"):
+        check.main(
+            [
+                "--sdk",
+                str(tmp_path),
+                "--boot",
+                "--state",
+                str(tmp_path / "state"),
+                "--bundle",
+                str(tmp_path),
+                "--output",
+                str(output),
+            ]
+        )
+    report = json.loads(output.read_text())
+    assert report["status"] == "failed" and report["failure_stage"] == "fixtures"
+    assert report["current_case"] == {"mode": "shell", "case": "stderr"}
+    assert [row["case"] for row in report["results"]] == ["stdout"]
+    assert "cleanup service unavailable" in report["notes"][0]
+    assert actions == ["diagnostics", "executor-close", "manager-close"]
+
+
+def test_owned_emulator_diagnostics_continue_after_a_transport_timeout(tmp_path, monkeypatch):
+    manager = AvdManager(tmp_path, tmp_path / "state")
+    manager.process = object()
+    calls = []
+
+    def adb(*args, **kwargs):
+        calls.append(args)
+        assert kwargs["timeout"] == 15
+        if args[0] == "logcat":
+            raise subprocess.TimeoutExpired("logcat", 15)
+        return subprocess.CompletedProcess(args, 0, b"guest evidence", b"")
+
+    monkeypatch.setattr(manager, "adb", adb)
+    manager.diagnostics()
+    assert len(calls) == 3
+    assert "diagnostic capture failed" in (manager.state / f"{manager.name}-logcat.log").read_text()
+    assert b"guest evidence" in (manager.state / f"{manager.name}-services.log").read_bytes()
