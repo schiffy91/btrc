@@ -1,7 +1,7 @@
 # Frozen compiler-boundary contract. Candidate paths are derived build output only.
 # Self-host raw/optimized IR is intentionally absent: btrcc exposes no such capability.
 # bootstrap-fixed-point is intentionally absent from this atom; make bootstrap remains its separate final gate.
-# Rich Python and terse self-host phase diagnostics are separately exact; strict-import diagnostics are shared.
+# Phase diagnostics are exact; accepted positioned self-host diagnostics match the reference.
 # Managed C text is separately exact while observed GCC/Clang behavior proves cross-compiler semantics.
 schema_version = 1
 baseline_revision = "fce26b8502feb4019784b18cdee27028ec4e3d15"
@@ -1207,9 +1207,9 @@ channel = "stderr"
 baseline_path = "baseline/lexical-error.btrc.diagnostics.stderr.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/lexical-error.btrc.diagnostics.stderr.bin"
-accepted_sha256 = "d89bbe935f1613a6d7cc7a219ebc261c7ef794f2edb1310aa29c720d70df8333"
-reason = "The current compiler now reports the stable phase diagnostic instead of failing inside an incomplete pipeline."
-regressions = ["src/tests/btrc/test_driver_frontend_parity.py"]
+accepted_sha256 = "2651553ad31d7d1add93a20a2a89a0b443d2f997cf20729510714fb1750cc3c4"
+reason = "CL-REQ-UI2-G (D14): positioned lexer/parser diagnostics preserve the message and error status while adding the reference-identical file, source line and caret; the frozen baseline remains unchanged."
+regressions = ["src/tests/btrc/test_driver_frontend_parity.py", "src/tests/btrc/test_lexer_diagnostics.py", "src/tests/btrc/test_diagnostic_position_parity.py"]
 
 [[records]]
 id = "parse-error.python.diagnostics.status"
@@ -1251,9 +1251,9 @@ channel = "stderr"
 baseline_path = "baseline/parse-error.btrc.diagnostics.stderr.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/parse-error.btrc.diagnostics.stderr.bin"
-accepted_sha256 = "aed655f75cbbbaf56fc29e04972228a63adeb4ce55e0b59632568deed0ca5698"
-reason = "The current compiler now reports the stable phase diagnostic instead of failing inside an incomplete pipeline."
-regressions = ["src/tests/btrc/test_driver_frontend_parity.py"]
+accepted_sha256 = "fb9a5b11c134c28f9ec7c58127ce30b7819bb319d123b99dc86dbdc95a6a7328"
+reason = "CL-REQ-UI2-G (D14): positioned lexer/parser diagnostics preserve the message and error status while adding the reference-identical file, source line and caret; the frozen baseline remains unchanged."
+regressions = ["src/tests/btrc/test_driver_frontend_parity.py", "src/tests/btrc/test_parser_diagnostics.py", "src/tests/btrc/test_diagnostic_position_parity.py"]
 
 [[records]]
 id = "semantic-error.python.diagnostics.status"

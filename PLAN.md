@@ -415,10 +415,21 @@ same native suite passed **1,179 checks with three platform skips** in 625.74
 seconds, resolving all 20 prior failures. The skips are Linux resource-limit
 and `/dev/full` paths. A combined candidate now includes this repair, PR65
 `93856dfc` and the current plan; its production sources match `9a01104c`.
-The combined tree is published in PR60 at `1424c2db`. Its full local serial
-matrix and hosted workflows are running. Initial local lint, formatting,
-generated-source and extension checks passed; compiler build, main suite,
-bootstrap and C11 results remain pending. Merge resolution preserves
+The combined tree is published in PR60 at `1424c2db`. Its local lint,
+formatting, generated-source checks, extension and native compiler build passed.
+The full run then stopped at boundary verification: the accepted lexer/parser
+stderr fixtures still expected terse diagnostics. Both captured outputs are
+byte-identical to the reference, preserving the original messages, source
+locations and exit status 1 while adding the positioned source line and caret.
+Under D14, only those two accepted artifacts and their reviewed manifest hashes
+are updated (43→206 and 42→149 bytes); all frozen baseline bytes and 311 records
+remain unchanged. Regressions cover lexer/parser diagnostics and cross-file
+position parity. Rechecking the preserved current capture passes **287 records**;
+24 observed-behavior records remain unchecked because four managed-code
+capabilities are incompatible with this environment. All **13 boundary-manifest
+checks pass**. The full matrix remains pending. The old `build/boundary-report.json`
+predates this failed run and is not fresh evidence.
+Main-suite, bootstrap and C11 checks did not run; hosted qualification is separate. Merge resolution preserves
 C2's union admission logic in the shared realtime owner and its union refusal
 regressions. The intentional positioned-diagnostic boundary update retains
 311 records and its reviewed SHA-256. No main landing or full-matrix
@@ -521,7 +532,7 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `1424c2db` | Combined C2/REQ-10/11/rich-enum/diagnostic candidate. Full local serial matrix and hosted workflows are running. Initial static/generated/extension checks passed; final-tree qualification and landing remain pending. Prior `56909225` hosted and `ad72af03` local green results remain historical evidence. |
+| PR60, `codex/harmonize-plan` | `1424c2db` | Combined C2/REQ-10/11/rich-enum/diagnostic candidate. Local static/generated/extension/native compiler checks passed; boundary verification stopped on two stale accepted diagnostic fixtures, before the main suite. The reviewed fixture correction and final matrix remain pending. Hosted workflows are separate; prior green results remain historical evidence. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Its four hosted workflows are running; both Android emulator jobs passed. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification passed 1,179 checks with three platform skips, resolving the predecessor's 20 failures. Included with PR65 in published PR60 `1424c2db`; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
