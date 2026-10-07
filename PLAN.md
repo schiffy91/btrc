@@ -2,7 +2,8 @@
 
 Updated **2026-10-07**, reconciled against upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
-(batch 50), the six open btrc PRs, and the remote branch inventory.
+(batch 50), the six initially open btrc PRs, and the remote branch inventory.
+Subsequent integration and host changes are recorded below.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -61,17 +62,35 @@ reconciliation. BTRSmith main remains `adb3276f`, clean, with btrc pinned to
 `05ec9cb7447eeff37e57d5653425196a8a5c524c`; the Stage 4 pin and product
 requalification remain outstanding. Do not copy private product sources into btrc.
 
-**Host constraint.** The prescribed host provenance is
-`Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0`. The October 7 disk check found about
-**16 GiB free**, below the 80 GB implementation threshold and 100 GB Stage 23
-threshold. Documentation and read-only reconciliation can continue. Restore the
-required headroom before local builds/guests; use D2's preserve-first, citation-
-checked reclaim process. September's 212 GB free is historical, not current.
+**Host capacity and cleanup.** The prescribed host provenance is
+`Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0`. The first October 7 check found
+about 16 GiB free. The owner then authorized removal of two unused SEMU images
+only if unchanged since July. Every image file was checked: newest writes were
+July 21 and July 23; neither image was mounted or open. Their metadata and
+65,685 regular diagnostic files were preserved in a case-sensitive tar archive,
+with file contents and links verified, before the exact two images were removed.
+Recovery evidence is at `~/.cache/semu/recovery/cleanup-2026-10-07/`.
+The 01:45 BST recheck found **105.15 GB free (97.93 GiB)**, above the 80 GB
+implementation and 100 GB Stage 23 thresholds at that moment. Recheck at each
+stage start; this is not reserved capacity.
+
+The active `podman-machine-default` is shared with SEMU: **8 CPUs, 28 GiB RAM,
+180 GiB virtual disk**. It and its containers/volumes were left intact. Do not
+apply the historical 40 GB btrc-machine recreation step to this shared VM.
+The guest/load/quiet rules still apply even though disk headroom is restored.
 No local compiler gate or quiet performance round has been claimed for this tree.
+
+**Integration progress.** [PR42](https://github.com/schiffy91/btrc/pull/42)
+merged at `87dd60d7c602448cdd1bcf78ab3134b772e3aed5` after review and green
+docs CI. Only the accessibility findings note landed; AX trust remains unknown,
+and the prototype and native qualification remain outstanding. Plan consolidation
+is in [PR60](https://github.com/schiffy91/btrc/pull/60): the 153 affected reader
+tests and changed-file lint/format checks passed locally; hosted checks remain
+in progress. The full final matrix and other branch/issue resolutions are open.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
-| Stages 1–4 | Pre-flight history, Stage 2 fixes, measurement harness and extensive stdlib drift repairs landed. Daemon failures were races/zombie handling, not a deadline to relax. | Recover disk; finish Mac and BTRSmith requalification and pin; reconcile residual findings before closing Stage 4. |
+| Stages 1–4 | Pre-flight history, Stage 2 fixes, measurement harness and extensive stdlib drift repairs landed. Daemon failures were races/zombie handling, not a deadline to relax. | Disk headroom restored; finish Mac and BTRSmith requalification and pin; reconcile residual findings before closing Stage 4. |
 | Stages 5–13 | Runbook kit, reference attribution and never-merge floor experiments prepared. M11 self-host budget numbers were met at `65057cb`. | Quiet current-source baseline; Stage B skip-unchanged acceptance counter; reference budgets, worker scaling, finals and x86_64 evidence. No new final-performance claim. |
 | Stages 14–16 | C5 inventory, C1 schema/constructs and C4 integrated; C1 Linux evidence recorded. | Outstanding Mac memory/instructions and BTRSmith evidence do not disappear because implementation landed. |
 | Stages 17–21 | C2 schema and shared owners landed; declaration-order parity landed separately. | C2 L1/L2 reviews still have blockers; multidimensional arrays, C3, goto and final inventory closure remain. |
@@ -121,8 +140,9 @@ versioned; do not flatten retired or unavailable rows into passing rows.
    fixtures through normal drivers, and qualify both frontends. `02` precedes
    `04` because both own LinuxGrid. UI2 public-interface work remains an atomic
    interface/macOS/Linux landing; the existing-interface fixes need not wait.
-5. **Finish the six open PRs.** PR42 is a findings-note decision with explicit
-   missing native evidence. PR51/52 require the confirmed contract corrections.
+5. **Finish the remaining five implementation/contract PRs.** PR42
+   findings landed at `87dd60d7`; its missing native evidence stays open.
+   PR51/52 require the confirmed contract corrections.
    PR53 reuses the merged Windows executor and needs real ARM64 acceptance.
    PR34/35 take current-main workflow support and need first native runs plus
    process/lifecycle review. Scope-only CI is insufficient.
@@ -163,7 +183,7 @@ branches must also be checked before deletion; nothing is deleted by this plan.
 | `codex/cx-uia-11-e40-repro` | `bbe4f56e` | Pair the reproduction with CX-STDLIB-01; do not introduce a knowingly failing normal gate. |
 | `codex/cx-uia-12-spike` | `47f381f9` | Preserve evidence/prototype; integrate findings or reviewed production port only. |
 | `codex/cx-uib-06-spike` | `156353a5` | Preserve evidence/prototype; integrate findings or reviewed production port only. |
-| `codex/cx-uib-07` | `6d62e046` | Active PR; exact remaining acceptance is in the provider queue below. |
+| `codex/cx-uib-07` | `6d62e046` | PR42 findings note merged at `87dd60d7`; prototype stays separate and native AX evidence remains unavailable. |
 | `codex/cx-uib-07-spike` | `0d6127a6` | Preserve evidence/prototype; integrate findings or reviewed production port only. |
 | `evidence/cx-uia-11-e40-repro` | `bbe4f56e` | Preserve evidence/prototype; integrate findings or reviewed production port only. |
 | `integ/b17` | `fce184b6` | Historical WIP integration; compare intended deltas with later batches before any port. Do not replay its old plan wholesale. |
@@ -361,10 +381,11 @@ Reconciled against main `c011371b` and the six open PR heads on 2026-10-07:
   `d77b4b14`, have green docs CI but were returned in round 4; revision 5 must address the
   confirmed findings listed below before contract approval. That does not block unrelated Linux repairs.
 - Windows ARM64 toolchain [PR53](https://github.com/schiffy91/btrc/pull/53), mobile
-  hosts PR34/35 and accessibility [PR42](https://github.com/schiffy91/btrc/pull/42)
-  remain open with their individual acceptance/dependency gaps, listed in the
-  next section. Reuse these branches; do not duplicate their tools or describe
-  them as finished providers.
+  hosts PR34/35 remain open with their individual acceptance/dependency gaps,
+  listed in the next section. Reuse these branches; do not duplicate their tools
+  or describe them as finished providers. Accessibility
+  [PR42](https://github.com/schiffy91/btrc/pull/42) subsequently merged as a
+  findings note at `87dd60d7`, without native qualification or prototype code.
 - The six Linux repairs and Mac alignment repair above remain unpublished
   experiments. Their existing regression wiring proposals and frozen evidence
   are retained; normal integration and current-source validation remain to do.
@@ -427,12 +448,12 @@ owner, the exact prerequisite and the next acceptance.
   note, Claude for the decision. macOS run 37217909473 failed at compile in both
   frontends: a managed NSView passed as raw `void*`. AX trust is unknown.
   `REQUEST(CL-UIB-09)` asks for a nonescaping mutable NSView adapter boundary,
-  but `CL-UIB-09` depends on this packet's gap list and Stage 29 interop step 6,
-  so the two wait on each other. `REQUEST(CL-UIB-12)` covers D-Bus vtables after
-  D23. Recommended next acceptance: land the findings note with AX trust
+  and `CL-UIB-09` requires this packet's gap list and Stage 29 interop step 6.
+  Landing the note resolves the gap-list dependency. `REQUEST(CL-UIB-12)` covers D-Bus vtables after
+  D23. The findings note merged on October 7 at `87dd60d7`, with AX trust
   recorded as "unknown, blocked on CL-UIB-09". Missing evidence stays missing
-  (D28), and landing the note meets `CL-UIB-09`'s gap-list dependency. The
-  native re-run follows `CL-UIB-09`.
+  (D28), and the note meets `CL-UIB-09`'s gap-list dependency. The prototype
+  remains unmerged; the native re-run follows `CL-UIB-09`.
 - **PR51, `CX-P2-02` HTTP contract** (rev 4 head `0fa4c093`) and **PR52,
   `CX-P2-01` Windows services design** (rev 4 head `d77b4b14`). `CL-P2-01`
   round 4 (2026-10-06) returned both; the confirmed findings are in each PR's
