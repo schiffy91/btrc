@@ -7,12 +7,14 @@ when their baseline/fixture checks pass. All GUI runs are stand-in evidence.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
 import re
 import subprocess
 import sys
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -210,6 +212,12 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
     assert native_handles == registrations == 0, result.stdout
     teardown = re.findall(r"SHELL teardown provider=(\d+) private=(\d+) registrations=(\d+)", result.stdout)
     assert len(teardown) == cycles and all(int(row[0]) == int(row[2]) == 0 for row in teardown)
+    retention = {}
+    if sys.platform == "darwin":
+        retention = {
+            "private_classes": macos_private_survivors(result.stderr, [int(row[1]) for row in teardown]),
+            "appkit_control": exercise_macos_control(tmp_path, sanitized),
+        }
     probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
     assert len(probes) == cycles
     if provider.startswith("linux"):
@@ -255,8 +263,78 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
             "e47": "fixture-only; stdlib missing",
             "probes": probes,
             "gate_cycles": cycles == 100,
+            **retention,
         },
     )
+
+
+def macos_private_survivors(stderr, counts):
+    """Partition the probe's weak survivors by teardown; retain class multiplicity."""
+    classes = re.findall(r"^SHELL survivor scope=appkit-private class=(\S+) identity=\S+$", stderr, re.MULTILINE)
+    assert all(type(count) is int and count >= 0 for count in counts)
+    assert len(classes) == sum(counts), (len(classes), counts)
+    rows, offset = [], 0
+    for count in counts:
+        rows.append(dict(Counter(classes[offset : offset + count])))
+        offset += count
+    return rows
+
+
+def exercise_macos_control(tmp_path, sanitized):
+    """Measure toolkit retention independently with the same host, probe and C flags."""
+    probe = SHELL / "probes/macos"
+    sources = [probe / "AppKitControl.m", probe / "ShellProbe.m"]
+    executable = tmp_path / "AppKitControl"
+    environment = shell_environment(sanitized)
+    flags = (
+        ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"] if sanitized else []
+    )
+    command = [
+        "/usr/bin/clang",
+        "-std=c11",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        *flags,
+        *map(str, sources),
+        "-framework",
+        "AppKit",
+        "-framework",
+        "CoreGraphics",
+        "-o",
+        str(executable),
+    ]
+    built = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=120)
+    (tmp_path / "appkit-control-build.log").write_text(built.stdout + built.stderr)
+    assert built.returncode == 0, built.stderr
+    try:
+        result = subprocess.run([str(executable)], capture_output=True, text=True, env=environment, timeout=1200)
+    except subprocess.TimeoutExpired as error:
+        (tmp_path / "appkit-control.stdout").write_bytes(error.stdout or b"")
+        (tmp_path / "appkit-control.stderr").write_bytes(error.stderr or b"")
+        raise
+    (tmp_path / "appkit-control.stdout").write_text(result.stdout)
+    (tmp_path / "appkit-control.stderr").write_text(result.stderr)
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "ERROR: AddressSanitizer" not in result.stderr and "runtime error:" not in result.stderr
+    rows = [
+        [int(value) for value in row]
+        for row in re.findall(r"^APPKIT cycle=(\d+) owned=(\d+) private=(\d+)$", result.stdout, re.MULTILINE)
+    ]
+    assert [row[0] for row in rows] == list(range(1, 101))
+    assert all(row[1] == 0 for row in rows), rows
+    return {
+        "kind": "public-appkit-only; no BTRC runtime/provider or GPU proof",
+        "teardown": rows,
+        "private_classes": macos_private_survivors(result.stderr, [row[2] for row in rows]),
+        "source_sha256": {source.name: hashlib.sha256(source.read_bytes()).hexdigest() for source in sources},
+        "build_command": command,
+        "compiler": subprocess.check_output(
+            [command[0], "--version"], text=True, env=environment, timeout=TOOL_TIMEOUT
+        ).strip(),
+        "os_build": platform.platform(),
+    }
 
 
 def diagnose_macos_retention(executable, tmp_path, environment):

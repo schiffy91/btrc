@@ -98,6 +98,8 @@ class ShellJourney implements IApplicationWork {
 			shellProbeDump();
 			shellProbeClick(70.0, 30.0);
 		} else if (self._step == 3) {
+			if (self.pending(shellProbeFocus() == 1)) { return; }
+			assert(shellProbeFocus() == 1);
 			shellProbeText();
 			shellProbeEnter();
 		} else if (self._step == 4) {
