@@ -164,11 +164,14 @@ query proves the package is absent; a still-installed package fails before
 and uninstall, including a failed installation, and attaches cleanup errors to
 the original failure. A cleanup error after an otherwise successful fixture
 remains a host failure.
-The program deadline starts after `am start` accepts the launch; installation
-and launch retain their own bounded transport deadlines and separately recorded
-timings. It does not use `-W`: that option waits for a displayed activity, which
-a short fixture can finish before ever producing. Completion is established by
-the native host's terminal status, with the same bounded polling and cleanup.
+The app child prepares its streams, arguments and environment, atomically
+publishes `ready`, then waits for the host's `start` acknowledgement before
+calling fixture code. The host allows 30 seconds for launch readiness, then
+starts the independent requested execution budget and acknowledges. An
+unacknowledged child exits after its own bounded wait. Launch-command and
+ready timings are recorded separately. It does not use `-W`: that option waits
+for a displayed activity, which a short fixture can finish before ever
+producing. Terminal status, bounded polling and cleanup remain required.
 Fixture checks remain active under optimized Python (`python -O`). Harness
 files currently share the fixture cwd; separating control files from program
 data and proving cleanup of arbitrary descendants belong to CX-P1-09.
@@ -213,3 +216,10 @@ uses the native result protocol independently of display acknowledgement;
 its regression models completion before the first displayed frame. The new
 head still needs both emulator matrices. The earlier unavailable-service
 failure remains recorded; this later failure is not evidence of its cause.
+
+The `f1cbf0db` [run 37563205491](https://github.com/schiffy91/btrc/actions/runs/37563205491)
+passed all 28 API 29 cases. API 36 reached 21 cases before its deliberate
+one-second timeout expired during activity startup, without the fixture's
+`started` output. The ready/start handshake separates that startup latency
+from the execution deadline; the one-second fixture limit stays unchanged.
+This repair requires a new complete two-API run.

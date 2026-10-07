@@ -242,11 +242,18 @@ class FakeAdb:
                 script = words[4]
                 if script.startswith("cat > files/"):
                     name = script.removeprefix("cat > files/")
-                    assert name in ("request.bin", "stdin")
+                    assert name in ("request.bin", "stdin", "start")
                     if self.fail_write:
                         code, stderr = 1, b"write failed"
                     else:
                         self.files[name] = self.writes[name] = options["input"]
+                        if name == "start":
+                            assert self.files["ready"] == b"1\n" and self.launched
+                            self.files.update(stdout=b"app\x00stdout", stderr=b"app\x00stderr")
+                            if not self.app_timeout:
+                                self.files.update(
+                                    exit_status=f"{self.app_exit_status}\n".encode(), signal=f"{self.signum}\n".encode()
+                                )
                 else:
                     match = re.fullmatch(r"if \[ ! -e files/([a-z_]+) \]; then exit 42; fi; cat files/\1", script)
                     assert match is not None, f"unknown remote script: {script}"
@@ -289,9 +296,7 @@ class FakeAdb:
         elif arguments[:3] == ["shell", "am", "start"]:
             assert self.installed and set(self.files) == {"request.bin", "stdin"}
             self.launched = True
-            self.files.update(stdout=b"app\x00stdout", stderr=b"app\x00stderr")
-            if not self.app_timeout:
-                self.files.update(exit_status=f"{self.app_exit_status}\n".encode(), signal=f"{self.signum}\n".encode())
+            self.files["ready"] = b"1\n"
         elif arguments[:3] == ["shell", "am", "force-stop"]:
             if self.stop_error:
                 code, stderr = 1, b"force-stop failed"
@@ -397,7 +402,7 @@ def test_app_can_finish_before_its_first_displayed_frame(tmp_path):
             if command[3:6] == ["shell", "am", "start"] and "-W" in command:
                 # API 29 run 37560687135: onCreate/onResume/onDestroy all
                 # completed, but the display acknowledgement never arrived.
-                assert self.files["exit_status"] == b"3\n"
+                assert self.files["ready"] == b"1\n"
                 raise subprocess.TimeoutExpired(command, options["timeout"])
             return result
 
@@ -407,6 +412,55 @@ def test_app_can_finish_before_its_first_displayed_frame(tmp_path):
     assert result.exit_status == 3 and not result.timed_out
     assert result.stdout == b"app\x00stdout" and result.stderr == b"app\x00stderr"
     assert transport.status_polls == 2 and not transport.installed
+
+
+def test_app_launch_readiness_does_not_spend_the_fixture_timeout(tmp_path, monkeypatch):
+    clock = [0.0]
+
+    class DelayedReady(FakeAdb):
+        def __call__(self, command, **options):
+            result = super().__call__(command, **options)
+            if command[3:5] == ["shell", "-T"] and "files/ready" in command[-1] and clock[0] == 0:
+                clock[0] = 2.0  # Launch takes twice the fixture's execution budget.
+                return subprocess.CompletedProcess(command, 42, b"", b"")
+            return result
+
+    monkeypatch.setattr("tools.target_hosts.android.executor.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        "tools.target_hosts.android.executor.time.sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    transport = DelayedReady(app_timeout=True)
+    executor = executor_bundle(tmp_path, transport, "app")
+    result = executor.run(ExecutionRequest("probe", timeout_s=1))
+    assert result.timed_out and result.stdout == b"app\x00stdout"
+    assert transport.writes["start"] == b"1\n"
+    assert result.provenance["launch_s"] >= 2
+    assert result.duration_s >= result.provenance["launch_s"] + 1
+    assert not transport.installed
+
+
+@pytest.mark.parametrize("ready", [None, b"2\n"])
+def test_app_failed_launch_never_starts_the_fixture(tmp_path, monkeypatch, ready):
+    clock = [0.0]
+
+    class FailedReady(FakeAdb):
+        def __call__(self, command, **options):
+            result = super().__call__(command, **options)
+            if command[3:5] == ["shell", "-T"] and "files/ready" in command[-1]:
+                clock[0] += options["timeout"]
+                return subprocess.CompletedProcess(command, 42 if ready is None else 0, ready or b"", b"")
+            return result
+
+    monkeypatch.setattr("tools.target_hosts.android.executor.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        "tools.target_hosts.android.executor.time.sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    transport = FailedReady()
+    executor = executor_bundle(tmp_path, transport, "app")
+    with pytest.raises(RuntimeError, match="ready"):
+        executor.run(ExecutionRequest("probe", timeout_s=1))
+    assert "start" not in transport.writes and not transport.installed
+    assert clock[0] <= 30
 
 
 def test_app_poll_timeout_is_bounded_by_remaining_program_budget(tmp_path):

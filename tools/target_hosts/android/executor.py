@@ -150,7 +150,7 @@ class AndroidEmulatorExecutor:
         if request.program_id not in self.programs:
             raise ValueError(f"unknown program_id: {request.program_id}")
         program = self.programs[request.program_id]
-        for key in ("install_s", "launch_s"):
+        for key in ("install_s", "launch_s", "launch_command_s"):
             self.provenance.pop(key, None)
         started = time.monotonic()
         result = self.shell(request, program) if program["mode"] == "shell" else self.app(request, program)
@@ -239,8 +239,22 @@ class AndroidEmulatorExecutor:
             # display wait pending even though the program has completed.
             # Wait on the native host's result protocol below instead.
             self.adb("shell", "am", "start", "-n", f"{package}/android.app.NativeActivity")
+            self.provenance["launch_command_s"] = time.monotonic() - launched
+            launch_deadline = launched + 30
+            while (remaining := launch_deadline - time.monotonic()) > 0:
+                ready = self.app_file(package, "ready", optional=True, timeout=min(remaining, 15))
+                if ready is not None:
+                    if ready != b"1\n":
+                        raise RuntimeError("app wrote an invalid ready marker")
+                    break
+                time.sleep(min(0.05, max(0, launch_deadline - time.monotonic())))
+            else:
+                raise RuntimeError("app did not become ready before the launch deadline")
             self.provenance["launch_s"] = time.monotonic() - launched
             deadline = time.monotonic() + request.timeout_s
+            self.remote(
+                "run-as", package, "sh", "-c", "cat > files/start", input=b"1\n", timeout=min(request.timeout_s, 15)
+            )
             status = None
             while (remaining := deadline - time.monotonic()) > 0:
                 try:

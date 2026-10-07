@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 extern int btrc_program_main(int argc, char **argv);
@@ -87,6 +88,18 @@ static void *run_program(void *context) {
             free(value);
         }
         fclose(request);
+        /* Launching the activity is not entry into fixture code. Publish
+         * readiness only after streams/argv/environment are prepared, then
+         * wait for the host to start the independent execution budget. */
+        struct timespec ready, now;
+        if (clock_gettime(CLOCK_MONOTONIC, &ready) != 0) { _exit(121); }
+        write_number("ready", 1);
+        while (access("start", F_OK) != 0) {
+            if (errno != ENOENT || clock_gettime(CLOCK_MONOTONIC, &now) != 0
+                || now.tv_sec - ready.tv_sec >= 30) { _exit(121); }
+            struct timespec pause = {0, 10000000};
+            while (nanosleep(&pause, &pause) != 0 && errno == EINTR) {}
+        }
         int result = btrc_program_main((int)argc, argv);
         fflush(NULL);
         _exit(result);
