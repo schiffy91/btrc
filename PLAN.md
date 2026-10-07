@@ -1,20 +1,7 @@
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-07**. The initial reconciliation used upstream main
-[`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
-(batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`. PR60 is published at `50bf1c8c`,
-combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
-and diagnostic corrections. Predecessor `b5e3f81a` found nine failures in
-the structural audit's raw-source parser. Repair `bb40e39c` passes the expanded
-155-check structural audit and Linux-target compiler transpilation; the combined
-candidate completed 17,803 local tests with zero failures and 168 skips, then
-failed its skip audit on two unclassified Linux-only stack-limit cases. Local
-repair `8c71dda6` classifies those cases; `e497ac98` repairs the checkpoint
-quiet-check omission. Their 106 focused checks pass. Local bootstrap passes;
-all eight strict-C11 configurations passed 2,036 checks each with zero skips. The native Linux ARM64 bundle passes, while the hosted
-benchmark reports two peak-memory regressions requiring investigation.
-Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
+Updated **2026-10-07**. Read [AGENTS.md](AGENTS.md) first for architecture and
+development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
 CODEX.md provider queue, and PLAN.md compatibility index. Stage numbers, packet
@@ -107,8 +94,10 @@ work. Each claim needs an actual application-facing operation on that platform.
 
 ### Goal 3: prove the compiler and library in BTRSmith
 
-BTRSmith's recorded pin remains `05ec9cb7` at app revision `adb3276f`; the pin
-update and current application requalification are outstanding. UI migration,
+BTRSmith main was rechecked at `adb3276f`; its
+[pinned compiler](https://github.com/schiffy91/btrsmith/blob/adb3276f93cbeb7b0c2ab79ab34e366c9eef5f5c/flake.lock)
+remains `05ec9cb7`. The pin update and current application requalification are
+outstanding. UI migration,
 real application build/runtime budgets, installed-product journeys, physical
 audio/latency sessions and release qualification remain open (Stages 36–43).
 The targets include search p95 ≤100 ms, static idle CPU ≤1%, player frame p95
@@ -164,6 +153,22 @@ issue is called complete merely because it applies without a Git conflict.
 - [All 286 item-to-stage mappings](#appendix-every-mapped-item--stage-286-items)
 
 ## Current status (2026-10-07)
+
+The initial reconciliation used upstream main
+[`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
+(batch 50), the six initially open btrc PRs, and the remote branch inventory.
+Current upstream main is `87dd60d7`. PR60 is published at `50bf1c8c`,
+combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
+and diagnostic corrections. Predecessor `b5e3f81a` found nine failures in
+the structural audit's raw-source parser. Repair `bb40e39c` passes the expanded
+155-check structural audit and Linux-target compiler transpilation; the combined
+candidate completed 17,803 local tests with zero failures and 168 skips, then
+failed its skip audit on two unclassified Linux-only stack-limit cases. Local
+repair `8c71dda6` classifies those cases; `e497ac98` repairs the checkpoint
+quiet-check omission. Their 106 focused checks pass. Local bootstrap passes;
+all eight strict-C11 configurations passed 2,036 checks each with zero skips. The native Linux ARM64 bundle passes, while the hosted
+benchmark reports two peak-memory regressions requiring investigation.
+
 
 **Evidence boundary.** The implementation status below is a reconciliation of
 source, merge history and recorded evidence, including the partial fresh Mac
@@ -1125,10 +1130,11 @@ owner, the exact prerequisite and the next acceptance.
   inner deadline with a 30-second outer deadline. Formatting and lint pass, but
   portable ABI/event/harness tests abort at ctypes import before collection on
   the Mac. A standalone import reproduces Apple's libffi trampoline assertion;
-  the Darwin Nix Python runtime repair is under verification. The first override
-  still selected the old development-shell interpreter and failed the callback
-  smoke; the corrected self binding is being qualified. No portable test pass or
-  native crash-location evidence is claimed. The candidate remains unpublished.
+  the Darwin Nix Python runtime repair is under verification. A rebuilt interpreter
+  now executes a native callback correctly; dependency qualification also exposed
+  CFFI's allocator selection with upstream libffi, whose focused patch is being
+  tested. No portable Windows test pass or native crash-location evidence is
+  claimed. The candidate remains unpublished.
   The qualification command, pinned toolchain, Job containment and deadlines
   are unchanged; diagnostic success cannot turn the original failure green.
   Updating this existing PR stays within the two-active-code-PR allowance.
