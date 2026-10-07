@@ -121,7 +121,8 @@ The combined candidate `06c3923a` now includes that Apple merge, the current pla
 the runtime repair and the native button repair. Its fresh self-hosted compiler
 build, lint, formatting, generated-source and extension checks passed. The
 compiler SHA-256 is recorded with the source-pinned preparation evidence; the
-full behavioral/bootstrap/C11 matrix has not yet run on this combined tree.
+full behavioral/bootstrap/C11 matrix is now running serially on this frozen tree.
+It has no passing result yet.
 The Darwin Python/libffi repair `2e8e3711` now passes the actual callback smoke,
 46 build-safety checks and upstream CFFI's 1,888 checks (161 skips, four deselected,
 four expected failures). Its four-platform package evaluation also passed;
@@ -145,13 +146,16 @@ reference/selfhost × plain/ASan+UBSan (four passes, no skips, 52.80 seconds).
 same provider/fixture/driver bytes and its evidence report. Hosted branch and
 final combined-tree gates remain open; the repair is not yet on main.
 [PR67](https://github.com/schiffy91/btrc/pull/67) claims `CX-UIA-21`. Local source
-`06a4806f` implements the approved 53 operations, values, facade and completion
+`ca4782e1` implements the approved 53 operations, values, facade and completion
 hook, plus portable fixtures and the final catalog fragment. Independent review
-found and closed cancellation-state defects; a deterministic native-failure
-fixture now checks explicit retry. The source-matched BackgroundJobs suite is
-running through both compilers and plain/sanitized variants. This implementation
-is not yet published or native-qualified; macOS/Linux providers and atomic UI2
-acceptance remain outstanding.
+found and closed cancellation-state defects. All 26 BackgroundJobs cases passed
+through both compilers, including plain/sanitized completion and explicit-retry
+regressions, at `06a4806f`. The catalog suite first exposed an isolated fixture
+that omitted live amendments; after its repair, all 114 catalog tests pass.
+Only that test and the report differ from the native-qualified source; production,
+compiler and native-fixture bytes are identical. This qualifies the completion
+hook, not the desktop providers. Publication, macOS/Linux provider implementation
+and atomic UI2 acceptance remain outstanding.
 
 ### Outcome execution register
 
@@ -167,10 +171,10 @@ changes; historical test totals alone do not advance its status.
 | Current compiler speed and memory matrix | Historical `65057cb` values above; no current product acceptance | Performance owner; main session runs quiet measurements | Qualify the D9 measurement copy/pin and run Stage 5's complete matrix with compiler, application and toolchain SHAs, sample counts, median/p95/max and footprint. Stage 4/pin prerequisites and quiet host remain open. Earlier diagnostics must be labelled pre-Stage-4 and cannot close Stage 5. |
 | Faster incremental edits | Exactly-one-changed-group reuse remains unqualified | Incremental compiler owner | Follow Stages 6–9: reviewed keys/journal, invalidation regressions, unchanged groups not lowered, then edit median/p95 and memory versus the same baseline. Select optimizations from measured attribution. |
 | Useful desktop library improvement | `CX-STDLIB-03` reconstructed and native red/green proven on the integration candidate; PR66 awaits hosted/final gates. `01`/`02` source recovery remains open | Provider repair owner; main integrator qualifies | Land the reviewed button repair after its gates. Recover or reconstruct `01`/`02`; independently reproduce `04`/`05`. Historical unpublished-source results do not qualify a reconstruction. |
-| UI2 events, executor and lifecycle on desktop | Contracts approved; interface/hook implemented at local `06a4806f`, reviewed and undergoing paired native/sanitizer qualification; atomic provider landing open | UI2 interface owner, then platform owners | Finish the current `CX-UIA-21` runtime qualification; it has no compiler prerequisite. Coordinate provider files with the repair queue; land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
+| UI2 events, executor and lifecycle on desktop | Contracts approved; local `ca4782e1` has 26 paired native/sanitizer BackgroundJobs passes and 114 catalog passes; desktop providers and atomic landing remain open | UI2 interface owner, then platform owners | Continue with the desktop providers and real UI2 probe collectors; there is no compiler prerequisite. Reconcile overlapping repairs first, then land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
 | Windows and mobile application-facing services | Fixture-host results above; complete providers not delivered | Platform slice owners | Use the per-platform checkpoints below: real Windows SDK/service operation; iOS and Android file persistence; then native button/text field/lifecycle. Each waits only for its own demonstrated ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Main `adb3276f`, compiler pin `05ec9cb7`; current requalification open | BTRSmith owner and integrator | Qualify the compiler pin and frontend/library smoke, then complete the MVP screen journeys and build/runtime budgets. Windows/mobile library completion is not a prerequisite for the macOS/Linux MVP; later platform releases remain separate outcomes. |
-| One qualified implementation on main | Integration `06c3923a` reconciles the runtime, native button repair, Apple schema/tables and plan; fresh build/static/generated/extension checks pass; full combined qualification remains open | Main integrator | Review bounded batches, qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
+| One qualified implementation on main | Integration `06c3923a` reconciles the runtime, native button repair, Apple schema/tables and plan; fresh build/static/generated/extension checks pass; full combined qualification is running | Main integrator | Review bounded batches, qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
