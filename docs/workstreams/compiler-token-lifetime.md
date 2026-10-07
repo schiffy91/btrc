@@ -27,8 +27,8 @@ The historical October 1 census attributes 98.5 MiB of retained memory to this
 token stream. That is neither a current measurement nor an expected speedup.
 
 Bounded validation ran in the parent-assigned single agent build lane, recorded
-below. Parent gate work retains priority. Remaining proof must directly observe
-token destruction and retain AST string contents under compiler sanitizers.
+below. Parent gate work retains priority. The subsequent compiler-sanitizer run
+directly observed token destruction while later stages consumed AST strings.
 Full-process instructions and peak memory require a separate quiet-host lane;
 shorter source scope alone does not qualify a performance improvement.
 
@@ -101,14 +101,70 @@ inner cleanup mark, hand the parsed AST into that slot, construct failure
 diagnostics before cleanup, and clear/release parser, vector and lexer before
 source stamping. The successful inner exit does not release the outer AST.
 An independent read-only reviewer confirmed source and both emitted sequences
-without finding a blocker. No compiler sanitizer or instrumented token census
-has run; native application tests do not substitute for that remaining proof.
+without finding a blocker. That first run did not instrument the compiler;
+the subsequent sanitizer proof is recorded separately below.
 
 Scheduling durations were approximately 193 seconds for reference emission,
 179 seconds for native compilation, and 89 seconds for bounded validation
 (including 69 seconds for self-transpilation). These were concurrent with
 integrator gate preparation, not quiet-host performance measurements. All
 agent build/test processes ended at 2026-10-07 23:28:12 UTC, releasing the lane.
+
+## Compiler sanitizer and lifetime proof (2026-10-08)
+
+The parent assigned another bounded lane for correctness qualification.
+`sanitizer/instrument.py` verifies the exact candidate C hash, then instruments
+that actual compiler in scratch storage. Its observer adds no retain or release:
+it records the main parse lexer, parser, vector and original token identities,
+observes their destructors immediately before `free`, and asserts their
+destruction before source stamping or the lexer/parser error return. It keeps
+only numeric identities and never dereferences a retired object. An independent
+read-only review found no ownership-changing hook or invalid observer access.
+The patch, observer and exact instrumented source are retained in the evidence
+directory; no production or generated repository file was edited.
+
+The requested Nix clang 21.1.8 sanitizer runtime failed its trivial-program
+startup probe, timing out after 30 seconds before any compiler build. The failed
+result, command, empty original logs and probe binary remain in
+`sanitizer/nix-attempt/`. The repository documents this macOS initialization
+problem in `src/tests/c_toolchains.py` and `compile-performance.md:3401–3407`.
+With parent coordination, the proof used the repository's isolated Apple
+sanitizer environment instead. This is not a passing Nix-sanitizer result.
+
+Apple clang 21.0.0 (`clang-2100.3.34.2`) passed the startup probe and built the
+instrumented compiler with the established strict C11, `-O1 -g`,
+`-fsanitize=address,undefined` and `-fno-omit-frame-pointer` flags. Runtime options
+were `detect_leaks=0:abort_on_error=1` and `halt_on_error=1`. The instrumented
+compiler SHA256 is
+`05bd9f3cd75434550738b27b4c559f014890abe454392a43261b220532c62a41`.
+This build took approximately 343 seconds; it is scheduling evidence only.
+
+All **120 diagnostic checks, 8 paired literal/ARC cases and 18 scope/capture
+checks passed** with the instrumented compiler. The same cases were then
+replayed with dedicated ASan/UBSan `log_path` destinations and explicit zero-report
+assertions: an expected-error assertion cannot conceal a later sanitizer fault.
+That final replay again passed, with zero skipped cases and zero sanitizer
+reports. The instrumented compiler also produced byte-identical C and stderr
+to the retained baseline for both literal programs.
+
+The final replay observed **93 main-parse boundaries**: 51 lexer-error returns,
+16 parser-error returns and 26 successes before source stamping. At those
+boundaries all **2,296 watched tokens**, their vectors and lexers, and each
+constructed parser had been destroyed. Successful compilations then consumed
+the retained AST names, literal values and interpolated expressions under
+ASan/UBSan, without a reported use-after-free or undefined operation. These
+counts concern the watched main parse stream, not all compiler token allocations.
+Leak detection was disabled by the established harness; no leak result is claimed.
+
+Exact commands, flags, statuses, test reports and original subprocess diagnostics
+are in `sanitizer/result.json` and `sanitizer/report-check/`; the latter's
+`result.json` records the independent report scan, per-stage events and byte
+comparisons. `sanitizer/qualified-hashes.json` covers the retained scripts,
+sources, binaries, failed Nix probe and final reports. Independent read-only
+review of the completed report validator/result found no blocker. All agent
+build/test processes ended at 2026-10-07 23:44:01 UTC.
+Full candidate bootstrap/C11/repository qualification and quiet-host performance
+measurement remain pending; this proof establishes the bounded lifetime behavior.
 
 ## Reproduction and remaining qualification
 
@@ -143,14 +199,13 @@ strict-import audit omission is an independent integrator repair; do not hide or
 waive it in this branch. The eventual integrated candidate must pass the normal
 paired corpus, bootstrap, C11 and remaining repository gates.
 
-For candidate-specific lifetime evidence, instrument only a scratch emitted
-compiler for a bounded run: capture the main parse vector's identity and observe
-that vector and its token objects retire before the next pipeline stage. Read
-AST names, raw numeric spellings, string values and interpolated expressions
-after that boundary, under ASan/UBSan, comparing the application's emitted C,
-link plan and diagnostics against each frontend's own baseline. Do not assert
-that all Token allocations disappear: conditional resolution and visibility
-have their own token owners. No such scratch instrumentation has been made yet.
+The retained `sanitizer/instrument.py`, `sanitizer/qualify-apple.py` and
+`sanitizer/report-check/validate.py` reproduce the bounded compiler-sanitizer
+proof. Its build script requires clean documentation checkpoint `274ced90`, whose
+production inputs equal `69ca0f17`; run the report validator in a fresh evidence
+directory. It covers emitted C, diagnostics and existing paired native outcomes,
+not a separate link-plan parity campaign. Conditional resolution and visibility
+have their own token owners outside the watched main parse stream.
 
 ## Measurement limits
 
