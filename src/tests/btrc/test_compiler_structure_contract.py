@@ -148,6 +148,9 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("TypeComposition", "substitutionPointerDepth"),
         ("TypeIdentity", "symbolComponent"),
+        # Exercised by python/fixtures/PlatformUnavailableDriver.btrc through
+        # test_hosted_abi_platform_names::test_self_hosted_tables_equal_the_reference_tables.
+        ("GeneratedHostedAbiData", "platformUnavailable"),
         # Called by the stdlib worker pool through IWorkerRequestHandler.
         ("ModuleUnitWorker", "handle"),
         # The C2 schema commit (CL-C-07) defines IRK_DESIGNATION's constructor;
