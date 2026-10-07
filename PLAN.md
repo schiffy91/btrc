@@ -728,12 +728,14 @@ bytes. BenchCollections passed the repeat at 22,917,120 bytes. Artifact
 size, line and parity checks still pass. No further unchanged rerun is requested.
 Keep the baseline and tolerances unchanged while isolating the growth. The
 cause remains unproved and is independent of the local quiet-helper omission.
-A source-pinned Mac comparison of `93856dfc` and `50bf1c8c` is queued under the
-host locks, using retained clang-built binaries and three alternating pairs of
-the stdlib-heavy workload. Each sample requires the automated quiet check and
-records instructions retired and peak footprint. It is diagnostic work, not the
-Linux peak-memory gate or the outstanding C2/BTRSmith acceptance measurement;
-no result has been recorded yet.
+A source-pinned Mac comparison of `93856dfc` and `50bf1c8c` prepared the retained
+clang-built binaries for three alternating pairs of the stdlib-heavy workload.
+The automated quiet check refused the host, so the owned runner was cancelled
+before any sample to release the gate for independent work. No instructions,
+footprint or timing result was produced; no quiet rule or system setting changed.
+The source snapshots, binaries and cancellation record are retained. This remains
+an unexecuted diagnostic, separate from Linux peak-memory qualification and the
+outstanding C2/BTRSmith acceptance measurement.
 
 The completed Linux btrc shard at `50bf1c8c` passed **5,850 tests with 34 skips**.
 Artifact `11486902534` confirms both native hard-stack-limit cases passed: the
@@ -789,7 +791,7 @@ qualification claim follows from that source comparison.
 | `stage18/req11-tuple-sizeof-recursion` | `271397d3` | Integrated through local `9a01104c` with paired finite-nullable-cycle repair. Native focused run at `f3a5d3c6` passed 1,210 checks; the two corpus marker checks passed at `d2ffae69`. Final integrated matrix remains open. |
 | `stage24/apple-standin-extraction` | `7b3d1195` | Contains the standalone Apple evidence workflow and extractor provenance option, neither present in PR60. Review any production port separately; its Xcode 16.4 results remain stand-in evidence. Pinned Xcode 27A266a/SDK 27.0 re-extraction now passes for all four Apple targets at source bb40e39c, with 23 extractor tests and the namespace/stand-in comparison passing. Five functions and 22 macros become declared per row, with no newly unavailable names. This is header evidence; production schema integration and runtime qualification remain pending. |
 | `stage24/apple-standin-extraction-run` | `9c0d737d` | Its tree differs from `7b3d1195` only by the four-line scratch push trigger for this run branch. Preserve its evidence; never merge that trigger. Any reviewed workflow port must come from the base extraction branch without this scratch change. |
-| `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08 schema-3 candidate includes four Apple tables explicitly sourced from Xcode 16.4/SDK 15.5 or 18.5 and a conservative MSVC copy awaiting runner extraction. Wait for CL-P1-06 and qualified inputs, then review schema/generation parity. The schema source and four pinned Apple rows are prepared in the local http-contract merge, preserving the newer generic-depth limit. Generator conflict resolution, pinned-source tests and the contract spot-check correction are prepared; regeneration and native table-parity qualification are queued behind the current host gate. Local documentation commit `637a0b68` corrects the stale fork assertion to clock_settime, using the pinned header evidence. The merge remains uncommitted and unqualified; MSVC runner extraction and optimizer consumers remain open. Header declarations do not prove runtime support. |
+| `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08 schema-3 candidate includes four Apple tables explicitly sourced from Xcode 16.4/SDK 15.5 or 18.5 and a conservative MSVC copy awaiting runner extraction. Wait for CL-P1-06 and qualified inputs, then review schema/generation parity. Local merge `ba6c221d` replaces the four Apple rows with verified Xcode 27A266a/SDK 27.0 extraction and preserves the newer generic-depth limit and all preexisting manifest sections. Generator resolution, regeneration, pinned-source tests and actual self-host table parity passed: 186 checks plus lint, format and generated-source gates. The contract spot check now uses clock_settime instead of the incorrect fork assertion. This merge is committed locally but not yet integrated or published; MSVC runner extraction, semantic consumers and the final combined matrix remain open. Header declarations do not prove runtime support. |
 | `stage24/hosted-platform-fragments` | `10203072` | Keep as extractor evidence/input only; consume validated data in the hosted-ABI owner, never merge the fragment branch. |
 | `stage24/hosted-platform-fragments-apple-standin` | `c9dad69a` | Keep as extractor evidence/input only; consume validated data in the hosted-ABI owner, never merge the fragment branch. |
 | `stage24/lsp-target` | `3aef3988` | Preserved by the real merge into PR63 (`8f964c1b`), with the stale-cache race repaired and 476 LSP tests passing, including actual stdio target changes. Included in PR60; await its combined gate and main landing. |
@@ -1120,9 +1122,13 @@ owner, the exact prerequisite and the next acceptance.
   bounded child debugger after an access violation, recording fatal exception
   addresses and loaded modules. It follows only its newly launched process tree,
   retains kill-on-debugger-exit and the existing Windows Job, and has a 20-second
-  inner deadline with a 30-second outer deadline. Portable ABI/event/harness tests
-  are queued behind the current gate; neither their result nor native crash-location
-  evidence is available yet. The candidate has not been published.
+  inner deadline with a 30-second outer deadline. Formatting and lint pass, but
+  portable ABI/event/harness tests abort at ctypes import before collection on
+  the Mac. A standalone import reproduces Apple's libffi trampoline assertion;
+  the Darwin Nix Python runtime repair is under verification. The first override
+  still selected the old development-shell interpreter and failed the callback
+  smoke; the corrected self binding is being qualified. No portable test pass or
+  native crash-location evidence is claimed. The candidate remains unpublished.
   The qualification command, pinned toolchain, Job containment and deadlines
   are unchanged; diagnostic success cannot turn the original failure green.
   Updating this existing PR stays within the two-active-code-PR allowance.
