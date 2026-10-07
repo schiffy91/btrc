@@ -165,9 +165,10 @@ final hygiene still require terminal results. The earlier `18185f0b` combined
 passed all eight strict-C11 configurations, including GCC `-O3`, and all
 remaining required shards. The combined macOS and Windows workflows also
 passed. Their scope-skipped jobs do not supply native GUI evidence; the local
-native GUI artifacts remain separately recorded. The local Darwin GCC failure
-remains open. Android's combined API 36 run
-failed as described below. No final green result is claimed.
+native GUI artifacts remain separately recorded. The local Darwin GCC repair
+still awaits the full final gate. Android's older combined API 36 failure is
+recorded below; the new `081aae51` combined Android workflow passed both APIs.
+No final green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
 pending their native failure investigations.
@@ -560,7 +561,7 @@ owner, the exact prerequisite and the next acceptance.
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
-  locally validated head `7cb3770b`). Owner: this authorized integration session.
+  locally validated head `f2476cc2`). Owner: this authorized integration session.
   Main `87dd60d7` is merged into the branch; the tooling now uses the shared Windows Job/gate, target
   flags, PE parser and build-process owner. The overall native deadline,
   component-qualified Visual Studio discovery and separate developer-command
@@ -604,8 +605,18 @@ owner, the exact prerequisite and the next acceptance.
   still fails. Fault-injection and process suites passed 119 tests and eight
   subtests, with one native-only skip. The exact original lock holder remains
   unproven. [Run 37581720184](https://github.com/schiffy91/btrc/actions/runs/37581720184)
-  passed cross-build and native process-ownership/probe checks, and has reached
-  native compiler/bootstrap qualification; that step is still running.
+  passed cross-build, all 31 native tooling tests, deadline/PowerShell checks
+  and native MSVC/wgpu. Its C compiler again exited with `0xC0000005` and empty
+  stderr; native btrcc execution and bootstrap did not run. The generated C
+  hash is unchanged. The valid host report records about 12.8 GiB free physical
+  memory after the failure and no matching crash event, without proving peak
+  memory or the cause. Revision `f2476cc2` adds a small strict-C11 ARM64 build
+  and stdout/stderr execution check through the same Job before the full build,
+  plus elapsed command timings. Local process suites passed 122 tests and ten
+  subtests with one native-only skip; lint, formatting and diff checks passed.
+  [Run 37584587972](https://github.com/schiffy91/btrc/actions/runs/37584587972)
+  is queued to distinguish toolchain startup from large-input failure. It does
+  not replace full native compiler/bootstrap acceptance.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
@@ -700,8 +711,10 @@ owner, the exact prerequisite and the next acceptance.
   comparisons now retain byte counts, hashes, status and timing separately from
   passing rows. [Run 37578476126](https://github.com/schiffy91/btrc/actions/runs/37578476126)
   passed both APIs: retained summaries prove **56/56 executions**, 14 shell
-  and 14 app cases on each API. Integration into PR60 and the resulting
-  combined gates remain required. Neither later failure proves the
+  and 14 app cases on each API. The change is integrated into PR60 candidate
+  `081aae51`; its [combined Android run 37581622992](https://github.com/schiffy91/btrc/actions/runs/37581622992)
+  passed tooling and both API jobs. The other combined gates remain required.
+  Neither later failure proves the
   earlier service failure's cause.
   The i686 compatibility-builder issue (`REQUEST(CL-P1-02)`), ARM64 16 KiB
   execution and general in-process provider safety remain separate gaps.
