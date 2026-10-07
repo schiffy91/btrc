@@ -104,10 +104,26 @@ measured comparison now replaces the older fixed allowance in `92c51bb2`.
 All four local reference/self-hosted × plain/sanitized variants passed, each with
 100 shell cycles, 100 independent control cycles and 100 fresh-process restores;
 33 validation tests also passed. The second text-field edit now awaits actual
-focus under its existing input deadline. The native macOS release bundle at
-this head passed [run 37564440101](https://github.com/schiffy91/btrc/actions/runs/37564440101);
-its native GUI job and the local full matrix remain pending, along with other
-branch/issue resolutions.
+focus under its existing input deadline. The native macOS release bundle and
+GUI job passed [run 37564440101](https://github.com/schiffy91/btrc/actions/runs/37564440101)
+at this head; the hosted GUI ledger records 339 passed and 67 skipped.
+The local full pytest suite passed 17,038 tests with 169 skips, but its skip
+audit failed on eight unexpected Apple macro checks, so bootstrap did not run.
+Nix's SDK environment hid the installed required Xcode. Restoring the system
+Xcode invocation exposed six Apple-only predefined names absent from upstream
+clang; their explicit foreign classification and paired diagnostics are under
+qualification. The final integrated matrix is still outstanding.
+
+[PR62](https://github.com/schiffy91/btrc/pull/62) adds issue #12's paired
+function-temporary identity regression: byte-identical output survives repeated
+builds and one or twelve unrelated functions. Disabling the existing reference
+renumbering makes the test fail, proving it detects the defect. The architecture
+mapping for issue #14 passed 111 structural checks. Both issues await landing.
+[PR63](https://github.com/schiffy91/btrc/pull/63) integrates the historical LSP
+target branch and repairs a reproduced stale-cache publication race during a
+target change. All 476 LSP tests pass, including real stdio retargeting; lint,
+format, generated-source checks and extension packaging also pass (83 extension
+tests, two platform skips). Its final integration gates remain outstanding.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
@@ -464,7 +480,7 @@ owner, the exact prerequisite and the next acceptance.
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
-  locally validated head `bd36d38b`). Owner: this authorized integration session.
+  locally validated head `347dca91`). Owner: this authorized integration session.
   Main is merged; the tooling now uses the shared Windows Job/gate, target
   flags, PE parser and build-process owner. The overall native deadline,
   component-qualified Visual Studio discovery and separate developer-command
@@ -482,19 +498,26 @@ owner, the exact prerequisite and the next acceptance.
   Python transpilation completed; no native-built btrcc or bootstrap result
   was produced. Retained source and exact command identify the failing tool;
   its crash cause still needs native diagnostics rather than a relaxed gate.
+  Native and cross builds used byte-identical generated C (70,724,834 bytes).
+  Revision `347dca91` adds verbose compiler output and bounded read-only Windows
+  crash/capacity diagnostics, preserving the original failure; 192 tests and
+  eight subtests pass locally. The new native run is pending.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
-  head `3bd942dd`). Main is merged. The UIKit app entry now has a responsive
+  head `532d4e45`). Main is merged. The UIKit app entry now has a responsive
   main loop and a fixture worker, with terminal publication arbitrated across
   threads. All twelve app bundles compile/sign with the local iOS SDK; local
-  process tests pass (23 tests and 36 subtests). These are not simulator proof.
+  process tests pass (25 tests and 36 subtests). These are not simulator proof.
   The earlier plain-entry run passed 37/50 executions. The latest
   [run 37560529912](https://github.com/schiffy91/btrc/actions/runs/37560529912)
   passed all thirteen iPhone app cases and two iPad spawn cases, then failed
   on launch/identity deadlines and simulator cleanup. It used Xcode 16.4 with
   the available iOS 26.2 runtime. Root cause and complete acceptance remain
-  open; the UIKit change has not qualified the whole matrix.
+  open; the UIKit change has not qualified the whole matrix. Revision
+  `532d4e45` adds bounded read-only simulator diagnostics and retains failure
+  stages and partial results independently of cleanup. Its new native matrix
+  is pending.
   Next: diagnose host launch/readiness failures without weakening fixture
   deadlines, then pass 12 fixtures × spawn/app × iPhone/iPad plus one repeated
   app invocation per class (50 executions). Preserve Xcode/runtime provenance,
