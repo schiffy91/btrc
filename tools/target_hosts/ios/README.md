@@ -122,6 +122,12 @@ Actual CoreSimulator container behavior still needs hosted validation.
 
 ## Local validation
 
+The October 7 Mac check at `97f31e31` passed 23 local tests plus 36 subtests
+using pytest; lint and format checks also passed. The test fixture resolves its
+temporary root before bypassing `prepare`, matching production's canonical path
+handling on macOS. These are local process results, not simulator evidence.
+
+
 From the repository root, using the pinned development shell:
 
 ```sh
@@ -147,15 +153,16 @@ tests cover iPhone/iPad selection, unavailable runtimes and preserving an alread
 booted matching device. No tests skip or
 claim Apple execution on Linux.
 
-## Hosted run requested from Claude
+## Hosted simulator qualification
 
-The user's current instruction forbids Codex from editing CI workflow files,
-including proposed workflow files. The PR requests `host-ios.yml` from the CI
-owner instead. Until that request lands and runs, simulator evidence is pending.
-This packet changes only `tools/target_hosts/ios/**`; no workflow, runner-core,
-skip manifest or tier fragment is included.
+The lane workflow now exists at
+[host-ios.yml](../../../.github/workflows/host-ios.yml). Refreshing this branch
+onto current main activates its simulator job because the host directory is
+present. Native results remain pending until that job executes successfully.
+This packet changes only `tools/target_hosts/ios/**`; it adds no runner-core,
+skip-manifest or tier fragment.
 
-The requested macos-15 job records `xcodebuild -version` and
+The macos-15 job records `xcodebuild -version` and
 `xcrun simctl list -j`, then uses an available Python >= 3.13 to run:
 
 ```sh
@@ -197,12 +204,10 @@ spike and remain D8-gated.
 
 ## Remaining integration requests
 
-`REQUEST(CL-R-38)`: the CI owner must supply and execute the lane-shaped iOS
-workflow above, including the standalone local unittest command. The earlier
-PR request named the completed CL-UIA-02 policy packet; CL-R-38 is the CI owner
-request target. This is required because the user's explicit no-workflow-edit
-instruction remains in force, even though the integrator's lane document now
-permits packet-owned workflows. No proposed workflow is supplied either.
+`REQUEST(CL-R-38)`: workflow implementation is present on current main;
+execution of its local checks and all 50 native fixture runs remains the
+acceptance requirement. Hosted results must identify the tested revision and
+retain the native result artifacts before this request is closed.
 
 `REQUEST(CL-P1-17)` / `REQUEST(CL-P1-21)`: before full corpus integration,
 reconcile executor types, prove entry/exit handling for compiler-emitted C,
