@@ -1,0 +1,67 @@
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSButton;
+
+#include <assert.h>
+
+void verifyAlignment(MacOSButton button, bool centered) { assert(ButtonAlignmentProbe.alignment(button.nativeView()) == (centered ? NSTextAlignmentCenter : NSTextAlignmentLeft)); }
+
+void verifySymbol(MacOSButton button, bool centered, bool titled) {
+	verifyAlignment(button, centered);
+	assert(ButtonAlignmentProbe.symbolMatches(button.nativeView(), titled));
+}
+
+void verifyExplicitAlignment(bool centered, bool symbolFirst) {
+	var button = MacOSButton("Library");
+	if (symbolFirst) { button.setSystemSymbol("folder"); }
+	button.setCentered(centered);
+	verifyAlignment(button, centered);
+	button.setTitle("Library renamed");
+	verifyAlignment(button, centered);
+	button.setSystemSymbol("gearshape");
+	verifySymbol(button, centered, true);
+	button.setTitle("");
+	verifySymbol(button, centered, false);
+	button.setSystemSymbol("folder");
+	verifySymbol(button, centered, false);
+	button.setTitle("Library restored");
+	verifySymbol(button, centered, true);
+	button.setCentered(!centered);
+	verifySymbol(button, !centered, true);
+	button.setTitle("");
+	verifySymbol(button, !centered, false);
+	button.setSystemSymbol("gearshape");
+	verifySymbol(button, !centered, false);
+	button.setTitle("Changed alignment");
+	verifySymbol(button, !centered, true);
+	button.close();
+	assert(!button.isOpen());
+}
+
+void verifyDefaultAlignment() {
+	var button = MacOSButton("Library");
+	var nativeDefault = ButtonAlignmentProbe.alignment(button.nativeView());
+	button.setTitle("Library renamed");
+	assert(ButtonAlignmentProbe.alignment(button.nativeView()) == nativeDefault);
+	button.setSystemSymbol("folder");
+	verifySymbol(button, false, true);
+	button.setTitle("");
+	verifySymbol(button, true, false);
+	button.setSystemSymbol("gearshape");
+	verifySymbol(button, true, false);
+	button.setTitle("Library restored");
+	verifySymbol(button, false, true);
+	button.close();
+	assert(!button.isOpen());
+}
+
+int main() {
+	var app = MacOSApplication();
+	verifyDefaultAlignment();
+	verifyExplicitAlignment(true, false);
+	verifyExplicitAlignment(false, false);
+	verifyExplicitAlignment(true, true);
+	verifyExplicitAlignment(false, true);
+	app.close();
+	print("PASS: native button alignment survives title and symbol changes");
+	return 0;
+}
