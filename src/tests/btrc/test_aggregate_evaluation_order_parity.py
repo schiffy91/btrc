@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
-from src.tests.btrc.dual_frontend_harness import compile_both
+from src.tests.btrc.dual_frontend_harness import build_and_run_strict, compile_both
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 FOREIGN_CALLBACK_DEFINITION = """
 static char *aggregate_foreign_value;
@@ -385,3 +386,63 @@ def test_vla_initializer_is_rejected_before_lowering(
         assert (
             "Variable 'values' is a variable-length array and cannot have an initializer"
         ) in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("program", ("inlined", "corpus", "cleanup"))
+def test_vla_lifetime_after_inlined_calls_at_o3(semantic_btrcc: Path, tmp_path: Path, program: str) -> None:
+    source = """
+        #include <assert.h>
+        int sum(int count) {
+            int values[count];
+            for (int i = 0; i < count; i++) { values[i] = i; }
+            int total = 0;
+            for (int i = 0; i < count; i++) { total += values[i]; }
+            return total;
+        }
+        int main() {
+            assert(sum(5) == 10);
+            int count = 4;
+            int values[count];
+            for (int i = 0; i < count; i++) { values[i] = i + 1; }
+            int total = 0;
+            for (int i = 0; i < count; i++) { total += values[i]; }
+            assert(total == 10);
+            return 0;
+        }
+    """
+    if program == "corpus":
+        source = (Path(__file__).resolve().parents[1] / "c_compat/VariableLengthArrays.btrc").read_text()
+    elif program == "cleanup":
+        source = """
+            #include <assert.h>
+            int destroyed = 0;
+            class Owner {
+                public void __del__() { destroyed++; }
+            }
+            int visit(int count) {
+                Owner before = new Owner();
+                int values[count];
+                Owner after = new Owner();
+                values[0] = 7;
+                var read = () => values[0];
+                for (int round = 1; round < 4; round++) {
+                    int scratch[round];
+                    Owner iteration = new Owner();
+                    scratch[round - 1] = round;
+                    assert(scratch[round - 1] == round);
+                    if (round == 1) { continue; }
+                    break;
+                }
+                assert(destroyed == 2);
+                return read();
+            }
+            int main() {
+                assert(visit(3) == 7);
+                assert(destroyed == 4);
+                return 0;
+            }
+        """
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
+        assert result.returncode == 0, result.stdout + result.stderr
+        for compiler in HOST_C_COMPILERS:
+            build_and_run_strict(generated, tmp_path / f"vla-{index}-{Path(compiler).name}", compiler, ("-O3",))
