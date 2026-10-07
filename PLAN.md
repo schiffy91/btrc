@@ -3,9 +3,11 @@
 Updated **2026-10-07**. The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`. PR60 is published at `1424c2db`,
+Current upstream main is `87dd60d7`. PR60 is published at `b5e3f81a`,
 combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
-and diagnostic corrections. Final-tree qualification is running as recorded below.
+and diagnostic corrections. Final-tree qualification has exposed a Linux
+compiler-startup build failure and local suite failures; the first repair is
+committed locally and queued for verification. No final-tree pass is claimed.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -429,7 +431,24 @@ position parity. Rechecking the preserved current capture passes **287 records**
 capabilities are incompatible with this environment. All **13 boundary-manifest
 checks pass**. The full matrix remains pending. The old `build/boundary-report.json`
 predates this failed run and is not fresh evidence.
-Main-suite, bootstrap and C11 checks did not run; hosted qualification is separate. Merge resolution preserves
+Main-suite, bootstrap and C11 checks did not run at `1424c2db`. The reviewed
+correction is published as `b5e3f81a`; a new full serial run has started, reusing
+the production-source-identical compiler binary. Its lint/format/generated and
+extension checks passed again, and fresh boundary capture passed 287 checks with
+24 unchecked records. The main local suite is still running with failures whose
+complete inventory is pending. Hosted Linux release and btrc jobs reject the
+Linux-only startup expression `limit.rlim_max != (rlim_t)RLIM_INFINITY`:
+the left C field is opaque and cannot precede an ordered sibling without an
+explicit type. The release source position maps to `cli/Driver.btrc:1906`.
+Local commit `d941f74d` casts that field to its actual SDK type, `rlim_t`, without
+weakening the compiler's sequencing rule or changing the stack limits. Its
+Linux-target reference transpilation and formatting checks are queued behind
+the current gate. This check runs on macOS and does not establish native Linux
+execution; the existing Linux hard-limit cases and release build still must pass.
+The hosted bootstrap job also stopped at boundary capture, with empty self-host
+artifacts; that result does not establish a bootstrap fixed point. Hosted checks
+must qualify the eventual corrected head;
+older-head cancellation is not success. Merge resolution preserves
 C2's union admission logic in the shared realtime owner and its union refusal
 regressions. The intentional positioned-diagnostic boundary update retains
 311 records and its reviewed SHA-256. No main landing or full-matrix
@@ -442,7 +461,7 @@ qualification is claimed yet.
 | Stages 14–16 | C5 inventory, C1 schema/constructs and C4 integrated; C1 Linux evidence recorded. | Outstanding Mac memory/instructions and BTRSmith evidence do not disappear because implementation landed. |
 | Stages 17–21 | C2 schema and shared owners landed; declaration-order parity landed separately. | C2 L1/L2 reviews still have blockers; multidimensional arrays, C3, goto and final inventory closure remain. |
 | Stages 22–25 | P0 inventory, platform shell, target schema/owner, extractor, and target data model through `CL-P1-05` integrated. Windows host hardening merged in batch 42. The LSP target repair and Android host are qualified individually and included in PR60's combined candidate. | Land the combined gate; finish hosted ABI availability, target-aware readers/link plans/provider/cache isolation. iOS has a green local matrix but awaits its pinned hosted lane; Windows ARM64 native bootstrap remains unqualified. |
-| Stages 26–29 | Interop ownership design exists; HTTP and Windows service revision-5 designs address their round-4 findings and pass docs/static CI. | Complete PR51/52 contract review, then implement checked service/interop providers and qualify actual target ABIs and dependency closure. |
+| Stages 26–29 | Interop ownership design exists; HTTP and Windows service revision-5 drafts contain the reviewed corrections. PR52's latest lost-ACK outcome clarification is undergoing checks. | Complete PR51/52 contract review, then implement checked service/interop providers and qualify actual target ABIs and dependency closure. |
 | Stages 30–33 | UI catalog and macOS/Linux shell evidence landed; UI1 checkpoint recorded (batch 46); UI2 contract approved (batch 47). Linux X11 GUI/audio shard landed (batch 50). | Port independent repairs first; land UI2 interface and both providers atomically. Mac keyboard delivery and Wayland sanitizer evidence remain gaps. Other platform shells remain incomplete. |
 | Stages 34–37 | Drafts, model/accessibility spikes and fixtures exist. | Reviewed feature contracts and real providers; per-platform slices may advance when their own prerequisites work. No blanket all-platform qualification claim. |
 | Stages 38–43 | CI tiers and host workflows exist; a workflow that skips a missing host does not prove it. | Installed-product journeys, numeric budgets, physical/listening sessions, signing/account-dependent releases and final candidate gates remain open. |
@@ -532,14 +551,14 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `1424c2db` | Combined C2/REQ-10/11/rich-enum/diagnostic candidate. Local static/generated/extension/native compiler checks passed; boundary verification stopped on two stale accepted diagnostic fixtures, before the main suite. The reviewed fixture correction and final matrix remain pending. Hosted workflows are separate; prior green results remain historical evidence. |
-| PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Its four hosted workflows are running; both Android emulator jobs passed. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
-| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification passed 1,179 checks with three platform skips, resolving the predecessor's 20 failures. Included with PR65 in published PR60 `1424c2db`; full matrix and main landing remain pending. |
+| PR60, `codex/harmonize-plan` | `b5e3f81a` | Fresh local boundary capture passed 287 checks (24 unchecked); 13 manifest tests passed. The main local suite is running with failures, and hosted Linux release/btrc builds reject the untyped hard-stack-limit comparison. Bootstrap stopped at boundary capture. No full-matrix pass or main landing. |
+| PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Latest hosted snapshot has 35 successful checks, three skips and one running check. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
+| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `d941f74d` | Parent `9a01104c` passed 1,179 native checks with three platform skips and is included in PR60. The new Linux-only stack-limit operand cast repairs the release-build diagnostic; verification is queued and it is not published. Full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 Two code candidates currently occupy the shared hosted CI allowance: PR65
-`93856dfc` and combined PR60 `1424c2db`. Recheck queued and running workflows
+`93856dfc` and combined PR60 `b5e3f81a`. Recheck queued and running workflows
 before publishing another candidate.
 Cancellation and scope-only jobs are not qualification. No branch is deleted.
 
@@ -793,7 +812,8 @@ Reconciled against main `c011371b` and the six open PR heads on 2026-10-07:
   ARM64. This is execution infrastructure, not a Windows GUI provider.
 - HTTP [PR51](https://github.com/schiffy91/btrc/pull/51), revision 5 `799c9de5`, and
   Windows services [PR52](https://github.com/schiffy91/btrc/pull/52), revision 5
-  `3850ce35`, address the round-4 findings and have green docs CI. Contract
+  `6866eb3d`, address the round-4 findings. The earlier revision had green docs
+  CI; the latest clarification is undergoing its own checks. Contract
   review and implementation acceptance remain separate, as detailed below. That does not block unrelated Linux repairs.
 - Windows ARM64 toolchain [PR53](https://github.com/schiffy91/btrc/pull/53), mobile
   hosts PR34/35 remain open with their individual acceptance/dependency gaps,
@@ -1030,8 +1050,9 @@ owner, the exact prerequisite and the next acceptance.
   (D28), and the note meets `CL-UIB-09`'s gap-list dependency. The prototype
   remains unmerged; the native re-run follows `CL-UIB-09`.
 - **PR51, `CX-P2-02` HTTP contract** (revision 5 `799c9de5`) and
-  **PR52, `CX-P2-01` Windows services design** (revision 5 `3850ce35`).
-  Both are refreshed onto main with green docs/static checks. The authorized
+  **PR52, `CX-P2-01` Windows services design** (revision 5 `6866eb3d`).
+  Both are refreshed onto main. Earlier docs/static checks passed; PR52's latest
+  clarification is being checked. The authorized
   integration session owns `CL-P2-01` round 5: the final review of the round-4 findings.
   - HTTP now requires provider-owned `Connection: close` on Android requests
     and redirects, bounded admission while native I/O drains, and hermetic
@@ -1042,6 +1063,13 @@ owner, the exact prerequisite and the next acceptance.
     registered console trampoline, owned supervisor stdio, and portable/POSIX
     Daemon corpus separation in `CX-P2-08`. `3850ce35` also corrects the obsolete fixture-list
     reference to the derived `include_fixtures()` owner.
+    The round-5 touchpoint review found that a lost ACK's successful liveness
+    reconciliation had no explicit public result. `6866eb3d` now requires one
+    token-bound probe within the remaining existing budget: return 0 for the
+    matching live supervisor, otherwise 125 with the indeterminate outcome.
+    Preserve transfer state 2 in diagnostics and never relaunch or infer
+    liveness from the record alone. Exact outcome fixtures are required; this
+    clarification is not independent-panel approval or native execution proof.
   - Approval promotes the request lists to `CL-P2-02/03/04/14` scope. Design
     merge, implementation and native qualification are separate acceptance steps.
 - **`CX-C-01` follow-ups** (batch 26 comment on PR26; no PR yet). Owner: Codex
