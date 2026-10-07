@@ -3,9 +3,9 @@
 Updated **2026-10-07**. The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`. PR60 is published at `1424c2db`,
+Current upstream main is `87dd60d7`. PR60 is published at `b5e3f81a`,
 combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
-and diagnostic corrections. Final-tree qualification is running as recorded below.
+and diagnostic corrections. Final-tree qualification is running after the reviewed diagnostic-fixture correction below.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -415,10 +415,25 @@ same native suite passed **1,179 checks with three platform skips** in 625.74
 seconds, resolving all 20 prior failures. The skips are Linux resource-limit
 and `/dev/full` paths. A combined candidate now includes this repair, PR65
 `93856dfc` and the current plan; its production sources match `9a01104c`.
-The combined tree is published in PR60 at `1424c2db`. Its full local serial
-matrix and hosted workflows are running. Initial local lint, formatting,
-generated-source and extension checks passed; compiler build, main suite,
-bootstrap and C11 results remain pending. Merge resolution preserves
+The combined tree is published in PR60 at `1424c2db`. Its local lint,
+formatting, generated-source checks, extension and native compiler build passed.
+The full run then stopped at boundary verification: the accepted lexer/parser
+stderr fixtures still expected terse diagnostics. Both captured outputs are
+byte-identical to the reference, preserving the original messages, source
+locations and exit status 1 while adding the positioned source line and caret.
+Under D14, only those two accepted artifacts and their reviewed manifest hashes
+are updated (43→206 and 42→149 bytes); all frozen baseline bytes and 311 records
+remain unchanged. Regressions cover lexer/parser diagnostics and cross-file
+position parity. Rechecking the preserved current capture passes **287 records**;
+24 observed-behavior records remain unchecked because four managed-code
+capabilities are incompatible with this environment. All **13 boundary-manifest
+checks pass**. The full matrix remains pending. The old `build/boundary-report.json`
+predates this failed run and is not fresh evidence.
+Main-suite, bootstrap and C11 checks did not run at `1424c2db`. The reviewed
+correction is published as `b5e3f81a`; a new full serial run has started, reusing
+the production-source-identical compiler binary. Its lint/format/generated and
+extension checks passed again. Hosted checks must qualify this corrected head;
+older-head cancellation is not success. Merge resolution preserves
 C2's union admission logic in the shared realtime owner and its union refusal
 regressions. The intentional positioned-diagnostic boundary update retains
 311 records and its reviewed SHA-256. No main landing or full-matrix
@@ -521,14 +536,14 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `1424c2db` | Combined C2/REQ-10/11/rich-enum/diagnostic candidate. Full local serial matrix and hosted workflows are running. Initial static/generated/extension checks passed; final-tree qualification and landing remain pending. Prior `56909225` hosted and `ad72af03` local green results remain historical evidence. |
+| PR60, `codex/harmonize-plan` | `b5e3f81a` | Combined compiler candidate with the reviewed lexer/parser boundary fixtures. The preserved capture passed 287 checks (24 unchecked), and 13 manifest tests passed. A new full serial matrix is running with the source-matched compiler from `1424c2db`; prior failed and canceled runs do not qualify this head. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Its four hosted workflows are running; both Android emulator jobs passed. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
-| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification passed 1,179 checks with three platform skips, resolving the predecessor's 20 failures. Included with PR65 in published PR60 `1424c2db`; full matrix and main landing remain pending. |
+| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification passed 1,179 checks with three platform skips, resolving the predecessor's 20 failures. Included with PR65 in published PR60 `b5e3f81a`; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 Two code candidates currently occupy the shared hosted CI allowance: PR65
-`93856dfc` and combined PR60 `1424c2db`. Recheck queued and running workflows
+`93856dfc` and combined PR60 `b5e3f81a`. Recheck queued and running workflows
 before publishing another candidate.
 Cancellation and scope-only jobs are not qualification. No branch is deleted.
 
