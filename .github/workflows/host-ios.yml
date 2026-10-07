@@ -4,7 +4,7 @@ name: Host iOS
 # and installed app bundles on iPhone and iPad, plus one repeated app run per
 # device class (50 executions). The xcode-27 image supplies the D21 toolchain;
 # verify its exact build before using an SDK. Runtime selection still chooses
-# the newest installed iOS >= 17, so this does not prove the iOS 17 floor.
+# the oldest installed iOS >= 17, so a higher version does not prove the iOS 17 floor.
 # Until the tool directory exists, tooling reports it absent and skips the
 # simulator job so the workflow can land before the host.
 on:

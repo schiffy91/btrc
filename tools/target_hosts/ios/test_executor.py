@@ -517,6 +517,38 @@ class SimulatorInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(SimulatorError, "No available iOS"):
             IOSSimulatorHost(runner=runner).prepare()
 
+    def test_runtime_selection_prefers_the_oldest_available_supported_version(self):
+        for versions, expected in (
+            (("17.0", "27.0"), "17.0"),
+            (("16.4", "17.10", "17.2", "27.0"), "17.2"),
+            (("27.0", "26.4.1", "26.2"), "26.2"),
+        ):
+            with self.subTest(versions=versions):
+                inventory = self.inventory()
+                inventory["runtimes"] = [
+                    {
+                        "identifier": f"com.apple.CoreSimulator.SimRuntime.iOS-{version.replace('.', '-')}",
+                        "version": version,
+                        "isAvailable": True,
+                    }
+                    for version in versions
+                ]
+
+                def runner(command, inventory=inventory, **_kwargs):
+                    if command == ["xcodebuild", "-version"]:
+                        output = b"Xcode 27.0\nBuild version 27A266a\n"
+                    elif command[-2:] == ["list", "-j"]:
+                        output = json.dumps(inventory).encode()
+                    elif command[2] == "create":
+                        output = b"test-udid\n"
+                    else:
+                        output = b""
+                    return subprocess.CompletedProcess(command, 0, stdout=output, stderr=b"")
+
+                host = IOSSimulatorHost(runner=runner)
+                host.prepare()
+                self.assertEqual(host.runtime["version"], expected)
+
     def test_reuses_matching_booted_device_without_shutting_it_down(self):
         inventory = self.inventory()
         inventory["devices"] = {

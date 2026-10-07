@@ -54,7 +54,9 @@ class IOSSimulatorHost:
         ]
         if not available:
             raise SimulatorError("No available iOS >= 17 simulator runtime; install one on the Apple host")
-        self.runtime = max(available, key=self._version)
+        # D8 prefers the deployment floor, falling back to the oldest installed
+        # compatible runtime. A newer SDK runtime must not silently replace it.
+        self.runtime = min(available, key=self._version)
         # Query host tooling before a guest competes for the hosted runner's memory.
         version = self.runner(["xcodebuild", "-version"], capture_output=True, check=True, timeout=30)
         self.toolchain = version.stdout.decode().strip()

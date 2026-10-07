@@ -9,7 +9,7 @@ branded `local-host-check-only` and rejected by simulator `prepare`.
 
 ## Contents and limits
 
-- `simhost.py`: newest available iOS runtime at or above 17.0, named
+- `simhost.py`: oldest available iOS runtime at or above 17.0, named
   `btrc-host-iphone` / `btrc-host-ipad` devices, boot and bootstatus, explicit
   erase on `IOSSimulatorHost.prepare(erase=True)`, shutdown only when this
   instance booted the device. An already booted matching device remains booted.
@@ -248,7 +248,7 @@ docs/lane CI does not discover these standalone tests or run a simulator.
 
 The hosted toolchain must match 27A266a. The execution results keep their
 existing `stand-in` designation because hosted hardware and runtime coverage
-are not the entire acceptance matrix. Runtime selection chooses the newest
+are not the entire acceptance matrix. Runtime selection chooses the oldest
 installed available iOS >= 17; it does not prove the iOS 17 deployment-floor runtime, which remains a separate
 MAC-P1-02 question. iPhone and iPad results share the ios family and record
 device_class. Physical devices and UI/IME/accessibility proof are outside this
@@ -280,3 +280,21 @@ it is not native simulator qualification. Toolchain failures occur before any
 device mutation. Fixture binaries, timeouts, and the 50-invocation native matrix
 are unchanged. The Xcode-27 hosted failure above remains historical evidence;
 the reordered preparation still needs fresh hosted qualification.
+
+
+The `f49c5fe1` hosted run `37579929097` passed preparation and failed the first
+fixture's launch-identity deadline in all four modes (0/50 executions). iPad
+spawn shutdown also timed out. The retained diagnostics show no initially
+booted devices, only iOS 27.0 (24A434) available, one observed launchd_sim,
+substantial memory compression, and even basic simulator/process queries
+stalling. The native fixture's identity was never observed; this does not
+establish a fixture-code defect or a single cause.
+
+Runtime selection now follows D8's floor preference among installed runtimes:
+choose iOS 17 when available, otherwise the oldest available version at or above
+17. Numeric-version tests distinguish 17.2 from 17.10 and reject pre-17 rows.
+This corrects selection when several runtimes are installed. It cannot repair
+the observed hosted run merely by selecting differently, because that image
+offers only iOS 27. Installation feasibility for the deployment-floor runtime
+and current-head native execution remain unqualified. No fixture deadline or
+resource requirement is weakened.
