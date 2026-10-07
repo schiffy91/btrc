@@ -1054,8 +1054,12 @@ def test_family_foundation_notes_do_not_claim_shared_contract_proof():
 
 
 def test_packet_amendments_parse_inheritance_nullable_types_and_changes(catalog_directory, monkeypatch):
+    # This test mutates live sources, so its isolated catalog needs the same
+    # reviewed baseline; other catalog fixtures intentionally contain only seeds.
+    shutil.copytree(SHARDS / "amendments", catalog_directory / "amendments")
+    monkeypatch.setitem(globals(), "SHARDS", catalog_directory)
+    verify_surface(sources())
     path = catalog_directory / "amendments/cx-uia-99.toml"
-    path.parent.mkdir()
     path.write_text(
         """
 release = "ui0-source-inventory-2026-09-21"
@@ -1082,7 +1086,6 @@ reason = "Fixture exercises optional replacement"
     )
     combined = CatalogAmendments(REPO, catalog_directory)
     assert "IFixture.lookup" in combined.added_ids()
-    monkeypatch.setitem(globals(), "SHARDS", catalog_directory)
     changed_sources = sources()
     changed_sources["IFixture.btrc"] = (
         "interface IFixture extends IView { FontGlyph? lookup(int codepoint, bool render = false); }"

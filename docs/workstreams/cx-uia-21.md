@@ -5,6 +5,10 @@ catalog paths in `docs/design/ui-contracts/ui2-approved.md` (Landing), as listed
 in the draft PR. Provider implementations remain in the stacked CX-UIA-22/23
 packets and land atomically with this interface.
 
+The integrator extended this packet's ownership to
+`src/tests/python/test_ui0_catalog.py` for the isolated amendment/source fixture
+repair discovered by the UI2 qualification gate.
+
 Base: `87dd60d7`. Implement the approved record; do not restart its design review.
 No compiler prerequisite blocks the approved interface. The interface by itself
 does not qualify the existing platform providers.
@@ -129,3 +133,31 @@ runtime hook was changed by this follow-up. Native execution remains pending.
 The unpushed pre-reorder branch tip is retained by the local recovery tag
 `archive/cx-uia-21-before-retry-reorder`; the catalog fragment remains the final
 commit after the new test commit. The tag is local and was not pushed.
+
+### Parent qualification and catalog fixture repair
+
+The parent-owned gate 49797 qualified source `06a4806f`: all 26 BackgroundJobs
+native cases passed, including both frontends and plain/sanitized completion
+subscription and explicit-retry regressions (377.04 seconds). Evidence is under
+`~/.cache/btrc/plan-consolidation-2026-10-07/subagent-delivery/ui2/06a4806f/`:
+`background-jobs.xml`, `catalog.xml`, and `qualify.log`.
+
+The catalog run passed 113 cases and failed one in 30.36 seconds. The failed
+test paired live expanded GUI sources with a temporary catalog that omitted all
+per-packet amendments. Its isolated setup now copies those amendments and proves
+the unmodified source baseline before exercising its synthetic inheritance,
+nullable/default, signature-change and removal mutations. The sparse fixtures
+used by other catalog tests and the real source/count/denominator gates remain
+unchanged. This follow-up changes only that test and this report; production,
+compiler and native regression sources remain identical to the qualified tree.
+After integrator review, the full catalog file passed all 114 tests in 30.732
+seconds, with no failures, errors or skips (`catalog-fixture-repair.xml` in the
+same evidence directory). `tools.qualification.ui_catalog check` passed with the
+unchanged frozen/pending counts above. Ruff 0.15.14 lint and format checks on the
+changed test, plus `git diff --check`, passed. Qualified Python has no Ruff
+module, so those checks used the installed Nix Ruff binary directly. No native
+rerun is needed for this test/report-only delta.
+
+This is qualification/rework time, following the earlier source freeze, rather
+than new provider implementation. The parent owns the measured test durations;
+no local heavy run was performed by this packet agent.
