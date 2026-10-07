@@ -8,9 +8,12 @@ combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
 and diagnostic corrections. Predecessor `b5e3f81a` found nine failures in
 the structural audit's raw-source parser. Repair `bb40e39c` passes the expanded
 155-check structural audit and Linux-target compiler transpilation; the combined
-candidate is running its fresh full serial matrix. Its native Linux ARM64
-bundle passes, while the hosted benchmark reports two peak-memory regressions
-that need investigation before main landing.
+candidate completed 17,803 local tests with zero failures and 168 skips, then
+failed its skip audit on two unclassified Linux-only stack-limit cases. Local
+repair `8c71dda6` classifies those cases; `e497ac98` repairs the checkpoint
+quiet-check omission. Their 106 focused checks pass. Bootstrap and strict-C11
+remain outstanding. The native Linux ARM64 bundle passes, while the hosted
+benchmark reports two peak-memory regressions requiring investigation.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -88,6 +91,11 @@ modes, and rechecking the unchanged source. The archive hash and complete index
 are retained beside that run; its logs and separate GUI evidence remain directly
 available. Free space rose from 78.86 GB to **81.33 GB**. This preserved generated
 test evidence; it did not remove additional user development data or change SEMU.
+At 13:30 UTC, the same verified archive procedure preserved all 121,002 entries
+of this session's completed `081aae51` pytest scratch in a 466,265,842-byte
+archive. SHA-256 `4e35c810a796ba1111f1b32f900c0b68af874dbf5fdffdb9dc321aa855768e8d`
+is retained with its index; free space rose from 77.97 to 80.44 GB. Separate
+logs and GUI evidence remain directly available. Recheck before the next stage.
 
 The active `podman-machine-default` is shared with SEMU: **8 CPUs, 28 GiB RAM,
 180 GiB virtual disk**. It and its containers/volumes were left intact. Do not
@@ -303,11 +311,14 @@ C2 integration still needs the memory comparison required by
 the full correctness matrix. The 360-check repair run does not prove those exits.
 A read-only dry run of `tools/bench/scripts/ccompat_checkpoint.sh --memory`
 exposed a qualification-helper gap: all six instruction/footprint samples run
-without the required automated quiet check, although budget runs use it. Repair
-that orchestration before taking the C2 measurements. The check must validate the
-actual measured workspace: `instr.sh` uses BTRSmith in place, while budget_bench
-copies its input into the budget output's `ws` directory. No measurement was run
-and no earlier result is retroactively qualified by this review.
+without the required automated quiet check, although budget runs use it. Local
+repair `e497ac98` wraps every sample and budget run in the existing quiet check
+under the same bench lock. The check now validates the actual measured workspace:
+`instr.sh` uses BTRSmith in place, while budget_bench measures its copy at the
+budget output's `ws` directory. Missing or failed quiet checks prevent sampling
+and a green summary. All 45 checkpoint tests pass, including executable wrapper
+probes proving a refused check cannot launch its child. No measurement was run
+and no earlier result is retroactively qualified by this repair.
 
 The fresh full C2 run at `1fe1dc1e` ended with **17,431 passed, 166 skipped
 and one failure** in 1,881.71 seconds. Lint, formatting, generated-source,
@@ -584,7 +595,7 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The repaired combined tree is published with a new full serial gate running; it began with 81.21 GB free and all guests stopped. Full local and hosted qualification remain pending. |
+| PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `bb40e39c` | Parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. Integrated into the combined candidate; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
@@ -645,9 +656,9 @@ qualification claim follows from that source comparison.
 | `stage18/req-ui2-dg` | `1cc97ab8` | Merged locally at `cec4cc13`, with realtime checks deferred until finite generic closure. All 20 diagnostic failures are resolved in `9a01104c`, whose native suite passed 1,179 checks with three platform skips. Final integrated matrix remains open. |
 | `stage18/req10-parity-gaps` | `e1bc5dfa` | Integrated with safe main-stack startup replacing the parked-thread fork exemption. Native single-thread startup/two-worker handoff and deep-expression parity passed in the recorded REQ-10 run; naming repair `148c3f42` and later integration are retained. Linux hard-limit paths and final matrix remain open. |
 | `stage18/req11-tuple-sizeof-recursion` | `271397d3` | Integrated through local `9a01104c` with paired finite-nullable-cycle repair. Native focused run at `f3a5d3c6` passed 1,210 checks; the two corpus marker checks passed at `d2ffae69`. Final integrated matrix remains open. |
-| `stage24/apple-standin-extraction` | `7b3d1195` | Contains the standalone Apple evidence workflow and extractor provenance option, neither present in PR60. Review any production port separately; its Xcode 16.4 results remain stand-in evidence. The local installed Xcode is now the pinned 27A266a, but the four-row re-extraction/diff has not run. |
+| `stage24/apple-standin-extraction` | `7b3d1195` | Contains the standalone Apple evidence workflow and extractor provenance option, neither present in PR60. Review any production port separately; its Xcode 16.4 results remain stand-in evidence. Pinned Xcode 27A266a/SDK 27.0 re-extraction now passes for all four Apple targets at source bb40e39c, with 23 extractor tests and the namespace/stand-in comparison passing. Five functions and 22 macros become declared per row, with no newly unavailable names. This is header evidence; production schema integration and runtime qualification remain pending. |
 | `stage24/apple-standin-extraction-run` | `9c0d737d` | Its tree differs from `7b3d1195` only by the four-line scratch push trigger for this run branch. Preserve its evidence; never merge that trigger. Any reviewed workflow port must come from the base extraction branch without this scratch change. |
-| `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08 schema-3 candidate includes four Apple tables explicitly sourced from Xcode 16.4/SDK 15.5 or 18.5 and a conservative MSVC copy awaiting runner extraction. Wait for CL-P1-06 and qualified inputs, then review schema/generation parity. The current pinned local Xcode enables the Apple re-extraction; installed tooling alone is not qualification. |
+| `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08 schema-3 candidate includes four Apple tables explicitly sourced from Xcode 16.4/SDK 15.5 or 18.5 and a conservative MSVC copy awaiting runner extraction. Wait for CL-P1-06 and qualified inputs, then review schema/generation parity. The completed pinned four-row extraction replaces the Apple stand-in evidence for review, but has not been merged into the schema-3 candidate. clock_settime remains unavailable on both iOS rows; fork is declared by those headers, so the old fork availability assertion needs correction. Header declarations do not prove runtime support. |
 | `stage24/hosted-platform-fragments` | `10203072` | Keep as extractor evidence/input only; consume validated data in the hosted-ABI owner, never merge the fragment branch. |
 | `stage24/hosted-platform-fragments-apple-standin` | `c9dad69a` | Keep as extractor evidence/input only; consume validated data in the hosted-ABI owner, never merge the fragment branch. |
 | `stage24/lsp-target` | `3aef3988` | Preserved by the real merge into PR63 (`8f964c1b`), with the stale-cache race repaired and 476 LSP tests passing, including actual stdio target changes. Included in PR60; await its combined gate and main landing. |
