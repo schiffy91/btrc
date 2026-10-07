@@ -90,7 +90,25 @@
         };
       };
       systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];
-      eachSystem = fn: nixpkgs.lib.genAttrs systems (system: fn (import nixpkgs { inherit system; }));
+      eachSystem = fn: nixpkgs.lib.genAttrs systems (system: fn (import nixpkgs {
+        inherit system;
+        overlays = [ (final: prev: lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+          # Apple's libffi-40 aborts while allocating trampolines on macOS 27.
+          # Keep Python's build-time interpreters and cffi on the same upstream
+          # library without rebuilding unrelated consumers such as LLVM.
+          # https://github.com/NixOS/nixpkgs/issues/541367
+          python314 = prev.python314.override (old: {
+            self = final.python314;
+            libffi = final.libffiReal;
+            packageOverrides = lib.composeExtensions (old.packageOverrides or (_: _: { }))
+              (_pythonFinal: pythonPrev: {
+                cffi = (pythonPrev.cffi.override { libffi = final.libffiReal; }).overrideAttrs (oldCffi: {
+                  patches = (oldCffi.patches or [ ]) ++ [ ./nix/cffi-darwin-upstream-libffi.patch ];
+                });
+              });
+          });
+        }) ];
+      }));
       nativeHeaderEnvironment = pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
         linuxHeaders = pkgs.symlinkJoin {
