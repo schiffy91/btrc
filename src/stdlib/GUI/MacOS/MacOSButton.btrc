@@ -13,6 +13,8 @@ class MacOSButton implements IButton, IMacOSView {
 	private bool _selectable = false;
 	private bool _bordered = true;
 	private bool _symbol = false;
+	private bool _explicitAlignment = false;
+	private bool _centered = false;
 	private double _fontSize = 13.0;
 
 	public MacOSButton(string title, MacOSActionQueue? actions = null) {
@@ -76,7 +78,11 @@ class MacOSButton implements IButton, IMacOSView {
 		self._bordered = bordered;
 	}
 
-	public void setCentered(bool centered) { self.control().setAlignment(centered ? NSTextAlignmentCenter : NSTextAlignmentLeft); }
+	public void setCentered(bool centered) {
+		self.control().setAlignment(centered ? NSTextAlignmentCenter : NSTextAlignmentLeft);
+		self._centered = centered;
+		self._explicitAlignment = true;
+	}
 
 	public void cancelPendingActions() { var control = self.control(); if (self._actions != null) { self._actions.discard(control); } }
 
@@ -110,15 +116,16 @@ class MacOSButton implements IButton, IMacOSView {
 		self.placeSymbol();
 	}
 
-	/* A symbol without a title is the whole control: center it instead of
-	 * hugging an empty leading title, which leaves the glyph off-center. */
+	/* By default, a symbol without a title is centered instead of hugging an
+	 * empty leading title. Explicit alignment survives either presentation. */
 	private void placeSymbol() {
 		var button = self.control();
 		if (!self._symbol) { return; }
 		bool titled = !self.title().isEmpty();
 		button.setImagePosition(titled ? NSImageLeading : NSImageOnly);
 		button.setImageHugsTitle(titled);
-		button.setAlignment(titled ? NSTextAlignmentLeft : NSTextAlignmentCenter);
+		bool centered = self._explicitAlignment ? self._centered : !titled;
+		button.setAlignment(centered ? NSTextAlignmentCenter : NSTextAlignmentLeft);
 	}
 
 	public bool isEnabled() { return self.control().isEnabled(); }
