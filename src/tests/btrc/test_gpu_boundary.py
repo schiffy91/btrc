@@ -231,6 +231,7 @@ def test_array_kernel_lowers_with_capacity_guard_and_cpu_fallback(
     assert "__gpu_output_capacity < __gpu_n" in generated
     declaration = re.search(
         r"int (__gpu_output_len_\d+) = .*?;\n"
+        r"\s*\{\n"
         r"\s*int output\[\(\(\1 > 0\) \? \1 : 1\)\];",
         generated,
     )
