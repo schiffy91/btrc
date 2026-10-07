@@ -290,6 +290,19 @@ the accounting change. Replace that exemption with a safe large-stack startup
 strategy and a native handoff regression, preserving the branch's 2,000-term
 expression support, module-worker parallelism and collection-literal repairs.
 
+Local candidate `226506eb` now merges that branch into C2 candidate `1fe1dc1e`
+and replaces the parked-thread exemption. The compiler stays on its original
+thread: macOS native/cross/bootstrap/test-cache/benchmark builds reserve a
+512 MiB main stack, and Linux startup adjusts only its process-local soft limit
+within the existing hard limit, diagnosing less than 64 MiB. The worker pool
+again checks the actual live-thread count. The new native regression requires
+one startup thread and two distinct worker processes; Linux cases check 16 and
+64 MiB hard limits. A native C prototype proves the Darwin stack/fork strategy,
+and Python syntax, lint/format, btrc formatting and generated-source checks
+pass. Actual integrated compiler/parity/native results remain pending: the
+focused gate is queued behind the full C2 baseline, with both checkouts pinned
+and unchanged. The local candidate is not published or landed on main.
+
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
 | Stages 1–4 | Pre-flight history, Stage 2 fixes, measurement harness and extensive stdlib drift repairs landed. Daemon failures were races/zombie handling, not a deadline to relax. | Disk headroom restored; finish Mac and BTRSmith requalification and pin; reconcile residual findings before closing Stage 4. |
