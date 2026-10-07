@@ -6,7 +6,7 @@ MSVC CRT execution and wgpu callback evidence require a Windows ARM64 runner.
 
 ## Pinned inputs
 
-`pins.json` records Zig 0.16.0 archive URLs, sizes and SHA-256 values from
+`pins.json` records the Zig 0.16.0 Windows ARM64 archive URL, size and SHA-256 from
 `https://ziglang.org/download/index.json`. The Windows ARM64 ZIP digest is
 `aee38316ee4111717900f45dd3130145c39289e105541d737eb8c5ed653c78ef`.
 The wgpu-native 27.0.4.0 Windows ARM64 MSVC digest comes from
@@ -34,16 +34,13 @@ cross-build is not bootstrap or Windows execution evidence.
 
 ## Native Windows ARM64
 
-Windows launches are independent of PR #43. They require an explicit
-`BTRC_WINDOWS_EXTERNAL_CONTAINMENT=ephemeral-runner` acknowledgement and an
-**enclosing step/job deadline on a disposable hosted runner**. The integrator
-must configure that deadline and guarantee disposal of the runner after the job.
-This is not a Windows Job implementation: local timeout uses best-effort
-`taskkill /T /F`, and descendants whose parent exits first can survive until
-runner disposal. Do not use this mode on a persistent development machine.
-File-backed output snapshots avoid inherited-pipe hangs; locked temporary files
-can remain until runner disposal. Linux continues to own a process group.
-The report identifies the containment model; failures preserve captured output.
+Windows commands use the integrated `tools.target_hosts.windows.executor.WindowsJob`
+owner and its gated launch: assignment precedes target execution, cleanup kills
+and drains the whole job, and file-backed captures survive inherited output
+handles. Missing target executables retain the gate's structured launch error.
+Linux commands reuse `bundle.run_build_command` and its process-group cleanup.
+There is one Windows containment owner and no external-containment opt-in.
+The target table, PE parsing and strict C flags also come from the shared host.
 
 Use ARM64 Python 3.13 and native ARM64 PowerShell 7. Install the pinned ARM64
 Windows Zig archive on PATH. Download the Linux cross-built compiler artifact
@@ -51,8 +48,6 @@ into a separate directory; the native command rejects an output path that
 contains either the input executable or its provenance summary.
 
 ```powershell
-# Run only inside the disposable, deadline-bounded hosted job described above.
-$env:BTRC_WINDOWS_EXTERNAL_CONTAINMENT = 'ephemeral-runner'
 python -m pip install '.[dev]'
 python -m tools.windows_toolchain.arm64 native --cross cross/btrcc.exe --cross-summary cross/summary.json --out build/windows-arm64-native
 pwsh -NoProfile -File tools/windows_toolchain/msvc_probe.ps1 -WgpuArchive downloads/wgpu-windows-aarch64-msvc-release.zip
@@ -62,12 +57,16 @@ The native command first validates the Linux cross summary's host, mode, source 
 the Linux cross-built compiler's output, runs the compiled sample against its
 golden, and invokes the repository's existing three-stage bootstrap test.
 A skipped bootstrap cannot produce passing evidence. Each bootstrap stage
-keeps the repository's 3,600-second Windows limit. No compiler/runtime edits
+keeps the repository's 3,600-second Windows limit. The native sequence has one
+12,000-second monotonic deadline; every command is capped by its remaining
+budget so failure reporting precedes the hosted step's 210-minute deadline. No compiler/runtime edits
 or alternative bootstrap implementation are supplied here.
 
-The ABI probe discovers Visual Studio with `vswhere`, enters its ARM64
+The ABI probe requires Visual Studio's ARM64 and Clang components through
+`vswhere`, records `installationVersion`, and enters its ARM64
 native developer environment via a temporary `.cmd` script (no nested command-line
-quoting), records the detected MSVC version even if it is rejected, requires MSVC >= 19.40, records the SDK and
+quoting). Developer-command diagnostics go to stderr; paths containing carets,
+percent signs, quotes or line breaks fail before invocation. It records the detected MSVC version even if it is rejected, requires MSVC >= 19.40, records the SDK and
 clang versions, and runs a strict C11 hello with the pinned
 `aarch64-pc-windows-msvc19.40.0` triple. It verifies the wgpu archive digest,
 links its MSVC import library, and runs `wgpu_link_smoke.c` beside the DLL.
@@ -90,28 +89,22 @@ All Python helper commands have explicit subprocess deadlines. Windows-native
 containment and Visual Studio execution remain unverified until the requested
 hosted lane runs; portable mocks do not establish those behaviors.
 
-## Integrator runner request
+## Hosted qualification
 
-The packet and lane plan normally assign `windows-arm64.yml` and its append-only
-contract row to Codex. The explicit user instruction prohibits all CI-workflow
-and proposed-workflow edits for this session, overriding that repository assignment. This
-packet contains no workflow or proposed-workflow file and no contract-test
-row for a nonexistent job. The PR's REQUEST asks for:
+`.github/workflows/windows-arm64.yml` owns the lane. It runs portable tooling
+checks and a Linux cross-build, uploads the compiler and provenance, then uses
+`windows-11-arm` with ARM64 Python 3.13 and native PowerShell. The native job
+installs checksum-verified Zig/wgpu archives and `.[dev]`, runs the Python and
+PowerShell regression suites, qualifies compiler/bootstrap, and separately runs
+the MSVC ABI probe even if compiler qualification fails. Both evidence folders
+are retained on failure. All actions are pinned; the Nix cache disables FlakeHub.
 
-1. An Ubuntu cross-build job in the pinned Nix shell, uploading
-   `build/windows-arm64-cross/btrcc.exe` and its `summary.json`.
-2. A `windows-11-arm` job with ARM64 Python 3.13, pinned action SHAs, the
-   verified ARM64 Zig archive, and the verified wgpu archive. Install `.[dev]`
-   before bootstrap. Set the explicit containment acknowledgement only on this
-   disposable runner; configure native-step timeout of 210 minutes and job
-   timeout of 240 minutes. Runner disposal is required even on failure. Download the
-   cross artifact, run the native and ABI commands above, and always upload
-   both output directories, including failure diagnostics.
-3. Push/PR-to-main path filters covering the workflow itself,
-   `tools/windows_toolchain/**`, compiler/runtime/stdlib inputs; manual
-   dispatch; appropriate timeouts; CI policy/skip-contract rows added by the
-   integrator if any pytest job is introduced.
+The native compiler step has a 210-minute outer deadline, the ABI probe 15 minutes,
+and the job 240 minutes. The shared Job owner also bounds every command. Successful
+portable mocks or a Linux PE inspection do not satisfy the native acceptance rows.
+The runner records its actual image/version; the current `windows-11-arm` image
+is the Visual Studio 2026 ARM64 image, not an x64 emulation substitute.
 
-Matrix/device updates remain PR-body proposals until native evidence exists.
-GNU btrcc execution does not establish the MSVC GPU ABI route, and linking
-wgpu does not establish a usable GPU adapter or platform GUI implementation.
+Matrix/device updates wait for the actual run artifacts. GNU btrcc execution
+does not establish the MSVC GPU ABI route, and linking wgpu does not establish a
+usable GPU adapter or platform GUI implementation.

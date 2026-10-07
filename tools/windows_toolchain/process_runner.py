@@ -1,17 +1,18 @@
-"""Bound compiler processes and inherited pipes; Windows containment belongs to an explicitly configured ephemeral runner."""
+"""Capture toolchain evidence using the shared build and Windows Job owners."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
-import signal
 import subprocess
 import sys
 import tempfile
-from contextlib import suppress
+import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from tools.target_hosts.windows.bundle import run_build_command
+from tools.target_hosts.windows.executor import WindowsJob
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,89 +23,118 @@ class Result:
     stdout: bytes
     stderr: bytes
     timed_out: bool
+    error: str | None = None
 
 
 def run(command: list[str], *, cwd: Path, env: dict[str, str] | None, timeout: float) -> Result:
+    if not command or not 0 < timeout < float("inf"):
+        raise ValueError("a command and finite positive timeout are required")
     if sys.platform == "win32":
         return run_windows(command, cwd=cwd, env=env, timeout=timeout)
-    process = None
-    try:
-        process = subprocess.Popen(
-            command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True
-        )
-        timed_out = False
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            terminate(process)
-            stdout, stderr = process.communicate(timeout=10)
-        return Result(None if timed_out else process.returncode, stdout, stderr, timed_out)
-    except OSError as error:
-        return Result(127, b"", f"could not launch {command[0]}: {error}".encode(), False)
-    finally:
-        if process is not None:
-            terminate(process)
-            process.communicate(timeout=10)
-
-
-def terminate(process: subprocess.Popen) -> None:
-    with suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGKILL)
-    if process.poll() is None:
-        process.kill()
+    with tempfile.TemporaryDirectory(prefix="btrc-toolchain-") as temporary:
+        output, diagnostic = Path(temporary) / "stdout", Path(temporary) / "stderr"
+        code, timed_out, launch_error = 0, False, b""
+        with output.open("wb") as stdout, diagnostic.open("wb") as stderr:
+            try:
+                run_build_command(command, cwd=cwd, env=env, stdout=stdout, stderr=stderr, timeout_s=timeout)
+            except subprocess.TimeoutExpired:
+                code, timed_out = None, True
+            except subprocess.CalledProcessError as error:
+                code = error.returncode
+            except OSError as error:
+                code, launch_error = 127, f"could not launch {command[0]}: {error}".encode()
+        return Result(code, output.read_bytes(), diagnostic.read_bytes() + launch_error, timed_out)
 
 
 def run_windows(command: list[str], *, cwd: Path, env: dict[str, str] | None, timeout: float) -> Result:
-    environment = os.environ if env is None else env
-    if environment.get("BTRC_WINDOWS_EXTERNAL_CONTAINMENT") != "ephemeral-runner":
-        raise RuntimeError(
-            "Windows commands require BTRC_WINDOWS_EXTERNAL_CONTAINMENT=ephemeral-runner: "
-            "an enclosing runner deadline and guaranteed runner disposal; this helper is not Job isolation"
+    if not command or not 0 < timeout < float("inf"):
+        raise ValueError("a command and finite positive timeout are required")
+    # Only WindowsJob owns native process-tree containment. The shared gate
+    # cannot create the target until assignment succeeds and release is signalled.
+    deadline = time.monotonic() + timeout
+    with tempfile.TemporaryDirectory(prefix="btrc-toolchain-") as temporary:
+        directory = Path(temporary)
+        output, diagnostic = directory / "stdout", directory / "stderr"
+        status, launch_error = directory / "status", directory / "launch-error.json"
+        request = directory / "request.json"
+        request.write_text(
+            json.dumps(
+                {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "env": {},
+                    "status": str(status),
+                    "launch_error": str(launch_error),
+                }
+            ),
+            encoding="utf-8",
         )
-    # File snapshots cannot hang on inherited pipes. Descendants that outlive their
-    # parent are the enclosing disposable runner's responsibility, not a claimed
-    # local process-tree guarantee. Temporary files may remain until runner disposal.
-    with (
-        tempfile.TemporaryDirectory(prefix="btrc-toolchain-", ignore_cleanup_errors=True) as temporary,
-        (Path(temporary) / "stdout").open("wb") as stdout,
-        (Path(temporary) / "stderr").open("wb") as stderr,
-    ):
+        job, process, timed_out = WindowsJob(), None, False
+        primary = None
         try:
-            process = subprocess.Popen(command, cwd=cwd, env=env, stdout=stdout, stderr=stderr)
-        except OSError as error:
-            return Result(127, b"", f"could not launch {command[0]}: {error}".encode(), False)
-        timed_out = False
-        cleanup_note = b""
-        try:
-            process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            try:
-                cleanup = subprocess.run(
-                    ["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
-                    capture_output=True,
-                    timeout=10,
-                    check=False,
+            with output.open("wb") as stdout, diagnostic.open("wb") as stderr:
+                process = subprocess.Popen(
+                    [
+                        getattr(sys, "_base_executable", sys.executable),
+                        str(ROOT / "tools/target_hosts/windows/executor.py"),
+                        "--gate",
+                        job.name,
+                        "--request",
+                        str(request),
+                    ],
+                    cwd=cwd,
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout,
+                    stderr=stderr,
+                    creationflags=0x00000008 | 0x00000200,
                 )
-                cleanup_note = cleanup.stdout + cleanup.stderr
-            except (OSError, subprocess.TimeoutExpired) as error:
-                cleanup_note = str(error).encode()
-            try:
-                if process.poll() is None:
-                    process.kill()
-                process.wait(timeout=10)
-            except (OSError, subprocess.TimeoutExpired) as error:
-                cleanup_note += b"; direct child cleanup failed: " + str(error).encode()
-        # Independent handles leave any surviving writer's file position intact.
-        # Fixed lengths prevent a surviving writer from extending these reads.
-        with (Path(temporary) / "stdout").open("rb") as capture:
-            output = capture.read(os.fstat(capture.fileno()).st_size)
-        with (Path(temporary) / "stderr").open("rb") as capture:
-            diagnostic = capture.read(os.fstat(capture.fileno()).st_size)
+                job.assign(process)
+                job.release()
+                try:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        timed_out = True
+                    else:
+                        process.wait(timeout=remaining)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+        except BaseException as error:
+            primary = error
+        finally:
+
+            def reap_gate():
+                if process is not None:
+                    if process.poll() is None:
+                        process.kill()  # Includes a gate whose assignment failed.
+                    process.wait(timeout=10)
+
+            # Attempt every cleanup even when termination fails. In particular,
+            # an unassigned gate still needs explicit kill/reap; closing the Job
+            # cannot own it. Also reap descendants after ordinary parent exit.
+            for cleanup in (job.terminate, reap_gate, job.wait_empty, job.close):
+                try:
+                    cleanup()
+                except BaseException as cleanup_error:
+                    if primary is None:
+                        primary = cleanup_error
+                    else:
+                        primary.add_note(f"Windows Job cleanup failed: {cleanup_error}")
+        stdout = output.read_bytes() if output.exists() else b""
+        stderr = diagnostic.read_bytes() if diagnostic.exists() else b""
+        if primary is not None:
+            if not isinstance(primary, Exception):
+                raise primary
+            message = "\n".join([str(primary), *getattr(primary, "__notes__", [])])
+            return Result(None, stdout, stderr + message.encode(), timed_out, message)
         if timed_out:
-            diagnostic += b"\nBest-effort taskkill (runner disposal remains required): " + cleanup_note
-        return Result(None if timed_out else process.returncode, output, diagnostic, timed_out)
+            return Result(None, stdout, stderr, True)
+        if launch_error.exists():
+            failure = json.loads(launch_error.read_text(encoding="utf-8"))
+            return Result(127, stdout, stderr + json.dumps(failure).encode(), False)
+        if not status.exists():
+            return Result(None, stdout, stderr, False, "Windows launch gate exited without target status")
+        return Result(int(status.read_text(encoding="ascii")), stdout, stderr, False)
 
 
 def main() -> int:
@@ -124,7 +154,8 @@ def main() -> int:
             "stdout": result.stdout.decode("utf-8", errors="replace"),
             "stderr": result.stderr.decode("utf-8", errors="replace"),
             "timed_out": result.timed_out,
-            "containment": "external-ephemeral-runner" if sys.platform == "win32" else "process-group",
+            "error": result.error,
+            "containment": "windows-job" if sys.platform == "win32" else "process-group",
         }
         code = 0
     except Exception as error:

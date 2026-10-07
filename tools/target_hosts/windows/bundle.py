@@ -26,14 +26,33 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def pe_machine(path):
-    data = Path(path).read_bytes()
+def pe_machine(source, *, optional_magic=None):
+    data = source if isinstance(source, bytes) else Path(source).read_bytes()
     if len(data) < 64 or data[:2] != b"MZ":
         raise ValueError("not a PE executable")
     offset = struct.unpack_from("<I", data, 0x3C)[0]
-    if offset + 6 > len(data) or data[offset : offset + 4] != b"PE\0\0":
+    if offset < 64 or offset + 6 > len(data) or data[offset : offset + 4] != b"PE\0\0":
         raise ValueError("invalid PE header")
+    if optional_magic is not None and (
+        offset + 26 > len(data) or struct.unpack_from("<H", data, offset + 24)[0] != optional_magic
+    ):
+        raise ValueError(f"invalid PE optional header (expected magic {optional_magic:#x})")
     return struct.unpack_from("<H", data, offset + 4)[0]
+
+
+def compiler_flags(*, root=ROOT):
+    return [
+        "-std=c11",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-pedantic",
+        "-I",
+        str(Path(root) / "src/runtime/windows"),
+        "-include",
+        str(Path(root) / "src/runtime/windows/btrc_win_compat.h"),
+    ]
 
 
 def source_fingerprint(root):
@@ -108,13 +127,14 @@ def verify_compiler_provenance(btrcc, receipt, *, root=ROOT):
     return record
 
 
-def run_build_command(command, *, cwd, stdout=None, capture=False, timeout_s=BUILD_TIMEOUT_S):
+def run_build_command(command, *, cwd, stdout=None, stderr=None, env=None, capture=False, timeout_s=BUILD_TIMEOUT_S):
     """Bound a compiler command and its inherited pipes on the Linux build host."""
     process = subprocess.Popen(
         command,
         cwd=cwd,
         stdout=subprocess.PIPE if capture else stdout,
-        stderr=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else stderr,
+        env=env,
         start_new_session=os.name == "posix",
     )
     original_error = None
@@ -195,22 +215,7 @@ def build(output, target, btrcc, *, root=ROOT, compiler_receipt=None):
     zig_target, machine = TARGETS[target]
     output.mkdir(parents=True, exist_ok=True)
     programs, cases = {}, acceptance_cases(root)
-    flags = [
-        "zig",
-        "cc",
-        "-target",
-        zig_target,
-        "-std=c11",
-        "-O2",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        "-pedantic",
-        "-I",
-        str(root / "src/runtime/windows"),
-        "-include",
-        str(root / "src/runtime/windows/btrc_win_compat.h"),
-    ]
+    flags = ["zig", "cc", "-target", zig_target, *compiler_flags(root=root)]
 
     def compile_c(program, source):
         executable = output / f"{program}.exe"

@@ -8,41 +8,25 @@ import json
 import os
 import platform
 import shlex
-import struct
 import sys
 import sysconfig
+import time
 from pathlib import Path
 
+from tools.target_hosts.windows.bundle import TARGETS, compiler_flags, pe_machine
 from tools.windows_toolchain.process_runner import run as run_process
 
 ROOT = Path(__file__).resolve().parents[2]
 PINS = json.loads(Path(__file__).with_name("pins.json").read_text())
-TARGET = "aarch64-windows-gnu"
-FLAGS = [
-    "-std=c11",
-    "-O2",
-    "-Wall",
-    "-Wextra",
-    "-Werror",
-    "-pedantic",
-    "-I",
-    str(ROOT / "src/runtime/windows"),
-    "-include",
-    str(ROOT / "src/runtime/windows/btrc_win_compat.h"),
-]
+TARGET, MACHINE = TARGETS["windows-aarch64"]
+FLAGS = compiler_flags(root=ROOT)
 
 
 def pe_arm64(path: Path) -> dict[str, str | int]:
     data = path.read_bytes()
-    if len(data) < 64 or data[:2] != b"MZ":
-        raise ValueError(f"not a DOS/PE image: {path}")
-    offset = struct.unpack_from("<I", data, 60)[0]
-    if offset < 64 or offset + 26 > len(data) or data[offset : offset + 4] != b"PE\0\0":
-        raise ValueError(f"invalid PE header: {path}")
-    machine = struct.unpack_from("<H", data, offset + 4)[0]
-    magic = struct.unpack_from("<H", data, offset + 24)[0]
-    if machine != 0xAA64 or magic != 0x20B:
-        raise ValueError(f"expected ARM64 PE32+, got machine={machine:#x}, magic={magic:#x}: {path}")
+    machine = pe_machine(data, optional_magic=0x20B)
+    if machine != MACHINE:
+        raise ValueError(f"expected ARM64 PE32+, got machine={machine:#x}: {path}")
     return {"path": str(path), "machine": machine, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
 
 
@@ -51,24 +35,37 @@ class Evidence:
         self.output, self.zig = output.resolve(), zig
         self.output.mkdir(parents=True, exist_ok=True)
         self.environment = {**os.environ, "BTRC_HOME": str(ROOT / "src")}
+        self.deadline = None
         self.report = {
             "status": "failed",
             "host": platform.platform(),
             "host_system": platform.system(),
             "python_platform": sysconfig.get_platform(),
             "native_execution": "not-run",
-            "containment": "external-ephemeral-runner" if sys.platform == "win32" else "process-group",
+            "containment": "windows-job" if sys.platform == "win32" else "process-group",
             "steps": [],
         }
 
     def run(self, args: list[str | Path], name: str, *, timeout: int = 3600) -> bytes:
+        if self.deadline is not None:
+            timeout = min(timeout, self.deadline - time.monotonic())
+            if timeout <= 0:
+                raise TimeoutError(f"overall native evidence deadline expired before {name}")
         command = list(map(str, args))
         result = run_process(command, cwd=ROOT, env=self.environment, timeout=timeout)
         (self.output / f"{name}.stdout").write_bytes(result.stdout)
         (self.output / f"{name}.stderr").write_bytes(result.stderr)
         self.report["steps"].append(
-            {"name": name, "argv": command, "exit_code": result.returncode, "timed_out": result.timed_out}
+            {
+                "name": name,
+                "argv": command,
+                "exit_code": result.returncode,
+                "timed_out": result.timed_out,
+                "timeout_s": timeout,
+            }
         )
+        if result.error:
+            raise RuntimeError(f"{name}: {result.error}; partial stdout/stderr retained")
         if result.timed_out:
             raise RuntimeError(f"{name} timed out after {timeout}s; partial stdout/stderr retained")
         if result.returncode:
@@ -122,6 +119,9 @@ class Evidence:
         self.report["cross_source_revision"] = summary["revision"]
 
     def native(self, cross: Path, cross_summary: Path) -> None:
+        # Leave ten minutes of the 210-minute hosted step for report/cleanup.
+        self.deadline = time.monotonic() + 12000
+        self.report["overall_timeout_s"] = 12000
         if platform.system() != "Windows" or sysconfig.get_platform() != "win-arm64":
             raise RuntimeError("native evidence requires ARM64 Python on an actual ARM64 Windows host")
         if any(path.resolve().is_relative_to(self.output) for path in (cross, cross_summary)):

@@ -22,15 +22,10 @@ try {
     try { Assert-ArchiveDigest $temp } catch { $refused = $true }
     if (-not $refused) { throw 'Incorrect wgpu archive accepted' }
 } finally { Remove-Item -LiteralPath $temp }
-# External containment tests need a real disposable Windows runner. The pipe
-# regression below specifically exercises the POSIX process-group path.
-if ($IsWindows) {
-    $program = "import time; print('CHILD-STDOUT-7d38',flush=True); time.sleep(60)"
-    $child = ''
-} else {
-    $child = 'import time; time.sleep(60)'
-}
-if (-not $IsWindows) { $program = "import subprocess,sys; subprocess.Popen([sys.executable,'-c',sys.argv[1]]); print('CHILD-STDOUT-7d38',flush=True)" }
+# Exercise a real timed-out target on both platforms; the shared process owner
+# must retain the child's evidence before releasing its capture files.
+$program = "import time; print('CHILD-STDOUT-7d38',flush=True); time.sleep(60)"
+$child = ''
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $refused = $false
 try { Invoke-Bounded $python @('-c', $program, $child) -TimeoutSeconds 3 | Out-Null }
@@ -61,7 +56,7 @@ try {
         if ($File -ne 'cmd.exe' -or $Arguments.Count -ne 3 -or $Arguments[2] -notmatch '^btrc-vsenv-[a-f0-9]+\.cmd$') { throw 'Unsafe cmd quoting' }
         $script:capturedScript = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) $Arguments[2]
         $body = Get-Content -LiteralPath $script:capturedScript -Raw
-        if (-not $body.Contains('call "C:\Program Files\Visual Studio\VsDevCmd.bat" -no_logo -arch=arm64 -host_arch=arm64 >nul')) { throw 'Developer command not quoted inside script' }
+        if (-not $body.Contains('call "C:\Program Files\Visual Studio\VsDevCmd.bat" -no_logo -arch=arm64 -host_arch=arm64 1>&2')) { throw 'Developer command not quoted inside script' }
         if (-not $body.Contains('if errorlevel 1 exit /b %errorlevel%')) { throw 'Developer failure not propagated' }
         return [pscustomobject]@{ stdout = "BTRC_VSENV_TEST=imported`n" }
     }
@@ -72,3 +67,8 @@ try {
     $env:BTRC_VSENV_TEST = $previousProbe
 }
 Write-Output 'PASS: developer script quoting and environment import stand-in'
+
+foreach ($path in @('C:\bad%path\VsDevCmd.bat', 'C:\bad^path\VsDevCmd.bat')) {
+    try { Enter-Arm64Environment $path; throw 'Metacharacter path accepted' }
+    catch { if ($_.Exception.Message -ne 'VsDevCmd path contains unsupported cmd metacharacters') { throw } }
+}

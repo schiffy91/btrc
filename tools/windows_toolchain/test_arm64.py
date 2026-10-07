@@ -5,7 +5,6 @@ import json
 import os
 import re
 import struct
-import subprocess
 import sys
 import tempfile
 import time
@@ -54,7 +53,7 @@ class Arm64EvidenceTests(unittest.TestCase):
     def test_pe32_arm64_is_rejected(self):
         struct.pack_into("<H", self.data, 152, 0x10B)
         self.image.write_bytes(self.data)
-        with self.assertRaisesRegex(ValueError, "PE32"):
+        with self.assertRaisesRegex(ValueError, "PE optional header"):
             pe_arm64(self.image)
 
     def test_native_refuses_linux_before_compilation(self):
@@ -159,15 +158,22 @@ class Arm64EvidenceTests(unittest.TestCase):
         program = (
             "import subprocess,sys; subprocess.Popen([sys.executable,'-c',sys.argv[1]]); print('partial',flush=True)"
         )
-        if sys.platform == "win32":
-            # The runner owns orphan cleanup; only assert this direct child deadline here.
-            program = "import time; print('partial',flush=True); time.sleep(60)"
         started = time.monotonic()
-        timeout = 3
-        result = run([sys.executable, "-c", program, child], cwd=self.root, env=None, timeout=timeout)
+        result = run([sys.executable, "-c", program, child], cwd=self.root, env=None, timeout=3)
+        self.assertFalse(result.timed_out)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.splitlines(), [b"partial"])
+        self.assertLess(time.monotonic() - started, 6)
+
+    def test_timeout_keeps_child_output(self):
+        result = run(
+            [sys.executable, "-c", "import time; print('partial',flush=True); time.sleep(60)"],
+            cwd=self.root,
+            env=None,
+            timeout=3,
+        )
         self.assertTrue(result.timed_out)
         self.assertEqual(result.stdout.splitlines(), [b"partial"])
-        self.assertLess(time.monotonic() - started, timeout + 3)
 
     def test_download_pins_are_complete(self):
         pins = json.loads(Path(__file__).with_name("pins.json").read_text())
@@ -177,45 +183,80 @@ class Arm64EvidenceTests(unittest.TestCase):
             self.assertGreater(int(pins[key]["size"]), 0)
         self.assertEqual(len(pins["wgpu"]["sha256"]), 64)
 
-    def test_windows_requires_external_containment_contract(self):
-        with self.assertRaisesRegex(RuntimeError, "enclosing runner deadline"):
-            run_windows([sys.executable], cwd=self.root, env={}, timeout=1)
+    def test_windows_job_cannot_be_claimed_on_another_host(self):
+        if sys.platform != "win32":
+            with self.assertRaisesRegex(RuntimeError, "require native Windows"):
+                run_windows([sys.executable], cwd=self.root, env={}, timeout=1)
+        else:
+            result = run_windows([sys.executable, "-c", "pass"], cwd=self.root, env=None, timeout=10)
+            self.assertEqual(result.returncode, 0)
 
-    def test_windows_file_capture_keeps_failure_and_launch_error(self):
-        environment = {**os.environ, "BTRC_WINDOWS_EXTERNAL_CONTAINMENT": "ephemeral-runner"}
-        result = run_windows(
+    def test_file_capture_keeps_failure_and_launch_error(self):
+        result = run(
             [sys.executable, "-c", "import sys; print('OBSERVED'); sys.exit(2)"],
             cwd=self.root,
-            env=environment,
+            env=os.environ.copy(),
             timeout=10,
         )
         self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout.strip(), b"OBSERVED")
-        result = run_windows([str(self.root / "missing-clang.exe")], cwd=self.root, env=environment, timeout=1)
+        result = run([str(self.root / "missing-clang.exe")], cwd=self.root, env=None, timeout=10)
         self.assertEqual(result.returncode, 127)
         self.assertIn(b"missing-clang.exe", result.stderr)
 
-    def test_windows_cleanup_failure_retains_output(self):
-        environment = {**os.environ, "BTRC_WINDOWS_EXTERNAL_CONTAINMENT": "ephemeral-runner"}
-        process = Mock()
-        process.wait.side_effect = subprocess.TimeoutExpired("fixture", 1)
-        process.poll.return_value = None
-
-        def launch(command, **kwargs):
-            kwargs["stdout"].write(b"CHILD-EVIDENCE-31ab")
-            kwargs["stdout"].flush()
-            return process
-
+    def test_windows_cleanup_failure_is_not_a_successful_result(self):
+        process, job = Mock(), Mock()
+        job.name = "fixture-event"
+        process.poll.return_value = 0
+        job.wait_empty.side_effect = RuntimeError("job still has live processes")
         with (
-            patch("tools.windows_toolchain.process_runner.subprocess.Popen", side_effect=launch),
-            patch("tools.windows_toolchain.process_runner.subprocess.run", side_effect=OSError("taskkill unavailable")),
+            patch("tools.windows_toolchain.process_runner.WindowsJob", return_value=job),
+            patch("tools.windows_toolchain.process_runner.subprocess.Popen", return_value=process),
         ):
-            result = run_windows(["fixture"], cwd=self.root, env=environment, timeout=1)
-        self.assertTrue(result.timed_out)
-        self.assertEqual(result.stdout, b"CHILD-EVIDENCE-31ab")
-        self.assertIn(b"taskkill unavailable", result.stderr)
-        self.assertIn(b"direct child cleanup failed", result.stderr)
+            result = run_windows(["fixture"], cwd=self.root, env=None, timeout=1)
+        self.assertIsNone(result.returncode)
+        self.assertIn("job still has live processes", result.error)
+        job.assign.assert_called_once_with(process)
+        job.release.assert_called_once()
+        job.terminate.assert_called_once()
+        job.close.assert_called_once()
+
+    def test_overall_deadline_caps_each_command_and_refuses_new_work(self):
+        evidence = Evidence(self.root, "zig")
+        evidence.deadline = 105
+        with (
+            patch("tools.windows_toolchain.arm64.time.monotonic", return_value=100),
+            patch("tools.windows_toolchain.arm64.run_process", return_value=Result(0, b"ok", b"", False)) as execute,
+        ):
+            evidence.run(["fixture"], "bounded", timeout=3600)
+            self.assertEqual(execute.call_args.kwargs["timeout"], 5)
+        with (
+            patch("tools.windows_toolchain.arm64.time.monotonic", return_value=106),
+            patch("tools.windows_toolchain.arm64.run_process") as execute,
+            self.assertRaisesRegex(TimeoutError, "overall native evidence deadline"),
+        ):
+            evidence.run(["fixture"], "expired")
+        execute.assert_not_called()
+
+    def test_assignment_failure_still_reaps_gate_when_job_termination_fails(self):
+        process, job = Mock(), Mock()
+        job.name = "fixture-event"
+        process.poll.return_value = None
+        job.assign.side_effect = RuntimeError("assignment failed")
+        job.terminate.side_effect = RuntimeError("termination failed")
+        with (
+            patch("tools.windows_toolchain.process_runner.WindowsJob", return_value=job),
+            patch("tools.windows_toolchain.process_runner.subprocess.Popen", return_value=process),
+        ):
+            result = run_windows(["fixture"], cwd=self.root, env=None, timeout=1)
+        self.assertIsNone(result.returncode)
+        self.assertIn("assignment failed", result.error)
+        self.assertIn("termination failed", result.error)
+        job.release.assert_not_called()
         process.kill.assert_called_once()
+        process.wait.assert_called_once_with(timeout=10)
+        job.wait_empty.assert_called_once()
+        job.close.assert_called_once()
 
     def test_report_writer_refuses_cross_summary_collision_before_any_output(self):
         output = self.root / "output"

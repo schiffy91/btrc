@@ -1,0 +1,128 @@
+name: Windows ARM64 Toolchain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/windows-arm64.yml
+      - tools/windows_toolchain/**
+      - tools/target_hosts/windows/**
+      - src/compiler/**
+      - src/language/**
+      - src/runtime/**
+      - src/stdlib/**
+      - src/tests/btrc/test_bootstrap.py
+      - src/tests/python/test_ci_workflow_contracts.py
+      - flake.nix
+      - flake.lock
+      - nix/wgpu-native-prebuilt.nix
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/windows-arm64.yml
+      - tools/windows_toolchain/**
+      - tools/target_hosts/windows/**
+      - src/compiler/**
+      - src/language/**
+      - src/runtime/**
+      - src/stdlib/**
+      - src/tests/btrc/test_bootstrap.py
+      - src/tests/python/test_ci_workflow_contracts.py
+      - flake.nix
+      - flake.lock
+      - nix/wgpu-native-prebuilt.nix
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-arm64-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  cross:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Check portable evidence tooling
+        run: nix develop --command python3 -m unittest tools.windows_toolchain.test_arm64 -v
+      - name: Cross-build the ARM64 compiler
+        run: nix develop --command python3 -m tools.windows_toolchain.arm64 cross --out build/windows-arm64-cross
+      - name: Retain cross evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-arm64-cross
+          path: build/windows-arm64-cross
+          if-no-files-found: warn
+          retention-days: 30
+
+  native:
+    needs: cross
+    runs-on: windows-11-arm
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+          architecture: arm64
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-arm64-cross
+          path: build/windows-arm64-input
+      - name: Install verified toolchain archives
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pins = Get-Content tools/windows_toolchain/pins.json -Raw | ConvertFrom-Json
+          New-Item -ItemType Directory -Force downloads | Out-Null
+          $zig = 'downloads/zig.zip'
+          Invoke-WebRequest $pins.zig_windows_arm64.tarball -OutFile $zig
+          if ((Get-Item $zig).Length -ne [long]$pins.zig_windows_arm64.size -or
+              (Get-FileHash $zig -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pins.zig_windows_arm64.shasum) {
+            throw 'Pinned Zig archive size/hash mismatch'
+          }
+          Expand-Archive $zig downloads/zig -Force
+          $binary = @(Get-ChildItem downloads/zig -Filter zig.exe -Recurse)
+          if ($binary.Count -ne 1) { throw 'Expected exactly one Zig executable' }
+          $binary[0].DirectoryName >> $env:GITHUB_PATH
+          Invoke-WebRequest $pins.wgpu.url -OutFile downloads/wgpu.zip
+          if ((Get-FileHash downloads/wgpu.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pins.wgpu.sha256) {
+            throw 'Pinned wgpu archive hash mismatch'
+          }
+          python -m pip install '.[dev]'
+      - name: Verify native process ownership and probe tooling
+        run: |
+          python -m unittest tools.windows_toolchain.test_arm64 -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tools/windows_toolchain/test_probe.ps1
+      - name: Qualify native compiler and bootstrap
+        timeout-minutes: 210
+        run: python -m tools.windows_toolchain.arm64 native --cross build/windows-arm64-input/btrcc.exe --cross-summary build/windows-arm64-input/summary.json --out build/windows-arm64-native
+      - name: Qualify MSVC ABI and wgpu
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: ./tools/windows_toolchain/msvc_probe.ps1 -WgpuArchive downloads/wgpu.zip -OutputDirectory build/windows-arm64-msvc
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-arm64-native
+          path: |
+            build/windows-arm64-native
+            build/windows-arm64-msvc
+          if-no-files-found: warn
+          retention-days: 30

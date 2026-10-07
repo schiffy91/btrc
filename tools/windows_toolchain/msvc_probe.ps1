@@ -26,6 +26,7 @@ function Get-WindowsSdkVersion {
 }
 
 function Enter-Arm64Environment([string]$DevCmd) {
+    if ($DevCmd -match '[%\^"\r\n]') { throw 'VsDevCmd path contains unsupported cmd metacharacters' }
     # A simple relative .cmd filename avoids passing nested cmd.exe quoting
     # through Python's list2cmdline. Keep the script beside the module's cwd.
     $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -34,7 +35,8 @@ function Enter-Arm64Environment([string]$DevCmd) {
     try {
         Set-Content -LiteralPath $script -Encoding utf8NoBOM -Value @"
 @echo off
-call "$DevCmd" -no_logo -arch=arm64 -host_arch=arm64 >nul
+setlocal DisableDelayedExpansion
+call "$DevCmd" -no_logo -arch=arm64 -host_arch=arm64 1>&2
 if errorlevel 1 exit /b %errorlevel%
 set
 "@
@@ -59,8 +61,7 @@ function Invoke-Bounded([string]$File, [string[]]$Arguments, [int]$TimeoutSecond
     $start.FileName = $PythonExecutable
     $start.WorkingDirectory = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
     $start.UseShellExecute = $false
-    # Python bounds the command and captures output. Windows tree containment
-    # explicitly belongs to the enclosing disposable runner, not this wrapper.
+    # Python captures output; the shared WindowsJob owns the entire target tree.
     foreach ($argument in @('-m', 'tools.windows_toolchain.process_runner', '--output', $resultPath,
                              '--timeout', $TimeoutSeconds.ToString(), '--', $File) + $Arguments) {
         $start.ArgumentList.Add($argument)
@@ -76,8 +77,8 @@ function Invoke-Bounded([string]$File, [string[]]$Arguments, [int]$TimeoutSecond
         }
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         if ($process.ExitCode -ne 0) { throw $result.error }
-        if ($result.timed_out -or $result.returncode -notin $AllowedExitCodes) {
-            $reason = if ($result.timed_out) { 'timed out' } else { "exited $($result.returncode)" }
+        if ($result.error -or $result.timed_out -or $result.returncode -notin $AllowedExitCodes) {
+            $reason = if ($result.error) { $result.error } elseif ($result.timed_out) { 'timed out' } else { "exited $($result.returncode)" }
             $failure = [InvalidOperationException]::new("$File $reason; stdout: $($result.stdout); stderr: $($result.stderr)")
             $failure.Data['result'] = $result
             throw $failure
@@ -92,7 +93,7 @@ function Invoke-Bounded([string]$File, [string[]]$Arguments, [int]$TimeoutSecond
 if ($FunctionsOnly) { return }
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $output | Out-Null
-$report = [ordered]@{ status = 'failed'; target = 'aarch64-pc-windows-msvc19.40.0'; native_execution = 'not-run'; containment = 'external-ephemeral-runner' }
+$report = [ordered]@{ status = 'failed'; target = 'aarch64-pc-windows-msvc19.40.0'; native_execution = 'not-run'; containment = 'windows-job' }
 try {
     if (-not $IsWindows -or [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne 'Arm64') {
         throw 'Requires native ARM64 PowerShell on Windows ARM64'
@@ -101,9 +102,13 @@ try {
     Assert-ArchiveDigest $WgpuArchive
     $report.wgpu_sha256 = (Get-FileHash -LiteralPath $WgpuArchive -Algorithm SHA256).Hash.ToLowerInvariant()
     if (-not $Vswhere) { $Vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe' }
-    $installation = (Invoke-Bounded $Vswhere @('-latest', '-products', '*', '-property', 'installationPath')).stdout.Trim()
-    if (-not $installation) { throw 'Visual Studio installation not found' }
-    $devcmd = Join-Path $installation 'Common7/Tools/VsDevCmd.bat'
+    $installations = @((Invoke-Bounded $Vswhere @('-latest', '-products', '*', '-requires',
+        'Microsoft.VisualStudio.Component.VC.Tools.ARM64', 'Microsoft.VisualStudio.Component.VC.Llvm.Clang',
+        '-format', 'json', '-utf8')).stdout | ConvertFrom-Json)
+    if ($installations.Count -ne 1) { throw 'Visual Studio with ARM64 and Clang components not found' }
+    $report.visual_studio_version = $installations[0].installationVersion
+    $report.visual_studio_path = $installations[0].installationPath
+    $devcmd = Join-Path $report.visual_studio_path 'Common7/Tools/VsDevCmd.bat'
     Enter-Arm64Environment $devcmd
     $env:VSLANG = '1033'
     $cl = Invoke-Bounded 'cl.exe' @('/Bv') -AllowedExitCodes @(0, 2)
