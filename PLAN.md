@@ -26,6 +26,112 @@ batch evidence. The frozen [reference](docs/design/plan-reference.md) and every
 `ref:N` line citation remain unchanged. This document has no effort or calendar
 estimates: order follows demonstrated dependencies and payoff.
 
+## Goals versus status (2026-10-07)
+
+The owner's goals are a fast compiler across real build workloads and a usable
+standard library with native GUI on macOS, Linux, Windows, iOS/iPadOS and
+Android. BTRSmith is the real application used to prove the compiler and library.
+Report progress against those outcomes: measured benchmark versus target,
+working library features per platform, and completed application journeys.
+Branch consolidation, test counts and environment repairs support those goals;
+they do not by themselves demonstrate faster compilation or delivered GUI features.
+
+**Overall:** the compiler is substantially implemented and has broad correctness
+evidence. Final performance acceptance is open. Desktop GUI shells and selected
+features work, while the complete desktop library and Windows/mobile providers
+remain incomplete. The integrated candidate is not yet on main. There is no
+defensible overall percentage complete: the remaining items have different scope
+and several acceptance measurements are missing.
+
+### Goal 1: fast compilation and bounded memory
+
+The measurements below are the historical `65057cb` record, retained in
+[the performance baseline](#recorded-performance-and-coverage-baseline).
+They are not current-source measurements. Ratios describe that record's distance
+from the target, not a measured regression or a forecast. Stages 5–13 define the
+remaining implementation and measurement work; their intermediate milestones do
+not replace the final objectives.
+
+| Workload | Final objective | Last recorded evidence | Goal status |
+|---|---|---|---|
+| Body edits in navigation, UI controller and audio preparation | Median ≤5 s; p95 ≤8 s | Medians 9.62 / 9.69 / 9.31 s | Historical medians roughly 1.9× the limit; current medians and p95 unqualified |
+| Cold transpilation | ≤10 s | 43.57 s | Historical result 4.4× the limit; current result unqualified |
+| Cold development build | ≥10× faster than frozen baseline and ≤min(20 s, baseline/10); working budget 13.5 s | 59.76 s | Historical result 4.4× the working budget; current result unqualified |
+| No-op / touch | Stage 11 no-op optimization target ≤1 s; final runbook no-op/touch acceptance ≤5 s | 2.92 / 2.91 s | Historical runbook limit met, Stage 11 no-op target missed; current product-Make result unqualified |
+| Cold release | ≤30 s | Final acceptance outstanding | Unproven |
+| Warm batch of ten product programs | ≤30 s | Final acceptance outstanding | Unproven |
+| Compiler peak footprint | ≤1.5 GiB | 2.966 GiB; aggregate build memory 4.828 GiB | Historical compiler peak roughly 2× the limit; current footprint unqualified |
+| Self-compilation and full corpus | Median wall time and RSS within 5% of Stage 5 baselines, or an explained tradeoff | Current baseline/acceptance round outstanding | Unproven |
+| Parallel workers and module builds | 1/2/4/8-worker wall/RSS sweep; module release ≤110% of whole-program | Current acceptance outstanding | Unproven |
+
+The Python reference compiler also retains its own final targets: transpilation
+≤60 s, cold development ≤75 s, edit median ≤10 s/p95 ≤15 s, batch ≤60 s and
+peak ≤1.5 GiB. Current acceptance is missing. The paired incremental mechanism
+must prove that a body edit analyzes and lowers exactly one changed source group
+and does not lower unchanged groups; passing intermediate timing budgets does
+not close that requirement.
+
+**Next measurable outcomes:** qualify the current compiler/BTRSmith pin, capture
+the quiet workload matrix, isolate the repeated Linux peak-memory regression,
+and complete changed-group reuse before the next optimization claims. The local
+Mac memory diagnostic was cancelled before any sample because the quiet check
+refused the host; it supplies no performance result. Do not refresh a benchmark
+baseline or relax a target to hide the outstanding regression.
+
+### Goal 2: usable standard library and native GUI on five platforms
+
+These rows distinguish a compiler or fixture host from an application-facing
+provider. The detailed feature acceptance remains in Stages 22–37 and the
+[provider implementation queue](#provider-implementation-queue).
+
+| Platform | Demonstrated capability | Missing product capability / next demonstrable result |
+|---|---|---|
+| macOS | AppKit shell and selected controls; substantial lifecycle, restoration and sanitizer evidence through both compilers | Land complete UI2 event/executor/lifecycle interfaces with the provider; finish input/focus and broader controls/layout/services, accessibility and GPU journeys. Earlier isolated retention finding remains unresolved. |
+| Linux | SDL shell; X11 GUI/audio lane; repaired Wayland candidate passes dedicated checks | Land current-interface input/layout repairs and UI2 provider, resolve toolkit direction, and qualify remaining features and accessibility. Wayland remains report-only until its required main acceptance. |
+| Windows | Compiler/host infrastructure and partial SDK integration | Resolve native ARM64 toolchain crash, qualify actual SDK/OS service providers, then demonstrate a native shell with button, editable field, events and safe teardown. |
+| iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
+| Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
+
+Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
+audio and foreign-library ownership still require their platform-specific
+implementations and acceptance. HTTP and Windows service contract drafts are
+review work, not completed providers. Approved UI contracts likewise remain
+separate from implemented, tested widgets. Independent existing-interface
+repairs can proceed without waiting for all five shells or BTRSmith migration.
+
+**Next measurable outcomes:** deliver the five small repairs in
+[the first delivery queue](#first-delivery-queue), then land the approved UI2
+interface with both desktop providers. Advance each Windows/mobile service or
+small GUI slice as soon as its own ABI, lifecycle and ownership prerequisites
+work. Each claim needs an actual application-facing operation on that platform.
+
+### Goal 3: prove the compiler and library in BTRSmith
+
+BTRSmith's recorded pin remains `05ec9cb7` at app revision `adb3276f`; the pin
+update and current application requalification are outstanding. UI migration,
+real application build/runtime budgets, installed-product journeys, physical
+audio/latency sessions and release qualification remain open (Stages 36–43).
+The targets include search p95 ≤100 ms, static idle CPU ≤1%, player frame p95
+≤16.7 ms and zero app-induced xruns over 30 minutes. Those are acceptance goals,
+not measured achievements in this integration session.
+
+**Next measurable outcome:** a qualified current compiler pin running BTRSmith's
+frontend and library smoke checks through both compilers, followed by completed
+screen journeys as their library providers land. Hardware, listening and release
+account requirements remain explicit where automated tests cannot prove them.
+
+### Integration status in service of the goals
+
+The consolidated plan and candidate combine substantial compiler correctness,
+C-compatibility, diagnostics and platform-host repairs. Bootstrap and all eight
+strict-C11 configurations pass on the recorded checkpoint; final combined-tree
+qualification, performance failures and native-platform gaps remain. The later
+Apple availability schema/table merge `ba6c221d` passed 186 focused checks and
+static/generated gates locally; semantic consumers and final integration remain.
+The macOS Python/libffi repair is still under verification and currently blocks
+qualification of the new Windows crash-location diagnostic. Neither repair is
+reported as a compiler-speed improvement or a delivered GUI feature.
+
 ## Owner update: one plan and integration (2026-10-07)
 
 **D29.** The owner requested one detailed, current plan, then instructed this
@@ -45,6 +151,7 @@ issue is called complete merely because it applies without a Git conflict.
 
 ## Navigation
 
+- [Goals versus status](#goals-versus-status-2026-10-07)
 - [Current status](#current-status-2026-10-07) and [immediate execution order](#immediate-execution-order)
 - [Branch disposition](#branch-disposition-2026-10-07) and [open issue accounting](#open-issue-accounting)
 - [Provider implementation queue](#provider-implementation-queue)
