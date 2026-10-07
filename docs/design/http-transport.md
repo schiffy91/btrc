@@ -1,7 +1,7 @@
 # HTTP transport and Browser ownership draft
 
-Status: **Revision 4, approval pending**, CX-P2-02; source baseline
-`45416fd069665bf48e0b3000c4aafd1889cb55e2` (2026-10-05). This document
+Status: **Revision 5, approval pending**, CX-P2-02; source baseline
+`87dd60d7c602448cdd1bcf78ab3134b772e3aed5` (2026-10-07). This document
 proposes the Stage 26 interface freeze. It changes no production interface,
 provider, build input, trust store or qualification result. CL-P2-01 must review
 and approve it and record the decision in PLAN.md before implementation.
@@ -65,7 +65,7 @@ are an error. The original validation order and literal strings are:
 | 8 | Sum of header line lengths exceeds 65,536 | `HTTP headers are too large` |
 | 9 | Non-null body's strlen exceeds maxRequestBytes | `request body is too large` |
 
-### Revision 4 request admission (before any provider I/O)
+### Revision 5 request admission (before any provider I/O)
 
 The table above records the old implementation, not the new admission set.
 The following changes are deliberate, versioned rejections on **every target**,
@@ -320,6 +320,19 @@ expects this declared unsupported outcome on that profile, not a false common
 until CL-P2-01 approves an amended Q9 provider choice or qualifies an SDK that
 actually consumes all interim responses. Q9 still selects HttpURLConnection;
 this draft neither adds a private OkHttp dependency nor silently selects Cronet.
+
+Every Android request, including each admitted redirect hop, sets the
+provider-owned `Connection: close` before any network-capable call. Connection
+is already a reserved caller header; no caller can remove or override this
+policy. An exposed 1xx or rejected 101 must not leave unread response bytes on
+a connection that this request returns to the pool. Closing/disconnecting alone
+after the SDK classifies the response is not accepted as the prevention proof.
+The isolated-process 103→200 and 101 fixtures immediately issue another request
+to the same origin and require distinct server connection identities and only
+the second request's own response. A contaminated socket or leaked first body
+fails qualification. The header does not isolate acquisition from an ambient
+pool populated by other application code: that interference and SDK retry
+adaptation remain, and the profile still cannot claim no-replay qualification.
 The alternative is an explicitly assigned client owned by the provider, with
 public checked JNI APIs, dependency/version policy, independent trust/proxy/
 cookie/retry qualification and amended packet scope. That alternative is a new
@@ -441,7 +454,9 @@ server rolled back. The transport does not retry it. Provider teardown disables
 new callback entry and drains existing entries before freeing storage; generation
 checks inside freed storage are insufficient. Request close is idempotent.
 Cancellation must interrupt blocked network work or use bounded remaining-budget
-waits; a cancel flag examined only after the full response is not sufficient.
+waits on the caller path; a cancel flag examined only after the full response is
+not sufficient. Native drain guarantees are profile-specific; the restricted
+Android quarantine adaptation below does not qualify a finite drain deadline.
 
 A 1,000 ms cancellation-observation target is proposed for local deterministic
 fixtures, separately from the timeout deadline. Safe cleanup cannot free live
@@ -456,14 +471,17 @@ detach. DNS that cannot be interrupted (InetAddress, synchronous libcurl or libc
 with the threaded resolver)
 runs on a provider-owned native worker. The caller's monotonic wait can expire,
 but retained native work is quarantined until actual quiescence. Bound admission
-of such outstanding workers; timeout cannot allow unbounded orphan work.
+of such outstanding workers; timeouts must not create an unbounded number of
+orphan workers. A worker-count or provider-buffer bound is not a native lifetime
+bound: the restricted Android profile below explicitly leaves native drain
+latency unqualified.
 
 | Provider | Observation, abort and sole cleanup owner |
 | --- | --- |
 | Linux | The c-ares-qualified perform controller owns multi/easy handles, polls at ≤100 ms and alone removes/cleans them after callbacks return. ASYNCHDNS alone is insufficient: threaded-resolver remove/cleanup can join getaddrinfo. Any blocking/threaded profile puts the **entire** multi/easy transaction, including abort/remove/cleanup, on one bounded quarantinable native worker. The caller polls native state, selects cancel/deadline and returns without joining; only that worker ever touches/frees its curl handles. No cleanup call runs on the bounded caller path. |
 | Apple | The perform controller polls its event at ≤100 ms and enqueues task cancel/session invalidation to the serial delegate owner. That owner serializes delegate entry and teardown; final didBecomeInvalidWithError establishes drain. R2 callback/data references release on the qualified release executor; R1 session/buffer ownership releases once after that drain. The controller never frees a task from under a callback. |
 | Windows | The async WinHTTP controller waits on a native event at ≤100 ms. It alone calls WinHttpCloseHandle on request, connection and session, including cancellation. Callback storage and buffers remain until all registered HANDLE_CLOSING notifications and already-entered callbacks drain, as detailed below. |
-| Android | One native I/O worker owns all Java calls, streams and connection; it alone closes streams and calls disconnect in finally. The perform controller mirrors cancellation into synchronized native terminal state at ≤100 ms and never calls disconnect concurrently with a worker mutating non-volatile httpEngine. Blocking calls run with remaining-budget timeouts; on cancel/deadline the caller returns while the bounded native worker is quarantined until it exits. Native R1 ownership and Java refs remain valid throughout. Worker-local JNI refs release on that worker; retained global refs release exactly once on the qualified Java cleanup owner after worker drain. |
+| Android | One native I/O worker owns all Java calls, streams and connection; it alone closes streams and calls disconnect in finally. The perform controller mirrors cancellation into synchronized native terminal state at ≤100 ms and never calls disconnect concurrently with a worker mutating non-volatile httpEngine. Blocking calls run with remaining-budget timeouts; on cancel/deadline the caller returns while its admitted native worker retains a process-wide capacity slot until it exits; native drain latency is unbounded/unqualified on this restricted profile. Native R1 ownership and Java refs remain valid throughout. Worker-local JNI refs release on that worker; retained global refs release exactly once on the qualified Java cleanup owner after worker drain. |
 
 Android's worker acquire-checks native cancellation/terminal state before each
 network-capable call (including connect, getOutputStream, getResponseCode and
@@ -479,6 +497,40 @@ start-admission barrier, during DNS/connect and immediately after connect;
 pre-admission cancellation yields zero server observations. On drain it closes
 streams, disconnects once, and releases references exactly once. CL-P2-09 must
 qualify this native worker/cleanup handoff; no shared JNIEnv or cross-thread ARC.
+
+**Android native-drain adaptation (approval required).** Finite connect/read
+settings and a bounded caller wait do not establish a deadline for an already
+admitted Java operation, stream close or disconnect. This profile supplies no
+concurrent abort owner and makes no finite native-drain guarantee. In particular,
+a peer can stall an upload with a zero receive window, or drip response headers
+inside the SDK's per-read timeout while one response-code call remains in flight.
+The [Android URLConnection timeout contract](https://developer.android.com/reference/java/net/URLConnection)
+is not a whole-transaction or native-cleanup deadline. A consumer requiring
+bounded native resource lifetime must reject this profile until CL-P2-09
+qualifies an abort-capable alternative; prompt caller return cannot qualify it.
+
+One process-wide native owner admits at most a fixed, recorded positive N live
+or quarantined workers, with a separate finite quota for provider-owned request
+and read buffers. A cancelled/timed-out worker continues occupying its slot and
+retaining R1 state and Java references until actual drain. Destroying/recreating
+a facade cannot reset those counters or replace stuck workers. On saturation,
+return HTTP_FAILURE_PROVIDER (legacy code 2, resource-capacity diagnostic) before
+DNS, connection or new worker creation. All N slots can remain unavailable
+indefinitely; record that loss of admission availability as part of this profile.
+Neither this quota nor the reconstructed header limit bounds hidden SDK memory.
+No implementation may detach leaked workers, free live references or recycle a
+slot to make its timeout test pass.
+
+Native fixtures hold both a zero-window upload and a drip-fed-header operation
+past caller cancel/deadline. They prove bounded caller observation, a retained
+occupied slot, no later provider-admitted operation, saturation rejection across
+fresh facade instances, and no premature ref release. The fixture then releases
+or closes the peer and checks actual worker drain, exactly-once cleanup and
+restored admission. Retain time series for live/quarantined workers, owned
+buffers and JNI references; no claim of a finite drain bound follows from that
+controlled release. Failure to drain after the fixture releases its peer fails
+the fixture; terminate its isolated test process only after retaining failure
+evidence, never report that termination as successful provider cleanup.
 
 
 ## Error normalization and compatibility
@@ -517,7 +569,7 @@ testing extend the reviewed mapping, not ad hoc per-provider text.
 There is a real legacy ambiguity: capture overflow (ChildProcess code 125) maps
 to `response body is too large`, while curl's own --max-filesize failure can
 produce `curl failed (exit 63)`, including streaming overflow in curl ≥8.4.
-Revision 4 versions a common normalization: **every** declared or incremental
+This revision retains the common normalization introduced in revision 4: **every** declared or incremental
 body-limit failure becomes `response body is too large` and
 HTTP_FAILURE_RESPONSE_TOO_LARGE, including legacy curl exit 63 and capture 125.
 There is no per-provider split based on when Content-Length became known.
@@ -553,7 +605,7 @@ precision when an SDK exposes only one or an undifferentiated cause.
 | macOS / CX-P2-09 | Ephemeral NSURLSession with no URLCache, cookie store or credential store and a private serial delegate queue and incremental data delegate, bounded native buffer, task cancel and explicit redirect delegate policy. Synchronous worker wrapper waits independently of that queue. Default OS trust/hostname evaluation; no accept-all challenge handler. Interop requires CL-P2-07/Stage 29 or an approved native-only transaction. Invalidate the session on every path; didBecomeInvalidWithError is final quiescence. ATS stays enabled for unbundled executables; blocked cleartext is an explicit policy adaptation until an approved packaged-host exception exists. |
 | iOS / CX-P2-11 | Separate IOS module over NSURLSession, sharing portable HTTP policy only; same bounds/cancel/TLS behavior as macOS. No process spawning, no UI-thread wait, no assumption that suspension preserves a live request. ATS remains enabled; cleartext fixture exceptions belong to the test host only. |
 | Windows / CX-P2-10 | **WINHTTP_FLAG_ASYNC only**, Schannel, in a static-inline HTTP/Windows transaction header. A single native status callback and retained native context drive bounded reads; the perform controller is the sole WinHttpCloseHandle caller. The state machine and final HANDLE_CLOSING drain below are mandatory, not an optional async alternative. Explicit redirects, escape-disable flags and total remaining deadline; no certificate-ignore flags. |
-| Android / CX-P2-12 | HttpURLConnection/HttpsURLConnection through CL-P2-09 JNI; exact admitted method/body rules above, fixed-length output only on permitted methods, bounded input/error-stream reads (HTTP 4xx body is valid), finite timeouts plus total deadline, redirects disabled for portable handling. Default TrustManager and hostname verifier. Single Java I/O/disconnect owner and native cancellation handoff/quarantine as above; JNIEnv only through the Java thread key, exactly-once ref release. INTERNET required; no release cleartext opt-in. |
+| Android / CX-P2-12 | HttpURLConnection/HttpsURLConnection through CL-P2-09 JNI; exact admitted method/body rules above, fixed-length output only on permitted methods, bounded input/error-stream reads (HTTP 4xx body is valid), finite timeouts plus total deadline, redirects disabled for portable handling. Default TrustManager and hostname verifier. Provider-owned Connection: close on every request. Single Java I/O/disconnect owner, bounded process-wide admission and explicitly unqualified native drain latency as above; JNIEnv only through the Java thread key, exactly-once ref release. INTERNET required; no release cleartext opt-in. |
 
 Linux's static-inline HTTP/Linux header supplies typed curl setters and C
 write/header/xferinfo callbacks into bounded native buffers and native
@@ -691,6 +743,12 @@ Android uses the default platform TrustManager's policy, without an added CRL/
 OCSP implementation. Thus a revoked certificate need not fail on every provider.
 Fixtures record each profile's configured/observed stance; they do not claim
 uniform revocation protection or disable a platform check to force equality.
+Windows qualification must include the reachable-CRL, revoked-leaf and
+unavailable-CRL cases below. A trusted fresh test CA alone does not establish
+that revocation checking can succeed. [WinHTTP's error definitions](https://learn.microsoft.com/en-us/windows/win32/winhttp/error-messages)
+distinguish inability to check revocation from a known revoked certificate;
+the former remains HTTP_TLS_UNKNOWN, while a positively revoked leaf is
+HTTP_TLS_TRUST. Verification stays enabled in both cases.
 
 ### SDK constraints and target classification
 
@@ -856,7 +914,33 @@ host/IP, serverAuth usage and a current validity interval, using RSA >=2048,
 SHA-2 signatures and leaf validity <=825 days for Apple policy. Separate leaves cover
 wrong hostname and expiry, and a distinct untrusted CA covers trust rejection.
 Trust is scoped to the fixture, verification stays on, and private keys are
-removed during teardown. No external service or public DNS is required.
+removed during teardown.
+
+The Windows TLS fixture additionally owns a loopback HTTP CRL server. Before
+issuing the leaf, reserve its listener and encode its actual URL as that leaf's
+CRL distribution point. Serve a correctly issuer-signed CRL with matching issuer,
+current thisUpdate/nextUpdate and explicit serial membership. The normal valid,
+hostname and expiry cases use a reachable CRL that does not revoke their leaf;
+all non-root certificates requiring revocation checks have local, reachable
+status information. Verify the CRL fetch and chain result with
+WINHTTP_ENABLE_SSL_REVOCATION still enabled. Keep CRL-server readiness and
+teardown under the same bounded fixture owner as the TLS endpoint.
+
+Use independent per-case issuers, serials and distribution-point URLs for these
+three cases, so an earlier successful status lookup cannot satisfy another case
+from the OS cache; do not clear a machine-wide certificate cache:
+
+- Valid trusted leaf plus current non-revoking CRL: TLS succeeds.
+- Otherwise-valid leaf listed in its issuer's current reachable CRL: native
+  revocation evidence maps to HTTP_FAILURE_TLS_VERIFICATION / HTTP_TLS_TRUST.
+- Otherwise-valid leaf with an unused distribution point returning an immediate
+  unavailable response: native revocation-check failure maps to
+  HTTP_FAILURE_TLS_VERIFICATION / HTTP_TLS_UNKNOWN, never proof of revocation.
+
+Record native error/secure-failure flags and endpoint observations. A deadline
+winning first is still a timeout and does not satisfy the unavailable-CRL
+classification fixture. No external CRL/OCSP endpoint, revocation-ignore flag,
+accept-all trust callback or implicit cached result can satisfy these rows. No external service or public DNS is required.
 
 | Target | Test-only trust mechanism |
 | --- | --- |
@@ -878,7 +962,7 @@ devices require their own reachable fixture arrangement and separate evidence.
 
 | Case | Required assertion |
 | --- | --- |
-| HTTP-STATUS-* | HEAD with large advertised Content-Length and no body completes promptly; 204/304 with zero response limit return final status and empty body; interim100/102/103 then200, multiple interims, only-interim EOF/deadline, invalid99/600 and101. Native-qualified profiles return final200, Android known103 profile returns declared unsupported status0 without replay. Interim MacOS curl uses --head and its bounded header channel. |
+| HTTP-STATUS-* | HEAD with large advertised Content-Length and no body completes promptly; 204/304 with zero response limit return final status and empty body; interim100/102/103 then200, multiple interims, only-interim EOF/deadline, invalid99/600 and101. Native-qualified profiles return final200, Android known103 profile returns declared unsupported status0 without replay; after both 103→200 and101, a second same-origin request uses a distinct connection and receives only its own response, with Connection: close captured on both requests. Interim MacOS curl uses --head and its bounded header channel. |
 | HTTP-CONTENT-TYPE-* | All method/body combinations compare absent versus present-empty versus explicit/default wire fields. Facade default is emitted once for nonempty bodies; empty body with absent field remains absent on capable profiles, Android body-permitting cases reject before endpoint observation. Explicit empty never means suppression. |
 | HTTP-METHOD-* | All seven admitted methods, each with empty and nonempty input; GET/HEAD nonempty rejected before endpoint observation. TRACE/CONNECT/lowercase/extension methods rejected in row-1 order. Raw endpoint asserts actual method/body for each admitted capability; known unsupported combinations assert zero server observation. Android GET never becomes POST. |
 | HTTP-URL-* | ASCII pchar/query punctuation, percent escapes and unreserved/dot canonicalization, escaped slash/percent/UTF-8, absent versus empty query; raw bracket/brace/quote/high-byte rejection, all authority/origin cases above. Generic file/mailto/javascript/ftp and valid scheme-less inputs retain scheme-error precedence. Native encoded target and raw endpoint request-target match the portable result; native reparsing that cannot preserve it returns unsupported before I/O. |
@@ -889,8 +973,8 @@ devices require their own reachable fixture arrangement and separate evidence.
 | Redirects | Default no-follow; each status/method rule, including removal of a synthesized Content-Type on POST→GET while preserving an explicit caller field; exact hop limit and overflow; loop; relative and fragment-only Location; cross-origin credential stripping; malformed/scheme/userinfo/downgrade/duplicate-Location rejection has typed REDIRECT_REJECTED/code3. Identical and differing duplicate fields are both rejected; one Location containing a comma is not split. Apple no-multiplicity profile rejects positive maxRedirects before initial I/O. |
 | Limits/framing | Declared and streaming overflow; chunked/unknown length; zero limit; fragmented header/body; no giant prebuffer; both old curl63/capture125 paths normalize to the same size string. Header 65535/65536/65537 and WinHTTP128-KiB raw-overflow/12182 cases verify the two distinct measures; header/interim memory on Apple/Android is an adaptation, not a hard-limit pass. Unsolicited gzip fixture explicitly expects Apple's decoded and other providers' encoded bytes, with limits applied to the delivered representation. |
 | Time | Slow/blackholed resolver, slow headers, slow upload and drip-fed body cannot reset total deadline; blocked send times out; no retries of uncertain POST on qualified profiles, including stale keep-alive reuse; Android ambient-pool profile is explicitly not no-replay-qualified. c-ares and threaded-resolver/quarantine profiles separately test DNS held beyond cancel, saturation and eventual cleanup. |
-| Cancellation | Before admission, worker-start and per-operation barriers, during DNS/connect/read/upload, immediately after connect and completion race; one terminal outcome, bounded caller observation, resources drained, late callback safe. Android cancellation winning the start transition starts no I/O; admitted in-flight calls may finish in bounded quarantine but no next operation starts. |
-| TLS | Trusted valid leaf succeeds; wrong hostname, expired and untrusted leaves fail independently with verification enabled; HTTP cleartext cannot masquerade as TLS success. Verify pinned Linux backend/CA-path policy and TLS 1.2 minimum, cross-provider hostname→validity→trust→unknown precedence when several reasons are exposed, and declared revocation differences without universal revoked-certificate assertions. |
+| Cancellation | Before admission, worker-start and per-operation barriers, during DNS/connect/read/upload, immediately after connect and completion race; one terminal outcome, bounded caller observation, resources drained, late callback safe. Android cancellation winning the start transition starts no I/O; admitted in-flight calls retain a capacity slot for an unqualified duration, but no next operation starts. Zero-window upload and drip-header fixtures saturate the process-wide pool, reject new admission, then release the peer and prove exactly-once drain. |
+| TLS | Trusted valid leaf succeeds; wrong hostname, expired and untrusted leaves fail independently with verification enabled; HTTP cleartext cannot masquerade as TLS success. Verify pinned Linux backend/CA-path policy and TLS 1.2 minimum, cross-provider hostname→validity→trust→unknown precedence when several reasons are exposed, and declared revocation differences without universal revoked-certificate assertions; Windows proves reachable non-revoking CRL success, revoked-leaf TRUST and unavailable-CRL UNKNOWN with independent issuers/URLs. |
 | Failures | Refused connection, deterministic DNS failure through an isolated resolver fixture or injected native resolution failure, truncated Content-Length and missing final chunk map TRUNCATED_BODY/18; invalid status and curl1/8 map INVALID_STATUS; ATS/cleartext/permission policy maps POLICY_DENIED/1002. HTTP401/403 remain responses. Verify stable categories and legacy strings. |
 | Cleanup | Repeated success/failure/cancel cycles leave no request handles, sockets, JNI refs, native buffers, certificate-store entries or named capture files. Windows callback-at-close, callback/context-registered setup failure before submitted I/O, cancellation while read/write is pending, late callback and HANDLE_CLOSING-before-callback-return cases prove no second closer/use-after-free. Winsock listener stop while an accepted connection waits proves independent event ownership. |
 
@@ -1031,7 +1115,7 @@ accepted-input set or ambient curl behavior:
 | Bounds/errors | New 65,536 reconstructed response-header cap (smaller than curl's roughly 100 KiB header limit); codes 1001/1002/18/2/4/3; Windows 128-KiB native raw cap is additional, Apple/Android hidden header/interim buffers not bounded by reconstructed cap; total deadline28 rather than child124, all size 63/125 normalized to the size string; new option/body/header literal errors |
 | Cancellation/options | Existing BackgroundJobCancellation owner, bounded poll and named native abort/closers; typed requestBytes options only, no unstated string overload |
 | Legacy MacOS | `-q` first disables curlrc; globbing disabled and portable path policy preserved; identity header, explicit Content-Type, User-Agent suppression, HEAD --head and finite capture constraints are explicit; native-only new APIs unsupported |
-| Provider policies | OS proxy differences, Apple ATS/protocol/default-header behavior, pinned Linux TLS/c-ares profile, platform revocation stances, Android global cookie/auth/pool and retry limitations remain documented adaptations requiring their fixtures |
+| Provider policies | OS proxy differences, Apple ATS/protocol/default-header behavior, pinned Linux TLS/c-ares profile, platform revocation stances, Android global cookie/auth/pool and retry limitations, mandatory per-request Connection: close, unqualified native drain latency and process-wide saturation remain documented adaptations requiring their fixtures |
 | Build/interim availability | Linux facade imports need native reader/triple/sysroot and libcurl; missing mobile/Windows transport makes the aggregate facade fail at compile time; direct server imports remain possible with explicit start-policy restrictions |
 | Target/server ownership | MSVC missing unless separately qualified; selected HTTPServerStartPolicy and complete interim Unix rows; CX-P2-11/12 depend on CX-P2-10; Android interim permission-pending and iOS Q7 restriction are not listener success |
 
@@ -1047,7 +1131,7 @@ CX-P2-09…12 implementation edits a compiler-import module or runtime asset.
 These concrete requests block implementation until assigned and integrated:
 
 ```text
-REQUEST(CL-P2-01): Re-review revision 4 response rules, explicit provider capability limits and the complete versioned-break table.
+REQUEST(CL-P2-01): Re-review revision 5 response rules, mandatory Android Connection: close, explicit unqualified native drain/saturation adaptation, Windows CRL fixture and the complete versioned-break table.
 Expected / actual: Record HTTPURLTarget and HTTPServerStartPolicy ownership/target-macro rows, final 200–599/bodyless/interim rules, request Content-Type policy, duplicate-Location rejection, Android response-discovered unsupported 1xx and absent-Content-Type limitations, Apple redirect/header-memory capability limits, rejection ordering, error codes (header 1001, policy 1002, truncated 18, provider 2, unsupported 4, redirect-rejected 3; size 63 normalized), 65,536-byte reconstructed header bound, redirect range0–20, token registry, existing BackgroundJobCancellation reuse and Q1/Q3/Q7/Q9/Q15 assumptions plus AS14 re-check set in PLAN.md. Reconcile mobile-storage's IO placeholder. Exact interface spelling freezes at the CX-P2-09 seam merge before Windows/iOS/Android providers begin.
 Blocks: Provider work; current draft is unapproved.
 Workaround: Existing client remains until this seam and its dependencies pass.
@@ -1077,7 +1161,7 @@ Blocks: MacOS half of CX-P2-09 and CX-P2-11, after CL-C-40 unless Q48 changes. S
 Workaround: Retain the explicit MacOS curl provider and existing string/corpus coverage; new native-only capabilities remain unsupported. No macOS curl-free claim, handwritten compiler lowering or cross-thread ARC.
 
 REQUEST(CL-P2-09): Supply checked HttpURLConnection JNI calls and Java thread-key ownership.
-Expected / actual: Checked method/doOutput/fixed-length/disconnect APIs, exact wire admission, single Java I/O/stream/disconnect worker, synchronized native per-operation admission/cancellation, own-thread local-ref release and one retained R1 cleanup owner for global refs after worker drain. No direct attach/detach, shared JNIEnv, cross-thread disconnect or Java callbacks; retained native state survives deadline/quiescence. Stock HttpURLConnection does not qualify all-1xx consumption, absent Content-Type on empty body-permitting methods, hard native header-memory bounds or per-client cookie/auth/pool isolation. Do not implement hidden API access to fake them.
+Expected / actual: Checked method/doOutput/fixed-length/disconnect APIs, exact wire admission, single Java I/O/stream/disconnect worker, synchronized native per-operation admission/cancellation, mandatory per-request Connection: close, process-wide worker/buffer admission quotas with no slot recycling before drain, own-thread local-ref release and one retained R1 cleanup owner for global refs after worker drain. No direct attach/detach, shared JNIEnv, cross-thread disconnect or Java callbacks; retained native state survives deadline/quiescence. This restricted profile does not qualify finite native-drain latency or availability after saturation. Stock HttpURLConnection does not qualify all-1xx consumption, absent Content-Type on empty body-permitting methods, hard native header-memory bounds or per-client cookie/auth/pool isolation. Do not implement hidden API access to fake them.
 Blocks: CX-P2-12 full parity. Workaround: only the explicitly approved restricted capability profile; Q9 chooses HttpURLConnection, not Cronet. A provider-owned public client alternative requires CL-P2-01 approval, dependency ownership and amended scope before implementation.
 
 REQUEST(CX-P1-09 / CL-P1-17): Confirm per-run public test-CA and network-security-config injection into the Android debug APK.
