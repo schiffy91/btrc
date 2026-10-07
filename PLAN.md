@@ -153,8 +153,11 @@ No runtime helper or btrc lowering is needed to reproduce it. GCC tree inspectio
 now identifies the CCP pass inserting the main array's lifetime-end clobber
 before the earlier inlined call's stack restore. Adding an explicit lexical
 scope after the bound evaluation passes the strict GCC/Clang diagnostic
-prototypes. Paired structured-IR lifetime scopes are now under focused
-qualification, including cleanup, loop exits and lambda captures. The combined
+prototypes. Revision `1c9839cb` adds paired structured-IR lifetime scopes and
+passes 53 fresh-compiler checks, including strict GCC/Clang `-O3` execution,
+cleanup, loop exits, lambda captures and setjmp paths. The repair, qualified
+Android lifecycle change and current plan are incorporated into the next
+combined candidate; full final-tree gates remain required. The combined
 [Linux run 37570754386](https://github.com/schiffy91/btrc/actions/runs/37570754386)
 passed all eight strict-C11 configurations, including GCC `-O3`, and all
 remaining required shards. The combined macOS and Windows workflows also
