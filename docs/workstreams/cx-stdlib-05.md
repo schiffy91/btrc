@@ -49,3 +49,35 @@ drag can overflow before offset clamping and incorrectly return to the top.
 The same real fixture therefore covers visible thumb pixels at the maximum of
 that extent and direct drag overshoot to both boundaries. This remains an
 unexecuted regression, not a current native failure claim.
+
+## Current implementation and proof queue
+
+The provider caps the preferred thumb height to the available track. Thumb
+position divides the bounded offset by its maximum before scaling by travel.
+Dragging clamps the destination fraction to [0, 1] before multiplying by the
+finite maximum offset; zero travel or zero maximum performs no division.
+The native view's existing frame validation and content-size validation still
+reject non-finite dimensions. No wheel handling or interface contract changes.
+
+Independent source review found no remaining actionable blocker after the
+finite-extent corrections. `git diff --check` passes. No formatter, pytest,
+compiler, native fixture, guest or benchmark was run by this packet while the
+parent's matrix owns the host. Formatting, fixture discovery, both-frontends
+compilation and real Linux behavior are explicitly unqualified.
+
+Fixture-only source: `7c060d08` (earlier tiny-viewport fixture: `0b5c3ba6`).
+The integrator must run that regression with the original provider, retain its
+actual failure, then rerun the repaired provider under the same environment:
+
+```sh
+nix develop --command tools/ui/headless-session.sh --x11 -- \
+  python3 -m pytest -q src/tests/python/test_native_ui_scroll_thumb.py
+```
+
+Use the qualified Linux native header reader, matching compiler and GPU SDK
+environment; do not count four platform skips on macOS as validation. The same
+driver is included in `make test-native-gui` and the Linux GUI shard through the
+existing wildcard, with no Makefile change. Repeat the required Wayland row when
+that runner is available and retain its distinct outcome. Hosted publication is
+coordinated by the integrator under the shared CI cap. Final combined-tree gates
+and main landing remain open.
