@@ -901,7 +901,7 @@ owner, the exact prerequisite and the next acceptance.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
-  published head `f49c5fe1`, local candidate `1844837b`). Main `87dd60d7` is merged into the branch. The UIKit app entry now has a responsive
+  published head `f49c5fe1`, local candidate `1844837b`). The `host-ios.yml` workflow landed in batch 43 under `REQUEST(CL-R-38)`; that infrastructure is present, while hosted fixture execution remains unqualified. Main `87dd60d7` is merged into the branch. The UIKit app entry now has a responsive
   main loop and a fixture worker, with terminal publication arbitrated across
   threads. All twelve app bundles compile/sign with the local iOS SDK; local
   process tests pass (25 tests and 36 subtests). These are not simulator proof.
@@ -1021,7 +1021,7 @@ owner, the exact prerequisite and the next acceptance.
 - **PR51, `CX-P2-02` HTTP contract** (revision 5 `799c9de5`) and
   **PR52, `CX-P2-01` Windows services design** (revision 5 `3850ce35`).
   Both are refreshed onto main with green docs/static checks. The authorized
-  integration session owns the final review of the round-4 findings.
+  integration session owns `CL-P2-01` round 5: the final review of the round-4 findings.
   - HTTP now requires provider-owned `Connection: close` on Android requests
     and redirects, bounded admission while native I/O drains, and hermetic
     Windows revocation fixtures. Review those guarantees before implementing
@@ -1029,7 +1029,7 @@ owner, the exact prerequisite and the next acceptance.
   - Windows services now specify post-COMMIT outcomes independent of ACK,
     generated metadata ownership, operation-aware lock errors, a permanently
     registered console trampoline, owned supervisor stdio, and portable/POSIX
-    Daemon corpus separation. `3850ce35` also corrects the obsolete fixture-list
+    Daemon corpus separation in `CX-P2-08`. `3850ce35` also corrects the obsolete fixture-list
     reference to the derived `include_fixtures()` owner.
   - Approval promotes the request lists to `CL-P2-02/03/04/14` scope. Design
     merge, implementation and native qualification are separate acceptance steps.
@@ -1290,7 +1290,7 @@ Stages are numbered in the order they start. Stage 10 and Stages 34–36 overlap
      - List the 35 cited `~/.cache` paths and mark which resolve.
      - List the unmerged branches and the `/private/tmp` worktrees.
   2. **Preserve, then delete** per the D2 allowlist.
-  3. **Recreate the podman machine** (D2), after `podman machine list`.
+  3. **Inspect guest ownership** (D2), after `podman machine list`. The current `podman-machine-default` is shared with SEMU; preserve it and its volumes. Do not replay the retired dedicated-btrc resize/recreation step on this guest.
   4. **Hub clones outside Drive.**
      - Create `~/.cache/btrc/hub.git` and `~/.cache/btrsmith/hub.git`.
      - Every agent worktree or clone is made from a hub. The integrator fetches finished batches into the Drive checkouts.
@@ -1317,7 +1317,7 @@ Stages are numbered in the order they start. Stage 10 and Stages 34–36 overlap
   - Free disk is recorded:
     - ≥80 GB is needed to continue.
     - ≥100 GB is a Stage 23 prerequisite (D2/D8).
-    - BTRSmith clones are capped at 1 until the podman shrink is done, and at 2 afterwards.
+    - BTRSmith clones are capped at 2 under AGENTS.md. The earlier one-clone cap depended on shrinking the former dedicated btrc guest; it does not authorize resizing the shared SEMU guest.
   - Hub clones and locks exist, and the capacity policy is in PLAN.md.
   - BTRSmith is clean (D3a), and the branch dispositions are recorded (D3b).
   - This plan, AGENTS.md and `docs/design/platform-parity.md` agree.
