@@ -3,9 +3,9 @@
 Updated **2026-10-07**. The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`. PR60 combines the `ad72af03` integration
-with the `5dbf80a1` Weston backport; qualification and remaining work are
-recorded below.
+Current upstream main is `87dd60d7`. PR60 is published at `1424c2db`,
+combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
+and diagnostic corrections. Final-tree qualification is running as recorded below.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -415,7 +415,10 @@ same native suite passed **1,179 checks with three platform skips** in 625.74
 seconds, resolving all 20 prior failures. The skips are Linux resource-limit
 and `/dev/full` paths. A combined candidate now includes this repair, PR65
 `93856dfc` and the current plan; its production sources match `9a01104c`.
-The full serial matrix is prepared and remains outstanding. Merge resolution preserves
+The combined tree is published in PR60 at `1424c2db`. Its full local serial
+matrix and hosted workflows are running. Initial local lint, formatting,
+generated-source and extension checks passed; compiler build, main suite,
+bootstrap and C11 results remain pending. Merge resolution preserves
 C2's union admission logic in the shared realtime owner and its union refusal
 regressions. The intentional positioned-diagnostic boundary update retains
 311 records and its reviewed SHA-256. No main landing or full-matrix
@@ -518,14 +521,15 @@ failed runs and their evidence rather than replacing them with later passes.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
-| PR60, `codex/harmonize-plan` | `56909225` | All four hosted workflows passed. The earlier local `ad72af03` full matrix passed; later changes still need final-tree qualification and landing. |
+| PR60, `codex/harmonize-plan` | `1424c2db` | Combined C2/REQ-10/11/rich-enum/diagnostic candidate. Full local serial matrix and hosted workflows are running. Initial static/generated/extension checks passed; final-tree qualification and landing remain pending. Prior `56909225` hosted and `ad72af03` local green results remain historical evidence. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Its four hosted workflows are running; both Android emulator jobs passed. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
-| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification passed 1,179 checks with three platform skips, resolving the predecessor's 20 failures. Combined with PR65 locally; full matrix and main landing remain pending. |
+| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification passed 1,179 checks with three platform skips, resolving the predecessor's 20 failures. Included with PR65 in published PR60 `1424c2db`; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
-One code candidate currently occupies the shared hosted CI allowance: PR65.
-Recheck queued and running workflows before publishing another candidate.
+Two code candidates currently occupy the shared hosted CI allowance: PR65
+`93856dfc` and combined PR60 `1424c2db`. Recheck queued and running workflows
+before publishing another candidate.
 Cancellation and scope-only jobs are not qualification. No branch is deleted.
 
 The C4 branch comparison is complete: `db229df7` and main ancestor `245cc209`
@@ -897,7 +901,7 @@ owner, the exact prerequisite and the next acceptance.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
-  published head `f49c5fe1`, local candidate `1844837b`). Main `87dd60d7` is merged into the branch. The UIKit app entry now has a responsive
+  published head `f49c5fe1`, local candidate `1844837b`). The `host-ios.yml` workflow landed in batch 43 under `REQUEST(CL-R-38)`; that infrastructure is present, while hosted fixture execution remains unqualified. Main `87dd60d7` is merged into the branch. The UIKit app entry now has a responsive
   main loop and a fixture worker, with terminal publication arbitrated across
   threads. All twelve app bundles compile/sign with the local iOS SDK; local
   process tests pass (25 tests and 36 subtests). These are not simulator proof.
@@ -1017,7 +1021,7 @@ owner, the exact prerequisite and the next acceptance.
 - **PR51, `CX-P2-02` HTTP contract** (revision 5 `799c9de5`) and
   **PR52, `CX-P2-01` Windows services design** (revision 5 `3850ce35`).
   Both are refreshed onto main with green docs/static checks. The authorized
-  integration session owns the final review of the round-4 findings.
+  integration session owns `CL-P2-01` round 5: the final review of the round-4 findings.
   - HTTP now requires provider-owned `Connection: close` on Android requests
     and redirects, bounded admission while native I/O drains, and hermetic
     Windows revocation fixtures. Review those guarantees before implementing
@@ -1025,7 +1029,7 @@ owner, the exact prerequisite and the next acceptance.
   - Windows services now specify post-COMMIT outcomes independent of ACK,
     generated metadata ownership, operation-aware lock errors, a permanently
     registered console trampoline, owned supervisor stdio, and portable/POSIX
-    Daemon corpus separation. `3850ce35` also corrects the obsolete fixture-list
+    Daemon corpus separation in `CX-P2-08`. `3850ce35` also corrects the obsolete fixture-list
     reference to the derived `include_fixtures()` owner.
   - Approval promotes the request lists to `CL-P2-02/03/04/14` scope. Design
     merge, implementation and native qualification are separate acceptance steps.
@@ -1286,7 +1290,7 @@ Stages are numbered in the order they start. Stage 10 and Stages 34–36 overlap
      - List the 35 cited `~/.cache` paths and mark which resolve.
      - List the unmerged branches and the `/private/tmp` worktrees.
   2. **Preserve, then delete** per the D2 allowlist.
-  3. **Recreate the podman machine** (D2), after `podman machine list`.
+  3. **Inspect guest ownership** (D2), after `podman machine list`. The current `podman-machine-default` is shared with SEMU; preserve it and its volumes. Do not replay the retired dedicated-btrc resize/recreation step on this guest.
   4. **Hub clones outside Drive.**
      - Create `~/.cache/btrc/hub.git` and `~/.cache/btrsmith/hub.git`.
      - Every agent worktree or clone is made from a hub. The integrator fetches finished batches into the Drive checkouts.
@@ -1313,7 +1317,7 @@ Stages are numbered in the order they start. Stage 10 and Stages 34–36 overlap
   - Free disk is recorded:
     - ≥80 GB is needed to continue.
     - ≥100 GB is a Stage 23 prerequisite (D2/D8).
-    - BTRSmith clones are capped at 1 until the podman shrink is done, and at 2 afterwards.
+    - BTRSmith clones are capped at 2 under AGENTS.md. The earlier one-clone cap depended on shrinking the former dedicated btrc guest; it does not authorize resizing the shared SEMU guest.
   - Hub clones and locks exist, and the capacity policy is in PLAN.md.
   - BTRSmith is clean (D3a), and the branch dispositions are recorded (D3b).
   - This plan, AGENTS.md and `docs/design/platform-parity.md` agree.
