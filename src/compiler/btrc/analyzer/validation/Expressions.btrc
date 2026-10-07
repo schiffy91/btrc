@@ -36,6 +36,20 @@ class LambdaValidationPlan {
 	}
 }
 
+/* The first element or entry of an inferred collection literal that does not
+ * fit the type the literal infers. */
+class InferredLiteralMismatch {
+	public Node literal;
+	public Node site;
+	public string message;
+
+	public InferredLiteralMismatch(Node literal, Node site, string message) {
+		self.literal = literal;
+		self.site = site;
+		self.message = message;
+	}
+}
+
 class ExpressionValidator {
 	private SemanticValidationState state;
 	private OperatorSemantics operators;
@@ -48,6 +62,8 @@ class ExpressionValidator {
 	private OwnershipValidator ownership;
 	private BorrowValidator borrows;
 	private CallValidator calls;
+	private Vector<InferredLiteralMismatch> literalMismatches = [];
+	private Map<string, bool> contextualLiterals = {};
 
 	public ExpressionValidator(SemanticValidationState state, OperatorSemantics operators, SourceMacroNamespace sourceMacros, SourceRuntimeSymbols sourceRuntimeSymbols, ExpressionTypeResolver expressionTypes, TypeValidator types, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, CallValidator calls) {
 		self.state = state;
@@ -142,6 +158,124 @@ class ExpressionValidator {
 
 	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
+	/* Collection literal arguments take their parameter's element types. */
+	private void validateCollectionArguments(Map<string, Node> vars) {
+		if (!self.calls.hasCollectionArguments()) { return; }
+		for check in self.calls.takeCollectionArguments() { self.validateTypedInitializer(check.expected, check.argument, check.subject, vars); }
+	}
+
+	/* A collection literal whose type is inferred takes it from its first
+	 * element, or from its first entry's key and value, so every other one
+	 * must fit that type; an empty literal takes its type from the context and
+	 * neither sets nor breaks it. A literal in a typed position (a declared
+	 * binding, an assignment, a return, an argument, a field or a default)
+	 * takes that position's type instead and is checked against it. A call
+	 * argument's position is known only after the argument is validated, so a
+	 * mismatch waits for the end of its statement (checkInferredLiterals). */
+	private void recordInferredLiteral(Node expression, Map<string, Node> vars) {
+		InferredLiteralMismatch? mismatch = self.inferredLiteralMismatch(expression, vars);
+		if (mismatch != null) { self.literalMismatches.push(mismatch); }
+	}
+
+	private InferredLiteralMismatch? inferredLiteralMismatch(Node expression, Map<string, Node> vars) {
+		if (expression.kind == NK_LIST_LITERAL) {
+			Node? expected = self.firstLiteralPartType(expression.elements(), vars);
+			int index = 0;
+			while (expected != null && index < expression.elements().len) {
+				Node element = expression.elements().get(index);
+				string message = self.literalPartMismatch("List element " + Strings.fromInt(index), expected, element, vars);
+				if (message != "") { return InferredLiteralMismatch(expression, element, message); }
+				index = index + 1;
+			}
+			return null;
+		}
+		Vector<Node> keys = [];
+		Vector<Node> values = [];
+		for entry in expression.entries() {
+			keys.push(entry.key);
+			values.push(entry.valueNode);
+		}
+		Node? keyType = self.firstLiteralPartType(keys, vars);
+		Node? valueType = self.firstLiteralPartType(values, vars);
+		int index = 0;
+		while (index < keys.len) {
+			string message = keyType == null ? "" : self.literalPartMismatch("Map key " + Strings.fromInt(index), keyType, keys.get(index), vars);
+			if (message != "") { return InferredLiteralMismatch(expression, keys.get(index), message); }
+			message = valueType == null ? "" : self.literalPartMismatch("Map value " + Strings.fromInt(index), valueType, values.get(index), vars);
+			if (message != "") { return InferredLiteralMismatch(expression, values.get(index), message); }
+			index = index + 1;
+		}
+		return null;
+	}
+
+	private Node? firstLiteralPartType(Vector<Node> parts, Map<string, Node> vars) {
+		for part in parts {
+			if (!ExpressionValidator.emptyContextualLiteral(part)) { return self.types.inferType(part, vars); }
+		}
+		return null;
+	}
+
+	private string literalPartMismatch(string label, Node expected, Node value, Map<string, Node> vars) {
+		if (ExpressionValidator.emptyContextualLiteral(value)) { return ""; }
+		Node? actual = self.types.inferType(value, vars);
+		if (actual == null || self.types.assignmentCompatible(expected, actual)) { return ""; }
+		return label + " has type '" + self.types.formatType(actual) + "' but expected '" + self.types.formatType(expected) + "'";
+	}
+
+	private void markContextualLiteral(Node expression) {
+		if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL) { self.contextualLiterals.put(AstIdentity.key(expression), true); }
+	}
+
+	/* A literal stored into a collection takes the target's element types, as
+	 * a declared initializer does. */
+	private void validateAssignedCollectionLiteral(Node expression, Map<string, Node> vars) {
+		Node value = expression.valueNode;
+		if (value.kind != NK_LIST_LITERAL && value.kind != NK_MAP_LITERAL) { return; }
+		Node? target = self.types.resolveAliases(self.types.inferType(expression.target, vars));
+		if (target == null || target.isArray) { return; }
+		bool sequence = target.genericArgs().len == 1 && (target.base == "Array" || target.base == "List" || target.base == "Set" || target.base == "Vector");
+		if (sequence || (target.base == "Map" && target.genericArgs().len == 2)) { self.validateInitializerValue(target, value, "Assignment", vars); }
+	}
+
+	public int inferredLiteralMark() { return self.literalMismatches.len; }
+
+	/* Reports the first mismatch recorded since `mark` by a literal that no
+	 * typed position claimed, and forgets them all. */
+	public void checkInferredLiterals(int mark) {
+		int index = mark;
+		while (index < self.literalMismatches.len) {
+			InferredLiteralMismatch mismatch = self.literalMismatches.get(index);
+			if (!self.contextualLiterals.has(AstIdentity.key(mismatch.literal))) { TypeValidator.fail(mismatch.message, mismatch.site); }
+			index = index + 1;
+		}
+		while (self.literalMismatches.len > mark) { self.literalMismatches.pop(); }
+	}
+
+	/* An inferred binding or a for-in iterable takes the literal's own type
+	 * now, so its mismatch is reported before anything that type implies. */
+	public void checkInferredLiteral(Node? expression) {
+		if (expression == null) { return; }
+		for mismatch in self.literalMismatches {
+			if (mismatch.literal == expression && !self.contextualLiterals.has(AstIdentity.key(expression))) { TypeValidator.fail(mismatch.message, mismatch.site); }
+		}
+	}
+
+	class bool emptyContextualLiteral(Node node) {
+		if (node.kind == NK_BRACE_INITIALIZER || node.kind == NK_LIST_LITERAL) { return node.elements().len == 0; }
+		return node.kind == NK_MAP_LITERAL && node.entries().len == 0;
+	}
+
+	/* A literal names no symbol, so it needs no import of its own; but an
+	 * inferred binding or a for-in iterable materializes it as a Vector or a
+	 * Map, whose class some module of the program must declare. */
+	public void rejectUndeclaredCollectionLiteral(Node? expression) {
+		if (expression == null || (expression.kind != NK_LIST_LITERAL && expression.kind != NK_MAP_LITERAL)) { return; }
+		string collection = expression.kind == NK_LIST_LITERAL ? "Vector" : "Map";
+		if (self.state.analyzed.isClass(collection) || self.state.analyzed.isGenericClass(collection)) { return; }
+		string kind = expression.kind == NK_LIST_LITERAL ? "List" : "Map";
+		TypeValidator.fail(kind + " literal needs the " + collection + " class; add 'import Library." + collection + ";'", expression);
+	}
+
 	public bool gpuArrayResultCall(Node? expression, Map<string, Node> vars) {
 		if (expression == null || expression.kind != NK_CALL_EXPR || expression.callee == null || expression.callee.kind != NK_IDENTIFIER) {
 			return false;
@@ -198,13 +332,18 @@ class ExpressionValidator {
 		int index = 0;
 		while (index < initializer.entries().len) {
 			Node entry = initializer.entries().get(index);
-			self.validateInitializerValue(expected.genericArgs().get(0), entry.key, subject + " key", vars);
-			self.validateInitializerValue(expected.genericArgs().get(1), entry.valueNode, subject + " value", vars);
+			self.validateInitializerValueAs(expected.genericArgs().get(0), entry.key, subject + " key", " elements", vars);
+			self.validateInitializerValueAs(expected.genericArgs().get(1), entry.valueNode, subject + " value", " elements", vars);
 			index = index + 1;
 		}
 	}
 
-	public void validateInitializerValue(Node expected, Node value, string subject, Map<string, Node> vars) {
+	public void validateInitializerValue(Node expected, Node value, string subject, Map<string, Node> vars) { self.validateInitializerValueAs(expected, value, subject, "", vars); }
+
+	/* `mismatch` follows the expected type in a mismatch diagnostic: a map
+	 * key or value reads "expects 'int' elements but got 'string'", as the
+	 * reference compiler words a collection element. */
+	private void validateInitializerValueAs(Node expected, Node value, string subject, string mismatch, Map<string, Node> vars) {
 		self.storage.validateReferenceQualifiers(expected, value, subject, vars);
 		self.types.validateRealtimeFunctionValue(expected, value, vars);
 		Node? valueExpected = self.types.arrayValueType(expected);
@@ -214,10 +353,12 @@ class ExpressionValidator {
 		Node? canonical = self.types.resolveAliases(representedExpected);
 		if (canonical == null) { return; }
 		if (value.kind == NK_MAP_LITERAL) {
+			if (canonical.base == "Map" && canonical.genericArgs().len == 2) { self.markContextualLiteral(value); }
 			self.validateMapInitializer(canonical, value, subject, vars);
 			return;
 		}
 		if (canonical.isArray) {
+			self.markContextualLiteral(value);
 			if (value.kind != NK_BRACE_INITIALIZER && value.kind != NK_LIST_LITERAL) {
 				/* Array-valued GPU dispatch is the sole expression form that
                  * materializes array storage. Ordinary C arrays remain
@@ -265,7 +406,8 @@ class ExpressionValidator {
 					string hint = canonical.base == "Set" ? "'{}' creates an empty Set and add() inserts elements" : "use a list literal [...]";
 					TypeValidator.fail(subject + " cannot use a non-empty brace initializer for '" + canonical.base + "'; " + hint, value);
 				}
-				self.validateInitializerElements(canonical.genericArgs().get(0), value.elements(), subject, vars);
+				self.markContextualLiteral(value);
+				for element in value.elements() { self.validateInitializerValueAs(canonical.genericArgs().get(0), element, subject, " elements", vars); }
 				return;
 			}
 			if (value.kind == NK_BRACE_INITIALIZER && value.elements().len == 0 && canonical.genericArgs().len > 0 && self.state.analyzed.isGenericClass(canonical.base)) {
@@ -275,7 +417,7 @@ class ExpressionValidator {
 		}
 		Node? actual = self.types.inferType(value,  vars);
 		if (actual != null && !self.types.assignmentCompatible(canonical, actual)) {
-			TypeValidator.fail(subject + " expects '" + self.types.formatType(canonical) + "' but got '" + self.types.formatType(actual) + "'", value);
+			TypeValidator.fail(subject + " expects '" + self.types.formatType(canonical) + "'" + mismatch + " but got '" + self.types.formatType(actual) + "'", value);
 		}
 	}
 
@@ -649,6 +791,7 @@ class ExpressionValidator {
 				self.contextualizeGenericConstructor(self.types.inferType(expression.target, vars), expression.valueNode, vars);
 			}
 			self.validateExpr(expression.valueNode,  vars);
+			if (expression.op == "=") { self.validateAssignedCollectionLiteral(expression, vars); }
 			self.ownership.rejectShallowStore(expression, vars);
 			/* The assignment's own type rules report a mismatched value before
 			 * the representation rule for what it would store. */
@@ -682,6 +825,7 @@ class ExpressionValidator {
 			self.validateFlexibleArrayArguments(expression.args(), vars);
 			self.names.deferGeneratedSymbolCall(expression, vars);
 			self.calls.validateCall(expression,  vars);
+			self.validateCollectionArguments(vars);
 		} else if (expression.kind == NK_INDEX_EXPR) {
 			self.validateExpr(expression.obj,  vars);
 			self.validateExpr(expression.index,  vars);
@@ -1046,6 +1190,7 @@ class ExpressionValidator {
 		}
 		self.calls.validateConstructorAccess(className, constructor, expression);
 		self.calls.validateSignature(className, constructor.params(), expression, substitutions, false, vars);
+		self.validateCollectionArguments(vars);
 		if (className == "CallbackRegistration") {
 			self.calls.validateDirectRealtimeCallback(className, constructor, expression, vars, "invoke");
 		} else if (className == "RealtimeAudioProgram") {
@@ -1160,6 +1305,7 @@ class ExpressionValidator {
 				for element in expression.elements() {
 					self.validateFlexibleArrayOperand(element, "List literal element", vars);
 				}
+				self.recordInferredLiteral(expression, vars);
 			}
 			if (expression.kind == NK_TUPLE_LITERAL) {
 				self.ownership.rejectOwnedElements(expression.elements(), "a shallow aggregate", vars);
@@ -1167,6 +1313,7 @@ class ExpressionValidator {
 			}
 		} else if (expression.kind == NK_MAP_LITERAL) {
 			self.validateMapEntries(expression.entries(),  vars);
+			self.recordInferredLiteral(expression, vars);
 		} else if (expression.kind == NK_F_STRING_LITERAL) {
 			self.validateFStringParts(expression.parts(),  vars);
 		} else if (expression.kind == NK_NEW_EXPR) {
@@ -1236,6 +1383,7 @@ class ExpressionValidator {
 			return;
 		}
 		if (expression.kind == NK_MAP_LITERAL && concrete.base == "Map" && concrete.genericArgs().len == 2) {
+			self.markContextualLiteral(expression);
 			int entryIndex = 0;
 			while (entryIndex < expression.entries().len) {
 				Node entry = expression.entries().get(entryIndex);
@@ -1248,6 +1396,7 @@ class ExpressionValidator {
 		bool aggregate = expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_LIST_LITERAL || expression.kind == NK_TUPLE_LITERAL;
 		if (aggregate) {
 			if (concrete.isArray) {
+				self.markContextualLiteral(expression);
 				Node elementType = TypeShape.withoutOuterArray(concrete);
 				self.contextualizeGenericElements(elementType, expression.elements(), variables);
 				return;
@@ -1261,6 +1410,7 @@ class ExpressionValidator {
 				return;
 			}
 			if (concrete.genericArgs().len == 1 && (concrete.base == "Array" || concrete.base == "List" || concrete.base == "Set" || concrete.base == "Vector")) {
+				self.markContextualLiteral(expression);
 				self.contextualizeGenericElements(concrete.genericArgs().get(0), expression.elements(), variables);
 				return;
 			}

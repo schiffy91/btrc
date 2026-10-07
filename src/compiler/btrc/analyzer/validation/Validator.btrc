@@ -104,7 +104,9 @@ class SemanticValidator {
 		while (index < self.program.declarations().len) {
 			Node declaration = self.program.declarations().get(index);
 			if (declaration.kind == NK_RICH_ENUM_DECL) {
+				int literals = self.expressions.inferredLiteralMark();
 				self.declarations.validateRichEnumDefaults(declaration);
+				self.expressions.checkInferredLiterals(literals);
 			}
 			index = index + 1;
 		}
@@ -142,13 +144,17 @@ class SemanticValidator {
 			Node declaration = self.program.declarations().get(index);
 			/* Each declaration's bodies start reachable and know no non-null facts. */
 			self.controlFlow.flow.enterBody();
+			int literals = self.expressions.inferredLiteralMark();
 			if (declaration.kind == NK_FUNCTION_DECL || declaration.kind == NK_CLASS_DECL) {
 				self.validateBodies(declaration);
 			} else if (declaration.kind == NK_VAR_DECL_STMT) {
 				/* Always live: cheap, and it extends `globals` for later
 				 * globals, which a record does not carry. */
+				self.state.globalDeclaration = declaration;
 				self.controlFlow.validateVariable(declaration, globals);
+				self.state.globalDeclaration = null;
 			}
+			self.expressions.checkInferredLiterals(literals);
 			index = index + 1;
 		}
 		BtrccPhaseTimer.mark("v-bodies");

@@ -1,0 +1,22 @@
+// A lambda in a class field's default declares locals, not globals: neither
+// an inferred `var` nor a typed local inside it needs a constant initializer.
+int helper(int x) { return x * 3; }
+
+class Calc {
+	public __fn_ptr<int, int> twice = (int x) => {
+		var y = x * 2;
+		return y + 1;
+	};
+	public __fn_ptr<int, int> thrice = (int x) => {
+		int y = helper(x);
+		return y + 1;
+	};
+
+	public int run(int v) { return self.twice(v) + self.thrice(v); }
+}
+
+int main() {
+	print(Calc().run(20));
+	print("PASS: test_field_default_lambda_locals");
+	return 0;
+}

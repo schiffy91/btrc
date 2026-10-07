@@ -48,11 +48,11 @@ class TestBootstrap(unittest.TestCase):
 
             # Stage 1: reference compiler builds btrcc1.
             transpile_with_python(project_root, data_root, compiler_source, c1)
-            compile_c(c1, b1, workdir=project_root)
+            compile_c(c1, b1, workdir=project_root, compiler=True)
 
             # Stage 2: btrcc1 compiles its OWN source -> btrcc2.
             run_btrcc(b1, compiler_source, c2, data_root=data_root, workdir=project_root)
-            compile_c(c2, b2, workdir=project_root)
+            compile_c(c2, b2, workdir=project_root, compiler=True)
 
             # Stage 3: btrcc2 compiles its OWN source again.
             run_btrcc(b2, compiler_source, c3, data_root=data_root, workdir=project_root)

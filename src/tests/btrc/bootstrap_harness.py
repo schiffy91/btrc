@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 from src.compiler.python.artifacts.archive import TargetCatalog
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.c_toolchains import configured_c_compiler, selfhost_link_flags
 from src.tests.process_limits import TOOL_TIMEOUT
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -161,9 +161,9 @@ def transpile_with_python(project_root: str, data_root: str, in_btrc: str, out_c
     assert "warning:" not in r.stderr, r.stderr[:2000]
 
 
-def compile_c(src_c: str, out_bin: str, *, workdir: str) -> None:
+def compile_c(src_c: str, out_bin: str, *, workdir: str, compiler: bool = False) -> None:
     r = run_stage(
-        [*CC, *CFLAGS, src_c, "-o", out_bin, *LDLIBS],
+        [*CC, *CFLAGS, src_c, "-o", out_bin, *(selfhost_link_flags() if compiler else []), *LDLIBS],
         cwd=workdir,
         timeout=BOOTSTRAP_TIMEOUT,
     )

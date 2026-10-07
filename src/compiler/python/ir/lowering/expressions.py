@@ -634,9 +634,18 @@ class ExpressionLowerer:
                 [self.lower_expr(element, provenance) for element in materialization.elements],
             )
         if isinstance(materialization, CollectionLiteralMaterialization):
+            # A leaf of a subclass or an implementation is stored as the
+            # collection's declared class or interface element.
+            leaves = materialization.plan.leaves
+            targets = materialization.leaf_targets or (None,) * len(leaves)
             return self._collections.materialize_literal(
                 materialization.plan,
-                [self.lower_expr(leaf, provenance) for leaf in materialization.plan.leaves],
+                [
+                    self._types.upcast_class_pointer(
+                        target, self._session.type_of(leaf), self.lower_expr(leaf, provenance)
+                    )
+                    for leaf, target in zip(leaves, targets)
+                ],
             )
         if isinstance(materialization, BinaryMaterialization):
             return self._lower_binary_plain(materialization.node, provenance)

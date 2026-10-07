@@ -43,6 +43,7 @@ from src.compiler.python.syntax.ast.generated import (
 
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.aggregates import AggregateAnalyzer
+    from src.compiler.python.analyzer.generated_symbols import GeneratedSymbolRegistry
     from src.compiler.python.analyzer.generics import GenericAnalyzer
     from src.compiler.python.analyzer.gpu import GpuAnalyzer
     from src.compiler.python.analyzer.macros import SourceMacroAnalyzer
@@ -94,11 +95,13 @@ class CallAnalyzer:
         gpu: GpuAnalyzer,
         macros: SourceMacroAnalyzer,
         generics: GenericAnalyzer,
+        generated_symbols: GeneratedSymbolRegistry,
     ) -> None:
         self.session = session
         self.index = index
         self.aggregates = aggregates
         self.generics = generics
+        self.generated_symbols = generated_symbols
         self.gpu = gpu
         self.macros = macros
         self.ownership = ownership
@@ -585,6 +588,10 @@ class CallAnalyzer:
             )
             if self.ownership.validate_callable_value(expected, argument, argument_line, argument_col):
                 continue
+            if self._contextualize_collection_argument(
+                expected, argument, f"Argument '{params[param_index].name}' to '{name}()'", argument_line, argument_col
+            ):
+                continue
             actual = self.type_of(argument)
             if actual and gpu_array_parameter:
                 if not self.aggregates.array_target_has_capacity(argument, actual):
@@ -887,6 +894,10 @@ class CallAnalyzer:
                     getattr(arg, "col", col),
                 )
             )
+            if self._contextualize_collection_argument(
+                expected, arg, f"Argument {index} to '{name}()'", getattr(arg, "line", line), getattr(arg, "col", col)
+            ):
+                continue
             actual = self.type_of(arg)
             if actual and (not self.types.types_compatible(expected, actual)):
                 self.session.error(
@@ -1253,6 +1264,60 @@ class CallAnalyzer:
             cls.name,
         )
 
+    def _contextualize_collection_argument(self, expected, argument, subject, line, col) -> bool:
+        """Give a list or map literal argument the collection its parameter names.
+
+        The literal fills that storage as a declared initializer does: each
+        element is checked against the parameter's element types, and the
+        literal lowers as the parameter's collection.
+        """
+        if isinstance(argument, ListLiteral) and argument.elements:
+            collection = "Vector"
+        elif isinstance(argument, MapLiteral) and argument.entries:
+            collection = "Map"
+        else:
+            return False
+        canonical = self.types.canonical_type(expected)
+        if canonical is None or canonical.is_array or canonical.base != collection or not canonical.generic_args:
+            return False
+        # An unresolved element is the cause of any mismatch it makes, so it is
+        # reported instead, first, as the self-hosted validator does.
+        if self.generated_symbols.report_unresolved_value(argument):
+            return True
+        self.apply_initializer_plan(self.aggregates.plan_collection_initializer(expected, argument, subject, line, col))
+        literal_type = self.types.collection_literal_type(collection, list(canonical.generic_args))
+        self.session.record_node_type(argument, literal_type)
+        self.generics.collect_type_instances(literal_type)
+        return True
+
+    def _mark_contextual_literals(self, expected, expression) -> None:
+        """Mark the collection literals a typed position gives its type.
+
+        Such a literal is checked against that type, not against its own
+        first element (ExpressionAnalyzer._record_inferred_literal); the
+        position's element and entry types reach nested literals the same way.
+        """
+        canonical = self.types.canonical_type(expected)
+        if canonical is None:
+            return
+        if isinstance(expression, MapLiteral):
+            if canonical.base != "Map" or len(canonical.generic_args) != 2:
+                return
+            self.session.contextual_literal_ids.add(id(expression))
+            for entry in expression.entries:
+                self._mark_contextual_literals(canonical.generic_args[0], entry.key)
+                self._mark_contextual_literals(canonical.generic_args[1], entry.value)
+        elif isinstance(expression, ListLiteral):
+            if canonical.is_array:
+                element = TypeSystem.strip_outer_storage(canonical, array=True)
+            elif canonical.base in {"Array", "List", "Set", "Vector"} and len(canonical.generic_args) == 1:
+                element = canonical.generic_args[0]
+            else:
+                return
+            self.session.contextual_literal_ids.add(id(expression))
+            for value in expression.elements:
+                self._mark_contextual_literals(element, value)
+
     def _contextualize_empty_collection(self, expected, expression) -> bool:
         """Give an empty ``[]`` or ``{}`` the collection type its target names.
 
@@ -1283,6 +1348,7 @@ class CallAnalyzer:
         """Stamp generic constructor calls with an exact expected type."""
         if expected is None:
             return False
+        self._mark_contextual_literals(expected, expression)
         if isinstance(expression, TernaryExpr):
             left = self.contextualize_generic_constructor(expected, expression.true_expr)
             right = self.contextualize_generic_constructor(expected, expression.false_expr)

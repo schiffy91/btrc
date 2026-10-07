@@ -18,6 +18,8 @@ gap ID.
 | — | A discarded tuple literal in btrcc | `(j = 1, i = i + 1);` as a statement, or as a for-update operand, makes btrcc emit C naming an undeclared tuple struct; the reference compiles it. Found by the Stage 16 r19 review. | `btrc/ir/lowering` tuple instance collection |
 | — | The address of a `volatile` managed local | When the setjmp planner keeps a managed local `volatile` (`char* volatile value`), `string* view = &value;` emits `char** view = (&value);`, which strict C11 refuses (`-Wdiscarded-qualifiers`), whether the declarations are separate or share one list, in both compilers. Found by the Stage 16 C1 exit's ARC witness. | `python/ir/lowering/storage.py`, `btrc/ir/lowering` address-of lowering |
 | — | A null raw pointer to `string` warns | `string* p = null;` warns `Possibly-null value stored in non-nullable variable 'p' of type 'string'`: the nullable check reads the pointer as its pointee, and a raw pointer may hold null; both compilers warn alike. Found by the Stage 16 C1 exit. | `python/analyzer/flow.py`, `btrc/analyzer` nullable flow |
+| — | A collection literal in other value positions of a program without the class | A `var` initializer and a for-in iterable report `List literal needs the Vector class` (or `Map`) when no module declares the class. A literal in other value positions that becomes a collection, such as a lambda result (`() => [1, 2]`), a return, an argument, an assignment or a conditional for-in iterable (`for x in (c ? [1] : [2])`), is accepted by the reference compiler, whose C names an undeclared `btrc_Vector_*` type; `btrcc` rejects the conditional iterable with a for-in protocol diagnostic. A list or map literal argument to a `Set`, pointer or array parameter is accepted by `btrcc` with invalid C where the reference compiler rejects it. An empty first value in an inferred map literal (`{"a": [], "b": [1]}`) is inferred by the reference compiler and refused by `btrcc`. A literal argument's element errors are reported after its call's other argument errors in `btrcc`. Found by the `CL-REQ-10` reviews. | `python/analyzer/statements.py`, `btrc/analyzer/validation/ControlFlow.btrc` |
+| — | Collection literal typing left after `CL-REQ-10` | Both compilers check an inferred literal (one in no typed position) against its first element or entry, wherever it stands; that refuses `{"a": 1, "b": true}`, a null first entry (`{"a": null, "b": Point(1)}`, as `[null, Point(1)]` always was), and a literal mixing a type parameter with a concrete type in a generic body. A literal in a typed position is checked against that type instead. What remains: a declared ternary of two heterogeneous literals (`Vector<Animal> zoo = c ? [Dog(), Bird()] : [Bird()]`) is refused by both with `Ternary branches have incompatible types`, the reference compiler spelling the types `Vector<Dog*>*`, `btrcc` `Vector<Dog*>`; a typedef of a collection of collections (`typedef Map<string, Vector<double>> Table`) makes `btrcc` store the inner collection by value, and a collection of such a typedef (`Vector<Weights>`, `Map<string, Doubles>`) gives invalid C in both; an inferred global taking another global's address (`var p = &base;`) runs in the reference compiler and is `Unresolved identifier 'p'` in `btrcc`, and `var values = [];` or `var pair = ([1, 2], 3);` at file scope give different first diagnostics; an inferred map entry from a raw `char*` (`{"a": "x", "b": raw}`) fails in the reference compiler's IR without a location and is accepted by `btrcc`; numeric entries narrow silently to the first entry's type (`{"a": 'c', "b": 300}`), as an assignment does; a map literal's typed-position diagnostic reads `Return value value expects …` in both, and a positional argument is `Argument '1'` in `btrcc` and `Argument 1` in the reference compiler. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc`, `btrc/ir/lowering/Expressions.btrc` |
 | — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
 
 ## Open native-platform defects
@@ -47,6 +49,25 @@ second tuple access must currently use a parenthesized intermediate—
 `(value._1)._0`—because the unparenthesized numeric-looking boundary in
 `value._1._0` is intentionally not accepted by the lexer. The equivalent
 separate local binding is also supported.
+
+Expression nesting has no language limit; each compiler's stack budget sets
+it. Every stage walks an expression recursively, and compile time grows
+quadratically with a left-associative chain: `k + k + … + k` of 5,000 terms
+takes about 9 seconds in `btrcc` and two minutes in the reference compiler.
+`btrcc`'s Unix entries run the whole compile on their original main thread.
+The macOS build recipes reserve a 512 MiB main stack with
+`-Wl,-stack_size,0x20000000`; Linux's `BtrccCompilerStack` raises its
+process-local soft limit up to 512 MiB without exceeding the hard limit, and
+requires at least 64 MiB. This keeps forked module workers single-threaded.
+The earlier 8 MiB stack exhausted near 950 terms. The Windows entry still uses
+its existing main stack. The reference compiler's recursion limit
+(40,000 frames) ends sooner, and past it the compiler reports `expression or
+declaration nested too deeply to compile`: a left-associative chain compiles
+at 5,000 terms and fails at 20,000, while parenthesized nesting
+(`k + (k + (…))`), which recurses through every precedence level while
+parsing, already fails at 5,000. Between 2,000 and those depths one compiler
+may accept what the other refuses; `btrc/test_deep_expression_parity.py`
+checks both shapes at 2,000 levels in both compilers.
 
 Exceptions carry string messages. A catch may be untyped or bind `string`; a
 different catch annotation is rejected explicitly. The stdlib error classes

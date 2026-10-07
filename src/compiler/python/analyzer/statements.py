@@ -1091,6 +1091,81 @@ class StatementAnalyzer:
         with self.session.scope_frame():
             self._analyze_statements(case.body)
 
+    @contextmanager
+    def _inferred_literal_checks(self) -> Iterator[None]:
+        """Report the inferred-literal mismatches one statement records."""
+        mark = len(self.session.inferred_literal_mismatches)
+        yield
+        self._report_inferred_literals(mark)
+
+    def _report_inferred_literals(self, mark: int) -> None:
+        pending = self.session.inferred_literal_mismatches[mark:]
+        del self.session.inferred_literal_mismatches[mark:]
+        for literal, message, line, col in pending:
+            if id(literal) not in self.session.contextual_literal_ids:
+                self._report_literal_mismatch(literal, message, line, col)
+
+    def _report_inferred_literal(self, expression) -> bool:
+        """Report an inferred binding's or iterable's literal mismatch now.
+
+        The binding or loop takes the literal's own type, so the mismatch comes
+        before anything that type implies, as the self-hosted validator does."""
+        mismatches = self.session.inferred_literal_mismatches
+        for index, (literal, message, line, col) in enumerate(mismatches):
+            if literal is expression and id(literal) not in self.session.contextual_literal_ids:
+                del mismatches[index]
+                self._report_literal_mismatch(literal, message, line, col)
+                return True
+        return False
+
+    def _type_empty_literal_parts(self, inferred, literal, subject) -> None:
+        """Give an inferred literal's nested empty literals their part types.
+
+        An empty ``[]`` or ``{}`` inside a literal whose type is inferred has no
+        element type of its own; it takes the one the literal infers, as it
+        would from a declared type. A nested literal that does not fit its own
+        first element keeps that diagnostic, as the self-hosted validator
+        reports it, so the literal is then left unplanned."""
+        if inferred is None:
+            return
+        parts = list(self._nested_literal_parts(literal))
+        if not any(self.types.is_empty_contextual_literal(part) for part in parts):
+            return
+        pending = {id(mismatch[0]) for mismatch in self.session.inferred_literal_mismatches}
+        if any(id(part) in pending for part in parts):
+            return
+        self.expressions.apply_initializer_plan(
+            self.aggregates.plan_collection_initializer(inferred, literal, subject, literal.line, literal.col)
+        )
+
+    def _nested_literal_parts(self, literal) -> Iterator[object]:
+        if isinstance(literal, ListLiteral):
+            parts = list(literal.elements)
+        elif isinstance(literal, MapLiteral):
+            parts = [part for entry in literal.entries for part in (entry.key, entry.value)]
+        else:
+            return
+        for part in parts:
+            yield part
+            yield from self._nested_literal_parts(part)
+
+    def _report_literal_mismatch(self, literal, message, line, col) -> None:
+        # An unresolved name is the cause; report it, not its consequence.
+        if not self.generated_symbols.report_unresolved_value(literal):
+            self.session.error(message, line, col)
+
+    def _report_undeclared_collection_literal(self, expression) -> bool:
+        """Report a collection literal whose class the program never declares.
+
+        An unresolved element is the cause, so it is reported instead, first,
+        as the self-hosted validator does."""
+        message = self.expressions.undeclared_collection_literal(expression)
+        if message is None:
+            return False
+        if not self.generated_symbols.report_unresolved_value(expression):
+            self.session.error(message, expression.line, expression.col)
+        return True
+
     def _analyze_parallel_for(self, stmt):
         if self.flow.is_range_call(stmt.iterable):
             for argument in stmt.iterable.args:
@@ -1099,7 +1174,11 @@ class StatementAnalyzer:
             elem_type = TypeExpr(base="int")
         else:
             self.analyze_expression(stmt.iterable)
+            if not self._report_inferred_literal(stmt.iterable):
+                self._report_undeclared_collection_literal(stmt.iterable)
             iter_type = self.expressions.infer_type(stmt.iterable)
+            self.generics.collect_type_instances(iter_type)
+            self._type_empty_literal_parts(iter_type, stmt.iterable, "For-in iterable")
             elem_type = self.types.element_type(iter_type, stmt.line, stmt.col)
             class_info = self.index.class_table.get(iter_type.base) if iter_type else None
             if class_info and "iterLen" in class_info.methods and "iterGet" in class_info.methods:
@@ -1186,10 +1265,13 @@ class StatementAnalyzer:
             self.session.break_depth -= 1
             return
         self.analyze_expression(stmt.iterable)
+        if not self._report_inferred_literal(stmt.iterable):
+            self._report_undeclared_collection_literal(stmt.iterable)
         self.session.loop_depth += 1
         self.session.break_depth += 1
         iter_type = self.expressions.infer_type(stmt.iterable)
         self.generics.collect_type_instances(iter_type)
+        self._type_empty_literal_parts(iter_type, stmt.iterable, "For-in iterable")
         if iter_type and iter_type.is_array:
             if self.aggregates.array_target_has_capacity(stmt.iterable, iter_type):
                 self.session.array_iteration_capacity_ids.add(id(stmt.iterable))
@@ -1562,7 +1644,7 @@ class StatementAnalyzer:
 
     def analyze_declaration(self, decl):
         # Each declaration's bodies start reachable and know no non-null facts.
-        with self.session.nonnull_frame((), reachable=True):
+        with self.session.nonnull_frame((), reachable=True), self._inferred_literal_checks():
             self._analyze_declaration_body(decl)
 
     def _analyze_declaration_body(self, decl):
@@ -1590,27 +1672,28 @@ class StatementAnalyzer:
                         self.aggregates.validate_pointer_backed_array_field_initializer(
                             member, member.initializer, f"Field '{decl.name}.{member.name}'", member.line, member.col
                         )
-                    self.analyze_expression(member.initializer)
-                    self.check_nullable_store(member.type, member.initializer, f"field '{decl.name}.{member.name}'")
-                    self.expressions.validate_value(
-                        ExpressionValuePlan(
-                            field_value_type,
-                            member.initializer,
-                            f"Field '{decl.name}.{member.name}'",
-                            member.line,
-                            member.col,
-                            callable_storage=True,
+                    with self._inferred_literal_checks():
+                        self.analyze_expression(member.initializer)
+                        self.check_nullable_store(member.type, member.initializer, f"field '{decl.name}.{member.name}'")
+                        self.expressions.validate_value(
+                            ExpressionValuePlan(
+                                field_value_type,
+                                member.initializer,
+                                f"Field '{decl.name}.{member.name}'",
+                                member.line,
+                                member.col,
+                                callable_storage=True,
+                            )
                         )
-                    )
-                    self.expressions.apply_initializer_plan(
-                        self.aggregates.plan_typed_initializer(
-                            field_value_type,
-                            member.initializer,
-                            f"Field '{decl.name}.{member.name}'",
-                            member.line,
-                            member.col,
+                        self.expressions.apply_initializer_plan(
+                            self.aggregates.plan_typed_initializer(
+                                field_value_type,
+                                member.initializer,
+                                f"Field '{decl.name}.{member.name}'",
+                                member.line,
+                                member.col,
+                            )
                         )
-                    )
             elif isinstance(member, MethodDecl):
                 self._analyze_method(member)
             elif isinstance(member, PropertyDecl):
@@ -1673,6 +1756,7 @@ class StatementAnalyzer:
                     param.line or method.line,
                     param.col or method.col,
                 )
+                literals = len(self.session.inferred_literal_mismatches)
                 with self.session.default_analysis(constructor=is_constructor):
                     self.analyze_expression(param.default)
                 self.check_nullable_store(param.type, param.default, f"parameter '{param.name}'")
@@ -1695,6 +1779,7 @@ class StatementAnalyzer:
                         param.col or method.col,
                     )
                 )
+                self._report_inferred_literals(literals)
             if self._claim_local_binding(
                 param.name,
                 "parameter",
@@ -1805,6 +1890,7 @@ class StatementAnalyzer:
                     param.line or func.line,
                     param.col or func.col,
                 )
+                literals = len(self.session.inferred_literal_mismatches)
                 with self.session.default_analysis():
                     self.analyze_expression(param.default)
                 self.check_nullable_store(param.type, param.default, f"parameter '{param.name}'")
@@ -1827,6 +1913,7 @@ class StatementAnalyzer:
                         param.col or func.col,
                     )
                 )
+                self._report_inferred_literals(literals)
             # An unnamed prototype parameter binds nothing.
             if param.name and self._claim_local_binding(
                 param.name,
@@ -1869,6 +1956,7 @@ class StatementAnalyzer:
         for parameter in variant.params:
             self.generics.collect_type_instances(parameter.type)
             if parameter.default is not None:
+                literals = len(self.session.inferred_literal_mismatches)
                 with self.session.default_analysis():
                     self.analyze_expression(parameter.default)
                 self.check_nullable_store(parameter.type, parameter.default, f"parameter '{parameter.name}'")
@@ -1891,6 +1979,7 @@ class StatementAnalyzer:
                         parameter.col or variant.col,
                     )
                 )
+                self._report_inferred_literals(literals)
                 actual = self.expressions.infer_type(parameter.default)
                 if self.ownership.expression_produces_owned_result(
                     parameter.default
@@ -1987,7 +2076,8 @@ class StatementAnalyzer:
                     self.session.error("Unreachable code after return/throw/break/continue", line, col)
                     break
                 reached = not self.session.flow_unreachable
-                self._analyze_stmt(stmt)
+                with self._inferred_literal_checks():
+                    self._analyze_stmt(stmt)
                 self.session.advance_statement(stmt)
                 # Code after a return, a throw or a call that never returns is
                 # unreachable, and so is everything after unreachable code.
@@ -2025,12 +2115,23 @@ class StatementAnalyzer:
                 self.storage.validate_volatile_reference_conversion(
                     self.session.current_return_type, stmt.value, "Return value", stmt.line, stmt.col
                 )
+                contextual_literal = False
                 if self.session.current_return_type:
                     self.expressions.apply_initializer_plan(
                         self.aggregates.plan_aggregate_initializer(
                             self.session.current_return_type, stmt.value, "Return value", stmt.line, stmt.col
                         )
                     )
+                    # A returned literal fills the declared result, as a
+                    # declared initializer does.
+                    if not self.types.is_empty_contextual_literal(stmt.value) and isinstance(
+                        stmt.value, (ListLiteral, MapLiteral)
+                    ):
+                        contextual_literal = self.expressions.apply_initializer_plan(
+                            self.aggregates.plan_collection_initializer(
+                                self.session.current_return_type, stmt.value, "Return value", stmt.line, stmt.col
+                            )
+                        )
                 if self.types.is_nonpointer_void_object(self.session.current_return_type):
                     self.session.error("Void function or method cannot return a value", stmt.line, stmt.col)
                 elif self.session.current_return_type:
@@ -2047,6 +2148,7 @@ class StatementAnalyzer:
                     )
                     if (
                         not escaping_callable
+                        and not contextual_literal
                         and ret_type
                         and (not self._return_type_compatible(self.session.current_return_type, ret_type))
                     ):
@@ -2142,6 +2244,13 @@ class StatementAnalyzer:
             boundary = self.gpu.array_initializer_boundary(stmt.initializer, stmt.type)
             with self.session.gpu_result_context(boundary):
                 self.analyze_expression(stmt.initializer)
+            if self._report_inferred_literal(stmt.initializer) or self._report_undeclared_collection_literal(
+                stmt.initializer
+            ):
+                stmt.type = TypeExpr(base="int")
+                if define_binding:
+                    self.session.scope.define(stmt.name, self._var_symbol(stmt))
+                return
             inferred = self.expressions.infer_type(stmt.initializer)
             if inferred is not None and self.session.in_gpu_function:
                 inferred = self.gpu.contextual_local_type(stmt.initializer)
@@ -2167,6 +2276,7 @@ class StatementAnalyzer:
                 stmt.type = self.types.upgrade_class_type(stmt.type)
             self.aggregates.validate_thread_handle_copy(stmt.type, stmt.initializer, stmt.line, stmt.col)
             self.generics.collect_type_instances(stmt.type)
+            self._type_empty_literal_parts(stmt.type, stmt.initializer, f"Initializer for '{stmt.name}'")
             self.expressions.validate_value(
                 ExpressionValuePlan(
                     stmt.type,
@@ -2198,6 +2308,14 @@ class StatementAnalyzer:
             boundary = self.gpu.array_initializer_boundary(stmt.initializer, stmt.type)
             with self.session.gpu_result_context(boundary):
                 self.analyze_expression(stmt.initializer)
+            # An unresolved element is the cause of any mismatch it makes, so it
+            # is reported instead, first, as the self-hosted validator does.
+            if isinstance(
+                stmt.initializer, (ListLiteral, MapLiteral)
+            ) and self.generated_symbols.report_unresolved_value(stmt.initializer):
+                if define_binding:
+                    self.session.scope.define(stmt.name, self._var_symbol(stmt))
+                return
             self.check_nullable_store(stmt.type, stmt.initializer, f"variable '{stmt.name}'")
             self.aggregates.validate_array_object_initializer(
                 stmt.type,

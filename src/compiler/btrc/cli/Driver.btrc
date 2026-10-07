@@ -1886,6 +1886,41 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	public void __del__() { self.close(); }
 }
 
+#if !defined(_WIN32)
+#include <sys/resource.h>
+
+/* Keep compilation and its forked workers on the original thread. macOS
+ * compiler build recipes reserve 512 MiB in the executable's main-stack
+ * command; Linux permits its main stack to grow to the process's soft limit.
+ * Only touched pages become resident. No helper thread may coexist with a
+ * forked worker's managed compilation. */
+class BtrccCompilerStack {
+	class int run(CFunction<int, int, char**> program, int argc, char** argv) {
+#if defined(__linux__)
+		struct rlimit limit;
+		if (getrlimit((int)RLIMIT_STACK, &limit) != 0) {
+			fprintf(stderr, "btrcc: error: cannot read compiler stack limit\n");
+			return 1;
+		}
+		rlim_t reservation = (rlim_t)536870912;
+		if (limit.rlim_max != (rlim_t)RLIM_INFINITY && limit.rlim_max < reservation) { reservation = limit.rlim_max; }
+		if (limit.rlim_cur < reservation) {
+			limit.rlim_cur = reservation;
+			if (setrlimit((int)RLIMIT_STACK, &limit) != 0) {
+				fprintf(stderr, "btrcc: error: cannot reserve compiler stack\n");
+				return 1;
+			}
+		}
+		if (limit.rlim_cur < (rlim_t)67108864) {
+			fprintf(stderr, "btrcc: error: compiler requires at least 64 MiB of stack\n");
+			return 1;
+		}
+#endif
+		return program(argc, argv);
+	}
+}
+#endif
+
 /* Command-line application owner for the production self-hosted compiler. */
 class BtrccDriver {
 	private BtrccCommandLine commandLine;

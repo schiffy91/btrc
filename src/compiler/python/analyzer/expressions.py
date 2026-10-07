@@ -412,6 +412,67 @@ class ExpressionAnalyzer:
             ),
         )
 
+    def undeclared_collection_literal(self, expression) -> str | None:
+        """The diagnostic for a literal that must become a collection the program never declares.
+
+        A literal names no symbol, so it needs no import of its own; but an
+        inferred binding or a for-in iterable materializes it as a Vector or a
+        Map, whose class some module of the program must declare.
+        """
+        if isinstance(expression, ListLiteral):
+            collection, kind = "Vector", "List"
+        elif isinstance(expression, MapLiteral):
+            collection, kind = "Map", "Map"
+        else:
+            return None
+        if collection in self.index.class_table:
+            return None
+        return f"{kind} literal needs the {collection} class; add 'import Library.{collection};'"
+
+    def _record_inferred_literal(self, expression) -> None:
+        """Record the first part that does not fit an inferred literal's type.
+
+        A collection literal whose type is inferred takes it from its first
+        element, or from its first entry's key and value, so every other one
+        must fit that type; an empty literal takes its type from the context
+        and neither sets nor breaks it. A literal in a typed position takes
+        that position's type instead and is checked against it. A call
+        argument's position is known only after the argument is analyzed, so
+        the mismatch waits for the end of its statement, as the self-hosted
+        validator's does (StatementAnalyzer.report_inferred_literals)."""
+        if isinstance(expression, ListLiteral):
+            parts = [(f"List element {index}", element) for index, element in enumerate(expression.elements)]
+            groups = (parts,)
+        else:
+            groups = (
+                [(f"Map key {index}", entry.key) for index, entry in enumerate(expression.entries)],
+                [(f"Map value {index}", entry.value) for index, entry in enumerate(expression.entries)],
+            )
+        expected = [self._first_literal_part_type(group) for group in groups]
+        for index in range(len(groups[0])):
+            for group, group_expected in zip(groups, expected, strict=True):
+                if group_expected is None:
+                    continue
+                label, value = group[index]
+                if self.types.is_empty_contextual_literal(value):
+                    continue
+                actual = self._infer_type(value)
+                if actual is not None and not self.types.types_compatible(group_expected, actual):
+                    message = (
+                        f"{label} has type '{self.types.format_type(actual)}' "
+                        f"but expected '{self.types.format_type(group_expected)}'"
+                    )
+                    self.session.inferred_literal_mismatches.append(
+                        (expression, message, getattr(value, "line", 0), getattr(value, "col", 0))
+                    )
+                    return
+
+    def _first_literal_part_type(self, parts):
+        for _, value in parts:
+            if not self.types.is_empty_contextual_literal(value):
+                return self._infer_type(value)
+        return None
+
     def has_temporary_managed_owner(self, expression) -> bool:
         result_type = self.types.canonical_type(self.infer_type(expression))
         managed_result = bool(
@@ -2047,26 +2108,7 @@ class ExpressionAnalyzer:
                 self._analyze_expr(el)
                 self.aggregates.reject_thread_value_escape(el, "embedded in aggregate values")
                 self._reject_flexible_array_operand(el, "List literal element")
-            if len(expr.elements) >= 2:
-                first_type = next(
-                    (
-                        self._infer_type(element)
-                        for element in expr.elements
-                        if not self.types.is_empty_contextual_literal(element)
-                    ),
-                    None,
-                )
-                if first_type:
-                    for i, el in enumerate(expr.elements):
-                        if self.types.is_empty_contextual_literal(el):
-                            continue
-                        el_type = self._infer_type(el)
-                        if el_type and (not self.types.types_compatible(first_type, el_type)):
-                            self.session.error(
-                                f"List element {i} has type '{el_type.base}' but expected '{first_type.base}'",
-                                getattr(el, "line", 0),
-                                getattr(el, "col", 0),
-                            )
+            self._record_inferred_literal(expr)
             inferred_literal = self._infer_type(expr)
             if expr.elements:
                 self.generics.record_class_method_use(inferred_literal, "push")
@@ -2078,6 +2120,7 @@ class ExpressionAnalyzer:
                 self.aggregates.reject_thread_value_escape(entry.value, "embedded in aggregate values")
                 self._reject_flexible_array_operand(entry.key, "Map literal key")
                 self._reject_flexible_array_operand(entry.value, "Map literal value")
+            self._record_inferred_literal(expr)
             if expr.entries:
                 self.generics.record_class_method_use(self._infer_type(expr), "put")
         elif isinstance(expr, FStringLiteral):

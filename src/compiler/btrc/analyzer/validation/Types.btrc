@@ -47,6 +47,10 @@ class SemanticValidationState {
 	public Map<string, bool> rawBorrowVisiting;
 	public bool allowOwnedOpaqueVariable;
 	public bool inParameterDefault;
+	/* The file-scope variable being validated. A binding declared inside its
+	 * initializer (a lambda local) or inside a field default has no owner
+	 * either, but it is not a global. */
+	public Node? globalDeclaration = null;
 
 	public SemanticValidationState(Analyzed analyzed) {
 		self.analyzed = analyzed;

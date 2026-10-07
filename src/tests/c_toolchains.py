@@ -26,6 +26,15 @@ default_c_compiler = HostCCompiler.default
 default_cxx_compiler = HostCCompiler.default_cxx
 
 
+def selfhost_link_flags() -> list[str]:
+    """Reserve the Darwin compiler's main stack while retaining one OS thread.
+
+    Linux's compiler entry raises its process-local soft limit instead.
+    Ordinary generated programs do not require this compiler build policy.
+    """
+    return ["-Wl,-stack_size,0x20000000"] if sys.platform == "darwin" else []
+
+
 def configured_c_compiler() -> list[str]:
     """The C compiler command a single-compiler test runs: ``BTRC_CC`` when set,
     else ``default_c_compiler()``."""

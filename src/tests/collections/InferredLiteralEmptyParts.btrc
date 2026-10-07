@@ -1,0 +1,29 @@
+// An inferred literal takes its type from its first element or entry; an
+// empty literal inside it takes its type from the literal, and a null entry
+// fits a value type that can hold null.
+import Library.Map;
+import Library.Vector;
+
+class Point {
+	public int x;
+	public Point(int x) { self.x = x; }
+}
+
+int main() {
+	var series = {"a": [1.5, 2.5], "b": []};
+	print(series.len);
+	print(series.get("a").len + series.get("b").len);
+
+	int total = 0;
+	for key, values in {"x": [1, 2, 3], "y": []} { total = total + values.len; }
+	print(total);
+
+	var labels = {"a": "x", "b": null};
+	print(labels.len);
+
+	var points = {"p": Point(3), "q": null};
+	print(points.get("p").x);
+
+	print("PASS: test_inferred_literal_empty_parts");
+	return 0;
+}

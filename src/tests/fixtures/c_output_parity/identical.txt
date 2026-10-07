@@ -44,6 +44,7 @@ basics/FloatModTruncates.btrc
 basics/FloatToString.btrc
 basics/FunctionCall.btrc
 basics/GlobalFixedArray.btrc
+basics/GlobalInferredVar.btrc
 basics/Hello.btrc
 basics/IfElse.btrc
 basics/IncdecValueSemantics.btrc
@@ -414,6 +415,7 @@ functions/ExceptionSetjmpAggregateParameter.btrc
 functions/ExceptionSetjmpAggregateVisibility.btrc
 functions/ExceptionSetjmpVolatileContexts.btrc
 functions/ExceptionsThrowFromLambda.btrc
+functions/FieldDefaultLambdaLocals.btrc
 functions/FindindexArrowNotfound.btrc
 functions/FnptrAsParamValue.btrc
 functions/FnptrExportedParameter.btrc
@@ -432,6 +434,7 @@ functions/LambdaCaptureString.btrc
 functions/LambdaCaptureValueSemantics.btrc
 functions/LambdaGlobals.btrc
 functions/LambdaIife.btrc
+functions/LambdaInferredMapLiteral.btrc
 functions/LambdaNested.btrc
 functions/LambdaNoParams.btrc
 functions/LambdaStringReturn.btrc

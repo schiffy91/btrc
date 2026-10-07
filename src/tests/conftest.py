@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.c_toolchains import configured_c_compiler, selfhost_link_flags
 from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.skip_ledger import SkipLedger
 
@@ -185,6 +185,7 @@ def _btrcc_fingerprint(compiler: list[str]) -> str:
 
     digest = hashlib.sha256()
     digest.update(b"btrcc-test-fixture-v1")
+    digest.update(b"\0".join(flag.encode() for flag in selfhost_link_flags()))
     for relative, pattern in _BTRCC_INPUT_GLOBS:
         for source in sorted((REPO / relative).rglob(pattern)):
             if "__pycache__" in source.parts:
@@ -281,6 +282,7 @@ def _build_immutable_btrcc(compiler: list[str], output: Path, binary: Path) -> N
             str(generated),
             "-o",
             str(staged),
+            *selfhost_link_flags(),
             "-lm",
             "-lpthread",
         ],

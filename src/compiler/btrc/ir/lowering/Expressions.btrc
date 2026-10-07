@@ -2201,7 +2201,9 @@ class ExpressionLowerer {
 	public IRNode lowerListLiteral(Node node, Map<string, Node> varTypes, Node? expected, CallableFlowState callableFlow) {
 		string mangled = "btrc_Vector_int";
 		Node? elementExpected = null;
-		Node concreteExpected = self.cTypes.resolveBodyType(expected, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		/* A typedef naming the collection (`typedef Vector<double> Doubles`) is
+		 * resolved first, so the literal builds that collection. */
+		Node concreteExpected = self.cTypes.resolveBodyType(SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		if (expected != null && concreteExpected.genericArgs().len > 0) {
 			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
 			elementExpected = concreteExpected.genericArgs().get(0);
@@ -2385,7 +2387,7 @@ class ExpressionLowerer {
 		string mangled = "btrc_Map_string_int";
 		Node? keyExpected = null;
 		Node? valueExpected = null;
-		Node concreteExpected = self.cTypes.resolveBodyType(expected, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		Node concreteExpected = self.cTypes.resolveBodyType(SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		if (expected != null && concreteExpected.genericArgs().len > 1) {
 			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
 			keyExpected = concreteExpected.genericArgs().get(0);
@@ -2498,8 +2500,12 @@ class ExpressionLowerer {
 			}
 		}
 		if (node.elements().len == 0) {
-			if (expected != null && expected.genericArgs().len > 0 && self.analyzed.isGenericClass(expected.base)) {
-				string mangled = TypeIdentity.mangleGenericType(expected.base, expected.genericArgs());
+			/* A typedef spelling of a collection (`typedef Map<K, V> Weights`)
+			 * builds the collection it names. */
+			Node? collection = expected == null ? null : SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable);
+			if (collection == null) { collection = expected; }
+			if (collection != null && collection.genericArgs().len > 0 && self.analyzed.isGenericClass(collection.base)) {
+				string mangled = TypeIdentity.mangleGenericType(collection.base, collection.genericArgs());
 				Vector<IRNode> newArgs = [];
 				return IRNode.call(mangled + "_new", newArgs);
 			}
@@ -3703,8 +3709,19 @@ class ExpressionLowerer {
 		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 	}
 
+	/* A list or map literal lowers to the collection its target names, so its
+	 * prepared value has the target's type, not the type its first element
+	 * would infer: [1, 2] passed as Vector<double> is a Vector<double>. */
+	private Node? preparedSourceType(Node expression, Node? targetType, Map<string, Node> varTypes) {
+		if (targetType != null && (expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL)) {
+			Node? collection = SemanticTypeSystem.resolveTypedefType(targetType, self.analyzed.typedefTable);
+			if (collection != null && !collection.isArray && ((expression.kind == NK_LIST_LITERAL && collection.base == "Vector") || (expression.kind == NK_MAP_LITERAL && collection.base == "Map"))) { return targetType; }
+		}
+		return self.resolvedExpressionType(expression, varTypes);
+	}
+
 	public PreparedValue prepareTargetValue(Node expression, Node? targetType, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		Node? sourceType = self.resolvedExpressionType(expression, varTypes);
+		Node? sourceType = self.preparedSourceType(expression, targetType, varTypes);
 		string hostedMode = self.strings.hostedStringConversionMode(expression, targetType, sourceType);
 		if (hostedMode == "reject") {
 			fprintf(stderr, "error: raw char* to managed string conversion reached IR without a proven hosted ownership effect\n");
@@ -3731,7 +3748,7 @@ class ExpressionLowerer {
 	}
 
 	private PreparedValue prepareCallTargetValue(Node expression, Node? targetType, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		Node? sourceType = self.resolvedExpressionType(expression, varTypes);
+		Node? sourceType = self.preparedSourceType(expression, targetType, varTypes);
 		string hostedMode = self.strings.hostedStringConversionMode(expression, targetType, sourceType);
 		if (hostedMode == "reject") {
 			fprintf(stderr, "error: raw char* to managed string conversion reached IR without a proven hosted ownership effect\n");

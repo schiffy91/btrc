@@ -2862,8 +2862,12 @@ class DeclarationLowerer {
 			m.globalDecls.push(global);
 			return;
 		}
+		/* A global `var` has the type the analyzer inferred from its
+		 * initializer (inferGlobals), not int. */
+		Node? valueType = d.type;
+		if (valueType == null && self.analyzed.globalVarTypes.has(d.name)) { valueType = self.analyzed.globalVarTypes.get(d.name); }
 		string ct = "int";
-		if (d.type != null) { ct = self.cTypes.lower(d.type); }
+		if (valueType != null) { ct = self.cTypes.lower(valueType); }
 		IRGlobalDecl global = IRGlobalDecl(ct, d.name);
 		global.isExtern = d.type != null && d.type.isExtern && !forceExternal;
 		global.isStatic = !(global.isExtern || forceExternal);
@@ -2873,7 +2877,7 @@ class DeclarationLowerer {
 		}
 		if (d.initializer != null && !global.isExtern) {
 			Map<string, Node> empty = {};
-			global.init = self.expressions.lowerStaticInitializer(d.initializer, d.type, empty, callableFlow);
+			global.init = self.expressions.lowerStaticInitializer(d.initializer, valueType, empty, callableFlow);
 		}
 		m.globalDecls.push(global);
 	}

@@ -686,6 +686,7 @@ class DeclarationValidator {
 					if (member.access == "class" && !self.storage.staticInitializer(member.initializer, member.type)) {
 						TypeValidator.fail("Static field '" + declaration.name + "." + member.name + "' requires a C constant/address initializer for " + "static storage", member);
 					}
+					int literals = self.expressions.inferredLiteralMark();
 					self.expressions.contextualizeGenericConstructor(member.type, member.initializer, fieldVars);
 					self.controlFlow.prepareExpression(member.initializer, fieldVars);
 					self.expressions.validateExpr(member.initializer,  fieldVars);
@@ -696,6 +697,7 @@ class DeclarationValidator {
 					if (actual != null && !self.expressions.contextualAggregateInitializer(member.initializer) && !self.types.assignmentCompatible(fieldValueType, actual) && !self.storage.charArrayStringInitializer(fieldValueType, member.initializer, fieldVars)) {
 						TypeValidator.fail("Field '" + declaration.name + "." + member.name + "' expects '" + self.types.formatType(member.type) + "' but got '" + self.types.formatType(actual) + "'", member);
 					}
+					self.expressions.checkInferredLiterals(literals);
 				}
 			} else if (member.kind == NK_METHOD_DECL) {
 				self.validateCallableBody(member, declaration);
@@ -744,6 +746,7 @@ class DeclarationValidator {
 			self.types.rejectRuntimeInterfaceType(parameter.type, parameter);
 			if (parameter.default_ != null) {
 				sawDefault = true;
+				int literals = self.expressions.inferredLiteralMark();
 				self.expressions.contextualizeGenericConstructor(parameter.type, parameter.default_, vars);
 				bool previousDefault = self.state.inParameterDefault;
 				self.state.inParameterDefault = true;
@@ -761,6 +764,7 @@ class DeclarationValidator {
 				if (actual != null && !self.expressions.contextualAggregateInitializer(parameter.default_) && !self.types.assignmentCompatible(parameterValueType, actual)) {
 					TypeValidator.fail("Default for parameter '" + parameter.name + "' expects '" + self.types.formatType(parameter.type) + "' but got '" + self.types.formatType(actual) + "'", parameter);
 				}
+				self.expressions.checkInferredLiterals(literals);
 			} else if (sawDefault) {
 				TypeValidator.fail("Non-default parameter '" + parameter.name + "' follows default parameter", parameter);
 			}

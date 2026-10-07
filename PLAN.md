@@ -281,6 +281,19 @@ the accounting change. Replace that exemption with a safe large-stack startup
 strategy and a native handoff regression, preserving the branch's 2,000-term
 expression support, module-worker parallelism and collection-literal repairs.
 
+A local integration draft based on `1fe1dc1e` now reconciles `CL-REQ-10` with
+C2's flexible-array checks. It removes parked-thread accounting and runs the
+compiler on its original thread: macOS build recipes reserve a 512 MiB main
+stack, while Linux startup adjusts only the process-local soft stack limit,
+respects the hard limit and diagnoses less than 64 MiB. Native, cross-release,
+bootstrap, test-cache and benchmark recipes carry the applicable policy. A
+native regression requires one live thread and two distinct worker processes;
+Linux-specific cases check a refused 16 MiB and accepted 64 MiB hard limit.
+A small native C prototype proved the Darwin main-stack and fork path, but the
+integrated compiler regressions, Linux limits and deep-expression parity remain
+unrun. Static checks and generated-source verification passed; no qualification
+or main landing is claimed. Keep the C2 baseline gate independent of this draft.
+
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
 | Stages 1–4 | Pre-flight history, Stage 2 fixes, measurement harness and extensive stdlib drift repairs landed. Daemon failures were races/zombie handling, not a deadline to relax. | Disk headroom restored; finish Mac and BTRSmith requalification and pin; reconcile residual findings before closing Stage 4. |
