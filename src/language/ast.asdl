@@ -38,8 +38,11 @@ module Btrc {
                         param* params, block? body, bool is_gpu,
                         bool is_realtime,
                         bool keep_return, int name_line, int name_col)
+         -- `union U { ... };` and `union U;` share StructDecl; is_union
+         -- selects the C keyword, the plain-member rule and first-member
+         -- brace initialization.
          | StructDecl(identifier name, field_def* fields, bool is_forward,
-                      int name_line, int name_col)
+                      bool is_union, int name_line, int name_col)
          | EnumDecl(identifier name, enum_value* values,
                     int name_line, int name_col)
          | RichEnumDecl(identifier name, rich_enum_variant* variants,
@@ -64,12 +67,18 @@ module Btrc {
     -- Types
     -- ================================================================
 
+    -- array_size is the outermost extent; elements are the inner extents,
+    -- outermost first (int g[2][3][4]: array_size=2, elements=[3, 4]); only
+    -- array_size may be absent. pointer_depth pointers sit inside the arrays
+    -- (int *p[2] holds int*); array_pointer_depth counts the pointers applied
+    -- outside them (int (*p)[3]). btrc's prefix T[] never has elements.
     type_expr = TypeExpr(identifier base, type_expr* generic_args,
                          int pointer_depth, bool is_array,
-                         expr? array_size, bool is_const,
+                         expr? array_size, expr* elements, bool is_const,
                          bool is_nullable, int nullable_outer_depth,
                          bool is_static,
-                         bool is_extern, bool is_volatile)
+                         bool is_extern, bool is_volatile,
+                         int array_pointer_depth)
                 attributes(int line, int col)
 
     -- ================================================================
@@ -112,8 +121,14 @@ module Btrc {
                    attributes(int line, int col)
     rich_enum_variant = RichEnumVariant(identifier name, param* params)
                         attributes(int line, int col)
-    field_def    = FieldDef(type_expr type, identifier name)
-                   attributes(int line, int col)
+    -- value is a bit-field width (C11 6.7.2.1), null for an ordinary member;
+    -- an unnamed bit-field has name "" and sits at its type. A flexible
+    -- array member is a struct's last FieldDef whose own type is an unsized
+    -- array. AnonymousMember is a C11 anonymous struct or union member; its
+    -- fields belong to the enclosing record.
+    field_def    = FieldDef(type_expr type, identifier name, expr? value)
+                 | AnonymousMember(bool is_union, field_def* fields)
+                 attributes(int line, int col)
 
     -- ================================================================
     -- Statements
@@ -191,7 +206,10 @@ module Btrc {
          | AssignExpr(expr target, string op, expr value)
          | ListLiteral(expr* elements)
          | MapLiteral(map_entry* entries)
-         | BraceInitializer(expr* elements)
+         -- entries is null until an element is designated, then holds one
+         -- Designation per element (empty parts for a positional element);
+         -- elements always hold the values.
+         | BraceInitializer(expr* elements, designation* entries)
          | FStringLiteral(fstring_part* parts)
          | NewExpr(type_expr type, expr* args, identifier* arg_names)
          | TupleLiteral(expr* elements)
@@ -207,6 +225,9 @@ module Btrc {
          -- update with two or more operands (PLAN.md D19 row 19); elsewhere
          -- `(a, b)` is a tuple. Its value is the last operand's.
          | CommaExpr(expr* elements)
+         -- (T){...} (C11 6.5.2.5): an lvalue of type T whose initializer is
+         -- always a BraceInitializer.
+         | CompoundLiteral(type_expr target_type, expr initializer)
          attributes(int line, int col)
 
     -- Expression sub-types
@@ -219,4 +240,11 @@ module Btrc {
     lambda_body  = LambdaBlock(block body)
                  | LambdaExprBody(expr expression)
     capture      = Capture(identifier name, type_expr type)
+
+    -- A designated initializer's designation (C11 6.7.9): a chain of
+    -- `.field` and `[index]` steps. Designation itself has no position.
+    designation  = Designation(designator* parts)
+    designator   = FieldDesignator(identifier field)
+                 | IndexDesignator(expr index)
+                 attributes(int line, int col)
 }

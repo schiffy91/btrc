@@ -43,6 +43,7 @@ enum IRKind {
 	IRK_SIZEOF,
 	IRK_INITIALIZER_LIST,
 	IRK_COMPOUND_LITERAL,
+	IRK_DESIGNATION,
 	IRK_STMT_EXPR,
 	IRK_INVALID_EXPR,
 	/* statements */
@@ -145,6 +146,7 @@ class IRNode {
 	public bool neverReturns;   /* IRCall: control cannot continue afterward. */
 	public int sourceLine;
 	public bool realtimeBounded; /* Semantic certificate for source C-for. */
+	public bool bitField;       /* IRFieldAccess of a bit-field: never addressable. */
 
 	public IRNode() {
 		/* A new node's storage is zeroed, so its null fields need no store:
@@ -178,6 +180,7 @@ class IRNode {
 		self.helperRef = "";
 		self.realtimeProvenance = "";
 		self.realtimeBounded = false;
+		self.bitField = false;
 	}
 
 	/* One empty list of each element type answered for every unwritten
@@ -285,13 +288,28 @@ class IRNode {
 
 	/* A typed C compound literal with named field initializers. `field_names` and
      * `args` are parallel vectors so every initializer remains a traversable IR
-     * expression (mirrors Python IRCompoundLiteral.fields). */
+     * expression (mirrors Python IRCompoundLiteral.fields). A field name ""
+     * is positional (array and scalar literals); its value may be a
+     * designation. */
 	class IRNode compoundLiteral(string cType, Vector<string> fieldNames, Vector<IRNode> values) {
 		IRNode n = IRNode();
 		n.kind = IRK_COMPOUND_LITERAL;
 		n.targetType = cType;
 		n.fieldNamesStorage = fieldNames;
 		n.argsStorage = values;
+		return n;
+	}
+
+	/* One designated initializer, `.field = value` or `[index] = value`
+	 * (mirrors IRDesignation). Exactly one of `field` and `index` (a folded
+	 * literal) is set; it appears only as an initializer-list element or as a
+	 * positional compound-literal entry's value. */
+	class IRNode designation(string field, IRNode? index, IRNode value) {
+		IRNode n = IRNode();
+		n.kind = IRK_DESIGNATION;
+		n.field = field;
+		if (index != null) { n.index = index; }
+		n.value = value;
 		return n;
 	}
 
@@ -630,33 +648,47 @@ class IRParam {
 	}
 }
 
-/* A single field within a struct definition (mirrors IRStructField). */
+/* A single field within a struct or union definition (mirrors
+ * IRStructField). At most one of `arraySize`, `isUnsizedArray` (a flexible
+ * array member, `T name[];`), `bitWidth` (a folded bit-field width,
+ * `T name : w;`) and `recordFields` (an anonymous member: an unnamed field
+ * whose `cType` is the keyword `struct` or `union` and whose untagged
+ * record's members are emitted inline) is set; CEmitter checks the shape.
+ * The members sit on the field rather than in an IRStructDef, so a record
+ * and its fields never retain each other. */
 class IRStructField {
 	public string cType;
 	public string name;
 	public IRNode? arraySize;    /* optional array bound */
+	public Vector<IRStructField>? recordFields;
+	public int bitWidth;         /* -1 when the field is not a bit-field */
 	public bool isVolatile;
 	public bool effectiveIsVolatile;
+	public bool isUnsizedArray;
 	public IRStructField(string cType, string name) {
 		self.cType = cType;
 		self.name = name;
 		self.arraySize = null;
+		self.bitWidth = -1;
 		self.isVolatile = false;
 		self.effectiveIsVolatile = false;
+		self.isUnsizedArray = false;
 	}
 }
 
-/* A struct definition (mirrors IRStructDef). */
+/* A struct or union definition (mirrors IRStructDef). */
 class IRStructDef {
 	public string name;
 	public Vector<IRStructField> fields;
 	/* Zero means natural alignment; otherwise one supported pragma-pack
      * alignment that must wrap this exact declaration during emission. */
 	public int packAlignment;
+	public bool isUnion;
 	public IRStructDef() {
 		self.name = "";
 		self.fields = [];
 		self.packAlignment = 0;
+		self.isUnion = false;
 	}
 }
 
@@ -828,7 +860,11 @@ class IRPreprocessorDecl {
 
 class IRStructForward {
 	public string name;
-	public IRStructForward(string name) { self.name = name; }
+	public bool isUnion;
+	public IRStructForward(string name) {
+		self.name = name;
+		self.isUnion = false;
+	}
 }
 
 class IRFunctionPointerTypedef {
@@ -1039,7 +1075,7 @@ class IRCanonicalRenderer {
 				self.child(depth + 3, "value", value.value);
 			}
 		}
-		for forward in module.structForwards { self.line(depth + 1, f"structForward name={self.quoted(forward.name)}"); }
+		for forward in module.structForwards { self.line(depth + 1, f"structForward name={self.quoted(forward.name)}{self.flag("union", forward.isUnion)}"); }
 		for pointer in module.functionPointerTypedefs {
 			self.line(depth + 1, f"functionPointerTypedef name={self.quoted(pointer.name)} returnType={self.quoted(pointer.returnType)}");
 			self.strings(depth + 2, "paramType", pointer.paramTypes);
@@ -1058,10 +1094,7 @@ class IRCanonicalRenderer {
 				self.fields(depth + 3, variant.fields);
 			}
 		}
-		for structure in module.structDefs {
-			self.line(depth + 1, f"struct name={self.quoted(structure.name)} packAlignment={structure.packAlignment}");
-			self.fields(depth + 2, structure.fields);
-		}
+		for structure in module.structDefs { self.structure(depth + 1, structure); }
 		for global in module.globalDecls {
 			self.line(depth + 1, f"global name={self.quoted(global.name)} cType={self.quoted(global.cType)}{self.flag("unsizedArray", global.isUnsizedArray)}{self.flag("static", global.isStatic)}{self.flag("extern", global.isExtern)}{self.flag("volatile", global.isVolatile)}{self.flag("effectiveVolatile", global.effectiveIsVolatile)}");
 			self.child(depth + 2, "init", global.init);
@@ -1114,17 +1147,25 @@ class IRCanonicalRenderer {
 		}
 	}
 
+	private void structure(int depth, IRStructDef structure) {
+		self.line(depth, f"struct name={self.quoted(structure.name)} packAlignment={structure.packAlignment}{self.flag("union", structure.isUnion)}");
+		self.fields(depth + 1, structure.fields);
+	}
+
 	private void fields(int depth, Vector<IRStructField> fields) {
 		for field in fields {
-			self.line(depth, f"field cType={self.quoted(field.cType)} name={self.quoted(field.name)}{self.flag("volatile", field.isVolatile)}{self.flag("effectiveVolatile", field.effectiveIsVolatile)}");
+			string bitWidth = field.bitWidth < 0 ? "" : f" bitWidth={field.bitWidth}";
+			self.line(depth, f"field cType={self.quoted(field.cType)} name={self.quoted(field.name)}{self.flag("volatile", field.isVolatile)}{self.flag("effectiveVolatile", field.effectiveIsVolatile)}{self.flag("unsizedArray", field.isUnsizedArray)}{bitWidth}");
 			self.child(depth + 1, "arraySize", field.arraySize);
+			Vector<IRStructField>? record = field.recordFields;
+			if (record != null) { self.fields(depth + 1, record); }
 		}
 	}
 
 	private void child(int depth, string role, IRNode? node) {
 		if (node == null) { return; }
 		IRKind kind = (IRKind)node.kind;
-		string scalars = f"{self.flag("prefix", node.prefix)}{self.flag("arrow", node.arrow)}{self.flag("storageRootKnown", node.storageRootKnown)}{self.flag("sourceAddress", node.sourceAddress)}{self.flag("arrayStorageKnown", node.arrayStorageKnown)}{self.flag("arrayDecl", node.isArrayDecl)}{self.flag("volatile", node.isVolatile)}{self.flag("effectiveVolatile", node.effectiveIsVolatile)}{self.flag("setjmpInferredVolatile", node.setjmpInferredVolatile)}{self.flag("static", node.isStatic)}{self.flag("extern", node.isExtern)}{self.flag("cycleReturnTemp", node.isCycleReturnTemp)}{self.flag("fallsThrough", node.fallsThrough)}{self.flag("noFallThrough", !node.canFallThrough)}{self.flag("neverReturns", node.neverReturns)}{self.flag("realtimeBounded", node.realtimeBounded)}";
+		string scalars = f"{self.flag("prefix", node.prefix)}{self.flag("arrow", node.arrow)}{self.flag("storageRootKnown", node.storageRootKnown)}{self.flag("sourceAddress", node.sourceAddress)}{self.flag("arrayStorageKnown", node.arrayStorageKnown)}{self.flag("arrayDecl", node.isArrayDecl)}{self.flag("volatile", node.isVolatile)}{self.flag("effectiveVolatile", node.effectiveIsVolatile)}{self.flag("setjmpInferredVolatile", node.setjmpInferredVolatile)}{self.flag("static", node.isStatic)}{self.flag("extern", node.isExtern)}{self.flag("cycleReturnTemp", node.isCycleReturnTemp)}{self.flag("fallsThrough", node.fallsThrough)}{self.flag("noFallThrough", !node.canFallThrough)}{self.flag("neverReturns", node.neverReturns)}{self.flag("realtimeBounded", node.realtimeBounded)}{self.flag("bitField", node.bitField)}";
 		string texts = f"{self.text("text", node.text)}{self.text("name", node.name)}{self.text("callee", node.callee)}{self.text("op", node.op)}{self.text("targetType", node.targetType)}{self.text("bridge", node.bridge)}{self.text("field", node.field)}{self.text("storageRoot", node.storageRoot)}{self.text("arrayStorageRoot", node.arrayStorageRoot)}{self.text("cType", node.cType)}{self.text("sourceFile", node.sourceFile)}{self.text("helperRef", node.helperRef)}{self.text("realtimeProvenance", node.realtimeProvenance)}";
 		string line = node.sourceLine == 0 ? "" : f" line={node.sourceLine}";
 		self.line(depth, f"{role}: {kind.toString()}{texts}{scalars}{line}");

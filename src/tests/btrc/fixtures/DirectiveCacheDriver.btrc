@@ -49,7 +49,7 @@ string conditioned(GrammarInfo grammar, string source, string operatingSystem) {
 	Map<string, bool> hosted = {};
 	for name in data.ownedNames() { hosted.put(name, true); }
 	Map<string, string> defines = {};
-	var environment = FeConditionalEnvironment(operatingSystem, "x86_64", FeConditionalEnvironment.macroRulesFor(grammar.vocabulary, hosted, data), data, defines);
+	var environment = FeConditionalEnvironment(operatingSystem, "x86_64", "gnu", FeConditionalEnvironment.macroRulesFor(grammar.vocabulary, hosted, data), data, defines);
 	return FeSourceConditionals(environment, grammar).condition(source, "/t/Input.btrc").text;
 }
 

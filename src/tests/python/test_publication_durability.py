@@ -110,6 +110,7 @@ def _stdlib_manifest(source: str, header: str, impl: str) -> dict:
         },
         "schema": MANIFEST_SCHEMA,
         "stdlib_source": hashlib.sha256(source.encode()).hexdigest(),
+        "target": "linux-x86_64",
         "toolchain": ToolchainFingerprint().digest("full"),
         "types": [],
         "functions": [],
@@ -864,7 +865,7 @@ def test_concurrent_stdlib_writers_leave_one_valid_generation(tmp_path: Path) ->
 
     reader_publication = ArtifactPublisher(ArtifactStorage())
     reader = StdlibArchivePublisher(reader_publication)
-    StdlibArtifactRepository(reader).load(str(output), source)
+    StdlibArtifactRepository(reader).load(str(output), source, "linux-x86_64")
     header = (output / HEADER_NAME).read_text(encoding="utf-8")
     impl = (output / IMPL_NAME).read_text(encoding="utf-8")
     assert any(f" {generation} " in header and f" {generation} " in impl for generation in ("alpha", "beta", "gamma"))
@@ -904,13 +905,13 @@ def test_stdlib_reader_gets_retryable_mismatch_during_publication(
     try:
         assert payload_published.wait(10)
         with pytest.raises(ArchiveVersionError, match=r"being updated.*retry"):
-            StdlibArtifactRepository(publisher).load(str(output), source)
+            StdlibArtifactRepository(publisher).load(str(output), source, "linux-x86_64")
     finally:
         release_writer.set()
         writer.join(10)
 
     assert errors == []
-    StdlibArtifactRepository(publisher).load(str(output), source)
+    StdlibArtifactRepository(publisher).load(str(output), source, "linux-x86_64")
     assert " new " in (output / HEADER_NAME).read_text(encoding="utf-8")
     assert " new " in (output / IMPL_NAME).read_text(encoding="utf-8")
 

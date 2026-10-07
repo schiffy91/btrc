@@ -11,6 +11,7 @@ import Library.Strings;
 import Library.TOML;
 import Library.Vector;
 
+import ../generated/hosted_abi/Tables.btrc;
 import ./Timing.btrc;
 import ./SourceIo.btrc;
 import ./Models.btrc;
@@ -22,50 +23,91 @@ class FePackageFailure {
 	}
 }
 
+/* One selected target row, as the frontend's value. Parsing, canonical
+ * labels and host inference read the generated targets.toml rows, as the
+ * reference compiler's TargetRepository does (platform-target-contract.md
+ * §1.4-§1.7). An unrecognized host is the one target that names no row: its
+ * fields are empty, and every compile refuses it before reading a source. */
 class FePackageTarget {
 	public string operatingSystem;
 	public string architecture;
+	public string environment;
 
-	public FePackageTarget(string operatingSystem, string architecture) {
+	public FePackageTarget(string operatingSystem, string architecture, string environment) {
 		self.operatingSystem = operatingSystem;
 		self.architecture = architecture;
+		self.environment = environment;
 	}
 
-	private bool validOperatingSystem(string value) { return value.equals("linux") || value.equals("macos") || value.equals("windows"); }
+	class string unknownHostMessage() { return "cannot infer a supported target from this host; pass --target"; }
 
-	private bool validArchitecture(string value) { return value.equals("x86_64") || value.equals("aarch64"); }
+	/* Every canonical label, sorted; the generated rows are in label order. */
+	class Vector<string> labels() {
+		Vector<string> labels = [];
+		for row in GeneratedHostedAbiData().targetRows() { labels.push(row.label); }
+		labels.sortBy((string left, string right) => Strings.lessThan(left, right));
+		return labels;
+	}
 
-	/* The host this compiler runs on, which the reference compiler also
-	 * selects when no --target is given. A btrcc binary's host is the target
-	 * its C compiler built it for. An unrecognized host keeps an empty target,
-	 * so only target-dependent inputs fail, and they ask for --target. */
-	class FePackageTarget host() {
-		int platform = __btrc_target_platform();
-		int architecture = __btrc_target_architecture();
+	class string unsupportedMessage(string raw) { return f"unsupported target '{raw}'; expected one of " + Strings.join(FePackageTarget.labels(), ", "); }
+
+	class string defaultEnvironment(GeneratedHostedAbiData data, string operatingSystem) {
+		Map<string, string> defaults = data.defaultEnvironments();
+		return defaults.has(operatingSystem) ? defaults.get(operatingSystem) : "";
+	}
+
+	class GeneratedTargetRow? find(GeneratedHostedAbiData data, string operatingSystem, string architecture, string environment) {
+		for row in data.targetRows() {
+			if (row.operatingSystem.equals(operatingSystem) && row.architecture.equals(architecture) && row.environment.equals(environment)) { return row; }
+		}
+		return null;
+	}
+
+	/* The row OS-ARCH[-ENV] names, through the architecture aliases and the
+	 * OS's default environment; anything else throws the shared message. */
+	class FePackageTarget parse(string raw) {
+		GeneratedHostedAbiData data = GeneratedHostedAbiData();
+		Vector<string> parts = Strings.split(raw == null ? "" : raw, "-");
+		bool shaped = parts.len == 2 || parts.len == 3;
+		for part in parts { if (part.isEmpty()) { shaped = false; } }
+		if (shaped) {
+			string os = parts.get(0);
+			string arch = parts.get(1);
+			Map<string, string> aliases = data.architectureAliases();
+			if (aliases.has(arch)) { arch = aliases.get(arch); }
+			string environment = parts.len == 3 ? parts.get(2) : FePackageTarget.defaultEnvironment(data, os);
+			GeneratedTargetRow? row = FePackageTarget.find(data, os, arch, environment);
+			if (row != null) { return FePackageTarget(row.operatingSystem, row.architecture, row.environment); }
+		}
+		throw FePackageTarget.unsupportedMessage(raw == null ? "" : raw);
+	}
+
+	/* The host seam: __btrc_target_platform() codes 1/2/3 and
+	 * __btrc_target_architecture() codes 1/2 name the normalized tokens; code
+	 * 0 names nothing. A btrcc binary's host is the target its C compiler
+	 * built it for. */
+	class FePackageTarget hostFrom(int platform, int architecture) {
 		string os = platform == 1 ? "macos" : (platform == 2 ? "linux" : (platform == 3 ? "windows" : ""));
 		string arch = architecture == 1 ? "x86_64" : (architecture == 2 ? "aarch64" : "");
-		if (os.isEmpty() || arch.isEmpty()) { return FePackageTarget("", ""); }
-		return FePackageTarget(os, arch);
+		if (os.isEmpty() || arch.isEmpty()) { return FePackageTarget("", "", ""); }
+		GeneratedHostedAbiData data = GeneratedHostedAbiData();
+		GeneratedTargetRow? row = FePackageTarget.find(data, os, arch, FePackageTarget.defaultEnvironment(data, os));
+		if (row == null || !row.compilerHost) { return FePackageTarget("", "", ""); }
+		return FePackageTarget(row.operatingSystem, row.architecture, row.environment);
 	}
 
-	class FePackageTarget parse(string raw) {
-		if (raw == null || raw.isEmpty()) {
-			FePackageFailure.fail("version-1 package manifests require --target OS-ARCH");
-		}
-		int separator = raw.indexOf("-");
-		if (separator < 1 || separator + 1 >= raw.length()) {
-			FePackageFailure.fail(f"unsupported package target '{raw}'; expected OS-ARCH");
-		}
-		string os = raw.substring(0, separator);
-		string arch = raw.substring(separator + 1, raw.length() - separator - 1);
-		if (arch.equals("x64")) { arch = "x86_64"; }
-		else if (arch.equals("arm64")) { arch = "aarch64"; }
-		FePackageTarget target = FePackageTarget(os, arch);
-		if (!target.validOperatingSystem(os) || !target.validArchitecture(arch)) {
-			FePackageFailure.fail(f"unsupported package target '{raw}'; expected linux, macos, " + "or windows with x86_64 or aarch64");
-		}
-		return target;
+	class FePackageTarget host() { return FePackageTarget.hostFrom(__btrc_target_platform(), __btrc_target_architecture()); }
+
+	/* Whether this target names a row; only an unrecognized host does not. */
+	public bool known() { return !self.operatingSystem.isEmpty(); }
+
+	public GeneratedTargetRow row() {
+		GeneratedTargetRow? row = FePackageTarget.find(GeneratedHostedAbiData(), self.operatingSystem, self.architecture, self.environment);
+		if (row == null) { throw FePackageTarget.unknownHostMessage(); }
+		return row;
 	}
+
+	public string label() { return self.known() ? self.row().label : ""; }
 }
 
 class FeNativeDeclaration {
@@ -1880,7 +1922,7 @@ class FePackageImportPolicy {
 		for provider in candidates {
 			if (provider.selectedFor(target)) { result.push(provider.implementation); return result; }
 		}
-		FePackageFailure.fail(f"module '{source}' has no provider for target {target.operatingSystem}-{target.architecture}");
+		FePackageFailure.fail(f"module '{source}' has no provider for target {target.label()}");
 		return result;
 	}
 
@@ -1999,7 +2041,7 @@ class FeNativeLinkPlan {
 		Vector<FeNativeBinding> bindings = [];
 		for package in self.packages {
 			for binding in package.bindings {
-				if (self.target.operatingSystem.isEmpty() || self.target.architecture.isEmpty()) { FePackageFailure.fail("native header bindings require --target OS-ARCH"); }
+				if (!self.target.known()) { FePackageFailure.fail(FePackageTarget.unknownHostMessage()); }
 				if (binding.selectedFor(self.target)) { bindings.push(binding); }
 			}
 		}
@@ -2932,11 +2974,19 @@ class FePackageGraphResolver {
 		return manifest.name;
 	}
 
+	/* The driver selects and checks the target before reading a source;
+	 * other callers get the same message through the package failure. */
 	private FePackageTarget planTarget(string targetValue) {
 		if (targetValue == null || targetValue.isEmpty()) {
 			return FePackageTarget.host();
 		}
-		return FePackageTarget.parse(targetValue);
+		FePackageTarget selected = FePackageTarget("", "", "");
+		try {
+			selected = FePackageTarget.parse(targetValue);
+		} catch (string error) {
+			FePackageFailure.fail(error);
+		}
+		return selected;
 	}
 
 	public FeResolvedPackages resolveFor(string sourcePath, string targetValue) {
@@ -2957,7 +3007,7 @@ class FePackageGraphResolver {
 			FeNativeLinkPlan legacyPlan = FeNativeLinkPlan(target, legacyPackages, legacyDeclarations);
 			return FeResolvedPackages(false, manifestPath, "", legacyNodes, legacyPlan);
 		}
-		if (target.operatingSystem.isEmpty()) { target = FePackageTarget.parse(targetValue); }
+		if (!target.known()) { FePackageFailure.fail(FePackageTarget.unknownHostMessage()); }
 		string root = FeCanonicalPath.absolute(PathTools.dirname(manifestPath));
 		string lockPath = PathTools.join(root, "btrc.lock");
 		/* The old lock is validated derived state, not the input version this

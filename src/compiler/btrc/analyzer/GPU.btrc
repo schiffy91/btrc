@@ -459,8 +459,9 @@ class GpuKernelValidator {
 			if (literal.details().magnitude > 2147483647ULL) {
 				self.error("integer literal is outside the WGSL i32 range", expression);
 			}
-			if (literal.typeName() != "int") {
-				self.error("integer literal must be int, got '" + literal.typeName() + "'", expression);
+			string typeName = literal.typeName(self.analyzed.longBits);
+			if (typeName != "int") {
+				self.error("integer literal must be int, got '" + typeName + "'", expression);
 			}
 			return;
 		}

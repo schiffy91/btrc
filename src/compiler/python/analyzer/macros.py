@@ -209,7 +209,10 @@ class SourceMacroAnalyzer:
         name = canonical.base.removeprefix("struct ")
         structure = self.index.struct_table.get(name)
         if structure is not None and (not structure.is_forward):
-            return any(self._macro_type_requires_boundary(field.type, type_params, seen) for field in structure.fields)
+            return any(
+                self._macro_type_requires_boundary(field.type, type_params, seen)
+                for field in self.types.record_fields(structure)
+            )
         rich_enum = self.index.rich_enum_table.get(name)
         return bool(
             rich_enum

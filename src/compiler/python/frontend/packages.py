@@ -12,7 +12,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import platform
 import re
 import shutil
 import stat
@@ -23,6 +22,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from types import MappingProxyType
+
+from ..abi.generated import GeneratedTargetRow
+from ..abi.hosted import TargetRepository, TargetSelectionError
 
 
 class IncludeResolutionError(Exception):
@@ -52,8 +54,10 @@ _OBJECTIVE_C_SYMBOL = re.compile(
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
-_TARGET_OPERATING_SYSTEMS = frozenset({"linux", "macos", "windows"})
-_TARGET_ARCHITECTURES = frozenset({"x86_64", "aarch64"})
+# Manifest os/arch predicates name the compiler-host vocabulary until the
+# provider filters of platform-target-contract.md §5 widen them.
+_PREDICATE_OPERATING_SYSTEMS = frozenset(row.operating_system for row in TargetRepository.compiler_host_rows())
+_PREDICATE_ARCHITECTURES = frozenset(row.architecture for row in TargetRepository.compiler_host_rows())
 _SOURCE_STANDARDS = MappingProxyType(
     {
         "c": frozenset({"c11"}),
@@ -158,47 +162,54 @@ class PackageFileStore:
 
 @dataclass(frozen=True, order=True)
 class PackageTarget:
-    """One normalized native-plan target."""
+    """One selected target row, as the frontend's value.
+
+    An omitted environment is the operating system's default, so
+    ``PackageTarget("linux", "x86_64")`` is the ``linux-x86_64`` row. Every
+    value names a row of ``targets.toml``; parsing and host inference belong
+    to ``TargetRepository``.
+    """
 
     operating_system: str
     architecture: str
+    environment: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.environment is None:
+            object.__setattr__(self, "environment", TargetRepository.default_environment(self.operating_system))
+        if TargetRepository.row(self.operating_system, self.architecture, self.environment) is None:
+            spelled = "-".join(part for part in (self.operating_system, self.architecture, self.environment) if part)
+            raise TargetSelectionError(TargetRepository.unsupported_message(spelled))
+
+    @classmethod
+    def from_row(cls, row: GeneratedTargetRow) -> PackageTarget:
+        return cls(row.operating_system, row.architecture, row.environment)
 
     @classmethod
     def parse(cls, value: str | None) -> PackageTarget:
+        """The target ``value`` names, or the host's when it is ``None``."""
+
         if value is None:
-            system = platform.system().lower()
-            operating_system = {"darwin": "macos", "linux": "linux", "windows": "windows"}.get(system)
-            machine = platform.machine().lower()
-            architecture = {
-                "amd64": "x86_64",
-                "x86_64": "x86_64",
-                "arm64": "aarch64",
-                "aarch64": "aarch64",
-            }.get(machine)
-            if operating_system is None or architecture is None:
-                raise ValueError(f"cannot infer a supported package target from {system}-{machine}")
-            return cls(operating_system, architecture)
-        if not isinstance(value, str) or not value:
-            raise ValueError("package target must be OS-ARCH")
-        operating_system, separator, raw_architecture = value.partition("-")
-        architecture = {"x64": "x86_64", "arm64": "aarch64"}.get(raw_architecture, raw_architecture)
-        if (
-            not separator
-            or operating_system not in _TARGET_OPERATING_SYSTEMS
-            or architecture not in _TARGET_ARCHITECTURES
-        ):
-            raise ValueError(
-                f"unsupported package target {value!r}; expected linux, macos, or windows with x86_64 or aarch64"
-            )
-        return cls(operating_system, architecture)
+            row = TargetRepository.host()
+            if row is None:
+                raise TargetSelectionError(TargetRepository.UNKNOWN_HOST_MESSAGE)
+            return cls.from_row(row)
+        return cls.from_row(TargetRepository.parse(value))
 
     @classmethod
     def coerce(cls, value: str | PackageTarget | None) -> PackageTarget:
         """One target from either spelling, inferring the host when unset."""
         return value if isinstance(value, PackageTarget) else cls.parse(value)
 
-    def as_dict(self) -> dict[str, str]:
-        return {"arch": self.architecture, "os": self.operating_system}
+    @property
+    def row(self) -> GeneratedTargetRow:
+        row = TargetRepository.row(self.operating_system, self.architecture, self.environment or "")
+        assert row is not None
+        return row
+
+    @property
+    def label(self) -> str:
+        return self.row.label
 
 
 @dataclass(frozen=True, order=True)
@@ -609,7 +620,7 @@ class NativeLinkPlan:
                 key=lambda item: (item["package"], item["name"]),
             ),
             "schema": NATIVE_LINK_PLAN_SCHEMA,
-            "target": self.target.as_dict(),
+            "target": {"arch": self.target.architecture, "os": self.target.operating_system},
             "units": sorted(sources, key=lambda item: (item["package"], item["path"], item["language"])),
         }
         if self.generated_units:
@@ -1029,9 +1040,7 @@ class PackageImportPolicy:
         for provider in candidates:
             if provider.selected_for(self._target):
                 return (provider.implementation,)
-        raise IncludeResolutionError(
-            f"module {source!r} has no provider for target {self._target.operating_system}-{self._target.architecture}"
-        )
+        raise IncludeResolutionError(f"module {source!r} has no provider for target {self._target.label}")
 
     def _manifest_for(self, source: str) -> str | None:
         directory = os.path.dirname(os.path.normcase(os.path.abspath(source)))
@@ -1254,8 +1263,8 @@ class PackageManifestValidator:
                 raise ValueError(f"{context} cannot select its own module as implementation")
             provider = ModuleProvider(
                 *paths,
-                self._target_values(entry, "os", _TARGET_OPERATING_SYSTEMS, context),
-                self._target_values(entry, "arch", _TARGET_ARCHITECTURES, context),
+                self._target_values(entry, "os", _PREDICATE_OPERATING_SYSTEMS, context),
+                self._target_values(entry, "arch", _PREDICATE_ARCHITECTURES, context),
             )
             if any(provider.overlaps(previous) for previous in providers):
                 raise ValueError(f"{context} overlaps a provider for the same module and target")
@@ -1317,8 +1326,8 @@ class PackageManifestValidator:
                 raise ValueError(f"package manifest {path!r} native.{field} must be an array of tables")
             for index, entry in enumerate(entries):
                 context = f"package manifest {path!r} native.{field}[{index}]"
-                operating_systems = self._target_values(entry, "os", _TARGET_OPERATING_SYSTEMS, context)
-                architectures = self._target_values(entry, "arch", _TARGET_ARCHITECTURES, context)
+                operating_systems = self._target_values(entry, "os", _PREDICATE_OPERATING_SYSTEMS, context)
+                architectures = self._target_values(entry, "arch", _PREDICATE_ARCHITECTURES, context)
                 modules = self._module_paths(root, entry, context)
                 predicate_fields = frozenset({"os", "arch", "modules"})
                 if field == "sources":
@@ -2412,8 +2421,8 @@ class PackageManifestValidator:
                 language,
                 standard,
                 tuple(sorted(symbols)),
-                self._target_values(entry, "os", _TARGET_OPERATING_SYSTEMS, context),
-                self._target_values(entry, "arch", _TARGET_ARCHITECTURES, context),
+                self._target_values(entry, "os", _PREDICATE_OPERATING_SYSTEMS, context),
+                self._target_values(entry, "arch", _PREDICATE_ARCHITECTURES, context),
                 tuple(sorted(borrows)),
                 tuple(sorted(realtime)),
                 tuple(sorted(records)),

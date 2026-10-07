@@ -332,11 +332,13 @@ class ConstantValidator {
 		if (base == "uint" || base == "unsigned" || base == "unsigned int") {
 			return self.unsignedCastRange(UINT_MAX);
 		}
+		/* long follows the selected row, not the C compiler that built btrcc. */
 		if (base == "long" || base == "long int" || base == "signed long" || base == "signed long int") {
-			return self.signedCastRange(LONG_MIN, LONG_MAX);
+			long long maximum = (long long)IntegerLiteral.signedMaximum(analyzed.longBits);
+			return self.signedCastRange(-maximum - 1LL, maximum);
 		}
 		if (base == "unsigned long" || base == "unsigned long int") {
-			return self.unsignedCastRange(ULONG_MAX);
+			return self.unsignedCastRange(IntegerLiteral.unsignedMaximum(analyzed.longBits));
 		}
 		if (base == "long long" || base == "long long int" || base == "signed long long" || base == "signed long long int") {
 			return self.signedCastRange(LLONG_MIN, LLONG_MAX);
@@ -464,9 +466,9 @@ class ConstantValidator {
 
 	public SemanticIntegerConstant convertFloatLiteral(string raw, SemanticIntegralCastRange range) {
 		if (!range.supported) { return self.unknownConstant(); }
-		long double value = truncl(strtold(FloatLiteral(raw).numericBody(), NULL));
-		long double lower = range.isUnsigned ? (long double)0.0 : (long double)range.minimum;
-		long double upper = (long double)range.maximum + (long double)1.0;
+		double value = trunc(FloatLiteral(raw).typedValue());
+		double lower = range.isUnsigned ? 0.0 : (double)range.minimum;
+		double upper = (double)range.maximum + 1.0;
 		if (value < lower || value >= upper) {
 			return self.invalidConstant();
 		}
@@ -488,7 +490,7 @@ class ConstantValidator {
 		Node target = resolved;
 		if (target.base == "bool") {
 			if (expression.expr.kind == NK_FLOAT_LITERAL) {
-				return self.knownConstant(FloatLiteral(expression.expr.raw).doubleValue() != 0.0 ? 1 : 0);
+				return self.knownConstant(FloatLiteral(expression.expr.raw).typedValue() != 0.0 ? 1 : 0);
 			}
 			SemanticIntegerConstant operand = self.integerConstant(expression.expr, restrictEnum, enumOwner, allowedMembers);
 			if (!operand.valid || !operand.known) { return operand; }

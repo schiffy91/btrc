@@ -707,8 +707,6 @@ class CallableStorageBoundary:
             return False
         seen = seen | {key}
         if expected.is_array:
-            from src.compiler.python.analyzer.types import TypeSystem
-
             return self._type_contains_managed_callback(
                 TypeSystem.strip_outer_storage(expected, array=True), provenance, seen
             )
@@ -726,7 +724,10 @@ class CallableStorageBoundary:
         declaration = provenance.struct_declaration(expected)
         return bool(
             declaration is not None
-            and any(self._type_contains_managed_callback(field.type, provenance, seen) for field in declaration.fields)
+            and any(
+                self._type_contains_managed_callback(field.type, provenance, seen)
+                for field in TypeSystem.record_fields(declaration)
+            )
         )
 
 
@@ -1175,7 +1176,10 @@ class CallableProvenance:
                 return tuple(zip(expected.generic_args, value.elements))
             declaration = self.struct_declaration(expected)
             if declaration is not None:
-                return tuple(zip((field.type for field in declaration.fields), value.elements))
+                plan = TypeSystem.initializer_slots(
+                    self._analyzed.initializer_slot_plans, self._analyzed, declaration, value
+                )
+                return tuple((slot.type, slot.element) for slot in plan.slots)
         if isinstance(value, TupleLiteral) and expected.base == "Tuple":
             return tuple(zip(expected.generic_args, value.elements))
         if isinstance(value, MapLiteral) and expected.base == "Map" and len(expected.generic_args) == 2:

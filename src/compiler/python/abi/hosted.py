@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
@@ -37,6 +38,10 @@ from .generated import (
     HOSTED_TYPE_NAMES,
     HOSTED_TYPEDEF_NAMES,
     HOSTED_USER_SOURCE_MARKER,
+    TARGET_ARCHITECTURE_ALIASES,
+    TARGET_DEFAULT_ENVIRONMENTS,
+    TARGET_ROWS,
+    GeneratedTargetRow,
 )
 
 
@@ -258,6 +263,86 @@ class HostedAbiRepository:
         if index is None or not 0 <= index < len(expression.args):
             return None
         return expression.args[index]
+
+
+class TargetSelectionError(ValueError):
+    """A target spelling, or a host, that names no target row."""
+
+
+class TargetRepository:
+    """Own target selection: label parsing, canonical labels and host inference.
+
+    Every accepted spelling and every message comes from the generated
+    ``targets.toml`` rows (platform-target-contract.md §1.4-§1.7); the
+    self-hosted ``FePackageTarget`` reads the same rows.
+    """
+
+    UNKNOWN_HOST_MESSAGE = "cannot infer a supported target from this host; pass --target"
+
+    # The host seam: lowercase ``platform.system()``/``platform.machine()``
+    # spellings and the normalized tokens they name. Anything else, Python
+    # 3.13's ``ios`` and ``android`` included, is no compiler host.
+    _HOST_SYSTEMS = MappingProxyType({"darwin": "macos", "linux": "linux", "windows": "windows"})
+    _HOST_MACHINES = MappingProxyType({"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"})
+
+    @classmethod
+    def labels(cls) -> tuple[str, ...]:
+        """Every canonical label, sorted."""
+
+        return tuple(sorted(row.label for row in TARGET_ROWS))
+
+    @classmethod
+    def compiler_host_rows(cls) -> tuple[GeneratedTargetRow, ...]:
+        """The rows a compiler may run on, in label order."""
+
+        return tuple(row for row in TARGET_ROWS if row.compiler_host)
+
+    @classmethod
+    def default_environment(cls, operating_system: str) -> str:
+        return TARGET_DEFAULT_ENVIRONMENTS.get(operating_system, "")
+
+    @classmethod
+    def unsupported_message(cls, raw: str) -> str:
+        return f"unsupported target '{raw}'; expected one of {', '.join(cls.labels())}"
+
+    @classmethod
+    def row(cls, operating_system: str, architecture: str, environment: str) -> GeneratedTargetRow | None:
+        """The row for one normalized triple of axes, if there is one."""
+
+        for row in TARGET_ROWS:
+            if (row.operating_system, row.architecture, row.environment) == (
+                operating_system,
+                architecture,
+                environment,
+            ):
+                return row
+        return None
+
+    @classmethod
+    def parse(cls, value: str) -> GeneratedTargetRow:
+        """The row ``OS-ARCH[-ENV]`` names, through the aliases and default environment."""
+
+        raw = value if isinstance(value, str) else ""
+        parts = raw.split("-")
+        if len(parts) in (2, 3) and all(parts):
+            operating_system = parts[0]
+            architecture = TARGET_ARCHITECTURE_ALIASES.get(parts[1], parts[1])
+            environment = parts[2] if len(parts) == 3 else cls.default_environment(operating_system)
+            row = cls.row(operating_system, architecture, environment)
+            if row is not None:
+                return row
+        raise TargetSelectionError(cls.unsupported_message(raw))
+
+    @classmethod
+    def host(cls, system: str | None = None, machine: str | None = None) -> GeneratedTargetRow | None:
+        """The compiler-host row of this interpreter (or of the given seam values), else none."""
+
+        operating_system = cls._HOST_SYSTEMS.get((platform.system() if system is None else system).lower())
+        architecture = cls._HOST_MACHINES.get((platform.machine() if machine is None else machine).lower())
+        if operating_system is None or architecture is None:
+            return None
+        row = cls.row(operating_system, architecture, cls.default_environment(operating_system))
+        return row if row is not None and row.compiler_host else None
 
 
 HOSTED_ABI = HostedAbiRepository()

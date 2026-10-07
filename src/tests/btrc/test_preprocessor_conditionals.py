@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python import Compiler
-from src.compiler.python.abi.generated import TARGET_ROWS
+from src.compiler.python.abi.generated import TARGET_PREDEFINED_MACRO_ROWS, TARGET_ROWS
 from src.compiler.python.application.results import CompilerOptions, CompilerOutput
 from src.compiler.python.frontend.packages import PackageTarget
 from src.compiler.python.frontend.sources import (
@@ -38,9 +38,10 @@ TESTS = REPO / "src" / "tests"
 BATTERY = Path(__file__).resolve().parent / "fixtures" / "conditional_expressions.tsv"
 LINUX = ConditionalEnvironment(PackageTarget("linux", "x86_64"))
 TIMEOUT = 120
-# The rows both compilers accept as --target today; Stage 24 commit 1b makes
-# them accept every row (platform-target-contract.md §1.5).
-COMPILER_TARGETS = [row.label for row in TARGET_ROWS if row.compiler_host]
+# Every row: both compilers accept each label as --target (Stage 24 commit
+# 1b) and select its macros by environment too (commit 1c).
+TARGETS = [row.label for row in TARGET_ROWS]
+ROWS = {row.label: row for row in TARGET_ROWS}
 
 
 # -- The shared expression battery ------------------------------------------
@@ -174,6 +175,17 @@ DIRECTIVE_ERRORS = [
         ("Macro 'N' is redefined with a different replacement; #undef it first (C11 6.10.3p2)", 4, 1),
     ),
     ("#undef defined\n#if 1\n#endif", ("'defined' cannot be #define'd or #undef'd (C11 6.10.8p2)", 1, 1)),
+    # M3 covers every predefined-macro row name and derived name, on any row.
+    (
+        "#define TARGET_OS_IPHONE 1\n#if 1\n#endif",
+        ("'TARGET_OS_IPHONE' cannot be #define'd or #undef'd (C11 6.10.8p2)", 1, 1),
+    ),
+    ("#undef TARGET_OS_NANO\n#if 1\n#endif", ("'TARGET_OS_NANO' cannot be #define'd or #undef'd (C11 6.10.8p2)", 1, 1)),
+    (
+        "#define __SIZEOF_LONG__ 4\n#if 1\n#endif",
+        ("'__SIZEOF_LONG__' cannot be #define'd or #undef'd (C11 6.10.8p2)", 1, 1),
+    ),
+    ("#undef _M_ARM64\n#if 1\n#endif", ("'_M_ARM64' cannot be #define'd or #undef'd (C11 6.10.8p2)", 1, 1)),
     (
         "#define NDEBUG 1\n#if 1\n#endif",
         ("'NDEBUG' is set by C headers or compiler flags; btrc sources cannot #define or #undef it", 1, 1),
@@ -388,6 +400,14 @@ int bits() { return 46; }
 #endif
 int main() { return platform() + bits(); }
 """
+# The C header each operating system's SELECTION branch includes, and the value it returns.
+SELECTED_BRANCH = {
+    "linux": ("stdio.h", "1"),
+    "android": ("stdio.h", "1"),
+    "macos": ("stdlib.h", "2"),
+    "ios": ("stdlib.h", "2"),
+    "windows": ("string.h", "3"),
+}
 
 
 def compile_files(
@@ -407,12 +427,12 @@ def compile_files(
     return Compiler().compile(root.read_text(), str(root), options)
 
 
-@pytest.mark.parametrize("target", COMPILER_TARGETS)
+@pytest.mark.parametrize("target", TARGETS)
 def test_per_target_selection(target: str, tmp_path: Path) -> None:
     result = compile_files(tmp_path, {"Main.btrc": SELECTION}, target=target)
     assert result.successful, result.failure
-    system, architecture = target.split("-")
-    header, value = {"linux": ("stdio.h", "1"), "macos": ("stdlib.h", "2"), "windows": ("string.h", "3")}[system]
+    architecture = ROWS[target].architecture
+    header, value = SELECTED_BRANCH[ROWS[target].operating_system]
     resolved = result.source_bundle.user_source
     assert [line for line in resolved.splitlines() if line.startswith("#include")] == [f"#include <{header}>"]
     assert resolved.count("int platform()") == 1
@@ -420,6 +440,135 @@ def test_per_target_selection(target: str, tmp_path: Path) -> None:
     assert f"#include <{header}>" in result.c_source
     assert f"return {value};" in result.c_source
     assert ("return 64;" in result.c_source) == (architecture == "aarch64")
+
+
+# -- Every row selects its own predefined macros -----------------------------
+
+
+def macro_probe() -> str:
+    """One `// NAME=VALUE` line per predefined name, live for the selected value only."""
+
+    values: dict[str, set[int]] = {}
+    for row in TARGET_PREDEFINED_MACRO_ROWS:
+        values.setdefault(row.name, set()).add(row.value)
+    lines = []
+    for name in sorted(values):
+        lines.append(f"#if defined({name})")
+        for index, value in enumerate(sorted(values[name])):
+            lines.append(f"#{'if' if index == 0 else 'elif'} {name} == {value}")
+            lines.append(f"// {name}={value}")
+        lines += ["#else", f"// {name}=other", "#endif", "#else", f"// {name}=undefined", "#endif"]
+    return "\n".join(lines) + "\n"
+
+
+def probed_values(conditioned: str) -> dict[str, str]:
+    pairs = [line[3:].split("=", 1) for line in conditioned.splitlines() if line.startswith("// ")]
+    values = dict(pairs)
+    assert len(values) == len(pairs)
+    return values
+
+
+def table_values(label: str) -> dict[str, str]:
+    """The spec's rows for one target, selected on all three axes."""
+
+    row = ROWS[label]
+    values = {name: "undefined" for name in {macro.name for macro in TARGET_PREDEFINED_MACRO_ROWS}}
+    selected = [
+        macro
+        for macro in TARGET_PREDEFINED_MACRO_ROWS
+        if (not macro.operating_systems or row.operating_system in macro.operating_systems)
+        and (not macro.architectures or row.architecture in macro.architectures)
+        and (not macro.environments or row.environment in macro.environments)
+    ]
+    for macro in selected:
+        values[macro.name] = str(macro.value)
+    assert len({macro.name for macro in selected}) == len(selected), label
+    return values
+
+
+# The values commit 1b's operating-system/architecture selection got wrong,
+# pinned to clang's (platform-target-contract.md §1.3), with their neighbours.
+PINNED_MACROS = {
+    "ios-aarch64": {
+        "TARGET_OS_IPHONE": "1",
+        "TARGET_OS_EMBEDDED": "1",
+        "TARGET_OS_SIMULATOR": "0",
+        "TARGET_IPHONE_SIMULATOR": "0",
+        "__APPLE_EMBEDDED_SIMULATOR__": "undefined",
+    },
+    "ios-aarch64-simulator": {
+        "TARGET_OS_IPHONE": "1",
+        "TARGET_OS_EMBEDDED": "0",
+        "TARGET_OS_SIMULATOR": "1",
+        "TARGET_IPHONE_SIMULATOR": "1",
+        "__APPLE_EMBEDDED_SIMULATOR__": "1",
+    },
+    "windows-aarch64-msvc": {
+        "__MINGW32__": "undefined",
+        "__MINGW64__": "undefined",
+        "__SEH__": "undefined",
+        "__STDC__": "undefined",
+        "_M_ARM64": "1",
+    },
+    "windows-aarch64": {"__MINGW32__": "1", "__MINGW64__": "1", "__STDC__": "1", "_M_ARM64": "undefined"},
+    "windows-x86_64": {"_M_ARM64": "undefined"},
+    "macos-aarch64": {"TARGET_OS_IPHONE": "0", "TARGET_OS_EMBEDDED": "0", "TARGET_OS_SIMULATOR": "0"},
+}
+
+
+def assert_row_macros(label: str, values: dict[str, str]) -> None:
+    assert values == table_values(label)
+    for name, value in PINNED_MACROS.get(label, {}).items():
+        assert values[name] == value, f"{label}: {name}"
+    if ROWS[label].operating_system == "android":
+        assert int(values["__ANDROID_API__"]) >= 29
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_every_row_selects_its_own_macros(target: str) -> None:
+    environment = ConditionalEnvironment(PackageTarget.from_row(ROWS[target]))
+    assert environment.label == target
+    assert_row_macros(target, probed_values(condition(macro_probe(), environment)))
+
+
+ROW_SELECTION = """\
+#if TARGET_OS_SIMULATOR && TARGET_IPHONE_SIMULATOR && defined(__APPLE_EMBEDDED_SIMULATOR__)
+int platform() { return 101; }
+#elif TARGET_OS_IPHONE && TARGET_OS_EMBEDDED && !defined(__APPLE_EMBEDDED_SIMULATOR__)
+int platform() { return 102; }
+#elif defined(__ANDROID_API__) && __ANDROID_API__ >= 29
+int platform() { return 103; }
+#elif defined(_M_ARM64) && !defined(__MINGW32__) && !defined(__STDC__)
+int platform() { return 104; }
+#elif defined(__MINGW32__) && defined(__MINGW64__) && defined(__SEH__) && !defined(_M_ARM64)
+int platform() { return 105; }
+#else
+int platform() { return 106; }
+#endif
+int main() { return platform(); }
+"""
+
+
+def row_selection_value(label: str) -> str:
+    """The branch each row takes; any other row's macros pick another."""
+
+    row = ROWS[label]
+    if row.operating_system == "ios":
+        return "101" if row.environment == "simulator" else "102"
+    if row.operating_system == "android":
+        return "103"
+    if row.operating_system == "windows":
+        return "104" if row.environment == "msvc" else "105"
+    return "106"
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_row_selection_through_the_compiler(target: str, tmp_path: Path) -> None:
+    result = compile_files(tmp_path, {"Main.btrc": ROW_SELECTION}, target=target)
+    assert result.successful, result.failure
+    live = [line for line in result.source_bundle.user_source.splitlines() if line.startswith("int platform()")]
+    assert live == [f"int platform() {{ return {row_selection_value(target)}; }}"]
+    assert f"return {row_selection_value(target)};" in result.c_source
 
 
 def test_dead_import_adds_no_edge_or_source(tmp_path: Path) -> None:
@@ -631,9 +780,25 @@ DIAGNOSTIC_CASES = [
         1,
     ),
     DiagnosticCase(
+        "M3 predefined",
+        {"Main.btrc": "#define TARGET_OS_IPHONE 1\nint main() { return 0; }\n"},
+        "'TARGET_OS_IPHONE' cannot be #define'd or #undef'd (C11 6.10.8p2)",
+        "Main.btrc",
+        1,
+        1,
+    ),
+    DiagnosticCase(
+        "M3 derived",
+        {"Main.btrc": "#undef __LP64__\nint main() { return 0; }\n"},
+        "'__LP64__' cannot be #define'd or #undef'd (C11 6.10.8p2)",
+        "Main.btrc",
+        1,
+        1,
+    ),
+    DiagnosticCase(
         "M4",
-        {"Main.btrc": "#undef TARGET_OS_MAC\nint main() { return 0; }\n"},
-        "'TARGET_OS_MAC' is set by C headers or compiler flags; btrc sources cannot #define or #undef it",
+        {"Main.btrc": "#undef TARGET_CPU_ARM64\nint main() { return 0; }\n"},
+        "'TARGET_CPU_ARM64' is set by C headers or compiler flags; btrc sources cannot #define or #undef it",
         "Main.btrc",
         1,
         1,
@@ -891,13 +1056,16 @@ def frontend_driver(selfhost_driver) -> Path:
     return selfhost_driver(REPO / "src" / "compiler" / "btrc" / "tools" / "FrontendMain.btrc")
 
 
-def selfhost_condition(driver: Path, tmp_path: Path, source: str, *, no_target: bool = False) -> str:
-    """btrc's conditioned text for linux-x86_64, or ``error LINE:COL MESSAGE``."""
+def selfhost_condition(
+    driver: Path, tmp_path: Path, source: str, *, no_target: bool = False, target: str | None = None
+) -> str:
+    """btrc's conditioned text for linux-x86_64 or ``target``, or ``error LINE:COL MESSAGE``."""
 
     program = tmp_path / "Input.btrc"
     program.write_bytes(source.encode())
+    selection = ["--no-target"] if no_target else (["--target", target] if target is not None else [])
     result = subprocess.run(
-        [str(driver), str(GRAMMAR), *(["--no-target"] if no_target else []), "--file", str(program)],
+        [str(driver), str(GRAMMAR), *selection, "--file", str(program)],
         capture_output=True,
         text=True,
         timeout=TIMEOUT,
@@ -958,6 +1126,13 @@ def test_selfhost_conditions_the_corpus_program_as_the_reference(conditional_dri
     assert selfhost_condition(conditional_driver, tmp_path, source) == reference_condition(source)
 
 
+@pytest.mark.parametrize("target", TARGETS)
+def test_selfhost_every_row_selects_its_own_macros(conditional_driver: Path, tmp_path: Path, target: str) -> None:
+    assert_row_macros(
+        target, probed_values(selfhost_condition(conditional_driver, tmp_path, macro_probe(), target=target))
+    )
+
+
 def test_selfhost_no_target_fails_only_at_the_first_evaluated_conditional(
     conditional_driver: Path, tmp_path: Path
 ) -> None:
@@ -983,7 +1158,7 @@ def btrcc_run(btrcc: Path, arguments: list[str], cwd: Path, **environment: str) 
     )
 
 
-@pytest.mark.parametrize("target", COMPILER_TARGETS)
+@pytest.mark.parametrize("target", TARGETS)
 def test_selfhost_per_target_selection(
     target: str, frontend_driver: Path, immutable_btrcc: Path, tmp_path: Path
 ) -> None:
@@ -1002,8 +1177,8 @@ def test_selfhost_per_target_selection(
     assert resolved.stdout == reference.source_bundle.source
     compiled = btrcc_run(immutable_btrcc, ["--no-stdlib", "--no-cache", "--target", target, str(root)], tmp_path)
     assert compiled.returncode == 0, compiled.stderr
-    system, architecture = target.split("-")
-    header, value = {"linux": ("stdio.h", "1"), "macos": ("stdlib.h", "2"), "windows": ("string.h", "3")}[system]
+    architecture = ROWS[target].architecture
+    header, value = SELECTED_BRANCH[ROWS[target].operating_system]
     for c_source in (compiled.stdout, reference.c_source):
         includes = {
             line
@@ -1018,6 +1193,17 @@ def test_selfhost_per_target_selection(
     reference_includes = {line for line in reference.c_source.splitlines() if line.startswith("#include")}
     selfhost_includes = {line for line in compiled.stdout.splitlines() if line.startswith("#include")}
     assert selfhost_includes == reference_includes
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_selfhost_row_selection_matches_the_reference(target: str, immutable_btrcc: Path, tmp_path: Path) -> None:
+    root = tmp_path / "Main.btrc"
+    root.write_text(ROW_SELECTION)
+    compiled = btrcc_run(immutable_btrcc, ["--no-stdlib", "--no-cache", "--target", target, str(root)], tmp_path)
+    assert compiled.returncode == 0, compiled.stderr
+    assert f"return {row_selection_value(target)};" in compiled.stdout
+    others = {row_selection_value(label) for label in TARGETS} - {row_selection_value(target)}
+    assert all(f"return {value};" not in compiled.stdout for value in others)
 
 
 def test_selfhost_dead_import_adds_no_edge_source_or_plan_entry(immutable_btrcc: Path, tmp_path: Path) -> None:

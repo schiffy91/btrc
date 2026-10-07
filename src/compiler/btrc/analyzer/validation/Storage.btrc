@@ -110,13 +110,11 @@ class StorageValidator {
 		if (name == "" || canonical.pointerDepth > 0 || initializer.kind != NK_BRACE_INITIALIZER || !self.state.analyzed.structTable.has(name)) { return; }
 		Node declaration = self.state.analyzed.structTable.get(name);
 		if (declaration.isForward) { return; }
-		int index = 0;
-		while (index < initializer.elements().len && index < declaration.fields().len) {
-			Node field = declaration.fields().get(index);
+		for slot in SemanticTypeSystem.initializerSlots(declaration, initializer, self.state.analyzed).slots {
+			Node field = slot.member();
 			Node? fieldValueType = self.arrayFieldValueType(field);
 			if (fieldValueType == null) { fieldValueType = field.type; }
-			self.validateCharArrayElement(fieldValueType, initializer.elements().get(index), vars);
-			index = index + 1;
+			self.validateCharArrayElement(fieldValueType, slot.element, vars);
 		}
 	}
 
@@ -647,13 +645,7 @@ class StorageValidator {
 		}
 		if (!self.state.analyzed.structTable.has(structName)) { return null; }
 		Node structure = self.state.analyzed.structTable.get(structName);
-		int index = 0;
-		while (index < structure.fields().len) {
-			Node field = structure.fields().get(index);
-			if (field.name == target.field) { return field; }
-			index = index + 1;
-		}
-		return null;
+		return SemanticTypeSystem.recordMember(structure, target.field);
 	}
 
 	public bool structArrayFieldTarget(Node? expression, Map<string, Node> vars) {
@@ -921,9 +913,10 @@ class StorageValidator {
 		Node declaration = analyzed.structTable.get(name);
 		if (declaration.isForward) { return false; }
 		visiting.put(name, true);
+		Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
 		int index = 0;
-		while (index < declaration.fields().len) {
-			Node field = declaration.fields().get(index);
+		while (index < declarationFields.len) {
+			Node field = declarationFields.get(index);
 			if ((field.type.isConst && field.type.pointerDepth == 0) || self.structContainsConst(field.type, analyzed, visiting)) {
 				return true;
 			}

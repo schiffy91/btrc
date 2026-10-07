@@ -50,8 +50,8 @@ All use release `ui0-source-inventory-2026-09-21` and its unchanged ID digests
 in `tools/qualification/denominators.toml`. Operation slots and behavioral case
 slots overlap; their sum is not a number of independent tests. The broader
 App/UI/Tray surface remains a set of proposals until reviewed releases admit it.
-The actual operation/case ID sources now read the immutable seed. The family
-source still reads the roadmap until the integrator repoints it to the new grid.
+The actual operation/case ID sources now read the immutable seed, and the
+family source reads `native-ui-catalog/families.toml` (same 60 ids and digest).
 
 All seed records deliberately omit `classification`, `evidence`, measurement
 and execution provenance. The report therefore retains unrecorded slots without
