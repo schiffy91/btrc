@@ -188,11 +188,15 @@ three new explicit-tag refusal checks failed only because their assertions
 expected uppercase `Incomplete` while the reference compiler reports lowercase
 `incomplete`. Both frontends rejected the programs. The assertions now accept
 the existing diagnostic capitalization, with those three reruns queued behind
-the full gate. The repaired L1 merge is committed locally at `d49961cb`; it is
-not published or integrated into the combined candidate. L2's merge preview
-has six conflicts to reconcile, including generic-scope and flexible-array
-validation. `CL-C-09` and `CL-C-13` remain open; narrow green suites do not
-qualify the whole C2 merge.
+the full gate. The repaired L1 merge is `d49961cb`. The separate
+`codex/integrate-c2-arrays` candidate merges L2 at `12eebb66`, resolving six
+conflicts while preserving tag ownership, generic scopes, both refusal tables
+and both sets of LSP regressions. It then incorporates `081aae51`'s VLA and
+Android repairs at `039047ad`. Python syntax, changed-source lint and Python/btrc
+format checks pass. The paired C2/tag/FAM/layout/output tests, affected ownership
+and module-cache tests, parser/analyzer and LSP suites are queued under the gate.
+This candidate is not integrated into main or qualified by the older L1 results.
+`CL-C-09` and `CL-C-13` remain open until semantic and diagnostic parity are proven.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
 |---|---|---|
