@@ -222,7 +222,8 @@ class TimeReport:
     """One process's resource usage, in seconds and bytes.
 
     On Darwin, /usr/bin/time -l reports Apple's peak memory footprint and
-    instructions retired, the counters CLAUDE.md compares compilers on.
+    instructions retired, the comparison counters specified in
+    docs/design/compile-performance.md.
     Elsewhere (and on a Mac without it) a Python parent reads the child's
     rusage from wait4, which no host lacks; that rusage covers the process
     and every descendant it waited for, as BSD time's does. Linux reports
@@ -746,7 +747,7 @@ class HostTarget:
 
     @staticmethod
     def self_compile_entry(system: str | None = None) -> str:
-        """The compiler entry this host bootstraps (CLAUDE.md: build for the compiler's host)."""
+        """The compiler entry this host bootstraps (AGENTS.md: build for the compiler's host)."""
         return (
             "src/compiler/btrc/cli/MacOSMain.btrc"
             if (system or platform.system()) == "Darwin"

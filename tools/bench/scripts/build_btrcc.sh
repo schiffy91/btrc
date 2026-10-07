@@ -7,7 +7,8 @@
 #   BTRC_REPO       the tree (default: the repository holding this script)
 #   BTRC_DEV_SHELL  flake or saved profile for `nix develop` (default BTRC_REPO)
 #   BTRCC_CC        the C compiler (default Apple's /usr/bin/clang: Nix's cc on
-#                   macOS is gcc, whose emulated TLS slows btrcc ~20%; CLAUDE.md)
+#                   macOS is gcc, whose emulated TLS slows btrcc ~20%; see
+#                   docs/design/compile-performance.md)
 #
 # Writes <out>.c, <out>.build.log and <out>. Building btrcc takes the two-slot
 # semaphore: withlock.sh btrcc-build build_btrcc.sh ...
