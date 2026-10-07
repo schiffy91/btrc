@@ -192,8 +192,9 @@ failure-log retention repairs. Its local lint, formatting, generated-source and
 extension checks passed. Its full suite passed 17,187 tests with 163 expected
 skips and zero unexpected skips in 1,819.62 seconds. The skip ledger identifies
 161 skips covered on other runners and two uncovered Linux-native-reader cases.
-Serial bootstrap is running against this frozen revision; all eight C11
-configurations and hygiene remain pending.
+Serial bootstrap passed its fixed-point test in 575.05 seconds with no skips.
+The first strict-C11 configuration, GCC at `-O0`, passed all 1,982 checks with
+no skips; the remaining seven configurations and hygiene remain pending.
 The native compiler binary is reused from the source-matched `081aae51` build,
 not newly rebuilt. Hosted [Windows run 37588790879](https://github.com/schiffy91/btrc/actions/runs/37588790879)
 passed tests and bootstrap. [Android run 37588790885](https://github.com/schiffy91/btrc/actions/runs/37588790885)
