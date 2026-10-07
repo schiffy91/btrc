@@ -216,9 +216,14 @@ The top-level platform table is a summary, not a substitute for those rows.
 
 The bounded memory candidate `69ca0f17` ends lexer/parser/token-vector ownership
 after parsing while retaining the AST. Independent source review found no
-blocker, and its candidate build is active in the one permitted agent build
-slot. Emitted cleanup, runtime safety and current memory/instruction measurements
-remain unqualified. Historical retained-token attribution was 98.5 MiB; that is
+blocker. Its native build and self-transpilation passed; both compilers' emitted
+cleanup was reviewed. It passed 120 focused production diagnostic assertions,
+eight paired literal/ownership cases and 18 scope/capture cases, with no skips;
+two representative programs retained byte-identical C and diagnostics against
+the baseline. Final branch `274ced90` adds only the evidence report to the tested
+production source. Instrumented-compiler lifetime safety, full bootstrap/C11,
+and current memory/instruction measurements remain unqualified. The build slot
+is released. Historical retained-token attribution was 98.5 MiB; that is
 not a measured saving on this candidate and does not close the 1.5 GiB target or
 explain the outstanding Linux regression.
 
