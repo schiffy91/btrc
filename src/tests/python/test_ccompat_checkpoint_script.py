@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import sys
 import types
 from pathlib import Path
 
@@ -96,7 +97,10 @@ def test_owner_checkpoint_plans(scenario):
                     )
                     in plan
                 )
-        assert plan.count("say=lambda message: print(message, flush=True)).wait()") == 4
+    assert (
+        plan.count("say=lambda message: print(message, flush=True)).wait()")
+        == {"c4": 10, "schema": 6, "final": 0}[scenario]
+    )
     if scenario != "schema":
         base = PARENT if scenario == "c4" else f"{COMMIT}^"
         assert (
@@ -478,3 +482,71 @@ def test_reader_is_resolved_once_and_reused_for_samples(checkpoint):
     samples = [args for args in calls if str(HELPERS / "instr.sh") in args]
     assert len(samples) == 6
     assert all("READER=/nix/store/test-reader/bin/btrc-native-header" in args for args in samples)
+
+
+def test_each_measurement_checks_its_actual_workspace_under_the_bench_lock(checkpoint):
+    owner, calls, _, module = checkpoint
+    owner.args.budget = "noop"
+    assert owner.run() == 0
+    measurements = [args for args in calls if module.QUIET in args]
+    assert len(measurements) == 10
+    for args in measurements:
+        assert args[:2] == [str(HELPERS / "withlock.sh"), "bench"]
+        index = args.index(module.QUIET)
+        workspace = Path(args[index + 2])
+        if str(HELPERS / "instr.sh") in args:
+            assert workspace == owner.workspace
+        else:
+            assert workspace == Path(args[args.index(str(HELPERS / "bench.sh")) + 3]) / "ws"
+
+
+@pytest.mark.parametrize("quiet_available", [False, True])
+@pytest.mark.parametrize("measurement", ["memory", "budget"])
+def test_quiet_check_failure_prevents_samples_and_green_summary(
+    checkpoint, monkeypatch, tmp_path, quiet_available, measurement
+):
+    owner, calls, original, module = checkpoint
+    owner.args.memory = measurement == "memory"
+    owner.args.budget = "noop" if measurement == "budget" else None
+    if not quiet_available:
+        owner.repo = tmp_path / "missing-quiet-check"
+
+    def commands(*argv, log=None):
+        if module.QUIET in argv:
+            raise RuntimeError("quiet window refused")
+        return original(*argv, log=log)
+
+    monkeypatch.setattr(owner, "command", commands)
+    assert owner.run() == 1
+    assert not any(str(HELPERS / name) in args for args in calls for name in ("instr.sh", "bench.sh"))
+    report = json.loads((owner.logs / "summary.json").read_text())
+    assert report["result"] == report["measurement"] == "RED"
+    assert all(row["samples"] == [] for row in report["binaries"].values())
+    assert "quiet" in report["error"]
+
+
+@pytest.mark.parametrize("blocked", [False, True])
+def test_quiet_wrapper_runs_the_sample_only_after_a_successful_check(checkpoint, tmp_path, blocked):
+    _, _, _, module = checkpoint
+    fake_repo = tmp_path / "fake-repo"
+    package = fake_repo / "tools/runbook"
+    package.mkdir(parents=True)
+    for path in (package, package.parent):
+        (path / "__init__.py").touch()
+    (package / "quiet.py").write_text(
+        "class QuietSettings:\n"
+        "    def load(self, path): return self\n"
+        "class QuietCheck:\n"
+        "    def __init__(self, workspace, settings, say): pass\n"
+        f"    def wait(self): {'raise RuntimeError("quiet blocker")' if blocked else 'return None'}\n"
+    )
+    marker = tmp_path / "sample-ran"
+    sample = "from pathlib import Path; import sys; Path(sys.argv[1]).touch()"
+    result = subprocess.run(
+        [sys.executable, "-c", module.QUIET, str(fake_repo), str(tmp_path), sys.executable, "-c", sample, str(marker)],
+        capture_output=True,
+        text=True,
+        timeout=TOOL_TIMEOUT,
+    )
+    assert (result.returncode == 0) is not blocked
+    assert marker.exists() is not blocked
