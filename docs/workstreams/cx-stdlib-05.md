@@ -28,12 +28,13 @@ dragging through SDL must reach the document boundary. A track without travel
 must not divide by zero or move the offset during dragging. Both frontends and
 plain/ASan+UBSan variants must execute on Linux. The dedicated driver joins the
 existing `test_native_ui_*.py` native gate glob. No shared interfaces, compiler,
-runtime, manifests, skip allowances or workflow files are changed.
+runtime or workflow files are changed. The integrator's final fragment admits
+the four Linux-only platform skips on Mac; it adds no Linux allowance.
 
 Started 2026-10-08. Initial free space: 78,463,668 KiB reported by `df`.
-Native builds and all tests are
-paused while the integrator owns the shared gate. Publication waits for its CI
-slot. No executed failure, fix qualification or final integration is claimed.
+Native Linux builds are pending the integrator's execution slot. Publication
+waits for its CI slot. No executed Linux failure, fix qualification or final
+integration is claimed.
 
 The dedicated regression is committed before the provider edit so the integrator
 can run it against the original provider. It compares real captured pixels with
@@ -60,10 +61,21 @@ The native view's existing frame validation and content-size validation still
 reject non-finite dimensions. No wheel handling or interface contract changes.
 
 Independent source review found no remaining actionable blocker after the
-finite-extent corrections. `git diff --check` passes. No formatter, pytest,
-compiler, native fixture, guest or benchmark was run by this packet while the
-parent's matrix owns the host. Formatting, fixture discovery, both-frontends
-compilation and real Linux behavior are explicitly unqualified.
+finite-extent corrections. The integrator applied the shared three-file audit
+repair as `c311170d` before preparing normal qualification. Ruff lint/format,
+BTRC formatting and `git diff --check` pass; the fixture needed whitespace-only
+formatting. Native fixture discovery and the strict-import audit pass all ten
+selected checks. These checks do not execute the Linux provider.
+
+On Mac, the real regression driver produces four skips for its existing
+anchored Linux/native-reader guard. Before the manifest fragment all four were
+unexpected; afterward the local Mac skip gate accepts exactly those four.
+Independent manifest checks also confirm the hosted Mac rule's schema and
+exact admission, rejection of unrelated reasons/nodes, and no Linux allowance.
+This is local platform-skip admission, not hosted Mac or Linux execution.
+Evidence is retained under `subagent-delivery/scroll-thumb/macos-admission/`
+in the integrator's 2026-10-07 consolidation evidence directory. Both-frontends
+native compilation and real Linux behavior remain unqualified.
 
 Fixture-only source: `7c060d08` (earlier tiny-viewport fixture: `0b5c3ba6`).
 The integrator must run that regression with the original provider, retain its

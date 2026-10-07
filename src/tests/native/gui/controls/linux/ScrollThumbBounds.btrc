@@ -31,7 +31,7 @@ class ScrollJourney implements IApplicationWork {
 		self._native = native;
 	}
 
-	private Image capture() { return GUI.capture(self._root, new Vector<GUICaptureLayer>()); }
+	private Image capture() { return GUI.capture(self._root, new Vector<GUICaptureLayer> ()); }
 
 	/* Compare with the same empty viewport without overflow. Every changed
 	 * pixel must lie inside the 2-point vertical track inset, including when
@@ -60,9 +60,7 @@ class ScrollJourney implements IApplicationWork {
 		assert(height <= 4.0 ? changed == 0 : changed > 0);
 	}
 
-	private bool pointer(AppPointerAction action, double y) {
-		return self._native.pointer(AppPointerEvent(action, APP_POINTER_BUTTON_PRIMARY, 74.0, y, AppKeyModifiers(false, false, false, false)));
-	}
+	private bool pointer(AppPointerAction action, double y) { return self._native.pointer(AppPointerEvent(action, APP_POINTER_BUTTON_PRIMARY, 74.0, y, AppKeyModifiers(false, false, false, false))); }
 
 	private void geometry() {
 		Vector<double> heights = [0.0, 2.0, 4.0, 8.0, 20.0, 28.0, 100.0];
