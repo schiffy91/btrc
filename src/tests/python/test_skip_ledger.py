@@ -175,6 +175,21 @@ def test_the_macos_manifest_explains_the_recorded_skips_and_names_their_coverage
         assert manifest.classify(nodeid, reason) is None, nodeid
 
 
+@pytest.mark.parametrize("runner", ["macos", "macos-hosted"])
+def test_macos_classifies_only_the_linux_main_stack_limit_cases(runner):
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+    test = "src/tests/btrc/test_deep_expression_parity.py::test_compiler_stack_respects_process_hard_limit"
+    reason = "Linux main-stack resource limit"
+    for hard_mib in (16, 64):
+        rule = manifest.classify(f"{test}[{hard_mib}]", reason)
+        assert rule is not None
+        assert rule.category == "platform"
+        assert rule.covered_by == ("linux-devcontainer",)
+    assert manifest.classify(f"{test}[64]", "compiler startup failed") is None
+    assert manifest.classify(f"{test}_unrelated[64]", reason) is None
+    assert manifest.classify("src/tests/btrc/test_other.py::test_limit[64]", reason) is None
+
+
 def test_the_macos_manifest_expects_a_dap_session_skip_only_for_developer_mode():
     """The DAP sessions skip under a reason per cause; on a Mac only developer mode being off is expected.
 
