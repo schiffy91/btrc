@@ -11,9 +11,9 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
-from tools.windows_toolchain.arm64 import PINS, ROOT, Evidence, main, pe_arm64
+from tools.windows_toolchain.arm64 import FLAGS, PINS, ROOT, TARGET, Evidence, main, pe_arm64
 from tools.windows_toolchain.process_runner import Result, _remove_capture, run, run_windows
 
 
@@ -188,28 +188,112 @@ class Arm64EvidenceTests(unittest.TestCase):
         self.assertEqual(evidence.report["native_execution"], "not-run")
 
     def test_tiny_build_crash_collects_bounded_diagnostics_and_still_fails(self):
-        evidence = Evidence(self.root, "zig")
-        with (
-            patch(
-                "tools.windows_toolchain.arm64.run_process",
-                side_effect=[
+        for host_platform in ("win32", "darwin", "linux"):
+            with self.subTest(platform=host_platform):
+                evidence = Evidence(self.root / host_platform, "zig")
+                source = evidence.output / "toolchain-probe.c"
+                minimal = evidence.output / "minimal.c"
+                commands = [
+                    ("cc-version", ["zig", "cc", "--version"], 60),
+                    (
+                        "toolchain-probe-build",
+                        [
+                            "zig",
+                            "cc",
+                            "-v",
+                            "-target",
+                            TARGET,
+                            *FLAGS,
+                            source,
+                            "-o",
+                            evidence.output / "toolchain-probe.exe",
+                            "-lm",
+                        ],
+                        240,
+                    ),
+                    ("diagnostic-driver-plan", ["zig", "cc", "-c", "-###", minimal], 60),
+                    ("diagnostic-native-syntax", ["zig", "cc", "-c", "-fsyntax-only", minimal], 60),
+                    ("diagnostic-target-syntax", ["zig", "cc", "-target", TARGET, "-c", "-fsyntax-only", minimal], 60),
+                    (
+                        "diagnostic-target-object",
+                        ["zig", "cc", "-target", TARGET, "-c", minimal, "-o", evidence.output / "minimal.o"],
+                        60,
+                    ),
+                    (
+                        "diagnostic-verbose-object",
+                        [
+                            "zig",
+                            "cc",
+                            "-v",
+                            "-target",
+                            TARGET,
+                            "-c",
+                            minimal,
+                            "-o",
+                            evidence.output / "minimal-verbose.o",
+                        ],
+                        60,
+                    ),
+                    (
+                        "diagnostic-target-link",
+                        ["zig", "cc", "-target", TARGET, minimal, "-o", evidence.output / "minimal.exe"],
+                        60,
+                    ),
+                    ("diagnostic-overlay-preprocess", ["zig", "cc", "-target", TARGET, *FLAGS, "-E", source], 60),
+                ]
+                if host_platform == "win32":
+                    commands.append(
+                        (
+                            "diagnostic-crash-location",
+                            [
+                                sys.executable,
+                                "-m",
+                                "tools.windows_toolchain.crash_probe",
+                                "--output",
+                                evidence.output / "crash-location.json",
+                                "--timeout",
+                                "20",
+                                "--",
+                                "zig",
+                                "cc",
+                                "-target",
+                                TARGET,
+                                minimal,
+                                "-o",
+                                evidence.output / "minimal-debug.exe",
+                            ],
+                            30,
+                        )
+                    )
+                results = [
                     Result(0, b"C frontend version\n", b"", False),
                     Result(0xC0000005, b"", b"original crash", False),
                     Result(0, b"", b"driver plan", False),
                     Result(0xC0000005, b"", b"syntax crash", False),
-                    *[Result(0, b"diagnostic output", b"", False) for _ in range(5)],
-                ],
-            ) as execute,
-            self.assertRaisesRegex(RuntimeError, "toolchain-probe-build exited 3221225477"),
-        ):
-            evidence.probe_native_toolchain()
-        self.assertEqual(execute.call_count, 9)
-        self.assertEqual([call.kwargs["timeout"] for call in execute.call_args_list[2:]], [60] * 7)
-        self.assertEqual((self.root / "toolchain-probe-build.stderr").read_bytes(), b"original crash")
-        self.assertEqual((self.root / "diagnostic-native-syntax.stderr").read_bytes(), b"syntax crash")
-        self.assertEqual(list(evidence.report["c_frontend_diagnostics"]["failures"]), ["native-syntax"])
-        self.assertEqual(evidence.report["status"], "failed")
-        self.assertEqual(evidence.report["native_execution"], "not-run")
+                    *[Result(0, b"diagnostic output", b"", False) for _ in commands[4:]],
+                ]
+                with (
+                    patch("tools.windows_toolchain.arm64.sys.platform", host_platform),
+                    patch("tools.windows_toolchain.arm64.run_process", side_effect=results) as execute,
+                    self.assertRaisesRegex(RuntimeError, "toolchain-probe-build exited 3221225477"),
+                ):
+                    evidence.probe_native_toolchain()
+                self.assertEqual(
+                    execute.call_args_list,
+                    [
+                        call(list(map(str, argv)), cwd=ROOT, env=evidence.environment, timeout=timeout)
+                        for _, argv, timeout in commands
+                    ],
+                )
+                self.assertEqual([step["name"] for step in evidence.report["steps"]], [name for name, _, _ in commands])
+                self.assertEqual((evidence.output / "toolchain-probe-build.stderr").read_bytes(), b"original crash")
+                self.assertEqual((evidence.output / "diagnostic-native-syntax.stderr").read_bytes(), b"syntax crash")
+                diagnostics = evidence.report["c_frontend_diagnostics"]
+                self.assertEqual(list(diagnostics["failures"]), ["native-syntax"])
+                self.assertEqual("crash_location" in diagnostics, host_platform == "win32")
+                self.assertNotIn("c_frontend_diagnostics_error", evidence.report)
+                self.assertEqual(evidence.report["status"], "failed")
+                self.assertEqual(evidence.report["native_execution"], "not-run")
 
     def test_tiny_build_diagnostic_error_preserves_the_original_failure(self):
         evidence = Evidence(self.root, "zig")
