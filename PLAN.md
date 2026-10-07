@@ -144,16 +144,23 @@ elsewhere, two uncovered), followed by the serial bootstrap's fixed point.
 GCC strict-C11 `-O0`, `-O1` and `-O2` each passed all 1,982 corpus checks.
 At `-O3`, both frontends' `c_compat/VariableLengthArrays.btrc` failed to compile
 with `-Werror=dangling-pointer`; the other 1,980 checks passed. The gate stopped
-there, before the four Clang configurations and final hygiene. Investigate
-actual VLA scope/lifetime before changing lowering; do not suppress the warning.
+there, before the four Clang configurations and final hygiene. Preserve
+actual VLA scope/lifetime and do not suppress the warning.
 The same warning now reproduces in a 20-line ordinary C11 program with an earlier
 inlined VLA function and a separate main-block VLA. Removing the prior call or
 making a captured bound volatile avoids it; neither is an accepted product fix.
 No runtime helper or btrc lowering is needed to reproduce it. GCC tree inspection
-is pending. The combined [Linux run 37570754386](https://github.com/schiffy91/btrc/actions/runs/37570754386)
-passed all eight strict-C11 configurations, including GCC `-O3`; its unit shard
-was still active when checked. The local Darwin GCC failure remains open.
-The combined hosted Windows workflow passed. Android's combined API 36 run
+now identifies the CCP pass inserting the main array's lifetime-end clobber
+before the earlier inlined call's stack restore. Adding an explicit lexical
+scope after the bound evaluation passes the strict GCC/Clang diagnostic
+prototypes. Paired structured-IR lifetime scopes are now under focused
+qualification, including cleanup, loop exits and lambda captures. The combined
+[Linux run 37570754386](https://github.com/schiffy91/btrc/actions/runs/37570754386)
+passed all eight strict-C11 configurations, including GCC `-O3`, and all
+remaining required shards. The combined macOS and Windows workflows also
+passed. Their scope-skipped jobs do not supply native GUI evidence; the local
+native GUI artifacts remain separately recorded. The local Darwin GCC failure
+remains open. Android's combined API 36 run
 failed as described below. No final green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
@@ -163,11 +170,15 @@ The pending C2 tag integration has reproduced and repaired three paired managed
 union/formatting lookup omissions; 324 focused tests passed with a fresh compiler,
 followed by 1,385 parser/analyzer/LSP tests. Four further regressions then proved
 self-host-only acceptance of excess tagged-union initializers and incomplete
-records whose names collide with generic parameters. Their lookup repairs are
-under fresh qualification. A separate positive case remains broken in both
-compilers: a generic field `T` is mistaken for a forward record `T`, even when
-the explicit record is used only through a pointer. Preserve generic scope while
-checking record completeness. These findings keep `CL-C-09` open; narrow green
+records whose names collide with generic parameters. Their lookup repairs
+passed 328 tests. A separate positive case then failed
+in both compilers: a generic field `T` was mistaken for a forward record `T`,
+even when the explicit record was used only through a pointer. Completeness
+validation now respects class and method generic scope, including tuple members.
+The corrected analyzer suite passed 478 tests and a fresh paired compiler run
+passed 331 tests. Explicit tagged-value refusals and broader C-compatibility/C
+output parity are under qualification. These findings keep `CL-C-09` open;
+narrow green
 suites do not qualify the whole C2 merge.
 
 | Area | Implemented / integrated evidence | Remaining acceptance and next action |
@@ -228,8 +239,10 @@ versioned; do not flatten retired or unavailable rows into passing rows.
    PR53 reuses the merged Windows executor and needs real ARM64 acceptance.
    PR34 has 50 local native passes; its pinned hosted run failed during host
    preparation before any fixture executed. PR35's earlier 56 native passes
-   remain valid for that revision, but the combined API 36 run exposed activity
-   recreation during the large-output case; repair and requalify before landing. Their general-provider/process-lifecycle gaps remain explicit.
+   remain valid for that revision; the combined API 36 run exposed activity
+   recreation during the large-output case, and the repair has now passed all
+   56 native executions again. Integrate it and qualify the resulting tree.
+   Their general-provider/process-lifecycle gaps remain explicit.
    Scope-only CI is insufficient.
 6. **Integrate bounded batches.** Reproduce each defect, apply the owner-layer
    fix, run focused red/green tests, inspect the final diff, then run D5 and
@@ -570,12 +583,15 @@ owner, the exact prerequisite and the next acceptance.
   preserving explicit streams and descendant cleanup. Its local Python 3.13
   process suites passed 116 tests and eight subtests, with one native-only skip;
   lint/format/diff passed. [Run 37578721489](https://github.com/schiffy91/btrc/actions/runs/37578721489)
-  must establish whether the change fixes native PowerShell and then qualify
-  the compiler. No native compiler/bootstrap pass is claimed.
+  passed the actual native Job/CIM report regression and all 28 tooling tests,
+  establishing the PowerShell repair. The run then failed in the deadline probe
+  and MSVC setup because a captured `stderr` file remained locked
+  (`WinError 32`). Native compiler/bootstrap did not run; investigate capture
+  ownership and retain the underlying result when cleanup fails.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
-  head `7e31fdb2`). Main `87dd60d7` is merged into the branch. The UIKit app entry now has a responsive
+  head `f49c5fe1`). Main `87dd60d7` is merged into the branch. The UIKit app entry now has a responsive
   main loop and a fixture worker, with terminal publication arbitrated across
   threads. All twelve app bundles compile/sign with the local iOS SDK; local
   process tests pass (25 tests and 36 subtests). These are not simulator proof.
@@ -609,7 +625,14 @@ owner, the exact prerequisite and the next acceptance.
   compression and stalled simulator queries. Pinning Xcode alone did not repair
   hosted execution. The older Xcode-16.4/iOS-26.2 failures remain recorded;
   changing toolchains does not establish their cause. The iOS 17 runtime floor
-  is still unqualified.
+  is still unqualified. Revision `f49c5fe1` captures and caches Xcode provenance
+  before simulator creation/boot. The stateful command-order regression failed
+  against the previous ordering and passes after the repair; toolchain failure
+  also proves no device mutation. The full local suite passed 26 tests before
+  the second focused case was added, then both preparation cases passed. Lint,
+  format and diff checks passed. [Run 37579929097](https://github.com/schiffy91/btrc/actions/runs/37579929097)
+  passed tooling, local host tests and fixture builds; native execution remains
+  in progress. This is not yet current-head simulator acceptance.
   Next: qualify the pinned hosted lane without weakening fixture deadlines:
   12 fixtures × spawn/app × iPhone/iPad plus one repeated app invocation per
   class (50 executions). Preserve Xcode/runtime provenance,
@@ -649,8 +672,9 @@ owner, the exact prerequisite and the next acceptance.
   fork and files; the host/workflow/skip-ledger matrix passed 204 tests. Failed
   comparisons now retain byte counts, hashes, status and timing separately from
   passing rows. [Run 37578476126](https://github.com/schiffy91/btrc/actions/runs/37578476126)
-  passed API 29; API 36 remains pending. Native requalification of both APIs
-  and integration into PR60 remain required. Neither later failure proves the
+  passed both APIs: retained summaries prove **56/56 executions**, 14 shell
+  and 14 app cases on each API. Integration into PR60 and the resulting
+  combined gates remain required. Neither later failure proves the
   earlier service failure's cause.
   The i686 compatibility-builder issue (`REQUEST(CL-P1-02)`), ARM64 16 KiB
   execution and general in-process provider safety remain separate gaps.
