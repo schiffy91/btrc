@@ -3,14 +3,33 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
 extern int btrc_program_main(int argc, char **argv);
+
+/* Android may recreate NativeActivity in the same process. The fixture and
+ * its terminal files belong to the process; only this registered activity
+ * may receive a finish request while its native glue remains alive. */
+static struct {
+    pthread_mutex_t lock;
+    ANativeActivity *activity;
+    bool started;
+    bool finished;
+} fixture = {PTHREAD_MUTEX_INITIALIZER, NULL, false, false};
+
+static void finish_fixture(void) {
+    pthread_mutex_lock(&fixture.lock);
+    fixture.finished = true;
+    if (fixture.activity) { ANativeActivity_finish(fixture.activity); }
+    pthread_mutex_unlock(&fixture.lock);
+}
 
 static uint32_t read_number(FILE *stream) {
     unsigned char bytes[4];
@@ -48,11 +67,12 @@ static void write_number(const char *name, int value) {
 }
 
 static void *run_program(void *context) {
-    struct android_app *app = context;
+    char *directory = context;
     /* The adapter creates files/ before launch; this is a fresh sandbox. */
-    if (chdir(app->activity->internalDataPath) != 0) {
+    if (chdir(directory) != 0) {
         _exit(121);
     }
+    free(directory);
     pid_t child = fork();
     if (child == 0) {
         if (!freopen("stdin", "rb", stdin) || !freopen("stdout", "wb", stdout)
@@ -113,6 +133,7 @@ static void *run_program(void *context) {
             if (errno != EINTR) {
                 write_number("signal", 0);
                 write_number("exit_status", 121);
+                finish_fixture();
                 return NULL;
             }
         }
@@ -124,16 +145,25 @@ static void *run_program(void *context) {
             write_number("exit_status", WEXITSTATUS(status));
         }
     }
-    ANativeActivity_finish(app->activity);
+    finish_fixture();
     return NULL;
 }
 
 void android_main(struct android_app *app) {
-    pthread_t worker;
-    if (pthread_create(&worker, NULL, run_program, app) != 0) {
-        _exit(121);
+    pthread_mutex_lock(&fixture.lock);
+    fixture.activity = app->activity;
+    if (!fixture.started) {
+        char *directory = strdup(app->activity->internalDataPath);
+        pthread_t worker;
+        if (!directory || pthread_create(&worker, NULL, run_program, directory) != 0) {
+            _exit(121);
+        }
+        fixture.started = true;
+        pthread_detach(worker);
+    } else if (fixture.finished) {
+        ANativeActivity_finish(fixture.activity);
     }
-    pthread_detach(worker);
+    pthread_mutex_unlock(&fixture.lock);
     while (!app->destroyRequested) {
         struct android_poll_source *source = NULL;
         int events = 0;
@@ -142,4 +172,7 @@ void android_main(struct android_app *app) {
             source->process(app, source);
         }
     }
+    pthread_mutex_lock(&fixture.lock);
+    if (fixture.activity == app->activity) { fixture.activity = NULL; }
+    pthread_mutex_unlock(&fixture.lock);
 }

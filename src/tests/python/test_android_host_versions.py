@@ -15,6 +15,7 @@ from xml.dom import minidom
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.process_limits import TOOL_TIMEOUT
 from tools.target_hosts.android.avd import AvdManager
 from tools.target_hosts.android.build import AndroidHostBuilder
@@ -789,3 +790,77 @@ def test_owned_emulator_diagnostics_continue_after_a_transport_timeout(tmp_path,
     assert len(calls) == 3
     assert "diagnostic capture failed" in (manager.state / f"{manager.name}-logcat.log").read_text()
     assert b"guest evidence" in (manager.state / f"{manager.name}-services.log").read_bytes()
+
+
+@requires_host_c_compiler
+@pytest.mark.skipif(sys.platform == "win32", reason="Android activity lifecycle simulation requires POSIX fork")
+def test_recreated_native_activity_does_not_restart_or_outlive_the_fixture(tmp_path):
+    fixture = REPO / "src/tests/native/android_host"
+    for index, compiler in enumerate(HOST_C_COMPILERS):
+        sandbox = tmp_path / str(index)
+        sandbox.mkdir()
+        (sandbox / "request.bin").write_bytes(AndroidEmulatorExecutor.configuration(ExecutionRequest("probe")))
+        (sandbox / "stdin").write_bytes(b"")
+        (sandbox / "start").write_bytes(b"1\n")
+        executable = sandbox / "lifecycle"
+        subprocess.run(
+            [
+                compiler,
+                "-std=c11",
+                "-O2",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-pedantic-errors",
+                "-pthread",
+                "-I",
+                str(fixture),
+                str(fixture / "activity_recreation.c"),
+                str(ANDROID / "app/host_main.c"),
+                "-o",
+                str(executable),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=TOOL_TIMEOUT,
+        )
+        completed = subprocess.run(
+            [str(executable), str(sandbox)],
+            capture_output=True,
+            timeout=TOOL_TIMEOUT,
+        )
+        assert completed.returncode == 0, completed.stderr.decode(errors="replace")
+        assert (sandbox / "stdout").read_bytes() == b"before\nafter\n"
+        assert (sandbox / "stderr").read_bytes() == b""
+        assert (sandbox / "exit_status").read_bytes() == b"0\n"
+        assert (sandbox / "signal").read_bytes() == b"0\n"
+
+
+def test_mismatched_fixture_retains_its_actual_result(tmp_path, monkeypatch):
+    from tools.target_hosts.android import check
+    from tools.target_hosts.android.executor import ExecutionResult
+
+    class Executor:
+        def __init__(self):
+            self.programs = {"app": {}}
+
+        def prepare(self, *_):
+            pass
+
+        def run(self, request):
+            return ExecutionResult(3, None, b"partial\x00", b"diagnostic", False, 0.5, {"mode": "app"})
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(check, "AndroidEmulatorExecutor", lambda *_: Executor())
+    output = tmp_path / "results.json"
+    with pytest.raises(AssertionError, match="stdout or stderr"):
+        check.main(["--sdk", str(tmp_path), "--bundle", str(tmp_path), "--output", str(output)])
+    report = json.loads(output.read_text())
+    assert report["status"] == "failed" and report["results"] == []
+    actual = report["failed_result"]
+    assert actual["case"] == "stdout" and actual["mode"] == "app"
+    assert actual["exit_status"] == 3 and actual["timed_out"] is False
+    assert actual["stdout"] == {"bytes": 8, "sha256": hashlib.sha256(b"partial\x00").hexdigest()}
+    assert actual["stderr"] == {"bytes": 10, "sha256": hashlib.sha256(b"diagnostic").hexdigest()}

@@ -175,7 +175,7 @@ class StatementLowerer {
 		self.context.restoreBorrowedBindings(borrowedBindings);
 		self.context.restoreSourceBindings(sourceBindings);
 		self.gpuPipeline.restoreHostCapacities(gpuHostSnapshot);
-		return IRNode.block(stmts);
+		return IRStatementSequence(stmts).lexicalBlock();
 	}
 
 	public void emitCleanupScopeExit(string marker, Vector<IRNode> out) {
