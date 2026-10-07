@@ -3,8 +3,9 @@
 Updated **2026-10-07**. The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`; the combined candidate is `ad72af03` in
-PR60. Subsequent integration and host changes are recorded below.
+Current upstream main is `87dd60d7`. PR60 combines the `ad72af03` integration
+with the `5dbf80a1` Weston backport; qualification and remaining work are
+recorded below.
 Read [AGENTS.md](AGENTS.md) first for architecture and development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -186,7 +187,7 @@ status and cleanup are preserved, failure tails are now retained, and successful
 runs stay quiet. The two added real X11/Wayland regressions still need Linux
 execution; this diagnostic change does not qualify or repair the compositor. Wayland remains report-only, with this
 coverage gap explicit.
-The current combined candidate `ad72af03` includes the GPU assertion and
+The `ad72af03` validation candidate includes the GPU assertion and
 failure-log retention repairs. Its local lint, formatting, generated-source and
 extension checks passed; the full suite is running against this frozen revision,
 with serial bootstrap, all eight C11 configurations and hygiene still pending.
@@ -194,7 +195,20 @@ The native compiler binary is reused from the source-matched `081aae51` build,
 not newly rebuilt. Hosted [Windows run 37588790879](https://github.com/schiffy91/btrc/actions/runs/37588790879)
 passed tests and bootstrap. [Android run 37588790885](https://github.com/schiffy91/btrc/actions/runs/37588790885)
 passed all 56 executions, verified from the two retained 28-case summaries.
-Linux and macOS qualification is still running. No final green result is claimed.
+The local gate remains pinned to `ad72af03`; it does not qualify later changes.
+Its hosted Wayland shard ended with 15 failed, 195 passed and 195 skipped.
+The retained compositor output identifies Weston 15.0.1's assertion at
+`libweston/surface-state.c:282`, requiring a view-list rebuild when no view
+may exist. The upstream fix
+[`f3e30e46`](https://github.com/wayland-mirror/weston/commit/f3e30e4692f02f3d6183a3c88b5ac59c9a8b610a)
+retains that assertion only for surfaces with views. Backport `5dbf80a1` applies
+that exact change to the pinned source through the Linux Nix dependency and
+adds a real Wayland client exercising 100 unmapped subsurface-order cycles.
+Patch application, Nix syntax, Python syntax, lint, formatting and diff checks
+passed. Native Linux regression and full GUI qualification remain pending;
+other GTK/accessibility warnings are not claimed fixed. The next published
+candidate includes this backport and the current plan; its CI must qualify
+that new tree. No final green result is claimed.
 Main remains at `87dd60d7` until
 the combined tree passes its required gates. iOS and Windows ARM64 are separate
 pending their native failure investigations.
@@ -324,11 +338,13 @@ The remote snapshot contains 183 branches: 151 tips are ancestors of main and
 branches must also be checked before deletion; nothing is deleted by this plan.
 
 The later integration branches are tracked separately from that frozen inventory:
-`codex/harmonize-plan` at `ad72af03` is [PR60](https://github.com/schiffy91/btrc/pull/60)'s
-combined candidate. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
+`codex/harmonize-plan` is [PR60](https://github.com/schiffy91/btrc/pull/60)'s
+combined candidate, now adding Weston backport `5dbf80a1` and the current plan
+to `ad72af03`. The local gate stays on `ad72af03` until terminal completion. [Draft PR65](https://github.com/schiffy91/btrc/pull/65),
 `codex/integrate-c2-arrays`, is published at `618e9ae1`; local candidate
 `98b88440` adds the three failure repairs, 360 passing focused checks and the
-latest PR60 tree. Its full integrated qualification remains outstanding.
+`ad72af03` PR60 tree. Its full integrated qualification remains outstanding;
+incorporate the subsequent Weston repair before final integration.
 C2's new hosted workflows are deferred while the existing combined and Windows
 ARM64 candidates occupy the shared CI allowance. Publish and qualify the new
 head when capacity is available; rerunning the canceled old-head workflows
@@ -673,8 +689,14 @@ owner, the exact prerequisite and the next acceptance.
   without replacing the original qualification failure. Its local process
   checks passed 124 tests and ten subtests, with one native-only skip; lint and
   formatting passed. [Run 37589160851](https://github.com/schiffy91/btrc/actions/runs/37589160851)
-  passed the cross-build; the native diagnostic lane remains pending. Updating
-  this existing PR stays within the two-active-code-PR allowance.
+  passed the cross-build and separate MSVC/wgpu lane, but the tiny native build
+  failed again with `0xC0000005` after 0.164 seconds. Minimal target object
+  generation and compatibility-overlay preprocessing passed. Driver-plan,
+  explicit-target syntax and minimal linking failed with `0xC0000005`;
+  default-target syntax returned `3221225642`. All failing diagnostics retained
+  empty stdout/stderr. The CI merge revision is `ac003239`; the evidence narrows
+  the failure without proving its cause. No full compiler transpile or bootstrap
+  began. Updating this existing PR stays within the two-active-code-PR allowance.
   Remaining acceptance: byte-identical three-stage native bootstrap and C
   from cross/native compilers, plus the complete native lane on the final head.
 - **PR34, `CX-P1-04` iOS simulator test host** (`codex/cx-p1-04`,
