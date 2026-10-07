@@ -180,3 +180,21 @@ path instead of replacing them with a directory-cleanup exception. Fault-injecte
 checks cover transient release, persistent lock and unrelated permission errors;
 they do not establish native Windows success. The actual deadline/MSVC and
 compiler/bootstrap lane must pass on the new revision.
+
+At `7cb3770b`, [run 37581720184](https://github.com/schiffy91/btrc/actions/runs/37581720184)
+passed all 31 native Python tooling tests, the deadline/PowerShell probes, and
+the native MSVC/wgpu lane. Capture disposal no longer blocked these checks.
+The GNU-route C build again exited with `0xC0000005`, with empty stderr despite
+`-v`; native btrcc execution and bootstrap did not run. The generated C hash is
+unchanged. The retained host report is now valid: roughly 12.8 GiB physical
+memory remained free after the failure, and no matching application crash event
+was found. This is a post-failure observation, not a peak-memory measurement or
+a proven explanation for the crash.
+
+Native qualification now first requests the C frontend's version and compiles
+a small ordinary C program with the same strict flags, Windows overlay, target
+and shared Job owner. The resulting ARM64 image must execute and preserve
+separate stdout/stderr sentinels before the large compiler build begins. Each
+command records its elapsed duration. This distinguishes an early toolchain or
+stdio failure from one requiring the generated compiler input; it neither
+substitutes for bootstrap nor changes the compiler pin, flags or deadlines.

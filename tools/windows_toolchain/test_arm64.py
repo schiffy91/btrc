@@ -142,6 +142,51 @@ class Arm64EvidenceTests(unittest.TestCase):
         self.assertEqual((self.root / "probe.stderr").read_bytes(), b"exact diagnostic")
         self.assertEqual(evidence.report["status"], "failed")
 
+    def test_empty_c_frontend_version_stops_before_compilation(self):
+        evidence = Evidence(self.root, "zig")
+        with (
+            patch("tools.windows_toolchain.arm64.run_process", return_value=Result(0, b"", b"", False)) as execute,
+            self.assertRaisesRegex(RuntimeError, "C frontend version probe returned no output"),
+        ):
+            evidence.probe_native_toolchain()
+        self.assertEqual(execute.call_count, 1)
+        self.assertFalse((self.root / "toolchain-probe.c").exists())
+        self.assertEqual(evidence.report["native_execution"], "not-run")
+
+    def test_native_toolchain_probe_requires_both_actual_streams(self):
+        for stdout, stderr in ((b"", b"BTRC_TOOLCHAIN_STDERR\n"), (b"BTRC_TOOLCHAIN_STDOUT\n", b"")):
+            with self.subTest(stdout=stdout, stderr=stderr):
+                evidence = Evidence(self.root, "zig")
+                (self.root / "toolchain-probe.exe").write_bytes(self.data)
+                with (
+                    patch(
+                        "tools.windows_toolchain.arm64.run_process",
+                        side_effect=[
+                            Result(0, b"C frontend version\n", b"", False),
+                            Result(0, b"", b"", False),
+                            Result(0, stdout, stderr, False),
+                        ],
+                    ),
+                    self.assertRaisesRegex(RuntimeError, "preserve both output streams"),
+                ):
+                    evidence.probe_native_toolchain()
+                self.assertNotIn("native_toolchain_probe", evidence.report)
+                self.assertEqual(evidence.report["native_execution"], "not-run")
+
+    def test_native_toolchain_failure_prevents_expensive_compiler_build(self):
+        evidence = Evidence(self.root / "output", "zig")
+        with (
+            patch("platform.system", return_value="Windows"),
+            patch("sysconfig.get_platform", return_value="win-arm64"),
+            patch.object(evidence, "verify_cross"),
+            patch.object(evidence, "probe_native_toolchain", side_effect=RuntimeError("C frontend crashed")),
+            patch.object(evidence, "build") as build,
+            self.assertRaisesRegex(RuntimeError, "C frontend crashed"),
+        ):
+            evidence.native(self.image, self.root / "cross.json")
+        build.assert_not_called()
+        self.assertEqual(evidence.report["native_execution"], "not-run")
+
     def test_timeout_retains_partial_output_and_step_metadata(self):
         evidence = Evidence(self.root, "zig")
         with (

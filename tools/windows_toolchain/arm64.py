@@ -53,6 +53,7 @@ class Evidence:
             if timeout <= 0:
                 raise TimeoutError(f"overall native evidence deadline expired before {name}")
         command = list(map(str, args))
+        started = time.monotonic()
         result = run_process(command, cwd=ROOT, env=self.environment, timeout=timeout)
         (self.output / f"{name}.stdout").write_bytes(result.stdout)
         (self.output / f"{name}.stderr").write_bytes(result.stderr)
@@ -63,6 +64,7 @@ class Evidence:
                 "exit_code": result.returncode,
                 "timed_out": result.timed_out,
                 "timeout_s": timeout,
+                "elapsed_s": time.monotonic() - started,
             }
         )
         if result.error:
@@ -144,6 +146,31 @@ $report | ConvertTo-Json -Depth 6
         self.report["compiler"] = pe_arm64(binary)
         return binary
 
+    def probe_native_toolchain(self) -> None:
+        """Separate driver/stdio failures from the generated compiler's C input."""
+        version = self.run([self.zig, "cc", "--version"], "cc-version", timeout=60)
+        if not version.strip():
+            raise RuntimeError("C frontend version probe returned no output")
+        source, binary = self.output / "toolchain-probe.c", self.output / "toolchain-probe.exe"
+        source.write_text(
+            "#include <stdio.h>\nint main(void) {\n"
+            '    puts("BTRC_TOOLCHAIN_STDOUT");\n'
+            '    fputs("BTRC_TOOLCHAIN_STDERR\\n", stderr);\n'
+            "    return 0;\n}\n",
+            encoding="utf-8",
+        )
+        self.run(
+            [self.zig, "cc", "-v", "-target", TARGET, *FLAGS, source, "-o", binary, "-lm"],
+            "toolchain-probe-build",
+            timeout=240,
+        )
+        image = pe_arm64(binary)
+        stdout = self.run([binary], "toolchain-probe-run", timeout=60)
+        stderr = (self.output / "toolchain-probe-run.stderr").read_bytes()
+        if stdout.splitlines() != [b"BTRC_TOOLCHAIN_STDOUT"] or stderr.splitlines() != [b"BTRC_TOOLCHAIN_STDERR"]:
+            raise RuntimeError("native C toolchain probe did not preserve both output streams")
+        self.report["native_toolchain_probe"] = {"status": "passed", "image": image}
+
     def verify_cross(self, path: Path) -> None:
         data = path.read_bytes()
         summary = json.loads(data)
@@ -173,6 +200,7 @@ $report | ConvertTo-Json -Depth 6
             raise RuntimeError("cross artifact must be separate from the native output directory")
         self.report["cross_compiler"] = pe_arm64(cross)
         self.verify_cross(cross_summary)
+        self.probe_native_toolchain()
         native = self.build()
         sample = ROOT / "src/tests/strings/BracesInCodeGen.btrc"
         self.report["native_execution"] = "running"
