@@ -646,6 +646,19 @@ class StorageValidator {
 		return SemanticTypeSystem.recordMember(structure, target.field);
 	}
 
+	/* "Struct.member" when expression names a flexible array member, else "". */
+	public string flexibleArrayTarget(Node? expression, Map<string, Node> vars) {
+		Node? member = self.arrayTargetMember(expression, vars);
+		if (expression == null || member == null || !SemanticTypeSystem.flexibleArrayMember(member)) { return ""; }
+		Node? receiverType = self.types.resolveAliases(self.types.inferType(expression.obj, vars));
+		if (receiverType == null) { return ""; }
+		string structName = receiverType.base;
+		if (structName.startsWith("struct ")) {
+			structName = structName.substring(7, structName.length() - 7);
+		}
+		return structName + "." + member.name;
+	}
+
 	public bool structArrayFieldTarget(Node? expression, Map<string, Node> vars) {
 		if (expression == null || expression.kind != NK_FIELD_ACCESS_EXPR) {
 			return false;
@@ -702,7 +715,8 @@ class StorageValidator {
 		Node? valueType = self.types.arrayValueType(field.type);
 		Node? resolvedType = self.types.resolveAliases(valueType);
 		if (resolvedType != null && !resolvedType.isArray) { return valueType; }
-		if (resolvedType == null || !resolvedType.isArray || resolvedType.arraySize != null || (field.access == "class" && self.aggregateArrayBacking(field.initializer))) {
+		// A flexible array member is array storage, not a pointer slot.
+		if (resolvedType == null || !resolvedType.isArray || resolvedType.arraySize != null || SemanticTypeSystem.flexibleArrayMember(field) || (field.access == "class" && self.aggregateArrayBacking(field.initializer))) {
 			return field.type;
 		}
 		return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(resolvedType));
@@ -1416,6 +1430,11 @@ class StorageValidator {
 		Node? canonicalStorageTarget = self.types.resolveAliases(storageTarget);
 		if (canonicalStorageTarget != null && canonicalStorageTarget.base == "Atomic" && canonicalStorageTarget.pointerDepth == 0 && !canonicalStorageTarget.isArray) {
 			TypeValidator.fail("Atomic<T> owner cannot be assigned or copied; use Atomic.init/store on stable storage", expression);
+		}
+		string flexibleStruct = self.types.flexibleArrayStruct(canonicalStorageTarget);
+		if (flexibleStruct != "") {
+			// C11 6.7.2.1p25 copies only the members before the flexible array.
+			TypeValidator.fail("Struct '" + flexibleStruct + "' with a flexible array member cannot be assigned or copied", expression);
 		}
 		bool gpuArrayOutput = expression.op == "=" && self.types.gpuArrayResultCall(expression.valueNode, vars);
 		bool gpuCollectionOutput = gpuArrayOutput && self.gpuOutputCollectionTarget(expression.target, storageTarget, vars);

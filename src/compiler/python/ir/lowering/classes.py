@@ -1166,16 +1166,15 @@ class ClassLowerer:
         provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
         fields = []
         for f in TypeSystem.record_declarators(decl):
-            if f.type and f.type.is_array and f.type.array_size:
+            flexible = TypeSystem.is_flexible_array_member(f)
+            if f.type and f.type.is_array and (f.type.array_size or flexible):
                 base_type = TypeSystem.strip_outer_storage(f.type, array=True)
                 fields.append(
                     IRStructField(
                         c_type=CType(text=self._types.render(base_type)),
                         name=f.name,
-                        array_size=self._expressions.lower_expr(
-                            f.type.array_size,
-                            provenance,
-                        ),
+                        array_size=(None if flexible else self._expressions.lower_expr(f.type.array_size, provenance)),
+                        is_unsized_array=flexible,
                         is_volatile=bool(f.type.is_volatile),
                         effective_is_volatile=StorageModel.effective_outer_volatile(
                             f.type, self._analyzed.typedef_table

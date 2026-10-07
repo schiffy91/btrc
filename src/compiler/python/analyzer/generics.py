@@ -60,6 +60,9 @@ class GenericAnalyzer:
         self.session = session
         self.index = index
         self.types = types
+        # r13: one refusal per call site, whether the call check or the
+        # dependency collector reaches the inferred arguments first.
+        self._flexible_array_refusals: set[tuple[str, int, int]] = set()
 
     def type_of(self, expression):
         """Read a type fact produced by ExpressionAnalyzer."""
@@ -625,6 +628,8 @@ class GenericAnalyzer:
             dependency.col,
         ):
             return False
+        if not self._reject_flexible_array_method_arguments(owner, dependency):
+            return False
         substitutions = dict(zip(cls.generic_params, dependency.class_arguments))
         substitutions.update(zip(method.generic_params, dependency.method_arguments))
         signature_types = [method.return_type, *(parameter.type for parameter in method.params)]
@@ -770,6 +775,42 @@ class GenericAnalyzer:
 
     def _normalize_type_key(self, type_expr: TypeExpr) -> tuple:
         return self.types.type_shape_key(type_expr)
+
+    def _reject_flexible_array_method_arguments(self, owner, dependency) -> bool:
+        return self.reject_flexible_array_method_arguments(
+            owner, dependency.method_arguments, dependency.line, dependency.col
+        )
+
+    def reject_flexible_array_method_arguments(self, owner, arguments, line, col) -> bool:
+        """An inferred method type argument is by-value storage in the
+        instance, so it is never a struct with a flexible array member (r13).
+        An argument naming the enclosing template's own type parameters is
+        checked per instance, once they are resolved."""
+        template = set(self.session.current_class.generic_params if self.session.current_class else ())
+        if self.session.current_method is not None:
+            template.update(self.session.current_method.generic_params or ())
+        for index, argument in enumerate(arguments, 1):
+            if argument is None or self._names_any(argument, template):
+                continue
+            name = self.types.flexible_array_value_struct(argument)
+            if name is not None:
+                if (owner, line, col) in self._flexible_array_refusals:
+                    return False
+                self._flexible_array_refusals.add((owner, line, col))
+                self.session.error(
+                    f"Generic argument {index} for '{owner}' uses struct '{name}' with a flexible array member "
+                    "by value; use a pointer",
+                    line,
+                    col,
+                )
+                return False
+        return True
+
+    @classmethod
+    def _names_any(cls, type_expr, names) -> bool:
+        return bool(names) and (
+            type_expr.base in names or any(cls._names_any(argument, names) for argument in type_expr.generic_args)
+        )
 
     def _validate_generic_arguments(self, owner, args, line=0, col=0):
         valid = True

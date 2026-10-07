@@ -323,6 +323,39 @@ class SemanticTypeSystem {
 		return null;
 	}
 
+	/* Whether a record member is declared `T name[]` (C11 6.7.2.1p18). P1
+	 * refuses the `T[] name` spelling in record bodies, so an unsized array on
+	 * a FieldDef's own type is always this declarator; a typedef never makes
+	 * one. Placement is validated separately. */
+	class bool flexibleArrayMember(Node member) { return member.kind == NK_FIELD_DEF && member.type != null && member.type.isArray && member.type.arraySize == null; }
+
+	/* The flexible array member of a complete record, or null. */
+	class Node? flexibleArrayField(Node? record) {
+		if (record == null || record.isForward) { return null; }
+		for field in SemanticTypeSystem.recordFields(record) {
+			if (SemanticTypeSystem.flexibleArrayMember(field)) { return field; }
+		}
+		return null;
+	}
+
+	/* The struct with a flexible array member that typeExpr holds by value,
+	 * directly or through a generic argument, or "". */
+	class string flexibleArrayValueStruct(Node? typeExpr, Analyzed analyzed) {
+		if (typeExpr == null) { return ""; }
+		Node resolved = typeExpr;
+		Node? alias = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
+		if (alias != null) { resolved = alias; }
+		if (resolved.pointerDepth == 0) {
+			string name = SemanticTypeSystem.resolvedStructName(resolved, analyzed);
+			if (name != "" && SemanticTypeSystem.flexibleArrayField(analyzed.structTable.get(name)) != null) { return name; }
+		}
+		for argument in resolved.genericArgs() {
+			string found = SemanticTypeSystem.flexibleArrayValueStruct(argument, analyzed);
+			if (found != "") { return found; }
+		}
+		return "";
+	}
+
 	/* The complete record a by-value member type names, for designator chains. */
 	class Node? memberRecord(Node? memberType, Analyzed analyzed) {
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(memberType, analyzed.typedefTable);

@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../../generated/ast/Node.btrc;
+import ../../syntax/Identity.btrc;
 import ../../syntax/Literals.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
@@ -559,6 +560,88 @@ class DeclarationValidator {
 		}
 	}
 
+	/* Inside a generic, a type named like a type parameter means the
+	 * parameter, so a parameter named like a struct with a flexible array
+	 * member would hide that struct's by-value refusals. The compiler stdlib
+	 * is exempt: its generics cannot refer to a program's structs. */
+	public void validateTypeParameterNames(Node declaration, Vector<string> names, string owner, Node site) {
+		if (self.hostedAbi.compilerStdlibNode(declaration)) { return; }
+		// The frontend marks the names the generic's file can see; a struct in
+		// a file it does not import cannot be hidden by the parameter.
+		Map<string, bool>? visible = self.state.analyzed.visibleTypeParameters;
+		for name in names {
+			if (visible != null && !visible.has(AstIdentity.key(site) + "\t" + name)) { continue; }
+			if (self.state.analyzed.structTable.has(name) && SemanticTypeSystem.flexibleArrayField(self.state.analyzed.structTable.get(name)) != null) {
+				TypeValidator.fail("Type parameter '" + name + "' of '" + owner + "' is named like struct '" + name + "', which has a flexible array member; rename the type parameter", site);
+			}
+		}
+	}
+
+	/* r13's declaration checks, in declaration order after duplicates,
+	 * hierarchy and contracts and before any body, as the reference checks
+	 * them: struct fields by value and flexible array member placement,
+	 * rich-enum payloads, callable signatures, type-parameter shadows and
+	 * class fields, properties and method signatures. They always run, so a
+	 * build that replays an unchanged declaration's body validation from
+	 * module-unit records still sees a newly visible flexible struct. */
+	public void validateFlexibleArrayDeclarations(Node program) {
+		Map<string, bool> previousParams = self.types.cloneFlags(self.state.typeParams);
+		for declaration in program.declarations() {
+			if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
+				for field in SemanticTypeSystem.recordFields(declaration) {
+					self.types.validateFlexibleArrayValue(field.type, "Struct field '" + declaration.name + "." + field.name + "'", field);
+				}
+				self.validateFlexibleArrayMembers(declaration);
+			} else if (declaration.kind == NK_RICH_ENUM_DECL) {
+				for variant in declaration.variants() {
+					for parameter in variant.params() {
+						self.types.validateFlexibleArrayValue(parameter.type, "Rich-enum payload '" + declaration.name + "." + variant.name + "." + parameter.name + "'", parameter);
+					}
+				}
+			} else if (declaration.kind == NK_FUNCTION_DECL) {
+				self.state.typeParams = self.types.typeParamSet(declaration.genericParams());
+				self.validateFlexibleArraySignature(declaration, declaration.name);
+			} else if (declaration.kind == NK_CLASS_DECL) {
+				self.validateTypeParameterNames(declaration, declaration.genericParams(), declaration.name, declaration);
+				for member in declaration.members() {
+					if (member.kind == NK_METHOD_DECL) {
+						self.validateTypeParameterNames(declaration, member.genericParams(), declaration.name + "." + member.name, member);
+					}
+				}
+				for member in declaration.members() {
+					self.state.typeParams = self.types.typeParamSet(declaration.genericParams());
+					if (member.kind == NK_FIELD_DECL) {
+						self.types.validateFlexibleArrayValue(member.type, "Field '" + declaration.name + "." + member.name + "'", member);
+					} else if (member.kind == NK_PROPERTY_DECL) {
+						self.types.validateFlexibleArrayValue(member.type, "Property '" + declaration.name + "." + member.name + "'", member);
+					} else if (member.kind == NK_METHOD_DECL) {
+						for name in member.genericParams() { self.state.typeParams.put(name, true); }
+						self.validateFlexibleArraySignature(member, declaration.name + "." + member.name);
+					}
+				}
+			} else if (declaration.kind == NK_INTERFACE_DECL) {
+				self.validateTypeParameterNames(declaration, declaration.genericParams(), declaration.name, declaration);
+				for method in declaration.methods() {
+					self.state.typeParams = self.types.typeParamSet(declaration.genericParams());
+					for name in method.genericParams() { self.state.typeParams.put(name, true); }
+					self.validateFlexibleArraySignature(method, declaration.name + "." + method.name);
+				}
+			}
+			self.state.typeParams = self.types.cloneFlags(previousParams);
+		}
+	}
+
+	/* A callable passes and returns by value, whether it has a body or is
+	 * a prototype. */
+	private void validateFlexibleArraySignature(Node callable, string owner) {
+		if (!callable.isConstructor) {
+			self.types.validateFlexibleArrayValue(callable.returnType, "Return type of '" + owner + "'", callable);
+		}
+		for parameter in callable.params() {
+			self.types.validateFlexibleArrayValue(parameter.type, "Parameter '" + owner + "." + parameter.name + "'", parameter);
+		}
+	}
+
 	public void validateClassBodies(Node declaration) {
 		Map<string, Node> fieldVars = self.globalTypes(self.state.analyzed);
 		fieldVars.put("self", self.selfType(declaration));
@@ -932,4 +1015,37 @@ class DeclarationValidator {
 	}
 
 	public void validateStructLayouts(Node program) { DeclarationValidator.orderedStructDefinitions(program, self.state.analyzed.structTable); }
+
+	/* r13: one flexible array member, last, after a named member, directly in the
+	 * struct's body, holding complete plain C elements. */
+	private void validateFlexibleArrayMembers(Node declaration) {
+		Vector<Node> members = SemanticTypeSystem.recordMembers(declaration);
+		Vector<Node> declarators = SemanticTypeSystem.recordDeclarators(declaration);
+		int index = 0;
+		while (index < members.len) {
+			Node member = members.get(index);
+			if (member.kind == NK_ANONYMOUS_MEMBER) {
+				Node? nested = SemanticTypeSystem.flexibleArrayField(member);
+				if (nested != null) {
+					TypeValidator.fail("Flexible array member '" + nested.name + "' must be declared directly in a struct, not in an anonymous member", nested);
+				}
+			} else if (SemanticTypeSystem.flexibleArrayMember(member)) {
+				string label = "'" + declaration.name + "." + member.name + "'";
+				if (!SemanticTypeSystem.sameNode(member, declarators.get(declarators.len - 1))) {
+					TypeValidator.fail("Flexible array member " + label + " must be the last field of struct '" + declaration.name + "'", member);
+				}
+				if (index == 0) {
+					TypeValidator.fail("Flexible array member " + label + " needs a named field before it", member);
+				}
+				Node element = TypeShape.withoutOuterArray(member.type);
+				if (!self.types.flexibleArrayElement(element)) {
+					// Name the managed type, not its reference or pointer.
+					string spelling = self.types.formatType(element);
+					while (spelling.endsWith("*") || spelling.endsWith("?")) { spelling = spelling.substring(0, spelling.length() - 1); }
+					TypeValidator.fail("Flexible array member " + label + " cannot hold managed type '" + spelling + "'", member);
+				}
+			}
+			index = index + 1;
+		}
+	}
 }

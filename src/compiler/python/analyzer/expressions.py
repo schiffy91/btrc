@@ -337,6 +337,15 @@ class ExpressionAnalyzer:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
+        flexible_member = self.aggregates.flexible_array_target(operand)
+        if flexible_member is not None:
+            self.session.error(
+                f"Cannot take the address of flexible array member '{flexible_member}'; "
+                "use the member itself or an element's address",
+                expression.line,
+                expression.col,
+            )
+            return
         if self._is_native_constant(operand):
             self.session.error(
                 f"Native constant '{operand.name}' is a value and has no address", expression.line, expression.col
@@ -604,6 +613,15 @@ class ExpressionAnalyzer:
         if canonical_target is not None and canonical_target.base == "Atomic" and canonical_target.pointer_depth == 0:
             self.session.error(
                 "Atomic<T> owner cannot be assigned or copied; use Atomic.init/store on stable storage",
+                expression.line,
+                expression.col,
+            )
+            return
+        flexible_struct = self.aggregates.flexible_array_struct(canonical_target)
+        if flexible_struct is not None:
+            # C11 6.7.2.1p25 copies only the members before the flexible array.
+            self.session.error(
+                f"Struct '{flexible_struct}' with a flexible array member cannot be assigned or copied",
                 expression.line,
                 expression.col,
             )
@@ -924,8 +942,43 @@ class ExpressionAnalyzer:
         self.session.error(f"Duplicate {kind} name '{name}' in the same scope", line, col)
         return False
 
+    def _reject_flexible_array_operand(self, expression, subject) -> None:
+        """An rvalue copy of a struct with a flexible array member drops its
+        elements, and reading them through the copy overruns it."""
+        self.aggregates.reject_flexible_array_value(
+            self._infer_type(expression), subject, expression.line, expression.col
+        )
+
+    def _reject_flexible_array_arguments(self, arguments) -> None:
+        """An argument is passed by value, so it is never a struct with a
+        flexible array member, whatever the callee: a generic instance, a
+        variadic C function or a constructor."""
+        for argument in arguments:
+            if self.aggregates.reject_flexible_array_value(
+                self._infer_type(argument), "Call argument", argument.line, argument.col
+            ):
+                return
+
+    def _reject_flexible_array_lambda(self, expression) -> None:
+        """A lambda's parameters and its declared or inferred result are by
+        value, so none may be a struct with a flexible array member."""
+        for parameter in expression.params:
+            if self.aggregates.reject_flexible_array_value(
+                parameter.type, f"Lambda parameter '{parameter.name}'", parameter.line, parameter.col
+            ):
+                return
+        lambda_type = self._infer_type(expression)
+        if lambda_type is not None and lambda_type.generic_args:
+            self.aggregates.reject_flexible_array_value(
+                lambda_type.generic_args[0], "Lambda return type", expression.line, expression.col
+            )
+
     def _validate_cast_expr(self, expression) -> None:
         if not self.types.validate_cast_target_name(expression):
+            return
+        if self.aggregates.reject_flexible_array_value(
+            expression.target_type, "Cast target", expression.line, expression.col
+        ):
             return
         target = self.types.canonical_type(expression.target_type)
         source = self.types.canonical_type(self._infer_type(expression.expr))
@@ -1923,6 +1976,10 @@ class ExpressionAnalyzer:
             self._infer_type(expr.callee)
             for argument in expr.args:
                 self._analyze_expr(argument)
+            # r13, in btrcc's order: inferred method type arguments, then the
+            # arguments themselves, before the call's own type and arity checks.
+            self.calls.reject_inferred_flexible_arguments(expr)
+            self._reject_flexible_array_arguments(expr.args)
             self._validate_mutex_destroy_receiver(expr)
             self.calls.analyze_call(expr)
         elif isinstance(expr, IndexExpr):
@@ -1973,6 +2030,7 @@ class ExpressionAnalyzer:
             self.session.replace_nonnull_paths(true_flow & false_flow)
             self.contextualize_ternary_literals(expr)
             self._validate_ternary_expr(expr)
+            self._reject_flexible_array_operand(expr, "Conditional expression")
         elif isinstance(expr, CastExpr):
             expr.target_type = self.types.upgrade_class_type(expr.target_type)
             self.generics.collect_type_instances(expr.target_type)
@@ -1988,6 +2046,7 @@ class ExpressionAnalyzer:
             for el in expr.elements:
                 self._analyze_expr(el)
                 self.aggregates.reject_thread_value_escape(el, "embedded in aggregate values")
+                self._reject_flexible_array_operand(el, "List literal element")
             if len(expr.elements) >= 2:
                 first_type = next(
                     (
@@ -2017,6 +2076,8 @@ class ExpressionAnalyzer:
                 self._analyze_expr(entry.value)
                 self.aggregates.reject_thread_value_escape(entry.key, "embedded in aggregate values")
                 self.aggregates.reject_thread_value_escape(entry.value, "embedded in aggregate values")
+                self._reject_flexible_array_operand(entry.key, "Map literal key")
+                self._reject_flexible_array_operand(entry.value, "Map literal value")
             if expr.entries:
                 self.generics.record_class_method_use(self._infer_type(expr), "put")
         elif isinstance(expr, FStringLiteral):
@@ -2024,6 +2085,7 @@ class ExpressionAnalyzer:
                 if isinstance(part, FStringExpr):
                     self._analyze_expr(part.expression)
                     self.aggregates.reject_thread_value_escape(part.expression, "formatted as values")
+                    self._reject_flexible_array_operand(part.expression, "Formatted value")
                     part_type = self._infer_type(part.expression)
                     self.types.validate_formatted_value(part_type, part.expression.line, part.expression.col)
                     if self.types.has_scalar_to_string(part_type):
@@ -2037,6 +2099,7 @@ class ExpressionAnalyzer:
                 t = self._infer_type(el)
                 elem_types.append(t if t else TypeExpr(base="int"))
             tuple_type = TypeExpr(base="Tuple", generic_args=elem_types)
+            self.aggregates.reject_flexible_array_value(tuple_type, "Tuple literal", expr.line, expr.col)
             self.generics.collect_type_instances(tuple_type)
         elif isinstance(expr, LambdaExpr):
             if self._inside_generic_declaration():
@@ -2045,6 +2108,7 @@ class ExpressionAnalyzer:
                 )
             if id(expr) not in self.session.lambda_body_facts:
                 self.session.error("Lambda body was not prepared by statement analysis", expr.line, expr.col)
+            self._reject_flexible_array_lambda(expr)
         elif isinstance(expr, NewExpr):
             self.types.validate_tag_keyword(expr.type, expr.line, expr.col)
             # A re-analysed tree already carries the implicit class pointer.
@@ -2070,6 +2134,11 @@ class ExpressionAnalyzer:
             for arg in expr.args:
                 self._analyze_expr(arg)
                 self.aggregates.reject_thread_value_escape(arg, "passed as arguments")
+            self._reject_flexible_array_arguments(expr.args)
+            for index, argument in enumerate(expr.type.generic_args):
+                self.aggregates.reject_flexible_array_value(
+                    argument, f"Generic argument {index + 1} of new expression", expr.line, expr.col
+                )
             if expr.type.base == "Mutex":
                 if any(expr.arg_names or []):
                     self.session.error("'new Mutex<T>()' does not accept named arguments", expr.line, expr.col)

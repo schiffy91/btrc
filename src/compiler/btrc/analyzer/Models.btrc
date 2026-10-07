@@ -194,6 +194,10 @@ class Analyzed {
 	 * source the importer does not model; ALL_CAPS names there may be C
 	 * macros the compiler cannot see. */
 	public Map<int, bool> unmodeledIncludeLines = {};
+	/* Generic type-parameter names that also name a top-level symbol the
+	 * generic's file can see, keyed "<declaration key>\t<name>"; null when the
+	 * frontend ran no strict-import visibility, which sees every symbol. */
+	public Map<string, bool>? visibleTypeParameters = null;
 	private Map<string, FeNativeImportedDeclaration> nativeClassIndex;
 	private Map<string, Node> nativeOwnedFunctions = {};
 	public Map<string, bool> nativeLifetimeOperations = {};

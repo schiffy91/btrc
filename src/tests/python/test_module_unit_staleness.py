@@ -51,7 +51,13 @@ def _records(cache: Path) -> dict[Path, tuple[int, int]]:
 
 
 def _build(
-    command: list[str], source: Path, output: Path, cache: Path, *extra: str, environment: dict[str, str] | None = None
+    command: list[str],
+    source: Path,
+    output: Path,
+    cache: Path,
+    *extra: str,
+    environment: dict[str, str] | None = None,
+    succeeds: bool = True,
 ) -> _Build:
     output.mkdir(parents=True, exist_ok=True)
     for stale in output.glob("p*.c"):
@@ -84,7 +90,7 @@ def _build(
         text=True,
         timeout=_BUILD_TIMEOUT,
     )
-    assert completed.returncode == 0, completed.stderr
+    assert (completed.returncode == 0) == succeeds, completed.stderr
     diagnostics = [line for line in completed.stderr.splitlines() if not line.startswith("btrcc ")]
     if "module-units=lowered:" in completed.stderr:
         lowered = int(completed.stderr.split("module-units=lowered:", 1)[1].split(",", 1)[0])
@@ -647,3 +653,42 @@ def test_an_unrelated_line_shift_reuses_every_other_unit(compiler: str, debug: b
         *(["--debug"] if debug else []),
     )
     _lowered(incremental, 1)
+
+
+# r13: a generic's type parameter may not hide a struct with a flexible array
+# member that its file can see. `Lib` is unchanged when `Mid` starts importing
+# that struct, so its class validation may replay from its record; the refusal
+# must not replay away with it.
+_SHADOW_FORMS = {
+    "class": (
+        "class Holder<Packet> {\n\tpublic Holder() {}\n\n\tpublic int size() { return 1; }\n}\n",
+        "\tHolder<int> holder = new Holder<int>();\n\treturn holder.size() - 1;\n",
+        "Type parameter 'Packet' of 'Holder' is named like struct 'Packet'",
+    ),
+    "method": (
+        "class Holder {\n\tpublic Holder() {}\n\n\tpublic int pick<Packet>(Packet* value) { return 0; }\n}\n",
+        "\tHolder holder = new Holder();\n\tint value = 0;\n\treturn holder.pick(&value);\n",
+        "Type parameter 'Packet' of 'Holder.pick' is named like struct 'Packet'",
+    ),
+}
+
+
+@pytest.mark.parametrize("form", sorted(_SHADOW_FORMS))
+def test_a_newly_visible_flexible_struct_refuses_an_unchanged_generic(compiler: str, form: str, tmp_path, request):
+    declaration, body, refusal = _SHADOW_FORMS[form]
+    root = tmp_path.resolve()
+    source = root / "program"
+    source.mkdir()
+    (source / "Packet.btrc").write_text("struct Packet { int length; int items[]; };\n")
+    (source / "Mid.btrc").write_text("int midValue() { return 0; }\n")
+    (source / "Lib.btrc").write_text("import ./Mid.btrc;\n\n" + declaration)
+    (source / "Main.btrc").write_text("import ./Lib.btrc;\n\nint main() {\n" + body + "}\n")
+    command = _command(compiler, request)
+    output = root / "out"
+    cold = _build(command, source, output, root / "cache")
+    assert not cold.diagnostics
+    (source / "Mid.btrc").write_text("import ./Packet.btrc;\n\nint midValue() { return 0; }\n")
+    incremental = _build(command, source, output, root / "cache", succeeds=False)
+    clean = _build(command, source, output, root / "fresh-cache", succeeds=False)
+    assert incremental.diagnostics == clean.diagnostics
+    assert any(refusal in line for line in clean.diagnostics), clean.diagnostics

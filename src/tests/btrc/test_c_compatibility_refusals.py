@@ -796,6 +796,50 @@ FUNCTION_POINTER_REFUSALS = [
     ),
 ]
 
+# Row 13: C11 6.7.2.1p18 permits an object of a struct with a flexible array
+# member, an external one, and the partial copy of 6.7.2.1p25; btrc keeps such
+# a struct behind a pointer. P1 refuses btrc's `T[] name` spelling in a struct
+# body, which the AST could not tell from `T name[]`.
+FLEXIBLE_BUFFER = "struct Buffer { int count; int data[]; };\n"
+FLEXIBLE_BY_VALUE = "{} uses struct 'Buffer' with a flexible array member by value; use a pointer"
+FLEXIBLE_ARRAY_REFUSALS = [
+    pytest.param(
+        FLEXIBLE_BUFFER + "int main() { struct Buffer b; return 0; }",
+        (FLEXIBLE_BY_VALUE.format("Variable 'b'"), 2, 14),
+        id="r13-local-object",
+    ),
+    pytest.param(
+        FLEXIBLE_BUFFER + "int main() { static struct Buffer b; return 0; }",
+        (FLEXIBLE_BY_VALUE.format("Variable 'b'"), 2, 14),
+        id="r13-static-object",
+    ),
+    pytest.param(
+        FLEXIBLE_BUFFER + "struct Buffer g;\nint main() { return 0; }",
+        (FLEXIBLE_BY_VALUE.format("Global 'g'"), 2, 1),
+        id="r13-global-object",
+    ),
+    pytest.param(
+        FLEXIBLE_BUFFER + "extern struct Buffer g;\nint main() { return 0; }",
+        (FLEXIBLE_BY_VALUE.format("Global 'g'"), 2, 1),
+        id="r13-extern-object",
+    ),
+    pytest.param(
+        FLEXIBLE_BUFFER + "void copy(struct Buffer* a, struct Buffer* b) { *a = *b; }\nint main() { return 0; }",
+        ("Struct 'Buffer' with a flexible array member cannot be assigned or copied", 2, 49),
+        id="r13-partial-copy",
+    ),
+    pytest.param(
+        "struct Buffer { int count; int[] data; };\nint main() { return 0; }",
+        (
+            "Struct field 'data' cannot use the 'T[] name' spelling; "
+            "declare a flexible array member as 'T data[]' or a pointer as 'T* data'",
+            1,
+            34,
+        ),
+        id="r13-type-position-array-field",
+    ),
+]
+
 # Row 23 refusals where the compilers agree on the refusal but not on its
 # diagnostic. Each is pre-existing and shared with fixed-size arrays; the pair
 # is pinned so a change to either side is deliberate.
@@ -1265,7 +1309,8 @@ RECORD_REFUSALS = [
     + CHAR_ARRAY_REFUSALS
     + VLA_REFUSALS
     + FUNCTION_POINTER_REFUSALS
-    + RECORD_REFUSALS,
+    + RECORD_REFUSALS
+    + FLEXIBLE_ARRAY_REFUSALS,
 )
 def test_refusal_is_identical_in_both_compilers(
     semantic_btrcc: Path,

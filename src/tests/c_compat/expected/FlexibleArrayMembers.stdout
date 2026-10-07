@@ -1,0 +1,5 @@
+PASS: flexible array member
+PASS: struct elements
+left right
+PASS: pointer elements
+PASS: typedef arrays stay pointers
