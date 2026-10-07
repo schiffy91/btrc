@@ -1,0 +1,140 @@
+/* Actual SDL/WebGPU pixels and provider input. No copied geometry formula or
+ * test-only scrollbar substitutes for LinuxScrollView. */
+import Library.App;
+import Library.Console;
+import Library.Image;
+import Library.Math;
+import Library.Vector;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IView;
+import Library.GUI.IScrollView;
+import Library.GUI.GUICaptureLayer;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+
+class ScrollJourney implements IApplicationWork {
+	private int _step = 0;
+	private unsigned int _window;
+	private IView _root;
+	private IScrollView _scroll;
+	private ILinuxView _native;
+	public bool passed = false;
+
+	public ScrollJourney(unsigned int window, IView root, IScrollView scroll, ILinuxView native) {
+		self._window = window;
+		self._root = root;
+		self._scroll = scroll;
+		self._native = native;
+	}
+
+	private Image capture() { return GUI.capture(self._root, new Vector<GUICaptureLayer>()); }
+
+	/* Compare with the same empty viewport without overflow. Every changed
+	 * pixel must lie inside the 2-point vertical track inset, including when
+	 * the view is too short to have a track at all. */
+	private void checkPixels(Image baseline, double height) {
+		var image = self.capture();
+		assert(image.width == baseline.width && image.height == baseline.height);
+		ILinuxView? root = (ILinuxView?)self._root;
+		assert(root != null);
+		double scaleX = (double)image.width / (root == null ? 1.0 : root.node().width);
+		double scaleY = (double)image.height / (root == null ? 1.0 : root.node().height);
+		int left = (int)Math.floorDouble(90.0 * scaleX);
+		int right = (int)Math.ceilDouble(96.0 * scaleX);
+		int top = (int)Math.floorDouble(32.0 * scaleY);
+		int bottom = (int)Math.ceilDouble((30.0 + height - 2.0) * scaleY);
+		int changed = 0;
+		for (int y = 0; y < image.height; y++) {
+			for (int x = 0; x < image.width; x++) {
+				var before = baseline.pixel(x, y);
+				var after = image.pixel(x, y);
+				if (before.red == after.red && before.green == after.green && before.blue == after.blue && before.alpha == after.alpha) { continue; }
+				changed++;
+				assert(height > 4.0 && x >= left && x < right && y >= top && y < bottom);
+			}
+		}
+		assert(height <= 4.0 ? changed == 0 : changed > 0);
+	}
+
+	private bool pointer(AppPointerAction action, double y) {
+		return self._native.pointer(AppPointerEvent(action, APP_POINTER_BUTTON_PRIMARY, 74.0, y, AppKeyModifiers(false, false, false, false)));
+	}
+
+	private void geometry() {
+		Vector<double> heights = [0.0, 2.0, 4.0, 8.0, 20.0, 28.0, 100.0];
+		for height in heights {
+			self._scroll.arrange(20.0, 30.0, 80.0, height);
+			self._scroll.setContentSize(80.0, height);
+			assert(self._scroll.scrollOffset() == 0.0);
+			assert(!self.pointer(APP_POINTER_PRESSED, 3.0));
+			assert(!self._native.scroll(AppScrollEvent(0.0, -1.0)));
+			var baseline = self.capture();
+			self._scroll.setContentSize(80.0, 400.0);
+			self.checkPixels(baseline, height);
+			self._scroll.scrollTo(400.0);
+			assert(self._scroll.scrollOffset() == 400.0 - height);
+			self.checkPixels(baseline, height);
+			self._scroll.scrollTo(0.0);
+			if (height <= 4.0) {
+				assert(!self.pointer(APP_POINTER_PRESSED, 3.0));
+			} else if (height <= 28.0) {
+				assert(self.pointer(APP_POINTER_PRESSED, 3.0));
+				assert(self.pointer(APP_POINTER_DRAGGED, 100.0));
+				assert(self._scroll.scrollOffset() == 0.0);
+				assert(self.pointer(APP_POINTER_RELEASED, 100.0));
+			}
+			assert(self._native.scroll(AppScrollEvent(0.0, -1.0)));
+			assert(self._scroll.scrollOffset() == 48.0);
+			self._scroll.scrollTo(-1.0);
+			assert(self._scroll.scrollOffset() == 0.0);
+		}
+	}
+
+	public void run() {
+		self._step++;
+		if (self._step == 2) {
+			self.geometry();
+			self._scroll.arrange(20.0, 30.0, 80.0, 100.0);
+			self._scroll.setContentSize(80.0, 400.0);
+			self._scroll.scrollTo(0.0);
+			btrcSdlPushPointerMotion(self._window, 94.0f, 36.0f);
+			btrcSdlPushPointerButton(self._window, 94.0f, 36.0f, 1u, 1, 1u);
+		} else if (self._step == 4) {
+			btrcSdlPushPointerMotion(self._window, 94.0f, 108.0f);
+		} else if (self._step == 6) {
+			assert(self._scroll.scrollOffset() == 300.0);
+			btrcSdlPushPointerButton(self._window, 94.0f, 108.0f, 1u, 0, 1u);
+			btrcSdlPushWheel(self._window, 60.0f, 80.0f, 0.0f, 1.0f);
+		} else if (self._step == 8) {
+			assert(self._scroll.scrollOffset() == 252.0);
+			self.passed = true;
+			GUI.requestQuit();
+			return;
+		}
+		GUI.post(self);
+	}
+}
+
+int main() {
+	GUI.initialize(32);
+	var window = GUI.createWindow("Linux scroll thumb bounds", 180.0, 180.0);
+	var root = GUI.createPanel(RGBA(50, 70, 90, 255), 0.0);
+	var scroll = GUI.createScrollView();
+	root.attach(scroll);
+	window.attachRoot(root);
+	window.show();
+	ILinuxWindow? nativeWindow = (ILinuxWindow?)window;
+	ILinuxView? nativeScroll = (ILinuxView?)scroll;
+	assert(nativeWindow != null && nativeScroll != null);
+	var journey = ScrollJourney(nativeWindow == null ? 0u : nativeWindow.nativeId(), root, scroll, nativeScroll);
+	GUI.post(journey);
+	GUI.run();
+	assert(journey.passed);
+	assert(!root.isOpen() && !scroll.isOpen());
+	Console.log("PASS: linux scroll thumb bounds and input");
+	return 0;
+}

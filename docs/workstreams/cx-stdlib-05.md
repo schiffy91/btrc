@@ -34,3 +34,11 @@ Started 2026-10-08. Initial free space: 78,463,668 KiB reported by `df`.
 Native builds and all tests are
 paused while the integrator owns the shared gate. Publication waits for its CI
 slot. No executed failure, fix qualification or final integration is claimed.
+
+The dedicated regression is committed before the provider edit so the integrator
+can run it against the original provider. It compares real captured pixels with
+the same non-overflowing viewport at heights 0, 2, 4, 8, 20, 28 and 100 points,
+then drives normal thumb dragging and wheel scrolling through SDL. Direct
+provider pointer calls cover a zero-length track and a thumb that fills its
+track. Both compiler frontends and sanitizer variants are collected by the
+normal native-GUI glob; their Linux execution is pending.
