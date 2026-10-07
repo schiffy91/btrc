@@ -1,5 +1,7 @@
 # Codex UI lanes (2026-10-03)
 
+**2026-10-07 consolidation:** [PLAN.md](../../PLAN.md) is the single active roadmap and queue. D29 supersedes older split-plan and integration-role wording for the authorized harmonization session; packet IDs, file claims, review and evidence requirements remain.
+
 > **Historical assignment (2026-10-03/04). Superseded for scheduling by [CODEX.md](../../CODEX.md) (D28).** Codex's
 > active queue is now CODEX.md. Packet ids here stay for traceability. Where this file conflicts with D28 or
 > CODEX.md, CODEX.md governs ([CLAUDE.md D28](../../CLAUDE.md#decisions-all-resolved-2026-09-30)).

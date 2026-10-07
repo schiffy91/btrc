@@ -1,5 +1,7 @@
 # UI catalog shard contract
 
+**2026-10-07 consolidation:** [PLAN.md](../../../PLAN.md) is the single active roadmap and queue. D29 supersedes older split-plan and integration-role wording for the authorized harmonization session; packet IDs, file claims, review and evidence requirements remain.
+
 The sibling `../native-ui-catalog.toml` is an immutable identity seed.
 `python3 -m tools.qualification.ui_catalog check` loads it and this directory.
 Unknown paths, symlinks, a slot repeated within one file and undeclared IDs

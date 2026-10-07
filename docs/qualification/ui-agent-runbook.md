@@ -1,5 +1,7 @@
 # Native UI agent runbook
 
+**2026-10-07 consolidation:** [PLAN.md](../../PLAN.md) is the single active roadmap and queue. D29 supersedes older split-plan and integration-role wording for the authorized harmonization session; packet IDs, file claims, review and evidence requirements remain.
+
 Codex's active queue is `CODEX.md` (D28). `WORKSTREAMS.md` §3 holds the path
 claims and protocol; old packet ids in `docs/workstreams/codex.md` stay for
 traceability. Before each unit, fetch `origin/main`, read the current
