@@ -107,10 +107,17 @@ JSON.
 | --- | --- |
 | `make test` (8 xdist workers) | most of the machine; nothing heavy beside it |
 | `make bootstrap` (431k-line TU at `-O2`) | memory risk; runs alone |
-| podman `linux-ci` machine (`podman-machine-default`) | 24 GiB, 6 CPUs, 40 GB disk |
+| Dedicated podman `linux-ci` configuration (`podman-machine-default`) | 24 GiB, 6 CPUs, 40 GB disk |
 | Android emulator | about 4 GiB each |
 | iOS simulator | about 2–3 GiB each |
 | BTRSmith self-host compile at `--jobs 1` / cold dev aggregate | 3.0 / 4.8 GiB |
+
+The podman row describes the dedicated guest configuration in `flake.nix`,
+not the current shared guest. On 2026-10-07, the existing machine was verified
+as shared with SEMU: **8 CPUs, 28 GiB RAM, 180 GiB virtual disk**. Reuse it
+without recreating, resetting or resizing it to match the dedicated configuration.
+Apply the load rules to its actual resource allocation; see PLAN.md's host
+capacity record for the authorized cleanup and preserved recovery evidence.
 
 - **Gates** run from a clone outside Google Drive, one at a time, holding
   `~/.cache/btrc/locks/gate`. `make bootstrap` never runs beside the parallel
