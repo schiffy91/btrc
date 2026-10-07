@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -895,3 +896,55 @@ def test_selfhost_retirement_preserves_modified_files_and_current_inputs(
     assert result.returncode == 1, result.stderr
     assert ("retired artifact changed" if conflict == "edited" else "source input") in result.stderr
     assert all(path.read_bytes() == content for path, content in before.items())
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+@pytest.mark.parametrize("explicit_path", [False, True])
+@pytest.mark.parametrize("split_units", [False, True])
+def test_explicit_c_output_preserves_default_output_and_link_plan(
+    immutable_btrcc, tmp_path, monkeypatch, frontend, explicit_path, split_units
+):
+    monkeypatch.setenv("BTRC_STATE_DIR", str(tmp_path / "state"))
+    source = tmp_path / "Main.btrc"
+    source.write_text("import ./Helper.btrc;\nint main() { return square(7); }\n")
+    (tmp_path / "Helper.btrc").write_text("int square(int n) { return n * n; }\n")
+    command = [sys.executable, "-m", "src.compiler.python.main"] if frontend == "reference" else [str(immutable_btrcc)]
+    output = tmp_path / ("program.c" if explicit_path else "Main.c")
+    plan = tmp_path / "link.json"
+    arguments = ["--no-cache", "--no-stdlib", str(source), "--emit-link-plan", str(plan)]
+    if explicit_path:
+        arguments += ["-o", str(output)]
+    if split_units:
+        arguments += ["--emit-units", str(tmp_path / "units"), "--module-units", "--jobs", "1"]
+    snapshots = []
+    for flags in ([], ["--emit-c"]):
+        result = subprocess.run(command + arguments + flags, cwd=REPO, capture_output=True, text=True, timeout=300)
+        assert result.returncode == 0, result.stderr
+        c = output.read_text() if output.exists() else result.stdout
+        units = {p.name: p.read_bytes() for p in tmp_path.glob("*.unit-*.c")}
+        assert "int main(" in c or any(b"int main(" in unit for unit in units.values())
+        snapshots.append((result.stdout, c, plan.read_bytes(), units))
+    assert snapshots[0] == snapshots[1]
+    if split_units:
+        assert snapshots[0][3], "module-unit compilation must publish secondary units"
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+@pytest.mark.parametrize("dump", ["--emit-ir", "--emit-optimized-ir"])
+@pytest.mark.parametrize("c_first", [False, True])
+def test_explicit_c_output_rejects_conflicting_dump_before_publication(
+    immutable_btrcc, tmp_path, frontend, dump, c_first
+):
+    source = tmp_path / "Main.btrc"
+    source.write_text("int main() { return 0; }\n")
+    output = tmp_path / "program.c"
+    output.write_text("previous generation")
+    command = [sys.executable, "-m", "src.compiler.python.main"] if frontend == "reference" else [str(immutable_btrcc)]
+    modes = ["--emit-c", dump] if c_first else [dump, "--emit-c"]
+    result = subprocess.run(
+        command + [str(source), "-o", str(output), *modes], cwd=REPO, capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode != 0
+    assert "--emit-c" in result.stderr and dump in result.stderr
+    assert "unknown option" not in result.stderr and "unrecognized arguments" not in result.stderr
+    assert output.read_text() == "previous generation"

@@ -200,7 +200,7 @@ class BtrccCommandLine {
 
 	public string argument(int index) { return self.arguments.get(index); }
 
-	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH[-ENV]] " + "[--emit-link-plan PATH] [--emit-units PREFIX [--module-units [--jobs N]]] [--emit-ir | --emit-optimized-ir] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve.\n" + "--target compiles for one of " + Strings.join(FePackageTarget.labels(), ", ") + " (x64 and arm64 are accepted architecture aliases; default: this host)."; }
+	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH[-ENV]] " + "[--emit-link-plan PATH] [--emit-units PREFIX [--module-units [--jobs N]]] [--emit-c | --emit-ir | --emit-optimized-ir] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve.\n" + "--target compiles for one of " + Strings.join(FePackageTarget.labels(), ", ") + " (x64 and arm64 are accepted architecture aliases; default: this host)."; }
 
 	/* Select the target after the argument errors and before any input is
 	 * read: the canonical label --target names, else the host's. Returns
@@ -232,6 +232,7 @@ class BtrccCommandLine {
 		int index = 1;
 		int importMode = 0;
 		int inputIndex = -1;
+		bool emitC = false;
 		while (index < self.arguments.len) {
 			string option = self.arguments.get(index);
 			if (option.equals("--no-cache")) {
@@ -275,7 +276,15 @@ class BtrccCommandLine {
 				options.linkPlanPath = self.arguments.get(index);
 			} else if (option.equals("--debug")) {
 				options.debug = true;
+			} else if (option.equals("--emit-c")) {
+				if (!options.irDump.isEmpty()) {
+					return self.invalid(options, "--emit-c cannot be combined with --emit-ir or --emit-optimized-ir");
+				}
+				emitC = true;
 			} else if (option.equals("--emit-ir") || option.equals("--emit-optimized-ir")) {
+				if (emitC) {
+					return self.invalid(options, "--emit-c cannot be combined with --emit-ir or --emit-optimized-ir");
+				}
 				if (!options.irDump.isEmpty()) {
 					return self.invalid(options, "--emit-ir and --emit-optimized-ir may be specified only once");
 				}
