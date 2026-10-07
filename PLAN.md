@@ -1,6 +1,6 @@
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-07**. Read [AGENTS.md](AGENTS.md) first for architecture and
+Updated **2026-10-08**. Read [AGENTS.md](AGENTS.md) first for architecture and
 development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -117,12 +117,41 @@ strict-C11 configurations pass on the recorded checkpoint; final combined-tree
 qualification, performance failures and native-platform gaps remain. The later
 Apple availability schema/table merge `ba6c221d` passed 186 focused checks and
 static/generated gates locally; semantic consumers and final integration remain.
+The combined candidate `06c3923a` now includes that Apple merge, the current plan,
+the runtime repair and the native button repair. Its fresh self-hosted compiler
+build, lint, formatting, generated-source and extension checks passed. The
+compiler SHA-256 is recorded with the source-pinned preparation evidence; the
+full combined matrix stopped on October 7 at 17:54 UTC: **17 failed, 17,838
+passed, 168 skipped** in the parallel suite. Bootstrap and strict-C11 steps did
+not run after that failure. The 17 failures have three causes: 11 target-specific
+structure checks need the exact externally exercised `platformUnavailable`
+method recorded; five strict-import checks omit Python-owned BTRC fixtures and
+their generated table dependency; and the GUI discovery audit does not recognize
+the nested button fixture's exact root-relative path. The actual AppKit fixture
+already has the four native passes recorded below. Audit repair `3cf1b084` is now
+committed on the integration branch; it preserves exact-set coverage and adds
+omission/path regressions. Isolated checks
+against the read-only `06c3923a` tree reproduced exactly the 17 failed case names;
+the three repaired audit modules then passed all **186 checks**, with no skips or
+errors (70.81 seconds). Lint, formatting, patch applicability and independent
+review pass. These draft checks exclude the repository's root gate configuration
+and run no native/compiler builds. They do not replace the final matrix. The
+patched source matches the reviewed draft; normal repository qualification is
+the next gate.
+The failed matrix and skip inventory remain preserved under
+`combined-06c3923a`; the candidate has no passing full result.
 The Darwin Python/libffi repair `2e8e3711` now passes the actual callback smoke,
 46 build-safety checks and upstream CFFI's 1,888 checks (161 skips, four deselected,
 four expected failures). Its four-platform package evaluation also passed;
 Linux runtime builds and final combined-tree gates remain separate evidence.
 Windows crash-location diagnostic `53da5fd0` passes 130 portable tests, one
-native-only skip and ten subtests; PR53's native lane is running. These repairs
+native-only skip and ten subtests. PR53's native run `37651593291` stopped before
+compiler qualification: the test still expected nine diagnostic commands, while
+Windows correctly adds a tenth crash-location command. Fix `483e5bab` explicitly
+checks the Windows, macOS and Linux command sequences and bounds; its 36-test
+module has 35 passes and one native-only skip locally. The correction was
+published normally to PR53 at `483e5bab`; native Windows run `37701082806` is
+active. The underlying GNU ARM64 compiler crash remains unresolved. These repairs
 restore verification capability; they do not demonstrate compiler speed gains.
 The plan-reader modules passed 155 checks at `27417a89`.
 
@@ -133,10 +162,22 @@ presentation. The actual AppKit regression failed in all four configurations at
 reference/selfhost × plain/ASan+UBSan (four passes, no skips, 52.80 seconds).
 [PR66](https://github.com/schiffy91/btrc/pull/66), head `4f5c9b30`, contains the
 same provider/fixture/driver bytes and its evidence report. Hosted branch and
-final combined-tree gates remain open; the repair is not yet on main.
-[PR67](https://github.com/schiffy91/btrc/pull/67) claims `CX-UIA-21`; the interface
-and completion-hook implementation is in progress with independent review.
-No provider qualification or UI2 completion is claimed.
+final combined-tree gates remain open; the repair is not yet on main. PR66's nine
+failed CI jobs in run `37652762370` never started: each has the same GitHub runner
+acquisition failure and zero executed steps. Their qualification remains missing;
+rerun only those failed jobs. Executed native Mac GUI and Linux X11/Wayland lanes
+passed, along with bootstrap and the recorded successful shards.
+[PR67](https://github.com/schiffy91/btrc/pull/67) claims `CX-UIA-21`. Local source
+`ca4782e1` implements the approved 53 operations, values, facade and completion
+hook, plus portable fixtures and the final catalog fragment. Independent review
+found and closed cancellation-state defects. All 26 BackgroundJobs cases passed
+through both compilers, including plain/sanitized completion and explicit-retry
+regressions, at `06a4806f`. The catalog suite first exposed an isolated fixture
+that omitted live amendments; after its repair, all 114 catalog tests pass.
+Only that test and the report differ from the native-qualified source; production,
+compiler and native-fixture bytes are identical. This qualifies the completion
+hook, not the desktop providers. Publication, macOS/Linux provider implementation
+and atomic UI2 acceptance remain outstanding.
 
 ### Outcome execution register
 
@@ -152,10 +193,10 @@ changes; historical test totals alone do not advance its status.
 | Current compiler speed and memory matrix | Historical `65057cb` values above; no current product acceptance | Performance owner; main session runs quiet measurements | Qualify the D9 measurement copy/pin and run Stage 5's complete matrix with compiler, application and toolchain SHAs, sample counts, median/p95/max and footprint. Stage 4/pin prerequisites and quiet host remain open. Earlier diagnostics must be labelled pre-Stage-4 and cannot close Stage 5. |
 | Faster incremental edits | Exactly-one-changed-group reuse remains unqualified | Incremental compiler owner | Follow Stages 6–9: reviewed keys/journal, invalidation regressions, unchanged groups not lowered, then edit median/p95 and memory versus the same baseline. Select optimizations from measured attribution. |
 | Useful desktop library improvement | `CX-STDLIB-03` reconstructed and native red/green proven on the integration candidate; PR66 awaits hosted/final gates. `01`/`02` source recovery remains open | Provider repair owner; main integrator qualifies | Land the reviewed button repair after its gates. Recover or reconstruct `01`/`02`; independently reproduce `04`/`05`. Historical unpublished-source results do not qualify a reconstruction. |
-| UI2 events, executor and lifecycle on desktop | Contracts approved; PR67 interface implementation and independent completion-hook review active; atomic provider landing open | UI2 interface owner, then platform owners | Start `CX-UIA-21` against the approved record now; it has no compiler prerequisite. Coordinate provider files with the repair queue; land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
+| UI2 events, executor and lifecycle on desktop | Contracts approved; local `ca4782e1` has 26 paired native/sanitizer BackgroundJobs passes and 114 catalog passes; desktop providers and atomic landing remain open | UI2 interface owner, then platform owners | Continue with the desktop providers and real UI2 probe collectors; there is no compiler prerequisite. Reconcile overlapping repairs first, then land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
 | Windows and mobile application-facing services | Fixture-host results above; complete providers not delivered | Platform slice owners | Use the per-platform checkpoints below: real Windows SDK/service operation; iOS and Android file persistence; then native button/text field/lifecycle. Each waits only for its own demonstrated ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Main `adb3276f`, compiler pin `05ec9cb7`; current requalification open | BTRSmith owner and integrator | Qualify the compiler pin and frontend/library smoke, then complete the MVP screen journeys and build/runtime budgets. Windows/mobile library completion is not a prerequisite for the macOS/Linux MVP; later platform releases remain separate outcomes. |
-| One qualified implementation on main | Integration `37a8ae67` adds the qualified runtime and focused button repair to `a8d92cb8`; Apple schema/table candidate `ba6c221d` and current plan still need reconciliation; combined qualification open | Main integrator | Review bounded batches, qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
+| One qualified implementation on main | Integration `06c3923a` reconciles the runtime, native button repair, Apple schema/tables and plan; fresh build/static/generated/extension checks pass; full combined suite stopped with 17 failures, 17,838 passes and 168 skips; three audit repair drafts pass 186 isolated checks | Main integrator | Review bounded batches, qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
@@ -181,6 +222,15 @@ source-test TSV failures are a different suite and must not be substituted as a
 release allowance. Normalize the release-result adapter with fixture-backed tests,
 keep infrastructure/compilation failures explicit, and reconstruct only allowances
 supported by qualifying pin evidence. An empty or guessed allowance is not valid.
+The bounded `codex/btrsmith-release-results` repair is committed locally at
+`0fec0960`: 85 focused tests, lint and formatting pass, and independent review
+has no remaining blocker. It names unittest cases from observed command
+provenance, preserves full pytest parameter IDs, separates build/infrastructure
+failures, and prevents an invalid earlier attempt from erasing new retry failures
+or permitting a push. Replaying the retained release log yields two stable test
+IDs plus 38 non-test/unclassified diagnostic records and still fails qualification.
+It creates no allowance and does not qualify BTRSmith. Publication, combined
+integration and actual application requalification remain outstanding.
 
 ### Delivery review and progress measurement (2026-10-07)
 
@@ -223,6 +273,17 @@ accounted for; it is not mechanically merged into production. Superseded patches
 are compared before disposition. A merged design is not an implemented provider,
 and a green hosted workflow is not physical-device qualification. No branch or
 issue is called complete merely because it applies without a Git conflict.
+
+### Execution access update (2026-10-08)
+
+The owner has prohibited new permission requests, including requests to use
+`gh`. Filesystem and network access are now enabled without approval prompts;
+continue authorized work with existing credentials and noninteractive commands.
+Never raise a permission or credential prompt. An action lacking usable access
+remains pending while independent work continues. The previously drafted audit
+repairs are now committed at `3cf1b084`; their isolated proof remains separate
+from the normal repository gate and main integration. Retain prior evidence and
+do not repeat a failed access request.
 
 ## Navigation
 
@@ -795,8 +856,8 @@ failed runs and their evidence rather than replacing them with later passes.
 |---|---|---|
 | PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. All eight strict-C11 configurations (GCC and Clang, -O0 through -O3) passed 2,036 checks each without skips. The serialized remaining-gate run finished successfully, including the plan and diff checks. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
-| Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge and full qualification/main landing remain pending. |
-| PR53, Windows ARM64 host | `53da5fd0` | Bounded child-only crash-location diagnostic passes 130 portable checks, one native-only skip and ten subtests; native run 37651593291 is in progress. The preceding GNU-route tiny C build still crashes before compiler/bootstrap execution; neither portable tests nor separate MSVC/wgpu evidence closes this gap. |
+| Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge is now included in `06c3923a`; full qualification/main landing remain pending. |
+| PR53, Windows ARM64 host | Published `53da5fd0`; local `483e5bab` | Bounded child-only crash-location diagnostic passes 130 portable checks, one native-only skip and ten subtests. Native run 37651593291 failed before qualification on the stale nine-command test expectation. Local fix explicitly verifies all three host paths and passes its 36-test module (35 passed, one native-only skip); publication/native rerun remains pending. The preceding GNU-route tiny C build still crashes before compiler/bootstrap execution; neither portable tests nor separate MSVC/wgpu evidence closes this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 At `50bf1c8c`, the [native Linux ARM64 release job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636879)
@@ -880,9 +941,9 @@ qualification claim follows from that source comparison.
 | `stage18/req-ui2-dg` | `1cc97ab8` | Merged locally at `cec4cc13`, with realtime checks deferred until finite generic closure. All 20 diagnostic failures are resolved in `9a01104c`, whose native suite passed 1,179 checks with three platform skips. Final integrated matrix remains open. |
 | `stage18/req10-parity-gaps` | `e1bc5dfa` | Integrated with safe main-stack startup replacing the parked-thread fork exemption. Native single-thread startup/two-worker handoff and deep-expression parity passed in the recorded REQ-10 run; naming repair `148c3f42` and later integration are retained. Linux hard-limit paths and final matrix remain open. |
 | `stage18/req11-tuple-sizeof-recursion` | `271397d3` | Integrated through local `9a01104c` with paired finite-nullable-cycle repair. Native focused run at `f3a5d3c6` passed 1,210 checks; the two corpus marker checks passed at `d2ffae69`. Final integrated matrix remains open. |
-| `stage24/apple-standin-extraction` | `7b3d1195` | Contains the standalone Apple evidence workflow and extractor provenance option, neither present in PR60. Review any production port separately; its Xcode 16.4 results remain stand-in evidence. Pinned Xcode 27A266a/SDK 27.0 re-extraction now passes for all four Apple targets at source bb40e39c, with 23 extractor tests and the namespace/stand-in comparison passing. Five functions and 22 macros become declared per row, with no newly unavailable names. This is header evidence; production schema integration and runtime qualification remain pending. |
+| `stage24/apple-standin-extraction` | `7b3d1195` | Contains the standalone Apple evidence workflow and extractor provenance option, neither present in PR60. Review any production port separately; its Xcode 16.4 results remain stand-in evidence. Pinned Xcode 27A266a/SDK 27.0 re-extraction now passes for all four Apple targets at source bb40e39c, with 23 extractor tests and the namespace/stand-in comparison passing. Five functions and 22 macros become declared per row, with no newly unavailable names. This is header evidence; the schema is included in local candidate `06c3923a`, while semantic consumers and runtime qualification remain pending. |
 | `stage24/apple-standin-extraction-run` | `9c0d737d` | Its tree differs from `7b3d1195` only by the four-line scratch push trigger for this run branch. Preserve its evidence; never merge that trigger. Any reviewed workflow port must come from the base extraction branch without this scratch change. |
-| `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08 schema-3 candidate includes four Apple tables explicitly sourced from Xcode 16.4/SDK 15.5 or 18.5 and a conservative MSVC copy awaiting runner extraction. Wait for CL-P1-06 and qualified inputs, then review schema/generation parity. Local merge `ba6c221d` replaces the four Apple rows with verified Xcode 27A266a/SDK 27.0 extraction and preserves the newer generic-depth limit and all preexisting manifest sections. Generator resolution, regeneration, pinned-source tests and actual self-host table parity passed: 186 checks plus lint, format and generated-source gates. The contract spot check now uses clock_settime instead of the incorrect fork assertion. This merge is committed locally but not yet integrated or published; MSVC runner extraction, semantic consumers and the final combined matrix remain open. Header declarations do not prove runtime support. |
+| `stage24/hosted-abi-platform-targets` | `8df5d732` | CL-P1-08 schema-3 candidate includes four Apple tables explicitly sourced from Xcode 16.4/SDK 15.5 or 18.5 and a conservative MSVC copy awaiting runner extraction. Wait for CL-P1-06 and qualified inputs, then review schema/generation parity. Local merge `ba6c221d` replaces the four Apple rows with verified Xcode 27A266a/SDK 27.0 extraction and preserves the newer generic-depth limit and all preexisting manifest sections. Generator resolution, regeneration, pinned-source tests and actual self-host table parity passed: 186 checks plus lint, format and generated-source gates. The contract spot check now uses clock_settime instead of the incorrect fork assertion. This merge is now included in local combined candidate `06c3923a`, whose fresh build/static/generated checks pass, but is not yet published; MSVC runner extraction, semantic consumers and the final combined matrix remain open. Header declarations do not prove runtime support. |
 | `stage24/hosted-platform-fragments` | `10203072` | Keep as extractor evidence/input only; consume validated data in the hosted-ABI owner, never merge the fragment branch. |
 | `stage24/hosted-platform-fragments-apple-standin` | `c9dad69a` | Keep as extractor evidence/input only; consume validated data in the hosted-ABI owner, never merge the fragment branch. |
 | `stage24/lsp-target` | `3aef3988` | Preserved by the real merge into PR63 (`8f964c1b`), with the stale-cache race repaired and 476 LSP tests passing, including actual stdio target changes. Included in PR60; await its combined gate and main landing. |
