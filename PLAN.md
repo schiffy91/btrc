@@ -213,7 +213,7 @@ qualification claim follows from that source comparison.
 | `codex/cx-uib-07-spike` | `0d6127a6` | Preserve evidence/prototype; integrate findings or reviewed production port only. |
 | `evidence/cx-uia-11-e40-repro` | `bbe4f56e` | Preserve evidence/prototype; integrate findings or reviewed production port only. |
 | `integ/b17` | `fce184b6` | Historical WIP integration; compare intended deltas with later batches before any port. Do not replay its old plan wholesale. |
-| `integ/b20` | `c6fe3a6b` | Historical WIP integration; compare intended deltas with later batches before any port. Do not replay its old plan wholesale. |
+| `integ/b20` | `c6fe3a6b` | All three changed files are byte-identical to main ancestor `ce886ee4`: catalog implementation, tests and README. Already landed; preserve the historical branch without replay. |
 | `spike/stage6-composed` | `9ae0d17a` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
 | `spike/stage6-decl` | `1d546c26` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
 | `spike/stage6-instances` | `a3f96e46` | Keep as nonshipping Stage 6 floor experiment; measure and port qualified changes, never merge the spike. |
@@ -429,7 +429,7 @@ Reconciled against main `c011371b` and the six open PR heads on 2026-10-07:
   ARM64. This is execution infrastructure, not a Windows GUI provider.
 - HTTP [PR51](https://github.com/schiffy91/btrc/pull/51), revision 5 `799c9de5`, and
   Windows services [PR52](https://github.com/schiffy91/btrc/pull/52), revision 5
-  `d2fbb9ce`, address the round-4 findings and have green docs CI. Contract
+  `3850ce35`, address the round-4 findings and have green docs CI. Contract
   review and implementation acceptance remain separate, as detailed below. That does not block unrelated Linux repairs.
 - Windows ARM64 toolchain [PR53](https://github.com/schiffy91/btrc/pull/53), mobile
   hosts PR34/35 remain open with their individual acceptance/dependency gaps,
@@ -506,10 +506,12 @@ owner, the exact prerequisite and the next acceptance.
   fixture timeout. The latest native ready/start handshake separates bounded
   launch readiness from the unchanged fixture execution budget.
   [Run 37564454274](https://github.com/schiffy91/btrc/actions/runs/37564454274)
-  is qualifying both APIs at the same revision. Neither later failure proves
-  the earlier service failure's cause. Next acceptance: both API 29 and API 36
-  complete at the current head, preserving fresh
-  sandboxes, cleanup, stream/status checks and boot/install/launch timings.
+  passed all 28 cases on each API at `68c7b553` (56 total), with retained
+  stream/status, cleanup and separate launch-readiness timings. Both are
+  x86_64 emulators on 4 KiB pages, NDK 29.0.14206865; boot took 18.89 / 36.89 s.
+  The two requested native matrices now pass at one revision; general CI and
+  integration gates remain. Neither later failure proves the earlier service
+  failure's cause.
   The i686 compatibility-builder issue (`REQUEST(CL-P1-02)`), ARM64 16 KiB
   execution and general in-process provider safety remain separate gaps.
 - **PR42, `CX-UIB-07` accessibility spike** (findings head `6d62e046`, docs CI
@@ -524,7 +526,7 @@ owner, the exact prerequisite and the next acceptance.
   (D28), and the note meets `CL-UIB-09`'s gap-list dependency. The prototype
   remains unmerged; the native re-run follows `CL-UIB-09`.
 - **PR51, `CX-P2-02` HTTP contract** (revision 5 `799c9de5`) and
-  **PR52, `CX-P2-01` Windows services design** (revision 5 `d2fbb9ce`).
+  **PR52, `CX-P2-01` Windows services design** (revision 5 `3850ce35`).
   Both are refreshed onto main with green docs/static checks. The authorized
   integration session owns the final review of the round-4 findings.
   - HTTP now requires provider-owned `Connection: close` on Android requests
