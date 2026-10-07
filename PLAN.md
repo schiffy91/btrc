@@ -410,9 +410,12 @@ found that self-hosted validation pointed at `public` rather than the type.
 Local `9a01104c` routes generic-growth and nesting-limit errors through the
 source diagnostic owner, points the invalid SPSC payload at its type, and pins
 its full line/column identity. Analyzer parity now checks file-local lines even
-with stdlib imports. Ruff, full btrc formatting and diff checks pass; a fresh
-compiler and the same focused native suite are running. The candidate remains
-unqualified pending that result and the final matrix. Merge resolution preserves
+with stdlib imports. Ruff, full btrc formatting and diff checks pass. With a fresh compiler, the
+same native suite passed **1,179 checks with three platform skips** in 625.74
+seconds, resolving all 20 prior failures. The skips are Linux resource-limit
+and `/dev/full` paths. A combined candidate now includes this repair, PR65
+`93856dfc` and the current plan; its production sources match `9a01104c`.
+The full serial matrix is prepared and remains outstanding. Merge resolution preserves
 C2's union admission logic in the shared realtime owner and its union refusal
 regressions. The intentional positioned-diagnostic boundary update retains
 311 records and its reviewed SHA-256. No main landing or full-matrix
@@ -517,7 +520,7 @@ failed runs and their evidence rather than replacing them with later passes.
 |---|---|---|
 | PR60, `codex/harmonize-plan` | `56909225` | All four hosted workflows passed. The earlier local `ad72af03` full matrix passed; later changes still need final-tree qualification and landing. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. Its four hosted workflows are running; both Android emulator jobs passed. The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
-| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification is running after the predecessor's 20 diagnostic failures. Not yet published or merged into main. |
+| Local REQ-10/11 and rich-enum integration, `codex/integrate-rich-enum-diagnostics` | `9a01104c` | Includes C2, safe main-stack startup, finite nullable cycles, nested payload-store refusal, deferred realtime checks and positioned diagnostics. Fresh native qualification passed 1,179 checks with three platform skips, resolving the predecessor's 20 failures. Combined with PR65 locally; full matrix and main landing remain pending. |
 | PR53, Windows ARM64 host | `06870dfc` | General CI passed; the native GNU-route tiny C build still crashes before compiler/bootstrap execution. Native MSVC/wgpu evidence does not close this gap. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
@@ -557,7 +560,7 @@ qualification claim follows from that source comparison.
 | `stage17/c2-l1` | `4ef167af` | CL-C-09: repair generic/tag capture, typedef diagnostic order, native tag and LSP regressions; rerun paired review. |
 | `stage17/c2-l2` | `2e65f7c6` | CL-C-13: fix declaration-vs-shadow diagnostic order and callee-first checks for interface/Atomic/Mutex receivers. |
 | `stage18/req-ui2-bc-rich-enum-payloads` | `6ad62d2f` | Integrated through local `9a01104c` with nested payload-store repair. Native sanitizer cases passed at `2d645e27`; its inferred-global diagnostic ordering repair passed in the broader `cec4cc13` run. Final integrated qualification and owner-rebinding/shallow-struct gaps remain open. |
-| `stage18/req-ui2-dg` | `1cc97ab8` | Merged locally at `cec4cc13`, with realtime checks deferred until finite generic closure. Its 20 diagnostic failures are corrected in `9a01104c`; fresh native qualification is running. |
+| `stage18/req-ui2-dg` | `1cc97ab8` | Merged locally at `cec4cc13`, with realtime checks deferred until finite generic closure. All 20 diagnostic failures are resolved in `9a01104c`, whose native suite passed 1,179 checks with three platform skips. Final integrated matrix remains open. |
 | `stage18/req10-parity-gaps` | `e1bc5dfa` | Integrated with safe main-stack startup replacing the parked-thread fork exemption. Native single-thread startup/two-worker handoff and deep-expression parity passed in the recorded REQ-10 run; naming repair `148c3f42` and later integration are retained. Linux hard-limit paths and final matrix remain open. |
 | `stage18/req11-tuple-sizeof-recursion` | `271397d3` | Integrated through local `9a01104c` with paired finite-nullable-cycle repair. Native focused run at `f3a5d3c6` passed 1,210 checks; the two corpus marker checks passed at `d2ffae69`. Final integrated matrix remains open. |
 | `stage24/apple-standin-extraction` | `7b3d1195` | Review extraction workflow/evidence against hosted-ABI prerequisites; stand-in Apple data does not replace pinned-Xcode proof. |
