@@ -136,7 +136,7 @@ class CallableValueSemantics:
         expected = self._canonicalize(expected_type)
         if expected is None or expected.pointer_depth > 0:
             return None
-        declaration = self.index.struct_table.get(expected.base.removeprefix("struct "))
+        declaration = self.index.struct_table.get(self.types.record_tag_name(expected.base))
         if declaration is None or declaration.is_forward:
             return None
         return declaration
@@ -1008,7 +1008,7 @@ class OwnershipAnalyzer:
             return ()
         if canonical.base == "Tuple":
             return tuple((argument, visiting) for argument in canonical.generic_args or [])
-        name = canonical.base.removeprefix("struct ")
+        name = self.types.record_tag_name(canonical.base)
         kind = "struct" if name in self.index.struct_table else "rich-enum"
         visit_key = f"{kind}:{name}"
         if visit_key in visiting:
@@ -1283,7 +1283,7 @@ class OwnershipAnalyzer:
         if self.expression_produces_owned_result(expression):
             return True
         result_type = self.types.canonical_type(self.type_of(expression))
-        struct_name = result_type.base.removeprefix("struct ") if result_type else ""
+        struct_name = self.types.record_tag_name(result_type.base) if result_type else ""
         temporary_struct = bool(
             result_type
             and result_type.pointer_depth == 0

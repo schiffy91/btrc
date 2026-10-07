@@ -59,6 +59,11 @@ class SemanticValidator {
 	}
 
 	public void validate() {
+		/* Names and top-level claims first, as the reference registry claims
+		 * them while registering: `typedef union P P;` over a struct P is the
+		 * name claim before it is a wrong-keyword tag. */
+		self.names.validateDeclarationNames(self.program);
+		self.names.validateTopLevelDuplicates(self.program);
 		self.types.validateTypedefs(self.program);
 		self.declarations.validateInterfaceDeclarations(self.program);
 		int index = 0;
@@ -75,7 +80,6 @@ class SemanticValidator {
 		self.ownership.validateConcreteMutexInstances();
 		self.declarations.validateStructLayouts(self.program);
 		BtrccPhaseTimer.mark("v-layouts");
-		self.names.validateDeclarationNames(self.program);
 		self.names.validateDeclarationDuplicates(self.program);
 		BtrccPhaseTimer.mark("v-names");
 		self.names.publishKnownGeneratedSymbols(self.program);
@@ -117,7 +121,7 @@ class SemanticValidator {
 				}
 			} else if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
 				for field in SemanticTypeSystem.recordFields(declaration) {
-					self.controlFlow.validateArrayBound(field.type, "struct field '" + declaration.name + "." + field.name + "'", "field", field, globals);
+					self.controlFlow.validateArrayBound(field.type, SemanticTypeSystem.recordKeyword(declaration) + " field '" + declaration.name + "." + field.name + "'", "field", field, globals);
 				}
 			} else if (declaration.kind == NK_RICH_ENUM_DECL) {
 				for variant in declaration.variants() {

@@ -820,7 +820,7 @@ class ExpressionAnalyzer:
     def _aggregate_has_const_member(self, type_expr, seen=None) -> bool:
         if type_expr is None or self.types.is_pointer_value(type_expr):
             return False
-        name = type_expr.base.removeprefix("struct ")
+        name = self.types.record_tag_name(type_expr.base)
         declaration = self.index.struct_table.get(name)
         if declaration is None:
             return False
@@ -1020,7 +1020,7 @@ class ExpressionAnalyzer:
             return
         if not self._is_scalar_cast_value(source):
             return
-        struct_name = target.base.removeprefix("struct ")
+        struct_name = self.types.record_tag_name(target.base)
         if (
             struct_name in self.index.struct_table
             and target.pointer_depth == 0
@@ -1495,7 +1495,7 @@ class ExpressionAnalyzer:
                 field_type = self.types.substitute_type(field_type, subs)
             return self._const_member_type(obj_type, field_type, is_property)
         if obj_type:
-            struct_name = obj_type.base.removeprefix("struct ")
+            struct_name = self.types.record_tag_name(obj_type.base)
             struct_decl = self.index.struct_table.get(struct_name)
             if struct_decl:
                 member = self.types.record_member(struct_decl, expr.field)
@@ -2025,6 +2025,7 @@ class ExpressionAnalyzer:
                     self._analyze_expr(part.expression)
                     self.aggregates.reject_thread_value_escape(part.expression, "formatted as values")
                     part_type = self._infer_type(part.expression)
+                    self.types.validate_formatted_value(part_type, part.expression.line, part.expression.col)
                     if self.types.has_scalar_to_string(part_type):
                         self.generics.record_class_method_use(part_type, "toString")
         elif isinstance(expr, TupleLiteral):
@@ -2045,6 +2046,7 @@ class ExpressionAnalyzer:
             if id(expr) not in self.session.lambda_body_facts:
                 self.session.error("Lambda body was not prepared by statement analysis", expr.line, expr.col)
         elif isinstance(expr, NewExpr):
+            self.types.validate_tag_keyword(expr.type, expr.line, expr.col)
             # A re-analysed tree already carries the implicit class pointer.
             written_depth = expr.type.pointer_depth - int(getattr(expr.type, "auto_upgraded", False))
             if written_depth or expr.type.is_array or expr.type.is_nullable:
@@ -2266,7 +2268,7 @@ class ExpressionAnalyzer:
             self._analyze_expr(expr.obj)
         obj_type = self._infer_type(expr.obj)
         canonical = self.types.canonical_type(obj_type)
-        structure = self.index.struct_table.get(canonical.base.removeprefix("struct ")) if canonical else None
+        structure = self.index.struct_table.get(self.types.record_tag_name(canonical.base)) if canonical else None
         origin = getattr(structure, "source_file", None)
         if (
             not native_callback_write

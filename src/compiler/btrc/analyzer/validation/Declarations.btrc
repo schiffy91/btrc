@@ -874,9 +874,8 @@ class DeclarationValidator {
 
 	class string structFieldTarget(Node typeExpr, Map<string, Node> declarations, Map<string, Node> registrations) {
 		if (typeExpr.pointerDepth > 0) { return ""; }
-		if (typeExpr.base.startsWith("struct ")) {
-			return typeExpr.base.substring(7, typeExpr.base.length() - 7);
-		}
+		string tagName = SemanticTypeSystem.recordTagName(typeExpr.base);
+		if (tagName != typeExpr.base) { return tagName; }
 		if (declarations.has(typeExpr.base) || registrations.has(typeExpr.base)) {
 			return typeExpr.base;
 		}
@@ -898,7 +897,7 @@ class DeclarationValidator {
 			if (target != "") {
 				if (!declarations.has(target)) {
 					if (registrations.has(target) && registrations.get(target).isForward) {
-						TypeValidator.fail("Struct field '" + name + "." + field.name + "' uses incomplete struct '" + target + "' by value", field);
+						TypeValidator.fail(SemanticTypeSystem.recordKeywordTitle(declaration) + " field '" + name + "." + field.name + "' uses incomplete " + SemanticTypeSystem.recordKeyword(registrations.get(target)) + " '" + target + "' by value", field);
 					}
 				} else {
 					DeclarationValidator.visitStructDefinition(target, declarations, registrations, states, ordered);

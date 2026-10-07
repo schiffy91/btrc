@@ -904,6 +904,13 @@ class CallAnalyzer:
         self.ownership.validate_conditional_raw_projection_call(expr)
         if (
             isinstance(expr.callee, Identifier)
+            and expr.callee.name == "print"
+            and expr.callee.name not in self.index.function_table
+        ):
+            for arg in expr.args:
+                self.types.validate_formatted_value(self.type_of(arg), arg.line, arg.col)
+        if (
+            isinstance(expr.callee, Identifier)
             and expr.callee.name == "gpu_id"
             and (expr.callee.name not in self.index.function_table)
             and ((symbol := self.session.scope.lookup(expr.callee.name)) is None or symbol.kind == "function")

@@ -1369,12 +1369,16 @@ class StatementAnalyzer:
                 for field in self.types.record_fields(declaration):
                     self.types.validate_declared_type(
                         field.type,
-                        f"Struct field '{declaration.name}.{field.name}'",
+                        f"{self.types.record_keyword(declaration).capitalize()} field '{declaration.name}.{field.name}'",
                         field.line,
                         field.col,
                         role="field",
                     )
-                    self._validate_array_bound(field.type, f"struct field '{declaration.name}.{field.name}'", "field")
+                    self._validate_array_bound(
+                        field.type,
+                        f"{self.types.record_keyword(declaration)} field '{declaration.name}.{field.name}'",
+                        "field",
+                    )
             elif isinstance(declaration, RichEnumDecl):
                 for variant in declaration.variants:
                     for parameter in variant.params:
@@ -2183,6 +2187,9 @@ class StatementAnalyzer:
         stmt.type = self.types.upgrade_class_type(stmt.type)
         self.generics.collect_type_instances(stmt.type)
         if stmt.initializer:
+            # A wrong tag anywhere in the declared type is reported before the
+            # initializer is checked against it, as btrcc does.
+            self.types.validate_tag_keyword(stmt.type, stmt.line, stmt.col)
             self.expressions.contextualize_ternary_literals(stmt.initializer, stmt.type)
             boundary = self.gpu.array_initializer_boundary(stmt.initializer, stmt.type)
             with self.session.gpu_result_context(boundary):

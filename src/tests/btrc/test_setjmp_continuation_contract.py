@@ -66,7 +66,7 @@ def test_selfhost_preserves_aggregate_mutations_across_longjmp(
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
     assert "volatile int values[1]" in emitted
-    assert "volatile struct Probe probe" in emitted
+    assert "volatile Probe probe" in emitted
     # Every mutation writes the volatile objects in place, never a copy.
     assert re.search(r"\(values\[__btrc_storage_index_\d+\] = 3\)", emitted)
     assert "(probe.value = 4)" in emitted

@@ -79,7 +79,7 @@ def test_callback_receives_only_a_stable_raw_borrow() -> None:
     assert not forbidden.search(callback)
     borrow = _body(generated, "OwnedBuffers_borrow")
     assert not forbidden.search(borrow)
-    assert "struct OwnedBufferStorage* storage" in generated
+    assert "OwnedBufferStorage* storage" in generated
     assert "_Atomic(unsigned int)* counters" in generated
 
 

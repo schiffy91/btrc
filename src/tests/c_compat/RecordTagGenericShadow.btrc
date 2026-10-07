@@ -1,0 +1,70 @@
+#include <assert.h>
+#include <stdlib.h>
+
+// C row 9: inside a class or method whose generic parameter shares a record's
+// name, the bare name is the parameter and `struct T` still names the record.
+// The written tag is never rewritten to the parameter's name.
+struct T {
+	int a;
+	int b;
+	int c;
+	int d;
+};
+
+struct P {
+	int a;
+	int b;
+	int c;
+};
+
+class Pool<T> {
+	public T seed;
+	public Pool(T seed) { self.seed = seed; }
+
+	public int recordSize() { return (int)sizeof(struct T); }
+
+	public struct T* make(int count) { return (struct T*)calloc((size_t)count, sizeof(struct T)); }
+
+	public int local() {
+		struct T record = {3, 4, 5, 6};
+		return record.a + record.d;
+	}
+}
+
+class Holder<P> {
+	public struct P record;
+	public P value;
+
+	public Holder(P value) {
+		self.value = value;
+		self.record.a = 5;
+		self.record.c = 1;
+	}
+}
+
+class Util {
+	public int run<P>(P value) {
+		struct P local = {1, 2, 3};
+		return local.a + local.b + local.c;
+	}
+}
+
+int main() {
+	Pool<char> pool = new Pool<char>('x');
+	assert(pool.recordSize() == (int)sizeof(T));
+	struct T* records = pool.make(4);
+	records[3].d = 9;
+	assert(records[3].d == 9 && records[0].a == 0);
+	free(records);
+	assert(pool.local() == 9 && pool.seed == 'x');
+
+	Holder<int> holder = new Holder<int>(2);
+	assert(holder.record.a + holder.record.c + holder.value == 8);
+
+	Util util = new Util();
+	int seed = 0;
+	int ran = util.run(seed);
+	assert(ran == 6);
+	print("PASS: a generic parameter never captures a record tag");
+	return 0;
+}

@@ -155,6 +155,29 @@ class TypeValidator {
 		return result;
 	}
 
+	/* Format a type as its source spells it: a nullable reference as `T?`,
+	 * generic arguments likewise. */
+	public string formatWrittenType(Node? typeExpr) {
+		if (typeExpr == null) { return "<unknown>"; }
+		string result = typeExpr.isConst ? "const " : "";
+		if (typeExpr.base == "__fn_ptr") { result = result + "CFunction"; } else if (typeExpr.base == "__realtime_fn_ptr") { result = result + "RealtimeFunction"; } else { result = result + typeExpr.base; }
+		if (typeExpr.genericArgs().len > 0) {
+			result = result + "<";
+			int index = 0;
+			for argument in typeExpr.genericArgs() {
+				if (index > 0) { result = result + ", "; }
+				result = result + self.formatWrittenType(argument);
+				index = index + 1;
+			}
+			result = result + ">";
+		}
+		int stars = typeExpr.pointerDepth - (typeExpr.isNullable ? 1 : 0);
+		while (stars > 0) { result = result + "*"; stars = stars - 1; }
+		if (typeExpr.isNullable) { result = result + "?"; }
+		if (typeExpr.isArray) { result = result + "[]"; }
+		return result;
+	}
+
 	public string formatType(Node? typeExpr) {
 		if (typeExpr == null) { return "<unknown>"; }
 		string result = typeExpr.isConst ? "const " : "";
@@ -307,7 +330,7 @@ class TypeValidator {
 		}
 		if (canonical.pointerDepth > 0) { return false; }
 		string name = canonical.base;
-		if (name.startsWith("struct ")) { name = name.substring(7, name.length() - 7); }
+		name = SemanticTypeSystem.recordTagName(name);
 		if (visiting.has(name) || !self.state.analyzed.structTable.has(name)) { return false; }
 		Node declaration = self.state.analyzed.structTable.get(name);
 		if (declaration.isForward) { return false; }
@@ -357,9 +380,7 @@ class TypeValidator {
 		}
 		if (canonical.pointerDepth > 0) { return false; }
 		string name = canonical.base;
-		if (name.startsWith("struct ")) {
-			name = name.substring(7, name.length() - 7);
-		}
+		name = SemanticTypeSystem.recordTagName(name);
 		string key = (self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:") + name;
 		if (visiting.has(key)) { return false; }
 		Map<string, bool> nested = self.cloneFlags(visiting);
@@ -565,7 +586,10 @@ class TypeValidator {
 		}
 	}
 
-	public void validateTypedInitializer(Node? expected, Node? initializer, string subject, Map<string, Node> variables) {
+	public void validateTypedInitializer(Node? expected, Node? initializer, string subject, Map<string, Node> variables, Node? site = null) {
+		if (expected != null && initializer != null && initializer.kind == NK_BRACE_INITIALIZER) {
+			self.validateRecordInitializerArity(expected, initializer, subject, site != null ? site : initializer);
+		}
 		if (expected == null || initializer == null || self.contextualAggregateInitializer(initializer)) {
 			return;
 		}
@@ -575,6 +599,23 @@ class TypeValidator {
 			string hint = subject == "Assignment" ? TypeValidator.commaTupleHint(initializer, expected) : "";
 			TypeValidator.fail(subject + " expects '" + self.formatType(expected) + "' but got '" + self.formatType(actual) + "'" + hint, initializer);
 		}
+	}
+
+	/* A brace list passed or assigned as a record has no more elements than
+	 * the record has positional slots (one for a union), as in a declaration. */
+	public void validateRecordInitializerArity(Node expected, Node initializer, string subject, Node site) {
+		Node? canonical = self.resolveAliases(expected);
+		if (canonical == null || canonical.pointerDepth != 0 || canonical.isArray) { return; }
+		string name = SemanticTypeSystem.recordTagName(canonical.base);
+		if (!self.state.analyzed.structTable.has(name)) { return; }
+		Node declaration = self.state.analyzed.structTable.get(name);
+		if (declaration.isForward) { return; }
+		SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(declaration, initializer, self.state.analyzed);
+		if (plan.excess == 0) { return; }
+		if (declaration.isUnion) {
+			TypeValidator.fail("Union '" + declaration.name + "' initializer has " + Strings.fromInt(initializer.elements().len) + " elements; a positional union initializer sets only the first member (use a designator such as {.f = ...})", initializer);
+		}
+		TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + declaration.name + "' has " + Strings.fromInt(plan.capacity) + " fields", site);
 	}
 
 	public Node? richEnumVariant(string enumName, string variantName) {
@@ -762,6 +803,67 @@ class TypeValidator {
 		return resolvedTarget != null && TypeComposition.isSemanticScalarString(resolvedTarget) && self.sourceHasToString(source);
 	}
 
+	/* The refusal for a C tag that names a declaration of another kind, or
+	 * "". `union P` for a btrc or native `struct P` (or an enum, class,
+	 * interface, rich enum or typedef `P`) would compile to a C type that is
+	 * not `P`. A tag naming nothing stays a trusted foreign C tag. */
+	public string tagKeywordMismatch(string base) {
+		string keyword = "";
+		if (base.startsWith("struct ")) { keyword = "struct"; } else if (base.startsWith("union ")) { keyword = "union"; } else if (base.startsWith("enum ")) { keyword = "enum"; } else { return ""; }
+		string name = base.substring(keyword.length() + 1, base.length() - keyword.length() - 1);
+		if (name == "" || name.contains(" ")) { return ""; }
+		string kind = "";
+		if (self.state.analyzed.structTable.has(name)) {
+			kind = SemanticTypeSystem.recordKeyword(self.state.analyzed.structTable.get(name));
+		} else if (self.state.analyzed.isEnum(name)) {
+			kind = "enum";
+		} else if (self.state.analyzed.isRichEnum(name)) {
+			kind = "rich enum";
+		} else if (self.state.analyzed.isGenericClass(name) || (self.state.analyzed.isInterface(name) && self.state.analyzed.interfaceTable.get(name).genericParams().len > 0)) {
+			/* A generic class's C names are mangled per instance; it owns no C
+			 * tag, so a header's `struct ListNode` stays a foreign C tag. */
+			return "";
+		} else if (self.state.analyzed.isClass(name)) {
+			kind = "class";
+		} else if (self.state.analyzed.isInterface(name)) {
+			kind = "interface";
+		} else if (self.state.analyzed.typedefTable.has(name)) {
+			Node original = self.state.analyzed.typedefTable.get(name);
+			/* `typedef struct X X;` for a foreign tag: both spell one type. */
+			if (original.base == base && original.pointerDepth == 0 && !original.isArray && original.genericArgs().len == 0) { return ""; }
+			kind = "typedef";
+		} else {
+			return "";
+		}
+		if (kind == keyword) { return ""; }
+		return "'" + base + "' does not name " + TypeValidator.article(keyword) + ": '" + name + "' is " + TypeValidator.article(kind);
+	}
+
+	class string article(string word) { return (word == "enum" || word == "interface") ? "an " + word : "a " + word; }
+
+	/* A union cannot be printed or formatted: nothing records which member
+	 * is live (C row 9). */
+	public void validateFormattedValue(Node? typeExpr, Node site) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null || canonical.pointerDepth != 0 || canonical.isArray) { return; }
+		string name = SemanticTypeSystem.recordTagName(canonical.base);
+		if (!self.state.analyzed.structTable.has(name)) { return; }
+		Node declaration = self.state.analyzed.structTable.get(name);
+		if (declaration.isUnion) {
+			TypeValidator.fail("Union '" + declaration.name + "' cannot be printed or formatted; a union cannot tell which member is live, so print one of its members", site);
+		}
+	}
+
+	/* Report tagKeywordMismatch for a written type and its generic
+	 * arguments, at the type that spells the tag. */
+	public void validateTagKeyword(Node? typeExpr, Node site) {
+		if (typeExpr == null) { return; }
+		Node at = typeExpr.line > 0 ? typeExpr : site;
+		string message = self.tagKeywordMismatch(typeExpr.base);
+		if (message != "") { TypeValidator.fail(message, at); }
+		for argument in typeExpr.genericArgs() { self.validateTagKeyword(argument, at); }
+	}
+
 	public bool explicitCTag(string base) { return base.startsWith("struct ") || base.startsWith("enum ") || base.startsWith("union "); }
 
 	public bool atomicPayload(Node? typeExpr) {
@@ -790,14 +892,14 @@ class TypeValidator {
 			return true;
 		}
 		string name = canonical.base;
-		if (name.startsWith("struct ")) {
-			name = name.substring(7, name.length() - 7);
-		}
+		name = SemanticTypeSystem.recordTagName(name);
 		if (visiting.has(name) || !self.state.analyzed.structTable.has(name)) {
 			return false;
 		}
 		Node declaration = self.state.analyzed.structTable.get(name);
 		if (declaration.isForward) { return false; }
+		/* Every union member is a plain C value (unionMemberBlocker). */
+		if (declaration.isUnion) { return true; }
 		Map<string, bool> nested = self.cloneFlags(visiting);
 		nested.put(name, true);
 		Vector<Node> declarationFields = SemanticTypeSystem.recordFields(declaration);
@@ -814,6 +916,74 @@ class TypeValidator {
 			fieldIndex = fieldIndex + 1;
 		}
 		return true;
+	}
+
+	/* Why a union cannot hold typeExpr, or an empty answer for a plain C
+	 * value. A union cannot tell which member is live, so its members are
+	 * plain C values, transitively (realtimePod with C's foreign tags and
+	 * managed-free CFunction pointers admitted, and RealtimeFunction
+	 * refused). The answer is ["realtime"], ["managed", type] or
+	 * ["contains", record, field]. A direct Atomic<T> is left to the
+	 * existing shallow-storage refusal. */
+	public Vector<string> unionMemberBlocker(Node? typeExpr, Map<string, bool> visiting) {
+		Vector<string> plain = [];
+		Node? resolved = self.resolveAliases(typeExpr);
+		if (resolved == null) { return plain; }
+		Node canonical = resolved;
+		if (canonical.isArray && !canonical.isNullable && canonical.arraySize != null) { canonical = TypeShape.withoutOuterArray(canonical); }
+		Vector<string> managed = ["managed", self.formatWrittenType(typeExpr)];
+		if (canonical.base == "__realtime_fn_ptr") {
+			Vector<string> realtime = ["realtime"];
+			return realtime;
+		}
+		if (canonical.base == "__fn_ptr") {
+			if (canonical.pointerDepth != 0 || canonical.isArray || canonical.isNullable) { return managed; }
+			for argument in canonical.genericArgs() {
+				Node? argumentType = self.resolveAliases(argument);
+				if (argumentType != null && argumentType.base == "void" && argumentType.pointerDepth == 0) { continue; }
+				if (self.unionMemberBlocker(argument, visiting).len > 0) { return managed; }
+			}
+			return plain;
+		}
+		if (canonical.isArray || canonical.isNullable) { return managed; }
+		if (canonical.base == "Atomic" || self.containsAtomicStorage(canonical)) { return plain; }
+		bool reference = canonical.base == "string" || self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isGenericClass(canonical.base) || self.state.analyzed.isInterface(canonical.base);
+		if (canonical.pointerDepth > 0) {
+			if (reference) { return managed; }
+			return plain;
+		}
+		if (canonical.genericArgs().len > 0 || (self.runtimeTypeBase(canonical.base) && canonical.base != "MemoryOrder") || reference || self.state.analyzed.isRichEnum(canonical.base)) { return managed; }
+		string name = SemanticTypeSystem.recordTagName(canonical.base);
+		if (visiting.has(name) || !self.state.analyzed.structTable.has(name)) { return plain; }
+		Node declaration = self.state.analyzed.structTable.get(name);
+		if (declaration.isForward) { return plain; }
+		Map<string, bool> nested = self.cloneFlags(visiting);
+		nested.put(name, true);
+		for field in SemanticTypeSystem.recordFields(declaration) {
+			Vector<string> reason = self.unionMemberBlocker(field.type, nested);
+			if (reason.len == 0) { continue; }
+			if (reason.get(0) == "realtime") { return reason; }
+			string fieldName = reason.get(0) == "managed" ? field.name : reason.get(2);
+			Vector<string> contains = ["contains", name, fieldName];
+			return contains;
+		}
+		return plain;
+	}
+
+	/* A union cannot tell which member is live, so every member is a plain C
+	 * value (C row 9): no ARC, no proof-carrying callback. */
+	public void validateUnionMembers(Node declaration) {
+		for field in SemanticTypeSystem.recordFields(declaration) {
+			Map<string, bool> visiting = {};
+			Vector<string> reason = self.unionMemberBlocker(field.type, visiting);
+			if (reason.len == 0) { continue; }
+			string prefix = "Union '" + declaration.name + "' member '" + field.name + "' cannot hold";
+			if (reason.get(0) == "realtime") {
+				TypeValidator.fail(prefix + " a RealtimeFunction; a union could reinterpret it without its realtime proof", field);
+			}
+			string held = reason.get(0) == "managed" ? "managed type '" + reason.get(1) + "'" : "'" + reason.get(1) + "', which contains managed field '" + reason.get(2) + "'";
+			TypeValidator.fail(prefix + " " + held + "; a union cannot tell which member is live, so its members must be plain C values", field);
+		}
 	}
 
 	public bool realtimePod(Node? typeExpr) {
@@ -850,6 +1020,7 @@ class TypeValidator {
 
 	public void validateDeclaredType(Node? typeExpr, string subject, string role, Node site) {
 		if (typeExpr == null) { return; }
+		self.validateTagKeyword(typeExpr, site);
 		int expectedArguments = self.declaredGenericArity(typeExpr.base);
 		if (expectedArguments >= 0 && !self.state.typeParams.has(typeExpr.base) && typeExpr.genericArgs().len != expectedArguments) {
 			TypeValidator.fail("Type '" + typeExpr.base + "' expects " + Strings.fromInt(expectedArguments) + " generic argument(s) but got " + Strings.fromInt(typeExpr.genericArgs().len), site);
@@ -954,8 +1125,11 @@ class TypeValidator {
 			TypeValidator.fail(subject + " cannot have scalar/non-pointer void type", site);
 		}
 		/* A typedef may name an incomplete struct, as SDK handle types do; only by-value use sites need the definition. */
-		if (canonical != null && role != "alias" && canonical.pointerDepth == 0 && self.state.analyzed.structTable.has(canonical.base) && self.state.analyzed.structTable.get(canonical.base).isForward) {
-			TypeValidator.fail("Incomplete struct '" + canonical.base + "' cannot be used by value for " + subject, site);
+		if (canonical != null && role != "alias" && canonical.pointerDepth == 0 && !self.state.typeParams.has(typeExpr.base)) {
+			string name = SemanticTypeSystem.recordTagName(canonical.base);
+			if (self.state.analyzed.structTable.has(name) && self.state.analyzed.structTable.get(name).isForward) {
+				TypeValidator.fail("Incomplete " + SemanticTypeSystem.recordKeyword(self.state.analyzed.structTable.get(name)) + " '" + name + "' cannot be used by value for " + subject, site);
+			}
 		}
 		if (!self.knownDeclarationType(typeExpr)) {
 			TypeValidator.fail(subject + " uses unknown by-value type '" + self.formatType(typeExpr) + "'", site);
@@ -983,9 +1157,10 @@ class TypeValidator {
 				int fieldIndex = 0;
 				while (fieldIndex < declarationFields.len) {
 					Node field = declarationFields.get(fieldIndex);
-					self.validateDeclaredType(field.type, "Struct field '" + declaration.name + "." + field.name + "'", "field", field);
+					self.validateDeclaredType(field.type, SemanticTypeSystem.recordKeywordTitle(declaration) + " field '" + declaration.name + "." + field.name + "'", "field", field);
 					fieldIndex = fieldIndex + 1;
 				}
+				if (declaration.isUnion) { self.validateUnionMembers(declaration); }
 			} else if (declaration.kind == NK_TYPEDEF_DECL) {
 				self.validateDeclaredType(declaration.original, "Typedef '" + declaration.alias + "'", "alias", declaration);
 			} else if (declaration.kind == NK_INTERFACE_DECL) {

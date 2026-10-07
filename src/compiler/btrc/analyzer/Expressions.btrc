@@ -1195,11 +1195,7 @@ class ExpressionTypeResolver {
 
 	class string rawProjectionStructName(Node? typeExpr) {
 		if (typeExpr == null) { return ""; }
-		string name = typeExpr.base;
-		if (name.startsWith("struct ")) {
-			return name.substring(7, name.length() - 7);
-		}
-		return name;
+		return SemanticTypeSystem.recordTagName(typeExpr.base);
 	}
 
 	class bool rawProjectionCarrierHasStorage(RawProjectionCarrier carrier, RawProjectionCarrierContext context) {

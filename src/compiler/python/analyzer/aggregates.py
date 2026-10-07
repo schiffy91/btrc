@@ -178,7 +178,7 @@ class InitializerAnalyzer:
         if canonical is None or canonical.pointer_depth > 0 or canonical.is_array:
             return InitializerPlan(False)
         steps: list[InitializerStep] = []
-        struct_name = canonical.base.removeprefix("struct ")
+        struct_name = TypeSystem.record_tag_name(canonical.base)
         declaration = self.index.struct_table.get(struct_name)
         if declaration is not None and (not declaration.is_forward):
             if initializer.elements and getattr(declaration.source_file, "private_fields", False):
@@ -198,7 +198,15 @@ class InitializerAnalyzer:
             slots = [(slot.element, slot.member.name, self.types.array_field_value(slot.member)) for slot in plan.slots]
             capacity = plan.capacity
             excess = plan.excess
-            aggregate_name = f"struct '{struct_name}'"
+            aggregate_name = f"{TypeSystem.record_keyword(declaration)} '{struct_name}'"
+            if excess and declaration.is_union:
+                self.context.error(
+                    f"Union '{struct_name}' initializer has {len(initializer.elements)} elements; a positional union "
+                    "initializer sets only the first member (use a designator such as {.f = ...})",
+                    initializer.line or line,
+                    initializer.col or col,
+                )
+                excess = 0
         elif canonical.base == "Tuple":
             slots = [
                 (element, f"_{index}", argument)
@@ -376,13 +384,15 @@ class AggregateAnalyzer:
         canonical = self.types.canonical_type(object_type)
         if canonical is None:
             return False
-        struct_name = canonical.base.removeprefix("struct ")
+        struct_name = TypeSystem.record_tag_name(canonical.base)
         declaration = self.index.struct_table.get(struct_name)
         if declaration is None:
             return False
         if TypeSystem.record_member(declaration, expression.field) is None:
             self.session.error(
-                f"Struct '{struct_name}' has no field '{expression.field}'", expression.line, expression.col
+                f"{TypeSystem.record_keyword(declaration).capitalize()} '{struct_name}' has no field '{expression.field}'",
+                expression.line,
+                expression.col,
             )
         return True
 
@@ -394,15 +404,41 @@ class AggregateAnalyzer:
         owners = {}
         for declaration in declarations:
             with self.session.source(getattr(declaration, "source_file", None)):
+                self._validate_union_members(declaration)
                 self._collect_aggregate_dependencies(declaration, graph, owners)
         self._report_dependency_cycles(graph, owners, "Aggregate")
+
+    def _validate_union_members(self, declaration) -> None:
+        """A union cannot tell which member is live, so every member is a plain
+        C value (C row 9): no ARC, no proof-carrying callback."""
+        if not isinstance(declaration, StructDecl) or not declaration.is_union or declaration.is_forward:
+            return
+        for field in TypeSystem.record_fields(declaration):
+            reason = self.types.union_member_blocker(field.type)
+            if reason is None:
+                continue
+            prefix = f"Union '{declaration.name}' member '{field.name}' cannot hold"
+            if reason[0] == "realtime":
+                message = f"{prefix} a RealtimeFunction; a union could reinterpret it without its realtime proof"
+            else:
+                held = (
+                    f"managed type '{reason[1]}'"
+                    if reason[0] == "managed"
+                    else (f"'{reason[1]}', which contains managed field '{reason[2]}'")
+                )
+                message = (
+                    f"{prefix} {held}; a union cannot tell which member is live, so its members must be plain C values"
+                )
+            self.session.error(message, field.line, field.col)
 
     def _collect_aggregate_dependencies(self, declaration, graph, owners) -> None:
         if isinstance(declaration, StructDecl) and (not declaration.is_forward):
             owners[declaration.name] = declaration
             graph[declaration.name] = set()
             for field in TypeSystem.record_fields(declaration):
-                subject = f"Struct field '{declaration.name}.{field.name}'"
+                subject = (
+                    f"{TypeSystem.record_keyword(declaration).capitalize()} field '{declaration.name}.{field.name}'"
+                )
                 self.validate_complete_aggregate_use(field.type, subject, field.line, field.col)
                 graph[declaration.name].update(self._value_aggregate_names(field.type))
         elif isinstance(declaration, RichEnumDecl):
@@ -418,45 +454,73 @@ class AggregateAnalyzer:
         elif isinstance(declaration, ClassDecl):
             self._validate_class_complete_types(declaration)
 
-    def _validate_callable_complete_types(self, declaration, owner) -> None:
+    def _validate_callable_complete_types(self, declaration, owner, type_parameters=frozenset()) -> None:
+        if isinstance(declaration, MethodDecl):
+            type_parameters = type_parameters | frozenset(declaration.generic_params)
         if not getattr(declaration, "is_constructor", False):
             self.validate_complete_aggregate_use(
-                declaration.return_type, f"Return type of '{owner}'", declaration.line, declaration.col
+                declaration.return_type,
+                f"Return type of '{owner}'",
+                declaration.line,
+                declaration.col,
+                type_parameters=type_parameters,
             )
         for parameter in declaration.params:
             self.validate_complete_aggregate_use(
-                parameter.type, f"Parameter '{owner}.{parameter.name}'", parameter.line, parameter.col
+                parameter.type,
+                f"Parameter '{owner}.{parameter.name}'",
+                parameter.line,
+                parameter.col,
+                type_parameters=type_parameters,
             )
 
     def _validate_class_complete_types(self, declaration) -> None:
+        type_parameters = frozenset(declaration.generic_params)
         for member in declaration.members:
             if isinstance(member, FieldDecl):
                 self.validate_complete_aggregate_use(
-                    member.type, f"Field '{declaration.name}.{member.name}'", member.line, member.col
+                    member.type,
+                    f"Field '{declaration.name}.{member.name}'",
+                    member.line,
+                    member.col,
+                    type_parameters=type_parameters,
                 )
             elif isinstance(member, PropertyDecl):
                 self.validate_complete_aggregate_use(
-                    member.type, f"Property '{declaration.name}.{member.name}'", member.line, member.col
+                    member.type,
+                    f"Property '{declaration.name}.{member.name}'",
+                    member.line,
+                    member.col,
+                    type_parameters=type_parameters,
                 )
             elif isinstance(member, MethodDecl) and member.body:
-                self._validate_callable_complete_types(member, f"{declaration.name}.{member.name}")
+                self._validate_callable_complete_types(member, f"{declaration.name}.{member.name}", type_parameters)
 
-    def validate_complete_aggregate_use(self, type_expr, subject, line=0, col=0, *, sizeof=False) -> bool:
+    def validate_complete_aggregate_use(
+        self, type_expr, subject, line=0, col=0, *, sizeof=False, type_parameters=frozenset()
+    ) -> bool:
+        if type_expr is not None and (
+            type_expr.base in type_parameters or self.types.is_active_type_parameter(type_expr)
+        ):
+            return True
         canonical = self.types.canonical_type(type_expr)
         if canonical is None or canonical.pointer_depth > 0:
             return True
         if canonical.base == "Tuple":
             return all(
-                self.validate_complete_aggregate_use(argument, subject, line, col, sizeof=sizeof)
+                self.validate_complete_aggregate_use(
+                    argument, subject, line, col, sizeof=sizeof, type_parameters=type_parameters
+                )
                 for argument in canonical.generic_args
             )
-        name = canonical.base.removeprefix("struct ")
+        name = TypeSystem.record_tag_name(canonical.base)
         if name not in self.index.struct_table or name in self.index.struct_definitions:
             return True
         if sizeof:
             self.session.error(f"{subject} cannot use incomplete type '{name}'", line, col)
         else:
-            self.session.error(f"{subject} uses incomplete struct '{name}'", line, col)
+            keyword = TypeSystem.record_keyword(self.index.struct_table[name])
+            self.session.error(f"{subject} uses incomplete {keyword} '{name}'", line, col)
         return False
 
     def _value_aggregate_names(self, type_expr) -> set[str]:
@@ -465,7 +529,7 @@ class AggregateAnalyzer:
             return set()
         if canonical.base == "Tuple":
             return {name for argument in canonical.generic_args for name in self._value_aggregate_names(argument)}
-        name = canonical.base.removeprefix("struct ")
+        name = TypeSystem.record_tag_name(canonical.base)
         if name in self.index.struct_definitions or name in self.index.rich_enum_table:
             return {name}
         return set()
@@ -523,6 +587,8 @@ class AggregateAnalyzer:
         if isinstance(operand, SizeofType):
             type_expr = operand.type
             line, col = (type_expr.line or expression.line, type_expr.col or expression.col)
+            if not self.types.validate_tag_keyword(type_expr, line, col):
+                return
         elif isinstance(operand, SizeofExprOp):
             type_expr = self.type_of(operand.expr)
             line, col = (expression.line, expression.col)
@@ -827,7 +893,7 @@ class AggregateAnalyzer:
             member = class_info.fields.get(target.field)
             if member is not None:
                 return (member, "instance-field")
-        struct_name = receiver.base.removeprefix("struct ")
+        struct_name = TypeSystem.record_tag_name(receiver.base)
         structure = self.index.struct_table.get(struct_name)
         if structure is not None:
             member = TypeSystem.record_member(structure, target.field)

@@ -216,8 +216,8 @@ class SemanticTypeSystem {
 		Node resolved = typeExpr;
 		Node? alias = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
 		if (alias != null) { resolved = alias; }
-		if (resolved.base.startsWith("struct ")) {
-			string explicitName = resolved.base.substring(7, resolved.base.length() - 7);
+		string explicitName = SemanticTypeSystem.recordTagName(resolved.base);
+		if (explicitName != resolved.base) {
 			if (analyzed.structTable.has(explicitName)) { return explicitName; }
 			return "";
 		}
@@ -235,6 +235,21 @@ class SemanticTypeSystem {
 	 * layout (emission and its type dependencies) reads unnamed bit-fields;
 	 * semantic walks read recordMembers or recordFields. */
 	class Vector<Node> recordDeclarators(Node record) { return record.fields(); }
+
+	/* The C keyword that declares record: `struct` or `union`. */
+	class string recordKeyword(Node record) { return record.isUnion ? "union" : "struct"; }
+
+	/* The keyword as a diagnostic's first word. */
+	class string recordKeywordTitle(Node record) { return record.isUnion ? "Union" : "Struct"; }
+
+	/* The record a by-value base names: `struct S` and `union U` name S and
+	 * U. A canonical base already went through the tag alias rows; this
+	 * reads one that may not have. */
+	class string recordTagName(string base) {
+		if (base.startsWith("struct ")) { return base.substring(7, base.length() - 7); }
+		if (base.startsWith("union ")) { return base.substring(6, base.length() - 6); }
+		return base;
+	}
 
 	class bool recordIsFlat(Node record) {
 		for member in record.fields() {

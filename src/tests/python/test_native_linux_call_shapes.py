@@ -270,7 +270,7 @@ def test_transparent_unions_and_variadic_tails_build_and_run(reader, tmp_path, r
             "union sockaddr* address = null; int number = connect(0, address, 0);",
             ["connect"],
             "",
-            "error: Argument '__addr' to 'connect()' expects 'const sockaddr*' but got 'union sockaddr*'",
+            "'union sockaddr' does not name a union: 'sockaddr' is a struct",
         ),
         (
             "long wide = 1; int number = probeRead(&wide);",
@@ -365,6 +365,44 @@ def test_hosted_tags_and_imported_records_are_one_type(reader, tmp_path, request
     ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == "1 1\n"
+
+
+OPAQUE_UNION_HEADER = """typedef union Cell Cell;
+static inline union Cell* cellIdentity(union Cell* value) { return value; }
+static inline int cellIsNull(const Cell* value) { return value == 0; }
+"""
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_native_opaque_union_tag_and_name_are_one_type(reader, tmp_path, request, frontend) -> None:
+    """An opaque SDK union imports as a union record (C row 9): `union Cell*`
+    and `Cell*` are one type, and the wrong keyword is refused."""
+
+    del reader  # The compilers locate it through BTRC_NATIVE_HEADER_READER.
+    program = (
+        "#include <assert.h>\n"
+        "int main() {\n"
+        "\tunion Cell* tagged = cellIdentity(null);\n"
+        "\tCell* named = tagged;\n"
+        "\tunion Cell* back = cellIdentity(named);\n"
+        "\tassert(cellIsNull(back) == 1);\n"
+        "\treturn 0;\n"
+        "}\n"
+    )
+    compiled, generated, plan = _compile(
+        tmp_path, request, frontend, program, ["cellIdentity", "cellIsNull"], "", OPAQUE_UNION_HEADER
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    executable = tmp_path / "program"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert ran.returncode == 0, ran.stderr
+    refused = tmp_path / "refused"
+    refused.mkdir()
+    program = "int main() {\n\tstruct Cell* wrong = cellIdentity(null);\n\treturn 0;\n}\n"
+    compiled, _, _ = _compile(refused, request, frontend, program, ["cellIdentity"], "", OPAQUE_UNION_HEADER)
+    assert compiled.returncode != 0
+    assert "'struct Cell' does not name a struct: 'Cell' is a union" in compiled.stderr, compiled.stderr
 
 
 HANDLE_HEADER = """typedef struct HandleStorage* Handle;

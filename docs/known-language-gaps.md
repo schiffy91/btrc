@@ -209,6 +209,64 @@ because the parser's rule never consults type names; add an initializer or
 write `CFunction<...>`. An abstract declarator is not a generic argument
 (`Vector<int (*)(int)>`); write `Vector<CFunction<int, int>>`.
 
+## Unions (C row 9)
+
+`union U { … };` and its forward `union U;` declare a C union at file scope,
+and `typedef union [Tag] { … } Name, *Pointer;` splices into the union and
+its typedefs (`c_compat/UnionDeclaration.btrc`). btrc emits
+`typedef union U U;`, so `U` and `union U` are one type; the same holds for
+`struct S` and `S`, and for an SDK record imported under its tag. A union may
+be a struct or class field, an array or `Vector` element, a generic argument,
+a parameter or a return value, and `sizeof` and `offsetof` are the C
+compiler's (`c_compat/UnionLayout.btrc` checks them against a C mirror). `{}`
+zero-initializes and one positional element sets the first member (C11
+6.7.9p17); designators arrive with C row 10.
+
+A union cannot tell which member is live, so every member is a plain C value,
+transitively: integers, floats, `bool`, `char`, plain enums, raw pointers
+whose pointee is not `string`, a class or an interface, `CFunction` pointers
+with no managed type in their signature, fixed arrays and records of these,
+and foreign C tags. A union has no ARC header and copies bitwise. Reading a
+member other than the last one written is C type punning (C11 6.5.2.3
+footnote 95): documented, not checked. Refused, with the same diagnostic in
+both compilers (`btrc/test_c_compatibility_refusals.py`):
+
+| C source | Diagnostic |
+|----------|------------|
+| `union H { string text; };` | `Union 'H' member 'text' cannot hold managed type 'string'; a union cannot tell which member is live, so its members must be plain C values` |
+| `union H { struct Pair pair; };` with a managed field in `Pair` | `Union 'H' member 'pair' cannot hold 'Pair', which contains managed field 'name'; …` |
+| `union U { RealtimeFunction callback; };` | `Union 'U' member 'callback' cannot hold a RealtimeFunction; a union could reinterpret it without its realtime proof` |
+| `union U { Atomic<int> counter; };` | `Union field 'U.counter' cannot embed an Atomic<T> owner in shallow copyable storage; …` |
+| `union U { int n; int data[]; };` | `Union member 'U.data' cannot be a flexible array member` (C11 6.7.2.1p18 allows one only in a struct) |
+| `union U { int[] data; };` | `Union field 'data' cannot use the 'T[] name' spelling; declare a pointer as 'T* data'` |
+| `U u = {1, 2};` | `Union 'U' initializer has 2 elements; a positional union initializer sets only the first member (use a designator such as {.f = ...})` |
+| `union P p;` for a `struct P` | `'union P' does not name a union: 'P' is a struct` (also for an enum, rich enum, class, interface or typedef, in every type position) |
+| `union { int a; };` | `anonymous union at top level must be named` |
+
+As for structs, `==`, `new`, `delete`, `keep` and `release` are refused, and
+`@gpu` refuses a union as a non-scalar parameter. Unlike a struct, which
+prints as `<struct>`, a union cannot be printed or formatted in an f-string:
+`Union 'U' cannot be printed or formatted; a union cannot tell which member is
+live, so print one of its members`.
+Native union values stay refused; an opaque SDK union imports as a union
+record, so `union T*` and `T*` are one type.
+
+A program that spells a btrc record or enum with its tag (`struct Point`,
+`union Number`, `enum Color`) under strict imports must import the module
+that declares it, as for the bare name (`enum Color` for a btrc enum is
+otherwise the enum-tag row's work). As in C, a tag names only a type: a
+module that declares a function `timeval` does not make `struct timeval`
+need its import, and a tag needs an import only for a non-generic type the
+program declares: a header's own `struct Timer`, or its `struct ListNode`
+beside `import Library.List;` (a generic class owns no C tag), is the
+header's. A source record's tag and its bare name are one type everywhere,
+generic and tuple arguments and `CFunction` signatures included:
+`Vector<struct P>` is `Vector<P>`. The exception is a record named like a
+generic parameter anywhere in the program (`T`, `K`, `V`, …): its tag and its
+name stay two spellings, as before C row 9, so `Vector<struct T>` and
+`Vector<T>` are two instances, and an instance's substitution never captures
+the record.
+
 ## Variable-length arrays (C row 23)
 
 A block-scope array whose bound is not a constant expression is a C

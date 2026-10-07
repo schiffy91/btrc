@@ -1,0 +1,110 @@
+import Library.Vector;
+
+#include <assert.h>
+
+// C row 9: `union U { ... };` and its forward `union U;` declare one C union.
+// `U` and `union U` are the same type. Members are plain C values; a union has
+// no ARC header and copies bitwise. `{}` zero-initializes and one positional
+// element sets the first member (C11 6.7.9p17).
+union Shape;
+
+enum Kind { CIRCLE, SQUARE };
+
+struct Point {
+	int x;
+	int y;
+};
+
+union Number {
+	int integer;
+	float real;
+};
+
+int twice(int value) { return value * 2; }
+
+union Payload {
+	struct Point point;
+	int digits[4];
+	Kind kind;
+	char* text;
+	CFunction<int, int> transform;
+	struct timespec* clock;
+};
+
+union Shape {
+	int sides;
+	double radius;
+};
+
+typedef union { int code; unsigned int bits; } Status;
+typedef union Cell { int value; Cell* next; } Cell, *CellRef;
+
+struct Tagged {
+	Kind kind;
+	union Number number;
+};
+
+class Holder {
+	public Number number;
+	public Holder(int value) { self.number.integer = value; }
+}
+
+Number makeNumber(int value) {
+	Number number = {value};
+	return number;
+}
+
+int readNumber(union Number number) { return number.integer; }
+
+void bump(Number* number) { number->integer = number->integer + 1; }
+
+int main() {
+	union Number number;
+	number.integer = 5;
+	assert(readNumber(number) == 5);
+	Number copy = number;
+	copy.integer = 9;
+	assert(number.integer == 5 && copy.integer == 9);
+	bump(&copy);
+	assert(copy.integer == 10);
+
+	Number zero = {};
+	assert(zero.integer == 0);
+	assert(makeNumber(4).integer == 4);
+	assert(sizeof(union Number) == sizeof(Number));
+
+	Payload payload = {{1, 2}};
+	assert(payload.point.x == 1 && payload.point.y == 2);
+	payload.transform = twice;
+	assert(payload.transform(21) == 42);
+	payload.kind = SQUARE;
+	assert(payload.kind == SQUARE);
+
+	Shape shape;
+	shape.sides = 4;
+	Tagged tagged = {CIRCLE, {3}};
+	assert(tagged.number.integer == 3 && shape.sides == 4);
+
+	Number numbers[3] = {{1}, {2}, {3}};
+	int total = 0;
+	for (int i = 0; i < 3; i++) { total += numbers[i].integer; }
+	assert(total == 6);
+
+	Vector<Number> values = [];
+	values.push(makeNumber(7));
+	values.push(makeNumber(8));
+	assert(values.get(0).integer + values.get(1).integer == 15);
+
+	Status status = {200};
+	assert(status.code == 200);
+	Cell tail = {11};
+	Cell head;
+	head.next = &tail;
+	CellRef ref = &head;
+	assert(ref->next->value == 11);
+
+	Holder holder = new Holder(12);
+	assert(holder.number.integer == 12);
+	print(f"PASS: union declaration {number.integer} {total} {status.code}");
+	return 0;
+}

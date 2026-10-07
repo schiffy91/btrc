@@ -22,11 +22,14 @@ class FeImportReference {
 	public string name;
 	public int line;
 	public int col;
+	/* A C tag (`struct X`) names only a type: C keeps tags in their own namespace. */
+	public bool tag;
 
 	public FeImportReference(string name, int line, int col) {
 		self.name = name;
 		self.line = line > 0 ? line : 1;
 		self.col = col > 0 ? col : 1;
+		self.tag = false;
 	}
 }
 
@@ -34,6 +37,17 @@ class FeImportReferenceCollector {
 	public Vector<FeImportReference> references;
 	public Map<string, bool> genericParameters;
 	public Vector<Map<string, bool>> scopes;
+
+	/* The declaration a written base names: `struct X`, `union X` and
+	 * `enum X` name `X`; any other base names itself. */
+	class string taggedName(string base) {
+		int start = 0;
+		if (base.startsWith("struct ")) { start = 7; } else if (base.startsWith("union ")) { start = 6; } else if (base.startsWith("enum ")) { start = 5; }
+		if (start == 0) { return base; }
+		string tag = base.substring(start, base.length() - start);
+		if (tag == "" || tag.contains(" ")) { return base; }
+		return tag;
+	}
 
 	public FeImportReferenceCollector(Vector<string> genericParameters) {
 		self.references = [];
@@ -56,10 +70,12 @@ class FeImportReferenceCollector {
 		return false;
 	}
 
-	public void add(string name, int line, int col, bool typeName) {
+	public void add(string name, int line, int col, bool typeName, bool tag = false) {
 		if (name == null || name.isEmpty() || self.genericParameters.has(name)) { return; }
 		if (!typeName && self.isBound(name)) { return; }
-		self.references.push(FeImportReference(name, line, col));
+		FeImportReference reference = FeImportReference(name, line, col);
+		reference.tag = tag;
+		self.references.push(reference);
 	}
 
 	public void pushScope(Vector<string> names) {
@@ -125,7 +141,10 @@ class FeImportReferenceCollector {
 	public void visit(Node? node) {
 		if (node == null) { return; }
 		if (node.kind == NK_TYPE_EXPR) {
-			self.add(node.base, node.line, node.col, true);
+			// `struct X`, `union X` and `enum X` name the declaration `X`
+			// (its C tag alias), so they need X's import like `X` does.
+			string tagged = FeImportReferenceCollector.taggedName(node.base);
+			self.add(tagged, node.line, node.col, true, tagged != node.base);
 			self.visitList(node.genericArgs());
 			self.visit(node.arraySize);
 			return;
@@ -412,6 +431,34 @@ class FeImportVisibilityChecker {
 		}
 	}
 
+	/* The name a declaration gives a type that can own a C tag, or "" when it
+	 * declares none. A generic class or interface owns no C tag: its C names
+	 * are mangled per instance. */
+	private string typeName(Node declaration) {
+		int kind = declaration.kind;
+		if ((kind == NK_CLASS_DECL || kind == NK_INTERFACE_DECL) && declaration.genericParams().len > 0) { return ""; }
+		if (kind == NK_CLASS_DECL || kind == NK_INTERFACE_DECL || kind == NK_STRUCT_DECL || kind == NK_ENUM_DECL || kind == NK_RICH_ENUM_DECL) { return declaration.name; }
+		if (kind == NK_TYPEDEF_DECL) { return declaration.alias; }
+		return "";
+	}
+
+	/* The files declaring each type this program contains. A C tag (`struct
+	 * X`) resolves only among them: the stdlib symbol index may name a module
+	 * that is not in the program, and a header's own `struct Timer` is not
+	 * the stdlib's Timer. */
+	private Map<string, Vector<string>> localTypeFiles() {
+		Map<string, Vector<string>> types = {};
+		for imported in self.resolved.nativeDeclarations {
+			if (imported.declaration.kind == NK_TYPEDEF_DECL && self.compilerImplicitSymbols.has(imported.declaration.alias)) { continue; }
+			self.addSymbolOwner(types, self.typeName(imported.declaration), imported.module);
+		}
+		for declaration in self.program.declarations() {
+			FeLine? line = self.resolved.userLineForCombined(declaration.line);
+			if (line != null) { self.addSymbolOwner(types, self.typeName(declaration), line.sourceFile); }
+		}
+		return types;
+	}
+
 	private Map<string, Vector<string>> localSymbolFiles() {
 		Map<string, Vector<string>> symbols = {};
 		for imported in self.resolved.nativeDeclarations {
@@ -553,6 +600,7 @@ class FeImportVisibilityChecker {
 		}
 		self.stdlibSymbols.mergeInto(symbols);
 		Vector<FeVisibilityDiagnostic> diagnostics = [];
+		Map<string, Vector<string>> types = self.localTypeFiles();
 		int declarationIndex = 0;
 		while (declarationIndex < self.program.declarations().len) {
 			Node declaration = self.program.declarations().get(declarationIndex);
@@ -587,11 +635,13 @@ class FeImportVisibilityChecker {
 				string key = f"{reference.name}|{reference.line}|{reference.col}";
 				if (seen.has(key)) { continue; }
 				seen.put(key, true);
-				if (!symbols.has(reference.name)) { continue; }
+				Map<string, Vector<string>> declaring = symbols;
+				if (reference.tag) { declaring = types; }
+				if (!declaring.has(reference.name)) { continue; }
 				if (self.compilerStdlibSource(sourceFile) && self.compilerImplicitSymbols.has(reference.name)) {
 					continue;
 				}
-				Vector<string> owners = symbols.get(reference.name);
+				Vector<string> owners = declaring.get(reference.name);
 				if (self.anyOwnerVisible(sourceIdentity, owners, reachable)) { continue; }
 				owners.sortBy((string left, string right) => Strings.lessThan(left, right));
 				string owner = self.sourcePaths.baseName(owners.get(0));
