@@ -2,7 +2,7 @@
 
 This standalone host implements the proposed CL-P1-17 executor shape for
 hand-written strict C11 fixtures. It is not integrated with the compiler's target
-runner, and no simulator result is claimed until the hosted commands below run.
+runner. The native results below qualify their recorded host and runtime only.
 The local tests execute real C processes while substituting only the simctl
 transport; their provenance says `not-ios`. Local artifacts are explicitly
 branded `local-host-check-only` and rejected by simulator `prepare`.
@@ -55,7 +55,8 @@ launch handshake while the wrapper waits for the executor acknowledgement.
 The worker exits the process after publishing the fixture result. Spawn mode
 retains its ordinary C entry point; local transport tests retain their explicitly
 branded non-iOS binaries. This small launcher does not qualify GUI or scene
-behavior. The launch repair still requires the complete hosted simulator matrix.
+behavior. The complete hosted simulator matrix remains required; the local native matrix
+recorded below qualifies a different host/runtime combination.
 
 The UIKit revision `3bd942dd` ran in
 [37560529912](https://github.com/schiffy91/btrc/actions/runs/37560529912):
@@ -66,8 +67,29 @@ do not establish a runtime incompatibility or justify longer fixture deadlines.
 On failure the spike now retains bounded read-only device, capacity, memory,
 process and CoreSimulator service-log observations, including partial output
 when a diagnostic times out. Summaries retain the failing invocation, stage
-and original exception notes alongside cleanup errors. The next native run
-must diagnose these host failures and pass the complete matrix.
+and original exception notes alongside cleanup errors.
+
+Revision `532d4e45` completed two further native runs on 2026-10-07:
+
+| Host and runtime | iPhone spawn | iPhone app | iPad spawn | iPad app |
+| --- | --- | --- | --- | --- |
+| Hosted run [37567969350](https://github.com/schiffy91/btrc/actions/runs/37567969350), Xcode 16.4 / iOS 26.2 (23C54) | 12 passed | first launch failed | first identity deadline failed | first launch failed |
+| Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0; Xcode 27A266a / iOS 26.4.1 (23E254a) | 12 passed | 13 passed | 12 passed | 13 passed |
+
+The local run passed all 50 executions using the same fixture binaries and
+unchanged launch/execution deadlines. Every app invocation, including the
+repeat in each class, proved a fresh data container. All four summaries were
+complete without cleanup errors; both owned simulators were verified shut down.
+Observed launch times ranged from 0.429 to 0.791 seconds. The retained manifest
+records revision, Xcode/runtime, fixture hashes and per-case status/streams.
+
+The hosted diagnostics record 7 GiB RAM and three CPUs, heavy memory
+compression and basic `simctl list devices` queries exceeding their ten-second
+diagnostic limit. Those observations support host pressure as a hypothesis;
+they do not establish it as the sole cause. Hosted 26.2 reliability remains
+unresolved. The local 26.4.1 pass does not qualify the iOS 17 runtime floor,
+arbitrary descendants, compiler entry adaptation, physical devices or GUI
+behavior. The results retain their existing `stand-in` provenance.
 
 ## Lifetime and output protocol
 
