@@ -876,16 +876,7 @@ def test_invalid_probe_reports_one_diagnostic_in_both_compilers(harness: ParityH
 
     assert reference.returncode == 1
     assert reference.diagnostic == probe.diagnostic
-    if probe.stdlib:
-        # btrcc numbers lines across the prepended stdlib, so an importing
-        # probe pins the reference line and compares message and column.
-        assert selfhost.returncode == 1 and selfhost.diagnostic is not None
-        assert (selfhost.diagnostic.message, selfhost.diagnostic.col) == (
-            probe.diagnostic.message,
-            probe.diagnostic.col,
-        )
-    else:
-        assert selfhost == reference
+    assert selfhost == reference
 
 
 @pytest.mark.parametrize("probe", VALID_PROBES, ids=lambda probe: probe.name)

@@ -832,8 +832,7 @@ class GenericSpecializer {
 			if (nesting > depth) { depth = nesting; }
 		}
 		if (depth > self.nestingLimit) {
-			fprintf(stderr, "error: Generic %s needs type arguments nested deeper than %d levels, the limit that keeps specialization finite at %d:%d\n", generic, self.nestingLimit, site.line, site.col);
-			exit(1);
+			FeDiagnosticSources.fail(f"Generic {generic} needs type arguments nested deeper than {self.nestingLimit} levels, the limit that keeps specialization finite", site.line, site.col);
 		}
 		return true;
 	}
@@ -1023,8 +1022,7 @@ class GenericSpecializer {
 		if (!self.growthFound) { return; }
 		GenericUse? first = self.growingCycleUse();
 		if (first == null) { return; }
-		fprintf(stderr, "error: Generic %s grows its own type arguments through this use, so its specializations never end at %d:%d\n", first.generic, first.line, first.col);
-		exit(1);
+		FeDiagnosticSources.fail(f"Generic {first.generic} grows its own type arguments through this use, so its specializations never end", first.line, first.col);
 	}
 
 	class bool useBefore(GenericUse left, GenericUse right) {

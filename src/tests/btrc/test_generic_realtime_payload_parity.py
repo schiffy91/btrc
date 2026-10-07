@@ -226,4 +226,4 @@ def test_template_own_payloads_are_not_rechecked_per_specialization(semantic_btr
     for result in (reference, selfhost):
         assert result.returncode == 1, result.stderr
         assert "Generic specialization" not in result.stderr
-        assert diagnostic_identity(result.stderr)[:2] == (rule, 35)
+        assert diagnostic_identity(result.stderr) == (rule, 33, 12)
