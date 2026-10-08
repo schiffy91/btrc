@@ -4,6 +4,9 @@ import Library.Image;
 import Library.GUI.Linux.LinuxImageView;
 import Library.GUI.Linux.LinuxWindow;
 import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.SDL;
 
@@ -43,6 +46,50 @@ class UI2LinuxImageChecks {
 	}
 }
 
+/* This injected provider attachment fails after its actual node transition;
+ * one failure exercises successful inverse attachment, two exercise quarantine.
+ * It never implements batch behavior or modifies the production result. */
+class UI2LinuxAttachFault extends LinuxNodeView {
+	public int failures = 0;
+	public UI2LinuxAttachFault(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); }
+
+	public void attachTo(LinuxViewHost? host) { self.node().setHost(host); if (self.failures > 0) { self.failures--; throw "deliberate provider attachment failure"; } }
+}
+
+class UI2LinuxMutationChecks {
+	class void mutation(LinuxApplication application) {
+		var window = application.createWindow("UI2 mutation", 80.0, 80.0);
+		var root = application.createContainer(); var red = application.createPanel(RGBA(220, 10, 10, 255), 0.0); var blue = application.createPanel(RGBA(10, 10, 220, 255), 0.0);
+		red.arrange(0.0, 0.0, 80.0, 80.0); blue.arrange(0.0, 0.0, 80.0, 80.0);
+		root.attach(red); root.attach(blue); window.attachRoot(root); window.show();
+		var nativeWindow = (LinuxWindow?)window; var nativeRoot = (ILinuxView?)root; var nativeRed = (ILinuxView?)red;
+		assert(nativeWindow != null && nativeRoot != null && nativeRed != null);
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (!nativeWindow.pollDevice() && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); }
+		assert(nativeWindow.pollDevice());
+		var before = nativeWindow.render(true); assert(before != null && before.pixel(before.width / 2, before.height / 2).blue > 200);
+		long long generation = nativeRed.node().generation(); long long revision = root.treeRevision();
+		root.move(red, 1); assert(root.childAt(1) == red && root.treeRevision() == revision + 1LL && nativeRed.node().generation() == generation);
+		var after = nativeWindow.render(true); assert(after != null && after.pixel(after.width / 2, after.height / 2).red > 200);
+		var edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_MOVE; edit.child = red; edit.index = 0; Vector<ContainerEdit> edits = [edit];
+		var stale = root.applyBatch(revision, edits); assert(stale.kind == CONTAINER_BATCH_REJECTED && root.childAt(1) == red);
+		revision = root.treeRevision();
+		var fault = UI2LinuxAttachFault(nativeRoot.node().context); fault.failures = 1;
+		edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_INSERT; edit.child = fault; edit.index = 1; edits = [edit];
+		var rolled = root.applyBatch(revision, edits);
+		assert(rolled.kind == CONTAINER_BATCH_ROLLED_BACK && rolled.failedStep == 0 && rolled.treeRevision == revision);
+		assert(root.childCount() == 2 && root.childAt(1) == red && !fault.node().attached && fault.isOpen());
+		fault.failures = 2;
+		var quarantined = root.applyBatch(revision, edits);
+		assert(quarantined.kind == CONTAINER_BATCH_FAILED_QUARANTINED && root.interactionState().faulted);
+		assert(root.childCount() == 2 && root.childAt(1) == red && quarantined.retained.contains(fault));
+		bool refused = false; try { root.move(red, 0); } catch (string error) { refused = true; } assert(refused);
+		window.close();
+		for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !red.isOpen() && !blue.isOpen() && !fault.isOpen());
+	}
+}
+
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
 	var application = LinuxApplication(16); var window = application.createWindow("UI2 eligibility", 240.0, 120.0);
@@ -76,7 +123,7 @@ int main() {
 	window.close();
 	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
 	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
-	UI2LinuxImageChecks.retainedPixels(application);
+	UI2LinuxImageChecks.retainedPixels(application); UI2LinuxMutationChecks.mutation(application);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	printf("PASS: UI2 Linux inherited eligibility and scoped observations\n"); SDL_Quit(); return 0;
 }
