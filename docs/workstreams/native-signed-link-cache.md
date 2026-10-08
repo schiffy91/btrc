@@ -34,3 +34,77 @@ Host: Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0.
 Baseline and focused tests run only in the secondary lane assigned by the
 integrator; all native work pauses before its bootstrap phase. Full combined
 qualification, product caller integration and locked release proof are pending.
+
+## Implementation and evidence
+
+`DarwinSigning` supplies an identity, optional already-unlocked keychain,
+optional identifier, and signer executable. The CLI exposes the corresponding
+`--codesign-identity`, `--codesign-keychain`, `--codesign-identifier`, and
+`--codesign-tool` flags. An omitted identifier omits the codesign flag and
+preserves existing policy; the staging path already retains the final basename.
+The builder resolves an exact valid certificate name or fingerprint, includes
+that certificate and the signing configuration/tool content in the receipt,
+and verifies the staged signature before publishing it. It revalidates signing
+context before accepting a receipt hit and before/after signing. No keychain
+unlock or credential-file reading moved into the builder.
+
+The downstream reproduction is retained at
+`~/.cache/btrc/plan-consolidation-2026-10-07/btrsmith-build-artifacts-dff-second`: both
+original frontends fail the unchanged warm-link assertion (one link instead of
+zero), and both final signed executable digests differ from their link receipts.
+This is diagnostic source-override evidence, not qualification of the product's
+unchanged compiler lock. The integrator owns the product caller change and its
+real certificate-backed paired rerun.
+
+Local logs live under
+`~/.cache/btrc/plan-consolidation-2026-10-07/native-signed-link-cache/`.
+The initial unmodified baseline (`baseline.log`) had 10 passes and 13 failures:
+Nix purity rejected library search paths under the default pytest temporary
+root. Retesting with an explicit clone-local `--basetemp` repaired the test
+environment; all six selected unchanged unsigned/library baseline cases then
+passed. No baseline failures were suppressed.
+
+The first focused implementation run (`focused.log`) had 14 passes and five
+failures: three exposed a missing `=` prefix for literal codesign verification
+requirements, and two exposed an invalid test assumption that ad-hoc designated
+requirements survive executable-content edits. The second (`focused-r2.log`)
+had 12 passes and one failure: default linker-derived ad-hoc identifiers can
+also change with content. Tests now compare staged signing with the caller's
+existing policy for the same content, require exact warm/touch retention, and
+require an explicit identifier to remain stable across edits. No new default
+identity or across-edit TCC guarantee is claimed.
+
+Independent source review identified a stale-context receipt-hit path. The
+repair now validates signing context immediately before accepting the hit; a
+deterministic test changes the signer after receipt validation and proves
+fail-closed behavior without replacing the executable or receipt. The reviewer
+rechecked that correction and found no remaining actionable source blocker.
+
+Tests include real Darwin clang/ad-hoc signing, same-size/mtime signer and output
+tampering, sign/verify failure retention, warm/touch/edit behavior, deterministic
+certificate resolution/ambiguity/rotation, and early rejection of unsupported
+hosts or targets. Deterministic certificate-listing tests do not count as actual
+product certificate evidence. Full product, Linux, and final-tree qualification
+remain integrator-owned and pending.
+
+Final focused validation:
+
+- `link-r3.log`: all 31 native link-reuse tests passed in 101.78 s, including
+  the entire existing unsigned/library suite and the new signed cases.
+- `builder-r3.log`: six signing unit tests passed; two new host/target rejection
+  fixtures failed their initial noncanonical JSON before reaching the behavior
+  under test. Their serialization was corrected to the existing canonical
+  fixture format, without a production change.
+- `builder-r4.log`: all eight signing configuration tests passed in 0.23 s
+  (141 unrelated builder tests deselected).
+- Ruff lint, Ruff formatting and `git diff --check` passed for the owned source.
+
+No heavy self-host compiler build, guest, broad gate, CI publication or product
+lock change was performed in this packet. The current integrator-approved
+secondary lane was used; there was no bootstrap overlap or outstanding wait
+when these focused tests finished. Existing baseline and failed-attempt logs
+and scratch fixtures are retained.
+
+Implementation and focused validation completed 2026-10-08 00:02:19 UTC.
+The packet is ready for integrator review/combination and the unchanged real
+product paired regression, not a claim that all repository goals are complete.
