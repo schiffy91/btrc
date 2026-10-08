@@ -124,7 +124,11 @@ three workers, the original compiler retains all six watched replies and the
 candidate releases all six before the next record or batch end. All 18 selected
 module semantics checks pass with zero skips, and both actual Apple Clang
 ASan/UBSan runs pass without reports. Source/tool closure and independent review
-are clear. Measured peak savings and final combined-tree gates remain pending. Deliberately retained compiler graphs remain unchanged.
+are clear. Measured peak savings and final combined-tree gates remain pending. Combined
+candidate `92691bee` contains only the token and worker-reply lifetime changes
+plus their claim/report, based on `3974d47b`; the generic experiment is excluded.
+It awaits its own build, correctness and product-workload measurements.
+Deliberately retained compiler graphs remain unchanged.
 
 The independent generic-plan allocation candidate `4d930d95` also builds through
 the original Linux Make recipe. Its first comparison stopped before correctness
@@ -150,7 +154,7 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 
 | Platform | Demonstrated capability | Missing product capability / next demonstrable result |
 |---|---|---|
-| macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | Finish uninstrumented lifecycle qualification: the independent AppKit control cannot obtain focus while loginwindow is foreground. Qualify the already integrated cross-worker GUI focus coordination, resolve the separate intermittent activation failure, then deliver UI2 and remaining controls/services/accessibility. |
+| macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | Finish uninstrumented lifecycle qualification: the independent AppKit control cannot obtain focus while loginwindow is foreground. The main-based coordination repair passes the affected native gate (327 pass, 67 expected skips); final combined-tree qualification, the separate activation failure, UI2 and remaining controls/services/accessibility stay open. |
 | Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | Current assembled X11 CI exposes three scrollbar input failures. A controlled real focus-loss trace reproduces drag cancellation, and all eight isolated variants pass; a reviewed shared-display lease is in hosted qualification. Qualify the assembled tree, then land UI2 and remaining features/accessibility. Wayland remains report-only until its required main acceptance. |
 | Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows pass and PR53 landed on main `49f136ec` | Qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
@@ -179,18 +183,31 @@ therefore does not load the original image's exported Nix environment. The
 image builds and immutable input checks pass; no lease or native pass is claimed.
 The minimal launcher correction now reaches the original tests in run
 `37749577958`. X11 stops in its baseline control: the execution-inventory check
-correctly fails, but a scheduling race allows the exclusion test to pass before
-the contender reaches its body. Its unchanged baseline has no Linux lease.
+correctly fails, but the exclusion test unexpectedly passes. Its unchanged
+baseline has no Linux lease. A suspected scheduling race prompted the following
+stronger handshake; that hypothesis has not explained the hosted behavior.
 Source `9b03f794` now waits for actual kernel contention or body entry before
-asserting exclusion. The original baseline correctly fails both required
-assertions; the candidate passes all 16 coordination checks with zero skips.
+asserting exclusion. In the local matched source archives, the original baseline correctly fails
+both required assertions and the candidate passes all 16 coordination checks
+with zero skips.
 A separate actual-process control verifies Darwin's zombie-only group EPERM
 and safe cleanup that still removes live descendants. The full X11 native
-stage has not run. The original full Wayland gate at `14f9e193` now passes;
-its artifact is being verified separately. A fresh X11 continuation keeps every
-original native check and the two required baseline failures. The later
-`9b03f794` test-only change is not represented as a new Wayland execution.
-Both attempts and their source/tool audits are retained.
+stage has not run. Hosted continuation `37754953668` still stops because its
+baseline exclusion control unexpectedly passes, so the local handshake result
+is not sufficient. A real reproduction now records the cause: child pytest discovers the
+candidate ancestor configuration and imports its lease owner even while the
+outer test belongs to the baseline. Explicit child configuration and cache
+ownership plus imported-owner path/hash checks restore both required baseline
+failures and all 16 candidate passes in the same nested directory layout.
+The new hosted X11 continuation is still pending; neither its native gate nor
+the full Linux matrix is claimed green. The original
+full Wayland gate at `14f9e193` passes all 322 executed cases, with 199 expected
+skips classified and covered on other hosts. Independent review verifies all
+521 collected/JUnit identities, 4,503 publication file hashes and modes,
+unchanged source/tools/index and the original enforced skip gate. Artifact
+SHA-256 is `c2b3dd7caacb3d6b708751503e204f357e99f7c881ad7e000bf9dc77b39c7a38`.
+The later `9b03f794` coordination-test change is not represented as a new
+Wayland execution. All attempts and their source/tool audits are retained.
 
 The current macOS UI2 foundation snapshot `a9ffe1bd`, using compiler `56d548c4`,
 now passes **28 actual native executions**: seven fixtures through both frontends,
@@ -358,11 +375,25 @@ passes that assertion, then fails the player weight check. A subsequent actual
 open-arrangement, ready-transport, MCP seek to frame 48000, shared CLI scrub and
 raw UI capture confirm the player heading is 22/24/400, again matching its
 stylesheet while the fixture expects weight 600. Source `d3fb25f4` corrects
-that one number and preserves the assertion. The original paired macOS replay
-is active; the complete reference and self-hosted live journeys remain unqualified.
-The corresponding Linux continuation is active in run `37753689445`, retaining
-prior frontend/library evidence separately and running the original remaining
-agent, audio and product targets. App descendants are now checked
+that one number and preserves the assertion. The original paired macOS replay has completed successfully: both frontends
+pass AgentOperationChannel, standalone CLI/MCP acceptance and both original live
+application invocations. Product `d3fb25f4` uses compiler `3974d47b`; final
+source/tool checks are unchanged and all owned process groups are absent. The
+original deadline was honored. Compiler warnings remain in the logs (41
+reference and 165 self-hosted lines); they were not suppressed. Evidence:
+`btrsmith-agent-endpoint/interactive-d3fb-attempt-1/REPORT.md`, result SHA-256
+`a1012230150e154a956705fa4f9bda5469b86252b7f53789fee7c64653bc487d`.
+This closes the paired Mac agent journey, not audio, installed-product,
+performance or the complete MVP acceptance.
+The corresponding Linux continuation `37753689445` has failed while building
+reference AgentSurfaceProcessAcceptance with GCC 15.2 at the original strict
+C11/-O2/-Werror settings. Four generated pointer temporaries in
+`AgentAcceptanceProcess_init` trigger `-Wclobbered`; the failing generated C
+is retained. The paired agent target therefore did not complete, and later
+audio/product targets did not run. Prior frontend/library evidence stays
+separate. Artifact SHA-256 is
+`86b7dabba26e13c7405d078f8e2e41cb189ebe53fee77fb09504749a1976e472`;
+the compiler setjmp planner and a bounded reproducer are under investigation. App descendants are now checked
 and cleaned on ordinary test failure as well as timeout. No full MVP claim.
 
 ### Integration status in service of the goals

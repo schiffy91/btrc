@@ -137,3 +137,21 @@ The complete ZIP and bounded receipts remain in
 The 31 retained generated Program.c units are diagnostic evidence, not tracked
 build outputs. This result qualifies the affected AppKit gate; final combined
 PR gates, main integration and the full product roadmap remain separate.
+
+
+## Follow-up fixture isolation
+
+The later Linux baseline diagnostic exposed pytest configuration discovery in
+nested archived trees: child pytest loaded the ancestor candidate's pythonpath
+and imported its fixture owner while the outer test belonged to the baseline.
+A real process reproduction records both imported paths and reproduces the
+incorrect baseline pass. The shared test pattern now pins the intended pytest
+configuration and cache and verifies the imported owner's absolute path and
+SHA-256. Exclusion waits for actual contention on the intended kernel lock or
+body entry, so process setup is not treated as proof of lock acquisition.
+The seven Mac coordination cases retain their original assertions; safe process
+group cleanup also reaps a completed leader before checking its descendants.
+The production AppKit lease and native test bodies remain exactly those from
+`13e147ed`. This fixture follow-up does not relabel the earlier native run as
+execution of new test source. Its focused result and combined PR CI are recorded
+with the new candidate.
