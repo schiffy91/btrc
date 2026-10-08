@@ -210,7 +210,7 @@ No final UI2 provider, benchmark, GUI acceptance, or main integration is claimed
 any UI delivery. It checks explicit FULL, cancellation, unknown identity versus
 already-terminal identity, keyed supersession, fresh-generation retirement,
 suspension and cancellation from inside an entered receiver. Fixed disposition
-counters must conserve six admitted receipts with no pending work. The class
+counters must conserve seven admitted receipts with no pending work. The class
 does not exist at this fixture-only checkpoint; actual compiler/native red
 remains pending the allocated lane and native-binding fragment.
 
@@ -218,3 +218,8 @@ Shared dependency now matches 5f2cc694 exactly: IControlEventChannel provides
 private erased rebind/cancellation routing, and terminal-pool-wide identities
 plus pool validation prevent cross-window ticket collisions. These changes
 come from the shared owner; no public interface or production export changes.
+
+The publisher fixture additionally places cancel-policy work behind a deferred
+head before suspension. Cleanup must retire that canceled receipt without
+delivering/reordering the deferred record or leaving a permanently runnable
+cleanup wake. This remains a fixture-only checkpoint before publisher source.
