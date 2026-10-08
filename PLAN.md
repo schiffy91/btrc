@@ -202,11 +202,18 @@ launching the unchanged control as an application bundle does not fix it.
 Local foreground-dependent qualification is blocked. No unlock, credential or
 system-setting change is attempted. The original BTRC activation error did not
 recur in either full focused run and remains separately unresolved. Cross-worker
-coordination is being added because local and hosted parallel suites can otherwise
-run multiple AppKit focus consumers simultaneously. The two-second weak-owner
+coordination now serializes the actual AppKit execution tests because local and
+hosted parallel suites can otherwise compete for focus. Source `ade99447`, report
+`49178fc1`, has seven passing independent-process checks plus 15 harness checks:
+the shared checkout lease protects fixture setup/body/teardown, releases on errors
+or process death, reports a bounded timeout's holder, and leaves ordinary workers
+parallel. Actual pytest collection verifies the known parameterized AppKit paths.
+Independent review is clear; native execution after this change remains pending.
+The two-second weak-owner
 deadline, deliberately retained negative control, actual active/key context and
 unchanged private-class assertions are preserved. Source and evidence report
-`08d77b32` are reconciled into local candidate `59dd78ee`; this is still not a
+`08d77b32`, the coordination repair and the reviewed G12 compiler change are
+reconciled into local candidate `db269d6c`; this is still not a
 passing final combined tree.
 The Darwin Python/libffi repair `2e8e3711` now passes the actual callback smoke,
 46 build-safety checks and upstream CFFI's 1,888 checks (161 skips, four deselected,
@@ -239,11 +246,17 @@ official Zig 0.17.0 archive, whose release notes identify an ARM64 Windows LLVM
 workaround; the separate cross-toolchain pin remains 0.16.0. Each native invocation
 gets fresh bounded local/global caches. Portable qualification has **39 passes
 and one native-only skip**, plus the workflow contract check and independent
-review. Native run `37711636840` passes cross-compilation but fails the tiny native
-C toolchain probe with exit 1 before BTRC or bootstrap executes. Its artifact is
-being retrieved to distinguish the new diagnostic from the previous access
-violation; neither pin advancement nor a different exit code establishes a fix.
-The GNU ARM64 compiler path remains unqualified. These repairs
+review. Native run `37711636840` passes cross-compilation, C object generation
+and actual minimal GNU executable linking. The strict probe then fails at the
+newer CRT's external `mkdtemp` declaration colliding with our static adapter.
+Follow-up `110a514c` preserves the adapter body under an internal name and an
+object-like portable alias, matching existing CRT wrappers. Its strict-C11
+three-translation-unit regression reproduces the conflict before repair; all
+five compatibility checks pass afterward, with no skips. These local checks are
+Windows cross-compilation/linking, not Windows runtime evidence. Independent
+review is clear and the follow-up is published to the same PR for native rerun;
+the prior general CI is superseded. BTRC/bootstrap have still not executed in the
+native ARM64 job. These repairs
 restore verification capability; they do not demonstrate compiler speed gains.
 The plan-reader modules passed 155 checks at `27417a89`.
 
@@ -293,12 +306,12 @@ changes; historical test totals alone do not advance its status.
 | Outcome | Current state / evidence | Responsible role | Next acceptance and actual blocker |
 |---|---|---|---|
 | Current compiler speed and memory matrix | Historical `65057cb` values above; no current product acceptance | Performance owner; main session runs quiet measurements | Qualify the D9 measurement copy/pin and run Stage 5's complete matrix with compiler, application and toolchain SHAs, sample counts, median/p95/max and footprint. Stage 4/pin prerequisites and quiet host remain open. Earlier diagnostics must be labelled pre-Stage-4 and cannot close Stage 5. |
-| Faster incremental edits | G12/SB-29 candidate `c3f709f7` passes 18 paired ordering/invalidation cases: reordered existing class/method instances lower only the changed `Use` group and preserve `Lib`; no timing claim | Incremental compiler owner | Complete native dependency execution and all 311 boundary-record comparisons, then reconcile and run final gates. Full consulted-fact/analysis reuse and Stage 9 counters remain open; measure edit median/p95 and memory against the same baseline. |
+| Faster incremental edits | G12/SB-29 `c3f709f7`, report `9a7e4310`, passes 18 paired ordering/invalidation cases, both dependency-program executions and full boundary-delta review. Reordered existing class/method instances lower only `Use` and preserve `Lib`; integrated locally | Incremental compiler owner | Exact combined gates, then edit median/p95 and memory against the same baseline. Full consulted-fact/analysis reuse and Stage 9 counters remain open; no speed result yet. |
 | Useful desktop library improvement | `CX-STDLIB-03` reconstructed and native red/green proven on the integration candidate; PR66 awaits hosted/final gates. `01` input repair `42d5a7c1` and stacked `02` layout repair `364a2bd6` are reconstructed with 80 and 12 native cases respectively; native execution is pending | Provider repair owner; main integrator qualifies | Land the reviewed button repair after its gates. Execute `01`/`02` current-source native red/green and control evidence, then final Linux X11/Wayland lanes; independently reproduce `04`/`05`. Historical unpublished-source results do not qualify a reconstruction. |
 | UI2 events, executor and lifecycle on desktop | Contracts approved; local `ca4782e1` has 26 paired native/sanitizer BackgroundJobs passes and 114 catalog passes; desktop providers and atomic landing remain open | UI2 interface owner, then platform owners | Continue with the desktop providers and real UI2 probe collectors; there is no compiler prerequisite. Reconcile overlapping repairs first, then land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
 | Windows and mobile application-facing services | Fixture-host results above; complete providers not delivered | Platform slice owners | Use the per-platform checkpoints below: real Windows SDK/service operation; iOS and Android file persistence; then native button/text field/lifecycle. Each waits only for its own demonstrated ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Main `adb3276f`, compiler pin `05ec9cb7`; current requalification open. Signed warm/touch rebuild defect repaired and verified through both compilers on the current source override | BTRSmith owner and integrator | Integrate the reviewed native signing fix and product caller, qualify the compiler pin and frontend/library smoke, then complete MVP screen journeys and build/runtime budgets. Windows/mobile library completion is not a prerequisite for the macOS/Linux MVP; later platform releases remain separate outcomes. |
-| One qualified implementation on main | Candidate `59dd78ee` reconciles reviewed signing, button, runbook/quiet-harness and Mac lifecycle-probe changes. Earlier `dff538ef` has 17,855 passes, 168 skips and three Mac failures; newer focused evidence above does not replace a final combined run | Main integrator | Finish focus coordination and foreground-dependent qualification, reconcile qualified compiler/Linux changes, then run the exact combined matrix, bootstrap, C11 and hygiene. Land only after required evidence passes. |
+| One qualified implementation on main | Candidate `db269d6c` additionally reconciles the reviewed G12 reuse and GUI coordination changes. Earlier `dff538ef` has 17,855 passes, 168 skips and three Mac failures; newer focused evidence above does not replace a final combined run | Main integrator | Finish foreground-dependent qualification, reconcile qualified Linux/Windows changes, then run the exact combined matrix, bootstrap, C11 and hygiene. Land only after required evidence passes. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
@@ -320,10 +333,16 @@ Nix Clang 21.1.8, strict C11, `-O2`). Release/debug class and method reorderings
 preserve `Lib` and lower exactly `Use`. Changed instance sets still update the
 template and conservatively lower all three groups; reverse-lexical by-value
 dependencies and tuple/span invalidation guards remain covered. Independent
-source review is clear. Paired tests inspect emitted units; actual native execution
-of the dependency fixture and the existing generator's complete 311-record
-boundary capture/review are still in progress. Captured records are not
-automatically passing records, and the frozen originals remain retained. This
+source review is clear. Both retained dependency programs also compile under
+strict C11 and execute successfully. The existing generator captures all 311
+boundary records: 287 portable and 20 observed outputs are byte-identical to
+their effective accepted artifacts; only four tool/host metadata records differ.
+All 34 equality constraints and 32 status channels are preserved, including
+eight expected negative diagnostics. Independent review confirms the inventory
+and the unchanged original frozen tree. The normal checker reports 287 checked
+and 24 incompatible observations; explicit capture executes those observation
+producers and does not turn the checker result into 311 passes. No expectation
+refresh is needed. Report `9a7e4310` is merged into the local candidate. This
 is one approved reuse improvement, not complete G12, Stage 9 or a speed result.
 
 The bounded memory candidate `69ca0f17` ends lexer/parser/token-vector ownership
@@ -1024,7 +1043,7 @@ failed runs and their evidence rather than replacing them with later passes.
 | PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. All eight strict-C11 configurations (GCC and Clang, -O0 through -O3) passed 2,036 checks each without skips. The serialized remaining-gate run finished successfully, including the plan and diff checks. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge is now included in `06c3923a`; full qualification/main landing remain pending. |
-| PR53, Windows ARM64 host | Published `fe115d6b` | Native-only Zig 0.17.0 repair with fresh caches has 39 portable passes, one native-only skip and independent review. Run 37711636840 passes cross-build but fails the tiny native C probe with exit 1 before BTRC/bootstrap; artifact diagnosis is underway. Previous 75c00a96 fails GNU executable linking with an access violation; its direct no-CRT DLL success and separate MSVC/wgpu smoke do not qualify native BTRC. |
+| PR53, Windows ARM64 host | Published `110a514c` | Native Zig 0.17.0 now links the minimal GNU executable; run 37711636840 then reveals the strict probe's newer-CRT mkdtemp declaration conflict. The reviewed adapter follow-up reproduces that conflict and passes five local cross-compile checks after repair. Native BTRC/bootstrap and fresh hosted qualification remain pending. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 At `50bf1c8c`, the [native Linux ARM64 release job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636879)
@@ -1246,8 +1265,17 @@ rows on each Mac lane, 460 negative mismatches per lane and rejection of all 96
 rows on Linux. There is no Linux skip allowance or native Linux result. The
 prepared qualification uses four immutable fixture-only red checkpoints and the
 96-case green tree, one inspected container image and one source-matched Linux
-compiler. The existing shared guest remains stopped while G12 owns the build
-lane. Minimize/restore and final X11/Wayland acceptance remain separate.
+compiler. G12 has released the build lane and the existing shared guest is now
+being admitted for the actual native qualification. A fifth repair, Grid child
+replacement, is preserved at `47e64e21` with fixture-only parent `36b47db5`: it
+validates the new child's lifecycle/parent/cycle conditions before detaching the
+old child. Its four native rows test rejected replacement retaining identity and
+pixels, valid replacement, null clear and ownership cleanup. Source review and
+static checks are clear; native red/green execution is still pending. Minimize/
+restore and final X11/Wayland acceptance remain separate. UI2 macOS and Linux
+provider implementation has started independently on preserved branches, using
+the approved interface and existing completion hook; native qualification and
+atomic interface/provider landing are still required.
 
 CX-STDLIB-01 production files are
 `src/stdlib/GUI/Linux/{LinuxApplication,LinuxSelect,LinuxTextField,LinuxWindow}.btrc`.
