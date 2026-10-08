@@ -823,3 +823,16 @@ notification identity and callback lifetimes are unchanged; no compiler guard
 is relaxed and no string identity is guessed. The native binding amendment is
 a separate final fragment. This repair is source-only until fresh projection
 and real native evidence pass.
+
+The fresh61748e0c projection passed the SDK accessor boundary. CaptureFailure
+and Attachment again transpiled without diagnostics (5.82 s and 2.62 s), while
+Scroll produced 24 semantic errors: its source and fixture had assumed argument
+constructors on the approved data-only ScrollOffset, ScrollRect,
+ControlEventContext and ScrollControlEvent classes. The retained result is
+`ui2-macos-components-61748e0c/results/projection1/components/reference`.
+No self-host projection, C compilation or native execution ran in that attempt.
+The narrow correction constructs the existing empty records and initializes
+all declared fields with the original values. The interface remains unchanged;
+geometry, metadata, queue ordering and every behavioral assertion are retained.
+The integrator reviewed that field-for-field correction. Fresh qualification is
+still required; source review and formatting are the only new checks so far.

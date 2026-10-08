@@ -68,14 +68,19 @@ class MacOSScrollLayout implements IMacOSContainerLayout {
 		var frame = self.documentView().frame();
 		double maximumX = Math.maxDouble(0.0, frame.size.width - bounds.size.width);
 		double maximumY = Math.maxDouble(0.0, frame.size.height - bounds.size.height);
-		return ScrollOffset(self.clamp(bounds.origin.x, maximumX), self.clamp(maximumY - bounds.origin.y, maximumY));
+		var result = ScrollOffset();
+		result.x = self.clamp(bounds.origin.x, maximumX); result.y = self.clamp(maximumY - bounds.origin.y, maximumY);
+		return result;
 	}
 
 	public ScrollRect visibleRect() {
 		var offset = self.offset();
 		var bounds = self.nativeControl().contentView().bounds();
 		var frame = self.documentView().frame();
-		return ScrollRect(offset.x, offset.y, Math.maxDouble(0.0, Math.minDouble(bounds.size.width, frame.size.width - offset.x)), Math.maxDouble(0.0, Math.minDouble(bounds.size.height, frame.size.height - offset.y)));
+		var result = ScrollRect(); result.x = offset.x; result.y = offset.y;
+		result.width = Math.maxDouble(0.0, Math.minDouble(bounds.size.width, frame.size.width - offset.x));
+		result.height = Math.maxDouble(0.0, Math.minDouble(bounds.size.height, frame.size.height - offset.y));
+		return result;
 	}
 
 	public void scrollToOffset(ScrollOffset offset) {
@@ -126,7 +131,7 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 	private MacOSScrollLayout _layout;
 	private CallbackScope _native = CallbackScope();
 	private ControlEventChannel<IScrollControlEventHandler, ScrollControlEvent>? _observations;
-	private ScrollRect _last = ScrollRect(0.0, 0.0, 0.0, 0.0);
+	private ScrollRect _last = ScrollRect();
 	private double _viewportWidth = 0.0;
 	private double _viewportHeight = 0.0;
 	private double _documentWidth = 0.0;
@@ -169,7 +174,11 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 		var channel = self._observations;
 		if (channel != null && channel.isOpen()) {
 			var state = self.interactionOwner();
-			var event = ScrollControlEvent(ControlEventContext(state.generation(), 0LL, self._sequence, 0LL, origin), ScrollOffset(rect.x, rect.y), rect);
+			var event = ScrollControlEvent(); var context = ControlEventContext();
+			context.generation = state.generation(); context.interaction = 0LL; context.sequence = self._sequence;
+			context.modelRevision = 0LL; context.origin = origin;
+			var offset = ScrollOffset(); offset.x = rect.x; offset.y = rect.y;
+			event.context = context; event.offset = offset; event.visibleRect = rect;
 			if (!channel.publish(event, state.generation(), 0LL, 1LL)) { throw "Scroll observation queue is full or its native source failed"; }
 		}
 	}
@@ -195,7 +204,7 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 				var frame = self._layout.documentView().frame();
 				if (bounds.size.width != self._viewportWidth || bounds.size.height != self._viewportHeight || frame.size.width != self._documentWidth || frame.size.height != self._documentHeight) {
 					self._changing++;
-					try { self._layout.scrollToOffset(ScrollOffset(self._last.x, self._last.y)); }
+					try { var offset = ScrollOffset(); offset.x = self._last.x; offset.y = self._last.y; self._layout.scrollToOffset(offset); }
 					finally { self._changing--; }
 					self.capture(CONTROL_ORIGIN_SYSTEM);
 				}
@@ -299,7 +308,9 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 
 	public double scrollOffset() { self.nativeView(); return self._layout.offset().y; }
 
-	public void scrollTo(double offset) { self.scrollToOffset(ScrollOffset(self.offset().x, offset)); }
+	public void scrollTo(double offset) {
+		var position = ScrollOffset(); position.x = self.offset().x; position.y = offset; self.scrollToOffset(position);
+	}
 
 	public CallbackCancellation close() {
 		if (!NSThread.isMainThread()) { throw "AppKit scroll views require the main thread"; }
