@@ -13,7 +13,7 @@
 @end
 
 @interface BTRCMacOSRange : NSSlider
-+ (instancetype)range;
++ (instancetype _Nullable)range;
 /* Zeroing weak storage is implemented with NSHashTable on the repository's
  * manual-retain/release native-source path. The generated registration owns
  * the receiver; this native slot never retains it. */
