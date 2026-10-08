@@ -12,6 +12,23 @@ class InteractionReceiver implements IViewInteractionStateHandler {
 	public void interactionChanged(ViewInteractionState state) { self.states.push(state); }
 }
 
+class ReplacingInteractionReceiver implements IViewInteractionStateHandler {
+	public MacOSViewState state;
+	public CallbackScope scope;
+	public CallbackScope replacementScope = CallbackScope();
+	public InteractionReceiver replacement = InteractionReceiver();
+	public bool rejected = false;
+	public ReplacingInteractionReceiver(MacOSViewState state, CallbackScope scope) { self.state = state; self.scope = scope; }
+
+	public void interactionChanged(ViewInteractionState observation) {
+		assert(observation.stateRevision > 0LL);
+		assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING);
+		try { self.state.onInteractionStateChanged(self.replacement, self.replacementScope); }
+		catch (string error) { self.rejected = !error.isEmpty(); }
+		assert(self.rejected);
+	}
+}
+
 int main() {
 	var signal = MacOSRunLoopSignal();
 	var context = MacOSControlContext(8, signal);
@@ -54,6 +71,20 @@ int main() {
 	assert(state.admission(generation) == CONTROL_EVENT_STALE_GENERATION);
 	assert(state.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	var replacingState = MacOSViewState(context);
+	var replacingScope = CallbackScope();
+	var replacingReceiver = ReplacingInteractionReceiver(replacingState, replacingScope);
+	replacingState.onInteractionStateChanged(replacingReceiver, replacingScope);
+	replacingState.update(false, true, false, false, WINDOW_EXPOSURE_UNKNOWN, false);
+	replacingState.publish();
+	assert(context.detachedEvents.dispatchOne() && replacingReceiver.rejected);
+	assert(replacingScope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	replacingState.onInteractionStateChanged(replacingReceiver.replacement, replacingReceiver.replacementScope);
+	replacingState.update(true, true, false, false, WINDOW_EXPOSURE_UNKNOWN, false);
+	replacingState.publish(); assert(context.detachedEvents.dispatchOne());
+	assert(replacingReceiver.replacement.states.len == 1);
+	assert(replacingState.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(replacingReceiver.replacementScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	window.close(); context.close(); signal.close();
 	print("UI2 view state preserves snapshots and separates observation from input eligibility");
 	return 0;
