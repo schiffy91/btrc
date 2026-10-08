@@ -3,16 +3,25 @@ import Library.Console;
 import Library.Math;
 import Library.App;
 import Library.GUI.IScrollView;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContainer;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
 
-/* A vertical viewport over a document: children arrange in document points,
+/* A two-axis viewport over a document: children arrange in document points,
  * the viewport clips and offsets them, wheel input scrolls, and an overlay
  * scrollbar appears while content overflows. */
 class LinuxScrollView extends LinuxContainerView implements IScrollView {
 	private double _contentHeight = 0.0;
+	private double _contentWidth = 0.0;
+	private double _offsetX = 0.0;
+	private double _observedWidth = 0.0;
+	private double _observedHeight = 0.0;
+	private long long _sequence = 0LL;
+	private long long _modelRevision = 1LL;
+	private ControlEventChannel<IScrollControlEventHandler, ScrollControlEvent>? _changes = null;
 	private double _offset = 0.0;
 	private bool _dragging = false;
 	private double _dragStartY = 0.0;
@@ -25,14 +34,53 @@ class LinuxScrollView extends LinuxContainerView implements IScrollView {
 
 	private double maximumOffset() { return Math.maxDouble(0.0, self._contentHeight - self.node().height); }
 
-	private void applyOffset(double offset) {
-		double maximum = self.maximumOffset();
-		double clamped = !Math.isFinite(offset) || offset < 0.0 ? 0.0 : (offset > maximum ? maximum : offset);
-		if (clamped == self._offset && self.node().contentOffsetY == -clamped) { return; }
-		self._offset = clamped;
-		self.node().contentOffsetY = -clamped;
-		self.node().invalidate();
+	public ScrollOffset offset() { self.node().requireOpen(); var offset = ScrollOffset(); offset.x = self._offsetX; offset.y = self._offset; return offset; }
+
+	public ScrollRect visibleRect() {
+		self.node().requireOpen(); var rect = ScrollRect(); rect.x = self._offsetX; rect.y = self._offset;
+		rect.width = Math.minDouble(self.node().width, Math.maxDouble(0.0, self._contentWidth - self._offsetX));
+		rect.height = Math.minDouble(self.node().height, Math.maxDouble(0.0, self._contentHeight - self._offset)); return rect;
 	}
+
+	class void deliverOffset(IScrollControlEventHandler receiver, ScrollControlEvent event) { receiver.scrollEvent(event); }
+
+	public ICallbackRegistration onOffsetChanged(IScrollControlEventHandler receiver, CallbackScope owner) {
+		self.node().requireOpen();
+		if (self._changes != null && self._changes.isOpen()) { throw "Cancel the existing scroll observer first"; }
+		var channel = new ControlEventChannel<IScrollControlEventHandler, ScrollControlEvent>(self.node().events(), LinuxViewObservationTarget(self.node()), receiver, LinuxScrollView.deliverOffset, owner);
+		self.node().ownSemantic(channel); self._changes = channel; return channel;
+	}
+
+	private void applyOffsets(double x, double y, ControlOrigin origin) {
+		double maximumX = Math.maxDouble(0.0, self._contentWidth - self.node().width);
+		double maximumY = self.maximumOffset();
+		double clampedX = Math.maxDouble(0.0, Math.minDouble(maximumX, x));
+		double clampedY = Math.maxDouble(0.0, Math.minDouble(maximumY, y));
+		double width = Math.minDouble(self.node().width, Math.maxDouble(0.0, self._contentWidth - clampedX));
+		double height = Math.minDouble(self.node().height, Math.maxDouble(0.0, self._contentHeight - clampedY));
+		if (clampedX == self._offsetX && clampedY == self._offset && width == self._observedWidth && height == self._observedHeight) { return; }
+		if (self._sequence == 9223372036854775807LL) { throw "Scroll observation identities exhausted"; }
+		self._sequence++; self._offsetX = clampedX; self._offset = clampedY;
+		self._observedWidth = width; self._observedHeight = height;
+		self.node().contentOffsetX = -clampedX; self.node().contentOffsetY = -clampedY; self.node().invalidate();
+		var changes = self._changes;
+		if (changes != null && changes.isOpen()) {
+			var context = ControlEventContext(); context.generation = self.node().generation(); context.interaction = 0LL;
+			context.sequence = self._sequence; context.modelRevision = self._modelRevision; context.origin = origin;
+			var event = ScrollControlEvent(); event.context = context; event.offset = self.offset(); event.visibleRect = self.visibleRect();
+			if (!changes.publish(event, context.generation, 0LL, 1LL)) { throw "Scroll observation source is unavailable"; }
+		}
+	}
+
+	private void applyOffset(double offset) { self.applyOffsets(self._offsetX, offset, CONTROL_ORIGIN_USER); }
+
+	public void scrollToOffset(ScrollOffset offset) {
+		self.node().requireOpen();
+		if (offset == null || !Math.isFinite(offset.x) || !Math.isFinite(offset.y)) { throw "Invalid scroll offset"; }
+		self.applyOffsets(offset.x, offset.y, CONTROL_ORIGIN_MODEL);
+	}
+
+	public void eligibilityLost() { self.node().cancelOwnPointerCapture(); self._dragging = false; self.node().invalidate(); }
 
 	private double trackHeight() { return Math.maxDouble(0.0, self.node().height - 4.0); }
 
@@ -90,19 +138,22 @@ class LinuxScrollView extends LinuxContainerView implements IScrollView {
 	}
 
 	public bool scroll(AppScrollEvent event) {
-		if (self.maximumOffset() <= 0.0) { return false; }
-		double step = event.precise ? event.deltaY : event.deltaY * 48.0;
-		self.applyOffset(self._offset - step);
+		if (self.maximumOffset() <= 0.0 && self._contentWidth <= self.node().width) { return false; }
+		double stepX = event.precise ? event.deltaX : event.deltaX * 48.0;
+		double stepY = event.precise ? event.deltaY : event.deltaY * 48.0;
+		self.applyOffsets(self._offsetX - stepX, self._offset - stepY, CONTROL_ORIGIN_USER);
 		return true;
 	}
 
-	public void arrange(double x, double y, double width, double height) { self.node().arrange(x, y, width, height); self.applyOffset(self._offset); }
+	public void arrange(double x, double y, double width, double height) { self.node().arrange(x, y, width, height); self.applyOffsets(self._offsetX, self._offset, CONTROL_ORIGIN_SYSTEM); }
 
 	public void setContentSize(double width, double height) {
 		self.node().requireOpen();
 		if (!Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid scroll content size"; }
-		self._contentHeight = height;
-		self.applyOffset(self._offset);
+		if (self._contentWidth == width && self._contentHeight == height) { return; }
+		if (self._modelRevision == 9223372036854775807LL) { throw "Scroll document revisions exhausted"; }
+		self._modelRevision++; self._contentWidth = width; self._contentHeight = height;
+		self.applyOffsets(self._offsetX, self._offset, CONTROL_ORIGIN_SYSTEM);
 		self.node().invalidate();
 	}
 
@@ -111,7 +162,7 @@ class LinuxScrollView extends LinuxContainerView implements IScrollView {
 	public void scrollTo(double offset) {
 		self.node().requireOpen();
 		if (!Math.isFinite(offset)) { throw "Invalid scroll offset"; }
-		self.applyOffset(offset);
+		self.applyOffsets(self._offsetX, offset, CONTROL_ORIGIN_MODEL);
 	}
 
 	public void __del__() { if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native scroll view destroyed before subtree cleanup completed"); } }

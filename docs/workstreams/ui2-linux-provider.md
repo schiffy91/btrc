@@ -209,3 +209,15 @@ routing inventory, prune completed channels, and route every typed control
 channel across queues through this projection. The node's existing callback
 scope remains the lifetime owner; this creates no portable wrapper API. The
 shared migration fixture now exercises the erased projection. Unexecuted.
+
+Two-axis scroll fixture-only checkpoint `c4548313` uses SDL's real event queue
+for a horizontal/vertical wheel input, then checks independent clamping,
+vertical-call x preservation, MODEL/USER/SYSTEM observations, viewport/document
+intersection, no-op suppression and cancellation. Source implementation now
+stores both extents and offsets, updates both child translations atomically,
+returns owning geometry snapshots, and publishes replaceable revisioned actual
+geometry through the shared state-observation channel. Existing vertical thumb
+geometry/drag behavior remains. This does not claim E09 focus or UI6 collection
+anchor behavior. Fixture and implementation are still unexecuted; only formatter
+and diff checks passed. Expanded IContainer and other UI2 controls still need
+implementation before the whole provider can compile/qualify.

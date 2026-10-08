@@ -333,7 +333,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 			for (int index = currentNode.children.len - 1; index >= 0; index--) {
 				var child = currentNode.children.get(index);
 				var childNode = child.node();
-				if (!childNode.visible || !childNode.isOpen()) { continue; }
+				if (!childNode.effectiveEligible()) { continue; }
 				double childX = originX + currentNode.contentOffsetX + childNode.x;
 				double childY = originY + currentNode.contentOffsetY + childNode.y;
 				if (x >= childX && y >= childY && x < childX + childNode.width && y < childY + childNode.height) { next = child; nextX = childX; nextY = childY; break; }
