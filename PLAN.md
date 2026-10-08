@@ -96,7 +96,12 @@ performance result, and does not replace Stage 5 or the full final matrix. A sep
 is running the original heavy-stdlib/dispatch peak checks on baseline `3974d47b`
 and candidate `71352c50`, alternating six checks with unchanged allowances.
 The existing integrated-candidate CI runs remain intact; no diagnostic result
-is available yet.
+is available yet. These small-workload peak limits are regression guards;
+passing them will not establish the product compiler's ≤1.5 GiB footprint or
+its final build-time targets. The next module-build memory proposal releases
+each consumed worker reply after its independently owned output has been read;
+its ownership/lifetime observer is source-reviewed, with execution and measured
+savings still pending. Deliberately retained compiler graphs remain unchanged.
 
 ### Goal 2: usable standard library and native GUI on five platforms
 
@@ -191,7 +196,8 @@ runs; no global Nix settings changed.
 `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Its source tree is exactly the
 qualified `110a514c` / hosted merge `93093bd4` tree. All five hosted workflows
 passed, including actual Windows ARM64 compiler/bootstrap, sample execution and
-MSVC ABI/wgpu checks. The Linux full test shards, bootstrap, all eight C11 cells,
+MSVC ABI/wgpu checks. All post-merge workflows on main `49f136ec` also pass,
+including Linux and macOS. The Linux full test shards, bootstrap, all eight C11 cells,
 generated checks, lint, formatting, extension and release hygiene passed;
 skipped standalone jobs are not counted as evidence. This independent slice did
 not wait for UI2 or the remaining compiler work.
@@ -199,7 +205,10 @@ not wait for UI2 or the remaining compiler work.
 Current broader candidate `3974d47b` is published in
 [draft PR68](https://github.com/schiffy91/btrc/pull/68). Its full hosted matrix is
 running; Android tooling/API 29/API 36, Windows, Windows ARM64, the Linux
-ARM64 bundle, release/static ownership and the Linux Wayland lane pass. Its
+ARM64 bundle, release/static ownership and the Linux Wayland lane pass. Linux
+and macOS bootstrap pass; all eight Linux C11 cells, Linux unit tests and both
+platforms' paired corpus lanes pass. Remaining self-hosted/unit shards are
+still running and are not counted as passed. Its
 benchmark job fails only the unchanged heavy-stdlib memory allowance recorded
 above. The current X11 native lane also fails three scrollbar input cases
 (reference plain/sanitized and self-hosted sanitized); self-hosted plain passes.
