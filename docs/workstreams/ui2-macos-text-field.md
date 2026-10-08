@@ -95,3 +95,18 @@ Formatting, Ruff and diff checks pass. Reference SDK projection is the next
 required step; native helper compilation, plain/sanitized execution, capacity
 overlap, Escape, route migration and entered-handler close still require actual
 qualification. No full E01/IME/owner-session acceptance is claimed.
+
+The first actual reference SDK projection at d4564a49 stopped after4.803s with
+three missing native method projections (subclass setBezelStyle/abortEditing,
+NSTextField superview) and four nullable field-after-call warnings. The typed
+stored delegate binding itself was accepted. Receipt SHA256
+`b81520b12b2c103a2d00433b7fbb1618d56dd8a883e31dfc8f54ad288d9171a0`
+is retained under `ui2-macos-text-d4564a49-compiler-f75c737b`; no C/link/native
+stage ran. All four process groups were absent/reaped and final inputs unchanged.
+
+The forward correction uses existing explicit NSTextField/NSView projections
+and checked owning ticket/channel locals. Public native mutation also goes
+through the existing MacOSView quarantine admission, while private retained
+field access remains available for composition settlement and close. A separate
+fixture checkpoint checks rejected mutation and successful close on that boundary.
+No compiler nullability rule, binding assertion or native test assertion changed.

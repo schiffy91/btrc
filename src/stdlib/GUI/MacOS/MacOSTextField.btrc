@@ -56,7 +56,8 @@ class MacOSTextField implements ITextField, IMacOSView {
 		self._view = MacOSView(control, context);
 		/* Rounded bezels center their text vertically and share the native
 		 * control heights buttons use, so mixed toolbars align without padding hacks. */
-		control.setBezelStyle(NSTextFieldRoundedBezel);
+		NSTextField native = control;
+		native.setBezelStyle(NSTextFieldRoundedBezel);
 		self.setPlaceholder(placeholder);
 		try { control.setSemanticEvents(MacOSTextEvents(self), self._native); }
 		catch (string error) { self._native.cancel(); self._view.close(); self._control = null; throw error; }
@@ -73,7 +74,7 @@ class MacOSTextField implements ITextField, IMacOSView {
 		return control;
 	}
 
-	public NSTextField nativeControl() { return self.nativeField(); }
+	public NSTextField nativeControl() { self._view.nativeView(); return self.nativeField(); }
 
 	public bool isOpen() { self.requireMainThread(); return self._control != null && !self._closing && self._view.isOpen(); }
 
@@ -84,7 +85,7 @@ class MacOSTextField implements ITextField, IMacOSView {
 	public void reconcileAttachment(NSView? parent) { self.nativeControl(); self._view.reconcileAttachment(parent); }
 
 	public void detachFrom(NSView parent) {
-		var control = self.nativeControl();
+		NSView control = self.nativeControl();
 		if (control.superview() != parent) { throw "View does not belong to this native parent"; }
 		self.markInteraction(false, WINDOW_EXPOSURE_UNKNOWN, null); self.settleInteraction();
 		self._view.detachFrom(parent);
@@ -130,6 +131,7 @@ class MacOSTextField implements ITextField, IMacOSView {
 	/* Re-publishing unchanged application state must not reset selection or
 	 * the active input-method composition. */
 	public void setText(string text) {
+		self.nativeControl();
 		var control = self.nativeField();
 		if (text == null) { throw "Native text field text is missing"; }
 		if (self._acceptedText.equals(text)) { return; }
@@ -196,17 +198,19 @@ class MacOSTextField implements ITextField, IMacOSView {
 	}
 
 	private void releaseTickets() {
-		if (self._commitTicket != null && !self._commitTicket.queued()) { self._commitTicket.retire(); }
-		if (self._cancelTicket != null && !self._cancelTicket.queued()) { self._cancelTicket.retire(); }
+		var commit = self._commitTicket; var cancel = self._cancelTicket;
+		if (commit != null && !commit.queued()) { commit.retire(); }
+		if (cancel != null && !cancel.queued()) { cancel.retire(); }
 		self._commitTicket = null; self._cancelTicket = null;
 	}
 
 	private void beginInteraction() {
 		if (self._interacting) { return; }
 		if (self._interaction == 9223372036854775807LL) { throw "Text interaction identities exhausted"; }
+		var commit = self._commit; var cancel = self._cancel;
 		try {
-			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); if (self._commitTicket == null) { throw "Text commit reservation unavailable"; } }
-			if (self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Text cancel reservation unavailable"; } }
+			if (commit != null && commit.isOpen()) { self._commitTicket = commit.beginInteraction(); if (self._commitTicket == null) { throw "Text commit reservation unavailable"; } }
+			if (cancel != null && cancel.isOpen()) { self._cancelTicket = cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Text cancel reservation unavailable"; } }
 		} catch (string error) { self.releaseTickets(); throw error; }
 		self._interaction++; self._interacting = true;
 	}
@@ -332,7 +336,8 @@ class MacOSTextField implements ITextField, IMacOSView {
 			self._view.requireDetached();
 			self._closing = true; self._interacting = false; self.releaseTickets();
 			self._native.cancel();
-			control.abortEditing();
+			NSTextField native = control;
+			native.abortEditing();
 			self._view.close();
 		}
 		return self.pollClose();
