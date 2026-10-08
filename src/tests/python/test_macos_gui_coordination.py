@@ -1,10 +1,13 @@
 """Real process exclusion for the AppKit pytest lease; no GUI/compiler is launched."""
 
+import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -43,18 +46,42 @@ class GuiProcesses:
         self.root = root
         self.processes = {}
         (root / "conftest.py").write_text(
-            "import os, sys\nfrom pathlib import Path\nfrom types import SimpleNamespace\nimport pytest\n"
+            "import hashlib, json, os, sys\nfrom pathlib import Path\nfrom types import SimpleNamespace\nimport pytest\n"
             "from src.tests import conftest as owner\n"
+            "gui_lock_path = None\n"
+            "owner_path = Path(owner.__file__).resolve()\n"
+            "assert owner_path == Path(os.environ['LEASE_OWNER_PATH']), 'Wrong GUI fixture owner'\n"
+            "owner_sha = hashlib.sha256(owner_path.read_bytes()).hexdigest()\n"
+            "assert owner_sha == os.environ['LEASE_OWNER_SHA256'], 'Changed GUI fixture owner'\n"
+            "Path(os.environ['LEASE_ROLE'] + '.owner.json').write_text(json.dumps({'path': str(owner_path), 'sha256': owner_sha}))\n"
             "pytest_plugins = ['src.tests.conftest']\n"
             # Replace only the fixture owner's view of the platform. The real
             # kernel lock is exercised on POSIX, including Linux CI; no AppKit claim.
             "owner.sys = SimpleNamespace(**(vars(sys) | {'platform': os.environ['LEASE_PLATFORM']}))\n"
+            # Observe actual kernel contention. Setup readiness alone cannot
+            # prove that a contender has reached the lease on a busy runner.
+            "if os.name == 'posix':\n"
+            "    import fcntl\n"
+            "    original_flock = fcntl.flock\n"
+            "    def observed_flock(*args, **kwargs):\n"
+            "        try:\n"
+            "            return original_flock(*args, **kwargs)\n"
+            "        except BlockingIOError:\n"
+            "            expected = gui_lock_path\n"
+            "            if expected is not None and expected.exists() and os.path.samestat(os.fstat(args[0]), expected.stat()):\n"
+            "                Path(os.environ['LEASE_ROLE'] + '.blocked').write_text(str(expected.resolve()))\n"
+            "            raise\n"
+            "    fcntl.flock = observed_flock\n"
             "if os.environ.get('LEASE_TIMEOUT'):\n"
             "    original = owner._exclusive\n"
             "    def bounded(path, **kwargs):\n"
             "        return original(path, **(kwargs | {'timeout': float(os.environ['LEASE_TIMEOUT'])}))\n"
             "    owner._exclusive = bounded\n"
             "def pytest_configure(config):\n"
+            "    global gui_lock_path\n"
+            "    gui_lock_path = config.cache.mkdir('macos-gui') / 'execution.lock'\n"
+            "    assert config.inipath.resolve() == Path(os.environ['LEASE_CONFIG']), 'Wrong GUI pytest configuration'\n"
+            "    assert Path(config.getini('cache_dir')).resolve() == Path(os.environ['LEASE_CACHE']), 'Wrong GUI pytest cache'\n"
             "    config.addinivalue_line('markers', 'macos_gui: shared AppKit session')\n"
             "@pytest.hookimpl(tryfirst=True)\n"
             "def pytest_runtest_setup(item):\n"
@@ -91,18 +118,35 @@ class GuiProcesses:
             "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
             "PYTEST_ADDOPTS": "",
             "LEASE_PLATFORM": platform or ("darwin" if os.name != "nt" else sys.platform),
+            "LEASE_CONFIG": str((REPO / "pyproject.toml").resolve()),
+            "LEASE_CACHE": str((self.root / ".pytest_cache").resolve()),
+            "LEASE_OWNER_PATH": str((REPO / "src/tests/conftest.py").resolve()),
+            "LEASE_OWNER_SHA256": hashlib.sha256((REPO / "src/tests/conftest.py").read_bytes()).hexdigest(),
             "LEASE_ROLE": role,
             "LEASE_FAIL": "1" if fail else "0",
             "LEASE_TIMEOUT": "" if timeout is None else str(timeout),
             "LEASE_TEARDOWN": "1" if teardown else "0",
         }
         process = subprocess.Popen(
-            [sys.executable, "-m", "pytest", "-q", "test_process.py::" + ("test_gui" if marked else "test_ordinary")],
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                environment["LEASE_CONFIG"],
+                "--rootdir=" + str(self.root),
+                "--confcutdir=" + str(self.root),
+                "-o",
+                "cache_dir=" + environment["LEASE_CACHE"],
+                "test_process.py::" + ("test_gui" if marked else "test_ordinary"),
+            ],
             cwd=self.root,
             env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            start_new_session=True,
         )
         self.processes[role] = process
         return process
@@ -113,6 +157,15 @@ class GuiProcesses:
             process = self.processes[role]
             assert process.poll() is None, process.communicate()[0]
             assert time.monotonic() < deadline, f"{role} did not reach {event}"
+            time.sleep(0.01)
+
+    def wait_for_contention_or_entry(self, role):
+        """Wait for real lock contention or the body, never just process setup."""
+        deadline = time.monotonic() + 15
+        while not any((self.root / f"{role}.{event}").exists() for event in ("blocked", "entered")):
+            process = self.processes[role]
+            assert process.poll() is None, process.communicate()[0]
+            assert time.monotonic() < deadline, f"{role} reached neither kernel contention nor its body"
             time.sleep(0.01)
 
     def finish(self, role, expected=0):
@@ -128,7 +181,23 @@ class GuiProcesses:
         self.release()
         (self.root / "teardown.release").touch()
         for process in self.processes.values():
-            if process.poll() is None:
+            if os.name == "posix":
+                # Retire the owned pytest group, including any remaining children.
+                # Kill its process group even if the outer leader has exited.
+                # Reap an exited leader before signalling its remaining group.
+                # Darwin may report EPERM for an unreaped zombie-only group.
+                process.poll()
+                with suppress(ProcessLookupError):
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except PermissionError:
+                        # A leader can exit between poll and killpg. Retry only
+                        # after proving its exit; never ignore a live denial or
+                        # assume that its descendants have also exited.
+                        if process.poll() is None:
+                            raise
+                        os.killpg(process.pid, signal.SIGKILL)
+            elif process.poll() is None:
                 process.kill()
             process.communicate(timeout=15)
 
@@ -148,6 +217,7 @@ def test_macos_gui_lease_excludes_other_gui_workers_but_not_ordinary_work(gui_pr
     processes.wait("holder", "entered")
     processes.start("contender")
     processes.wait("contender", "ready")
+    processes.wait_for_contention_or_entry("contender")
     processes.start("ordinary", marked=False)
     processes.wait("ordinary", "entered")
     processes.finish("ordinary")
@@ -170,6 +240,7 @@ def test_macos_gui_lease_releases_after_failed_or_dead_owner(gui_processes, rele
     processes.wait("holder", "entered")
     processes.start("contender")
     processes.wait("contender", "ready")
+    processes.wait_for_contention_or_entry("contender")
     if release == "process-death":
         holder.kill()
         holder.communicate(timeout=15)
@@ -211,6 +282,8 @@ def test_all_known_appkit_execution_tests_claim_the_gui_session(tmp_path):
             sys.executable,
             "-m",
             "pytest",
+            "-c",
+            str(REPO / "pyproject.toml"),
             "--collect-only",
             "-q",
             "-p",
@@ -240,6 +313,7 @@ def test_macos_gui_lease_covers_fixture_teardown(gui_processes):
     processes.wait("holder", "teardown")
     processes.start("contender")
     processes.wait("contender", "ready")
+    processes.wait_for_contention_or_entry("contender")
     processes.start("ordinary", marked=False)
     processes.wait("ordinary", "entered")
     processes.finish("ordinary")
