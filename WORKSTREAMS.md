@@ -211,6 +211,13 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-08 integration claim:** this authorized session owns the bounded
+`codex/integrate-qualified-linux` assembly from compiler `56d548c4` and qualified
+Windows main `49f136ec`. Exact Linux source/test paths, retained native evidence,
+Mac-only final skip fragments and pending combined gates are recorded in
+[the integration report](docs/workstreams/qualified-linux-integration.md).
+No UI2 provider work or compiler implementation edits are part of this packet.
+
 **2026-10-08 D29 follow-up claim:** the parent integrator owns
 `src/runtime/windows/btrc_win_compat.h`,
 `src/tests/python/test_native_win_compat.py` and

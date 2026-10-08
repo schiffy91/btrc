@@ -72,14 +72,14 @@ class LinuxStack extends LinuxContainerView implements IStack {
 				double x = self._left;
 				if (self._alignment == STACK_ALIGN_CENTER) { x = self._left + (innerWidth - width) * 0.5; }
 				else if (self._alignment == STACK_ALIGN_END) { x = self._left + innerWidth - width; }
-				childNode.arrange(x, cursor, width, height);
+				child.arrange(x, cursor, width, height);
 				cursor += height + self._spacing;
 			} else {
 				if (height <= 0.0 || height > innerHeight) { height = innerHeight; }
 				double y = self._top;
 				if (self._alignment == STACK_ALIGN_CENTER) { y = self._top + (innerHeight - height) * 0.5; }
 				else if (self._alignment == STACK_ALIGN_END) { y = self._top + innerHeight - height; }
-				childNode.arrange(cursor, y, width, height);
+				child.arrange(cursor, y, width, height);
 				cursor += width + self._spacing;
 			}
 		}

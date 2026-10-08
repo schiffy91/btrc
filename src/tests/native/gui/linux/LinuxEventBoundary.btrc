@@ -1,0 +1,108 @@
+/* D24: recovered lossless-delivery reproduction; never merge the fixture-only
+ * commit without the event-pump fix. The native observer only isolates the input
+ * queue and peeks its length; LinuxApplication owns every dequeue. */
+import Library.App;
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxWindow;
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+class BoundaryKeys implements IWindowKeyHandler {
+	public Vector<int> codes = [];
+	public int releases = 0;
+	public bool key(AppKeyboardEvent event) {
+		self.codes.push(eventBoundaryLatest());
+		if (event.action == APP_KEY_RELEASED) { self.releases++; }
+		return true;
+	}
+}
+
+class BoundaryWork implements IApplicationWork {
+	public int runs = 0;
+	public void run() { self.runs++; }
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 3);
+	int count = atoi(argv[1]);
+	int terminal = atoi(argv[2]);
+	assert(count == 4095 || count == 4096 || count == 4097 || count == 8193);
+	assert(terminal >= 0 && terminal <= 3);
+	bool initialized = SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS);
+	assert(initialized);
+	var owner = LinuxApplication(16);
+	IApplication application = owner;
+	var window = application.createWindow("E40 boundary", 160.0, 80.0);
+	var native = owner.firstWindow();
+	assert(native != null);
+	var field = application.createTextField("", "");
+	window.attachRoot(field);
+	unsigned int id = native == null ? 0u : native.nativeId();
+	btrcSdlPushPointerMotion(id, 10.0f, 10.0f);
+	btrcSdlPushPointerButton(id, 10.0f, 10.0f, 1u, 1, 1u);
+	btrcSdlPushPointerButton(id, 10.0f, 10.0f, 1u, 0, 1u);
+	var keys = BoundaryKeys();
+	var scope = CallbackScope();
+	window.onKey(keys, scope);
+	window.show();
+	unsigned long long readyDeadline = SDL_GetTicksNS() + 10000000000ULL;
+	while (eventBoundaryFrames() == 0 && SDL_GetTicksNS() < readyDeadline) { owner.pumpOnce(10); }
+	assert(eventBoundaryFrames() > 0);
+	eventBoundaryArm(id);
+	Vector<unsigned int> scans = [(unsigned int)SDL_SCANCODE_A, (unsigned int)SDL_SCANCODE_D, (unsigned int)SDL_SCANCODE_S, (unsigned int)SDL_SCANCODE_W];
+	Vector<int> expected = [];
+	int boundary = count < 4097 ? count : 4097;
+	for (int position = 1; position <= count; position++) {
+		if (position == boundary && terminal == 2) { int pushed = btrcSdlPushText(id, "committed"); assert(pushed == 1); }
+		else if (position == boundary && terminal == 3) { eventBoundaryClose(id); }
+		else {
+			int index = (position - 1) % 4;
+			btrcSdlPushKey(id, scans.get(index), (unsigned int)(65536 + position), 0u, position == boundary && terminal == 1 ? 0 : 1, 0);
+			expected.push(position);
+		}
+	}
+	assert(eventBoundaryQueued() == count);
+	var work = BoundaryWork();
+	application.post(work);
+	field.setPlaceholder("frame progress");
+	int framesBefore = eventBoundaryFrames();
+	owner.pumpOnce(0);
+	int remaining = eventBoundaryQueued();
+	int firstDelivered = keys.codes.len;
+	bool bounded = remaining == (count > 4096 ? count - 4096 : 0);
+	bool workProgress = work.runs == 1;
+	bool frameProgress;
+	if (terminal == 3 && count <= 4096) { frameProgress = !window.isOpen(); }
+	else { frameProgress = eventBoundaryFrames() > framesBefore; }
+	for (int turn = 0; turn < 4 && eventBoundaryQueued() > 0; turn++) { owner.pumpOnce(0); }
+	int mismatch = 0;
+	for (int index = 0; index < keys.codes.len; index++) {
+		if (index >= expected.len || keys.codes.get(index) != expected.get(index)) { mismatch = index + 1; break; }
+	}
+	if (mismatch == 0 && terminal != 3 && keys.codes.len < expected.len) { mismatch = keys.codes.len + 1; }
+	bool textDelivered = terminal == 2 && field.isOpen() && field.text().equals("committed");
+	bool closeDelivered = terminal == 3 && !window.isOpen();
+	/* Close is requested during dispatch and completed at the end of a turn.
+	 * All pre-close keys must arrive. Later keys may form an ordered prefix
+	 * before closure cancels the tail; no duplicate or extra delivery passes. */
+	bool cardinality = keys.codes.len == expected.len;
+	if (terminal == 3) { cardinality = keys.codes.len >= boundary - 1 && keys.codes.len <= expected.len; }
+	bool passed = bounded && workProgress && frameProgress && mismatch == 0 && cardinality && eventBoundaryQueued() == 0 && (terminal != 1 || keys.releases == 1) && (terminal != 2 || textDelivered) && (terminal != 3 || closeDelivered);
+	printf("E40 count=%d terminal=%d boundary=%d first_keys=%d queued_after_first=%d total_keys=%d expected_keys=%d first_key_mismatch=%d releases=%d text=%d close=%d bounded=%d work=%d frame=%d lossless=%d\n", count, terminal, boundary, firstDelivered, remaining, keys.codes.len, expected.len, mismatch, keys.releases, textDelivered ? 1 : 0, closeDelivered ? 1 : 0, bounded ? 1 : 0, work.runs, frameProgress ? 1 : 0, passed ? 1 : 0);
+	fflush(stdout);
+	eventBoundaryDisarm();
+	scope.cancel();
+	var closing = application.close();
+	unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
+	while (closing == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); closing = application.pollClose(); }
+	assert(closing == CALLBACK_CANCELLATION_COMPLETE);
+	return passed ? 0 : 1;
+}

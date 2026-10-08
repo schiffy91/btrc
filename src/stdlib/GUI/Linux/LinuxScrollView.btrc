@@ -38,13 +38,16 @@ class LinuxScrollView extends LinuxContainerView implements IScrollView {
 
 	private double thumbHeight() {
 		if (self._contentHeight <= self.node().height || self._contentHeight <= 0.0) { return 0.0; }
-		return Math.maxDouble(24.0, self.trackHeight() * self.node().height / self._contentHeight);
+		double track = self.trackHeight();
+		/* The preferred minimum cannot exceed a tiny viewport's track.
+		 * Divide first so finite dimensions do not overflow their product. */
+		return Math.minDouble(track, Math.maxDouble(24.0, track * (self.node().height / self._contentHeight)));
 	}
 
 	private double thumbY() {
 		double maximum = self.maximumOffset();
 		double travel = self.trackHeight() - self.thumbHeight();
-		return 2.0 + (maximum > 0.0 ? travel * self._offset / maximum : 0.0);
+		return 2.0 + (maximum > 0.0 ? travel * (self._offset / maximum) : 0.0);
 	}
 
 	public void paint(LinuxPainter painter, double x, double y) {
@@ -75,7 +78,11 @@ class LinuxScrollView extends LinuxContainerView implements IScrollView {
 		}
 		if (event.action == APP_POINTER_DRAGGED && self._dragging) {
 			double travel = self.trackHeight() - self.thumbHeight();
-			if (travel > 0.0) { self.applyOffset(self._dragStartOffset + (event.logicalY - self._dragStartY) * self.maximumOffset() / travel); }
+			double maximum = self.maximumOffset();
+			if (travel > 0.0 && maximum > 0.0) {
+				double fraction = self._dragStartOffset / maximum + (event.logicalY - self._dragStartY) / travel;
+				self.applyOffset(Math.maxDouble(0.0, Math.minDouble(1.0, fraction)) * maximum);
+			}
 			return true;
 		}
 		if ((event.action == APP_POINTER_RELEASED || event.action == APP_POINTER_CANCELLED) && self._dragging) { self._dragging = false; self.node().invalidate(); return true; }

@@ -110,7 +110,7 @@ class LinuxGrid extends LinuxNodeView implements IGrid {
 					var cellNode = cell.node();
 					double height = Math.minDouble(rowHeight, cell.fittingHeight());
 					if (height <= 0.0) { height = rowHeight; }
-					cellNode.arrange(x, y + (rowHeight - height) * 0.5, columnWidth, height);
+					cell.arrange(x, y + (rowHeight - height) * 0.5, columnWidth, height);
 					int index = row * self._columns + column;
 					if (self._gridHidden.get(index)) { self._gridHidden.set(index, false); cellNode.setVisible(true); }
 				}
@@ -149,6 +149,7 @@ class LinuxGrid extends LinuxNodeView implements IGrid {
 		var previous = self._cells.get(index);
 		if (previous == child) { return; }
 		ILinuxView? native = child == null ? null : LinuxComposite.projection(child);
+		if (native != null) { self.node().validateChild(native); }
 		if (previous != null) { self.node().detachChild(previous); self._cells.set(index, null); self._gridHidden.set(index, false); }
 		if (native == null) { return; }
 		self.node().attachChild(native);

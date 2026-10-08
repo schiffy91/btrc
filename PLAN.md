@@ -26,7 +26,7 @@ they do not by themselves demonstrate faster compilation or delivered GUI featur
 **Overall:** the compiler is substantially implemented and has broad correctness
 evidence. Final performance acceptance is open. Desktop GUI shells and selected
 features work, while the complete desktop library and Windows/mobile providers
-remain incomplete. The integrated candidate is not yet on main. There is no
+remain incomplete. The Windows ARM64 slice is on main; the broader integrated candidate is not yet qualified. There is no
 defensible overall percentage complete: the remaining items have different scope
 and several acceptance measurements are missing.
 
@@ -90,8 +90,8 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 | Platform | Demonstrated capability | Missing product capability / next demonstrable result |
 |---|---|---|
 | macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | Finish uninstrumented lifecycle qualification: the independent AppKit control cannot obtain focus while loginwindow is foreground. Add cross-worker GUI focus coordination, resolve the separate intermittent activation failure, then deliver UI2 and remaining controls/services/accessibility. |
-| Linux | SDL shell; X11 GUI/audio lane; repaired Wayland candidate passes dedicated checks | Land current-interface input/layout repairs and UI2 provider, resolve toolkit direction, and qualify remaining features and accessibility. Wayland remains report-only until its required main acceptance. |
-| Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows for that branch pass | Integrate the qualified repair, then qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
+| Linux | SDL shell; X11 GUI/audio lane; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | Qualify the assembled input/layout/scroll/Grid repair tree, then land UI2 provider, resolve toolkit direction, and qualify remaining features and accessibility. Wayland remains report-only until its required main acceptance. |
+| Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows pass and PR53 landed on main `49f136ec` | Qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
 
@@ -127,33 +127,47 @@ account requirements remain explicit where automated tests cannot prove them.
 
 ### Integration status in service of the goals
 
-**Current checkpoint, October 8:** published candidate `71a22734` is frozen in
-[draft PR68](https://github.com/schiffy91/btrc/pull/68) while its final hosted
-matrix runs. Android tooling and API 29/36 emulator jobs pass in run
-`37715597832`; Windows native checks and bootstrap pass in `37715597803`.
-General CI is still running, with two terminal failed jobs: a tuple declaration
-ordering mismatch between compilers, and two compiler peak-memory regressions.
-The self-host shard records 5,849 passes, 34 skips and one failure in
-`TupleGenericInstanceType.btrc`; native bootstrap, both Linux GUI lanes and
-release jobs pass. The benchmark reports `CompileStdlibHeavy` at 45,973,504 bytes
-against 44,789,760 and `RunDispatch` at 18,989,056 against 17,924,096, exceeding
-the unchanged peak allowances. Logs are retained in `hosted-71-current/`; both
-failures require repair, and macOS remains queued. Main remains `87dd60d7`; none of these pending checks
-counts as qualification. Windows PR53's five hosted workflows now pass, including
-actual ARM64 compiler/bootstrap and MSVC ABI/wgpu execution. PR68 remains active.
-Independent UI2 source work and the local Linux native qualification continue.
-The first four Linux Grid rows fail strict-C compilation in both compilers
-because inherited interface types are pruned. Paired repair `808592c9` follows
-fixture-only `72be5947`; the fresh Linux compiler passes all 11 relevant
-regressions, and all four plain/sanitized Grid cases now pass. All four genuine
-Grid negative controls also reach the intended child-identity assertion after
-successful strict-C compilation/linking. The other 96 provider cases also pass,
-with zero failures/errors/skips, after a separately proved fixture typing
-correction. E40's intended negative tree fails exactly its 32 over-budget cases
-and passes all 32 controls. Other negative controls and final combined-tree
-qualification remain in progress. This repair is kept
-separate from frozen PR68. See [the repair evidence](docs/workstreams/interface-parent-reachability.md).
+**Current checkpoint, October 8:** Windows PR53 is merged on main at
+`49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Its source tree is exactly the
+qualified `110a514c` / hosted merge `93093bd4` tree. All five hosted workflows
+passed, including actual Windows ARM64 compiler/bootstrap, sample execution and
+MSVC ABI/wgpu checks. The Linux full test shards, bootstrap, all eight C11 cells,
+generated checks, lint, formatting, extension and release hygiene passed;
+skipped standalone jobs are not counted as evidence. This independent slice did
+not wait for UI2 or the remaining compiler work.
 
+Published broader candidate `71a22734` remains in
+[draft PR68](https://github.com/schiffy91/btrc/pull/68). Its general CI failed on
+tuple declaration ordering, two unchanged peak-memory allowances and two unit
+contracts (compiler lambda ownership and missing signing subprocess timeouts).
+The recorded peaks are 45,973,504 against 44,789,760 bytes for
+`CompileStdlibHeavy`, and 18,989,056 against 17,924,096 for `RunDispatch`.
+Logs remain in `hosted-71-current/`; no benchmark baseline was refreshed.
+Source checkpoint `56d548c4` carries the reviewed tuple-order repair, ordinary
+`operator.attrgetter` keys and bounded signing subprocesses. Its fresh Mac
+compiler and paired proof are in progress, separate from the frozen PR68 evidence.
+
+The local Linux qualification is complete for its bounded component snapshots:
+**100 native provider cases pass**, plus all **11** inherited-interface compiler
+regressions. All **100 counterfactual rows** reached native execution: **64
+intended native failures and 36 passing controls**, with zero skips or setup
+errors in the accepted rows. These cover event delivery, Cut/popup/visibility,
+Grid/Stack resize, scrollbar pixels/input and Grid replacement. E40's original
+invalid bool ternary was corrected only in fixture `2e82334d`, with paired
+branch-truth/laziness proof; original failed attempts remain retained.
+The 96-case snapshot is `2202c0bd` plus that fixture; the four Grid cases use
+`47e64e21`. Both use compiler `808592c9`, native binary SHA-256 `1739f6b1…`.
+The task-started Linux VM is stopped and its locks released.
+
+`codex/integrate-qualified-linux` now assembles those exact provider/test bytes
+with compiler checkpoint `56d548c4` and current Windows main. This combined tree
+has not passed its own gates. The Mac skip fragments classify platform absence
+only; the new Grid driver still needs observed Mac skip admission. Full tests,
+bootstrap, C11, static/generated/extension/hygiene gates, current native checks
+and final compiler parity remain required. No main or performance completion is
+inferred from the component counts. See
+[the integration record](docs/workstreams/qualified-linux-integration.md) and
+[the inherited-interface repair](docs/workstreams/interface-parent-reachability.md).
 
 The consolidated plan and candidate combine substantial compiler correctness,
 C-compatibility, diagnostics and platform-host repairs. Bootstrap and all eight
@@ -537,7 +551,7 @@ do not repeat a failed access request.
 The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `87dd60d7`. PR60 is published at `50bf1c8c`,
+Current upstream main is `49f136ec` (qualified Windows PR53); the earlier integration checkpoints below retain their original evidence. PR60 is published at `50bf1c8c`,
 combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
 and diagnostic corrections. Predecessor `b5e3f81a` found nine failures in
 the structural audit's raw-source parser. Repair `bb40e39c` passes the expanded
@@ -733,9 +747,7 @@ CI merge revision `377666fe`; the complete Linux workflow is green. The new
 regression has not been run against unpatched Weston. Other GTK/accessibility
 warnings are not claimed fixed. The complete macOS workflow is now also green. Scope-skipped native-GUI
 jobs remain excluded from coverage. No final integrated green result is claimed.
-Main remains at `87dd60d7` until
-the combined tree passes its required gates. iOS and Windows ARM64 are separate
-pending their native failure investigations.
+That broader combined tree remains pending its required gates. Windows ARM64 has since landed independently at main `49f136ec`; iOS native investigation remains open.
 
 The pending C2 tag integration has reproduced and repaired three paired managed
 union/formatting lookup omissions; 324 focused tests passed with a fresh compiler,
@@ -1049,7 +1061,7 @@ than restarting completed work within Stages 1–4 or repeating entire audits.
    patches; never wait indefinitely for an unverified bundle. UI2 still lands
    atomically with macOS and Linux providers after their required acceptance.
 4. **Advance platform slices on their own prerequisites.** Review PR51/52 service
-   contracts; investigate PR53's native ARM64 failure; qualify PR34's hosted/iOS 17
+   contracts; build small native Windows services on landed PR53; qualify PR34's hosted/iOS 17
    cases and PR35's combined Android host. Follow each with its small service or
    GUI operation. These gaps do not block independent Mac/Linux MVP validation.
 5. **Integrate, rerun and report outcomes.** For each changed packet reproduce the
@@ -1090,7 +1102,7 @@ failed runs and their evidence rather than replacing them with later passes.
 | PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. All eight strict-C11 configurations (GCC and Clang, -O0 through -O3) passed 2,036 checks each without skips. The serialized remaining-gate run finished successfully, including the plan and diff checks. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge is now included in `06c3923a`; full qualification/main landing remain pending. |
-| PR53, Windows ARM64 host | Published `110a514c` | All five hosted workflows pass. Native ARM64 compiler build/bootstrap/sample and MSVC ABI/wgpu execution pass in 37714407651; archive checksum verified locally. Final combined-tree integration remains. |
+| PR53, Windows ARM64 host | Merged main `49f136ec`, tested head `110a514c` | All five workflows and native ARM64 compiler/bootstrap/sample plus MSVC ABI/wgpu checks pass. Merged tree equals tested tree; archive checksum verified. Broader provider and combined-tree gates remain separate. |
 | PR68, `codex/integrate-compiler-harmonization` | Published `71a22734` | Android tooling/API29/API36, Windows/native bootstrap, Linux bootstrap/release and both GUI lanes pass. General CI still running with tuple-order parity and two peak-memory regressions already failed; macOS queued. Main integration remains gated on repair and qualification. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
@@ -1506,7 +1518,7 @@ owner, the exact prerequisite and the next acceptance.
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
-  published head `06870dfc`). Owner: this authorized integration session.
+  merged main `49f136ec`, qualified head `110a514c`). Owner: this authorized integration session. The final five workflows and actual ARM64 native proof pass; the historical diagnosis below remains retained.
   Main `87dd60d7` is merged into the branch; the tooling now uses the shared Windows Job/gate, target
   flags, PE parser and build-process owner. The overall native deadline,
   component-qualified Visual Studio discovery and separate developer-command

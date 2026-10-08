@@ -248,14 +248,20 @@ class LinuxViewNode {
 
 	public void requestFocus() { var host = self.host; if (host != null) { host.requestFocus(self.id); } }
 
-	/* Attach a child subtree: lifecycle responsibility moves here. */
-	public void attachChild(ILinuxView child) {
+	/* Validate before a replacement releases its previous subtree. */
+	public void validateChild(ILinuxView child) {
 		self.requireOpen();
 		if (child == null) { throw "Cannot attach a missing view"; }
 		var childNode = child.node();
 		childNode.requireOpen();
 		if (childNode.attached) { throw "View already belongs to a container"; }
 		if (childNode == self || childNode.contains(self)) { throw "Native child is already attached or creates a cycle"; }
+	}
+
+	/* Attach a child subtree: lifecycle responsibility moves here. */
+	public void attachChild(ILinuxView child) {
+		self.validateChild(child);
+		var childNode = child.node();
 		self.children.push(child);
 		childNode.attached = true;
 		child.attachTo(self.host);

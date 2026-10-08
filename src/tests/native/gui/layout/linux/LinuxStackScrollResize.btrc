@@ -1,0 +1,106 @@
+/* Resize the actual Linux layout owners and read back their scrolled content. */
+import Library.Callback;
+import Library.Image;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.IContainer;
+import Library.GUI.IGrid;
+import Library.GUI.IScrollView;
+import Library.GUI.IStack;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+void verifyViewport(LinuxWindow native, IWindow window, IScrollView scroll, double height, double offset, RGBA expected) {
+	ILinuxView? view = (ILinuxView?)scroll;
+	assert(view != null);
+	assert(scroll.scrollOffset() == offset);
+	if (view != null) {
+		/* Check before capture: painting must not be allowed to repair layout. */
+		assert(view.node().height == height);
+		assert(view.node().contentOffsetY == -offset);
+	}
+	var image = native.render(true);
+	assert(image != null);
+	if (image != null) {
+		int x = (int)(30.0 * (double)image.width / window.contentWidth());
+		int y = (int)(30.0 * (double)image.height / window.contentHeight());
+		var pixel = image.pixel(x, y);
+		assert(pixel.red == expected.red && pixel.green == expected.green && pixel.blue == expected.blue);
+	}
+	assert(scroll.scrollOffset() == offset);
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	bool vertical = atoi(argv[1]) != 0;
+	bool initialized = SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS);
+	assert(initialized);
+	var owner = LinuxApplication(16);
+	var window = owner.createWindow("Linux scroll resize", 200.0, 500.0);
+	var native = owner.firstWindow();
+	assert(native != null);
+	if (native == null) { return 1; }
+	var root = owner.createContainer();
+	var grid = owner.createGrid(1, 1, 0.0, 0.0);
+	var scroll = owner.createScrollView();
+	var document = owner.createContainer();
+	Vector<RGBA> colors = [RGBA(255, 0, 0, 255), RGBA(0, 255, 0, 255), RGBA(0, 0, 255, 255), RGBA(255, 255, 0, 255)];
+	for (int index = 0; index < colors.len; index++) {
+		var stripe = owner.createPanel(colors.get(index), 0.0);
+		stripe.arrange(0.0, (double)index * 100.0, 120.0, 100.0);
+		document.attach(stripe);
+	}
+	document.arrange(0.0, 0.0, 120.0, 400.0);
+	scroll.attach(document);
+	scroll.setContentSize(120.0, 400.0);
+	grid.setColumnWidth(0, 120.0);
+	grid.setRowHeight(0, 80.0);
+	grid.setChild(0, 0, scroll);
+	IStack stack = vertical ? owner.createColumn(0.0) : owner.createRow(0.0);
+	stack.attach(grid);
+	root.attach(stack);
+	window.attachRoot(root);
+	unsigned long long ready = SDL_GetTicksNS() + 10000000000ULL;
+	while (!native.pollDevice() && SDL_GetTicksNS() < ready) { owner.pumpOnce(10); }
+	bool deviceReady = native.pollDevice();
+	assert(deviceReady);
+	stack.arrange(20.0, 20.0, 120.0, 80.0);
+	stack.layout();
+	scroll.scrollTo(1000.0);
+	verifyViewport(native, window, scroll, 80.0, 320.0, colors.get(3));
+	grid.setRowHeight(0, 180.0);
+	stack.arrange(20.0, 20.0, 120.0, 180.0);
+	stack.layout();
+	verifyViewport(native, window, scroll, 180.0, 220.0, colors.get(2));
+	grid.setRowHeight(0, 180.0);
+	stack.arrange(20.0, 20.0, 120.0, 180.0);
+	stack.layout();
+	verifyViewport(native, window, scroll, 180.0, 220.0, colors.get(2));
+	grid.setRowHeight(0, 440.0);
+	stack.arrange(20.0, 20.0, 120.0, 440.0);
+	stack.layout();
+	verifyViewport(native, window, scroll, 440.0, 0.0, colors.get(0));
+	grid.setRowHeight(0, 80.0);
+	stack.arrange(20.0, 20.0, 120.0, 80.0);
+	stack.layout();
+	verifyViewport(native, window, scroll, 80.0, 0.0, colors.get(0));
+	scroll.scrollTo(1000.0);
+	verifyViewport(native, window, scroll, 80.0, 320.0, colors.get(3));
+	assert(stack.childAt(0) == grid);
+	assert(grid.childAt(0, 0) == scroll);
+	var closing = owner.close();
+	unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
+	while (closing == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); closing = owner.pollClose(); }
+	assert(closing == CALLBACK_CANCELLATION_COMPLETE);
+	assert(!window.isOpen() && !root.isOpen() && !grid.isOpen() && !scroll.isOpen() && !document.isOpen());
+	assert(!stack.isOpen());
+	printf("PASS: linux stack scroll resize %d\n", vertical ? 1 : 0);
+	return 0;
+}
