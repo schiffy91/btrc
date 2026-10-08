@@ -191,3 +191,14 @@ New fixture-only checkpoint `294f821a` captures actual GPU pixels before/after
 handle close, rejects republishing the closed alias, clears presentation and
 checks subsequent native subtree drain. It is unexecuted; no failed runtime
 result is invented or discarded.
+
+Retained-image source repair captures a strong pixel reference and immutable
+native identity when a handle is published. Painting/fitting use that retained
+presentation; closing the handle no longer erases an installed image. Even a
+same-alias publication checks handle openness before its no-op. Clearing or
+completed view close releases retained pixels and identity. The existing
+LinuxGUIControls assertion now checks identical captured RGBA and identity after
+close, rejection of the closed alias, and cleared pixels after explicit clear;
+its existing final application teardown remains. These are approved contract
+changes, not a new release allowance. Both new and reconciled native fixtures
+remain unexecuted; formatter/diff passed.

@@ -63,38 +63,43 @@ class LinuxImageHandle implements ILinuxImageHandle {
 /* Aspect-preserving presentation of one image handle. */
 class LinuxImageView extends LinuxNodeView implements IImageView {
 	private ILinuxImageHandle? _handle = null;
+	private Image? _pixels = null;
+	private int _identity = 0;
 
 	public LinuxImageView(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); }
 
 	public void paint(LinuxPainter painter, double x, double y) {
-		var handle = self._handle;
-		if (handle == null || !handle.isOpen()) { return; }
-		var texture = painter.imageTexture(handle.identity(), handle.pixels());
+		var pixels = self._pixels;
+		if (pixels == null) { return; }
+		var texture = painter.imageTexture(self._identity, pixels);
 		painter.imageFit(texture, x, y, self.node().width, self.node().height, RGBA(255, 255, 255, 255));
 	}
 
-	public double fittingWidth() { self.node().requireOpen(); var handle = self._handle; return handle == null ? 0.0 : (double)handle.width(); }
+	public double fittingWidth() { self.node().requireOpen(); var pixels = self._pixels; return pixels == null ? 0.0 : (double)pixels.width; }
 
-	public double fittingHeight() { self.node().requireOpen(); var handle = self._handle; return handle == null ? 0.0 : (double)handle.height(); }
+	public double fittingHeight() { self.node().requireOpen(); var pixels = self._pixels; return pixels == null ? 0.0 : (double)pixels.height; }
 
 	public void setImage(Image? pixels, int maximumPixels = 16777216) {
 		self.node().requireOpen();
-		if (pixels == null) { self._handle = null; self.node().invalidate(); return; }
-		self._handle = LinuxImageHandle.create(pixels, maximumPixels);
-		self.node().invalidate();
+		if (pixels == null) { self.setImageHandle(null); return; }
+		self.setImageHandle(LinuxImageHandle.create(pixels, maximumPixels));
 	}
 
 	public void setImageHandle(IImageHandle? handle) {
 		self.node().requireOpen();
-		if (handle == null) { self._handle = null; self.node().invalidate(); return; }
+		if (handle == null) { self._handle = null; self._pixels = null; self._identity = 0; self.node().invalidate(); return; }
 		ILinuxImageHandle? native = (ILinuxImageHandle?)handle;
 		if (native == null) { throw "Native image view requires a Linux image handle"; }
+		if (!native.isOpen()) { throw "Native image handle is closed"; }
 		if (self._handle == native) { return; }
-		self._handle = native;
+		/* Presentation owns its pixels independently of the publication handle.
+		 * Capture both before replacing any previous presentation. */
+		var pixels = native.pixels(); int identity = native.identity();
+		self._handle = native; self._pixels = pixels; self._identity = identity;
 		self.node().invalidate();
 	}
 
-	public CallbackCancellation close() { var state = self.node().close(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._handle = null; } return state; }
+	public CallbackCancellation close() { var state = self.node().close(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._handle = null; self._pixels = null; self._identity = 0; } return state; }
 
-	public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._handle = null; } return state; }
+	public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._handle = null; self._pixels = null; self._identity = 0; } return state; }
 }

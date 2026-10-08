@@ -28,7 +28,7 @@ class UI2LinuxImageChecks {
 		assert(native.pollDevice());
 		var before = native.render(true); assert(before != null);
 		var first = before.pixel(before.width / 2, before.height / 2); assert(first.green > 190 && first.red < 30);
-		handle.close();
+		int identity = handle.identity(); handle.close(); assert(handle.identity() == identity);
 		var after = native.render(true); assert(after != null);
 		var retained = after.pixel(after.width / 2, after.height / 2);
 		assert(retained.red == first.red && retained.green == first.green && retained.blue == first.blue);
