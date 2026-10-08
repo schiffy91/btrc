@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.c_toolchains import configured_c_compiler, selfhost_link_flags
+from src.tests.c_toolchains import HOST_COMPILER_DIAGNOSTICS, configured_c_compiler, selfhost_link_flags
 from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.skip_ledger import SkipLedger
 
@@ -65,6 +65,16 @@ def pytest_configure(config):
     SkipLedger.install(config)
     config.addinivalue_line("markers", "macos_gui: requires exclusive AppKit application execution on macOS")
     config.addinivalue_line("markers", "linux_gui: owns shared Linux GUI focus or clipboard state")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = yield
+    if call.excinfo is not None:
+        evidence = HOST_COMPILER_DIAGNOSTICS.failure(call.excinfo.value)
+        if evidence is not None:
+            report.sections.append(("host compiler launch evidence", json.dumps(evidence, sort_keys=True)))
+    return report
 
 
 @pytest.hookimpl(tryfirst=True)
