@@ -1,5 +1,5 @@
-/* Source-only real-Window fixture draft; native probe/bindings and cohesive
- * provider integration remain required before projection/qualification. */
+/* Real window state observations retain snapshots and compare native geometry,
+ * visibility, minimization and close behavior. */
 import Library.Callback;
 import Library.Vector;
 import Library.GUI.IWindow;

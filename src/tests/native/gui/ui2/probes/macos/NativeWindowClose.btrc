@@ -1,5 +1,5 @@
-/* Source-only fixture draft, not yet admitted/projected. WindowProbe is a
- * forthcoming native probe owning real field-editor observations only. */
+/* Real window close transactions; the native probe observes field-editor
+ * identity and injects physical attachment failures. */
 import Library.Callback;
 import Library.App;
 import Library.Vector;
