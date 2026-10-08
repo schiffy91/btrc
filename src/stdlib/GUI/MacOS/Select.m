@@ -2,6 +2,7 @@
 
 @implementation BTRCMacOSSelect {
     NSHashTable<id<BTRCMacOSSelectEvents>> *_semanticEvents;
+    id _keyMonitor;
     NSUInteger _trackingDepth;
     BOOL _escape;
 }
@@ -52,11 +53,39 @@
     if (!sink || ![sink shouldBegin]) { return NO; }
     _trackingDepth = 1;
     _escape = NO;
+    /* An open NSMenu consumes keys inside its own tracking loop. Observe the
+     * actual Escape without swallowing it or depending on keyDown reentry. */
+    @try {
+        _keyMonitor = [[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+            handler:^NSEvent *(NSEvent *input) {
+                NSString *characters = input.charactersIgnoringModifiers;
+                if (self->_trackingDepth != 0 && characters.length == 1 &&
+                    [characters characterAtIndex:0] == 0x1b) { self->_escape = YES; }
+                return input;
+            }] retain];
+    } @catch (NSException *exception) {
+        _trackingDepth = 0;
+        [sink ended:NO];
+        @throw exception;
+    }
+    if (!_keyMonitor) {
+        _trackingDepth = 0;
+        [sink ended:NO];
+        return NO;
+    }
     return YES;
 }
 
 - (void)endTracking {
-    if (--_trackingDepth == 0) { [self.semanticEvents ended:_escape]; }
+    if (--_trackingDepth == 0) {
+        /* The monitor may be the last native owner after an entered close. */
+        [self retain];
+        @try {
+            [NSEvent removeMonitor:_keyMonitor];
+            [_keyMonitor release]; _keyMonitor = nil;
+            [self.semanticEvents ended:_escape];
+        } @finally { [self release]; }
+    }
 }
 
 - (void)mouseDown:(NSEvent *)event {
@@ -74,11 +103,15 @@
 - (void)keyDown:(NSEvent *)event {
     NSString *characters = event.charactersIgnoringModifiers;
     unichar key = characters.length ? [characters characterAtIndex:0] : 0;
+    BOOL printable = characters.length != 0 &&
+        ![NSCharacterSet.controlCharacterSet characterIsMember:key] &&
+        !(key >= NSUpArrowFunctionKey && key <= NSModeSwitchFunctionKey) &&
+        !(event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl));
     BOOL relevant = key == NSUpArrowFunctionKey || key == NSDownArrowFunctionKey ||
         key == NSLeftArrowFunctionKey || key == NSRightArrowFunctionKey ||
         key == NSHomeFunctionKey || key == NSEndFunctionKey ||
         key == NSPageUpFunctionKey || key == NSPageDownFunctionKey ||
-        key == ' ' || key == '\r' || key == '\n' || key == 0x1b;
+        key == ' ' || key == '\r' || key == '\n' || key == 0x1b || printable;
     if (!relevant) { [super keyDown:event]; return; }
     if (![self beginTracking]) { return; }
     if (key == 0x1b) { _escape = YES; }
