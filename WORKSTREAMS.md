@@ -211,6 +211,21 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-08 D29 UI2 range/selection continuation:** the parent integrator owns
+`src/stdlib/GUI/MacOS/MacOSSlider.btrc`, `MacOSSelect.btrc`, any required typed
+native `MacOS/Range.h`, `Range.m`, `Select.h`, `Select.m` bridges,
+`src/tests/native/gui/ui2/probes/macos/NativeRangeState.btrc`,
+`NativeSelectionState.btrc`, their dedicated Range/Select probe modules,
+`src/tests/python/test_native_ui_range_selection_macos.py`, and
+`docs/workstreams/ui2-macos-range-selection.md` on
+`codex/ui2-macos-slider-select` from `904d2716` in the existing android-host clone.
+The authentic public-application baseline on provider `b6a4fe3e` and compiler
+`f75c737b` has six missing slider and seven missing selection methods. Reuse the
+approved contracts and shared semantic owners; no portable API, shared context,
+compiler or runtime change is claimed. Native bindings are a final fragment.
+TextField and Application owners are assigned to separate agents/clones.
+Actual native component qualification and atomic desktop integration remain open.
+
 **Rule.** A packet holds its **owned paths** from the moment its branch or draft PR exists until Claude integrates or abandons it. While held, no other packet edits those files. Its **must-not-touch** list is binding even when the file is free.
 
 **Integrator-owned data and generated files (§3.3.1) are never held.** Any number of in-flight packets may carry `fragment:` or `derived:` changes to them, and Claude serializes them at integration. A packet lists them as `fragment (not held): <file> <what>`; a Claude landing packet lists them as "(integrator: applies fragments; not held)".
