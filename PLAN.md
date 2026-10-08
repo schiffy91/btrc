@@ -636,7 +636,7 @@ source-override component result, not installed-product or dependency-pin
 acceptance. Existing-owner nullable warnings remain in the logs. The matching
 Linux replay is pending. A separate production defect remains: GUIApplication
 must propagate every non-complete window-close state before releasing dependent
-view/session ownership. Source candidate `c879fc86` calls the existing idempotent
+view/session ownership. Source candidate `8f73b7d5` calls the existing idempotent
 window close operation unconditionally and preserves all non-complete results.
 It also fatally stops destruction on unfinished or thrown cleanup before runtime
 field release; throwing from the destructor alone is insufficient because the
@@ -647,8 +647,12 @@ Nix executable path and omits its probe object. No native child executes, and th
 required baseline failure is correctly refused. All five owned groups close and
 inputs remain unchanged. Retained result SHA-256:
 `18e770a3ca3464a484af76939423a8061b2454fd4f3ddfc2168f73e4cd37b722`
-in `btrsmith-window-close-f75-baseline-attempt-1/result.json`. A narrow driver
-correction is under review. Native failure propagation, native-close handling and
+in `btrsmith-window-close-f75-baseline-attempt-1/result.json`. The narrow driver correction now recognizes the resolved compiler identity and
+injects its probe only into the intended link command, once. Twelve command
+controls pass, including the original resolved-link failure. Identical fixture
+bytes are mirrored across original baseline `f6c98636`, old-destructor
+counterfactual `435bf12d` and candidate `8f73b7d5`; the corrected native
+baseline has not yet run. Native failure propagation, native-close handling and
 final-owner destruction remain unqualified; the thrown-close guard is source
 reviewed only. Product fixture `37bbb680` is now published privately on
 `codex/native-shutdown-lifecycle`, satisfying the Linux replay's source
@@ -986,7 +990,7 @@ changes; historical test totals alone do not advance its status.
 |---|---|---|---|
 | Current compiler speed and memory matrix | Token candidate `71352c50` reduces the focused Linux heavy-stdlib reported peak by 8.241%. Combined lifetime candidate `92691bee` passes 164 focused checks. Whole-product targets remain unqualified | Performance owner; main session runs quiet measurements | Private current-product Linux RSS comparison `37771609277` failed during image-layer commit before compiler execution or samples. Mac quiet admission has no completed paired round. Stage 4/pin, Stage 5 and final product matrix remain open. |
 | Faster incremental edits | Current tuple/instance repair proves one changed group for inventory-preserving edits and three for genuinely new shared tuple shapes, across both frontends/release/debug with strict native outputs and clean-versus-incremental equality | Incremental compiler owner | Finish current combined gates, then measure edit median/p95 and memory. Full consulted-fact/analysis reuse and Stage 9 counters remain open. Work counts are not speed results. |
-| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected platform skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish Mac integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
+| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish Mac integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
 | UI2 events, executor and lifecycle on desktop | macOS foundation and ordered-container components have scoped native passes. Window and capture/run-loop replay each add eight native passes on compiler `f75c737b`. The public application baseline exposed 19 missing methods; their implementations now exist, with combined qualification open | Application, text-field and range/selection owners | Qualify the implemented methods with original native assertions and complete remaining application integration. Linux Window source is reviewed; its native baseline/candidate run awaits a hosted slot. Full UI2 and application quit remain open. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. With compiler `f75c737b`, Linux paired live-agent acceptance passes. Fixture repair `37bbb680` now passes original macOS native shutdown and link-plan parity through both compilers. | BTRSmith owner and integrator | Replay the corrected real-startup fixture on Linux, repair non-complete window-close propagation, then complete paired audio, installed-product and dependency-pin qualification. The full MVP remains incomplete. |
