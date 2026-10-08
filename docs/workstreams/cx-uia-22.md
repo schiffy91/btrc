@@ -144,3 +144,14 @@ CACurrentMediaTime
 This is a source requirement list, not a generated catalog or verified reader
 projection. The source/fault fixture qualification will determine the exact
 accepted reader rows before the final fragment is committed.
+
+## Scheduled-work baseline fixture
+
+`WorkQueue.btrc` directly exercises the provider-owned scheduler that will replace
+per-item performBlock dispatch: future/immediate work share capacity, cancellation
+releases capacity, handlers are never inline, self-posted work waits for a fresh
+round, suspended cancel rejects, deferred work remains charged, and keyed
+replacement retires one superseded receipt. This fixture-only checkpoint precedes
+MacOSExecutor.btrc. Its native compilation/execution remains pending; the new
+internal owner is absent at baseline. It supplements, rather than replaces, the
+required public IApplication host and real-loop acceptance journeys.
