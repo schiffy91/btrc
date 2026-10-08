@@ -651,8 +651,14 @@ in `btrsmith-window-close-f75-baseline-attempt-1/result.json`. The narrow driver
 injects its probe only into the intended link command, once. Twelve command
 controls pass, including the original resolved-link failure. Identical fixture
 bytes are mirrored across original baseline `f6c98636`, old-destructor
-counterfactual `435bf12d` and candidate `8f73b7d5`; the corrected native
-baseline has not yet run. Native failure propagation, native-close handling and
+counterfactual `435bf12d` and candidate `8f73b7d5`. The corrected original baseline
+now reproduces the actual bug through both compilers: both normal-close children
+exit zero; both failure children observe real GPU/window FAILED, then abort at
+the exact generated assertion that the application must return FAILED. This
+qualifies the counterfactual, not the fix. All ten owned groups are absent and
+inputs remain unchanged. Receipt `btrsmith-window-close-f75-baseline-attempt-2/result.json`
+has SHA-256 `1b8de5dc4b10783ac6c724f329e47f52b9c317a1624fe3cafa50e8d672f9bd5d`.
+The old-destructor counterfactual and final candidate still await execution. Native failure propagation, native-close handling and
 final-owner destruction remain unqualified; the thrown-close guard is source
 reviewed only. Product fixture `37bbb680` is now published privately on
 `codex/native-shutdown-lifecycle`, satisfying the Linux replay's source
@@ -691,7 +697,13 @@ and final source hygiene pass. Boundary accounting is 287 checked of 311, with
 24 managed-behavior records explicitly excluded. Expected skips and physical
 Linux desktop coverage require counterpart evidence; they are not passes.
 Audit SHA-256 is `ff94d1ab8a3552c01121518f0bef6b9d4d1311d0a6449814a1055100a49164f8`
-in `pr68-00e45379-linux-final-audit/audit.json`. The macOS x64
+in `pr68-00e45379-linux-final-audit/audit.json`. The macOS ARM64 bundle now also
+passes archive construction, relocation and execution of its strictly compiled
+output (job `113343316526`). The Mac bootstrap boundary artifact likewise checks
+287 of 311 records and excludes the same 24 managed-behavior records; it does
+not fill the Linux exclusion. Artifact `11559776904` has ZIP SHA-256
+`204066ca5f2cd1b9f95ab0f07ff50f93cfb11b109fa9b9eedfde7c921be1de8e`.
+The macOS x64
 bundle attempt reached its unchanged 45-minute job limit during Nix dependency
 realization, before compiler/bundle tests. Its retained log digest is
 `1cd1b8ca7ce8466b4e9498fbba383a74a2442d8543d889dc327428cd29b40588`;
