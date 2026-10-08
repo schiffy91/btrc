@@ -467,3 +467,15 @@ commit one revision, and distinguish verified rollback, reconciled failure, and
 unknown-ownership quarantine. Fixture-only ordering/rejection/fault controls
 precede production changes. The current native lane belongs to the parent
 compiler measurement; preparation does not execute a compiler or native probe.
+
+The first ordered-container fixture draft adds `NativeContainerOrder` plus a
+test-only `UI2ContainerProbe` Objective-C class. It observes physical/plain and
+arranged/stack order independently, uses an actual NSWindow/NSTextField field
+editor with marked text and selection, and swizzles targeted native order steps
+before/after side effects and native membership inspection. The planned rows
+cover validation/revision rejection, one batch revision, same-index MOVE,
+forward failure, inverse failure, reconciliation and quarantine. These fixtures
+have not been projected or executed. Their native editing notification checks
+do not claim the still-unimplemented typed text commit/cancel channels; that
+E29 acceptance remains open. Attach/detach fault coverage and unexpected native
+input/reentrant delivery probes are still being prepared.

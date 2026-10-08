@@ -24,6 +24,10 @@ PROBES = ROOT / "src/tests/native/gui/ui2/probes/macos"
         ("RunLoopDeadline", "UI2 monotonic deadlines wake default and tracking modes once"),
         ("NativeViewState", "UI2 native view visibility updates revisioned state without inline delivery"),
         ("NativeTreeState", "UI2 native subtree state preserves disabled preference across hide and reattachment"),
+        (
+            "NativeContainerOrder",
+            "UI2 native container transactions preserve editor state and report verified rollback ownership",
+        ),
         ("InteractionState", "UI2 view state preserves snapshots and separates observation from input eligibility"),
         ("WorkQueue", "UI2 scheduled work shares capacity, preserves rounds and applies suspension policy"),
         ("Publisher", "UI2 worker publication preserves capacity, receipt identity and cancellation ownership"),
@@ -45,6 +49,16 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
         '[[native.frameworks]]\nname = "AppKit"\n'
         '[[native.sources]]\npath = "RunLoopProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
+    if fixture == "NativeContainerOrder":
+        shutil.copyfile(PROBES / "ContainerProbe.btrc", source.parent / "ContainerProbe.btrc")
+        for name in ("ContainerProbe.h", "ContainerProbe.m"):
+            shutil.copyfile(PROBES / name, root / name)
+        with (root / "btrc.toml").open("a") as manifest:
+            manifest.write(
+                '[[native.bindings]]\nmodule = "ContainerProbe"\nheader = "ContainerProbe.h"\n'
+                'language = "objective-c"\nstandard = "c11"\nsymbols = ["UI2ContainerProbe"]\n'
+                '[[native.sources]]\npath = "ContainerProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+            )
     plan = root / "RunLoop.link.json"
     compiled = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)

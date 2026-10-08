@@ -1,0 +1,131 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSStack;
+import Library.GUI.MacOS.MacOSControlEvents;
+
+import ./RunLoopProbe.btrc;
+import ./ContainerProbe.btrc;
+#include <assert.h>
+
+class ContainerOrderCases {
+	class ContainerEdit edit(ContainerEditKind kind, IView child, int index = 0) {
+		var edit = ContainerEdit(); edit.kind = kind; edit.child = child; edit.index = index; return edit;
+	}
+
+	class void order(IContainer parent, Vector<IView> expected, bool stack) {
+		assert(parent.childCount() == expected.len);
+		var native = (IMacOSView)parent;
+		for (int index = 0; index < expected.len; index++) {
+			assert(parent.childAt(index) == expected.get(index));
+			var child = (IMacOSView)expected.get(index);
+			assert(child.nativeView().superview() == native.nativeView());
+			if (stack) { assert(UI2ContainerProbe.arrangedIndexOf(child.nativeView(), native.nativeView()) == index); }
+			else { assert(UI2ContainerProbe.indexOf(child.nativeView(), native.nativeView()) == index); }
+		}
+	}
+
+	class void normal(bool stack) {
+		var context = MacOSControlContext();
+		IContainer parent = MacOSContainer(null, context);
+		if (stack) { assert(parent.close() == CALLBACK_CANCELLATION_COMPLETE); parent = MacOSStack(true, 0.0, context); }
+		var projection = (IMacOSView)parent;
+		var host = UI2ContainerProbe.openHost();
+		projection.attachTo(host);
+		var first = MacOSView(null, context);
+		var editor = MacOSView(UI2ContainerProbe.newField(), context);
+		var last = MacOSView(null, context);
+		long long revision = parent.treeRevision();
+		parent.attach(first); assert(parent.treeRevision() == revision + 1LL);
+		parent.attach(last); parent.insert(editor, 1);
+		ContainerOrderCases.order(parent, [first, editor, last], stack);
+		UI2ContainerProbe.beginEditing(editor.nativeView());
+		var nativeIdentity = editor.nativeView();
+		revision = parent.treeRevision();
+		parent.move(editor, 0);
+		assert(parent.treeRevision() == revision + 1LL);
+		ContainerOrderCases.order(parent, [editor, first, last], stack);
+		assert(editor.nativeView() == nativeIdentity);
+		assert(UI2ContainerProbe.editorUnchanged() && UI2ContainerProbe.editingNotifications() == 0);
+		parent.move(editor, 0);
+		ContainerOrderCases.order(parent, [editor, first, last], stack);
+		assert(UI2ContainerProbe.editorUnchanged() && UI2ContainerProbe.editingNotifications() == 0);
+
+		var extra = MacOSView(null, context);
+		revision = parent.treeRevision();
+		var edits = [ContainerOrderCases.edit(CONTAINER_EDIT_MOVE, last, 0), ContainerOrderCases.edit(CONTAINER_EDIT_INSERT, extra, 2)];
+		var committed = parent.applyBatch(revision, edits);
+		assert(committed.kind == CONTAINER_BATCH_COMMITTED && committed.treeRevision == revision + 1LL);
+		ContainerOrderCases.order(parent, [last, editor, extra, first], stack);
+		assert(UI2ContainerProbe.editorUnchanged() && UI2ContainerProbe.editingNotifications() == 0);
+
+		/* A bad final edit rejects the entire sequence before the earlier MOVE. */
+		revision = parent.treeRevision();
+		var rejected = parent.applyBatch(revision, [ContainerOrderCases.edit(CONTAINER_EDIT_MOVE, first, 0), ContainerOrderCases.edit(CONTAINER_EDIT_INSERT, last, 0)]);
+		assert(rejected.kind == CONTAINER_BATCH_REJECTED && parent.treeRevision() == revision);
+		ContainerOrderCases.order(parent, [last, editor, extra, first], stack);
+		assert(UI2ContainerProbe.editorUnchanged() && UI2ContainerProbe.editingNotifications() == 0);
+		rejected = parent.applyBatch(revision - 1LL, [ContainerOrderCases.edit(CONTAINER_EDIT_MOVE, first, 0)]);
+		assert(rejected.kind == CONTAINER_BATCH_REJECTED && parent.treeRevision() == revision);
+		ContainerOrderCases.order(parent, [last, editor, extra, first], stack);
+		assert(parent.detach(extra) == extra && extra.isOpen() && extra.nativeView().superview() == null);
+		assert(extra.close() == CALLBACK_CANCELLATION_COMPLETE);
+		projection.detachFrom(host);
+		assert(parent.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!first.isOpen() && !editor.isOpen() && !last.isOpen());
+		UI2ContainerProbe.closeHost(); context.close();
+	}
+
+	class void faults(bool firstAfter, bool inverseFailure, bool unknown) {
+		var context = MacOSControlContext();
+		var parent = MacOSContainer(null, context);
+		var first = MacOSView(null, context);
+		var second = MacOSView(null, context);
+		parent.attach(first); parent.attach(second);
+		var native = parent.nativeView();
+		var secondNative = second.nativeView();
+		long long revision = parent.treeRevision();
+		int secondFailure = 0; if (inverseFailure) { secondFailure = 2; }
+		UI2ContainerProbe.armOrderFaults(native, 1, secondFailure, firstAfter, false, unknown);
+		var result = parent.applyBatch(revision, [ContainerOrderCases.edit(CONTAINER_EDIT_MOVE, second, 0)]);
+		int calls = UI2ContainerProbe.orderCalls();
+		UI2ContainerProbe.resetFaults();
+		assert(calls > 0 && result.failedStep == 0 && !result.error.isEmpty());
+		if (!inverseFailure) {
+			assert(result.kind == CONTAINER_BATCH_ROLLED_BACK && parent.treeRevision() == revision);
+			ContainerOrderCases.order(parent, [first, second], false);
+			assert(!parent.interactionState().faulted);
+		} else {
+			assert(calls >= 2 && parent.interactionState().faulted);
+			if (unknown) {
+				assert(result.kind == CONTAINER_BATCH_FAILED_QUARANTINED);
+				assert(parent.childCount() == 2 && parent.childAt(0) == first && parent.childAt(1) == second);
+			} else {
+				assert(result.kind == CONTAINER_BATCH_FAILED_CONSISTENT && parent.treeRevision() == revision + 1LL);
+				assert(parent.childAt(0) == second && parent.childAt(1) == first);
+				assert(UI2ContainerProbe.indexOf(secondNative, native) == 0);
+			}
+			assert(result.retained.len == 2 && result.detached.len == 0);
+			bool rejected = false;
+			try { parent.move(first, 0); } catch (string error) { rejected = !error.isEmpty(); }
+			assert(rejected);
+		}
+		assert(parent.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!first.isOpen() && !second.isOpen()); context.close();
+	}
+}
+
+int main() {
+	ui2InitializeAppKit();
+	ContainerOrderCases.normal(false);
+	ContainerOrderCases.normal(true);
+	ContainerOrderCases.faults(false, false, false);
+	ContainerOrderCases.faults(true, false, false);
+	ContainerOrderCases.faults(true, true, false);
+	ContainerOrderCases.faults(true, true, true);
+	print("UI2 native container transactions preserve editor state and report verified rollback ownership");
+	return 0;
+}
