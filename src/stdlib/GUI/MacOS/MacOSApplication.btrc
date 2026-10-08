@@ -349,10 +349,11 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 	public void run() {
 		self.requireIdle();
 		if (self._running || self._attachment != null) { throw "Native application loop is already active"; }
-		if (self._application.delegate() != null) { throw "Standalone application cannot replace an existing native delegate"; }
+		/* The scoped native setter rejects an occupied delegate before publication.
+		 * Admit it before the run/teardown transaction so rejection leaves this owner open. */
+		self._application.setDelegate(self, self._runCallbacks);
 		bool failed = false; string failure = "";
 		try {
-			self._application.setDelegate(self, self._runCallbacks);
 			if (self._application.activationPolicy() != NSApplicationActivationPolicyRegular && !self._application.setActivationPolicy(NSApplicationActivationPolicyRegular)) { throw "Cannot enable native application activation"; }
 			self._application.finishLaunching();
 			var attached = self.attachHost(MacOSApplicationHost(self._signal), self._runOwner);
