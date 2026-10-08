@@ -63,12 +63,37 @@ class UI2PublisherFailureChecks {
 		assert(publisher.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(publisher.tryPublish(1LL, 4LL, WORK_SUSPENSION_DEFER, 1LL, 63LL) == PUBLISH_CLOSED);
 		assert(receiver.calls == 0 && host.calls == (replacement ? 2 : 1));
+		assert(publisher.pendingCount() == 0 && publisher.acceptedCount() == (replacement ? 2LL : 1LL));
+		assert(publisher.retiredCount(LINUX_PUBLICATION_FAILED) == 1LL);
+		assert(publisher.retiredCount(LINUX_PUBLICATION_SUPERSEDED) == (replacement ? 1LL : 0LL));
+	}
+
+	class void receipts() {
+		var publisher = LinuxPublisher(2, null); var receiver = UI2LinuxReceiver(); var scope = CallbackScope();
+		assert(publisher.initialized()); publisher.activate(receiver, scope);
+		assert(publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 1LL, 1LL) == PUBLISH_ACCEPTED);
+		assert(publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 1LL, 2LL) == PUBLISH_REPLACED);
+		assert(publisher.tryPublish(2LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 3LL) == PUBLISH_ACCEPTED);
+		assert(publisher.tryPublish(1LL, 3LL, WORK_SUSPENSION_DEFER, 0LL, 90LL) == PUBLISH_STALE);
+		assert(publisher.deliverOne() && receiver.calls == 1 && receiver.value == 3LL);
+		assert(publisher.tryPublish(2LL, 2LL, WORK_SUSPENSION_CANCEL, 0LL, 4LL) == PUBLISH_ACCEPTED);
+		publisher.suspend(true); assert(!publisher.deliverOne());
+		assert(publisher.tryPublish(2LL, 3LL, WORK_SUSPENSION_DEFER, 0LL, 5LL) == PUBLISH_ACCEPTED);
+		assert(publisher.requestCancel(2LL, 3LL) == PUBLISH_CANCEL_REQUESTED);
+		assert(publisher.tryPublish(2LL, 4LL, WORK_SUSPENSION_DEFER, 0LL, 6LL) == PUBLISH_ACCEPTED);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(publisher.pendingCount() == 0 && publisher.acceptedCount() == 6LL);
+		assert(publisher.retiredCount(LINUX_PUBLICATION_DELIVERED) == 1LL);
+		assert(publisher.retiredCount(LINUX_PUBLICATION_SUPERSEDED) == 1LL);
+		assert(publisher.retiredCount(LINUX_PUBLICATION_STALE) == 1LL);
+		assert(publisher.retiredCount(LINUX_PUBLICATION_CANCELLED) == 3LL);
+		assert(publisher.retiredCount(LINUX_PUBLICATION_FAILED) == 0LL && receiver.calls == 1);
 	}
 }
 
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
-	UI2PublisherFailureChecks.throwingHost(false); UI2PublisherFailureChecks.throwingHost(true);
+	UI2PublisherFailureChecks.receipts(); UI2PublisherFailureChecks.throwingHost(false); UI2PublisherFailureChecks.throwingHost(true);
 	var application = LinuxApplication(4);
 	var receiver = UI2LinuxReceiver(); var scope = CallbackScope();
 	var created = application.createPublisher(2, receiver, scope);

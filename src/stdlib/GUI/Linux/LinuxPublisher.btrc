@@ -16,12 +16,28 @@ struct LinuxPublicationSlot {
 	int policy;
 };
 
+enum LinuxPublicationDisposition {
+	LINUX_PUBLICATION_DELIVERED,
+	LINUX_PUBLICATION_CANCELLED,
+	LINUX_PUBLICATION_STALE,
+	LINUX_PUBLICATION_SUPERSEDED,
+	LINUX_PUBLICATION_CLOSED,
+	LINUX_PUBLICATION_FAILED
+};
+
 class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 	private pthread_mutex_t* _mutex = null;
 	private struct LinuxPublicationSlot* _slots = null;
 	private int _capacity;
 	private int _count = 0;
 	private int _executing = 0;
+	private long long _accepted = 0LL;
+	private long long _delivered = 0LL;
+	private long long _cancelled = 0LL;
+	private long long _stale = 0LL;
+	private long long _superseded = 0LL;
+	private long long _closed = 0LL;
+	private long long _failures = 0LL;
 	private Atomic<uint> _notifying;
 	private Atomic<bool> _sealed;
 	private CallbackCancellation _cancellation = CALLBACK_CANCELLATION_NOT_REQUESTED;
@@ -77,13 +93,40 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		self._count--;
 	}
 
+	/* Fixed plain counters share the mailbox mutex. Every admitted receipt is
+	 * pending (including entered delivery) or has exactly one disposition. */
+	private void retire(LinuxPublicationDisposition disposition, int count) {
+		if (disposition == LINUX_PUBLICATION_DELIVERED) { self._delivered += (long long)count; }
+		else if (disposition == LINUX_PUBLICATION_CANCELLED) { self._cancelled += (long long)count; }
+		else if (disposition == LINUX_PUBLICATION_STALE) { self._stale += (long long)count; }
+		else if (disposition == LINUX_PUBLICATION_SUPERSEDED) { self._superseded += (long long)count; }
+		else if (disposition == LINUX_PUBLICATION_CLOSED) { self._closed += (long long)count; }
+		else { self._failures += (long long)count; }
+	}
+
+	public long long acceptedCount() {
+		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
+		long long result = self._accepted; pthread_mutex_unlock(self._mutex); return result;
+	}
+
+	public int pendingCount() {
+		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
+		int result = self._count + self._executing; pthread_mutex_unlock(self._mutex); return result;
+	}
+
+	public long long retiredCount(LinuxPublicationDisposition disposition) {
+		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
+		long long result = disposition == LINUX_PUBLICATION_DELIVERED ? self._delivered : disposition == LINUX_PUBLICATION_CANCELLED ? self._cancelled : disposition == LINUX_PUBLICATION_STALE ? self._stale : disposition == LINUX_PUBLICATION_SUPERSEDED ? self._superseded : disposition == LINUX_PUBLICATION_CLOSED ? self._closed : self._failures;
+		pthread_mutex_unlock(self._mutex); return result;
+	}
+
 	public PublishOutcome tryPublish(long long generation, long long sequence, WorkSuspensionPolicy suspension, long long replacementKey, long long payload) {
 		if (generation <= 0LL || sequence <= 0LL || replacementKey < 0LL || suspension < WORK_SUSPENSION_CANCEL || suspension > WORK_SUSPENSION_REPLACE || (suspension == WORK_SUSPENSION_REPLACE && replacementKey == 0LL)) { return PUBLISH_INVALID; }
 		if (!self._initialized || pthread_mutex_lock(self._mutex) != 0) { return PUBLISH_RESOURCE_FAILED; }
 		if (!self._open || self._sealed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(self._mutex); return PUBLISH_CLOSED; }
 		if (generation < self._generation || (generation == self._generation && sequence <= self._sequence)) { pthread_mutex_unlock(self._mutex); return PUBLISH_STALE; }
 		if (self._suspended && suspension == WORK_SUSPENSION_CANCEL) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCELLED; }
-		if (self._notifying.load(MemoryOrder.ACQUIRE) == 4294967295u) { pthread_mutex_unlock(self._mutex); return PUBLISH_RESOURCE_FAILED; }
+		if (self._accepted == 9223372036854775807LL || self._notifying.load(MemoryOrder.ACQUIRE) == 4294967295u) { pthread_mutex_unlock(self._mutex); return PUBLISH_RESOURCE_FAILED; }
 		int replace = -1;
 		if (replacementKey > 0LL && generation == self._generation) {
 			for (int index = self._count - 1; index >= 0; index--) {
@@ -101,7 +144,9 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 			pthread_mutex_unlock(self._mutex); return PUBLISH_WAKE_FAILED;
 		}
 		self._wakePending = true;
-		if (fresh) { self._count = 0; self._generation = generation; replace = -1; }
+		if (fresh) { self.retire(LINUX_PUBLICATION_STALE, self._count); self._count = 0; self._generation = generation; replace = -1; }
+		if (replace >= 0) { self.retire(LINUX_PUBLICATION_SUPERSEDED, 1); }
+		self._accepted++;
 		int slot = replace >= 0 ? replace : self._count++;
 		self._slots[slot].generation = generation; self._slots[slot].sequence = sequence;
 		self._slots[slot].key = replacementKey; self._slots[slot].payload = payload; self._slots[slot].policy = (int)suspension;
@@ -127,7 +172,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		if (!self._open || self._sealed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_CLOSED; }
 		if (generation != self._generation || sequence <= 0LL || sequence > self._sequence) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_STALE; }
 		for (int index = 0; index < self._count; index++) {
-			if (self._slots[index].sequence == sequence) { self.removeAt(index); pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_REQUESTED; }
+			if (self._slots[index].sequence == sequence) { self.removeAt(index); self.retire(LINUX_PUBLICATION_CANCELLED, 1); pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_REQUESTED; }
 		}
 		pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_ALREADY_TERMINAL;
 	}
@@ -135,7 +180,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 	public void suspend(bool suspended) {
 		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
 		self._suspended = suspended;
-		if (suspended) { for (int index = self._count - 1; index >= 0; index--) { if (self._slots[index].policy == (int)WORK_SUSPENSION_CANCEL) { self.removeAt(index); } } }
+		if (suspended) { for (int index = self._count - 1; index >= 0; index--) { if (self._slots[index].policy == (int)WORK_SUSPENSION_CANCEL) { self.removeAt(index); self.retire(LINUX_PUBLICATION_CANCELLED, 1); } } }
 		pthread_mutex_unlock(self._mutex);
 	}
 
@@ -149,24 +194,29 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
 		self._wakePending = false;
 		if (self._failed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(self._mutex); throw "Application publisher native wake failed"; }
-		if (!self._open || self._suspended || self._count == 0) { pthread_mutex_unlock(self._mutex); return false; }
+		if (!self._open || self._sealed.load(MemoryOrder.ACQUIRE) || self._suspended || self._count == 0) { pthread_mutex_unlock(self._mutex); return false; }
 		struct LinuxPublicationSlot slot = self._slots[0]; self.removeAt(0); self._executing++;
-		pthread_mutex_unlock(self._mutex);
 		var handler = self._handler;
+		IApplicationPublicationHandler? receiver = null;
+		/* Pin callback entry while holding the same lock as generation
+		 * validation/dequeue. A newer producer generation can invalidate queued
+		 * work, but cannot interleave before this admitted callback's entry. */
+		try { if (handler != null) { receiver = handler.enter(); } }
+		catch (string error) { self._executing--; self.retire(LINUX_PUBLICATION_FAILED, 1); pthread_mutex_unlock(self._mutex); throw error; }
+		pthread_mutex_unlock(self._mutex);
+		LinuxPublicationDisposition disposition = LINUX_PUBLICATION_CANCELLED;
 		try {
-			if (handler != null) {
-				var receiver = handler.enter();
-				if (receiver != null) {
-					try {
-						var publication = ApplicationPublication(); publication.generation = slot.generation;
-						publication.sequence = slot.sequence; publication.replacementKey = slot.key; publication.payload = slot.payload;
-						receiver.deliver(publication);
-					} finally { handler.leave(); handler.pollCompletion(); }
-				}
+			if (receiver != null) {
+				disposition = LINUX_PUBLICATION_FAILED;
+				try {
+					var publication = ApplicationPublication(); publication.generation = slot.generation;
+					publication.sequence = slot.sequence; publication.replacementKey = slot.key; publication.payload = slot.payload;
+					receiver.deliver(publication); disposition = LINUX_PUBLICATION_DELIVERED;
+				} finally { handler.leave(); handler.pollCompletion(); }
 			}
 		} finally {
 			if (pthread_mutex_lock(self._mutex) != 0) { Console.fatal("Publisher receipt cleanup synchronization failed"); }
-			self._executing--; pthread_mutex_unlock(self._mutex);
+			self._executing--; self.retire(disposition, 1); pthread_mutex_unlock(self._mutex);
 		}
 		return true;
 	}
@@ -179,7 +229,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		int locked = pthread_mutex_trylock(self._mutex);
 		if (locked == EBUSY) { return CALLBACK_CANCELLATION_PENDING; }
 		if (locked != 0) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
-		self._open = false; self._count = 0; self._wakePending = false;
+		self._open = false; self.retire(self._failed.load(MemoryOrder.ACQUIRE) ? LINUX_PUBLICATION_FAILED : LINUX_PUBLICATION_CANCELLED, self._count); self._count = 0; self._wakePending = false;
 		bool busy = self._notifying.load(MemoryOrder.ACQUIRE) != 0u;
 		pthread_mutex_unlock(self._mutex);
 		if (busy) { return CALLBACK_CANCELLATION_PENDING; }

@@ -140,3 +140,13 @@ cancellation. A dedicated unexecuted fixture cancels and republishes inside an
 extra-ticket callback, asserts capacity remains unavailable until callback
 return, and rejects a closed channel attempting to retire another channel's
 ticket. Formatter/diff checks passed; native proof remains pending.
+
+Publisher delivery now pins CallbackContext entry while holding the same native
+mutex as generation validation and dequeue, then releases synchronization before
+calling the receiver. A newer generation therefore cannot enter between those
+operations; an already-entered callback may finish. Fixed plain counters record
+accepted, pending (queued plus entered), delivered, cancelled, stale-generation,
+superseded, closed and failed receipts without allocating producer-side managed
+state or keeping unbounded history. The fixture checks generation replacement,
+explicit cancellation, suspended cancellation, receiver delivery and failure
+cleanup conservation. All runtime and sanitizer proof remains pending.
