@@ -65,3 +65,13 @@ remain pending. Qualification composition also needs the inherited text slice's
 base's SDL symbol list does not expose it. Keep that exact native dependency in
 both baseline and candidate composition; do not remove the retained-draft oracle.
 The manifest remains integrator-owned and untouched by this implementation.
+
+Final native fragment exposes only two already-used SDL declarations:
+`SDL_ClearComposition` is `bool(SDL_Window*)`, main-thread-only since SDL3.2;
+`SDL_EVENT_TEXT_EDITING` is the existing SDL_EventType composition event used
+by LinuxWindow dispatch. Both are selected from the existing SDL.h binding,
+with no guessed prototypes/values or generated changes. Official declarations:
+https://wiki.libsdl.org/SDL3/SDL_ClearComposition and
+https://wiki.libsdl.org/SDL3/SDL_EventType . The earlier no-manifest-change status
+describes production checkpoint53e4bfaa; this integrator-authorized final fragment
+must be applied identically to fixture baseline and candidate qualification.
