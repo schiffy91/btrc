@@ -54,6 +54,14 @@ WINDOW_PROBE_SYMBOLS = [
 ]
 
 
+APPLICATION_QUIT_PROBE_BINDINGS = (
+    '[[native.bindings]]\nmodule = "ApplicationQuitProbe"\nheader = "ApplicationQuitProbe.h"\n'
+    'language = "c"\nstandard = "c11"\n'
+    'symbols = ["ui2RequestNativeApplicationQuit", "ui2NativeApplicationQuitRequests"]\n'
+    '[[native.sources]]\npath = "ApplicationQuitProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+)
+
+
 @pytest.mark.macos_gui
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize(
@@ -64,6 +72,10 @@ WINDOW_PROBE_SYMBOLS = [
         (
             "NativeApplicationHost",
             "UI2 public application host shares bounded work, worker ingress and native view delivery",
+        ),
+        (
+            "NativeApplicationQuit",
+            "UI2 native application quit preserves all dirty windows when one decision cancels",
         ),
         ("RunLoopWake", "UI2 worker wakes idle default and tracking run-loop modes without polling"),
         (
@@ -100,8 +112,8 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
         '[[native.bindings]]\nmodule = "RunLoopProbe"\nheader = "RunLoopProbe.h"\n'
         'language = "c"\nstandard = "c11"\n'
         'symbols = ["ui2RunLoopTurn", "ui2RunLoopIsMainThread", "ui2InitializeAppKit"]\n'
-        '[[native.frameworks]]\nname = "AppKit"\n'
-        '[[native.sources]]\npath = "RunLoopProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        + ("" if fixture == "NativeApplicationQuit" else '[[native.frameworks]]\nname = "AppKit"\n')
+        + '[[native.sources]]\npath = "RunLoopProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
     if fixture in {"NativeWindowClose", "NativeWindowState"}:
         shutil.copyfile(PROBES / "WindowProbe.btrc", source.parent / "WindowProbe.btrc")
@@ -125,6 +137,12 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
                 'symbols = ["ui2InstallHostDelegate", "ui2HostDelegateUnchanged", "ui2RestoreHostDelegate", "ui2DispatchHostInput"]\n'
                 '[[native.sources]]\npath = "ApplicationHostProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
             )
+    if fixture == "NativeApplicationQuit":
+        shutil.copyfile(PROBES / "ApplicationQuitProbe.btrc", source.parent / "ApplicationQuitProbe.btrc")
+        for name in ("ApplicationQuitProbe.h", "ApplicationQuitProbe.m"):
+            shutil.copyfile(PROBES / name, root / name)
+        with (root / "btrc.toml").open("a") as manifest:
+            manifest.write(APPLICATION_QUIT_PROBE_BINDINGS)
     if fixture in {"NativeContainerOrder", "NativeContainerBarrier"}:
         shutil.copyfile(PROBES / "ContainerProbe.btrc", source.parent / "ContainerProbe.btrc")
         for name in ("ContainerProbe.h", "ContainerProbe.m"):

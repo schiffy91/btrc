@@ -130,7 +130,8 @@ predicate identity; do not accept a generic abort or missing success marker.
 
 1. Two dirty windows: first holds DISCARD authorization; second CANCELS. Both
    drafts/roots remain open; queued normal work and publisher delivery survive.
-   A repeated terminate reuses the same pending transactions and save attempts.
+   Before the second window cancels, a repeated terminate reuses the same
+   pending transactions and save attempts.
 2. Saving and stale completion: a newer owner-reported revision during SAVE
    makes the older completion stale; a new explicit attempt is required. A
    failed save returns to decision; retry gets a fresh positive attempt.
@@ -156,3 +157,26 @@ requires original bounds/strict flags, both compiler frontends and plain/
 ASan+UBSan execution, followed by the unchanged attached-host four-cell
 regression. Foreground-dependent Select/Range/Scroll controls remain separate;
 no activation, timeout or assertion workaround is part of this packet.
+
+## First fixture-only checkpoint
+
+`NativeApplicationQuit` now supplies the first cancel baseline using two real
+application-created windows and dirty fields. A test-native helper invokes
+`[NSApp terminate:nil]` only after checking main thread, running app and a live
+delegate; it counts returned native requests. The original UI2 core driver
+provides its native binding/source metadata, with the GUI-owned AppKit row
+included only once and the existing 30-second runtime bound unchanged.
+
+The expected old-source failure is the explicit post-run
+`journey.cancellationObserved` assertion, after proving native return and a
+positive request count. A setup, projection, deadline or different assertion
+failure does not qualify as that RED. Candidate assertions require deferred
+single decision delivery, repeated pending transaction identity, held DISCARD
+before peer CANCEL, both retained drafts and normal queued work/publication
+survival. Direct irreversible quit occurs only after those observations.
+
+This source checkpoint has independent review and syntax/format checks only.
+Native baseline execution is pending. Saving/staleness, membership changes,
+all-authorized commit, the preexisting pending-save terminate-to-completeSave
+same-callback overlap, the 12 legacy scenarios and attached-host regression
+remain final acceptance obligations; this first fixture does not replace them.
