@@ -444,3 +444,26 @@ Default-context composition/renewal, complete subtree transactions, control-doma
 events, application/host/window lifecycle and fair-turn integration still need
 their own implementation and native acceptance. These results neither qualify
 active/key focus journeys nor complete UI2 or the final repository matrix.
+
+## Ordered-container continuation (source preparation)
+
+After the paired foundation proof at `a9ffe1bd`, the next bounded slice is
+`MacOSContainer` conformance to the approved ordered `IContainer` interface and
+the `MacOSStack`, `MacOSPanel`, and `MacOSScrollView` forwarding owners. The
+existing `NativeTreeState` four rows remain unexecuted. Source inspection finds
+`insert`, `move`, `applyBatch`, and `treeRevision` missing; this is not yet an
+executed baseline diagnostic.
+
+The D29 claim additionally reserves `src/stdlib/GUI/MacOS/Container.h` and
+`Container.m` for the cohesive native order/membership bridge. Native manifest
+rows remain integrator-owned fragments. `MacOSGrid` retains its cell-specific
+layout semantics. No portable interface, compiler, or runtime change is claimed.
+
+The implementation must satisfy `ui2-lifecycle.md:113–149` and
+`ui2-approved.md:674–685`: validate the entire proposed sequence before native
+transfer, preserve editor/marked-text state on MOVE, retain old and proposed
+owners through a transaction, prevent reentrant intermediate-tree delivery,
+commit one revision, and distinguish verified rollback, reconciled failure, and
+unknown-ownership quarantine. Fixture-only ordering/rejection/fault controls
+precede production changes. The current native lane belongs to the parent
+compiler measurement; preparation does not execute a compiler or native probe.
