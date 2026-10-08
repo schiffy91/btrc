@@ -213,3 +213,8 @@ suspension and cancellation from inside an entered receiver. Fixed disposition
 counters must conserve six admitted receipts with no pending work. The class
 does not exist at this fixture-only checkpoint; actual compiler/native red
 remains pending the allocated lane and native-binding fragment.
+
+Shared dependency now matches 5f2cc694 exactly: IControlEventChannel provides
+private erased rebind/cancellation routing, and terminal-pool-wide identities
+plus pool validation prevent cross-window ticket collisions. These changes
+come from the shared owner; no public interface or production export changes.
