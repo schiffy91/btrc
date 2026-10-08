@@ -95,6 +95,17 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
 
+The current macOS UI2 foundation snapshot `a9ffe1bd`, using compiler `56d548c4`,
+now passes **28 actual native executions**: seven fixtures through both frontends,
+plain and ASan/UBSan. Run-loop wake/deadline, work queue, lifetime fault injection,
+publishing, interaction state and native view state pass with the original
+assertions and deadlines. Both SDK projections are diagnostic-free; all 56 strict
+C/Objective-C syntax checks and 28 links pass. This component is not on main and
+does not qualify the complete provider: ordered-container tree cases, remaining
+controls, application integration and Linux UI2 are still open. Evidence remains
+in `ui2-macos-qualification-a9ffe1bd/`; the first warning-producing attempt is
+preserved separately.
+
 Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
 audio and foreign-library ownership still require their platform-specific
 implementations and acceptance. HTTP and Windows service contract drafts are
@@ -144,8 +155,20 @@ The recorded peaks are 45,973,504 against 44,789,760 bytes for
 `CompileStdlibHeavy`, and 18,989,056 against 17,924,096 for `RunDispatch`.
 Logs remain in `hosted-71-current/`; no benchmark baseline was refreshed.
 Source checkpoint `56d548c4` carries the reviewed tuple-order repair, ordinary
-`operator.attrgetter` keys and bounded signing subprocesses. Its fresh Mac
-compiler and paired proof are in progress, separate from the frozen PR68 evidence.
+`operator.attrgetter` keys and bounded signing subprocesses. Its fresh native Mac
+compiler builds with Clang 21.1.8; all 48 preflight checks pass. The paired tuple,
+parent-reachability and original failing corpus checks pass. The initial 43-row
+run has 41 passes and two stale expectations: the discovery-only edit now lowers
+one group rather than three. The strengthened release/debug fixture at `dcf8ba88`
+passes all four paired native rows, requiring exact unchanged-unit bytes, clean
+versus incremental equality and executable output. Its edit changes neither the
+shared shape inventory nor the separate whole-program mentioned-name set.
+This is reduced compiler work, not a measured wall-time or memory improvement.
+The independent genuinely new-shape fixture at `3a294446` passes all four
+paired release/debug native rows too: it lowers three groups, changes only Lib's
+C bytes, matches a clean build and changes the native result from 6 to 13.
+Both guards isolate the shared inventory from mentioned-name changes. Original
+failures and fixture corrections remain retained in `tuple-canonical-order/`.
 
 The local Linux qualification is complete for its bounded component snapshots:
 **100 native provider cases pass**, plus all **11** inherited-interface compiler

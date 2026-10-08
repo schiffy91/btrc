@@ -89,3 +89,12 @@ The genuinely new `(int,int)` fixture also uses the already-mentioned local
 name `left`; its conservative three-group result must depend on the changed
 shape inventory rather than accidentally also adding a mentioned identifier.
 Its four affected rows are replayed separately with output 6 then 13 unchanged.
+
+Final new-shape replay at `3a294446` passes all four paired release/debug
+rows (16.578 s). The cold build has no `(int,int)` struct, the edited build
+does, the name set stays fixed, all three groups lower, only Lib changes
+bytes, incremental equals clean, and strict native outputs are 6 then 13.
+Together with the four `dcf8ba88` discovery-order rows and the 44 unaffected
+passing cases in `45dfa41f`, the module's 52 cases now have passing evidence.
+These are source-matched targeted runs, not a new all-at-once 52-case report.
+The combined source still requires its normal full gates.
