@@ -16,4 +16,4 @@ Evidence: `/Users/alexanderschiffhauer/.cache/btrc/plan-consolidation-2026-10-07
 
 This is a focused process-scheduling/reporting proof. It does not run native AppKit or the full hosted GUI roster and does not establish that the hosted duration problem is resolved. The original native-GUI roster, platform skips, three workers, kernel lease, per-test limits and 90-minute job bound remain unchanged. Future full qualification must preserve the historic roster as a subset if legitimate additional tests increase its total. Controller-synthesized worker-crash reports remain raw failures because they bypass worker serialization.
 
-Independent retained-evidence audit has been requested and is pending.
+Independent retained-evidence audit is CLEAR: the reviewer rehashed tools, pins, logs, archives, both full 4,500-file source inventories, generated additions and exact JUnit/collection identities. The actual candidate GUI child rows all ran on gw0; all recorded groups were absent. No additional test or native run was used for that audit.
