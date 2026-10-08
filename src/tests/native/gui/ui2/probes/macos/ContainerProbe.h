@@ -14,6 +14,8 @@
 + (void)resetFaults;
 + (NSView *)openHost;
 + (NSView *)newField;
++ (NSView *)newInputView;
++ (NSEvent *)primaryDown:(NSView *)view;
 + (void)beginEditing:(NSView *)field;
 + (bool)editorUnchanged;
 + (int)editingNotifications;

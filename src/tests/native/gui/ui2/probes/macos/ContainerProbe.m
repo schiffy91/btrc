@@ -150,6 +150,19 @@ static NSArray<NSView *> *interceptedSubviews(NSView *self, SEL selector) {
     return hostWindow.contentView;
 }
 
++ (NSView *)newInputView {
+    NSCAssert(hostWindow != nil, @"input view requires host");
+    NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
+    [hostWindow.contentView addSubview:view];
+    return view;
+}
+
++ (NSEvent *)primaryDown:(NSView *)view {
+    NSCAssert(view.window == hostWindow, @"input view must belong to host");
+    NSPoint location = [view convertPoint:NSMakePoint(20, 20) toView:nil];
+    return [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:location modifierFlags:0 timestamp:0 windowNumber:hostWindow.windowNumber context:nil eventNumber:1 clickCount:1 pressure:1];
+}
+
 + (NSView *)newField {
     NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 160, 24)];
     field.stringValue = @"accepted baseline";

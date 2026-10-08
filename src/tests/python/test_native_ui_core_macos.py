@@ -28,6 +28,7 @@ PROBES = ROOT / "src/tests/native/gui/ui2/probes/macos"
             "NativeContainerOrder",
             "UI2 native container transactions preserve editor state and report verified rollback ownership",
         ),
+        ("NativeContainerBarrier", "UI2 container barriers defer terminal input and seal reentrant receiver admission"),
         ("InteractionState", "UI2 view state preserves snapshots and separates observation from input eligibility"),
         ("WorkQueue", "UI2 scheduled work shares capacity, preserves rounds and applies suspension policy"),
         ("Publisher", "UI2 worker publication preserves capacity, receipt identity and cancellation ownership"),
@@ -49,7 +50,7 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
         '[[native.frameworks]]\nname = "AppKit"\n'
         '[[native.sources]]\npath = "RunLoopProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
-    if fixture == "NativeContainerOrder":
+    if fixture in {"NativeContainerOrder", "NativeContainerBarrier"}:
         shutil.copyfile(PROBES / "ContainerProbe.btrc", source.parent / "ContainerProbe.btrc")
         for name in ("ContainerProbe.h", "ContainerProbe.m"):
             shutil.copyfile(PROBES / name, root / name)
