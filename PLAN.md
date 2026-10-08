@@ -368,6 +368,17 @@ The required separate native-GUI dispatch `37835919865` started at 19:58 UTC
 on this exact head, with the reviewed worker grouping and original bounds.
 At 20:34 UTC it reaches the actual native-GUI test command after SDK-reader
 preparation; it is running, not merely queued.
+At 21:12 UTC, Windows, Windows ARM64 and Android workflows are complete and
+successful. Linux is terminal with every selected job except unit passing,
+including all eight C11 configurations, both corpora, bootstrap, release/ARM64
+bundles, X11, Wayland and benchmark regression. The unit failure and locally
+qualified test-only repair remain recorded above. Mac both corpora and Clang
+O0/O2 pass; unit, self-host tests, bootstrap, ARM64 bundle and the separate native
+GUI test job remain live. Its x64 job exhausted the unchanged 45-minute bound
+realizing the full development shell before compiler-bundle output. A source-only
+release-shell repair `3b64240e` preserves the original Python/compiler/SDK tools,
+checks and deadline while omitting test/LSP dependencies; it is not yet evaluated
+or qualified.
 No unchanged third retry or combined hosted pass is claimed. Do not change the
 published head during qualification. PR68 remains unqualified until the combined
 final gates pass.
@@ -492,7 +503,7 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 
 | Platform | Demonstrated capability | Missing product capability / next demonstrable result |
 |---|---|---|
-| macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | The coordination repair is on main after the affected native gate passed (327 pass, 67 expected skips). Current-compiler window/run-loop, application components and a real text-editing fixture pass separately. Complete public application/control integration, remaining activation/lifecycle, services and accessibility qualification stay open. |
+| macOS | AppKit shell and selected controls; shell endurance journeys pass. Native quit and affected application lifecycle now pass all 88 executions through both compilers, plain and sanitized, after three production repairs | The recorded provider composition is independently qualified against f75c737b but not merged. Complete narrow provider/control integration, remaining activation, services, accessibility and final combined-tree qualification. Earlier shell and real text-editing evidence remains separately scoped. |
 | Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | The assembled PR68 tree passes X11 (324 passes, 199 expected skips) and Wayland (322 passes, 199 expected skips). Physical desktop coverage, UI2 and remaining features/accessibility stay open. Wayland remains configured report-only until its required main acceptance. |
 | Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows pass and PR53 landed on main `49f136ec` | Qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
@@ -804,7 +815,7 @@ closes all 66 groups and exact input/tool/output inventories in
 Generated C connects destruction through close/sealQuit to replacing the
 application's member vector while its owner is destroying. Reviewed production
 repair `21ccce41` clears that existing vector in both guarded shutdown paths;
-all original lifecycle assertions remain unchanged. Native acceptance is pending.
+all original lifecycle assertions remain unchanged. Its qualification follows below.
 The original stuck-subtree binary independently reproduces error masking
 after 10.5019 seconds, under the unchanged 30-second bound; receipt `c4c95b89`
 closes all four groups. Separate repair `4232652b` preserves the cleanup attempt
@@ -816,9 +827,20 @@ closes all 67 groups and exact inputs; 36 legacy and all 40 focused cases are
 unrun on this source. isRunning counts an internally retained standalone-host
 attachment after the actual loop stops. Reviewed one-line correction excludes
 that internal cleanup attachment while preserving external-host semantics and
-pending ownership. Native replay is required; all original assertions remain.
-The final changed production needs all 48 lifecycle and 40 focused native runs. The earlier 40 passes remain scoped to their original source. Full UI2 and
-final integration gates remain open.
+pending ownership. Correction `73f636e8` now passes all 88 native executions:
+48 original lifecycle rows and all 40 focused quit, queue, publisher, attached-host
+and window rows, through reference/self-hosted compilers in plain and ASan/UBSan
+modes. The original assertions and deadlines remain unchanged. All 22 projections,
+194 strict C/Objective-C unit checks and 44 links pass; there are no sanitizer
+findings. Independent audit `b29066f543f43f92aa03c8aa6c47f999d4fc4390663d9977f413c4360a74f4d1`
+verifies exact source/tool/output inventories and closes all 1,206 owned process
+groups. Evidence is retained in
+`ui2-macos-native-quit-73f636e8-compiler-f75c737b/independent-full-qualification-audit.json`;
+the source report is committed at `238acc9f`. This qualifies the recorded macOS
+provider composition against compiler `f75c737b`, including all three lifecycle
+repairs; it is not a merged-tree, complete-control, other-platform or BTRSmith
+MVP result. Narrow provider-manifest integration, remaining control journeys,
+full UI2 and final integration gates remain open.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
@@ -1496,10 +1518,10 @@ changes; historical test totals alone do not advance its status.
 | Current compiler speed and memory matrix | Token candidate `71352c50` reduces the focused Linux heavy-stdlib reported peak by 8.241%. Combined lifetime candidate `92691bee` passes 164 focused checks. Whole-product targets remain unqualified | Performance owner; main session runs quiet measurements | Private current-product Linux RSS comparison `37771609277` failed during image-layer commit before compiler execution or samples. Mac quiet admission has no completed paired round. Stage 4/pin, Stage 5 and final product matrix remain open. |
 | Faster incremental edits | Current tuple/instance repair proves one changed group for inventory-preserving edits and three for genuinely new shared tuple shapes, across both frontends/release/debug with strict native outputs and clean-versus-incremental equality | Incremental compiler owner | Finish current combined gates, then measure edit median/p95 and memory. Full consulted-fact/analysis reuse and Stage 9 counters remain open. Work counts are not speed results. |
 | Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish Mac integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
-| UI2 events, executor and lifecycle on desktop | macOS native quit passes 40 focused cases on 5dd18d19; migrated lifecycle testing passes ten then exposes a real scope-exit defect. Its two-line production repair is reviewed but unqualified | Application, text-field and range/selection owners | Qualify scope-exit and original subtree failure semantics, then all 48 lifecycle plus 40 focused cases. Complete remaining platform capabilities and final combined-tree gates. |
+| UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Earlier current-product CLI/MCP/live-agent evidence remains scoped to its recorded source. Product8f73b7d5 with compilerf75c737b passes eight macOS window-close cases and plan parity; its Linux replay fails the original AgentOperationChannel iteration guard | BTRSmith owner and integrator | Qualify reviewed process-source repair dbe8df0e, then audio, installed-product and compiler-pin acceptance. Full MVP remains incomplete. |
-| One qualified implementation on main | Main remains cbd3ddcd. PR68 head6f1b81d9 has Windows and Android passes and substantial Linux component passes; Linux unit has two test-contract failures, macOS x64 preparation timed out, and other native/macOS gates remain active | Main integrator | Repair actual failures, complete final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip audit and native evidence, then merge qualified changes. |
+| One qualified implementation on main | Main remains cbd3ddcd. PR68 head6f1b81d9 passes Windows, Windows ARM64 and Android workflows; every selected Linux job except unit passes. The two Linux test defects are repaired and locally integrated with 110 passing focused checks. Mac x64 dependency preparation timed out; remaining Mac and explicit native-GUI gates are active | Main integrator | Qualify the release-shell repair, publish the proven Linux test repair after active qualification, complete final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip audit and native evidence, then merge. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
