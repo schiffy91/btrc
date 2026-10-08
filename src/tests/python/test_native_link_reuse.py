@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import NativeLinkPlan, PackageTarget
+from src.tests.process_limits import TOOL_TIMEOUT
 from tools.native_plan import NativePlanBuilder, NativePlanError
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="Darwin dependency-info link receipts")
@@ -380,7 +381,7 @@ def test_signed_link_retains_signature_and_executable_on_warm_and_touch(tmp_path
     command = ["/usr/bin/codesign", "--force", "--sign", "-"]
     if identifier is not None:
         command.extend(["--identifier", identifier])
-    subprocess.run([*command, str(options["output"])], check=True, capture_output=True)
+    subprocess.run([*command, str(options["output"])], check=True, capture_output=True, timeout=TOOL_TIMEOUT)
 
     def requirement():
         return subprocess.run(
@@ -388,6 +389,7 @@ def test_signed_link_retains_signature_and_executable_on_warm_and_touch(tmp_path
             check=True,
             capture_output=True,
             text=True,
+            timeout=TOOL_TIMEOUT,
         ).stdout
 
     def signature_identifier():
@@ -396,6 +398,7 @@ def test_signed_link_retains_signature_and_executable_on_warm_and_touch(tmp_path
             check=True,
             capture_output=True,
             text=True,
+            timeout=TOOL_TIMEOUT,
         ).stderr
         return next(line for line in details.splitlines() if line.startswith("Identifier="))
 
@@ -429,7 +432,7 @@ def test_signed_link_retains_signature_and_executable_on_warm_and_touch(tmp_path
     if identifier is not None:
         assert signature_identifier() == original_identifier
     changed_requirement, changed_identifier = requirement(), signature_identifier()
-    subprocess.run([*command, str(options["output"])], check=True, capture_output=True)
+    subprocess.run([*command, str(options["output"])], check=True, capture_output=True, timeout=TOOL_TIMEOUT)
     assert (requirement(), signature_identifier()) == (changed_requirement, changed_identifier)
     assert output(options) == "other\n"
 
