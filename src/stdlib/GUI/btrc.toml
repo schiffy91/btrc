@@ -496,7 +496,10 @@ symbols = [
 	"-[NSScrollView setDocumentView:]", "-[NSScrollView documentView]", "-[NSScrollView contentView]",
 	"-[NSScrollView frame]", "-[NSScrollView setFrame:]", "-[NSScrollView tile]",
 	"-[NSScrollView reflectScrolledClipView:]", "-[NSScrollView removeFromSuperview]",
-	"-[NSClipView bounds]", "-[NSClipView scrollToPoint:]"
+	"-[NSClipView bounds]", "-[NSClipView scrollToPoint:]",
+	"-[NSClipView setPostsBoundsChangedNotifications:]", "-[NSClipView setPostsFrameChangedNotifications:]",
+	"-[NSView setPostsFrameChangedNotifications:]",
+	"NSViewBoundsDidChangeNotification", "NSViewFrameDidChangeNotification", "NSScrollViewDidLiveScrollNotification"
 ]
 os = ["macos"]
 
