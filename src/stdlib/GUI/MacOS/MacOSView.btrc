@@ -198,7 +198,12 @@ class MacOSView implements IMacOSView {
 			if (self._closing) { return; }
 			view.setHidden(hidden);
 		} catch (string error) {
-			if (!self._closing) { state.update(!view.isHidden(), enabled, false, self._attached, self._exposure, true); state.publish(); }
+			if (!self._closing) {
+				state.update(!view.isHidden(), enabled, false, self._attached, self._exposure, true);
+				try { self._input.cancel(); }
+				catch (string cleanup) { throw f"Native visibility failed: {error}; input cancellation failed: {cleanup}"; }
+				state.publish();
+			}
 			throw error;
 		}
 		state.publish();
