@@ -211,6 +211,17 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-08 D29 release-shell claim:** execution_review owns `flake.nix`,
+`.github/workflows/macos.yml`,
+`src/tests/python/test_ci_workflow_contracts.py` and
+`docs/workstreams/macos-release-shell.md` on `codex/macos-release-shell-6f`
+from exact `6f1b81d9`. The packet removes unrelated development dependencies
+from the macOS bundle environment after the observed preparation timeout;
+compiler sources, lock file, Make recipes, architecture rows, smoke checks and
+45-minute deadline remain unchanged. Actual closure/tool equivalence and
+bundle qualification are required before publication. WORKSTREAMS is changed
+only for this claim; the parent owns PLAN and integration.
+
 **2026-10-08 integration claim:** this authorized session owns the bounded
 `codex/integrate-qualified-linux` assembly from compiler `56d548c4` and qualified
 Windows main `49f136ec`. Exact Linux source/test paths, retained native evidence,
