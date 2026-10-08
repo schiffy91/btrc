@@ -699,8 +699,10 @@ process groups. Inputs remain unchanged. Result
 This is bounded macOS source-override qualification in the retained dependency
 shell with SDK 14.4. Thrown-close handling remains source-reviewed only; retained
 ownership in the deliberate failure child does not prove failed-resource cleanup
-or cycle collection. Existing compiler/Nix warnings remain. Linux, installed
-product, dependency-pin and complete MVP acceptance are still required. Product fixture `37bbb680` is now published privately on
+or cycle collection. Existing compiler/Nix warnings remain. Exact `8f73b7d5` is
+published privately on `codex/window-close-result-propagation`; it includes the
+previously qualified `37bbb680` startup fixture. Linux, installed product,
+dependency-pin and complete MVP acceptance are still required. Product fixture `37bbb680` is now published privately on
 `codex/native-shutdown-lifecycle`, satisfying the Linux replay's source
 reachability requirement without changing the current dependency pin.
 
@@ -760,7 +762,7 @@ records previously used native-reader and Python store paths disappearing during
 the run, with secondary Python-module and child-start failures. No removal/GC
 cause is established; do not classify all failures as infrastructure. Job `113343316411` log SHA-256 is
 `2cb00dd368165e68e2038d6fb5c94742be882d3631ffa2774f541554755fd0be`; artifact `11561484842` retains the main failing unit report separately
-from a nested one-pass child report. On October 8 at 16:19 UTC, the one unchanged
+from a nested one-pass child report. On October 8, the one unchanged
 failed-job replay was accepted as attempt 2: unit tests and the x64 bundle are
 queued, with successful jobs retained. The original terminal snapshot has SHA-256
 `4f4515b61e8e280b0588ba6f727aa67016d757afb45e33c92de8488898e9ff24`
