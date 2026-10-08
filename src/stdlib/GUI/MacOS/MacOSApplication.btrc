@@ -457,9 +457,9 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 		finally { self._running = false; }
 		self.requestQuit();
 		var result = self.close();
-		if (result != CALLBACK_CANCELLATION_COMPLETE) { throw "Native application shutdown remains pending"; }
 		if (failed) { throw failure; }
 		if (self._failed) { throw self._failure; }
+		if (result != CALLBACK_CANCELLATION_COMPLETE) { throw "Native application shutdown remains pending"; }
 	}
 
 	public IWindow createWindow(string title, double width, double height) {
