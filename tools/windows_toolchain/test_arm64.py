@@ -124,6 +124,7 @@ class Arm64EvidenceTests(unittest.TestCase):
         for key, value in (
             ("host_system", "Windows"),
             ("mode", "native"),
+            ("zig_version", "0.17.0"),
             ("revision", "b" * 40),
             ("compiler", {**summary["compiler"], "sha256": "0" * 64}),
         ):
@@ -702,6 +703,63 @@ class Arm64EvidenceTests(unittest.TestCase):
         with patch.dict(PINS, zig_version="99.1.2"), patch.object(evidence, "run", side_effect=[b"a" * 40, b"99.1.2"]):
             evidence.identify()
         self.assertEqual(evidence.report["zig_version"], "99.1.2")
+
+    def test_native_version_comes_from_its_archive_pin_not_the_cross_pin(self):
+        native_pin = {**PINS["zig_windows_arm64"], "version": "99.2.3"}
+        for actual, accepted in (("99.2.3", True), (PINS["zig_version"], False)):
+            with self.subTest(actual=actual):
+                evidence = Evidence(self.root, "zig")
+                evidence.report["mode"] = "native"
+                with (
+                    patch.dict(PINS, zig_windows_arm64=native_pin),
+                    patch.object(evidence, "run", side_effect=[b"a" * 40, actual.encode()]),
+                ):
+                    if accepted:
+                        evidence.identify()
+                        self.assertEqual(evidence.report["zig_version"], actual)
+                        self.assertEqual(evidence.report["zig_archive"], native_pin)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "expected pinned Zig 99.2.3"):
+                            evidence.identify()
+
+    def test_native_cache_is_fresh_per_run_and_reaches_children_without_changing_parent(self):
+        inherited = {"ZIG_GLOBAL_CACHE_DIR": "old-global", "ZIG_LOCAL_CACHE_DIR": "old-local"}
+        cache_roots = []
+        with patch.dict(os.environ, inherited):
+            for attempt in range(2):
+                evidence = Evidence(self.root / "output", "zig")
+                with (
+                    patch("platform.system", return_value="Windows"),
+                    patch("sysconfig.get_platform", return_value="win-arm64"),
+                    patch.object(evidence, "verify_cross"),
+                    patch.object(evidence, "probe_native_toolchain", side_effect=RuntimeError("probe stopped")),
+                    patch.object(evidence, "build") as build,
+                    self.assertRaisesRegex(RuntimeError, "probe stopped"),
+                ):
+                    evidence.native(self.image, self.root / "cross.json")
+                build.assert_not_called()
+                cache = evidence.report["zig_cache"]
+                root = Path(cache["root"])
+                self.assertTrue(root.is_relative_to(evidence.output))
+                self.assertNotIn(root, cache_roots)
+                cache_roots.append(root)
+                for key, field in (("ZIG_GLOBAL_CACHE_DIR", "global"), ("ZIG_LOCAL_CACHE_DIR", "local")):
+                    directory = Path(cache[field])
+                    self.assertEqual(directory.parent, root)
+                    self.assertEqual(list(directory.iterdir()), [])
+                    self.assertEqual(evidence.environment[key], str(directory))
+                    self.assertEqual(os.environ[key], inherited[key])
+                (root / "interrupted-evidence").write_text(str(attempt))
+                # Exercise the existing process boundary with a real Python child.
+                observed = json.loads(evidence.run(
+                    [sys.executable, "-c", "import os,json; print(json.dumps({k:os.environ[k] for k in "
+                     "('ZIG_GLOBAL_CACHE_DIR','ZIG_LOCAL_CACHE_DIR')}))"],
+                    "cache-child", timeout=10,
+                ))
+                self.assertEqual(observed, {key: evidence.environment[key] for key in inherited})
+                self.assertEqual(evidence.report["status"], "failed")
+                self.assertEqual(evidence.report["native_execution"], "not-run")
+            self.assertEqual((cache_roots[0] / "interrupted-evidence").read_text(), "0")
 
     def test_wgpu_pin_matches_integrated_archive_hash(self):
         source = (ROOT / "nix/wgpu-native-prebuilt.nix").read_text()
