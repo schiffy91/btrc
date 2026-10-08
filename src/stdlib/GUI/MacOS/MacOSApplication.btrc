@@ -419,7 +419,7 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 			if (self._workQueue.failed()) { self.recordFailure("Application work wake failed"); }
 			for publisher in publishers { if (publisher.failed()) { self.recordFailure("Application publication wake failed"); } }
 			self.cancelIngress(publishers);
-			self._nativeQuitMembers = [];
+			self._nativeQuitMembers.clear();
 			if (self._standalone && self._application.modalWindow() != null) { self._application.stopModalWithCode(NSModalResponseAbort); }
 			/* Wake only after sealing all ingress; producer cancellation retains
 			 * its borrowed host until that producer leaves. */
@@ -600,7 +600,7 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 	private CallbackCancellation drainClose() {
 		var ingress = self.cancelIngress(self._publishers);
 		if (ingress != CALLBACK_CANCELLATION_COMPLETE) { return ingress; }
-		self._nativeQuitMembers = [];
+		self._nativeQuitMembers.clear();
 		var views = self.closeViews();
 		if (views != CALLBACK_CANCELLATION_COMPLETE) {
 			if (self._running) {
