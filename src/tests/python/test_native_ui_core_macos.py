@@ -48,6 +48,10 @@ CONTAINER_PROBE_SYMBOLS = [
             "UI2 public application host shares bounded work, worker ingress and native view delivery",
         ),
         ("RunLoopWake", "UI2 worker wakes idle default and tracking run-loop modes without polling"),
+        (
+            "RunLoopAttachment",
+            "UI2 staged native attachment preserves preattach readiness and rolls back failed admission",
+        ),
         ("RunLoopDeadline", "UI2 monotonic deadlines wake default and tracking modes once"),
         ("NativeViewState", "UI2 native view visibility updates revisioned state without inline delivery"),
         ("NativeTreeState", "UI2 native subtree state preserves disabled preference across hide and reattachment"),
@@ -120,7 +124,7 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
         plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
     )
     environment = apple_environment()
-    if fixture == "RunLoopLifetime":
+    if fixture in {"RunLoopLifetime", "RunLoopAttachment"}:
         faults = root / "RunLoopFaults.dylib"
         built = runner(
             [

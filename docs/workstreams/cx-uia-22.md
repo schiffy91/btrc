@@ -766,3 +766,16 @@ UI thread; it does not promise arbitrary-thread exception containment.
 The integrator and independent reviewer cleared this bounded source change.
 NativeCaptureFailure remains unexecuted; it is not yet a real AppKit-notification
 or pending-terminal reentry qualification.
+
+### Staged wake attachment prerequisite
+
+Independent contract review confirmed that the first failed attach cannot leave
+an application constructor's already-registered CF source behind. The new
+fixture-only `RunLoopAttachment` requests an unregistered signal, observes real
+`CFRunLoopAddSource` calls through the existing native fault probe, rejects a
+closed callback scope without registration, rejects premature timed dispatch,
+then preserves a real worker's pre-attachment signal through one successful
+registration. Duplicate subscription cannot replace that successful route;
+actual default/tracking-mode delivery and closed-source suppression remain
+required. Source preparation and formatting only; no baseline compiler or
+native execution has run for this fixture yet.
