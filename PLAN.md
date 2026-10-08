@@ -331,8 +331,16 @@ is authorized by this result. PR68 remains unqualified.
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
 R2 runner, source/tool inputs, eight-run order, 60-second quiet windows and
-180/240-second admission/compile bounds. Attempt three is still unrun; a single
-current preliminary observation cannot substitute for full admission. Completed
+180/240-second admission/compile bounds. The current preliminary observation
+passes all six checks, but attempt three subsequently refuses first admission
+at its unchanged 180-second deadline: mdworker reaches 29.6% and 8.9% against
+the 5% limit. Other probes remain clear. No compiler is spawned, no warmup
+completes and there are zero measured samples. Receipt
+`module-emission-once-quiet-660ac18d-attempt-3/manifest.json`, SHA-256
+`c3ef033096538787d03a3df3e8e534ce8b604092aa4af0c3ea00781137a73249`,
+retains all 13 observations and unchanged final inputs. Independent review is
+clear. The lane is released; there is no automatic retry or performance claim.
+Completed
 historical product outputs and the discarded R2 warmup outputs have been
 archived with exact bytes/modes/symlinks verified before removal. Receipt
 `completed-product-and-warmup-archive-2026-10-08/result.json` has SHA-256
