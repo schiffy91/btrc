@@ -817,9 +817,9 @@ class ModuleUnitCompiler:
 
         add(bool(facts.uses_trycatch))
         # A unit takes the shared declarations it uses in their program order,
-        # and lowers its specializations in discovery order; other groups'
-        # bodies can move both (tuple, span and atomic shapes are discovered
-        # in bodies).
+        # while specialization views have canonical symbol order. Keep the
+        # actual shared order in the key: tuple, span and atomic shapes can
+        # still be discovered in other groups' bodies.
         add(shared.order())
         add([view.symbol for view in facts.class_views or ()])
         add([view.symbol for view in facts.method_views or ()])

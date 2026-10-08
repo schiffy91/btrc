@@ -355,9 +355,9 @@ class TranslationUnitLowerer:
                 continue
             for args in instances:
                 mangled = self._type_identity.specialization_symbol(base_name, args)
-                if mangled not in seen:
-                    seen.add(mangled)
-                    self._session.module.struct_forwards.append(IRStructForward(name=mangled))
+                seen.add(mangled)
+        for mangled in sorted(seen):
+            self._session.module.struct_forwards.append(IRStructForward(name=mangled))
         self._session.module.function_decls.extend(function_decls)
 
     def _emit_structs(self):

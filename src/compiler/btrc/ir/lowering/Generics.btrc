@@ -4,6 +4,7 @@ import Library.Vector;
 import ../../analyzer/Models.btrc;
 import ../../analyzer/Types.btrc;
 import ../../generated/ast/Node.btrc;
+import ../../syntax/Identity.btrc;
 
 /* Immutable specialization views consumed by the ordinary declaration and
  * function lowerers.  GenericLowerer never lowers a body and never retains a
@@ -40,27 +41,47 @@ class GenericLowerer {
 
 	public GenericLowerer(Analyzed analyzed) { self.analyzed = analyzed; }
 
+	/* Canonical lowering views, without mutating analysis/demand order. The
+	 * symbols are the same injective identities used for emitted instances. */
+	public Vector<GenInstance> classInstances() {
+		Map<string, GenInstance> instances = {};
+		for instance in self.analyzed.genericInstances { instances.put(instance.mangled, instance); }
+		Vector<string> symbols = instances.keys();
+		symbols.sort();
+		Vector<GenInstance> ordered = [];
+		for symbol in symbols { ordered.push(instances.get(symbol)); }
+		return ordered;
+	}
+
+	public Vector<MethodGenInstance> methodInstances() {
+		Map<string, MethodGenInstance> instances = {};
+		for instance in self.analyzed.methodGenInstances {
+			string symbol = TypeIdentity.mangleMethodInstanceSymbol(instance.classBase, instance.classArgs, instance.methodName, instance.methodArgs);
+			instances.put(symbol, instance);
+		}
+		Vector<string> symbols = instances.keys();
+		symbols.sort();
+		Vector<MethodGenInstance> ordered = [];
+		for symbol in symbols { ordered.push(instances.get(symbol)); }
+		return ordered;
+	}
+
 	public Vector<GenericClassLoweringPlan> classPlans() {
 		Vector<GenericClassLoweringPlan> plans = [];
-		int index = 0;
-		while (index < self.analyzed.genericInstances.len) {
-			GenInstance instance = self.analyzed.genericInstances.get(index);
+		for instance in self.classInstances() {
 			if (self.analyzed.genericClassTable.has(instance.base)) {
 				Node declaration = self.analyzed.genericClassTable.get(instance.base);
 				Node instanceType = SemanticTypeSystem.primitive(instance.base);
 				instanceType.genericArgsStorage = instance.args;
 				plans.push(GenericClassLoweringPlan(instance, declaration, SemanticTypeSystem.genericTypeMap(self.analyzed, instanceType)));
 			}
-			index = index + 1;
 		}
 		return plans;
 	}
 
 	public Vector<GenericMethodLoweringPlan> methodPlans() {
 		Vector<GenericMethodLoweringPlan> plans = [];
-		int index = 0;
-		while (index < self.analyzed.methodGenInstances.len) {
-			MethodGenInstance instance = self.analyzed.methodGenInstances.get(index);
+		for instance in self.methodInstances() {
 			Node? owner = null;
 			if (self.analyzed.genericClassTable.has(instance.classBase)) {
 				owner = self.analyzed.genericClassTable.get(instance.classBase);
@@ -88,7 +109,6 @@ class GenericLowerer {
 					plans.push(GenericMethodLoweringPlan(instance, concreteOwner, method, substitutions));
 				}
 			}
-			index = index + 1;
 		}
 		return plans;
 	}
