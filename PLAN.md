@@ -93,10 +93,19 @@ CPU exceeds 5%, while guests are stopped and all other probes pass. It records
 zero compiler samples (`token-current-3974/quiet-diagnostic-1`), supplies no
 performance result, and does not replace Stage 5 or the full final matrix. A separate
 [focused Linux x86_64 comparison](https://github.com/schiffy91/btrc/actions/runs/37732563990)
-is running the original heavy-stdlib/dispatch peak checks on baseline `3974d47b`
+ran the original heavy-stdlib/dispatch peak checks on baseline `3974d47b`
 and candidate `71352c50`, alternating six checks with unchanged allowances.
-The existing integrated-candidate CI runs remain intact; no diagnostic result
-is available yet. These small-workload peak limits are regression guards;
+The comparison has now completed with exact source/tool/binary checks. All
+three candidate checks pass both unchanged allowances. Heavy-stdlib results are
+42,139,648 / 42,283,008 / 42,102,784 bytes, versus baseline
+45,924,352 / 45,961,216 / 45,760,512 bytes; baseline fails two checks. Each
+original check reports its minimum of three runs. The median of the three
+reported heavy results falls by 3,784,704 bytes (8.241%); even the worst candidate
+is 3,555,328 bytes below the unchanged allowance. Dispatch passes all three
+candidate checks too. The overall workflow remains failed because it preserves
+the baseline failures. Independent provenance review is clear; source `71352c50`
+still needs final combined-tree qualification before integration. Evidence:
+`token-linux-peak-3974-hosted/independent-performance-review.md`. These small-workload peak limits are regression guards;
 passing them will not establish the product compiler's ≤1.5 GiB footprint or
 its final build-time targets. The next module-build memory proposal releases
 each consumed worker reply after its independently owned output has been read;
@@ -130,9 +139,11 @@ preserved separately. The first ordered-container reference projection at
 `4d1cd3d0` passes SDK selection and transpilation but stops on a nullable native
 child warning. Guard `7a95ccdf` fixes that warning: the fresh NativeTreeState
 reference projection is diagnostic-free. NativeContainerOrder then stops on
-three unchecked interface casts and two nullable host arguments in its fixture;
-that fixture repair and NativeContainerBarrier remain pending. No later syntax,
-link or runtime stage is counted as passed.
+three unchecked interface casts and two nullable host arguments in its fixture.
+Fixture correction `59cb61d9` now passes NativeContainerOrder's reference
+projection too. NativeContainerBarrier then reports seven nullable-value
+warnings in its fixture; checked-local corrections are being prepared. No later
+syntax, link or runtime stage is counted as passed.
 
 Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
 audio and foreign-library ownership still require their platform-specific
@@ -184,8 +195,14 @@ reference/self-hosted × Clang/GCC native runs. The repaired reference
 AgentOperationChannel subsequently reaches its native PASS marker for canonical
 responses, recovery, reconnect, borrowed-session ownership and UI capture. The
 next AgentSurfaceProcessAcceptance aborts because a command response is not
-`applied`; diagnosis and final failed-run source/output reconciliation are
-underway. The live GUI acceptance, entire self-hosted agent pass and repaired
+`applied`. A no-build protocol replay captures the first hardcoded revision-1
+command returning canonical `stale`: background library progress advances the
+revision before dispatch. This standalone path bypasses endpoint lookup. The
+documented revision contract requires that progress to remain visible; the
+fixture repair will query state and retain explicit stale/no-effect coverage,
+without suppressing application ticks or shifting constants. Final failed-run
+source/tool reconciliation passes; generated caches and package outputs are
+retained separately with exact hashes. The live GUI acceptance, entire self-hosted agent pass and repaired
 library replay remain pending. Shortening the smoke path is not acceptance.
 Nullable-owner corrections are source-reviewed but not executed. The original
 Linux x86_64 product qualification is running in
@@ -223,8 +240,11 @@ above. The current X11 native lane also fails three scrollbar input cases
 (reference plain/sanitized and self-hosted sanitized); self-hosted plain passes.
 The binaries abort in `ScrollJourney.run`, after the geometry checks, with
 321 other passes and 199 skips. This is an open native assertion failure, not
-a skipped capability or an accepted environment warning. Source/event diagnosis
-is underway; evidence is `combined-3974d47b/linux-x11-current.log`. The earlier `71a22734` general CI failed on
+a skipped capability or an accepted environment warning. The [controlled X11 focus diagnostic](https://github.com/schiffy91/btrc/actions/runs/37735904202)
+is now running with an exact, verified `3974d47b` binary from the completed
+Linux comparison. It preserves the original drag/wheel assertions and separates
+induced focus loss, isolated runs and concurrent scheduling observations. The
+cause remains unproven; evidence is `combined-3974d47b/linux-x11-current.log`. The earlier `71a22734` general CI failed on
 tuple declaration ordering, two unchanged peak-memory allowances and two unit
 contracts (compiler lambda ownership and missing signing subprocess timeouts).
 The recorded peaks are 45,973,504 against 44,789,760 bytes for
