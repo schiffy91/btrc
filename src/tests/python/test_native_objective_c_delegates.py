@@ -295,6 +295,7 @@ def test_stored_objective_c_delegate_rejects_unchecked_mapping(
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.macos_gui
 def test_stored_objective_c_window_delegate(native_project, native_compile, sanitize):
     source, _, _ = native_project
     root = source.parent.parent
@@ -935,6 +936,7 @@ def test_stored_objective_c_action_reserves_native_slots(action_project, native_
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.macos_gui
 def test_stored_objective_c_button_action(native_project, native_compile, sanitize):
     source, _, _ = native_project
     root = source.parent.parent
