@@ -205,6 +205,16 @@ class MacOSContainer implements IContainer, IMacOSView {
 
 	private Vector<MacOSContainerChild> nativeOrder(Vector<MacOSContainerChild> known, NSView parent) {
 		Vector<MacOSContainerChild> actual = [];
+		/* Arranged order is a layout fact, not a complete native ownership
+		 * inventory. An unknown unarranged Stack subview must quarantine too. */
+		int physicalCount = BTRCMacOSContainerOrder.childCount(parent, false);
+		if (physicalCount > known.len) { throw "Native container contains unowned physical children"; }
+		for (int index = 0; index < physicalCount; index++) {
+			var physical = BTRCMacOSContainerOrder.childAt(index, parent, false);
+			bool owned = false;
+			for entry in known { if (self.capturedView(entry) == physical) { owned = true; } }
+			if (!owned) { throw "Native container contains an unknown physical child"; }
+		}
 		int count = BTRCMacOSContainerOrder.childCount(parent, self.arrangedOrder());
 		if (count > known.len) { throw "Native container contains unowned children"; }
 		for (int index = 0; index < count; index++) {
@@ -503,8 +513,11 @@ class MacOSContainer implements IContainer, IMacOSView {
 
 	public CallbackCancellation close() {
 		self.requireMainThread();
-		if (self.interactionOwner().context().mutating()) { throw "Cannot close a container during native mutation"; }
-		if (self._view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		var view = self._view;
+		if (view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		var interaction = self._interaction;
+		if (interaction == null) { view.removeFromSuperview(); self._view = null; return CALLBACK_CANCELLATION_COMPLETE; }
+		if (interaction.context().mutating()) { throw "Cannot close a container during native mutation"; }
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
 		if (!self._closing) { self._closing = true; self.interactionOwner().close(); self._input.cancel(); }

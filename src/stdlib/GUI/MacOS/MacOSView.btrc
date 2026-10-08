@@ -114,7 +114,8 @@ class MacOSView implements IMacOSView {
 
 	public void requireDetached() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
-		if (self.interactionOwner().context().mutating()) { throw "Cannot close or attach a view during native mutation"; }
+		var interaction = self._interaction;
+		if (interaction != null && interaction.context().mutating()) { throw "Cannot close or attach a view during native mutation"; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
 	}
 

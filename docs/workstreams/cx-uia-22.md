@@ -554,3 +554,25 @@ unchanged. Complete application dispatch integration, unexpected native input
 deferral, typed control event acceptance, and full UI2 remain open. No new
 compiler, syntax, link, or runtime execution occurred while the product library
 journey owns the heavy lane.
+
+Independent review found three further boundaries, covered by fixture-only
+`00d2ee91` before their source correction:
+
+- Deferred CANCEL receiver failure must occur on a later service turn, after
+  `applyBatch` has returned its truthful typed outcome and ownership.
+  `endMutation` now only releases the barrier and requests a turn; the context
+  service processes one queued terminal before ordinary semantic records. It
+  preserves queued cleanup after context closure, without admitting receivers.
+- Stack arranged order is not a physical ownership inventory. Reconciliation
+  now independently enumerates every physical subview and rejects unknown
+  children. The fixture adds a real unarranged child, requires quarantine and
+  retryable close while that child remains, then removes it and drains owners.
+- A constructor failure before `_interaction` exists must retain its original
+  error. Completed/partial native-owner cleanup now precedes context lookup in
+  container close; a layout that throws while producing its native view covers
+  the destructor path.
+
+The new probes and corrections are source-only. Application host wiring must
+call the guarded context service; direct shared-queue dispatch remains a private
+API and is not a substitute for that integration. No root callback, threshold,
+or native ownership assertion was weakened.

@@ -32,7 +32,8 @@ class MacOSControlContext {
 	private bool _closed = false;
 	private bool _mutating = false;
 	private bool _unexpectedInput = false;
-	private bool _drainingInput = false;
+	private bool _dispatchingInput = false;
+	private bool _mutationWakeFailed = false;
 	private Vector<IMacOSDeferredInput> _deferredInput = [];
 
 	/* Legacy native constructors participate in the same application even
@@ -105,27 +106,30 @@ class MacOSControlContext {
 
 	public bool dispatchOne(ControlEventQueue queue) {
 		self.requireUI();
-		if (self._mutating || self._closed) { return false; }
+		if (self._mutating || self._dispatchingInput) { return false; }
+		if (self._deferredInput.len > 0) {
+			var input = self._deferredInput.get(0); self._deferredInput.remove(0);
+			self._dispatchingInput = true;
+			try { input.drainDeferredInput(); } finally { self._dispatchingInput = false; }
+			return true;
+		}
+		if (self._mutationWakeFailed) { throw "Native transaction terminal wake failed"; }
+		if (self._closed) { return false; }
 		return queue.dispatchOne();
 	}
 
-	/* The container clears its mutation flag and installs the final coherent
-	 * snapshot/revision before calling this. A user callback failure here is
-	 * post-commit delivery failure, never a reason to claim native rollback. */
+	public int pendingInput() { self.requireUI(); return self._deferredInput.len; }
+
+	/* No application receiver runs here. The caller returns the typed native
+	 * result before the host's next service turn can report a receiver error. */
 	public void endMutation() {
 		self.requireUI();
 		if (!self._mutating) { throw "Native transaction barrier is not active"; }
 		self._mutating = false;
-		if (self._drainingInput) { return; }
-		self._drainingInput = true;
-		string failure = "";
-		try {
-			while (self._deferredInput.len > 0) {
-				var input = self._deferredInput.get(0); self._deferredInput.remove(0);
-				try { input.drainDeferredInput(); } catch (string error) { if (failure.isEmpty()) { failure = error; } }
-			}
-		} finally { self._drainingInput = false; }
-		if (!failure.isEmpty()) { throw failure; }
+		if (self._deferredInput.len > 0) {
+			try { if (!self.wake.requestTurn()) { self._mutationWakeFailed = true; } }
+			catch (string error) { self._mutationWakeFailed = true; }
+		}
 	}
 
 	public bool isOpen() { self.requireUI(); return !self._closed; }
