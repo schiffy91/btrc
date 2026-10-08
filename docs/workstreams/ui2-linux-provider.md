@@ -16,6 +16,13 @@ not an independently shippable provider/interface release.
 - `src/tests/python/test_native_ui2_linux.py`
 - this report
 
+Parent assignment adds the shared **private** semantic owner
+`src/stdlib/GUI/ControlEventQueue.btrc`, its dedicated
+`src/tests/native/gui/ui2/ControlEventQueue.btrc` regression and
+`src/tests/python/test_native_ui2_queue.py` driver. Both desktop providers use
+this one implementation; `ControlEvents.btrc` remains the approved public
+value surface. The existing click ActionMailbox is not replaced wholesale.
+
 SDL symbol/export rows are an integrator fragment; no portable interface,
 catalog, generated output, Mac provider or frozen evidence is edited here.
 LinuxPublisher owns only this provider's bounded plain-data worker ingress;
