@@ -10,3 +10,7 @@ void ui2RunLoopTurn(bool tracking, double seconds) {
 bool ui2RunLoopIsMainThread(void) {
     return NSThread.isMainThread;
 }
+
+void ui2InitializeAppKit(void) {
+    [NSApplication sharedApplication];
+}

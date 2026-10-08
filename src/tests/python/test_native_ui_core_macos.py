@@ -40,7 +40,7 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
         'manifest-version = 1\n[package]\nname = "ui2MacOSRunLoop"\n'
         '[[native.bindings]]\nmodule = "RunLoopProbe"\nheader = "RunLoopProbe.h"\n'
         'language = "c"\nstandard = "c11"\n'
-        'symbols = ["ui2RunLoopTurn", "ui2RunLoopIsMainThread"]\n'
+        'symbols = ["ui2RunLoopTurn", "ui2RunLoopIsMainThread", "ui2InitializeAppKit"]\n'
         '[[native.frameworks]]\nname = "AppKit"\n'
         '[[native.sources]]\npath = "RunLoopProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )

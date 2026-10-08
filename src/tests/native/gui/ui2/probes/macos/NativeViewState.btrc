@@ -5,6 +5,7 @@ import Library.GUI.MacOS.MacOSButton;
 import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.MacOS.MacOSRunLoop;
 
+import ./RunLoopProbe.btrc;
 #include <assert.h>
 
 class NativeStateReceiver implements IViewInteractionStateHandler {
@@ -18,6 +19,7 @@ class NativeStateReceiver implements IViewInteractionStateHandler {
 }
 
 int main() {
+	ui2InitializeAppKit();
 	var signal = MacOSRunLoopSignal();
 	var context = MacOSControlContext(8, signal);
 	var scope = CallbackScope();
