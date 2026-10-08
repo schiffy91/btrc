@@ -110,6 +110,8 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 	private MacOSWorkQueue _workQueue;
 	private MacOSControlContext? _context;
 	private Vector<MacOSWindow> _windows = [];
+	private bool _nativeQuitPending = false;
+	private Vector<MacOSWindowQuitAuthorization> _nativeQuitMembers = [];
 	private Vector<IView> _views = [];
 	private Vector<IView> _closingRoots = [];
 	private Vector<MacOSPublisher> _publishers = [];
@@ -120,6 +122,7 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 	private bool _running = false;
 	private bool _standalone = false;
 	private bool _turnActive = false;
+	private bool _closeAdvancing = false;
 	private bool _turnRequested = false;
 	private bool _closing = false;
 	private bool _closed = false;
@@ -265,13 +268,16 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 	public void serviceHostTurn() {
 		self.requireMainThread();
 		if (self._closed || self._host == null) { return; }
-		if (self._turnActive) { self._turnRequested = true; return; }
+		if (self._turnActive || self._closeAdvancing) { self._turnRequested = true; return; }
 		var context = self._context;
 		if (context == null) { return; }
 		if (context.mutating() || context.deliveryActive()) { self._turnRequested = true; context.deferService(); return; }
 		self._turnActive = true;
 		self._turnRequested = false;
 		try {
+			if (!self._closing) {
+				self.advanceNativeQuit();
+			}
 			if (!self._closing) {
 				self.prunePublishers();
 				long long round = self._workQueue.beginRound();
@@ -311,9 +317,13 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 					else if (lane == 3) { delivered = context.dispatchOne(context.detachedEvents); }
 					else if (lane == 4 && actions > 0 && self._activity != APPLICATION_ACTIVITY_SUSPENDED) { actions--; self._actions.dispatchOne(); delivered = true; }
 					if (delivered) { idle = 0; } else { idle++; }
+					/* A decision may cancel its whole group. Resolve peers before
+					 * another queued decision can enter its receiver. */
+					self.advanceNativeQuit();
 				}
 				if (self._workQueue.failed()) { throw "Application work wake failed"; }
 				for publisher in self._publishers { if (publisher.failed()) { throw "Application publication wake failed"; } if (publisher.pending()) { self._turnRequested = true; } }
+				self.advanceNativeQuit();
 				if (windows > 0 || publisherVisits > 0 || context.pendingInput() > 0 || context.detachedEvents.pendingCount() > 0 || (self._activity != APPLICATION_ACTIVITY_SUSPENDED && self._actions.pendingCount() > 0)) { self._turnRequested = true; }
 			}
 		} catch (string error) { self.failHost(error); }
@@ -328,23 +338,106 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 		} catch (string error) { self.failHost(error); }
 	}
 
-	public void requestQuit() {
+	/* Native ingress only holds existing authority and schedules an executor
+	 * turn. In particular, a pending save cannot consume its authorization
+	 * after terminate returns but before the calling receiver unwinds. */
+	private void captureNativeQuit() {
 		self.requireMainThread();
-		if (self._closed) { return; }
-		self._closing = true;
-		if (self._workQueue.failed()) { self.recordFailure("Application work wake failed"); }
-		for publisher in self._publishers { if (publisher.failed()) { self.recordFailure("Application publication wake failed"); } }
-		self._workQueue.cancel();
-		for publisher in self._publishers { publisher.cancel(); }
+		if (self._closing || self._closed) { return; }
+		self._nativeQuitPending = true;
+		for window in self._windows { window.holdNativeQuit(); }
+		/* Unwind a modal receiver without closing any window. Its outer host
+		 * turn must return before the executor can deliver quit decisions. */
 		if (self._standalone && self._application.modalWindow() != null) { self._application.stopModalWithCode(NSModalResponseAbort); }
-		/* Wake only after sealing all ingress; producer cancellation retains
-		 * its borrowed host until that producer leaves. */
-		self._signal.tryWake();
-		var host = self._host;
-		if (host != null) { try { if (!host.requestTurn()) { self.recordFailure("Application host rejected shutdown wake"); } } catch (string error) { self.recordFailure(error); } }
+		if (!self._signal.tryWake()) { throw "Native application quit wake failed"; }
 	}
 
-	public unsigned long applicationShouldTerminate(NSApplication sender) { try { self.requestQuit(); } catch (string error) { self.failHost(error); } return NSTerminateCancel; }
+	private void cancelNativeQuit() {
+		self._nativeQuitPending = false;
+		/* Retain member/registration identities until every held transaction
+		 * has been cancelled. Normal work/publication ingress remains open. */
+		for window in self._windows { window.cancelNativeQuit(); }
+		for member in self._nativeQuitMembers { member.window.cancelNativeQuit(); }
+		self._nativeQuitMembers = [];
+	}
+
+	private void admitNativeQuit() {
+		Vector<MacOSWindowQuitAuthorization> members = [];
+		for window in self._windows {
+			if (!window.isOpen()) { continue; }
+			MacOSWindowQuitAuthorization? previous = null;
+			for member in self._nativeQuitMembers { if (member.window == window) { previous = member; break; } }
+			if (previous != null && window.matchesNativeQuit(previous)) { members.push(previous); }
+			else { members.push(window.prepareNativeQuit()); }
+		}
+		self._nativeQuitMembers = members;
+	}
+
+	private void advanceNativeQuit() {
+		if (!self._nativeQuitPending || self._closing) { return; }
+		var context = self._context;
+		if (context == null || context.mutating() || context.deliveryActive()) { return; }
+		for member in self._nativeQuitMembers {
+			if (member.window.nativeQuitCancelled() || !member.window.isOpen()) { self.cancelNativeQuit(); return; }
+		}
+		for window in self._windows { if (window.nativeQuitCancelled()) { self.cancelNativeQuit(); return; } }
+		/* Admission may reserve/publish existing channel terminals. If any
+		 * admission fails, retire all partial group responsibility before the
+		 * existing host failure policy handles the error. */
+		try { self.admitNativeQuit(); }
+		catch (string error) { self.cancelNativeQuit(); throw error; }
+		for member in self._nativeQuitMembers {
+			if (member.transaction.state() != WINDOW_CLOSE_AUTHORIZED) { return; }
+			member.revision = member.transaction.reportedRevision();
+		}
+		/* Allocate/retain the ingress snapshot before validation. Neither the
+		 * checks, scalar consumption nor sealQuit's admission prefix invokes
+		 * callbacks, drops user-owned references or pumps native events. */
+		Vector<MacOSPublisher> publishers = [];
+		for publisher in self._publishers { publishers.push(publisher); }
+		int index = 0;
+		for window in self._windows {
+			if (!window.isOpen()) { continue; }
+			if (index >= self._nativeQuitMembers.len) { throw "Native quit membership changed during validation"; }
+			var member = self._nativeQuitMembers.get(index++);
+			if (member.window != window || !window.matchesNativeQuit(member) || member.transaction.state() != WINDOW_CLOSE_AUTHORIZED || member.transaction.reportedRevision() != member.revision) { throw "Native quit authority changed during validation"; }
+		}
+		if (index != self._nativeQuitMembers.len) { throw "Native quit membership changed during validation"; }
+		for member in self._nativeQuitMembers { member.transaction.consumeHeldAuthorization(); }
+		self.sealQuit(publishers);
+	}
+
+	/* The retained publisher and window member snapshots survive this entire
+	 * prefix. Seal all ingress before any cancel/prune can run user finalizers. */
+	private void sealQuit(Vector<MacOSPublisher> publishers) {
+		self._closing = true; self._nativeQuitPending = false;
+		self._workQueue.seal();
+		for publisher in publishers { publisher.seal(); }
+		bool advancing = self._closeAdvancing; self._closeAdvancing = true;
+		try {
+			for window in self._windows { window.sealNativeQuit(); }
+			if (self._workQueue.failed()) { self.recordFailure("Application work wake failed"); }
+			for publisher in publishers { if (publisher.failed()) { self.recordFailure("Application publication wake failed"); } }
+			self.cancelIngress(publishers);
+			self._nativeQuitMembers = [];
+			if (self._standalone && self._application.modalWindow() != null) { self._application.stopModalWithCode(NSModalResponseAbort); }
+			/* Wake only after sealing all ingress; producer cancellation retains
+			 * its borrowed host until that producer leaves. */
+			self._signal.tryWake();
+			var host = self._host;
+			if (host != null) { try { if (!host.requestTurn()) { self.recordFailure("Application host rejected shutdown wake"); } } catch (string error) { self.recordFailure(error); } }
+		} finally { self._closeAdvancing = advancing; }
+	}
+
+	public void requestQuit() {
+		self.requireMainThread();
+		if (self._closed || self._closing) { return; }
+		Vector<MacOSPublisher> publishers = [];
+		for publisher in self._publishers { publishers.push(publisher); }
+		self.sealQuit(publishers);
+	}
+
+	public unsigned long applicationShouldTerminate(NSApplication sender) { try { self.captureNativeQuit(); } catch (string error) { self.failHost(error); } return NSTerminateCancel; }
 
 	public void run() {
 		self.requireIdle();
@@ -373,6 +466,7 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 		self.requireCreation();
 		var window = MacOSWindow(title, width, height, self._signal, self.controlContext());
 		if (self._attachment != null && !self._standalone) { window.setApplicationActivity(self._activity); }
+		if (self._nativeQuitPending) { window.holdNativeQuit(); }
 		self._windows.push(window);
 		return window;
 	}
@@ -477,14 +571,36 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 		return result;
 	}
 
+	/* Retry the existing owners, including untouched admissions after an
+	 * earlier exception. Attempt every producer while preserving first error. */
+	private CallbackCancellation cancelIngress(Vector<MacOSPublisher> publishers) {
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
+		bool failed = false; string failure = "";
+		try { result = self._workQueue.cancel(); }
+		catch (string error) { failed = true; failure = error; }
+		for publisher in publishers {
+			try { result = self.combineClose(result, publisher.cancel()); }
+			catch (string error) { if (!failed) { failed = true; failure = error; } }
+		}
+		if (failed) { throw failure; }
+		return result;
+	}
+
 	private CallbackCancellation advanceClose() {
-		if (self._turnActive) { return CALLBACK_CANCELLATION_PENDING; }
+		if (self._turnActive || self._closeAdvancing) { return CALLBACK_CANCELLATION_PENDING; }
 		var activeContext = self._context;
 		if (activeContext != null && (activeContext.mutating() || activeContext.deliveryActive())) { activeContext.deferService(); return CALLBACK_CANCELLATION_PENDING; }
-		var work = self._workQueue.pollCompletion();
-		bool producers = true;
-		for publisher in self._publishers { if (publisher.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { producers = false; } }
-		if (work != CALLBACK_CANCELLATION_COMPLETE || !producers) { return CALLBACK_CANCELLATION_PENDING; }
+		self._closeAdvancing = true;
+		CallbackCancellation result = CALLBACK_CANCELLATION_PENDING;
+		try { result = self.drainClose(); }
+		finally { self._closeAdvancing = false; }
+		return result;
+	}
+
+	private CallbackCancellation drainClose() {
+		var ingress = self.cancelIngress(self._publishers);
+		if (ingress != CALLBACK_CANCELLATION_COMPLETE) { return ingress; }
+		self._nativeQuitMembers = [];
 		var views = self.closeViews();
 		if (views != CALLBACK_CANCELLATION_COMPLETE) {
 			if (self._running) {

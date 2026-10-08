@@ -225,8 +225,12 @@ class MacOSWorkQueue implements IControlEventWake {
 		return false;
 	}
 
+	/* Admission-only sealing never retires a receiver. Application seals every
+	 * ingress before cancellation can release user-owned work. */
+	public void seal() { self.requireUI(); self._open = false; }
+
 	public CallbackCancellation cancel() {
-		self.requireUI(); self._open = false;
+		self.seal();
 		for entry in self._entries { if (entry.isOpen()) { entry.retireAs(CONTROL_EVENT_CLOSED); } }
 		return self.pollCompletion();
 	}
@@ -543,9 +547,13 @@ class MacOSPublisher implements IApplicationPublisher, ICallbackRegistration {
 		return state == CALLBACK_CANCELLATION_COMPLETE && executing ? CALLBACK_CANCELLATION_PENDING : state;
 	}
 
-	public CallbackCancellation cancel() {
+	public void seal() {
 		self.requireUI();
 		if (self._state != null) { self._sealed.store(true, MemoryOrder.RELEASE); }
+	}
+
+	public CallbackCancellation cancel() {
+		self.seal();
 		if (self._cancellation == CALLBACK_CANCELLATION_COMPLETE || self._cancellation == CALLBACK_CANCELLATION_FAILED) { return self._cancellation; }
 		self._cancellation = self.finishCancellation(); return self._cancellation;
 	}

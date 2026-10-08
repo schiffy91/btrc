@@ -136,6 +136,9 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 	private ControlEventChannel<MacOSWindowCloseReceiver, IWindowCloseTransaction>? _closeRequested;
 	private MacOSWindowCloseRegistration? _closeRegistration;
 	private MacOSWindowCloseTransaction? _transaction;
+	private MacOSWindowCloseRegistration? _transactionRegistration;
+	private bool _nativeQuitHeld = false;
+	private bool _nativeQuitCancelled = false;
 	private long long _nextCloseInteraction = 1LL;
 	private long long _nextSaveAttempt = 1LL;
 
@@ -232,22 +235,34 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 		var result = WindowCloseRequestOutcome();
 		if (self._window == null) { result.kind = WINDOW_CLOSE_REQUEST_CLOSED; return result; }
 		if (self._closing || self._events.closed) { result.kind = WINDOW_CLOSE_REQUEST_CLOSING; return result; }
+		var registration = self.liveCloseRegistration();
 		var pending = self._transaction;
+		/* A newly registered dirty owner invalidates held clean authorization.
+		 * There was no receiver/decision to cancel for that no-handler member. */
+		if (self._nativeQuitHeld && pending != null && pending.pending() && self._transactionRegistration == null && registration != null) {
+			pending.resolve(WINDOW_CLOSE_CANCELLED); self._transaction = null; pending = null;
+		}
 		if (pending != null && pending.pending()) { result.kind = WINDOW_CLOSE_REQUEST_ALREADY_PENDING; result.transaction = pending; return result; }
-		var channel = self._closeRequested; var registration = self._closeRegistration;
+		var channel = self._closeRequested;
 		if (registration == null || !registration.isOpen() || channel == null || !channel.isOpen()) {
-			result.kind = WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER; self.close(); return result;
+			result.kind = WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER;
+			if (self._nativeQuitHeld) {
+				var clean = MacOSWindowCloseTransaction(self, self._context, true);
+				self._transaction = clean; self._transactionRegistration = null;
+				clean.authorizeWithoutHandler();
+			} else { self.close(); }
+			return result;
 		}
 		if (self._nextCloseInteraction == 9223372036854775807LL) { throw "Window close interaction identities exhausted"; }
 		var ticket = channel.beginInteraction();
 		if (ticket == null) { throw "Window close handler is no longer live"; }
-		var transaction = MacOSWindowCloseTransaction(self, self._context, false);
+		var transaction = MacOSWindowCloseTransaction(self, self._context, self._nativeQuitHeld);
 		long long interaction = self._nextCloseInteraction++;
 		try { channel.publishTerminal(transaction, self._generation, interaction, ticket); }
 		catch (string error) { ticket.retire(); transaction.resolve(WINDOW_CLOSE_CANCELLED); throw error; }
 		/* requestTurn never services inline: publish identity only after the
 		 * terminal has a committed queue receipt. Failed admission leaves no pending request. */
-		self._transaction = transaction;
+		self._transaction = transaction; self._transactionRegistration = registration;
 		result.kind = WINDOW_CLOSE_REQUEST_PENDING; result.transaction = transaction; return result;
 	}
 
@@ -260,24 +275,89 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 	}
 
 	public void retireCloseTransaction(MacOSWindowCloseTransaction transaction) {
-		self.requireMainThread(); if (self._transaction == transaction) { self._transaction = null; }
+		self.requireMainThread();
+		if (self._transaction == transaction) {
+			if (self._nativeQuitHeld && transaction.state() == WINDOW_CLOSE_CANCELLED) { self._nativeQuitCancelled = true; }
+			self._transaction = null; self._transactionRegistration = null; self.nativeQuitChanged();
+		}
 	}
 
 	public void consumeCloseAuthorization(MacOSWindowCloseTransaction transaction) {
 		self.requireMainThread();
 		if (!self.isPendingClose(transaction) || transaction.state() != WINDOW_CLOSE_AUTHORIZED) { throw "Window close authorization is stale"; }
-		transaction.resolve(WINDOW_CLOSE_CLOSING); self._transaction = null; self.close();
+		transaction.resolve(WINDOW_CLOSE_CLOSING); self._transaction = null; self._transactionRegistration = null; self.close();
 	}
 
 	public void closeHandlerCancelled(MacOSWindowCloseRegistration registration) {
 		self.requireMainThread(); if (self._closeRegistration != registration) { return; }
-		self._events.interceptClose = false;
+		if (self._nativeQuitHeld) { self._nativeQuitCancelled = true; }
+		self._events.interceptClose = self._nativeQuitHeld;
 		var pending = self._transaction;
 		if (pending != null) {
 			if (self._closing || self._events.closed) { pending.resolve(WINDOW_CLOSE_OWNER_LOST); }
 			else { pending.resolve(WINDOW_CLOSE_CANCELLED); }
-			self._transaction = null;
+			self._transaction = null; self._transactionRegistration = null;
 		}
+		self.nativeQuitChanged();
+	}
+
+	private MacOSWindowCloseRegistration? liveCloseRegistration() {
+		var registration = self._closeRegistration;
+		if (registration != null && registration.isOpen()) { return registration; }
+		return null;
+	}
+
+	/* Native capture changes existing provider flags only. The application
+	 * retains this window and this window retains any pending transaction. */
+	public void holdNativeQuit() {
+		self.requireMainThread();
+		if (!self.isOpen()) { return; }
+		self._nativeQuitHeld = true; self._events.interceptClose = true;
+		var pending = self._transaction;
+		if (pending != null && pending.pending()) { pending.holdAuthorization(); }
+	}
+
+	public bool nativeQuitCancelled() { self.requireMainThread(); return self._nativeQuitCancelled; }
+
+	public void nativeQuitChanged() { if (self._nativeQuitHeld) { self._events.wake(); } }
+
+	public MacOSWindowQuitAuthorization prepareNativeQuit() {
+		self.requireMainThread();
+		if (!self._nativeQuitHeld || self._nativeQuitCancelled || !self.isOpen()) { throw "Native quit window admission is stale"; }
+		self.requestClose(WINDOW_CLOSE_APPLICATION_QUIT);
+		var transaction = self._transaction;
+		if (transaction == null || !transaction.pending()) { throw "Native quit has no pending window transaction"; }
+		return MacOSWindowQuitAuthorization(self, transaction, self.liveCloseRegistration());
+	}
+
+	public bool matchesNativeQuit(MacOSWindowQuitAuthorization authorization) {
+		self.requireMainThread();
+		return self._nativeQuitHeld && !self._nativeQuitCancelled && self.isOpen() && authorization.window == self && authorization.transaction == self._transaction && authorization.registration == self.liveCloseRegistration();
+	}
+
+	public void cancelNativeQuit() {
+		self.requireMainThread();
+		if (!self._nativeQuitHeld) { return; }
+		self._nativeQuitHeld = false; self._nativeQuitCancelled = false; self._events.closeRequested = false;
+		var transaction = self._transaction;
+		if (transaction != null && transaction.pending()) { transaction.resolve(WINDOW_CLOSE_CANCELLED); self._transaction = null; self._transactionRegistration = null; }
+		self._events.interceptClose = self.liveCloseRegistration() != null;
+	}
+
+	/* Called only after application ingress has been sealed. Clearing an owner
+	 * edge here cannot run a window destructor: Application retains membership. */
+	public void sealNativeQuit() {
+		self.requireMainThread();
+		if (!self._nativeQuitHeld) { return; }
+		self._nativeQuitHeld = false; self._nativeQuitCancelled = false;
+		var transaction = self._transaction;
+		if (transaction != null) { transaction.releaseAfterQuitSeal(); }
+	}
+
+	public bool shouldDeliverClose(IWindowCloseTransaction transaction) {
+		self.requireMainThread();
+		var pending = self._transaction;
+		return self.isOpen() && pending != null && pending.pending() && pending == transaction;
 	}
 
 	public void enterCloseDecision() { self._context.enterCloseDecision(); }
@@ -581,8 +661,9 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 		if (self._mutating || self._context.mutating()) { throw "Window root mutation is already active"; }
 		if (!self._closing) {
 			self._closing = true; self._events.interceptClose = false;
+			if (self._nativeQuitHeld) { self._nativeQuitCancelled = true; }
 			var pending = self._transaction;
-			if (pending != null) { pending.resolve(WINDOW_CLOSE_OWNER_LOST); self._transaction = null; }
+			if (pending != null) { pending.resolve(WINDOW_CLOSE_OWNER_LOST); self._transaction = null; self._transactionRegistration = null; }
 			// Programmatic close may precede native close by an asynchronous
 			// subtree drain. Wake its owner even without an NSWindow event.
 			self._events.wake();
@@ -672,9 +753,33 @@ class MacOSWindowCloseTransaction implements IWindowCloseTransaction {
 		self._state = state; self._attempt = 0LL; self._owner = null;
 	}
 
+	public void holdAuthorization() { self._context.requireUI(); if (self.pending()) { self._coordinated = true; } }
+
+	public long long reportedRevision() { self._context.requireUI(); return self._revision; }
+
+	public void authorizeWithoutHandler() {
+		self._context.requireUI();
+		if (!self._coordinated || self._state != WINDOW_CLOSE_AWAITING_DECISION || self._hasRevision) { throw "Invalid clean window authorization"; }
+		self._state = WINDOW_CLOSE_AUTHORIZED;
+	}
+
+	/* No reference assignment, receiver call, allocation or native teardown is
+	 * allowed between group validation and application ingress sealing. */
+	public void consumeHeldAuthorization() {
+		self._context.requireUI();
+		if (!self._coordinated || self._state != WINDOW_CLOSE_AUTHORIZED) { throw "Native quit authorization is stale"; }
+		self._state = WINDOW_CLOSE_CLOSING; self._attempt = 0LL;
+	}
+
+	public void releaseAfterQuitSeal() {
+		self._context.requireUI();
+		if (self.pending()) { self.resolve(WINDOW_CLOSE_OWNER_LOST); }
+		else if (self._state == WINDOW_CLOSE_CLOSING) { self._owner = null; }
+	}
+
 	private WindowCloseOutcome authorize(MacOSWindow owner) {
 		self._state = WINDOW_CLOSE_AUTHORIZED; self._attempt = 0LL;
-		if (!self._coordinated) { owner.consumeCloseAuthorization(self); }
+		if (!self._coordinated) { owner.consumeCloseAuthorization(self); } else { owner.nativeQuitChanged(); }
 		return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
 	}
 
@@ -684,19 +789,19 @@ class MacOSWindowCloseTransaction implements IWindowCloseTransaction {
 		if (owner == null || !self.pending() || !owner.isPendingClose(self)) { return self.outcome(WINDOW_CLOSE_OUTCOME_NOT_PENDING); }
 		if (self._hasRevision && documentRevision < self._revision) { return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_REVISION); }
 		if (decision != WINDOW_CLOSE_DECISION_SAVE && decision != WINDOW_CLOSE_DECISION_DISCARD && decision != WINDOW_CLOSE_DECISION_CANCEL) { throw "Invalid close decision"; }
-		if (self._state == WINDOW_CLOSE_AUTHORIZED) { throw "Close authorization is awaiting coordinated consumption"; }
+		if (self._state == WINDOW_CLOSE_AUTHORIZED && (decision != WINDOW_CLOSE_DECISION_CANCEL && (!self._coordinated || documentRevision <= self._revision))) { throw "Held close authorization requires a newer document revision"; }
 		if (decision == WINDOW_CLOSE_DECISION_CANCEL) {
 			self._revision = documentRevision; self._hasRevision = true; self.resolve(WINDOW_CLOSE_CANCELLED); owner.retireCloseTransaction(self);
 			return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
 		}
 		if (self._state == WINDOW_CLOSE_SAVING) {
 			if (decision != WINDOW_CLOSE_DECISION_SAVE || documentRevision <= self._revision) { throw "Only a newer document revision may update an active save"; }
-			self._revision = documentRevision; self._hasRevision = true; return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+			self._revision = documentRevision; self._hasRevision = true; owner.nativeQuitChanged(); return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
 		}
 		if (decision == WINDOW_CLOSE_DECISION_DISCARD) { self._revision = documentRevision; self._hasRevision = true; return self.authorize(owner); }
 		/* Exhaustion fails before changing the transaction's revision/state. */
 		long long attempt = owner.nextCloseSaveAttempt();
-		self._revision = documentRevision; self._hasRevision = true; self._attempt = attempt; self._state = WINDOW_CLOSE_SAVING;
+		self._revision = documentRevision; self._hasRevision = true; self._attempt = attempt; self._state = WINDOW_CLOSE_SAVING; owner.nativeQuitChanged();
 		return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
 	}
 
@@ -706,9 +811,9 @@ class MacOSWindowCloseTransaction implements IWindowCloseTransaction {
 		if (owner == null || !self.pending() || !owner.isPendingClose(self)) { return self.outcome(WINDOW_CLOSE_OUTCOME_NOT_PENDING); }
 		if (attempt <= 0LL || attempt != self._attempt) { return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT); }
 		if (self._state != WINDOW_CLOSE_SAVING) { throw "No matching save is active"; }
-		if (!succeeded) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED); }
+		if (!succeeded) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; owner.nativeQuitChanged(); return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED); }
 		if (!self._hasRevision || savedRevision > self._revision) { throw "Save completion revision was not acknowledged"; }
-		if (savedRevision < self._revision) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_REVISION); }
+		if (savedRevision < self._revision) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; owner.nativeQuitChanged(); return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_REVISION); }
 		return self.authorize(owner);
 	}
 }
@@ -744,8 +849,23 @@ class MacOSWindowCloseReceiver {
 	public MacOSWindowCloseReceiver(MacOSWindow owner, IWindowCloseRequestHandler handler) { self._owner = owner; self._handler = handler; }
 
 	class void deliver(MacOSWindowCloseReceiver receiver, IWindowCloseTransaction transaction) {
+		/* A cancelled group keeps the long-lived registration but suppresses
+		 * its already queued decision. The channel still retires its receipt. */
+		if (!receiver._owner.shouldDeliverClose(transaction)) { return; }
 		receiver._owner.enterCloseDecision();
 		try { receiver._handler.closeRequested(transaction); }
 		finally { receiver._owner.leaveCloseDecision(); }
+	}
+}
+
+/* A retained group snapshot, not another transaction or callback owner. Its
+ * identities remain alive until Application finishes ingress sealing. */
+class MacOSWindowQuitAuthorization {
+	public MacOSWindow window;
+	public MacOSWindowCloseTransaction transaction;
+	public MacOSWindowCloseRegistration? registration;
+	public long long revision = 0LL;
+	public MacOSWindowQuitAuthorization(MacOSWindow window, MacOSWindowCloseTransaction transaction, MacOSWindowCloseRegistration? registration) {
+		self.window = window; self.transaction = transaction; self.registration = registration;
 	}
 }
