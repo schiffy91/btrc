@@ -78,8 +78,71 @@ blocker. It checked canonical view/forward/key wiring, unchanged analyzer order,
 changed-demand invalidation and the by-value dependency fixture; the reviewer
 ran no tests or builds.
 
-Paired self-host/native execution, recapture of **every frozen boundary record**
-through the existing generator as G12 requires, and final exact-tree gates remain
-pending. Canonical ordering changes clean output once; boundary expectations
-must be reviewed, never hand-edited to conceal a failure. No timing here is a
-performance result, and Stage 9's full analysis/journal counter remains open.
+## Source-matched native qualification
+
+On 2026-10-08 the parent allocated the serial Mac native lane. The source stayed
+clean at `c3f709f709ac4e7825a6db5726f37a4b7a40284c` throughout the following runs,
+holding the external `gate` and `btrcc-build` locks and checking at least 80 GB
+free before each stage. Host: **Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0**.
+
+Evidence is retained under the directory above, in `c3f709f7/`:
+
+- `build-result.json`: strict-import reference emission of `cli/MacOSMain.btrc`
+  and strict C11 `-O2` native build passed with the retained Nix Clang 21.1.8,
+  matching the established baseline toolchain. The pinned shell is
+  `/nix/store/vn9csyrcz5gk24y9402kpxcwa6wkkngv-nix-shell-env`; the receipt records
+  its digest, actual compiler path/hash, reader and SDK environment, exact
+  commands and exit statuses. Native binary SHA-256:
+  `5b5bd238a8313750d95834782a6a7c883e2ce975919422fb6fccf4f38878655f`.
+- `qualification-result.json`, `paired.xml` and `paired.log`: **18 passed,
+  zero skipped in 14.90 s**, selecting the exact nine parameterized rows through
+  each frontend with `BTRC_TEST_BTRCC` pinned to that binary. Class and method
+  use reordering in release and debug changes only `Use`, lowers one group and
+  matches a fresh clean build. Changed demand invalidates the template; the
+  dependency, tuple and span guards also pass. These rows inspect compiler
+  output and counters; they are not elapsed-time performance measurements.
+- `dependency-native-result.json`: the retained by-value dependency program's
+  five C units from each frontend additionally compiled and linked with Clang
+  21.1.8, `-std=c11 -pedantic-errors -Wall -Wextra -Werror -O0`, then executed
+  successfully. Both programs check the expected value of 9 and return zero;
+  emitted source hashes, native binary hashes and diagnostics are retained.
+
+## Full frozen-boundary recapture
+
+The unchanged existing generator ran explicitly as
+`python3 -m tools.compiler_codegen.main boundary-capture --candidate build/verification/compiler-boundaries/g12-c3f709f7`.
+This executes all producers, including observed behavior, rather than the
+compatibility-skipping capture used by an ordinary boundary check. It built its
+own source-matched `LexMain`, `ParseMain` and `BtrccMain` tools serially; it did
+not substitute the MacOSMain test binary. Their hashes are in
+`boundaries/result.json`.
+
+`boundaries/original/` retains the entire original fixture tree, including the
+manifest and both baseline and accepted artifacts. `boundaries/candidate/`,
+`delta.json` and `diffs/` retain all **311** newly captured records and compare
+against each record's effective accepted bytes, or baseline when unamended.
+
+- **307 records are byte-identical:** all 287 portable records and all 20
+  observed status/stdout/stderr channels.
+- The only four differences are observation metadata: actual C tool identity
+  and version digests, Python 3.14.6 versus 3.13.13, and Darwin 27.0.0 versus
+  25.6.0. Flags, arguments and controlled environment remain unchanged.
+- All **34 parity equalities** hold. All 32 status channels match, including
+  the eight expected diagnostic failures and the twelve successful observed
+  source/compile/run statuses. No failed producer was accepted as a pass.
+- The existing boundary checker passes **287** portable records and explicitly
+  leaves the 24 host-incompatible observed channels unchecked. The separate
+  force-observed capture executed those producers successfully; this is not a
+  claim that the checker accepted all 311 historical host observations.
+
+The current frozen source fixtures have no generic specializations, so this
+ordering change requires no portable expectation update. No manifest, accepted
+artifact, baseline or frozen design reference was changed. Independent review
+by performance_review recomputed the complete inventory and effective hashes,
+confirmed all statuses and equalities, and verified the retained original tree
+still equals the tracked fixture tree. No actionable blocker was found.
+
+Full exact-tree gates, including bootstrap and the full C11 matrix, remain
+pending. This bounded result closes the specialization-order reuse defect; it
+does not close all G12 groundwork or Stage 9's analysis/journal counter, and no
+benchmark improvement is claimed.
