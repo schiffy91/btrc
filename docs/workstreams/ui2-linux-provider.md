@@ -338,3 +338,20 @@ is active, consumes it only after finalized text arrives, and clears it on
 cancellation/new interaction. A repeated Return after completion emits no
 second commit. As with the other text assertions, no native execution or
 semantic compilation has occurred yet.
+
+### Window snapshot source slice
+
+Fixture-only `abdb9de5` stages native size/visibility snapshots, no initial
+subscription delivery, stable revisions for no-op size changes, and close from
+inside an entered state receiver. The source now separates requested/native
+visibility, reads logical and pixel dimensions from SDL, preserves unknown
+occlusion, and publishes owning revisioned window snapshots. Host activity is
+forwarded to each window. Native desktop focus debouncing is still to be wired.
+Close waits for an entered callback instead of treating its legitimate PENDING
+state as an exception; repeated polling observes that drain without reissuing
+cancellation. Final close failure/retry handling and reversible transactions
+remain separate unfinished work. This source has no semantic/native proof yet.
+
+Root also identified the scheduler's bool/bool ternary arithmetic promotion;
+`b30b19bf` preserves its exact lazy dispatch selection with explicit branches,
+independent of this state slice. No compiler behavior changed.

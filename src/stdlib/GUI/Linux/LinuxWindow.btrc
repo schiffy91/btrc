@@ -8,6 +8,7 @@ import Library.App;
 import Library.Image;
 import Library.GUI.IWindow;
 import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
@@ -112,7 +113,7 @@ interface ILinuxWindow extends IWindow {
  * hit-testing that tree, and keyboard input goes to window subscriptions,
  * then the focused control. Closing drains the subtree, then the GPU
  * resources, then the native window, in that order. */
-class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
+class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarget {
 	private SDL_Window* _window;
 	private unsigned int _id = 0u;
 	private LinuxContext _context;
@@ -128,6 +129,12 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	private Vector<LinuxWindowKeys> _keys = [];
 	private string _title;
 	private bool _visible = false;
+	private bool _requestedVisible = false;
+	private bool _focusObserved = false;
+	private ApplicationActivity _activity = APPLICATION_ACTIVITY_UNKNOWN;
+	private WindowState? _state;
+	private ControlEventChannel<IWindowStateHandler, WindowState>? _stateChannel;
+	private bool _callbacksClosing = false;
 	private bool _focused = false;
 	private bool _suspended = false;
 	private bool _closeRequested = false;
@@ -171,9 +178,60 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 			self._host.scale = surface.backingScale();
 			self._device = GPUDevice(surface.nativeInstance(), surface.nativeSurface());
 			self._host.width = width;
-			self._host.height = height;
+			self._host.height = height; self.refreshWindowState();
 		} catch (string error) { self.destroyNative(); throw error; }
 	}
+
+	class void deliverState(IWindowStateHandler receiver, WindowState state) { receiver.stateChanged(state); }
+
+	public ControlEventDisposition admission(long long generation) { return self.isOpen() ? CONTROL_EVENT_DELIVERED : CONTROL_EVENT_CLOSED; }
+
+	private WindowState copyState(WindowState current) {
+		var state = WindowState(); state.width = current.width; state.height = current.height; state.backingScale = current.backingScale;
+		state.requestedVisible = current.requestedVisible; state.nativeVisible = current.nativeVisible; state.minimized = current.minimized;
+		state.windowActive = current.windowActive; state.applicationActivity = current.applicationActivity; state.exposure = current.exposure;
+		state.notExposedReason = current.notExposedReason; state.presentable = current.presentable; state.stateRevision = current.stateRevision; return state;
+	}
+
+	private void refreshWindowState() {
+		var old = self._state; var next = WindowState();
+		next.width = old == null ? self._host.width : old.width; next.height = old == null ? self._host.height : old.height;
+		next.backingScale = old == null ? self._host.scale : old.backingScale;
+		unsigned long long flags = 0ULL; int pixelWidth = 0; int pixelHeight = 0;
+		if (self._window != null) {
+			int width = 0; int height = 0; SDL_GetWindowSize(self._window, &width, &height);
+			next.width = (double)width; next.height = (double)height; next.backingScale = (double)SDL_GetWindowPixelDensity(self._window);
+			SDL_GetWindowSizeInPixels(self._window, &pixelWidth, &pixelHeight); flags = SDL_GetWindowFlags(self._window);
+		}
+		next.requestedVisible = self._requestedVisible;
+		next.nativeVisible = self.isOpen() && (flags & (unsigned long long)SDL_WINDOW_HIDDEN) == 0ULL;
+		next.minimized = self._window != null && (flags & (unsigned long long)SDL_WINDOW_MINIMIZED) != 0ULL;
+		next.windowActive = self.isOpen() && self._focused; next.applicationActivity = self._activity;
+		next.exposure = WINDOW_EXPOSURE_UNKNOWN; next.notExposedReason = WINDOW_EXPOSURE_REASON_NONE;
+		if (!next.nativeVisible) { next.exposure = WINDOW_EXPOSURE_NOT_EXPOSED; next.notExposedReason = WINDOW_EXPOSURE_REASON_HIDDEN; }
+		else if (next.minimized) { next.exposure = WINDOW_EXPOSURE_NOT_EXPOSED; next.notExposedReason = WINDOW_EXPOSURE_REASON_MINIMIZED; }
+		next.presentable = next.nativeVisible && !next.minimized && !self._suspended && pixelWidth > 0 && pixelHeight > 0;
+		if (old != null && old.width == next.width && old.height == next.height && old.backingScale == next.backingScale && old.requestedVisible == next.requestedVisible && old.nativeVisible == next.nativeVisible && old.minimized == next.minimized && old.windowActive == next.windowActive && old.applicationActivity == next.applicationActivity && old.exposure == next.exposure && old.notExposedReason == next.notExposedReason && old.presentable == next.presentable) { return; }
+		if (old != null && old.stateRevision == 9223372036854775807LL) { throw "Window state revisions exhausted"; }
+		next.stateRevision = old == null ? 1LL : old.stateRevision + 1LL; self._state = next;
+		var channel = self._stateChannel;
+		if (channel != null && channel.isOpen() && !channel.publish(next, 1LL, 0LL, 1LL)) { throw "Window state semantic source is unavailable"; }
+	}
+
+	public WindowState state() { self.refreshWindowState(); var state = self._state; if (state == null) { throw "Window state unavailable"; } return self.copyState(state); }
+
+	public ICallbackRegistration onStateChanged(IWindowStateHandler receiver, CallbackScope owner) {
+		self.requireOpen();
+		if (self._stateChannel != null && self._stateChannel.isOpen()) { throw "Cancel the existing window state handler first"; }
+		self.refreshWindowState();
+		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._host.events, self, receiver, LinuxWindow.deliverState, owner);
+		try { self._callbacks.track(channel); } catch (string error) { channel.cancel(); throw error; }
+		self._stateChannel = channel; return channel;
+	}
+
+	public bool focusObserved() { return self._focusObserved; }
+
+	public void applicationActivity(ApplicationActivity activity) { self._activity = activity; self._suspended = activity == APPLICATION_ACTIVITY_SUSPENDED; self.refreshInteraction(); }
 
 	public unsigned int nativeId() { return self._id; }
 
@@ -192,6 +250,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		self._host.exposure = !visible || minimized ? WINDOW_EXPOSURE_NOT_EXPOSED : WINDOW_EXPOSURE_UNKNOWN;
 		if (self._root != null) { self._root.node().refreshInteraction(self._host.eligible); }
 		if (!self._host.eligible) { self.cancelCapture(); if (self._host.focusedId != 0) { self.moveFocus(0); } }
+		self.refreshWindowState();
 	}
 
 	public bool owns(int viewId) { return self.locate(viewId) != null; }
@@ -582,12 +641,12 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		unsigned int type = event->type;
 		if (type == (unsigned int)SDL_EVENT_WINDOW_CLOSE_REQUESTED) { self._closeRequested = true; self._host.invalidation.mark(); return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_RESIZED || type == (unsigned int)SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || type == (unsigned int)SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED || type == (unsigned int)SDL_EVENT_WINDOW_EXPOSED) {
-			self.layoutRoot();
+			self.layoutRoot(); self.refreshWindowState();
 			self._host.invalidation.mark();
 			return;
 		}
-		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_GAINED) { self._focused = true; self._host.invalidation.mark(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_LOST) { self._focused = false; self.cancelCapture(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_GAINED) { self._focused = true; self._focusObserved = true; self.refreshWindowState(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_LOST) { self._focused = false; self._focusObserved = true; self.cancelCapture(); self.refreshWindowState(); self._host.invalidation.mark(); return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_LEAVE) { self._pointerInside = false; if (self._captureButton == APP_POINTER_BUTTON_NONE) { self.clearHover(); } return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_ENTER) { self._pointerInside = true; return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_SHOWN) { self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); return; }
@@ -683,7 +742,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		SDL_SetWindowSize(self._window, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height));
 		self._host.width = width;
 		self._host.height = height;
-		self.layoutRoot();
+		self.layoutRoot(); self.refreshWindowState();
 	}
 
 	public void setMinimumContentSize(double width, double height) {
@@ -725,9 +784,9 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		return root;
 	}
 
-	public void show() { self.requireOpen(); SDL_ShowWindow(self._window); self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); }
+	public void show() { self.requireOpen(); if (!SDL_ShowWindow(self._window)) { throw "Cannot show native window"; } self._requestedVisible = true; self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); }
 
-	public void hide() { self.requireOpen(); SDL_HideWindow(self._window); self._visible = false; self.refreshInteraction(); }
+	public void hide() { self.requireOpen(); if (!SDL_HideWindow(self._window)) { throw "Cannot hide native window"; } self._requestedVisible = false; self._visible = false; self.refreshInteraction(); }
 
 	public bool isVisible() { return self.isOpen() && self._visible && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_HIDDEN) == 0ULL; }
 
@@ -776,7 +835,10 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		try {
-			if (self._callbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Window callbacks must drain before shutdown"; }
+			CallbackCancellation callbacks = CALLBACK_CANCELLATION_NOT_REQUESTED;
+			if (!self._callbacksClosing) { self._callbacksClosing = true; callbacks = self._callbacks.cancel(); }
+			else { callbacks = self._callbacks.pollCompletion(); }
+			if (callbacks != CALLBACK_CANCELLATION_COMPLETE) { return callbacks; }
 			self._keys.clear();
 			var root = self._root;
 			if (root != null) {
@@ -807,7 +869,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 			self._device = null;
 			self._host.device = null;
 			self.destroyNative();
-			self._closed = true;
+			self._closed = true; self.refreshWindowState();
 		} catch (string error) { self._closeFailure = error; throw error; }
 		return CALLBACK_CANCELLATION_COMPLETE;
 	}

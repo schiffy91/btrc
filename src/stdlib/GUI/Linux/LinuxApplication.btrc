@@ -273,7 +273,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		bool suspended = activity == APPLICATION_ACTIVITY_SUSPENDED;
 		if (suspended) { for delayed in self._delayed { if (delayed.policy == WORK_SUSPENSION_CANCEL) { delayed.cancel(); } } self.pruneDelayed(); }
 		for publisher in self._publishers { publisher.suspend(suspended); }
-		for window in self._windows { window.suspendInput(suspended); }
+		for window in self._windows { window.applicationActivity(activity); }
 		self.signalTurn(); self.updateHostDeadline();
 	}
 
@@ -296,7 +296,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	public IWindow createWindow(string title, double width, double height) {
 		self.requireCreation();
 		var window = LinuxWindow(self._context, title, width, height);
-		window.suspendInput(self._activity == APPLICATION_ACTIVITY_SUSPENDED);
+		window.applicationActivity(self._activity);
 		self._windows.push(window);
 		return window;
 	}
