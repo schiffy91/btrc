@@ -144,6 +144,9 @@ The repaired candidate is frozen at `dff538ef`; its normal static checks and ful
 `make test` (including serial bootstrap) are running under the gate lock. It
 reuses the fresh compiler only after confirming that its delta from `06c3923a`
 contains PLAN.md and the three audit files, with identical compiler binary hash.
+The parallel suite has reported three failure markers near its end; final case
+details remain pending while its last worker continues. This is not a passing
+combined gate.
 Explicit bootstrap, strict C11 and final main integration remain pending.
 The Darwin Python/libffi repair `2e8e3711` now passes the actual callback smoke,
 46 build-safety checks and upstream CFFI's 1,888 checks (161 skips, four deselected,
@@ -208,7 +211,7 @@ changes; historical test totals alone do not advance its status.
 | Useful desktop library improvement | `CX-STDLIB-03` reconstructed and native red/green proven on the integration candidate; PR66 awaits hosted/final gates. `01`/`02` source recovery remains open | Provider repair owner; main integrator qualifies | Land the reviewed button repair after its gates. Recover or reconstruct `01`/`02`; independently reproduce `04`/`05`. Historical unpublished-source results do not qualify a reconstruction. |
 | UI2 events, executor and lifecycle on desktop | Contracts approved; local `ca4782e1` has 26 paired native/sanitizer BackgroundJobs passes and 114 catalog passes; desktop providers and atomic landing remain open | UI2 interface owner, then platform owners | Continue with the desktop providers and real UI2 probe collectors; there is no compiler prerequisite. Reconcile overlapping repairs first, then land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
 | Windows and mobile application-facing services | Fixture-host results above; complete providers not delivered | Platform slice owners | Use the per-platform checkpoints below: real Windows SDK/service operation; iOS and Android file persistence; then native button/text field/lifecycle. Each waits only for its own demonstrated ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Main `adb3276f`, compiler pin `05ec9cb7`; current requalification open | BTRSmith owner and integrator | Qualify the compiler pin and frontend/library smoke, then complete the MVP screen journeys and build/runtime budgets. Windows/mobile library completion is not a prerequisite for the macOS/Linux MVP; later platform releases remain separate outcomes. |
+| BTRSmith macOS/Linux MVP on the current stack | Main `adb3276f`, compiler pin `05ec9cb7`; current requalification open. Signed warm/touch rebuild defect repaired and verified through both compilers on the current source override | BTRSmith owner and integrator | Integrate the reviewed native signing fix and product caller, qualify the compiler pin and frontend/library smoke, then complete MVP screen journeys and build/runtime budgets. Windows/mobile library completion is not a prerequisite for the macOS/Linux MVP; later platform releases remain separate outcomes. |
 | One qualified implementation on main | `06c3923a` stopped with 17 failures, 17,838 passes and 168 skips; its three audit repairs passed 186 isolated checks and are committed. Repaired candidate `dff538ef` is running normal static/full-suite gates | Main integrator | Qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
 
 For usable-library status, use the existing native catalog and platform inventory
@@ -244,19 +247,34 @@ guard work. That branch still pins `cdf9d952`; application main still pins
 and actual application requalification, then the frozen D9 measurement copy.
 The `stage4-requal` and `stage5` runbook presets already exist.
 
-The exact `8204b8a9` product source is now checked out from the outside-Drive hub
+The existing `8204b8a9` product source was reused from the outside-Drive hub
 for current-compiler diagnosis, without changing its lock. The two original
 `BuildArtifacts.test_import_content_touch_edit_and_removal` tests reproduce the
 warm-build defect against compiler `dff538ef`: both frontends compile zero native
-units but relink once instead of zero times. Product Make signs the executable
+units but relink once instead of zero times. Product Make previously signed the executable
 after native-plan records its output hash; retained receipts and final signed
 executables differ in both cases, so receipt validation correctly rejects reuse.
-The fix must preserve stable signing identity, unchanged warm/touch inode, mtime
-and bytes, and failure-safe publication without weakening the original checks.
+Native builder `3c5a89ec` now signs and verifies the staged executable before
+publication and receipt creation; product caller `e00c61d2` supplies signing
+policy and retains unattended keychain unlocking. The original paired tests pass
+unchanged: both frontends perform zero compiles/links on warm and touch builds,
+preserving executable inode, mtime and bytes. A content edit compiles one native
+unit and links once; its next unchanged build reuses the result. A removed import
+still fails before native execution. Every retained receipt matches the final
+signed executable, and the named-certificate designated requirement remains
+stable across all five successful builds per frontend. Independent review
+verified the retained evidence. The native suite has 31 passes, the focused
+signing units ten, and the product Make graph 24; separate failure checks preserve
+the prior executable and receipt. Final BTRC branch `e2090c51` changes only the
+report from the tested production source. An initial certificate lookup wrongly
+excluded the existing local certificate; the corrected lookup preserves the
+product's policy without changing keychain or trust settings. Main integration,
+the product pin and full packaged qualification remain open. This fixture proof
+does not establish the full-product latency budget.
 The first diagnostic attempt stopped at an unset Nix wrapper build-directory
 variable; after correcting only that external runner environment, the actual
-product failures reproduced. This is source-override diagnosis, not locked-pin
-or packaged-product qualification. Both attempts and failure artifacts remain
+product failures reproduced. This is source-override diagnosis and focused
+qualification, not locked-pin or packaged-product qualification. All attempts and failure artifacts remain
 preserved.
 
 A concrete qualification blocker was found: the expected
