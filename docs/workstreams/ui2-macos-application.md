@@ -65,3 +65,22 @@ application work still uses its separate existing scheduling-round guard.
 Fixture-only0924e7ec/b2f16dbd inject actual owned-window AppKit mouse/key events,
 requiring no nested work and PENDING close until native return. These cases
 remain unexecuted. No new public API or copied lifecycle owner was introduced.
+
+### Current compiler component qualification (2026-10-08)
+
+Frozen provider `70df20a991826a2f802bff251abd355c8499abbb` and current
+compiler `f75c737bbf4002553099ce2856b9bbc86494622a` completed the reviewed
+three-component matrix under the gate, GUI-capture and compiler-build locks.
+`WorkQueue`, `NativeContainerBarrier` and `NativeCaptureFailure` passed both
+frontends with plain and ASan/UBSan execution: six zero-diagnostic projections,
+28 strict C/Objective-C checks, 12 links and 12 native runs. Session 24190
+terminated with status zero. The 180 recorded process groups are absent and
+leaders reaped; source inventories, logs and executed binaries were rehashed.
+
+Evidence: `~/.cache/btrc/plan-consolidation-2026-10-07/ui2-macos-application-70df20a9-compiler-f75c737b/component-result.json`,
+SHA256 `a54c1f28b116c6a17bb3a9caef28379341e36e4c4d8afc52bd3b1d4457e57f0f`.
+This qualifies the updated executor and shared delivery-barrier components.
+It does not execute the public Application host fixture or prove complete
+Application integration. That original fixture awaits the real TextField,
+Slider and Select owners; its assertions and prior conformance failure remain
+intact. No broader UI2 completion is claimed.
