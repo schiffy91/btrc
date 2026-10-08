@@ -622,3 +622,21 @@ two fixtures and all C/link/runtime phases were not attempted. The source
 correction explicitly rejects a null child from the native enumeration before
 looking up its owner or checking its parent, preserving the existing failure
 classification. Its diagnostic-free replay remains pending.
+
+
+The allocated `7a95ccdf` reference attempt (session 98663, terminal exit 1)
+proved NativeTreeState transpiles with zero diagnostics in 9.625 seconds. The
+next fixture, NativeContainerOrder, stopped after 5.161 seconds on three direct
+casts from portable interfaces to `IMacOSView` and two nullable native-host
+argument warnings. NativeContainerBarrier and every C/link/runtime phase were
+not attempted. Both leases were released after 14.897 seconds; admission free
+space was 81,445,392,384 bytes. The exact result remains under
+`ui2-macos-container-projection-7a95ccdf/results/projection1/reference/project-plain.json`
+(SHA256 `95378e6054809e44d7b791e45ee82e2011b4ec849b8eaee3161f3d574308e401`).
+
+The fixture-only correction uses the provider's existing nullable checked
+interface-projection pattern and rejects a null host before attachment. Every
+native order/count, editor identity/selection/composition, zero-mutation
+rejection, rollback, and ownership assertion is preserved. It changes no
+provider/compiler implementation or diagnostic policy. A fresh source-pinned
+reference replay remains pending; the previous failed attempt is immutable.
