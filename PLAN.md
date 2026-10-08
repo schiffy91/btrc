@@ -273,6 +273,20 @@ hashes. Five controls reject corrupt hashes, missing/reordered units, semantic C
 changes and other plan changes. An initial control-copy newline error is retained.
 Quiet limits, sample order, deadlines and cleanup remain unchanged. This is a
 comparator proof, not a new compiler or performance run.
+The fresh R2 campaign subsequently stops at the unchanged 180-second quiet
+admission before the candidate warmup. The baseline warmup succeeds and is
+discarded; the candidate never launches and there are zero measured samples.
+The retained admission observations show background mdworker CPU activity and
+an active exec-server process; a later individually clear probe does not satisfy
+the required uninterrupted quiet window. No threshold or deadline was changed.
+Receipt `module-emission-once-quiet-660ac18d-attempt-2/manifest.json`, SHA-256
+`f41d318c3586a53ca543dd4a3ff98114372ddfbcbddb80289e7b768e29a2a5b7`,
+records unchanged final inputs and the sole owned compiler group absent and
+reaped with exit zero. Independent review confirms refusal evidence only. The
+local lane is released with 81.962 GB free; there is no automatic retry or new
+performance claim. The reviewed ApplicationHost repair is next in the local
+qualification lane. Hosted macOS unit and explicit GUI retries remain live on
+`00e45379` at the 18:00 UTC check; the two hosted heavy-wave slots remain full.
 
 Before that attempt, a verified payload-only archive preserved 924 completed
 pre-October-8 emitted-C cache parts from 306 default-cache entries. It retained
