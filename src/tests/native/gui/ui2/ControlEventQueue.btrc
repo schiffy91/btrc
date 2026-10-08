@@ -1,0 +1,69 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEventQueue;
+
+#include <assert.h>
+#include <stdio.h>
+
+class QueueSnapshot { public int value; public QueueSnapshot(int value) { self.value = value; } }
+interface IQueueReceiver { void receive(QueueSnapshot snapshot); }
+class QueueTarget implements IControlEventTarget {
+	public bool eligible = true;
+	public long long generation = 1LL;
+	public ControlEventDisposition admission(long long generation) { return generation != self.generation ? CONTROL_EVENT_STALE_GENERATION : (self.eligible ? CONTROL_EVENT_DELIVERED : CONTROL_EVENT_INELIGIBLE); }
+}
+class QueueReceiver implements IQueueReceiver {
+	public Vector<int> values = [];
+	public ICallbackRegistration? cancelDuring = null;
+	public void receive(QueueSnapshot snapshot) {
+		self.values.push(snapshot.value);
+		if (self.cancelDuring != null) { assert(self.cancelDuring.cancel() == CALLBACK_CANCELLATION_PENDING); }
+	}
+	class void deliver(IQueueReceiver receiver, QueueSnapshot snapshot) { receiver.receive(snapshot); }
+}
+
+int main() {
+	var pool = ControlEventTerminalPool(2);
+	var queue = ControlEventQueue(4, pool);
+	var target = QueueTarget(); var receiver = QueueReceiver(); var scope = CallbackScope();
+	var first = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(queue, target, receiver, QueueReceiver.deliver, scope);
+	var second = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(queue, target, receiver, QueueReceiver.deliver, scope);
+	assert(pool.available() == 0 && receiver.values.len == 0);
+	/* Replacement stays in place only in a replaceable suffix. */
+	assert(first.publish(QueueSnapshot(1), 1LL, 1LL, 1LL));
+	assert(first.publish(QueueSnapshot(2), 1LL, 1LL, 1LL));
+	var terminal = second.beginInteraction(); assert(terminal != null);
+	second.publishTerminal(QueueSnapshot(3), 1LL, 1LL, terminal);
+	assert(first.publish(QueueSnapshot(4), 1LL, 1LL, 1LL));
+	assert(second.beginInteraction() == null); // no spare overlapping terminal reservation
+	while (queue.dispatchOne()) {}
+	assert(receiver.values.len == 3 && receiver.values.get(0) == 2 && receiver.values.get(1) == 3 && receiver.values.get(2) == 4);
+	assert(queue.retired(CONTROL_EVENT_SUPERSEDED) == 1LL);
+	/* Ordinary pressure cannot spend a reserved terminal credit. */
+	for (int index = 0; index < 4; index++) { assert(first.publish(QueueSnapshot(10 + index), 1LL, (long long)index + 2LL, 1LL)); }
+	assert(!first.publish(QueueSnapshot(90), 1LL, 9LL, 1LL));
+	terminal = second.beginInteraction(); assert(terminal != null);
+	second.publishTerminal(QueueSnapshot(20), 1LL, 2LL, terminal);
+	while (queue.dispatchOne()) {}
+	assert(receiver.values.get(receiver.values.len - 1) == 20);
+	/* Generation and eligibility are checked at invocation, not capture. */
+	assert(first.publish(QueueSnapshot(30), 1LL, 10LL, 1LL)); target.eligible = false;
+	assert(queue.dispatchOne()); assert(queue.retired(CONTROL_EVENT_INELIGIBLE) == 1LL);
+	target.eligible = true;
+	assert(first.publish(QueueSnapshot(31), 1LL, 11LL, 1LL)); target.generation = 2LL;
+	assert(queue.dispatchOne()); assert(queue.retired(CONTROL_EVENT_STALE_GENERATION) == 1LL);
+	/* In-flight cancellation is pending and keeps the reserved capacity until
+ 	 * receiver leave; queued records never enter after cancellation. */
+	receiver.cancelDuring = first;
+	terminal = first.beginInteraction(); assert(terminal != null);
+	first.publishTerminal(QueueSnapshot(40), 2LL, 12LL, terminal);
+	assert(first.publish(QueueSnapshot(41), 2LL, 12LL, 1LL));
+	assert(queue.dispatchOne()); assert(first.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(receiver.values.get(receiver.values.len - 1) == 40);
+	assert(!queue.dispatchOne() && queue.retired(CONTROL_EVENT_CANCELLED) == 1LL);
+	receiver.cancelDuring = null;
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && pool.available() == 2);
+	queue.close();
+	printf("PASS: UI2 semantic order reservations cancellation and eligibility\n");
+	return 0;
+}
