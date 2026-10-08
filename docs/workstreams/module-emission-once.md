@@ -90,11 +90,23 @@ weakened. The other new cases cover independent release/debug layouts, reused
 emitter state, final IR validation, freestanding prologues, macro-only header
 demand and unknown headers.
 
-## Qualification still required
+## Product output parity
 
-Exact current-product parity across all 423 generated C/header files is next.
-Preserve the original workload and 240-second compile bound. The focused native
-and paired checks do not replace that product proof or the full final matrix.
+The candidate now preserves all 423 generated C/header names and bytes for the
+original BTRSmith `d3fb25f4` workload, after only the existing output-directory
+normalization. The original 240-second compile bound and jobs-one invocation
+remain unchanged: the compiler exits zero, lowers 461 units and reuses none.
+Independent review verifies source/tool/output inventories and all three owned
+process groups closed. Existing nullable warnings remain in the logs.
+
+Receipt `module-emission-once-product-660ac18d-attempt-1/result.json` has SHA-256
+`7b11d8092a5725bc9e6dd6d6445956728ff1d100b806094cdfd504ddd36e553f`.
+The retained baseline output was first hashed at later admission because its
+original run's artifact classifier failed before hashing. That historical
+limitation and failed receipt remain explicit; the comparison rechecks the
+retained bytes at entry and closure.
+
+## Qualification still required
 
 The immutable snapshot adds a tuple/vector copy to ordinary emission. Net wall,
 instruction and peak-memory effects remain unmeasured and may be unfavorable.
