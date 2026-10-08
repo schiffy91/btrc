@@ -162,7 +162,9 @@ The task-started Linux VM is stopped and its locks released.
 `codex/integrate-qualified-linux` now assembles those exact provider/test bytes
 with compiler checkpoint `56d548c4` and current Windows main. This combined tree
 has not passed its own gates. The Mac skip fragments classify platform absence
-only; the new Grid driver still needs observed Mac skip admission. Full tests,
+only. The normal Grid driver now records exactly four Mac skips; its precise
+admission passes0→4 replay and mismatch/Linux rejection checks, with no native
+pass inferred. Full tests,
 bootstrap, C11, static/generated/extension/hygiene gates, current native checks
 and final compiler parity remain required. No main or performance completion is
 inferred from the component counts. See
