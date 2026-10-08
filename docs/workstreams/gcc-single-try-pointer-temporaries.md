@@ -17,3 +17,48 @@ grammar, runtime, generated-source, flags or product workaround changes are clai
 Original Linux failure and local paired GCC compile-only baseline are retained.
 Reference repair qualification is recorded in the final packet report; selfhost,
 combined gates and real hosted product continuation remain pending.
+
+## Failure and correction
+
+Actual Linux GCC15.2 compilation of AgentSurfaceProcessAcceptance reports four
+compiler-generated `int*` temporaries as clobbered: one stabilized call operand
+and three indexed-storage receivers. The exact original class reproduces the
+same four diagnostics with both immutable3974 frontends and native Darwin GCC15.2
+at both `-O2` and `-O3`, each ordinary exit1. No process-spawning program was run.
+
+The existing planner already protects generated return storage and nested-try
+locals from GCC register-pseudo coalescing. Extend it to generated pointer
+storage inside a single try/handler region using the existing declaration-identity
+pointer facts. Scalars, source bindings, arrays, static/extern objects and
+address-taken objects retain their existing rules. Outside-region behavior is
+unchanged, including the existing requirement for generated values already
+visible across setjmp. Pointer objects are qualified; pointees are unchanged.
+
+## Evidence and limits
+
+The final focused baseline has **2 failed contracts, 0 errors/skips**. The exact
+private reference-owner overlay has **36 passes, 0 errors/skips**, including all
+existing contracts and strict GCC O2/O3 compile/run of normal8/throw10/finally
+semantics. The exact authentic class then emits without diagnostics and its C
+compiles cleanly at both O2/O3 with the unchanged strict GCC15 flags.
+
+Two earlier draft test runs are retained: one expected an already-visible
+generated binding to remain plain despite existing policy; another assumed a
+constant argument required operand stabilization. The final fixture checks the
+existing visible-binding rule and uses a later argument call to exercise actual
+left-to-right stabilization. No production fix changed to accommodate those
+fixture corrections. Runtime assertions and strict flags remain intact.
+
+Evidence: `/private/tmp/btrc-audit-repair/gcc-single-try-clobber/`:
+
+- `results/baseline1/`: exact original paired compile-only four-warning proof.
+- `results/reference1/` and `reference2/`: preserved fixture diagnostics.
+- `results/reference3/`: final baseline, full reference contracts and authentic
+  clean GCC compilation, with exact source/tool/command/exit/cleanup receipts.
+- `AgentAcceptanceClobber.btrc`: original standalone class input SHA256
+  `097527c21c31b58154d985c3de2ff58f92f25c2782c54239e866430291861d94`.
+
+Ruff lint/format, BTRC formatting and whitespace checks pass. Independent paired
+source review found no owner/parity/region-scope blocker. This is reference
+qualification, not a fresh selfhost build, full gate, Linux product acceptance,
+or performance result. All those remain required before final integration.
