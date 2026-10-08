@@ -479,3 +479,9 @@ have not been projected or executed. Their native editing notification checks
 do not claim the still-unimplemented typed text commit/cancel channels; that
 E29 acceptance remains open. Attach/detach fault coverage and unexpected native
 input/reentrant delivery probes are still being prepared.
+
+A subsequent fixture-only extension targets actual `addSubview:` and
+`removeFromSuperview` before and after their side effects. It requires a
+verified rollback to restore both native membership and the managed restriction
+against closing an attached child. These four paths are prepared, not executed;
+unexpected-input and reentrant-delivery fixtures remain outstanding.

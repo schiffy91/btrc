@@ -2,12 +2,15 @@
 #import <objc/runtime.h>
 
 static NSView *faultParent;
+static NSView *faultChild;
 static int firstFailure;
 static int secondFailure;
 static int orderCalls;
 static bool firstAfter;
 static bool secondAfter;
 static bool hideMembership;
+static IMP originalAdd;
+static IMP originalRemove;
 static IMP originalSort;
 static IMP originalSubviews;
 static IMP originalArrangedInsert;
@@ -21,7 +24,7 @@ static id endObserver;
 static int editingNotifications;
 
 static bool shouldFail(NSView *parent) {
-    if (parent != faultParent) { return false; }
+    if (parent != faultParent || faultChild != nil) { return false; }
     orderCalls++;
     return orderCalls == firstFailure || orderCalls == secondFailure;
 }
@@ -32,6 +35,26 @@ static bool failAfterMutation(void) {
 
 static void failOrder(void) {
     [NSException raise:@"UI2ContainerInjectedFailure" format:@"native order step %d", orderCalls];
+}
+
+static bool shouldFailAttachment(NSView *parent, NSView *child) {
+    if (parent != faultParent || child != faultChild) { return false; }
+    orderCalls++;
+    return orderCalls == firstFailure || orderCalls == secondFailure;
+}
+
+static void interceptedAdd(NSView *self, SEL selector, NSView *child) {
+    bool fail = shouldFailAttachment(self, child);
+    if (fail && !failAfterMutation()) { failOrder(); }
+    ((void (*)(id, SEL, NSView *))originalAdd)(self, selector, child);
+    if (fail && failAfterMutation()) { failOrder(); }
+}
+
+static void interceptedRemove(NSView *self, SEL selector) {
+    bool fail = shouldFailAttachment(self.superview, self);
+    if (fail && !failAfterMutation()) { failOrder(); }
+    ((void (*)(id, SEL))originalRemove)(self, selector);
+    if (fail && failAfterMutation()) { failOrder(); }
 }
 
 static void interceptedSort(NSView *self, SEL selector,
@@ -82,13 +105,29 @@ static NSArray<NSView *> *interceptedSubviews(NSView *self, SEL selector) {
     originalArrangedInsert = method_setImplementation(class_getInstanceMethod(NSStackView.class, @selector(insertArrangedSubview:atIndex:)), (IMP)interceptedArrangedInsert);
 }
 
++ (void)armAttachmentFaults:(NSView *)parent child:(NSView *)child first:(int)first second:(int)second firstAfter:(bool)afterFirst secondAfter:(bool)afterSecond {
+    [self resetFaults];
+    faultParent = parent;
+    faultChild = child;
+    firstFailure = first;
+    secondFailure = second;
+    firstAfter = afterFirst;
+    secondAfter = afterSecond;
+    orderCalls = 0;
+    originalAdd = method_setImplementation(class_getInstanceMethod(NSView.class, @selector(addSubview:)), (IMP)interceptedAdd);
+    originalRemove = method_setImplementation(class_getInstanceMethod(NSView.class, @selector(removeFromSuperview)), (IMP)interceptedRemove);
+}
+
 + (int)orderCalls { return orderCalls; }
 
 + (void)resetFaults {
+    if (originalAdd) { method_setImplementation(class_getInstanceMethod(NSView.class, @selector(addSubview:)), originalAdd); originalAdd = NULL; }
+    if (originalRemove) { method_setImplementation(class_getInstanceMethod(NSView.class, @selector(removeFromSuperview)), originalRemove); originalRemove = NULL; }
     if (originalSort) { method_setImplementation(class_getInstanceMethod(NSView.class, @selector(sortSubviewsUsingFunction:context:)), originalSort); originalSort = NULL; }
     if (originalSubviews) { method_setImplementation(class_getInstanceMethod(NSView.class, @selector(subviews)), originalSubviews); originalSubviews = NULL; }
     if (originalArrangedInsert) { method_setImplementation(class_getInstanceMethod(NSStackView.class, @selector(insertArrangedSubview:atIndex:)), originalArrangedInsert); originalArrangedInsert = NULL; }
     faultParent = nil;
+    faultChild = nil;
 }
 
 + (NSView *)openHost {

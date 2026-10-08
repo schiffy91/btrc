@@ -79,6 +79,39 @@ class ContainerOrderCases {
 		UI2ContainerProbe.closeHost(); context.close();
 	}
 
+	class void attachmentFault(bool detach, bool after) {
+		var context = MacOSControlContext();
+		var parent = MacOSContainer(null, context);
+		var retained = MacOSView(null, context);
+		var child = MacOSView(null, context);
+		parent.attach(retained);
+		if (detach) { parent.attach(child); }
+		long long revision = parent.treeRevision();
+		var native = child.nativeView();
+		UI2ContainerProbe.armAttachmentFaults(parent.nativeView(), native, 1, 0, after, false);
+		ContainerEditKind kind = CONTAINER_EDIT_INSERT;
+		if (detach) { kind = CONTAINER_EDIT_DETACH; }
+		var result = parent.applyBatch(revision, [ContainerOrderCases.edit(kind, child, 1)]);
+		int calls = UI2ContainerProbe.orderCalls();
+		UI2ContainerProbe.resetFaults();
+		assert(calls > 0 && result.failedStep == 0 && !result.error.isEmpty());
+		assert(result.kind == CONTAINER_BATCH_ROLLED_BACK && parent.treeRevision() == revision);
+		assert(child.isOpen() && !parent.interactionState().faulted);
+		if (detach) {
+			ContainerOrderCases.order(parent, [retained, child], false);
+			/* Restored native membership must restore managed close ownership. */
+			bool refused = false;
+			try { child.close(); } catch (string error) { refused = !error.isEmpty(); }
+			assert(refused && child.isOpen());
+		} else {
+			ContainerOrderCases.order(parent, [retained], false);
+			assert(native.superview() == null);
+			assert(child.close() == CALLBACK_CANCELLATION_COMPLETE);
+		}
+		assert(parent.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!retained.isOpen() && !child.isOpen()); context.close();
+	}
+
 	class void faults(bool firstAfter, bool inverseFailure, bool unknown) {
 		var context = MacOSControlContext();
 		var parent = MacOSContainer(null, context);
@@ -122,6 +155,10 @@ int main() {
 	ui2InitializeAppKit();
 	ContainerOrderCases.normal(false);
 	ContainerOrderCases.normal(true);
+	ContainerOrderCases.attachmentFault(false, false);
+	ContainerOrderCases.attachmentFault(false, true);
+	ContainerOrderCases.attachmentFault(true, false);
+	ContainerOrderCases.attachmentFault(true, true);
 	ContainerOrderCases.faults(false, false, false);
 	ContainerOrderCases.faults(true, false, false);
 	ContainerOrderCases.faults(true, true, false);
