@@ -402,3 +402,45 @@ field access after intervening state-owner calls: nativeView's nullable return
 and quarantineInteraction's isHidden call. Both now hold a checked local NSView
 reference across those calls. The compiler guard and fixture assertions are
 unchanged. Reprojection of this bounded source correction remains pending.
+
+## Bounded native qualification passed on a9ffe1bd
+
+After two independent source reviews, a fresh private preparation retained the
+failed 4dc8d9d3 attempt and changed only MacOSView's checked-local references.
+Session **58776** completed with exit **0**, then released gate and gui-capture.
+Provider source was **a9ffe1bdede727cdf041d4a81601596ab62051d4**; both frontends
+used compiler source **56d548c49ca027c9698c8546acdaf4df918630bd** and the fresh
+selfhost binary/hash recorded above. SDK reader SHA-256 was
+`40ff12368f1241c482fd56cadc81e85baff07855a736c28a97e0fe26a7b8561d`.
+Host provenance: **Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0**. Apple clang used
+SDK 27.0 and target `arm64-apple-macosx14.0.0`; exact selected tool hashes and
+versions are recorded per stage.
+
+| Completed stage | Actual result |
+| --- | --- |
+| Reference and selfhost projection | 14/14, zero diagnostics |
+| Strict C11/Objective-C syntax | 56/56 |
+| Plain and ASan/UBSan native linking | 28/28 |
+| Plain and ASan/UBSan native execution | 28/28 |
+
+The seven fixture types are RunLoopWake, RunLoopDeadline, WorkQueue,
+RunLoopLifetime, Publisher, InteractionState and NativeViewState. Original
+assertions, fault injection, runtime deadlines and sanitizer policy were
+unchanged. All seven ran through each frontend in both runtime modes. The
+twelve stages took 151.952 seconds in total. Final verification rehashed all
+28 executables, Lifetime fault dylibs, generated C/plans, stage records and the
+selfhost compiler. These are integrity hashes; no certificate-signing claim is
+made for this GUI fixture run.
+
+The aggregate and complete retained logs are under
+`~/.cache/btrc/plan-consolidation-2026-10-07/ui2-macos-qualification-a9ffe1bd/qualification-result.json`.
+Every stage retained its exact input manifest, tool commands and output, and
+checked disk headroom and source file sets/hashes. No guest or competing native
+build ran in this lane.
+
+This proves the bounded foundations and native leaf-state slice. NativeTreeState's
+four rows remain unexecuted because ordered IContainer operations are unfinished.
+Default-context composition/renewal, complete subtree transactions, control-domain
+events, application/host/window lifecycle and fair-turn integration still need
+their own implementation and native acceptance. These results neither qualify
+active/key focus journeys nor complete UI2 or the final repository matrix.
