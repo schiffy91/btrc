@@ -35,7 +35,10 @@ bool ui2DispatchHostInput(int kind) {
     assert(NSThread.isMainThread);
     NSWindow *window = nil;
     for (NSWindow *candidate in NSApplication.sharedApplication.windows) {
-        if ([candidate.title isEqualToString:@"UI2 host input guard"]) { window = candidate; break; }
+        if ([candidate.title isEqualToString:@"UI2 host input guard"] && candidate.isVisible) {
+            if (window != nil) return false;
+            window = candidate;
+        }
     }
     if (window == nil || window.contentView.subviews.count != 1) return false;
     NSView *view = window.contentView.subviews[0];
