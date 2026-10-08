@@ -970,3 +970,28 @@ integrator's seven coordination checks. No native jobs overlapped. The upcoming
 Window repair must pass both projections, strict C/ObjC and eight planned
 plain/sanitized native rows before any bounded component qualification claim.
 Application quit grouping and complete public application conformance stay open.
+
+## Window owner repair checkpoint (source-only)
+
+The reviewed39a packet now implements all four approved IWindow methods in
+MacOSWindow, with immutable revisioned state observations and cancellable close
+transactions. It reuses the application context, terminal-credit semantic queue
+and callback scope. Native notifications capture only; decision delivery occurs
+on later semantic service. Save completion is attempt/revision-bound, repeated
+requests retain transaction identity, and callback-initiated close remains
+pending until the entered registration drains.
+
+The application factory passes its explicit context. Context-wide close-decision
+depth rejects alerts and the actual GUI directory-picker entry during decision
+delivery. Native root detach faults retain the root, quarantine eligibility and
+allow cleanup retry only after observed parent reconciliation. Local key-monitor
+ingress consults the existing mutation barrier. Typed Window.h/.m accessors use
+actual SDK notification identities; no guessed notification strings, alternate
+ownership model or portable interface changes were introduced.
+
+Independent review required and confirmed the root-failure reconciliation, key
+ingress barrier and post-fault native resize oracle. Canonical formatting changed
+only whitespace versus the reviewed source mirrors; git diff --check passed.
+No repaired Window projection, native link or runtime has run. Complete public
+Application/quit coordination, normal input deferral, all controls and atomic
+both-provider UI2 landing remain separate unfinished acceptance.

@@ -7,30 +7,49 @@ import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.AppKitEvents;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.ControlEventQueue;
 
 /* Native dispatch records state only. It must not retain the window owner or
  * destroy the view tree while AppKit is still closing the native window. */
 class MacOSWindowEvents implements IAppKitWindowEvents {
 	public bool closed = false;
+	public bool interceptClose = false;
+	public bool closeRequested = false;
+	private MacOSControlContext _context;
 	private MacOSRunLoopSignal? _signal;
+	public MacOSWindowEvents(MacOSControlContext context, MacOSRunLoopSignal? signal) { self._context = context; self._signal = signal; }
 
-	public MacOSWindowEvents(MacOSRunLoopSignal? signal) { self._signal = signal; }
-
-	public bool windowShouldClose(NSWindow sender) { return true; }
-
-	public void wake() { if (self._signal != null) { self._signal.wake(); } }
-
-	public void windowWillClose(NSNotification notification) {
-		self.closed = true;
-		self.wake();
+	public bool windowShouldClose(NSWindow sender) {
+		if (!self.interceptClose) { return true; }
+		self.closeRequested = true; self.wake(); return false;
 	}
+
+	public void wake() {
+		try {
+			var signal = self._signal;
+			if (signal != null && !signal.tryWake()) { self._context.recordNativeFailure("Window native wake failed"); }
+			if (!self._context.wake.requestTurn()) { self._context.recordNativeFailure("Window semantic wake failed"); }
+		}
+		catch (string error) { self._context.recordNativeFailure(error); }
+	}
+
+	public void windowWillClose(NSNotification notification) { self.closed = true; self.wake(); }
+}
+
+class MacOSWindowObserver implements IAppKitNotificationObserver {
+	private MacOSWindow _owner;
+	public MacOSWindowObserver(MacOSWindow owner) { self._owner = owner; }
+
+	public void invoke(NSNotification notification) { self._owner.nativeStateChanged(); }
 }
 
 class MacOSWindowKeys implements IAppKitEventMonitor {
 	private NSWindow _window;
 	private IWindowKeyHandler _handler;
+	private MacOSControlContext _context;
 
-	public MacOSWindowKeys(NSWindow window, IWindowKeyHandler handler) { self._window = window; self._handler = handler; }
+	public MacOSWindowKeys(NSWindow window, IWindowKeyHandler handler, MacOSControlContext context) { self._window = window; self._handler = handler; self._context = context; }
 
 	private AppKeyCode keyCode(unsigned short code) {
 		if (code == kVK_Space) { return APP_KEY_SPACE; }
@@ -64,6 +83,7 @@ class MacOSWindowKeys implements IAppKitEventMonitor {
 	}
 
 	public NSEvent? invoke(NSEvent native) {
+		if (!self._context.admitNativeInput()) { return null; }
 		if (native.window() != self._window) { return native; }
 		var key = self.keyCode(native.keyCode());
 		if (key == APP_KEY_UNKNOWN) { return native; }
@@ -88,7 +108,7 @@ class MacOSWindowKeys implements IAppKitEventMonitor {
 
 /* Main-thread native window owner. attachRoot is the only mounting path: the
  * attached root transfers its subtree's lifecycle to the window. */
-class MacOSWindow implements IWindow {
+class MacOSWindow implements IWindow, IControlEventTarget {
 	private NSWindow? _window;
 	private IView? _root;
 	private unsigned long _rootMask = 0UL;
@@ -96,14 +116,166 @@ class MacOSWindow implements IWindow {
 	private bool _mutating = false;
 	private bool _rootClosing = false;
 	private string _closeFailure = "";
+	private bool _rootQuarantined = false;
+	private string _rootMutationFailure = "";
 	private MacOSWindowEvents _events;
 	private CallbackScope _callbacks;
+	private bool _servicing = false;
+	private MacOSControlContext _context;
+	private ControlEventQueue _semanticEvents;
+	private WindowState _state = WindowState();
+	private long long _generation = 1LL;
+	private bool _requestedVisible = false;
+	private ControlEventChannel<IWindowStateHandler, WindowState>? _stateChanged;
+	private ControlEventChannel<MacOSWindowCloseReceiver, IWindowCloseTransaction>? _closeRequested;
+	private MacOSWindowCloseRegistration? _closeRegistration;
+	private MacOSWindowCloseTransaction? _transaction;
+	private long long _nextCloseInteraction = 1LL;
+	private long long _nextSaveAttempt = 1LL;
 
-	public MacOSWindow(string title, double width, double height, MacOSRunLoopSignal? signal = null) {
+	public ControlEventDisposition admission(long long generation) {
+		self.requireMainThread();
+		if (!self.isOpen() || !self._context.isOpen()) { return CONTROL_EVENT_CLOSED; }
+		return generation == self._generation ? CONTROL_EVENT_DELIVERED : CONTROL_EVENT_STALE_GENERATION;
+	}
+
+	private WindowState copyState(WindowState source) {
+		var result = WindowState();
+		result.width = source.width; result.height = source.height; result.backingScale = source.backingScale;
+		result.requestedVisible = source.requestedVisible; result.nativeVisible = source.nativeVisible;
+		result.minimized = source.minimized; result.windowActive = source.windowActive;
+		result.applicationActivity = source.applicationActivity; result.exposure = source.exposure;
+		result.notExposedReason = source.notExposedReason; result.presentable = source.presentable;
+		result.stateRevision = source.stateRevision; return result;
+	}
+
+	private bool stateEquals(WindowState a, WindowState b) { return a.width == b.width && a.height == b.height && a.backingScale == b.backingScale && a.requestedVisible == b.requestedVisible && a.nativeVisible == b.nativeVisible && a.minimized == b.minimized && a.windowActive == b.windowActive && a.applicationActivity == b.applicationActivity && a.exposure == b.exposure && a.notExposedReason == b.notExposedReason && a.presentable == b.presentable; }
+
+	private void captureWindowState() {
+		self.requireMainThread();
+		var state = self.copyState(self._state); var window = self._window;
+		state.requestedVisible = self._requestedVisible;
+		state.nativeVisible = false; state.minimized = false; state.windowActive = false;
+		state.exposure = WINDOW_EXPOSURE_NOT_EXPOSED; state.notExposedReason = WINDOW_EXPOSURE_REASON_HIDDEN; state.presentable = false;
+		var application = NSApplication.sharedApplication();
+		state.applicationActivity = APPLICATION_ACTIVITY_INACTIVE;
+		if (application.isActive()) { state.applicationActivity = APPLICATION_ACTIVITY_ACTIVE; }
+		if (window != null && !self._closing && !self._events.closed) {
+			var content = window.contentView();
+			if (content == null) { throw "Window has no native content view"; }
+			var bounds = content.bounds(); state.width = bounds.size.width; state.height = bounds.size.height;
+			state.backingScale = window.backingScaleFactor(); state.nativeVisible = window.isVisible();
+			state.minimized = window.isMiniaturized(); state.windowActive = window.isKeyWindow();
+			if (state.minimized) { state.notExposedReason = WINDOW_EXPOSURE_REASON_MINIMIZED; }
+			else if (state.nativeVisible) {
+				if ((window.occlusionState() & NSWindowOcclusionStateVisible) != 0UL) { state.exposure = WINDOW_EXPOSURE_EXPOSED; state.notExposedReason = WINDOW_EXPOSURE_REASON_NONE; }
+				else { state.notExposedReason = WINDOW_EXPOSURE_REASON_OCCLUDED; }
+			}
+			state.presentable = state.exposure == WINDOW_EXPOSURE_EXPOSED && state.width > 0.0 && state.height > 0.0 && Math.isFinite(state.backingScale) && state.backingScale > 0.0;
+		}
+		if (self._state.stateRevision != 0LL && self.stateEquals(self._state, state)) { return; }
+		if (self._state.stateRevision == 9223372036854775807LL) { throw "Window state revisions exhausted"; }
+		state.stateRevision = self._state.stateRevision + 1LL; self._state = state;
+		var channel = self._stateChanged;
+		if (channel != null && channel.isOpen() && !channel.publish(self.copyState(state), self._generation, 0LL, 1LL)) { throw "Window state semantic queue is unavailable"; }
+	}
+
+	public WindowState state() { self.requireMainThread(); if (!self._context.mutating()) { self.captureCoherentState(); } return self.copyState(self._state); }
+
+	class void deliverState(IWindowStateHandler receiver, WindowState state) { receiver.stateChanged(state); }
+
+	public ICallbackRegistration onStateChanged(IWindowStateHandler handler, CallbackScope owner) {
+		self.nativeWindow(); self._context.requireMutationAllowed();
+		var previous = self._stateChanged;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing window state observation first"; }
+		self.captureWindowState();
+		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._semanticEvents, self, handler, MacOSWindow.deliverState, owner);
+		try { self._callbacks.track(channel); } catch (string error) { channel.cancel(); throw error; }
+		self._stateChanged = channel; return channel;
+	}
+
+	public ICallbackRegistration onCloseRequested(IWindowCloseRequestHandler handler, CallbackScope owner) {
+		if (handler == null || owner == null) { throw "Window close handler and owner are required"; }
+		self.mutationWindow(); self._context.requireMutationAllowed();
+		var previous = self._closeRegistration;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing close handler first"; }
+		var receiver = MacOSWindowCloseReceiver(self, handler);
+		var channel = new ControlEventChannel<MacOSWindowCloseReceiver, IWindowCloseTransaction>(self._semanticEvents, self, receiver, MacOSWindowCloseReceiver.deliver, self._callbacks);
+		var registration = MacOSWindowCloseRegistration(self, channel);
+		try { owner.track(registration); self._callbacks.track(registration); }
+		catch (string error) { registration.cancel(); throw error; }
+		self._closeRequested = channel; self._closeRegistration = registration;
+		self._events.interceptClose = true; return registration;
+	}
+
+	public WindowCloseRequestOutcome requestClose(WindowCloseReason reason) {
+		self.requireMainThread(); self._context.requireMutationAllowed();
+		if (reason != WINDOW_CLOSE_NATIVE_REQUEST && reason != WINDOW_CLOSE_APPLICATION_QUIT && reason != WINDOW_CLOSE_PROGRAM_REQUEST) { throw "Invalid window close reason"; }
+		var result = WindowCloseRequestOutcome();
+		if (self._window == null) { result.kind = WINDOW_CLOSE_REQUEST_CLOSED; return result; }
+		if (self._closing || self._events.closed) { result.kind = WINDOW_CLOSE_REQUEST_CLOSING; return result; }
+		var pending = self._transaction;
+		if (pending != null && pending.pending()) { result.kind = WINDOW_CLOSE_REQUEST_ALREADY_PENDING; result.transaction = pending; return result; }
+		var channel = self._closeRequested; var registration = self._closeRegistration;
+		if (registration == null || !registration.isOpen() || channel == null || !channel.isOpen()) {
+			result.kind = WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER; self.close(); return result;
+		}
+		if (self._nextCloseInteraction == 9223372036854775807LL) { throw "Window close interaction identities exhausted"; }
+		var ticket = channel.beginInteraction();
+		if (ticket == null) { throw "Window close handler is no longer live"; }
+		var transaction = MacOSWindowCloseTransaction(self, self._context, false);
+		long long interaction = self._nextCloseInteraction++;
+		try { channel.publishTerminal(transaction, self._generation, interaction, ticket); }
+		catch (string error) { ticket.retire(); transaction.resolve(WINDOW_CLOSE_CANCELLED); throw error; }
+		/* requestTurn never services inline: publish identity only after the
+		 * terminal has a committed queue receipt. Failed admission leaves no pending request. */
+		self._transaction = transaction;
+		result.kind = WINDOW_CLOSE_REQUEST_PENDING; result.transaction = transaction; return result;
+	}
+
+	public bool isPendingClose(MacOSWindowCloseTransaction transaction) { self.requireMainThread(); return self._transaction == transaction && self.isOpen(); }
+
+	public long long nextCloseSaveAttempt() {
+		self.requireMainThread();
+		if (self._nextSaveAttempt == 9223372036854775807LL) { throw "Window save attempts exhausted"; }
+		return self._nextSaveAttempt++;
+	}
+
+	public void retireCloseTransaction(MacOSWindowCloseTransaction transaction) {
+		self.requireMainThread(); if (self._transaction == transaction) { self._transaction = null; }
+	}
+
+	public void consumeCloseAuthorization(MacOSWindowCloseTransaction transaction) {
+		self.requireMainThread();
+		if (!self.isPendingClose(transaction) || transaction.state() != WINDOW_CLOSE_AUTHORIZED) { throw "Window close authorization is stale"; }
+		transaction.resolve(WINDOW_CLOSE_CLOSING); self._transaction = null; self.close();
+	}
+
+	public void closeHandlerCancelled(MacOSWindowCloseRegistration registration) {
+		self.requireMainThread(); if (self._closeRegistration != registration) { return; }
+		self._events.interceptClose = false;
+		var pending = self._transaction;
+		if (pending != null) {
+			if (self._closing || self._events.closed) { pending.resolve(WINDOW_CLOSE_OWNER_LOST); }
+			else { pending.resolve(WINDOW_CLOSE_CANCELLED); }
+			self._transaction = null;
+		}
+	}
+
+	public void enterCloseDecision() { self._context.enterCloseDecision(); }
+
+	public void leaveCloseDecision() { self._context.leaveCloseDecision(); }
+
+	public MacOSWindow(string title, double width, double height, MacOSRunLoopSignal? signal = null, MacOSControlContext? context = null) {
 		self._window = null;
 		self.requireMainThread();
 		self.requireSize(width, height);
-		self._events = MacOSWindowEvents(signal);
+		var semanticContext = context;
+		if (semanticContext == null) { semanticContext = MacOSControlContext.defaultContext(); }
+		self._context = semanticContext;
+		self._semanticEvents = semanticContext.createQueue();
+		self._events = MacOSWindowEvents(semanticContext, signal);
+		if (context == null && signal != null) { self._semanticEvents.setWake(MacOSSemanticWake(signal)); }
 		self._callbacks = CallbackScope();
 		var nativeTitle = AppKitText.nativeValue(title);
 		var window = NSWindow.new();
@@ -115,10 +287,77 @@ class MacOSWindow implements IWindow {
 			window.setTitle(nativeTitle);
 			self.setContentSize(width, height);
 			window.setDelegate(self._events, self._callbacks);
+			self.observeState(window);
+			self.captureWindowState();
 		} catch (string error) {
 			self.close();
 			throw error;
 		}
+	}
+
+	private void refreshRootState() {
+		if (self._rootQuarantined) { return; }
+		var root = self._root;
+		if (root == null) { return; }
+		var native = self.projection(root); var state = self._state;
+		bool eligible = !self._closing && state.requestedVisible && state.nativeVisible && !state.minimized;
+		var window = self._window;
+		if (window != null && window.attachedSheet() != null) { eligible = false; }
+		native.markInteraction(eligible, state.exposure, self._semanticEvents);
+		native.settleInteraction(); native.publishInteraction();
+	}
+
+	private void quarantineRoot(string error) {
+		/* A failed native detach may have happened before or after the side
+		 * effect. Keep the root's ownership claim until actual parent identity
+		 * is reconciled; closing remains available and never guesses a parent. */
+		self._rootQuarantined = true; self._rootMutationFailure = error;
+	}
+
+	private bool reconcileRootForClose(NSWindow window) {
+		var root = self._root;
+		if (root == null) { self._rootQuarantined = false; return true; }
+		var parent = window.contentView();
+		if (parent == null) { return false; }
+		var native = self.projection(root); var child = native.nativeView();
+		var actual = child.superview();
+		if (actual != null && actual != parent) { return false; }
+		native.reconcileAttachment(actual);
+		self._rootQuarantined = false; self._rootMutationFailure = "";
+		return true;
+	}
+
+	private void captureCoherentState() {
+		self._context.beginMutation(); self._mutating = true;
+		try { self.captureWindowState(); self.refreshRootState(); self._context.requireMutationHealthy(); }
+		finally { self._mutating = false; self._context.endMutation(); }
+	}
+
+	public void nativeStateChanged() {
+		if (self._closing || self._window == null) { return; }
+		try {
+			if (!self._mutating && !self._context.mutating()) { self.captureCoherentState(); }
+			self._events.wake();
+		} catch (string error) { self._context.recordNativeFailure(error); }
+	}
+
+	private void observeState(NSWindow window) {
+		var center = NSNotificationCenter.defaultCenter(); var receiver = MacOSWindowObserver(self);
+		center.addObserverForName(BTRCMacOSWindowNotifications.resized(), window, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.backingChanged(), window, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.screenChanged(), window, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.becameKey(), window, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.resignedKey(), window, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.minimized(), window, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.restored(), window, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.occlusionChanged(), window, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.sheetBegan(), window, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.sheetEnded(), window, null, receiver, self._callbacks);
+		var application = NSApplication.sharedApplication();
+		center.addObserverForName(BTRCMacOSWindowNotifications.applicationActive(), application, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.applicationInactive(), application, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.applicationHidden(), application, null, receiver, self._callbacks);
+		center.addObserverForName(BTRCMacOSWindowNotifications.applicationShown(), application, null, receiver, self._callbacks);
 	}
 
 	private void requireMainThread() {
@@ -131,13 +370,16 @@ class MacOSWindow implements IWindow {
 
 	public NSWindow nativeWindow() {
 		self.requireMainThread();
-		if (self._window == null) { throw "Window is closed"; }
+		var window = self._window;
+		if (window == null) { throw "Window is closed"; }
 		if (self._closing || self._events.closed) { throw "Window shutdown has started"; }
-		return self._window;
+		return window;
 	}
 
 	private NSWindow mutationWindow() {
 		var window = self.nativeWindow();
+		self._context.requireMutationAllowed();
+		if (self._rootQuarantined) { throw self._rootMutationFailure; }
 		if (self._mutating) { throw "Window root mutation is already active"; }
 		return window;
 	}
@@ -153,7 +395,22 @@ class MacOSWindow implements IWindow {
 
 	public void dispatchPendingEvents() {
 		self.requireMainThread();
-		if (self._window != null && self._events.closed) { self.close(); }
+		if (self._servicing || self._context.mutating()) { return; }
+		self._servicing = true;
+		try {
+			if (self._window != null && self._events.closed) { self.close(); }
+			else if (self._closing) {
+				if (self._context.pendingInput() > 0) { self._context.dispatchOne(self._semanticEvents); }
+				self.pollClose();
+			}
+			else if (self._window != null) {
+				if (self._events.closeRequested) {
+					self._events.closeRequested = false;
+					self.requestClose(WINDOW_CLOSE_NATIVE_REQUEST);
+				}
+				if (self.isOpen()) { self.captureCoherentState(); self._context.dispatchOne(self._semanticEvents); }
+			}
+		} finally { self._servicing = false; }
 	}
 
 	public IView? root() { self.requireMainThread(); return self._root; }
@@ -162,9 +419,12 @@ class MacOSWindow implements IWindow {
 		self.mutationWindow();
 		if (self._root != null) { throw "Detach the existing window root before replacing it"; }
 		var parent = self.contentView();
-		self._mutating = true;
-		try { self.mountRoot(view, parent); } catch (string error) { self._mutating = false; throw error; }
-		self._mutating = false;
+		var native = self.projection(view);
+		if (native.interactionOwner().context() != self._context) { throw "Window root cannot cross application contexts"; }
+		self._context.beginMutation(); self._mutating = true;
+		try { self.mountRoot(view, parent); self.refreshRootState(); self._context.requireMutationHealthy(); }
+		catch (string error) { if (self._root != null) { self.quarantineRoot(error); } throw error; }
+		finally { self._mutating = false; self._context.endMutation(); }
 	}
 
 	private void mountRoot(IView view, NSView parent) {
@@ -175,7 +435,7 @@ class MacOSWindow implements IWindow {
 		self._rootMask = child.autoresizingMask();
 		self._root = view;
 		try {
-			native.attachTo(parent);
+			MacOSView.attachNative(child, parent); native.reconcileAttachment(parent);
 			child.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
 			var bounds = parent.bounds();
 			view.arrange(0.0, 0.0, bounds.size.width, bounds.size.height);
@@ -183,11 +443,10 @@ class MacOSWindow implements IWindow {
 			try {
 				child.setAutoresizingMask(self._rootMask);
 				child.setFrame(previousFrame);
-				if (child.superview() == parent) { native.detachFrom(parent); }
+				if (child.superview() == parent) { MacOSView.detachNative(child, parent); native.reconcileAttachment(null); }
 				self._root = null;
 			} catch (string rollbackError) {
-				self._closing = true;
-				self._closeFailure = rollbackError;
+				self.quarantineRoot(rollbackError);
 				throw rollbackError;
 			}
 			throw error;
@@ -199,21 +458,16 @@ class MacOSWindow implements IWindow {
 		var root = self._root;
 		if (root == null) { return null; }
 		var parent = self.contentView();
-		self._mutating = true;
+		self._context.beginMutation(); self._mutating = true;
 		try {
-			var native = self.projection(root);
-			var child = native.nativeView();
-			// Keep alias-close admission reserved until native state is restored.
+			var native = self.projection(root); var child = native.nativeView();
+			native.markInteraction(false, WINDOW_EXPOSURE_UNKNOWN, null); native.settleInteraction();
 			child.setAutoresizingMask(self._rootMask);
-			native.detachFrom(parent);
+			MacOSView.detachNative(child, parent); native.reconcileAttachment(null);
+			native.publishInteraction(); self._context.requireMutationHealthy();
 			self._root = null;
-		} catch (string error) {
-			self._closing = true;
-			self._closeFailure = error;
-			self._mutating = false;
-			throw error;
-		}
-		self._mutating = false;
+		} catch (string error) { self.quarantineRoot(error); throw error; }
+		finally { self._mutating = false; self._context.endMutation(); }
 		return root;
 	}
 
@@ -229,9 +483,9 @@ class MacOSWindow implements IWindow {
 		var frame = window.frame();
 		frame.size.width = width;
 		frame.size.height = height;
-		self._mutating = true;
-		try { window.setContentSize(frame.size); } catch (string error) { self._mutating = false; throw error; }
-		self._mutating = false;
+		self._context.beginMutation(); self._mutating = true;
+		try { window.setContentSize(frame.size); self.captureWindowState(); self.refreshRootState(); self._context.requireMutationHealthy(); }
+		finally { self._mutating = false; self._context.endMutation(); }
 	}
 
 	public double contentWidth() { return self.contentView().bounds().size.width; }
@@ -240,18 +494,29 @@ class MacOSWindow implements IWindow {
 
 	public string title() { return AppKitText.ownedValue(self.nativeWindow().title()); }
 
-	public void setTitle(string title) { self.nativeWindow().setTitle(AppKitText.nativeValue(title)); }
+	public void setTitle(string title) { self.mutationWindow().setTitle(AppKitText.nativeValue(title)); }
 
-	public void show() { self.nativeWindow().makeKeyAndOrderFront(null); }
+	public void show() {
+		var window = self.mutationWindow(); self._context.beginMutation(); self._mutating = true;
+		try { window.makeKeyAndOrderFront(null); self._requestedVisible = true; self.captureWindowState(); self.refreshRootState(); self._context.requireMutationHealthy(); }
+		finally { self._mutating = false; self._context.endMutation(); }
+	}
 
-	public void hide() { self.nativeWindow().orderOut(null); }
+	public void hide() {
+		var window = self.mutationWindow(); self._context.beginMutation(); self._mutating = true;
+		try {
+			var root = self._root;
+			if (root != null) { var native = self.projection(root); native.markInteraction(false, WINDOW_EXPOSURE_NOT_EXPOSED, self._semanticEvents); native.settleInteraction(); }
+			window.orderOut(null); self._requestedVisible = false; self.captureWindowState(); self.refreshRootState(); self._context.requireMutationHealthy();
+		} finally { self._mutating = false; self._context.endMutation(); }
+	}
 
 	public bool isVisible() { return self.isOpen() && self.nativeWindow().isVisible(); }
 
 	public bool isFocused() { return self.isOpen() && self.nativeWindow().isKeyWindow(); }
 
 	public ICallbackRegistration onKey(IWindowKeyHandler handler, CallbackScope owner) {
-		var receiver = MacOSWindowKeys(self.nativeWindow(), handler);
+		var receiver = MacOSWindowKeys(self.mutationWindow(), handler, self._context);
 		var registration = NSEvent.addLocalMonitorForEventsMatchingMask(NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged, receiver, self._callbacks);
 		try { owner.track(registration); } catch (string error) { registration.cancel(); throw error; }
 		return registration;
@@ -262,11 +527,12 @@ class MacOSWindow implements IWindow {
 		var size = self.contentView().bounds().size;
 		size.width = width;
 		size.height = height;
-		self.nativeWindow().setContentMinSize(size);
+		self.mutationWindow().setContentMinSize(size);
 	}
 
 	public void showAlert(string title, string message) {
 		self.nativeWindow();
+		self._context.requireNoCloseDecision();
 		var alert = NSAlert.new();
 		if (alert == null) { throw "Cannot create native alert"; }
 		alert.setMessageText(AppKitText.nativeValue(title));
@@ -280,9 +546,11 @@ class MacOSWindow implements IWindow {
 		var window = self._window;
 		if (window == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (self._mutating) { throw "Window root mutation is already active"; }
+		if (self._mutating || self._context.mutating()) { throw "Window root mutation is already active"; }
 		if (!self._closing) {
-			self._closing = true;
+			self._closing = true; self._events.interceptClose = false;
+			var pending = self._transaction;
+			if (pending != null) { pending.resolve(WINDOW_CLOSE_OWNER_LOST); self._transaction = null; }
 			// Programmatic close may precede native close by an asynchronous
 			// subtree drain. Wake its owner even without an NSWindow event.
 			self._events.wake();
@@ -296,34 +564,156 @@ class MacOSWindow implements IWindow {
 		if (window == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (self._mutating) { throw "Window root mutation is already active"; }
-		self._mutating = true;
+		if (self._mutating || self._context.mutating()) { throw "Window root mutation is already active"; }
+		/* Cancellation seals ingress now; entered callbacks retain native/root
+		 * ownership until a later poll. Expected reentrancy is not a fault. */
+		if (self._callbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { return CALLBACK_CANCELLATION_PENDING; }
+		if (self._rootQuarantined) {
+			try { if (!self.reconcileRootForClose(window)) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; } }
+			catch (string error) { self._rootMutationFailure = error; return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		}
 		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		try {
-			if (self._callbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Window callbacks must drain before shutdown"; }
 			var root = self._root;
 			if (root != null) {
 				if (!self._rootClosing) {
-					// End native editing while controls still belong to this window.
-					window.endEditingFor(null);
 					var parent = window.contentView();
 					if (parent == null) { throw "Window has no content view"; }
-					self.projection(root).detachFrom(parent);
-					self._rootClosing = true;
-					result = root.close();
+					var native = self.projection(root);
+					self._context.beginMutation(); self._mutating = true;
+					try {
+						native.markInteraction(false, WINDOW_EXPOSURE_NOT_EXPOSED, null); native.settleInteraction();
+						window.endEditingFor(null);
+						var child = native.nativeView(); var actual = child.superview();
+						if (actual != null && actual != parent) { throw "Window root moved to an unknown native parent"; }
+						if (actual == parent) { MacOSView.detachNative(child, parent); }
+						native.reconcileAttachment(null); native.publishInteraction();
+						self._rootClosing = true;
+					} catch (string error) { self.quarantineRoot(error); }
+					finally { self._mutating = false; self._context.endMutation(); }
+					if (self._rootQuarantined) { result = CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+					else { result = root.close(); }
 				} else { result = root.pollClose(); }
 				if (result == CALLBACK_CANCELLATION_COMPLETE) { self._root = null; }
 			}
 			if (result == CALLBACK_CANCELLATION_COMPLETE) {
+				self._semanticEvents.close();
 				if (!self._events.closed) { window.close(); }
-				self._window = null;
+				self._window = null; self.captureWindowState();
 			}
-		} catch (string error) {
-			self._closeFailure = error;
-		} finally { self._mutating = false; }
+		} catch (string error) { self._closeFailure = error; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		return result;
 	}
 
 	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
+}
+
+/* Window owns the native object, generation and pending transaction identity. */
+class MacOSWindowCloseTransaction implements IWindowCloseTransaction {
+	private MacOSControlContext _context;
+	private MacOSWindow? _owner;
+	private WindowCloseState _state = WINDOW_CLOSE_AWAITING_DECISION;
+	private long long _revision = 0LL;
+	private bool _hasRevision = false;
+	private long long _attempt = 0LL;
+	private bool _coordinated;
+
+	public MacOSWindowCloseTransaction(MacOSWindow owner, MacOSControlContext context, bool coordinated) {
+		context.requireUI(); self._context = context; self._owner = owner; self._coordinated = coordinated;
+	}
+
+	private WindowCloseOutcome outcome(WindowCloseOutcomeKind kind) {
+		var result = WindowCloseOutcome(); result.kind = kind; result.state = self._state; result.attempt = self._attempt; return result;
+	}
+
+	public WindowCloseState state() { self._context.requireUI(); return self._state; }
+
+	public bool pending() { self._context.requireUI(); return self._state == WINDOW_CLOSE_AWAITING_DECISION || self._state == WINDOW_CLOSE_SAVING || self._state == WINDOW_CLOSE_AUTHORIZED; }
+
+	/* Cancellation seals the existing registration first; already admitted
+	 * callbacks may finish, but their later decisions cannot revive this owner. */
+	public void resolve(WindowCloseState state) {
+		self._context.requireUI();
+		if (!self.pending()) { return; }
+		if (state != WINDOW_CLOSE_CANCELLED && state != WINDOW_CLOSE_OWNER_LOST && state != WINDOW_CLOSE_CLOSING) { throw "Invalid close transaction retirement"; }
+		self._state = state; self._attempt = 0LL; self._owner = null;
+	}
+
+	private WindowCloseOutcome authorize(MacOSWindow owner) {
+		self._state = WINDOW_CLOSE_AUTHORIZED; self._attempt = 0LL;
+		if (!self._coordinated) { owner.consumeCloseAuthorization(self); }
+		return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+	}
+
+	public WindowCloseOutcome decide(WindowCloseDecision decision, long long documentRevision) {
+		self._context.requireUI();
+		var owner = self._owner;
+		if (owner == null || !self.pending() || !owner.isPendingClose(self)) { return self.outcome(WINDOW_CLOSE_OUTCOME_NOT_PENDING); }
+		if (self._hasRevision && documentRevision < self._revision) { return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_REVISION); }
+		if (decision != WINDOW_CLOSE_DECISION_SAVE && decision != WINDOW_CLOSE_DECISION_DISCARD && decision != WINDOW_CLOSE_DECISION_CANCEL) { throw "Invalid close decision"; }
+		if (self._state == WINDOW_CLOSE_AUTHORIZED) { throw "Close authorization is awaiting coordinated consumption"; }
+		if (decision == WINDOW_CLOSE_DECISION_CANCEL) {
+			self._revision = documentRevision; self._hasRevision = true; self.resolve(WINDOW_CLOSE_CANCELLED); owner.retireCloseTransaction(self);
+			return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+		}
+		if (self._state == WINDOW_CLOSE_SAVING) {
+			if (decision != WINDOW_CLOSE_DECISION_SAVE || documentRevision <= self._revision) { throw "Only a newer document revision may update an active save"; }
+			self._revision = documentRevision; self._hasRevision = true; return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+		}
+		if (decision == WINDOW_CLOSE_DECISION_DISCARD) { self._revision = documentRevision; self._hasRevision = true; return self.authorize(owner); }
+		/* Exhaustion fails before changing the transaction's revision/state. */
+		long long attempt = owner.nextCloseSaveAttempt();
+		self._revision = documentRevision; self._hasRevision = true; self._attempt = attempt; self._state = WINDOW_CLOSE_SAVING;
+		return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+	}
+
+	public WindowCloseOutcome completeSave(long long attempt, long long savedRevision, bool succeeded, string error) {
+		self._context.requireUI();
+		var owner = self._owner;
+		if (owner == null || !self.pending() || !owner.isPendingClose(self)) { return self.outcome(WINDOW_CLOSE_OUTCOME_NOT_PENDING); }
+		if (attempt <= 0LL || attempt != self._attempt) { return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT); }
+		if (self._state != WINDOW_CLOSE_SAVING) { throw "No matching save is active"; }
+		if (!succeeded) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED); }
+		if (!self._hasRevision || savedRevision > self._revision) { throw "Save completion revision was not acknowledged"; }
+		if (savedRevision < self._revision) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_REVISION); }
+		return self.authorize(owner);
+	}
+}
+
+/* This adaptor does not own a second callback gate. The semantic channel owns
+ * receiver entry and drain; cancellation additionally resolves the Window's
+ * pending transaction, including cancellation through either owning scope. */
+class MacOSWindowCloseRegistration implements ICallbackRegistration {
+	private MacOSWindow? _owner;
+	private ICallbackRegistration _channel;
+	public MacOSWindowCloseRegistration(MacOSWindow owner, ICallbackRegistration channel) { self._owner = owner; self._channel = channel; }
+
+	public bool isOpen() { return self._channel.isOpen(); }
+
+	public CallbackCancellation cancel() {
+		var owner = self._owner;
+		var result = self._channel.cancel();
+		if (owner != null) { owner.closeHandlerCancelled(self); }
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._owner = null; }
+		return result;
+	}
+
+	public CallbackCancellation pollCompletion() {
+		var result = self._channel.pollCompletion();
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._owner = null; }
+		return result;
+	}
+}
+
+class MacOSWindowCloseReceiver {
+	private MacOSWindow _owner;
+	private IWindowCloseRequestHandler _handler;
+	public MacOSWindowCloseReceiver(MacOSWindow owner, IWindowCloseRequestHandler handler) { self._owner = owner; self._handler = handler; }
+
+	class void deliver(MacOSWindowCloseReceiver receiver, IWindowCloseTransaction transaction) {
+		receiver._owner.enterCloseDecision();
+		try { receiver._handler.closeRequested(transaction); }
+		finally { receiver._owner.leaveCloseDecision(); }
+	}
 }

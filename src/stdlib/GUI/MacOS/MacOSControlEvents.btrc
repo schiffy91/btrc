@@ -30,6 +30,7 @@ class MacOSControlContext {
 	public MacOSSemanticWake wake;
 	private int _capacity;
 	private bool _closed = false;
+	private int _closeDecisions = 0;
 	private bool _mutating = false;
 	private bool _unexpectedInput = false;
 	private bool _dispatchingInput = false;
@@ -71,6 +72,23 @@ class MacOSControlContext {
 	}
 
 	public bool mutating() { self.requireUI(); return self._mutating; }
+
+	public void enterCloseDecision() {
+		self.requireUI();
+		if (self._closed || self._closeDecisions == 2147483647) { throw "Close decision callback admission is unavailable"; }
+		self._closeDecisions++;
+	}
+
+	public void leaveCloseDecision() {
+		self.requireUI();
+		if (self._closeDecisions <= 0) { throw "Close decision callback admission underflow"; }
+		self._closeDecisions--;
+	}
+
+	public void requireNoCloseDecision() {
+		self.requireUI();
+		if (self._closeDecisions != 0) { throw "Nested modal operations are forbidden inside close-decision callbacks"; }
+	}
 
 	public void beginMutation() { self.requireMutationAllowed(); self._unexpectedInput = false; self._mutating = true; }
 

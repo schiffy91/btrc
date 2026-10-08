@@ -338,6 +338,8 @@ class MacOSApplication implements IApplication {
 		if (!NSThread.isMainThread()) { throw "AppKit application dispatch requires the main thread"; }
 	}
 
+	public void requireNoCloseDecision() { self.controlContext().requireNoCloseDecision(); }
+
 	private void requireIdle() {
 		self.requireMainThread();
 		if (self._closing || self._closed) { throw "Application shutdown has started"; }
@@ -407,7 +409,7 @@ class MacOSApplication implements IApplication {
 
 	public IWindow createWindow(string title, double width, double height) {
 		self.requireCreation();
-		var window = MacOSWindow(title, width, height, self._signal);
+		var window = MacOSWindow(title, width, height, self._signal, self.controlContext());
 		self._windows.push(window);
 		return window;
 	}
