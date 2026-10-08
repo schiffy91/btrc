@@ -41,3 +41,23 @@ The parent has reserved all native/guest execution until headroom and its lane
 are available. Source inspection and lightweight checks are permitted. Old
 unpublished counts do not qualify this reconstruction. The fixture-only red
 candidate must never land without the production repair.
+
+### E40 fixture-only checkpoint
+
+Recovered the native fixture and link-only poll observer from `bbe4f56e`.
+The collector now lives only in `test_native_ui_linux_spike.py`. Unlike the old
+collector, it requests the provider root only after Linux/reader/display guards
+and compiles both frontends with plain and ASan/UBSan modes (64 executions).
+It preserves the four burst sizes and four terminal kinds, and additionally
+checks that the first turn leaves exactly `max(0, count - 4096)` events queued
+and services posted application work once. This prevents an unbounded-drain
+"fix" from passing. The original close-prefix semantics remain.
+
+Observer setup side effects were removed from assert expressions. Native
+execution remains pending: this is a fixture-only **red candidate**, not an
+executed red result. Real rendering progress under backlog still needs a
+separate observed frame assertion before the full E40 outcome can be accepted.
+
+Checks so far: Ruff lint/format and BTRC syntax/format checks; no native builds,
+pytest suite or guest execution. Shared expected-skip and catalog fragments are
+not yet applied; do not publish the branch as a qualified normal gate.
