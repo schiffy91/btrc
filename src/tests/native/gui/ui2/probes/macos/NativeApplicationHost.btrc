@@ -22,6 +22,15 @@ class PublicTestHost implements IApplicationHost {
 	public int requests() { return self._requests.load(MemoryOrder.ACQUIRE); }
 }
 
+class PublicFailingHost implements IApplicationHost {
+	public int requests = 0;
+	public bool throwWake = false;
+	public bool throwDeadline = false;
+	public bool requestTurn() { self.requests++; if (self.throwWake) { throw "Host wake failure"; } return self.throwDeadline; }
+
+	public void scheduleTurn(unsigned long long deadline) { if (self.throwDeadline) { throw "Host deadline failure"; } }
+}
+
 class PublicCountWork implements IApplicationWork {
 	public int calls = 0;
 	public void run() { self.calls++; }
@@ -63,8 +72,40 @@ class PublicClosingWork implements IApplicationWork {
 	public void run() { assert(self._application.close() == CALLBACK_CANCELLATION_PENDING); self.returned = true; }
 }
 
+class PublicAttachmentFailures {
+	class void run() {
+		for (int throwing = 0; throwing < 2; throwing++) {
+			IApplication application = MacOSApplication(2);
+			var work = PublicCountWork(); application.post(work);
+			var owner = CallbackScope(); var rejected = PublicFailingHost(); rejected.throwWake = throwing != 0;
+			assert(application.attachHost(rejected, owner).kind == APPLICATION_HOST_ATTACH_FAILED);
+			assert(!application.isRunning() && work.calls == 0 && ui2HostDelegateUnchanged());
+			var closed = CallbackScope(); assert(closed.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+			var host = PublicTestHost();
+			assert(application.attachHost(host, closed).kind == APPLICATION_HOST_ATTACH_FAILED);
+			assert(host.requests() == 0 && !application.isRunning());
+			var attached = application.attachHost(host, owner); var attachment = attached.attachment;
+			if (attachment == null) { throw "Retry did not publish a host attachment"; }
+			assert(attached.kind == APPLICATION_HOST_ATTACHED);
+			attachment.serviceTurn(); assert(work.calls == 1);
+			assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+			assert(application.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !application.isRunning());
+			assert(ui2HostDelegateUnchanged());
+		}
+		IApplication failed = MacOSApplication(2);
+		var owner = CallbackScope(); var host = PublicFailingHost(); host.throwDeadline = true;
+		var attached = failed.attachHost(host, owner); var attachment = attached.attachment;
+		if (attachment == null) { throw "Deadline failure fixture did not attach"; }
+		var work = PublicCountWork(); failed.post(work);
+		attachment.serviceTurn();
+		assert(work.calls == 1 && failed.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && ui2HostDelegateUnchanged());
+	}
+}
+
 int main() {
 	ui2InstallHostDelegate();
+	PublicAttachmentFailures.run();
 	var independent = MacOSContainer();
 	IApplication application = MacOSApplication(2);
 	assert(ui2HostDelegateUnchanged() && !application.isRunning());
