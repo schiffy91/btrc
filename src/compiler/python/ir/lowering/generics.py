@@ -6,6 +6,7 @@ import copy
 import json
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from operator import attrgetter
 
 from src.compiler.python.analyzer.program import AnalyzedProgram
 from src.compiler.python.analyzer.types import TypeIdentity
@@ -193,7 +194,7 @@ class GenericSpecializer:
                 views.append(self._view(declaration, base_name, info.generic_params, arguments))
         # Emission order must not depend on the order bodies discovered demand.
         # Leave the analyzer's lists intact: replay and closure use that order.
-        return iter(sorted(views, key=lambda view: view.symbol))
+        return iter(sorted(views, key=attrgetter("symbol")))
 
     def method_views(self) -> Iterator[SpecializedDeclarationView[MethodDecl]]:
         views = []
@@ -225,7 +226,7 @@ class GenericSpecializer:
                         ),
                     )
                 )
-        return iter(sorted(views, key=lambda view: view.symbol))
+        return iter(sorted(views, key=attrgetter("symbol")))
 
     def _view(
         self,
