@@ -13,7 +13,8 @@ from __future__ import annotations
 import json
 import os
 import platform
-from collections.abc import Sequence
+import subprocess
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -45,7 +46,7 @@ class FakeRunner(CommandRunner):
         self.outputs = outputs
         self.calls: list[tuple[str, ...]] = []
 
-    def output(self, command: Sequence[str]) -> tuple[int, str] | None:
+    def output(self, command: Sequence[str], *, environment: Mapping[str, str] | None = None) -> tuple[int, str] | None:
         self.calls.append(tuple(command))
         return self.outputs.get(tuple(command))
 
@@ -533,7 +534,9 @@ def test_simulator_inventory_rejects_duplicate_devices_and_accepts_explicit_empt
 
 def test_device_state_is_read_on_every_sample_and_resets_the_full_quiet_window() -> None:
     class DeviceRunner(FakeRunner):
-        def output(self, command: Sequence[str]) -> tuple[int, str] | None:
+        def output(
+            self, command: Sequence[str], *, environment: Mapping[str, str] | None = None
+        ) -> tuple[int, str] | None:
             self.calls.append(tuple(command))
             return 0, simulator_document("Booting" if len(self.calls) == 3 else "Shutdown")
 
@@ -588,3 +591,35 @@ def test_own_ancestral_wrapper_does_not_excuse_foreign_siblings(command: str) ->
     )
     observed = ProcessProbe(processes, QuietSettings()).observe()
     assert not observed.ok and "service work: pid 101" in observed.detail
+
+
+def test_simctl_uses_selected_host_xcode_without_mutating_the_build_environment(monkeypatch) -> None:
+    from tools.runbook import quiet as quiet_module
+
+    build_values = {
+        "DEVELOPER_DIR": "/nix/store/test-apple-sdk",
+        "SDKROOT": "/nix/store/test-sdk",
+        "TOOLCHAINS": "test-toolchain",
+    }
+    for key, value in build_values.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("QUIET_TEST_KEEP", "preserve-me")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, simulator_document(), "")
+
+    monkeypatch.setattr(quiet_module.shutil, "which", lambda command: command)
+    monkeypatch.setattr(quiet_module.subprocess, "run", run)
+    assert SimulatorProbe(CommandRunner(), required=True).observe().ok
+    command, options = calls[0]
+    assert tuple(command) == SIMCTL  # Never the build shell's PATH-selected xcbuild shim.
+    host_environment = options["env"]
+    assert all(key not in host_environment for key in build_values)
+    assert host_environment["QUIET_TEST_KEEP"] == "preserve-me"
+    assert all(os.environ[key] == value for key, value in build_values.items())
+    assert os.environ["QUIET_TEST_KEEP"] == "preserve-me"
+    # Other probes retain the default inherited environment.
+    CommandRunner().output(("/usr/bin/xcrun", "--find", "clang"))
+    assert calls[1][1].get("env") is None

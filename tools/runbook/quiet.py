@@ -186,14 +186,19 @@ class Probe(Protocol):
 class CommandRunner:
     """Runs one probe command; tests replace it with canned output."""
 
-    def output(self, command: Sequence[str]) -> tuple[int, str] | None:
+    def output(self, command: Sequence[str], *, environment: Mapping[str, str] | None = None) -> tuple[int, str] | None:
         """(exit code, stdout), or None when the program is not installed."""
 
         if shutil.which(command[0]) is None:
             return None
         try:
             completed = subprocess.run(
-                list(command), capture_output=True, text=True, errors="replace", timeout=PROBE_TIMEOUT_S
+                list(command),
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=PROBE_TIMEOUT_S,
+                env=environment,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             return 127, str(error)
@@ -480,7 +485,12 @@ class SimulatorProbe:
     def observe(self) -> Observation:
         if not self.required:
             return Observation(self.name, True, "CoreSimulator is not required on this host")
-        result = self.runner.output(("/usr/bin/xcrun", "simctl", "list", "devices", "--json"))
+        # simctl belongs to the selected installed Xcode, not the compiler's
+        # pinned SDK. Clear build-shell redirects for this subprocess only.
+        environment = os.environ.copy()
+        for name in ("DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS"):
+            environment.pop(name, None)
+        result = self.runner.output(("/usr/bin/xcrun", "simctl", "list", "devices", "--json"), environment=environment)
         if result is None or result[0] != 0:
             return Observation(self.name, False, "simctl device listing failed; cannot establish shutdown")
         try:

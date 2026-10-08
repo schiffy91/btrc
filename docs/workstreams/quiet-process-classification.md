@@ -88,3 +88,34 @@ guests, benchmark samples, full matrix, publication, or performance acceptance
 were performed by this packet. Before retrying the diagnostic, pin this harness
 revision separately from the unchanged dff/69ca compiler source snapshots and
 retain both the failed original attempt and the new probe provenance.
+
+## Follow-up: keep host simulator lookup out of the compiler SDK
+
+The next diagnostic attempt ended with zero samples. Its retained BTRSmith
+shell exports `DEVELOPER_DIR` and `SDKROOT` for the pinned Nix Apple SDK14.4.
+The simulator probe already used `/usr/bin/xcrun`; changing its executable path
+would not repair this failure. In that exact shell, the absolute host executable
+still inherited the SDK redirect and exited1 without finding simctl.
+
+Only the simctl subprocess now receives a copied environment with
+`DEVELOPER_DIR`, `SDKROOT` and `TOOLCHAINS` removed, allowing the host's selected
+installed Xcode to supply its simulator tool. `CommandRunner.output` accepts an
+optional per-command environment; all ordinary calls continue inheriting the
+original environment. Neither `os.environ`, the compiler SDK settings, the
+selected Xcode, nor any system configuration is changed. Command/listing/schema
+failures remain blockers.
+
+A new process-boundary regression failed against bc685ed7 because no isolated
+environment reached subprocess.run. It then passed with the correction and
+checks the exact absolute command, removal of all three redirect variables,
+preservation of unrelated variables, unchanged parent environment, and ordinary
+commands continuing to inherit their original environment. Full focused result:
+**93 passed in0.56s**; Ruff lint/format and diff checks pass.
+
+A single read-only reproduction inside the retained BTRSmith shell recorded:
+unisolated absolute xcrun exit1; corrected real SimulatorProbe reports
+**13 devices, all Shutdown**; all three parent environment values remain
+unchanged. Evidence is retained at
+`~/.cache/btrc/plan-consolidation-2026-10-07/quiet-simctl-environment/result.json`
+and its adjacent probe.py. This is host-probe evidence, not a completed quiet
+window or compiler measurement. The failed diagnostic remains retained.
