@@ -69,3 +69,23 @@ This consumes the inserted tuple while preserving source line count, discovery
 order, expected output and every assertion. The original failed result is
 retained in `tuple-canonical-order/45dfa41f-reuse/`; the four affected rows need
 a separate replay. No compiler change or warning suppression was added.
+
+The first correction at `1f9d670b` exposed a separate conservative guard:
+reading the previously declaration-only name `flag` adds a whole-program
+mentioned identifier and invalidates all three groups. Both frontends kept
+exact incremental output; all four counter expectations failed at three.
+Independent tracing located this in the retained reachability `plan.names`
+inputs, not tuple ordering. The discovery-order fixture now uses the local
+name `left`, already referenced in `Use`, so its edit changes neither the
+shape inventory nor the program's mentioned-name set. It still reads the
+inserted tuple, keeps the same source lines and requires one lowered group,
+unchanged other units, exact clean output and strict native execution.
+The separate invalidation guard remains unchanged. Both failed attempts are retained.
+
+The isolated existing-shape fixture at `dcf8ba88` passes all four paired
+release/debug native rows (16.907 s): one lowered group, only Lib changed,
+incremental equals clean, and both cold/edited executables print `PASS 6`.
+The genuinely new `(int,int)` fixture also uses the already-mentioned local
+name `left`; its conservative three-group result must depend on the changed
+shape inventory rather than accidentally also adding a mentioned identifier.
+Its four affected rows are replayed separately with output 6 then 13 unchanged.
