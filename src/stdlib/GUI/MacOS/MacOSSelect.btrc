@@ -289,7 +289,7 @@ class MacOSSelect implements ISelect, IMacOSView {
 		if (self._started) { event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason); }
 		self._active = false; self._started = false; self._cancelTicket = null; self.retireTickets();
 		var button = self._button;
-		if (button != null) { button.cancelMenu(); button.selectItemAtIndex(self.indexOf(self._model, self._model.selectedKey)); }
+		if (button != null) { button.cancelMenu(); NSPopUpButton native = button; native.selectItemAtIndex(self.indexOf(self._model, self._model.selectedKey)); }
 		if (channel != null && ticket != null && event != null) { channel.publishTerminal(event, self._generation, self._interaction, ticket); }
 		else if (ticket != null && ticket.isOpen() && !ticket.queued()) { ticket.retire(); }
 	}
