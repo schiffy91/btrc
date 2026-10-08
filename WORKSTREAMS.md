@@ -1513,3 +1513,18 @@ The hosted native-GUI job opts into grouped scheduling while keeping three
 workers, the cross-session kernel lease, all bounds and the original roster.
 The canonical Make target remains configurable and unchanged; this packet
 qualifies the demonstrated hosted invocation, not every caller's scheduler.
+
+
+## 2026-10-08 D29 host compiler launch evidence
+
+Packet: CX-HARMONIZE-HOST-COMPILER-LAUNCH. Integrator-assigned writer:
+execution_review, branch `codex/host-compiler-launch-diagnostics`, base
+`ef65e208dffe359f5f81d0890e6b12a47d97eab3`. Owned paths:
+`src/tests/c_toolchains.py`, `src/tests/conftest.py`,
+`src/tests/python/test_test_harness_selection.py`,
+`docs/workstreams/host-compiler-launch-diagnostics.md`, and this claim.
+Use an isolated index; preserve the ordinary checkout/index. Record bounded
+selection/failure filesystem facts for an actual selected compiler ENOENT,
+without replacing the exception, retrying, skipping or changing the matrix.
+Focused process/reporting qualification is pending; no compiler repair or
+Nix garbage-collection cause is claimed.
