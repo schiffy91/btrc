@@ -584,3 +584,19 @@ falls through the cleanup, and returns afterward. Existing barrier fixtures
 require final COMPLETE and balanced terminal credit after an actual PRESS, so
 they cover the resulting stuck-drain failure. No compiler change or execution
 claim accompanies this source correction.
+
+### Initial ordered-container SDK projection
+
+The allocated three-fixture reference attempt at `f46c2465` stopped on the
+first fixture after 2.064 seconds: the SDK reader rejects a bare Objective-C
+class in a selected-symbol list (`Unsupported native declaration:
+BTRCMacOSContainerOrder`). Existing repository bindings select explicit method
+selectors. Session 27312 ended with exit 1 and released gate/gui-capture; no
+BTRC semantics, C compilation, link, runtime, or later fixture was reached.
+The preserved record is
+`ui2-macos-container-projection-f46c2465/results/projection1/reference/NativeTreeState/projection.json`.
+
+The correction selects the bridge's three exact class method selectors in the
+private fragment, and the test driver's exact twenty `UI2ContainerProbe`
+selectors. It changes projection metadata, not compiler acceptance or runtime
+behavior. The original rejected manifest/attempt remains immutable.

@@ -1,5 +1,6 @@
 """Real AppKit UI2 provider regressions; no native probe substitutes an implementation."""
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,6 +14,28 @@ from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 PROBES = ROOT / "src/tests/native/gui/ui2/probes/macos"
+CONTAINER_PROBE_SYMBOLS = [
+    "+[UI2ContainerProbe childCount:]",
+    "+[UI2ContainerProbe arrangedCount:]",
+    "+[UI2ContainerProbe observeMutations:]",
+    "+[UI2ContainerProbe indexOf:inParent:]",
+    "+[UI2ContainerProbe arrangedIndexOf:inStack:]",
+    "+[UI2ContainerProbe armOrderFaults:first:second:firstAfter:secondAfter:hideMembership:]",
+    "+[UI2ContainerProbe armAttachmentFaults:child:first:second:firstAfter:secondAfter:]",
+    "+[UI2ContainerProbe orderCalls]",
+    "+[UI2ContainerProbe resetFaults]",
+    "+[UI2ContainerProbe openHost]",
+    "+[UI2ContainerProbe newField]",
+    "+[UI2ContainerProbe newInputView]",
+    "+[UI2ContainerProbe newPlainView]",
+    "+[UI2ContainerProbe addUnarrangedChild:]",
+    "+[UI2ContainerProbe removeForeignChild:]",
+    "+[UI2ContainerProbe primaryDown:]",
+    "+[UI2ContainerProbe beginEditing:]",
+    "+[UI2ContainerProbe editorUnchanged]",
+    "+[UI2ContainerProbe editingNotifications]",
+    "+[UI2ContainerProbe closeHost]",
+]
 
 
 @pytest.mark.macos_gui
@@ -57,7 +80,8 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
         with (root / "btrc.toml").open("a") as manifest:
             manifest.write(
                 '[[native.bindings]]\nmodule = "ContainerProbe"\nheader = "ContainerProbe.h"\n'
-                'language = "objective-c"\nstandard = "c11"\nsymbols = ["UI2ContainerProbe"]\n'
+                'language = "objective-c"\nstandard = "c11"\n'
+                f"symbols = {json.dumps(CONTAINER_PROBE_SYMBOLS)}\n"
                 '[[native.sources]]\npath = "ContainerProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
             )
     plan = root / "RunLoop.link.json"
