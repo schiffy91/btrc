@@ -22,6 +22,7 @@ WORKER_POOLS_EXPECTED = FIXTURE / "host_worker_pools.expected"
 COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
 NATIVE_WORKER = FIXTURE / "NativeWorkerFailures.btrc"
+COMPLETION_READY_RETRY = ROOT / "src/tests/native/gui/ui2/CompletionReadyRetry.btrc"
 FAULT_CONTROLS = (
     FIXTURE / "NativeThreadFaultControl.h",
     (
@@ -37,6 +38,7 @@ FAULT_CONTROLS = (
         "FAULT_JOIN",
         "FAULT_MUTEX_DESTROY",
         "FAULT_COND_DESTROY",
+        "FAULT_MUTEX_TRYLOCK",
     ),
 )
 # Each probe program binds its fixture's header; it re-spells no prototype.
@@ -66,6 +68,7 @@ BINDINGS = {
     ),
     FAILURES: FAULT_CONTROLS,
     NATIVE_WORKER: FAULT_CONTROLS,
+    COMPLETION_READY_RETRY: FAULT_CONTROLS,
 }
 
 PLANNED_CONSUMER = """\
@@ -415,3 +418,45 @@ def test_import_emits_and_links_sdk_declarations_without_native_executor(
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == "PASS: planned background jobs runtime\n"
     assert ran.stderr == ""
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_completion_ready_subscription(compiler, tmp_path, request, sanitized):
+    """Real worker/owner retirement, late readiness and stale-token isolation."""
+    if sanitized and sys.platform not in {"darwin", "linux"}:
+        pytest.skip("requires a supported POSIX sanitizer toolchain")
+    source = ROOT / "src/tests/native/gui/ui2/BackgroundCompletionReady.btrc"
+    generated = tmp_path / f"completion-ready-{compiler}.c"
+    executable = tmp_path / f"completion-ready-{compiler}"
+    _transpile(compiler, generated, request, source)
+    _compile(
+        "/usr/bin/clang" if sanitized and sys.platform == "darwin" else "clang",
+        generated,
+        executable,
+        sanitized=sanitized,
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "PASS: completion-ready subscription\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_completion_ready_explicit_retry(compiler, tmp_path, request, sanitized):
+    """An injected native retirement error is sticky until explicit cancel."""
+    if sanitized and sys.platform not in {"darwin", "linux"}:
+        pytest.skip("requires a supported POSIX sanitizer toolchain")
+    generated = tmp_path / f"completion-ready-retry-{compiler}.c"
+    executable = tmp_path / f"completion-ready-retry-{compiler}"
+    _transpile(compiler, generated, request, COMPLETION_READY_RETRY)
+    _compile(
+        "/usr/bin/clang" if sanitized and sys.platform == "darwin" else "clang",
+        generated,
+        executable,
+        sanitized=sanitized,
+        faults=True,
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "PASS: completion-ready explicit retry\n"
+    assert result.stderr == ""

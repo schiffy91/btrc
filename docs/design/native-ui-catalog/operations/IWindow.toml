@@ -20,6 +20,11 @@ recorded_at = "2026-10-04T02:27:57Z"
 btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
 runner = "github-macos"
 
+[runs.cx-uia-21-approved-contract]
+source = "approved contract at base; implementation qualification pending"
+btrc_revision = "87dd60d7c602448cdd1bcf78ab3134b772e3aed5"
+recorded_at = "2026-10-07T16:27:08.007710+00:00"
+
 [[operations]]
 id = "IWindow.attachRoot"
 owner = "IWindow"
@@ -71,38 +76,38 @@ links = ["N02", "UI1"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.close. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.close. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.close. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.close. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.close. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.close. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.close. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.close. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "IWindow.contentHeight"
@@ -239,38 +244,38 @@ links = ["N02", "UI1"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.hide. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(!self._window.isVisible()); After hide twice; show/hide on a closed window are rejected. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.hide. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(!self._window.isVisible()); After hide twice; show/hide on a closed window are rejected. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.hide. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(!self._window.isVisible()); After hide twice; show/hide on a closed window are rejected. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.hide. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(!self._window.isVisible()); After hide twice; show/hide on a closed window are rejected. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.hide. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.hide. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.hide. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.hide. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "IWindow.isFocused"
@@ -363,38 +368,38 @@ links = ["N02", "UI1"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isVisible. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isVisible. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isVisible. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isVisible. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isVisible. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isVisible. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isVisible. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.isVisible. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "IWindow.onKey"
@@ -447,38 +452,38 @@ links = ["N02", "UI1"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeContainers-portable container ownership-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.pollClose. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.pollClose. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.pollClose. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.pollClose. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.pollClose. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.pollClose. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.pollClose. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.pollClose. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "IWindow.root"
@@ -655,38 +660,38 @@ links = ["N02", "UI1"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeProgressIndicator-native progress appearance-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.show. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.show. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.show. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.show. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.show. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.show. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.show. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.show. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "IWindow.showAlert"
@@ -696,37 +701,37 @@ links = ["N02", "N35", "UI7"]
 [operations.macos.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
+note = "Source: src/stdlib/GUI/Linux/LinuxWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "IWindow.title"
@@ -769,3 +774,143 @@ parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+
+[[operations]]
+id = "IWindow.requestClose"
+owner = "IWindow"
+links = ["UI2", "E42", "E46"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+
+[[operations]]
+id = "IWindow.onCloseRequested"
+owner = "IWindow"
+links = ["UI2", "E42", "E46"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+
+[[operations]]
+id = "IWindow.state"
+owner = "IWindow"
+links = ["UI2", "E42", "E46"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+
+[[operations]]
+id = "IWindow.onStateChanged"
+owner = "IWindow"
+links = ["UI2", "E42", "E46"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"

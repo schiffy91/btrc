@@ -3,7 +3,8 @@
  * GUI.initialize: creation never touches the application. Hand it to image
  * views on the UI thread: presenting it is a pointer assignment, never an
  * encode or decode. Close releases the native object; views keep their own
- * reference. */
+ * reference. Close and presentation are linearized: a closed handle cannot
+ * publish, but closing one never revokes an already retained presentation. */
 interface IImageHandle {
 	int width();
 	int height();

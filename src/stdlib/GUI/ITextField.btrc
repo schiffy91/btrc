@@ -1,8 +1,16 @@
+import Library.Callback;
+import Library.GUI.ControlEvents;
 import Library.GUI.IView;
 
 /* The platform owns text editing, selection, input composition and undo.
- * Text is an owned BTRC string; no native editor or storage escapes this API. */
+ * text() returns the live draft without committing composition. setText of the
+ * accepted baseline is a no-op; replacement cancels the interaction as MODEL.
+ * Eligibility loss retains the draft and sends one SYSTEM cancel. Subscriptions
+ * have one live receiver per channel, no initial delivery, and scope ownership. */
 interface ITextField extends IView {
+	ICallbackRegistration onDraftChanged(ITextControlEventHandler handler, CallbackScope owner);
+	ICallbackRegistration onCommit(ITextControlEventHandler handler, CallbackScope owner);
+	ICallbackRegistration onCancel(ITextControlEventHandler handler, CallbackScope owner);
 	string text();
 	void setText(string text);
 	void setPlaceholder(string text);
@@ -10,3 +18,5 @@ interface ITextField extends IView {
 	void setEnabled(bool enabled);
 	void setFont(double size);
 }
+
+interface ITextControlEventHandler { void textEvent(TextControlEvent event); }

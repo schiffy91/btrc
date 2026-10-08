@@ -196,6 +196,21 @@ void verifyActions() {
 
 /* An IView no provider created. Capture must reject it as a foreign root. */
 class ForeignView implements IView {
+	public ViewInteractionState interactionState() {
+		var state = ViewInteractionState();
+		state.localVisible = true;
+		state.localEnabled = true;
+		state.inheritedEligible = false;
+		state.effectiveEligible = false;
+		state.layoutParticipating = false;
+		state.exposure = WINDOW_EXPOSURE_UNKNOWN;
+		state.faulted = false;
+		state.stateRevision = 1LL;
+		return state;
+	}
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { throw "Foreign views take no input"; }
+
 	public bool isOpen() { return true; }
 
 	public double fittingWidth() { return 0.0; }

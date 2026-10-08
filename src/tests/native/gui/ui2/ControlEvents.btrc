@@ -1,0 +1,112 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IContainer;
+import Library.GUI.ITextField;
+import Library.GUI.ISelect;
+import Library.GUI.ISlider;
+
+#include "UI2Probe.btrc"
+#include "UI2Events.btrc"
+#include <assert.h>
+
+class UI2ControlChecks {
+	/* E01/E39: no initial event, draft/commit, model cancel and eligibility loss.
+	 * Platform drivers additionally exercise real composition, undo and keyboard. */
+	class void text(IApplication application, IUI2Probe probe) {
+		var window = application.createWindow("UI2 text", 320.0, 180.0);
+		var field = application.createTextField("baseline", "");
+		window.attachRoot(field);
+		window.show();
+		var events = UI2Events();
+		var scope = CallbackScope();
+		field.onDraftChanged(events, scope);
+		field.onCommit(events, scope);
+		field.onCancel(events, scope);
+		field.onInteractionStateChanged(events, scope);
+		probe.drain();
+		assert(events.text.len == 0 && events.interaction.len == 0);
+		field.setText("baseline");
+		probe.drain();
+		assert(events.text.len == 0);
+		probe.editText(field, "draft", false);
+		probe.drain();
+		assert(field.text().equals("draft"));
+		assert(events.textCount(CONTROL_PHASE_DRAFT) > 0);
+		probe.commitText(field);
+		probe.drain();
+		assert(events.textCount(CONTROL_PHASE_COMMIT) == 1);
+		assert(events.text.get(events.text.len - 1).context.origin == CONTROL_ORIGIN_USER);
+		probe.editText(field, "replacement draft", false);
+		field.setText("model");
+		probe.drain();
+		assert(events.textCount(CONTROL_PHASE_CANCEL) == 1);
+		assert(events.text.get(events.text.len - 1).context.origin == CONTROL_ORIGIN_MODEL);
+		assert(field.text().equals("model"));
+		probe.editText(field, "retained draft", false);
+		probe.drain();
+		field.setEnabled(false);
+		probe.drain();
+		assert(field.text().equals("retained draft"));
+		assert(!field.interactionState().effectiveEligible);
+		/* The terminal snapshot may be disposed as ineligible; provider trace
+		 * must account for that disposition rather than report a lost event. */
+		field.setEnabled(true);
+		probe.commitText(field);
+		probe.drain();
+		assert(events.textCount(CONTROL_PHASE_COMMIT) == 2);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		probe.drain();
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	/* E02/E33: keys distinguish duplicate titles and survive reorder. */
+	class void selection(IApplication application, IUI2Probe probe) {
+		var window = application.createWindow("UI2 selection", 320.0, 180.0);
+		var select = application.createSelect();
+		window.attachRoot(select);
+		window.show();
+		var first = SelectOption(); first.key = "first"; first.title = "Duplicate"; first.enabled = true;
+		var second = SelectOption(); second.key = "second"; second.title = "Duplicate"; second.enabled = true;
+		var model = SelectModel(); model.options = [first, second]; model.selectedKey = "first";
+		model.availability = SELECT_AVAILABILITY_READY; model.statusText = "";
+		select.setOptions(model);
+		var events = UI2Events(); var scope = CallbackScope();
+		select.onChanged(events, scope); select.onCommit(events, scope); select.onCancel(events, scope);
+		probe.drain(); assert(events.selection.len == 0);
+		probe.chooseKey(select, "second"); probe.drain();
+		assert(select.selectedKey() == "second"); assert(select.selectedIndex() == 1);
+		assert(events.selection.len > 0);
+		assert(events.selection.get(events.selection.len - 1).phase == CONTROL_PHASE_COMMIT);
+		var reordered = SelectModel(); reordered.options = [second, first]; reordered.selectedKey = "second";
+		reordered.availability = SELECT_AVAILABILITY_READY; reordered.statusText = "";
+		select.setOptions(reordered); probe.drain();
+		assert(select.selectedKey() == "second" && select.selectedIndex() == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close(); probe.drain(); assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	/* E03/E34: authoritative double, snapped preview and terminal count. */
+	class void slider(IApplication application, IUI2Probe probe) {
+		var window = application.createWindow("UI2 slider", 320.0, 180.0);
+		var slider = application.createSlider(0.0, 10.0, 10);
+		window.attachRoot(slider); window.show(); slider.setValue(5.0);
+		var events = UI2Events(); var scope = CallbackScope();
+		slider.onPreview(events, scope); slider.onCommit(events, scope); slider.onCancel(events, scope);
+		probe.drain(); assert(events.slider.len == 0);
+		probe.sliderPreview(slider, 7.0); probe.sliderCommit(slider); probe.drain();
+		assert(slider.value() == 7.0);
+		int commits = 0; int cancels = 0;
+		for event in events.slider { if (event.phase == CONTROL_PHASE_COMMIT) { commits++; } }
+		assert(commits == 1);
+		probe.sliderPreview(slider, 9.0); probe.sliderCancel(slider); probe.drain();
+		for event in events.slider { if (event.phase == CONTROL_PHASE_CANCEL) { cancels++; } }
+		assert(cancels == 1 && slider.value() == 7.0);
+		slider.setRange(3.0, 3.0, 0.0); assert(slider.value() == 3.0 && slider.range().minimum == slider.range().maximum);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close(); probe.drain(); assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}

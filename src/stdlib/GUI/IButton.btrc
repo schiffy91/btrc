@@ -16,7 +16,9 @@ class ButtonTypography {
  * uses native control tracking and returns false when the control is disabled.
  * onAction registers one queued receiver in an independently owned scope.
  * Cancel before replacement; cancellation/close discards queued old actions.
- * Delivery happens after native dispatch, on the application UI executor.
+ * Delivery follows its native callback on the application UI executor, which
+ * rechecks effective eligibility. A queued click for an ineligible target is
+ * discarded with the ineligible disposition and is never replayed or cancelled.
  * Providers reject unsupported typography rather than clipping it: bordered
  * buttons support up to ButtonTypography.borderedMaximumSize() points and
  * borderless buttons up to ButtonTypography.maximumSize().

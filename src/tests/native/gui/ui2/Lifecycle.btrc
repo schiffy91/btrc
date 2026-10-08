@@ -1,0 +1,115 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.IScrollView;
+import Library.GUI.ControlEvents;
+
+#include "UI2Probe.btrc"
+#include "UI2Events.btrc"
+#include <assert.h>
+
+class UI2LifecycleChecks {
+	/* E29/E39: ordered mutation preserves identity and active editing. Native
+	 * rollback and quarantine faults are injected by the platform probe drivers. */
+	class void mutation(IApplication application, IUI2Probe probe) {
+		var window = application.createWindow("UI2 mutation", 360.0, 240.0);
+		var container = application.createContainer();
+		var first = application.createTextField("first", "");
+		var second = application.createTextField("second", "");
+		container.attach(first); container.attach(second); window.attachRoot(container); window.show();
+		var events = UI2Events(); var scope = CallbackScope();
+		first.onCommit(events, scope); first.onCancel(events, scope);
+		probe.editText(first, "marked", true); probe.drain();
+		assert(probe.isComposing(first));
+		long long revision = container.treeRevision();
+		container.move(first, 1); probe.drain();
+		assert(container.childAt(1) == first && container.childAt(0) == second);
+		assert(container.treeRevision() > revision);
+		assert(probe.isComposing(first) && events.text.len == 0);
+		var edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_MOVE; edit.child = first; edit.index = 0;
+		Vector<ContainerEdit> edits = [edit];
+		var stale = container.applyBatch(revision, edits);
+		assert(stale.kind == CONTAINER_BATCH_REJECTED && container.childAt(1) == first);
+		var moved = container.applyBatch(container.treeRevision(), edits);
+		assert(moved.kind == CONTAINER_BATCH_COMMITTED && container.childAt(0) == first);
+		IView detached = container.detach(first);
+		assert(detached == first && detached.isOpen() && !detached.interactionState().effectiveEligible);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		detached.close(); window.close(); probe.drain();
+		assert(detached.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	/* E31: aliases observe complete subtree teardown; native resource counts,
+	 * fatal off-executor release and bounded platform drain live in each driver. */
+	class void teardown(IApplication application, IUI2Probe probe) {
+		var window = application.createWindow("UI2 teardown", 240.0, 120.0);
+		var root = application.createContainer(); var field = application.createTextField("held", "");
+		root.attach(field); window.attachRoot(root); window.show();
+		var events = UI2Events(); var scope = CallbackScope();
+		field.onCommit(events, scope);
+		window.close(); probe.drain();
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!window.isOpen() && !root.isOpen() && !field.isOpen());
+		int delivered = events.text.len; probe.drain(); assert(events.text.len == delivered);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	/* E35: closing a published handle never revokes retained presentation. */
+	class void retainedImage(IApplication application, IUI2Probe probe) {
+		var window = application.createWindow("UI2 retained image", 100.0, 100.0);
+		var view = application.createImageView(); window.attachRoot(view); window.show();
+		var image = probe.image(); view.setImageHandle(image); probe.drain();
+		long long stamp = probe.imageStamp(view); assert(stamp != 0LL);
+		image.close(); probe.drain(); assert(probe.imageStamp(view) == stamp);
+		bool rejected = false; try { view.setImageHandle(image); } catch (string error) { rejected = true; }
+		assert(rejected && probe.imageStamp(view) == stamp);
+		view.setImageHandle(null); probe.drain(); assert(probe.imageStamp(view) != stamp);
+		window.close(); probe.drain(); assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	/* UI2 two-axis scroll, not a claim of the later E09 focus contract. */
+	class void scroll(IApplication application, IUI2Probe probe) {
+		var window = application.createWindow("UI2 scroll", 200.0, 150.0);
+		var scroll = application.createScrollView(); window.attachRoot(scroll); window.show();
+		scroll.setContentSize(800.0, 600.0);
+		var offset = ScrollOffset(); offset.x = 120.0; offset.y = 80.0;
+		scroll.scrollToOffset(offset); probe.drain();
+		assert(scroll.offset().x == 120.0 && scroll.offset().y == 80.0);
+		scroll.scrollTo(95.0); probe.drain();
+		assert(scroll.offset().x == 120.0 && scroll.offset().y == 95.0);
+		var rect = scroll.visibleRect(); assert(rect.x == 120.0 && rect.y == 95.0);
+		assert(rect.width > 0.0 && rect.height > 0.0);
+		scroll.setContentSize(20.0, 20.0); probe.drain();
+		assert(scroll.offset().x == 0.0 && scroll.offset().y == 0.0);
+		assert(scroll.visibleRect().width <= 20.0 && scroll.visibleRect().height <= 20.0);
+		window.close(); probe.drain(); assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	/* E46: revision/attempt guards preserve a dirty document and cancellation.
+	 * Platform drivers repeat through native close and two-window native quit. */
+	class void closeTransaction(IApplication application, IUI2Probe probe) {
+		var window = application.createWindow("UI2 close", 240.0, 120.0); window.show();
+		var events = UI2Events(); var scope = CallbackScope(); window.onCloseRequested(events, scope);
+		var requested = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); probe.drain();
+		assert(requested.kind == WINDOW_CLOSE_REQUEST_PENDING && requested.transaction != null);
+		var transaction = requested.transaction;
+		assert(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).transaction == transaction);
+		var saving = transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 1LL);
+		assert(saving.state == WINDOW_CLOSE_SAVING && saving.attempt > 0LL);
+		transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 2LL);
+		assert(transaction.completeSave(saving.attempt + 1LL, 2LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT);
+		assert(transaction.completeSave(saving.attempt, 1LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+		assert(transaction.state() == WINDOW_CLOSE_AWAITING_DECISION && window.isOpen());
+		assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 2LL).state == WINDOW_CLOSE_CANCELLED);
+		assert(transaction.completeSave(saving.attempt, 2LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+		assert(window.isOpen());
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		var unhandled = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST);
+		assert(unhandled.kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER);
+		probe.drain(); assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
