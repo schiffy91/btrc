@@ -1,4 +1,5 @@
 import Library.GUI.ControlEventQueue;
+import Library.GUI.ControlEvents;
 import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.IView;
 import Library.Math;
@@ -6,39 +7,119 @@ import Library.Callback;
 import Library.GUI.ISlider;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
+import Library.UI.Element;
 
-/* AppKit owns pointer/keyboard tracking. Read the value after dispatch; model
- * refreshes must not overwrite a pending edit before the binding consumes it. */
+#include <limits.h>
+
+/* Generated stored-callback ownership contains the native sink. These methods
+ * capture owning events; they never invoke application receivers inline. */
+class MacOSRangeCapture implements IAppKitRangeEvents {
+	private MacOSSlider _owner;
+	public MacOSRangeCapture(MacOSSlider owner) { self._owner = owner; }
+
+	public bool rangeBegin() { return self._owner.nativeBegin(); }
+
+	public void rangePreview(double value) { self._owner.nativePreview(value); }
+
+	public void rangeEnd(double value, bool released) { self._owner.nativeEnd(value, released); }
+
+	public void rangeAdjust(long adjustment, long count) { self._owner.nativeAdjust(adjustment, count); }
+
+	public void rangeAssistive(double value) { self._owner.nativeAssistive(value); }
+
+	public void rangeEscape() { self._owner.nativeEscape(); }
+}
+
+/* The double model is authoritative. AppKit projects it and captures absolute
+ * positions or relative intent; native readback never reconstructs model state. */
 class MacOSSlider implements ISlider, IMacOSView {
-	private NSSlider? _slider;
+	private BTRCMacOSRange? _slider;
 	private MacOSView _view;
+	private CallbackScope _native = CallbackScope();
 	private double _minimum;
 	private double _maximum;
-	private int _intervals;
+	private double _step;
+	private double _value;
+	private double _startValue;
+	private long long _modelRevision = 1LL;
+	private long long _rangeRevision = 1LL;
+	private long long _startRevision;
+	private long long _interaction = 0LL;
+	private long long _sequence = 0LL;
+	private long long _generation;
+	private bool _active = false;
+	private bool _closing = false;
+	private ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>? _previews;
+	private ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>? _commits;
+	private ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>? _cancels;
+	private ControlEventTicket? _commitTicket;
+	private ControlEventTicket? _cancelTicket;
 
 	public MacOSSlider(double minimum, double maximum, int intervals = 0, MacOSControlContext? context = null) {
 		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
-		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || maximum <= minimum || !Math.isFinite(maximum - minimum) || intervals < 0 || intervals > 1000) { throw "Invalid native slider range"; }
-		var slider = NSSlider.new();
-		if (slider == null) { throw "Cannot create native slider"; }
-		self._slider = slider;
-		self._view = MacOSView(slider, context);
-		self._minimum = minimum;
-		self._maximum = maximum;
-		self._intervals = intervals;
-		slider.setMinValue(minimum);
-		slider.setMaxValue(maximum);
-		slider.setNumberOfTickMarks(intervals == 0 ? 0 : intervals + 1);
-		slider.setAllowsTickMarkValuesOnly(intervals > 0);
-		slider.setContinuous(false);
-		self.setValue(minimum);
+		if (intervals < 0) { throw "Invalid native slider intervals"; }
+		double step = intervals == 0 ? 0.0 : (maximum - minimum) / (double)intervals;
+		self.validateRange(minimum, maximum, step);
+		if (intervals > 0 && minimum < maximum && step == 0.0) { throw "Native slider intervals cannot advance at this range precision"; }
+		var slider = BTRCMacOSRange.range(); if (slider == null) { throw "Cannot create native slider"; }
+		self._slider = slider; self._view = MacOSView(slider, context);
+		self._minimum = minimum; self._maximum = maximum; self._step = step; self._value = minimum;
+		NSSlider control = slider; control.setMinValue(minimum); control.setMaxValue(maximum);
+		/* Tick density does not constrain logical resolution. */
+		control.setNumberOfTickMarks(intervals > 0 && intervals <= 64 ? intervals + 1 : 0);
+		control.setAllowsTickMarkValuesOnly(false); slider.projectValue(minimum);
+		try { slider.setEventSink(MacOSRangeCapture(self), self._native); }
+		catch (string error) { self.close(); throw error; }
 	}
 
-	private NSSlider control() {
-		self._view.nativeView();
-		if (self._slider == null) { throw "Native slider is closed"; }
-		return self._slider;
+	private BTRCMacOSRange nativeRange() {
+		self._view.nativeView(); var slider = self._slider;
+		if (slider == null || self._closing) { throw "Native slider is closed"; } return slider;
 	}
+
+	private NSSlider control() { return self.nativeRange(); }
+
+	private void validateRange(double minimum, double maximum, double step) {
+		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || !Math.isFinite(step) || maximum < minimum || step < 0.0 || !Math.isFinite(maximum - minimum)) { throw "Invalid native slider range"; }
+		if (step > 0.0 && minimum < maximum && step < maximum - minimum && (minimum + step <= minimum || maximum - step >= maximum)) { throw "Native slider step cannot advance at this range precision"; }
+	}
+
+	private double snapped(double minimum, double maximum, double step, double value) {
+		if (step == 0.0 || minimum == maximum || value == maximum) { return value; }
+		double span = maximum - minimum;
+		double lower = minimum;
+		if (step < span) { lower = minimum + Math.floorDouble((value - minimum) / step) * step; }
+		lower = Math.maxDouble(minimum, Math.minDouble(value, lower));
+		double upper = step >= maximum - lower ? maximum : lower + step;
+		return value - lower < upper - value ? lower : upper;
+	}
+
+	public SliderRange range() { self.control(); var range = SliderRange(); range.minimum = self._minimum; range.maximum = self._maximum; range.step = self._step; return range; }
+
+	public double value() { self.control(); return self._value; }
+
+	public void setRange(double minimum, double maximum, double step) {
+		self.control(); self.validateRange(minimum, maximum, step);
+		var range = SliderRange(); range.minimum = minimum; range.maximum = maximum; range.step = step;
+		self.setRangeValue(range, Math.maxDouble(minimum, Math.minDouble(maximum, self._value)));
+	}
+
+	public void setRangeValue(SliderRange range, double value) {
+		var slider = self.control(); self.interactionOwner().context().requireMutationAllowed();
+		if (range == null) { throw "Native slider requires a range"; }
+		self.validateRange(range.minimum, range.maximum, range.step);
+		if (!Math.isFinite(value) || value < range.minimum || value > range.maximum) { throw "Native slider value is out of range"; }
+		double next = self.snapped(range.minimum, range.maximum, range.step, value);
+		bool changedRange = range.minimum != self._minimum || range.maximum != self._maximum || range.step != self._step;
+		if (!changedRange && next == self._value) { return; }
+		if (self._modelRevision == LLONG_MAX || (changedRange && self._rangeRevision == LLONG_MAX)) { throw "Native slider model revisions exhausted"; }
+		self.cancelInteraction(CONTROL_ORIGIN_MODEL, CONTROL_CANCEL_MODEL_REPLACEMENT);
+		slider.setMinValue(range.minimum); slider.setMaxValue(range.maximum); self.nativeRange().projectValue(next);
+		self._minimum = range.minimum; self._maximum = range.maximum; self._step = range.step; self._value = next;
+		self._modelRevision++; if (changedRange) { self._rangeRevision++; slider.setNumberOfTickMarks(0); }
+	}
+
+	public void setValue(double value) { self.setRangeValue(self.range(), value); }
 
 	public NSView nativeView() { return self._view.nativeView(); }
 
@@ -46,7 +127,7 @@ class MacOSSlider implements ISlider, IMacOSView {
 
 	public void reconcileAttachment(NSView? parent) { self._view.reconcileAttachment(parent); }
 
-	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+	public void detachFrom(NSView parent) { NSView view = self.control(); if (parent == null || view.superview() != parent) { throw "Native slider is not attached to this parent"; } self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); self._view.detachFrom(parent); }
 
 	public bool isOpen() { return self._view.isOpen(); }
 
@@ -60,7 +141,7 @@ class MacOSSlider implements ISlider, IMacOSView {
 
 	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
 
-	public void settleInteraction() { self._view.settleInteraction(); }
+	public void settleInteraction() { if (!self.interactionState().effectiveEligible) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); } self._view.settleInteraction(); }
 
 	public void publishInteraction() { self._view.publishInteraction(); }
 
@@ -74,32 +155,191 @@ class MacOSSlider implements ISlider, IMacOSView {
 
 	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
 
-	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+	public void cancelPointerCapture() { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); self._view.cancelPointerCapture(); }
 
-	public void setVisible(bool visible) { self._view.setVisible(visible); }
+	public void setVisible(bool visible) { self.control(); if (!visible) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); } self._view.setVisible(visible); }
 
-	public CallbackCancellation pollClose() { return self._view.pollClose(); }
-
-	public double value() { return self.control().doubleValue(); }
-
-	public void setValue(double value) {
-		var slider = self.control();
-		if (!Math.isFinite(value) || value < self._minimum || value > self._maximum) { throw "Native slider value is out of range"; }
-		if (self._intervals > 0) { value = slider.closestTickMarkValueToValue(value); }
-		slider.setDoubleValue(value);
+	public CallbackCancellation pollClose() {
+		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var native = self._native.pollCompletion(); if (native != CALLBACK_CANCELLATION_COMPLETE) { return native; }
+		var state = self._view.pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._slider = null; } return state;
 	}
 
-	public void setEnabled(bool enabled) { var control = self.control(); control.setEnabled(enabled); self._view.localEnabledChanged(control.isEnabled()); }
+	private void retireTickets() {
+		var commit = self._commitTicket; var cancel = self._cancelTicket;
+		self._commitTicket = null; self._cancelTicket = null;
+		if (commit != null && commit.isOpen() && !commit.queued()) { commit.retire(); }
+		if (cancel != null && cancel.isOpen() && !cancel.queued()) { cancel.retire(); }
+	}
+
+	private SliderControlEvent snapshot(ControlPhase phase, ControlOrigin origin, ControlCancelReason reason, SliderInputKind input = SLIDER_INPUT_ABSOLUTE_POINTER, UIRangeAdjustment adjustment = UI_RANGE_ADJUST_NONE, int count = 0) {
+		if (self._sequence == LLONG_MAX) { throw "Native slider event sequences exhausted"; }
+		self._sequence++;
+		var context = ControlEventContext(); context.generation = self._generation; context.interaction = self._interaction;
+		context.sequence = self._sequence; context.modelRevision = self._modelRevision; context.origin = origin;
+		var event = SliderControlEvent(); event.context = context; event.phase = phase; event.value = self._value;
+		event.rangeRevision = self._rangeRevision; event.input = input; event.adjustment = adjustment; event.count = count; event.cancelReason = reason; return event;
+	}
+
+	private bool beginInteraction() {
+		var state = self.interactionOwner();
+		if (self._closing || !state.context().admitNativeInput() || !state.interactionState().effectiveEligible || self._minimum == self._maximum) { return false; }
+		if (self._interaction == LLONG_MAX || self._sequence == LLONG_MAX) { throw "Native slider event identity exhausted"; }
+		var commit = self._commits; var cancel = self._cancels;
+		var previews = self._previews;
+		if (previews != null && previews.isOpen() && !state.events().canCapture(1)) { throw "Native slider cannot admit input while its preview queue is full"; }
+		if (commit != null && commit.isOpen()) { self._commitTicket = commit.beginInteraction(); if (self._commitTicket == null) { throw "Native slider commit capacity is exhausted"; } }
+		if (cancel != null && cancel.isOpen()) { self._cancelTicket = cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Native slider cancel capacity is exhausted"; } }
+		self._interaction++; self._generation = state.generation(); self._startValue = self._value; self._startRevision = self._modelRevision; self._active = true; return true;
+	}
+
+	public bool nativeBegin() {
+		if (self._closing || self._active) { return false; }
+		try { return self.beginInteraction(); }
+		catch (string error) { self.failCapture(error); return false; }
+	}
+
+	private bool acceptNativeValue(double value, bool preview) {
+		var state = self.interactionOwner();
+		if (!state.context().admitNativeInput() || !state.interactionState().effectiveEligible) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); return false; }
+		if (!Math.isFinite(value)) { throw "Native slider produced a nonfinite value"; }
+		double next = self.snapped(self._minimum, self._maximum, self._step, Math.maxDouble(self._minimum, Math.minDouble(self._maximum, value)));
+		if (next == self._value) { return true; }
+		self._value = next; self.nativeRange().projectValue(next);
+		var channel = self._previews;
+		if (preview && channel != null && channel.isOpen()) {
+			var event = self.snapshot(CONTROL_PHASE_PREVIEW, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
+			if (!channel.publish(event, self._generation, self._interaction, 1LL)) { throw "Native slider preview queue is full or unavailable"; }
+		}
+		return true;
+	}
+
+	public void nativePreview(double value) {
+		if (!self._active || self._closing) { return; }
+		try { self.acceptNativeValue(value, true); }
+		catch (string error) { self.failCapture(error); }
+	}
+
+	private void commitInteraction(SliderInputKind input, UIRangeAdjustment adjustment = UI_RANGE_ADJUST_NONE, int count = 0) {
+		var channel = self._commits; var ticket = self._commitTicket;
+		/* Seal before publication: a later INELIGIBLE receipt cannot synthesize
+		 * a second cancel for this already accepted interaction. */
+		self._active = false; self._commitTicket = null; self.retireTickets();
+		try {
+			var event = self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE, input, adjustment, count);
+			if (channel != null && ticket != null) { channel.publishTerminal(event, self._generation, self._interaction, ticket); }
+		} finally { if (ticket != null && ticket.isOpen() && !ticket.queued()) { ticket.retire(); } }
+	}
+
+	private void cancelInteraction(ControlOrigin origin, ControlCancelReason reason) {
+		if (!self._active) { return; }
+		if (self._startRevision == self._modelRevision) { self._value = self._startValue; }
+		var channel = self._cancels; var ticket = self._cancelTicket;
+		self._active = false; self._cancelTicket = null; self.retireTickets();
+		var slider = self._slider; if (slider != null) { slider.invalidateTracking(); slider.projectValue(self._value); }
+		try {
+			var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason);
+			if (channel != null && ticket != null) { channel.publishTerminal(event, self._generation, self._interaction, ticket); }
+		} finally { if (ticket != null && ticket.isOpen() && !ticket.queued()) { ticket.retire(); } }
+	}
+
+	private void failCapture(string error) {
+		var context = self.interactionOwner().context(); context.recordNativeFailure(error);
+		self._active = false;
+		try {
+			self.retireTickets(); var slider = self._slider;
+			if (slider != null) { slider.invalidateTracking(); slider.projectValue(self._value); }
+		} catch (string cleanupError) { context.recordNativeFailure(cleanupError); }
+	}
+
+	public void nativeEnd(double value, bool released) {
+		if (!self._active || self._closing) { return; }
+		try {
+			if (!released) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); }
+			else if (self.acceptNativeValue(value, true)) { self.commitInteraction(SLIDER_INPUT_ABSOLUTE_POINTER); }
+		} catch (string error) { self.failCapture(error); }
+	}
+
+	public void nativeEscape() {
+		if (self._closing) { return; }
+		try { if (self.interactionOwner().context().admitNativeInput()) { self.cancelInteraction(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); } }
+		catch (string error) { self.failCapture(error); }
+	}
+
+	public void nativeAdjust(long adjustment, long count) {
+		if (self._closing) { return; }
+		try {
+			if (!self.interactionOwner().context().admitNativeInput()) { return; }
+			if (adjustment < 1 || adjustment > 6 || count <= 0 || count > INT_MAX) { throw "Invalid native slider adjustment"; }
+			self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION);
+			if (self.beginInteraction()) {
+				double distance = self._step > 0.0 ? self._step : (self._maximum - self._minimum) / 100.0;
+				if (adjustment == 3 || adjustment == 4) { distance = Math.maxDouble(distance, (self._maximum - self._minimum) / 10.0); }
+				double delta = distance * (double)count; double next = self._value;
+				if (adjustment == 5) { next = self._minimum; }
+				else if (adjustment == 6) { next = self._maximum; }
+				else if (adjustment == 1 || adjustment == 3) { next = delta >= self._value - self._minimum ? self._minimum : self._value - delta; }
+				else { next = delta >= self._maximum - self._value ? self._maximum : self._value + delta; }
+				if (self.acceptNativeValue(next, false)) { self.commitInteraction(SLIDER_INPUT_RELATIVE_ADJUSTMENT, (UIRangeAdjustment)adjustment, (int)count); }
+			}
+		} catch (string error) { self.failCapture(error); }
+	}
+
+	public void nativeAssistive(double value) {
+		if (self._closing) { return; }
+		try {
+			if (!self.interactionOwner().context().admitNativeInput()) { return; }
+			if (!Math.isFinite(value)) { throw "Invalid native slider assistive value"; }
+			self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION);
+			if (self.beginInteraction() && self.acceptNativeValue(value, false)) { self.commitInteraction(SLIDER_INPUT_ABSOLUTE_ASSISTIVE); }
+		} catch (string error) { self.failCapture(error); }
+	}
+
+	class void deliverSlider(ISliderControlEventHandler receiver, SliderControlEvent event) { receiver.sliderEvent(event); }
+
+	private ControlEventChannel<ISliderControlEventHandler, SliderControlEvent> subscribe(ISliderControlEventHandler handler, CallbackScope owner) {
+		self.control(); var state = self.interactionOwner(); state.context().requireMutationAllowed();
+		var channel = new ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>(state.events(), state, handler, MacOSSlider.deliverSlider, owner);
+		try { state.own(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public ICallbackRegistration onPreview(ISliderControlEventHandler handler, CallbackScope owner) {
+		self.control(); var previous = self._previews;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the previous slider preview receiver before replacing it"; }
+		var channel = self.subscribe(handler, owner); self._previews = channel; return channel;
+	}
+
+	public ICallbackRegistration onCommit(ISliderControlEventHandler handler, CallbackScope owner) {
+		self.control(); var previous = self._commits;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the previous slider commit receiver before replacing it"; }
+		var channel = self.subscribe(handler, owner); ControlEventTicket? ticket = null;
+		try { if (self._active) { ticket = channel.beginInteraction(); if (ticket == null) { throw "Native slider commit capacity is exhausted"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._commits = channel; self._commitTicket = ticket; return channel;
+	}
+
+	public ICallbackRegistration onCancel(ISliderControlEventHandler handler, CallbackScope owner) {
+		self.control(); var previous = self._cancels;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the previous slider cancel receiver before replacing it"; }
+		var channel = self.subscribe(handler, owner); ControlEventTicket? ticket = null;
+		try { if (self._active) { ticket = channel.beginInteraction(); if (ticket == null) { throw "Native slider cancel capacity is exhausted"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._cancels = channel; self._cancelTicket = ticket; return channel;
+	}
+
+	public void setEnabled(bool enabled) { var slider = self.control(); if (!enabled) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); } slider.setEnabled(enabled); self._view.localEnabledChanged(slider.isEnabled()); }
 
 	public bool isEnabled() { return self.control().isEnabled(); }
 
 	public void setToolTip(string text) { NSView view = self.control(); view.setToolTip(AppKitText.nativeValue(text)); }
 
-	public string toolTip() {
-		NSView view = self.control();
-		NSString? text = view.toolTip();
-		return text == null ? "" : AppKitText.ownedValue(text);
-	}
+	public string toolTip() { NSView view = self.control(); NSString? text = view.toolTip(); return text == null ? "" : AppKitText.ownedValue(text); }
 
-	public CallbackCancellation close() { var state = self._view.close(); self._slider = null; return state; }
+	public CallbackCancellation close() {
+		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
+		if (self._closing) { return self.pollClose(); }
+		self._view.requireDetached(); self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING); self._closing = true;
+		self._native.cancel(); self._view.close(); return self.pollClose();
+	}
 }
