@@ -215,7 +215,7 @@ This qualifies the affected native gate; it does not establish the historical
 GPU failure's cause or the full final-tree matrix. The repair and consolidated plan landed through
 [PR69](https://github.com/schiffy91/btrc/pull/69) at `cbd3ddcd` after all 36
 selected checks passed on head `01621436`. Three scope-skipped jobs are not
-counted as evidence. The post-merge main Linux CI, Windows and Windows ARM64 workflows pass at exact `cbd3ddcd`. The macOS workflow still has unit and self-host tests running; its bootstrap, C11 and both corpus jobs pass. Final post-merge status remains open until that workflow terminates.
+counted as evidence. The post-merge main Linux CI, Windows and Windows ARM64 workflows pass at exact `cbd3ddcd`. The macOS workflow still has its unit-test job running; self-host tests, bootstrap, C11 and both corpus jobs pass. Final post-merge status remains open until that workflow terminates.
 
 The first Linux shared-display lease qualification, run `37743819333`, stops
 before tests on both X11 and Wayland: its diagnostic launcher bypasses Bash and
@@ -379,10 +379,40 @@ groups are absent. Aggregate
 `273bdd3bbd6579527c18f631de3ac9e4b61b80458750ec1ad056409fa203fb84`
 is retained in `ui2-macos-text-b987ebdc-native-compiler-f75c737b`.
 Physical IME, expanded Escape/route/entered-close and combined application
-acceptance remain open. Range and keyed selection source/fixtures are implemented;
-selection's corrected SDK projection passes, but actual native qualification is
-pending. Its real-input fixture explicitly covers printable selection and
-in-menu Escape gaps. No source-only milestone counts as native capability.
+acceptance remain open. Range and keyed selection source/fixtures are implemented and partially tested.
+Range `b0305ce1` passes all four native model-state rows through both compiler
+frontends, plain and ASan/UBSan. Its event fixture initially exposed nullable
+probe owners and then a genuine manifest-order parity defect: the reference
+compiler accepts callback metadata after a native source table, while the
+self-host parser rejects it. Moving the source table preserves the exact parsed
+TOML object and allows qualification to continue; the compiler parity defect
+remains open. Evidence is retained in `macos-range-current-f75-r4/METADATA-ORDER.md`
+under the local audit preparation directory.
+
+The corrected range event fixture passes both projections and strict compilation.
+Its first native run passes key/repeat/accessibility/assistive assertions, then
+fails the unchanged drag preview assertion. A failure-only trace records zero
+previews, seven commits, zero cancels and unchanged value 4. A pointer commit
+alone does not prove dragging works. A matched stock/native-provider input and
+geometry comparison is pending; original preview and movement assertions remain.
+
+Selection's model fixture passes reference/plain native execution. Its first
+real event fixture passes performClick and mouseDown journeys, then fails Space
+input. The matched standard NSPopUpButton also fails to open despite actual
+first-responder ownership and corrected native key codes. Current capture source
+adds printable-key admission and a scoped Escape observer with exception and
+teardown ownership cleanup, but those native behaviors remain unqualified.
+The host fixture now uses regular activation policy, finishLaunching and an
+actual bounded AppKit event pump. At `f68e5654`, both compiler projections and
+strict checks pass; the reference executable fails the unchanged active-app,
+key-window and first-responder prerequisite before Space. The three-second pump
+dispatches zero events; app/window remain inactive/non-key. All 44 command groups
+are closed and inputs unchanged (aggregate `60b9a122`). A separate read-only
+LaunchServices query confirms `com.apple.loginwindow` is foreground. Do not
+repeat foreground-dependent qualification until that prerequisite changes, and
+do not claim the exact external cause beyond these observations. Original failed
+runs remain retained; no keyboard/Escape/type-selection acceptance is inferred.
+No source-only milestone counts as native capability.
 
 The Linux counterpart `53e4bfaa` implements request admission, cancellable close
 transactions, save-revision/attempt authority and context modal guards in the
