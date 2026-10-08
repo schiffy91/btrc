@@ -145,10 +145,10 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 			clip.setPostsFrameChangedNotifications(true);
 			self._layout.documentView().setPostsFrameChangedNotifications(true);
 			var center = NSNotificationCenter.defaultCenter();
-			center.addObserverForName(NSScrollViewDidLiveScrollNotification, scroll, null, MacOSScrollObserver(self, true), self._native);
-			center.addObserverForName(NSViewBoundsDidChangeNotification, clip, null, MacOSScrollObserver(self, false), self._native);
-			center.addObserverForName(NSViewFrameDidChangeNotification, clip, null, MacOSScrollObserver(self, false), self._native);
-			center.addObserverForName(NSViewFrameDidChangeNotification, self._layout.documentView(), null, MacOSScrollObserver(self, false), self._native);
+			center.addObserverForName(BTRCMacOSScrollNotifications.didLiveScroll(), scroll, null, MacOSScrollObserver(self, true), self._native);
+			center.addObserverForName(BTRCMacOSScrollNotifications.boundsChanged(), clip, null, MacOSScrollObserver(self, false), self._native);
+			center.addObserverForName(BTRCMacOSScrollNotifications.frameChanged(), clip, null, MacOSScrollObserver(self, false), self._native);
+			center.addObserverForName(BTRCMacOSScrollNotifications.frameChanged(), self._layout.documentView(), null, MacOSScrollObserver(self, false), self._native);
 		} catch (string error) { self.close(); throw error; }
 	}
 

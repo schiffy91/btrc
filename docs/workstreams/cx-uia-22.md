@@ -801,3 +801,25 @@ view to survive application close. Independent source review cleared this
 bounded ownership change. Public window/root routing, staged application attach
 and fair executor servicing remain unfinished; this source step is not a
 public application qualification.
+
+
+### Scroll SDK identity projection boundary
+
+Actual frozen f5fd3954 reference projection passed NativeCaptureFailure and
+RunLoopAttachment with no diagnostics (5.89 s and 2.60 s). NativeScrollState
+first stopped because ControlEvents was absent from the private test export
+composition. The integrator reviewed an export-only private correction; the
+fresh attempt again passed those two fixtures, then stopped at the native
+reader's existing “Mutable Objective-C object globals require managed storage
+lowering” guard for the three AppKit notification identities. Neither attempt
+performed C compilation, linking or native execution. Both remain retained at
+`~/.cache/btrc/plan-consolidation-2026-10-07/ui2-macos-components-f5fd3954`
+and its `-exports` sibling.
+
+The bounded repair adds three typed Objective-C class accessors in Scroll.h/.m,
+returning the actual SDK notification constants. The existing generated adapter
+owns object-return storage. Capture behavior, queue pressure, source assertions,
+notification identity and callback lifetimes are unchanged; no compiler guard
+is relaxed and no string identity is guessed. The native binding amendment is
+a separate final fragment. This repair is source-only until fresh projection
+and real native evidence pass.
