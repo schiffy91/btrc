@@ -1,5 +1,6 @@
 #import "SelectProbe.h"
 #include <stdio.h>
+#import <objc/runtime.h>
 
 @implementation UI2SelectProbe {
     NSWindow *_window;
@@ -7,7 +8,7 @@
     NSTimer *_timer;
     NSHashTable *_receiver;
     NSInteger _opened, _highlights, _actions, _step, _terminal;
-    BOOL _inside, _timedOut;
+    BOOL _inside, _timedOut, _controlDiagnostic;
     NSTimeInterval _deadline;
 }
 + (instancetype)create {
@@ -32,10 +33,20 @@
 - (NSInteger)highlights { return _highlights; }
 - (NSInteger)actions { return _actions; }
 - (NSEvent *)key:(unichar)code {
+    /* SDK27 HIToolbox/Events.h: kVK_ANSI_B=0x0B, Return=0x24,
+     * Space=0x31, Escape=0x35. Characters alone are not a physical key. */
+    unsigned short keyCode;
+    switch (code) {
+        case 'b': keyCode = 11; break;
+        case '\r': keyCode = 36; break;
+        case ' ': keyCode = 49; break;
+        case 0x1b: keyCode = 53; break;
+        default: [NSException raise:NSInvalidArgumentException format:@"Unsupported Select probe key"]; return nil;
+    }
     NSString *text = [NSString stringWithCharacters:&code length:1];
     return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
         timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:_window.windowNumber context:nil
-        characters:text charactersIgnoringModifiers:text isARepeat:NO keyCode:0];
+        characters:text charactersIgnoringModifiers:text isARepeat:NO keyCode:keyCode];
 }
 - (void)began:(NSNotification *)notice {
     (void)notice; _opened++;
@@ -66,13 +77,55 @@
         _step = 2; _highlights++;
         fprintf(stderr, "select-native highlight inside=%d index=1\n", _inside);
         // This is an actual native tracking observation, not a semantic injection.
-        [[self trackingReceiver] highlighted];
+        if (!_controlDiagnostic) { [[self trackingReceiver] highlighted]; }
         if (_terminal != 2) { [NSApp postEvent:[self key:_terminal == 1 ? 0x1b : '\r'] atStart:NO]; }
+    }
+}
+- (void)standardAction:(id)sender { (void)sender; }
+- (void)standardKeyboardControl:(NSPopUpButton *)provider {
+    NSPopUpButton *control = [[NSPopUpButton alloc] initWithFrame:provider.frame pullsDown:NO];
+    if (!control) { [NSException raise:NSMallocException format:@"Cannot create matched native popup"]; }
+    _controlDiagnostic = YES;
+    @try {
+        control.autoenablesItems = NO;
+        NSMenu *menu = [[[NSMenu alloc] initWithTitle:provider.menu.title] autorelease];
+        if (!menu) { [NSException raise:NSMallocException format:@"Cannot create matched native menu"]; }
+        menu.autoenablesItems = NO;
+        for (NSMenuItem *item in provider.menu.itemArray) {
+            NSMenuItem *copy = [menu addItemWithTitle:item.title action:NULL keyEquivalent:@""];
+            copy.enabled = item.enabled;
+        }
+        control.menu = menu;
+        [control selectItemAtIndex:provider.indexOfSelectedItem];
+        control.enabled = provider.enabled;
+        control.font = provider.font;
+        control.controlSize = provider.controlSize;
+        control.target = self;
+        control.action = @selector(standardAction:);
+        [provider.superview addSubview:control];
+        fprintf(stderr, "select-keyboard matched-standard begin\n");
+        [self journey:control mode:2 terminal:0];
+        fprintf(stderr, "select-keyboard matched-standard result opened=%ld highlights=%ld actions=%ld selected=%ld timeout=%d\n",
+            (long)_opened, (long)_highlights, (long)_actions, (long)control.indexOfSelectedItem, _timedOut);
+    } @finally {
+        [control removeFromSuperview];
+        [control release];
+        _controlDiagnostic = NO;
     }
 }
 - (void)journey:(NSView *)view mode:(NSInteger)mode terminal:(NSInteger)terminal {
     if (_inside || ![view isKindOfClass:NSPopUpButton.class] || view.window != _window) {
         [NSException raise:NSInternalInconsistencyException format:@"Select probe requires its mounted native popup"];
+    }
+    if (mode == 2 && !_controlDiagnostic) { [self standardKeyboardControl:(NSPopUpButton *)view]; }
+    if (mode >= 2) {
+        BOOL focused = [_window makeFirstResponder:view];
+        fprintf(stderr, "select-keyboard class=%s focusAccepted=%d firstResponder=%d accepts=%d keyWindow=%d active=%d keyCode=%u\n",
+            class_getName(view.class), focused, _window.firstResponder == view, view.acceptsFirstResponder,
+            _window.keyWindow, NSApp.active, (unsigned int)[self key:mode == 3 ? 'b' : ' '].keyCode);
+        if (!focused || _window.firstResponder != view) {
+            [NSException raise:NSInternalInconsistencyException format:@"Select keyboard probe requires its actual first responder"];
+        }
     }
     _button = (NSPopUpButton *)view; _terminal = terminal;
     _opened = 0; _highlights = 0; _actions = 0; _step = 0; _timedOut = NO;
