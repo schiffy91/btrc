@@ -1504,8 +1504,11 @@ Packet: CX-HARMONIZE-MACOS-GUI-SCHEDULING. Integrator-assigned writer:
 performance_review, based on 00e4537925211ea2e217171fb32ccbbef10840c8.
 Owned paths: `src/tests/conftest.py`,
 `src/tests/python/test_macos_gui_coordination.py`, `src/tests/skip_ledger.py`,
-`.github/workflows/macos.yml`, and this claim. Prepared through an isolated index; existing checkout/index
-and other packet refs remain unchanged. Source-only until allocated tests.
+`.github/workflows/macos.yml`, `docs/workstreams/macos-gui-scheduling.md`, and this claim.
+Prepared through an isolated index; existing checkout/index and other packet refs
+remain unchanged. Focused qualification: genuine original-source affinity RED
+after eight successful child cases; candidate 84 PASS with zero skips/errors.
+Full hosted native-GUI qualification remains pending; see the owned report.
 The hosted native-GUI job opts into grouped scheduling while keeping three
 workers, the cross-session kernel lease, all bounds and the original roster.
 The canonical Make target remains configurable and unchanged; this packet
