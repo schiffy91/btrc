@@ -555,7 +555,7 @@ def test_a_new_tuple_shape_in_one_body_keeps_other_units_exact(compiler: str, de
         {
             "Lib.btrc": (
                 '(int, string) pair = (value, "lib");',
-                '(double, int) flag = (0.5, value); (int, string) pair = (value, "lib");',
+                '(double, int) flag = (0.5, value); (int, string) pair = (flag._1, "lib");',
             )
         },
         *(["--debug"] if debug else []),

@@ -54,3 +54,18 @@ with no skips. Each row retains the clean-build comparison and executes cold
 and incremental units separately. Broader staleness, boundary and final-tree
 qualification remain integrator-owned. A failure of the new counter or exact
 unit assertions must be investigated, not relaxed to pass.
+
+## First native qualification
+
+At test source `45dfa41f`, the entire module completed 52 cases: 48 passed
+and four failed. All four failures were the existing-shape fixture's newly
+added strict native compile: its inserted tuple variable was unused. Both
+compilers already passed the one-group counter, exact unaffected units and
+incremental-versus-clean comparison. All four genuinely new-shape cases passed,
+including strict native execution and conservative three-group invalidation.
+
+The fixture now obtains the same integer from `flag._1` when creating `pair`.
+This consumes the inserted tuple while preserving source line count, discovery
+order, expected output and every assertion. The original failed result is
+retained in `tuple-canonical-order/45dfa41f-reuse/`; the four affected rows need
+a separate replay. No compiler change or warning suppression was added.
