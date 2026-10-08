@@ -192,8 +192,8 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 
 | Platform | Demonstrated capability | Missing product capability / next demonstrable result |
 |---|---|---|
-| macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | Finish uninstrumented lifecycle qualification: the independent AppKit control cannot obtain focus while loginwindow is foreground. The main-based coordination repair passes the affected native gate (327 pass, 67 expected skips); final combined-tree qualification, the separate activation failure, UI2 and remaining controls/services/accessibility stay open. |
-| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | Current assembled X11 CI exposes three scrollbar input failures. A controlled real focus-loss trace reproduces drag cancellation, and all eight isolated variants pass; a reviewed shared-display lease is in hosted qualification. Qualify the assembled tree, then land UI2 and remaining features/accessibility. Wayland remains report-only until its required main acceptance. |
+| macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | The coordination repair is on main after the affected native gate passed (327 pass, 67 expected skips). Current-compiler window/run-loop, application components and a real text-editing fixture pass separately. Complete public application/control integration, remaining activation/lifecycle, services and accessibility qualification stay open. |
+| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | The shared-display repair is independently qualified on its original X11 gate: 324 passes, 199 expected platform skips and no failures/errors. Qualify the assembled tree, then land UI2 and remaining features/accessibility. Wayland remains report-only until its required main acceptance. |
 | Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows pass and PR53 landed on main `49f136ec` | Qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
@@ -215,7 +215,7 @@ This qualifies the affected native gate; it does not establish the historical
 GPU failure's cause or the full final-tree matrix. The repair and consolidated plan landed through
 [PR69](https://github.com/schiffy91/btrc/pull/69) at `cbd3ddcd` after all 36
 selected checks passed on head `01621436`. Three scope-skipped jobs are not
-counted as evidence. The post-merge main workflows are running.
+counted as evidence. The post-merge main Linux CI, Windows and Windows ARM64 workflows pass at exact `cbd3ddcd`. The macOS workflow still has unit and self-host tests running; its bootstrap, C11 and both corpus jobs pass. Final post-merge status remains open until that workflow terminates.
 
 The first Linux shared-display lease qualification, run `37743819333`, stops
 before tests on both X11 and Wayland: its diagnostic launcher bypasses Bash and
@@ -356,6 +356,33 @@ fixture capture warning is repaired by binding its already-checked publisher;
 none of the original assertions changed. Independent application, text-field
 and range/selection implementation claims now target those concrete gaps.
 This is the first public application baseline, not a complete application pass.
+
+Current implementations now close the source gaps but remain separately qualified.
+Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
+NativeContainerBarrier and NativeCaptureFailure through both frontends, plain
+and ASan/UBSan: 12 native rows, six zero-diagnostic projections, 28 strict
+C/Objective-C checks and 12 links. Independent review rehashes all input/log
+inventories and verifies all 180 command groups absent. Aggregate
+`a54c1f28b116c6a17bb3a9caef28379341e36e4c4d8afc52bd3b1d4457e57f0f`
+is retained in `ui2-macos-application-70df20a9-compiler-f75c737b`.
+Public ApplicationHost has not been rerun and is not qualified by those components.
+
+Text provider `b987ebdc` passes the original real AppKit field-editor fixture
+through both current compiler frontends, plain and ASan/UBSan: four native rows,
+two zero-diagnostic projections, 12 strict C/Objective-C checks and four links.
+The original native attempt exposed unsupported `__weak` storage in the MRC
+native source; the repair uses Foundation zeroing weak storage and balanced
+native ownership without changing compiler flags. Native draft/composition,
+model replacement, ordered commit/cancellation and eligibility assertions pass.
+All 92 commands reap successfully, source/tool checks are unchanged and command
+groups are absent. Aggregate
+`273bdd3bbd6579527c18f631de3ac9e4b61b80458750ec1ad056409fa203fb84`
+is retained in `ui2-macos-text-b987ebdc-native-compiler-f75c737b`.
+Physical IME, expanded Escape/route/entered-close and combined application
+acceptance remain open. Range and keyed selection source/fixtures are implemented;
+selection's corrected SDK projection passes, but actual native qualification is
+pending. Its real-input fixture explicitly covers printable selection and
+in-menu Escape gaps. No source-only milestone counts as native capability.
 
 The Linux counterpart `53e4bfaa` implements request admission, cancellable close
 transactions, save-revision/attempt authority and context modal guards in the
