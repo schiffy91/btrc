@@ -901,3 +901,17 @@ unproven and preserve the original failing predicate. Summary:
 The next separately prepared factor changes only CG wheel units from line to
 pixel and records fixed/point/accelerated payloads; it remains unexecuted while
 the compiler qualification owns the native lane.
+
+The separate line-versus-pixel native control then completed. Line events had
+fixed deltas -1/-1, point deltas -10/-10 and continuous=0; pixel events had
+fixed deltas approximately -0.1/-0.1, point deltas -1/-1 and continuous=1.
+Both reported native lineScroll=10/10 and raw/accelerated CG fields of zero.
+Neither moved the clip origin or emitted DidLive, either immediately or after
+its bounded one-second normal run-loop observation; both emitted Start/End.
+This rules out switching the constructor's unit argument alone as a repair.
+Exact diagnostic evidence is
+`ui2-macos-components-8e21f235/results/scrollNativePixel1/components/reference/
+control-plain.json`. The existing provider/assertions remain unchanged; a
+further public event dispatch/context control is needed before selecting a fix.
+The native lane was released immediately after this diagnostic for compiler
+qualification.
