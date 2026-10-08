@@ -548,7 +548,8 @@ jobs:
                       files = [x for x in module.language_test_files(source / 'src/tests') if x.startswith(('generics/', 'tuples/'))]
                       require(files and all(WORKLOADS[n].removeprefix('src/tests/') in files for n in WORKLOADS if n != 'CompileStdlibHeavy'), 'Missing actual generic workloads')
                       selections = {
-                          'corpus': (['src/tests/runner.py', '-k', 'generics or tuples'], len(files) * 2),
+                          'corpus': ([f'src/tests/runner.py::test_btrc_file[{frontend}-{path}]'
+                                      for frontend in ('python', 'btrc') for path in files], len(files) * 2),
                           'cache': ([f'src/tests/python/test_module_unit_staleness.py::{name}' for name in CACHE_TESTS], 22),
                       }
                       for label, (selection, count) in selections.items():
