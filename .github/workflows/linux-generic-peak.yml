@@ -1,0 +1,739 @@
+# PREPARED ONLY. Not installed or dispatched. Exact candidate must be published first.
+name: Generic allocation and peak diagnostic
+on:
+  push:
+    branches: [codex/diagnostic-generic-peak-3974]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: generic-peak-diagnostic
+  cancel-in-progress: false
+jobs:
+  paired-linux-x86-64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 3974d47bc87851b1ac19b8d2b4bd5022f2d94676
+          path: B
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 4d930d95e540810552cd1f8896462f54087c71f3
+          path: C
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: false
+      - name: Prepare original CI image and serial orchestration
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          mkdir host-evidence
+          (cd B && make devcontainer) > host-evidence/image.stdout 2> host-evidence/image.stderr
+          podman image inspect btrc-devcontainer:latest > host-evidence/image.json
+          podman image inspect btrc-devcontainer:latest --format '{{.Id}}' > host-evidence/image-id.txt
+          mkdir evidence
+          chmod a+w evidence
+          chmod -R a+w B C
+          mkdir harness
+          cat > harness/source-pins.json <<'GENERIC_SOURCE_PINS_JSON'
+          {
+            "baseline": {
+              "revision": "3974d47bc87851b1ac19b8d2b4bd5022f2d94676",
+              "git_tree_listing_sha256": "428c14ab84daf72eb031a95a2b262061f72035d79e3de680136c1248b93fb4b4"
+            },
+            "candidate": {
+              "revision": "4d930d95e540810552cd1f8896462f54087c71f3",
+              "git_tree_listing_sha256": "08fd11da101965df7f7e6b5c724e263dc9666aa91e5fc78d12d8c919ead51388"
+            }
+          }
+          GENERIC_SOURCE_PINS_JSON
+          cat > harness/instrument.py <<'GENERIC_INSTRUMENT_PY'
+          """Prepare guarded allocation observers in scratch generated C; no execution."""
+          
+          from __future__ import annotations
+          
+          import argparse
+          import difflib
+          import hashlib
+          import json
+          from pathlib import Path
+          import re
+          
+          HERE = Path(__file__).resolve().parent
+          BASE = Path("/workspace/B")
+          BASE_REV = "3974d47bc87851b1ac19b8d2b4bd5022f2d94676"
+          CANDIDATE_REV = "4d930d95e540810552cd1f8896462f54087c71f3"
+          BASE_C = "f2b0be1037218607e6dc10bba804dc54ce36355a5a23007fe151581c094f679b"
+          MAP = "btrc_ZQgb6_4d6170k2t28_b12_737472696e67p0n0o0a0q0k0t23_b8_4e6f6465p1n0o0a0q0k0"
+          PATHS = {'src/compiler/btrc/ir/lowering/Generics.btrc': 'a903d3f9771aa755c6213b85094b9fe5653fdcd976a40baf65255196f14a91d6', 'src/compiler/btrc/ir/lowering/Declarations.btrc': 'e51d1c1a9afd517525d374722009c78b03b279d1f77772bc6bd5574dc7c47f71'}
+          
+          
+          def require(condition: bool, message: str) -> None:
+              if not condition:
+                  raise RuntimeError(message)
+          
+          
+          def sha(data: bytes) -> str:
+              return hashlib.sha256(data).hexdigest()
+          
+          
+          def inventory(root: Path) -> dict:
+              result = {}
+              for directory in ("src", "tools"):
+                  for path in sorted((root / directory).rglob("*")):
+                      require(not path.is_symlink(), f"Unexpected input symlink {path}")
+                      if path.is_file():
+                          result[str(path.relative_to(root))] = {
+                              "sha256": sha(path.read_bytes()), "mode": path.stat().st_mode & 0o777
+                          }
+              return result
+          
+          
+          def function(source: str, name: str) -> tuple[int, int, str]:
+              matches = list(re.finditer(r"^[A-Za-z_][^\n;]*\b" + re.escape(name) + r"\([^\n]*\) \{\n", source, re.M))
+              require(len(matches) == 1, f"Definition count changed: {name}")
+              start = matches[0].start()
+              end = source.index("\n}", matches[0].end()) + 2
+              return start, end, source[start:end]
+          
+          
+          def main() -> None:
+              parser = argparse.ArgumentParser()
+              parser.add_argument("--role", choices=("baseline", "candidate"), required=True)
+              parser.add_argument("--source", type=Path, required=True)
+              parser.add_argument("--generated", type=Path, required=True)
+              parser.add_argument("--receipt", type=Path, required=True)
+              parser.add_argument("--output", type=Path, required=True)
+              args = parser.parse_args()
+              receipt = json.loads(args.receipt.read_text())
+              source_files = inventory(args.source)
+              expected = inventory(BASE)
+              if args.role == "candidate":
+                  for path in PATHS:
+                      expected[path] = {**expected[path], "sha256": PATHS[path]}
+              require(source_files == expected, "Source has changes beyond the reviewed two-file patch")
+              digest = sha(json.dumps(source_files, sort_keys=True, separators=(",", ":")).encode())
+              revision = BASE_REV if args.role == "baseline" else CANDIDATE_REV
+              original = args.generated.read_text()
+              require(receipt["state"] == "passed" and receipt["source_revision"] == revision, "Wrong build/source")
+              require(receipt["source_inventory_sha256"] == digest, "Wrong build input inventory")
+              require(receipt["generated_c_sha256"] == sha(original.encode()), "Generated C differs from build receipt")
+              if args.role == "baseline":
+                  require(sha(original.encode()) == BASE_C, "Not retained qualified baseline C")
+              source = original
+              probe = (HERE / "probe.c").read_text()
+              anchor = "#include <stddef.h>\n"
+              require(source.count(anchor) == 1, "Include anchor changed")
+              source = source.replace(anchor, anchor + probe + "\n", 1)
+              # Bind the observed specialization to the actual substitution constructor.
+              method_owner = "GenericLowerer_methodPlans" if args.role == "baseline" else "GenericLowerer_methodSubstitutions"
+              _, _, method = function(source, method_owner)
+              anchor = f"{MAP}* volatile substitutions = {MAP}_new();"
+              require(method.count(anchor) == 1, "Substitution specialization or constructor changed")
+              for name, call in ((MAP + "_new", "gpMap();"), ("Node_new", "gpNode();")):
+                  start, end, body = function(source, name)
+                  first_line = body.index("\n") + 1
+                  body = body[:first_line] + "    " + call + "\n" + body[first_line:]
+                  source = source[:start] + body + source[end:]
+              start, end, body = function(source, MAP + "_new")
+              require(body.count("    return self;") == 1, "Map constructor handoff changed")
+              body = body.replace("    return self;", "    gpMapLive();\n    return self;", 1)
+              source = source[:start] + body + source[end:]
+              start, end, body = function(source, MAP + "_destroy")
+              require(body.count("    (void)(free(self));") == 1, "Map destruction/free boundary changed")
+              body = body.replace("    (void)(free(self));", "    gpMapFree();\n    (void)(free(self));", 1)
+              source = source[:start] + body + source[end:]
+              for name, kind in (("GenericLowerer_classPlans", 1), ("GenericLowerer_methodPlans", 2)):
+                  start, end, body = function(source, name)
+                  returns = list(re.finditer(r"^    return (__btrc_ret_\d+);$", body, re.M))
+                  require(len(returns) == 1 and len(re.findall(r"\breturn\b", body)) == 1, "Plan return shape changed")
+                  match = returns[0]
+                  body = body[:match.start()] + f"    gpEnd({kind}, {match.group(1)}->len);\n" + body[match.start():]
+                  first_line = body.index("\n") + 1
+                  body = body[:first_line] + f"    gpBegin({kind});\n" + body[first_line:]
+                  source = source[:start] + body + source[end:]
+              start, end, body = function(source, "DeclarationLowerer_emitTupleStructs")
+              require(re.search(r"\breturn\b", body) is None, "Tuple scan gained an early exit")
+              first_line = body.index("\n") + 1
+              body = body[:first_line] + "    gpTupleBegin();\n" + body[first_line:-2] + "\n    gpTupleEnd();\n}"
+              source = source[:start] + body + source[end:]
+              start, end, body = function(source, "IRLowerer_lower")
+              anchor = '    (void)(BtrccPhaseTimer_mark("l-finalize"));'
+              require(body.count(anchor) == 1, "Lowering summary anchor changed")
+              body = body.replace(anchor, anchor + "\n    gpSummary();", 1)
+              source = source[:start] + body + source[end:]
+              args.output.mkdir(parents=True, exist_ok=False)
+              (args.output / "instrumented.c").write_text(source)
+              (args.output / "instrumentation.diff").write_text("".join(difflib.unified_diff(
+                  original.splitlines(True), source.splitlines(True), fromfile="original.c", tofile="instrumented.c")))
+              result = {"state": "prepared-not-executed", "role": args.role, "source_revision": revision,
+                        "source_root": str(args.source.resolve()),
+                        "source_inventory_sha256": digest, "original_c_sha256": sha(original.encode()),
+                        "instrumented_c_sha256": sha(source.encode()), "probe_sha256": sha(probe.encode()),
+                        "script_sha256": sha(Path(__file__).read_bytes()), "receipt_sha256": sha(args.receipt.read_bytes()),
+                        "constructors": [MAP + "_new", "Node_new"], "plan_functions": 2, "tuple_scan_functions": 1}
+              (args.output / "manifest.json").write_text(json.dumps(result, indent=2) + "\n")
+          
+          
+          if __name__ == "__main__":
+              main()
+          GENERIC_INSTRUMENT_PY
+          cat > harness/probe.c <<'GENERIC_PROBE_C'
+          /* Scratch attribution only; no allocator, owner or compiler-result changes. */
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <unistd.h>
+          
+          static unsigned long gpMaps;
+          static unsigned long gpLiveMaps;
+          static unsigned long gpFreedMaps;
+          static unsigned long gpPeakMaps;
+          static unsigned long gpNodes;
+          static unsigned long gpTupleMaps;
+          static unsigned long gpPlans[3];
+          static unsigned long gpCalls[3];
+          static unsigned long gpMapsBefore;
+          static unsigned long gpNodesBefore;
+          static int gpActive;
+          static int gpTuple;
+          static unsigned int gpTupleCalls;
+          
+          static void gpInvalid(const char* reason) {
+              fprintf(stderr, "GP_INVALID %s\n", reason);
+              fflush(stderr);
+              exit(86);
+          }
+          
+          static void gpMap(void) {
+              gpMaps++;
+              if (gpTuple) { gpTupleMaps++; }
+          }
+          
+          static void gpMapLive(void) {
+              gpLiveMaps++;
+              if (gpLiveMaps > gpPeakMaps) { gpPeakMaps = gpLiveMaps; }
+          }
+          
+          static void gpMapFree(void) {
+              if (!gpLiveMaps) { gpInvalid("map destruction without allocation"); }
+              gpLiveMaps--;
+              gpFreedMaps++;
+          }
+          
+          static void gpNode(void) { gpNodes++; }
+          
+          static void gpBegin(int kind) {
+              if (gpActive || kind < 1 || kind > 2) { gpInvalid("ambiguous plan context"); }
+              gpActive = kind;
+              gpMapsBefore = gpMaps;
+              gpNodesBefore = gpNodes;
+          }
+          
+          static void gpEnd(int kind, int count) {
+              if (gpActive != kind || count < 0) { gpInvalid("invalid plan exit"); }
+              gpPlans[kind] += (unsigned long)count;
+              gpCalls[kind]++;
+              fprintf(stderr, "GP_PLAN %ld %d %d %d %lu %lu\n", (long)getpid(),
+                      kind, gpTuple, count, gpMaps - gpMapsBefore, gpNodes - gpNodesBefore);
+              gpActive = 0;
+          }
+          
+          static void gpTupleBegin(void) {
+              if (gpTuple || gpActive) { gpInvalid("nested tuple scan"); }
+              gpTuple = 1;
+              gpTupleCalls++;
+          }
+          
+          static void gpTupleEnd(void) {
+              if (!gpTuple || gpActive) { gpInvalid("unbalanced tuple scan"); }
+              gpTuple = 0;
+          }
+          
+          static void gpSummary(void) {
+              if (gpTuple || gpActive || gpCalls[1] == 0 || gpCalls[2] == 0 || gpTupleCalls != 1) {
+                  gpInvalid("unexercised or unbalanced whole-program lowering");
+              }
+              fprintf(stderr, "GP_SUMMARY %ld %lu %lu %lu %lu %lu\n", (long)getpid(),
+                      gpMaps, gpNodes, gpTupleMaps, gpPlans[1], gpPlans[2]);
+              if (gpMaps != gpLiveMaps + gpFreedMaps) { gpInvalid("map lifetime accounting mismatch"); }
+              fprintf(stderr, "GP_LIFETIME %ld %lu %lu %lu\n", (long)getpid(), gpLiveMaps, gpFreedMaps, gpPeakMaps);
+              fflush(stderr);
+          }
+          GENERIC_PROBE_C
+          cat > harness/validate_pair.py <<'GENERIC_VALIDATE_PAIR_PY'
+          """Read completed attribution receipts; no compiler/test execution."""
+          
+          from __future__ import annotations
+          
+          import argparse
+          import hashlib
+          import json
+          from pathlib import Path
+          import re
+          
+          REVISIONS = {"baseline": "3974d47bc87851b1ac19b8d2b4bd5022f2d94676",
+                       "candidate": "4d930d95e540810552cd1f8896462f54087c71f3"}
+          BASE_SOURCE = Path("/workspace/B")
+          WORKLOADS = {"CompileStdlibHeavy": "src/tests/benchmarks/CompileStdlibHeavy.btrc",
+                       **{name: f"src/tests/generics/{name}.btrc" for name in (
+                           "GenericMethodCallInGenericClass", "MethodGenericNongenericClass", "GenericOfTuple")}}
+          
+          
+          def require(condition: bool, message: str) -> None:
+              if not condition:
+                  raise RuntimeError(message)
+          
+          
+          def sha(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+          
+          
+          def counts(stderr: str) -> dict:
+              require("GP_INVALID" not in stderr, "Unexercised/invalid observer")
+              require(re.search(r"AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:", stderr) is None,
+                      "Sanitizer failure is not allocation proof")
+              lines = [line.split() for line in stderr.splitlines() if line.startswith("GP_")]
+              require(lines and lines[-1][0] == "GP_LIFETIME" and len(lines[-1]) == 5, "Missing lifetime observation")
+              lifetime_pid, live, freed, peak = map(int, lines.pop()[1:])
+              require(lines and lines[-1][0] == "GP_SUMMARY", "Missing successful whole-program summary")
+              summary = lines[-1]
+              require(len(summary) == 7, "Malformed summary")
+              pid, maps, nodes, tuple_maps, class_plans, method_plans = map(int, summary[1:])
+              require(pid > 0 and min(maps, nodes, tuple_maps, class_plans, method_plans) >= 0, "Invalid counters")
+              require(lifetime_pid == pid and min(live, freed, peak) >= 0 and maps == live + freed and live <= peak <= maps, "Invalid lifetime accounting")
+              plans = []
+              for row in lines[:-1]:
+                  require(len(row) == 7 and row[0] == "GP_PLAN", "Unexpected event")
+                  event_pid, kind, in_tuple, size, allocated_maps, allocated_nodes = map(int, row[1:])
+                  require(event_pid == pid and kind in (1, 2) and in_tuple in (0, 1)
+                          and min(size, allocated_maps, allocated_nodes) >= 0, "Invalid plan event")
+                  plans.append({"kind": kind, "tuple": in_tuple, "size": size,
+                                "maps": allocated_maps, "nodes": allocated_nodes})
+              require({row["kind"] for row in plans} == {1, 2}, "Missing a plan builder")
+              require(sum(row["size"] for row in plans if row["kind"] == 1) == class_plans
+                      and sum(row["size"] for row in plans if row["kind"] == 2) == method_plans, "Plan count mismatch")
+              return {"pid": pid, "maps": maps, "nodes": nodes, "tuple_maps": tuple_maps, "plans": plans, "live_maps": live, "freed_maps": freed, "peak_live_maps": peak}
+          
+          
+          def read_run(row: dict, role: str) -> tuple[dict, dict]:
+              process_path = Path(row["process_receipt"])
+              require(sha(process_path) == row["process_receipt_sha256"], "Process receipt changed")
+              process = json.loads(process_path.read_text())
+              require(process["completed"] is True and process["returncode"] == 0, "Compiler did not succeed")
+              require(process["source_revision"] == REVISIONS[role], "Wrong source revision")
+              manifest_path = Path(row["instrumentation_manifest"])
+              build_path = Path(row["instrumented_build_receipt"])
+              require(sha(manifest_path) == row["instrumentation_manifest_sha256"]
+                      and sha(build_path) == row["instrumented_build_receipt_sha256"], "Build evidence changed")
+              manifest = json.loads(manifest_path.read_text())
+              build = json.loads(build_path.read_text())
+              require(manifest["role"] == role and manifest["source_revision"] == REVISIONS[role], "Wrong instrumentation")
+              require(process["environment"]["BTRC_HOME"] == str(Path(manifest["source_root"]) / "src"),
+                      "Wrong compiler source/stdlib environment")
+              require(build["state"] == "passed" and build["input_c_sha256"] == manifest["instrumented_c_sha256"],
+                      "Instrumented binary not linked to observed C")
+              require(sha(Path(process["command"][0])) == process["binary_sha256"] == build["binary_sha256"],
+                      "Observed binary changed")
+              require("--module-units" not in process["command"], "Expected whole-program compile")
+              require(process["command"] == [process["command"][0], process["source"], "-o", process["output_c"]],
+                      "Unexpected workload invocation")
+              for name in ("stdout", "stderr", "output_c", "source"):
+                  require(sha(Path(process[name])) == process[name + "_sha256"], f"Retained {name} changed")
+              require(Path(process["output_c"]).stat().st_size > 0, "No emitted C")
+              require(sha(manifest_path.parent / "instrumented.c") == manifest["instrumented_c_sha256"],
+                      "Retained observed C changed")
+              result = counts(Path(process["stderr"]).read_text())
+              require(result["pid"] == process["pid"], "Observer events not from recorded compiler process")
+              return process, result
+          
+          
+          def main() -> None:
+              parser = argparse.ArgumentParser()
+              parser.add_argument("bundle", type=Path)
+              parser.add_argument("--output", type=Path, required=True)
+              args = parser.parse_args()
+              bundle = json.loads(args.bundle.read_text())
+              require(bundle["pairs"], "No attribution workloads")
+              results = []
+              exercised = set()
+              names = []
+              for pair in bundle["pairs"]:
+                  names.append(pair["name"])
+                  require(pair["name"] in WORKLOADS, "Unexpected workload")
+                  baseline_process, baseline = read_run(pair["baseline"], "baseline")
+                  candidate_process, candidate = read_run(pair["candidate"], "candidate")
+                  require(baseline_process["source_sha256"] == sha(BASE_SOURCE / WORKLOADS[pair["name"]]),
+                          "Not the original named workload")
+                  require(baseline_process["source_sha256"] == candidate_process["source_sha256"]
+                          and baseline_process["output_c_sha256"] == candidate_process["output_c_sha256"],
+                          "Workload or emitted C differs")
+                  before = baseline["plans"]
+                  after = candidate["plans"]
+                  require([(p["kind"], p["tuple"], p["size"]) for p in before] ==
+                          [(p["kind"], p["tuple"], p["size"]) for p in after], "Generic work or order changed")
+                  require(all(p["maps"] == p["size"] for p in before), "Baseline attribution is not one map per plan")
+                  require(all(p["maps"] == 0 for p in after), "Candidate still allocates maps in plan builders")
+                  require(baseline["tuple_maps"] == candidate["tuple_maps"], "Tuple-demand allocations changed")
+                  saved = sum(p["maps"] for p in before if not p["tuple"])
+                  require(baseline["maps"] - candidate["maps"] == saved, "Total map delta has unexplained allocations")
+                  exercised.update(p["kind"] for p in before if p["size"] > 0)
+                  results.append({"name": pair["name"], "removed_unused_map_allocations": saved,
+                                  "baseline": baseline, "candidate": candidate})
+              require("CompileStdlibHeavy" in names and len(names) == len(set(names)), "Missing benchmark or duplicate workload")
+              require(exercised == {1, 2}, "Class and method plans were not both exercised")
+              require(any(row["removed_unused_map_allocations"] > 0 for row in results), "No allocation reduction observed")
+              args.output.write_text(json.dumps({"state": "allocation-removal-observed", "pairs": results,
+                                                "bundle_sha256": sha(args.bundle),
+                                                "scope": "exact emitted C and allocation attribution; not performance acceptance"}, indent=2) + "\n")
+          
+          
+          if __name__ == "__main__":
+              main()
+          GENERIC_VALIDATE_PAIR_PY
+          cat > harness/qualify.py <<'GENERIC_QUALIFY_PY'
+          """One bounded, source-pinned generic-allocation diagnostic; not a release gate."""
+          from __future__ import annotations
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import signal
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          
+          from instrument import BASE_C, PATHS, inventory, sha
+          
+          HERE = Path(__file__).resolve().parent
+          ROOT = Path('/workspace')
+          OUT = ROOT / 'evidence/qualification'
+          ROLES = {'B': 'baseline', 'C': 'candidate'}
+          PINS = json.loads((HERE / 'source-pins.json').read_text())
+          WORKLOADS = {
+              'CompileStdlibHeavy': 'src/tests/benchmarks/CompileStdlibHeavy.btrc',
+              **{name: f'src/tests/generics/{name}.btrc' for name in
+                 ('GenericMethodCallInGenericClass', 'MethodGenericNongenericClass', 'GenericOfTuple')},
+          }
+          CACHE_TESTS = [
+              'test_swapping_instance_uses_keeps_the_template_unit_exact',
+              'test_changed_instance_set_invalidates_template_units',
+              'test_canonical_instance_order_preserves_by_value_dependencies',
+              'test_a_new_tuple_shape_in_one_body_keeps_other_units_exact',
+              'test_a_genuinely_new_tuple_shape_preserves_conservative_invalidation',
+          ]
+          ENV = {**os.environ, 'PYTHONDONTWRITEBYTECODE': '1', 'BTRC_TEST_RUNNER': 'linux-devcontainer'}
+          
+          
+          def require(ok, message):
+              if not ok:
+                  raise RuntimeError(message)
+          
+          
+          def digest(path):
+              return sha(Path(path).read_bytes())
+          
+          
+          def save(path, data):
+              path.write_text(json.dumps(data, sort_keys=True, indent=2) + '\n')
+          
+          
+          def run(name, command, *, cwd=ROOT, env=None, timeout=300):
+              directory = OUT / name
+              directory.mkdir(parents=True, exist_ok=False)
+              receipt = {'command': [str(x) for x in command], 'cwd': str(cwd),
+                         'environment': ENV if env is None else env, 'completed': False}
+              with (directory / 'stdout').open('wb') as stdout, (directory / 'stderr').open('wb') as stderr:
+                  child = subprocess.Popen(receipt['command'], cwd=cwd, env=receipt['environment'],
+                                           stdout=stdout, stderr=stderr, start_new_session=True)
+                  receipt['pid'] = child.pid
+                  try:
+                      receipt['returncode'] = child.wait(timeout=timeout)
+                      receipt['completed'] = True
+                  except BaseException:
+                      try:
+                          os.killpg(child.pid, signal.SIGTERM)
+                      except ProcessLookupError:
+                          pass
+                      try:
+                          child.wait(timeout=10)
+                      except subprocess.TimeoutExpired:
+                          pass
+                      finally:
+                          try:
+                              os.killpg(child.pid, signal.SIGKILL)
+                          except ProcessLookupError:
+                              pass
+                          child.wait(timeout=10)
+                      receipt['returncode'] = child.returncode
+                      raise
+                  finally:
+                      stdout.flush(); stderr.flush()
+                      for key in ('stdout', 'stderr'):
+                          receipt[key] = str(directory / key)
+                          receipt[key + '_sha256'] = digest(directory / key)
+                      save(directory / 'process.json', receipt)
+              require(receipt['returncode'] == 0, f'{name} failed; retained {directory}')
+              return receipt, directory / 'process.json'
+          
+          
+          def junit(path, collected):
+              root = ET.parse(path).getroot()
+              cases = root.findall('.//testcase')
+              names = [x.attrib['name'] for x in cases]
+              expected = [x.split('::', 1)[1] for x in collected]
+              require(len(names) == len(set(names)) and set(names) == set(expected), 'JUnit differs from exact collection')
+              require(not root.findall('.//failure') and not root.findall('.//error') and not root.findall('.//skipped'),
+                      f'Non-passing/skipped qualification: {path}')
+              require(not any('xfail' in str(x.attrib).lower() or 'xpass' in str(x.attrib).lower() for x in cases),
+                      'Unexpected xfail/xpass')
+              return len(cases)
+          
+          
+          def main():
+              OUT.mkdir(exist_ok=False)
+              receipt = {'state': 'started', 'scope': 'bounded correctness/allocation proof; not full acceptance'}
+              inventories = {letter: inventory(ROOT / letter) for letter in ROLES}
+              builds = {}
+              try:
+                  expected = dict(inventories['B'])
+                  for path, expected_hash in PATHS.items():
+                      expected[path] = {**expected[path], 'sha256': expected_hash}
+                  require(inventories['C'] == expected, 'Unexpected source delta')
+                  tools, _ = run('tools', ['cc', '--version'], timeout=30)
+                  cc = shutil.which('cc')
+                  require(cc is not None, 'No original native compiler')
+                  tool_identity = {'cc': cc, 'cc_sha256': digest(cc), 'version_stdout_sha256': tools['stdout_sha256'],
+                                   'python': sys.executable, 'python_sha256': digest(sys.executable)}
+                  for letter, role in ROLES.items():
+                      source = ROOT / letter
+                      listing, _ = run(letter + '-git-tree', ['git', 'ls-tree', '-r', PINS[role]['revision'], 'src', 'tools'], cwd=source, timeout=30)
+                      require(listing['stdout_sha256'] == PINS[role]['git_tree_listing_sha256'], 'Wrong exact source tree')
+                      tracked = {}
+                      for line in Path(listing['stdout']).read_text().splitlines():
+                          metadata, path = line.split('\t', 1)
+                          mode, kind, blob = metadata.split()
+                          require(kind == 'blob' and mode in ('100644', '100755'), 'Unexpected source object')
+                          tracked[path] = (mode, blob)
+                      require(set(tracked) == set(inventories[letter]), 'Untracked/generated source input appeared')
+                      for path, (mode, blob) in tracked.items():
+                          data = (source / path).read_bytes()
+                          require(hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() == blob,
+                                  'Source differs from exact Git blob: ' + path)
+                          require(bool(inventories[letter][path]['mode'] & 0o111) == (mode == '100755'),
+                                  'Source executable mode changed: ' + path)
+                      build_status = (ROOT / f'evidence/{letter}-build.status').read_text().strip()
+                      require(build_status == '0', 'Original Make build did not pass')
+                      generated = source / 'dist/btrcc.c'
+                      if letter == 'B':
+                          require(digest(generated) == BASE_C, 'Baseline differs from qualified original Linux3974 emission')
+                      build = {'state': 'passed', 'source_revision': PINS[role]['revision'],
+                               'generated_c_sha256': digest(generated), 'binary_sha256': digest(source / 'bin/btrcc'),
+                               'source_inventory_sha256': sha(json.dumps(inventories[letter], sort_keys=True, separators=(',', ':')).encode()),
+                               'tools': tool_identity, 'original_make_stdout_sha256': digest(ROOT / f'evidence/{letter}-build.stdout'),
+                               'original_make_stderr_sha256': digest(ROOT / f'evidence/{letter}-build.stderr')}
+                      builds[letter] = build
+                      build_path = OUT / f'{letter}-build.json'; save(build_path, build)
+                      test_env = {**ENV, 'BTRC_TEST_BTRCC': str(source / 'bin/btrcc'), 'BTRC_HOME': str(source / 'src')}
+                      # Existing native corpus uses unchanged goldens; both frontend outputs execute.
+                      spec = importlib.util.spec_from_file_location('original_corpus', source / 'src/tests/corpus_files.py')
+                      module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+                      files = [x for x in module.language_test_files(source / 'src/tests') if x.startswith(('generics/', 'tuples/'))]
+                      require(files and all(WORKLOADS[n].removeprefix('src/tests/') in files for n in WORKLOADS if n != 'CompileStdlibHeavy'), 'Missing actual generic workloads')
+                      selections = {
+                          'corpus': (['src/tests/runner.py', '-k', 'generics or tuples'], len(files) * 2),
+                          'cache': ([f'src/tests/python/test_module_unit_staleness.py::{name}' for name in CACHE_TESTS], 22),
+                      }
+                      for label, (selection, count) in selections.items():
+                          args = [sys.executable, '-m', 'pytest', '-n', '0', '-q', '--compilers=python,btrc', *selection]
+                          collected, _ = run(f'{letter}-{label}-collect', [*args, '--collect-only'], cwd=source, env=test_env, timeout=90)
+                          nodes = [line for line in Path(collected['stdout']).read_text().splitlines() if line.startswith('src/tests/') and '::' in line]
+                          require(len(nodes) == count and len(set(nodes)) == count, f'{label} collection differs from pinned workload inventory')
+                          if label == 'corpus':
+                              require(all(sum(node.endswith('-' + f + ']') for node in nodes) == 2 for f in files), 'Corpus file omitted/duplicated')
+                          xml = OUT / f'{letter}-{label}.xml'
+                          scratch = OUT / f'{letter}-{label}-pytest'
+                          run(f'{letter}-{label}', [*args, '--basetemp', str(scratch), '--junitxml', str(xml)],
+                              cwd=source, env=test_env, timeout=900)
+                          receipt[f'{letter}-{label}-passed'] = junit(xml, nodes)
+                      observer = OUT / f'{letter}-observer'
+                      run(f'{letter}-instrument', [sys.executable, HERE / 'instrument.py', '--role', role, '--source', source,
+                                                  '--generated', generated, '--receipt', build_path, '--output', observer], timeout=90)
+                      binary = observer / 'btrcc'
+                      # Exact Makefile native flags; observer C only, never used for peak checks.
+                      command = [cc, '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-O2',
+                                 str(observer / 'instrumented.c'), '-o', str(binary), '-lm', '-lpthread']
+                      compiled, compile_path = run(f'{letter}-observer-build', command, timeout=2400)
+                      save(observer / 'build.json', {'state': 'passed', 'input_c_sha256': digest(observer / 'instrumented.c'),
+                                                    'binary_sha256': digest(binary), 'command': command, 'tools': tool_identity,
+                                                    'process_receipt': str(compile_path), 'process_receipt_sha256': digest(compile_path)})
+                  pairs = []
+                  for name, relative in WORKLOADS.items():
+                      pair = {'name': name}
+                      outputs = []
+                      for letter, role in ROLES.items():
+                          source = ROOT / letter
+                          observer = OUT / f'{letter}-observer'
+                          for instrumented in (False, True):
+                              label = f'{letter}-{name}-' + ('observed' if instrumented else 'original')
+                              output = OUT / f'{label}.c'
+                              binary = observer / 'btrcc' if instrumented else source / 'bin/btrcc'
+                              env = {**ENV, 'BTRC_HOME': str(source / 'src'), 'BTRC_CACHE_DIR': str(OUT / f'{label}-cache')}
+                              process, process_path = run(label, [binary, source / relative, '-o', output], cwd=source, env=env, timeout=120)
+                              process.update(source_revision=PINS[role]['revision'], binary_sha256=digest(binary),
+                                             source=str(source / relative), source_sha256=digest(source / relative),
+                                             output_c=str(output), output_c_sha256=digest(output))
+                              save(process_path, process)
+                              outputs.append(process['output_c_sha256'])
+                              require(Path(process['stdout']).stat().st_size == 0, 'Unexpected compiler stdout')
+                              if instrumented:
+                                  require(all(line.startswith('GP_') for line in Path(process['stderr']).read_text().splitlines()),
+                                          'Compiler diagnostic mixed with observer output')
+                              else:
+                                  require(Path(process['stderr']).stat().st_size == 0, 'Uninstrumented compiler diagnostic')
+                              if instrumented:
+                                  pair[role] = {key: str(path) for key, path in {
+                                      'process_receipt': process_path, 'instrumentation_manifest': observer / 'manifest.json',
+                                      'instrumented_build_receipt': observer / 'build.json'}.items()}
+                                  pair[role].update({key + '_sha256': digest(path) for key, path in list(pair[role].items())})
+                      require(len(set(outputs)) == 1, f'Observed/unobserved B/C emission differs for {name}')
+                      pairs.append(pair)
+                  bundle = OUT / 'bundle.json'; save(bundle, {'pairs': pairs})
+                  run('validate-allocation', [sys.executable, HERE / 'validate_pair.py', bundle, '--output', OUT / 'allocation-result.json'], timeout=60)
+                  for letter in ROLES:
+                      require(inventory(ROOT / letter) == inventories[letter], 'Post-qualification src/tools inventory changed')
+                      require(digest(ROOT / letter / 'bin/btrcc') == builds[letter]['binary_sha256'], 'Original compiler changed')
+                  receipt.update(state='passed', tools=tool_identity, allocation_result_sha256=digest(OUT / 'allocation-result.json'),
+                                 note='Map allocation/removal and lifetime counts observed. Node counts observational; no peak or speed claim here.')
+              except BaseException as exc:
+                  receipt.update(state='failed', error=repr(exc))
+                  raise
+              finally:
+                  save(OUT / 'result.json', receipt)
+          
+          if __name__ == '__main__':
+              main()
+          GENERIC_QUALIFY_PY
+          cat > inside.sh <<'GENERIC_INSIDE_SH'
+          #!/bin/bash
+          # Prepared only. Run inside the exact baseline-generated CI image on Linux x86_64.
+          set -euo pipefail
+          cd /workspace
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test -d evidence
+          test -z "$(find evidence -mindepth 1 -print -quit)"
+          # Rootless Podman maps the host checkout owner differently from container UID 1000.
+          # Scope trust to these two immutable checkouts for this process and its children.
+          export GIT_CONFIG_COUNT=2
+          export GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/workspace/B
+          export GIT_CONFIG_KEY_1=safe.directory GIT_CONFIG_VALUE_1=/workspace/C
+          # Keep the original image's native SDK/compiler environment. Only remove
+          # explicit measurement/cache overrides; podman receives no host --env flags.
+          unset BTRC_TIMING BTRC_HOME BTRC_CACHE_DIR BTRC_TEST_BTRCC BTRC_CFLAGS
+          unset ASAN_OPTIONS UBSAN_OPTIONS LSAN_OPTIONS
+          export PYTHONDONTWRITEBYTECODE=1
+          unset MAKEFLAGS PYTEST_ADDOPTS
+          base=3974d47bc87851b1ac19b8d2b4bd5022f2d94676
+          candidate=4d930d95e540810552cd1f8896462f54087c71f3
+          test "$(git -C B rev-parse HEAD)" = "$base"
+          test "$(git -C C rev-parse HEAD)" = "$candidate"
+          for role in B C; do
+            test -z "$(git -C "$role" status --porcelain --untracked-files=all)"
+            (cd "$role" && git ls-files -z | sort -z | xargs -0 sha256sum) > "evidence/$role-inputs.sha256"
+            git -C "$role" ls-files --stage > "evidence/$role-index.txt"
+          done
+          for path in flake.nix flake.lock Makefile tools/bench tools/host_c_compiler.py src/tests/benchmarks src/tests/fixtures/benchmarks; do
+            diff -qr "B/$path" "C/$path"
+          done
+          command -v cc > evidence/cc-path.txt
+          cc --version > evidence/cc-version.txt
+          sha256sum "$(command -v cc)" > evidence/cc-sha256.txt
+          python3 --version > evidence/python-version.txt
+          uname -a > evidence/host.txt
+          for role in B C; do
+            set +e
+            (cd "$role" && timeout --kill-after=10s 2400s make -j1 NIX= btrcc) > "evidence/$role-build.stdout" 2> "evidence/$role-build.stderr"
+            status=$?
+            set -e
+            printf '%s\n' "$status" > "evidence/$role-build.status"
+            test "$status" -eq 0
+            sha256sum "$role/bin/btrcc" "$role/dist/btrcc.c" > "evidence/$role-build.sha256"
+          done
+          # Correctness and observer binaries finish before uninstrumented peak sampling.
+          timeout --kill-after=10s 5400s python3 /workspace/harness/qualify.py \
+            > evidence/qualification.stdout 2> evidence/qualification.stderr
+          failed=0
+          for item in 1-B 1-C 2-C 2-B 3-B 3-C; do
+            role=${item#*-}
+            set +e
+            (cd "$role" && timeout --kill-after=10s 300s python3 -m tools.bench check \
+              --btrcc "/workspace/$role/bin/btrcc" --cc cc \
+              --programs CompileStdlibHeavy,RunDispatch --peak-only --no-reference \
+              --repeat 3 --strict --timings report \
+              --json "/workspace/evidence/$item.json" --out-dir "/workspace/evidence/$item-scratch") \
+              > "evidence/$item.stdout" 2> "evidence/$item.stderr"
+            status=$?
+            set -e
+            printf '%s\n' "$status" > "evidence/$item.status"
+            test "$status" -le 1
+            python3 - "$item" "$role" <<'PY'
+          import json,math,sys
+          from pathlib import Path
+          name,role=sys.argv[1:]
+          d=json.loads((Path('evidence')/(name+'.json')).read_text())
+          assert d['meta']['platform']=='linux-x86_64',d['meta']
+          assert d['meta']['repeat']==3 and d['meta']['peak_counter']=='maxrss',d['meta']
+          assert d['meta']['btrcc']==f'/workspace/{role}/bin/btrcc'
+          assert set(d['metrics'])=={'btrcc.compile.CompileStdlibHeavy_peak','btrcc.compile.RunDispatch_peak'}
+          assert all(math.isfinite(v) and v>0 for v in d['metrics'].values())
+          PY
+            if [ "$status" -ne 0 ]; then failed=1; fi
+          done
+          for role in B C; do
+            (cd "$role" && sha256sum -c "/workspace/evidence/$role-inputs.sha256") > "evidence/$role-inputs-after.txt"
+            git -C "$role" ls-files --stage > "evidence/$role-index-after.txt"
+            cmp "evidence/$role-index.txt" "evidence/$role-index-after.txt"
+            test -z "$(git -C "$role" status --porcelain --untracked-files=all)"
+            sha256sum -c "evidence/$role-build.sha256" > "evidence/$role-build-after.txt"
+          done
+          exit "$failed"
+          GENERIC_INSIDE_SH
+      - name: Build, qualify and compare exact generic sources
+        run: |
+          set -euo pipefail
+          image=$(cat host-evidence/image-id.txt)
+          test -n "$image"
+          podman run --rm --init -v "$PWD:/workspace" -w /workspace "$image" bash /workspace/inside.sh
+      - name: Export task evidence after the container stops
+        if: always()
+        run: |
+          set -euo pipefail
+          test ! -L evidence
+          if [ -d evidence ]; then
+            podman unshare find -P evidence \
+              -type d -exec chmod a+rx {} + -o -type f -exec chmod a+r {} +
+          fi
+      - name: Retain diagnostic evidence even when an original check fails
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: generic-peak-3974-4d930
+          path: |
+            host-evidence/
+            evidence/
+            inside.sh
+            harness/
+            B/bin/btrcc
+            C/bin/btrcc
+            B/dist/btrcc.c
+            C/dist/btrcc.c
+          if-no-files-found: error
+          retention-days: 14
