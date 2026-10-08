@@ -108,6 +108,18 @@ retained bytes at entry and closure.
 
 ## Qualification still required
 
+The first quiet comparison passes the original quiet admission and completes
+both discarded warmups, then stops at build-plan equivalence before any measured
+sample. Both plans correctly contain SHA-256 hashes of their raw emitted units;
+418 of 422 hashes differ because debug directives include different output paths.
+All 423 C/header files still match after the already-permitted normalization.
+Independent review confirms the comparator defect. Its correction must verify
+every ordered raw digest before comparing normalized-content digests, retain all
+other plan fields/order, and reject tampered digests or source. Failed receipt
+`module-emission-once-quiet-660ac18d-attempt-1/manifest.json` has SHA-256
+`87d5582de694d235b1a76b32e790b6fcd4861d8206a071415d2a28bfe30f7460`.
+It supplies no accepted performance sample and remains preserved.
+
 The immutable snapshot adds a tuple/vector copy to ordinary emission. Net wall,
 instruction and peak-memory effects remain unmeasured and may be unfavorable.
 Quiet paired product measurements and the complete final matrix are required
