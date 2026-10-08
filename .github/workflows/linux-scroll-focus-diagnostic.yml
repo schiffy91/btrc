@@ -1,0 +1,142 @@
+name: Linux X11 scrollbar focus diagnostic
+on:
+  push:
+    branches: [codex/diagnostic-linux-scroll-focus-3974]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: linux-scroll-focus-diagnostic-3974
+  cancel-in-progress: false
+jobs:
+  focus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      BASELINE_SHA: 3974d47bc87851b1ac19b8d2b4bd5022f2d94676
+      DONOR_RUN: '37732563990'
+      DONOR_HEAD_SHA: ad58680cc0057dcdddadefc024caf8346315b2b4
+      DONOR_ARTIFACT_ID: '11531950229'
+      DONOR_ARCHIVE_SHA256: c790c33a3c56c92aa1d21545a206f9030619cc357eb45e5889694b09822ede45
+      EXPECTED_BASELINE_BTRCC_SHA256: cc8dac03d30959e27af44637c3f5cdfb73c91b8998c25b5e50ab3934b6976c61
+      EXPECTED_BASELINE_C_SHA256: f2b0be1037218607e6dc10bba804dc54ce36355a5a23007fe151581c094f679b
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 3974d47bc87851b1ac19b8d2b4bd5022f2d94676
+          path: baseline
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: false
+      - name: Validate exact source and retained compiler provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_BASELINE_BTRCC_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$(uname -s)-$(uname -m)" = Linux-x86_64
+          test "$(git -C baseline rev-parse HEAD)" = "$BASELINE_SHA"
+          test -z "$(git -C source status --porcelain)"
+          test -z "$(git -C baseline status --porcelain)"
+          mkdir -p source/evidence
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DONOR_RUN" > source/evidence/donor-run.json
+          python3 - <<'PY'
+          import json,os,hashlib,subprocess
+          from pathlib import Path
+          d=json.loads(Path('source/evidence/donor-run.json').read_text())
+          assert d['id']==int(os.environ['DONOR_RUN']) and d['status']=='completed'
+          assert d['name']=='Token peak diagnostic'
+          assert d['head_branch']=='codex/diagnostic-token-peak-3974'
+          assert d['head_sha']==os.environ['DONOR_HEAD_SHA']
+          # Aggregate failure is legitimate when original baseline exceeds its
+          # allowance; the compiler build/hash evidence below must still pass.
+          assert d['conclusion'] in {'success','failure'}
+          files=lambda r:set(subprocess.check_output(['git','-C',r,'ls-files','-z']).decode().split('\0'))-{''}
+          original=files('baseline'); current=files('source')
+          allowed={'.github/workflows/linux-scroll-focus-diagnostic.yml',
+            'src/tests/python/test_native_ui_scroll_focus_diagnostic.py',
+            *('src/tests/native/gui/controls/linux/scroll_focus/'+n for n in
+              ('ScrollThumbTrace.btrc','ScrollTrace.c','FocusPeer.c','run-diagnostic.sh'))}
+          assert current-original==allowed and not original-current
+          assert all((Path('baseline')/p).read_bytes()==(Path('source')/p).read_bytes() for p in original), 'Baseline source changed'
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$DONOR_ARTIFACT_ID" > source/evidence/donor-artifact.json
+          python3 - <<'PY_META'
+          import json,os
+          from pathlib import Path
+          a=json.loads(Path('source/evidence/donor-artifact.json').read_text())
+          assert a['id']==int(os.environ['DONOR_ARTIFACT_ID']) and not a['expired']
+          assert a['name']=='token-peak-3974-71352'
+          assert a['workflow_run']['id']==int(os.environ['DONOR_RUN'])
+          assert a['workflow_run']['head_sha']==os.environ['DONOR_HEAD_SHA']
+          assert a['digest']=='sha256:'+os.environ['DONOR_ARCHIVE_SHA256']
+          PY_META
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$DONOR_ARTIFACT_ID/zip" > source/donor.zip
+          printf '%s  %s\n' "$DONOR_ARCHIVE_SHA256" source/donor.zip | sha256sum -c -
+          python3 - <<'PY_ZIP'
+          from pathlib import PurePosixPath
+          from zipfile import ZipFile
+          with ZipFile('source/donor.zip') as archive:
+              assert all(not PurePosixPath(i.filename).is_absolute() and '..' not in PurePosixPath(i.filename).parts for i in archive.infolist())
+              archive.extractall('source/donor')
+          PY_ZIP
+          test "$(cat source/donor/evidence/B-build.status)" = 0
+          (cd source/donor && sha256sum -c evidence/B-build.sha256)
+          printf '%s  %s\n' "$EXPECTED_BASELINE_BTRCC_SHA256" source/donor/B/bin/btrcc | sha256sum -c -
+          printf '%s  %s\n' "$EXPECTED_BASELINE_C_SHA256" source/donor/B/dist/btrcc.c | sha256sum -c -
+          cmp source/donor/evidence/B-index.txt source/donor/evidence/B-index-after.txt
+          python3 - <<'PY_AFTER'
+          from pathlib import Path
+          e=Path('source/donor/evidence')
+          for kind in ('build','inputs'):
+              paths=[line.split('  ',1)[1] for line in (e/f'B-{kind}.sha256').read_text().splitlines()]
+              assert (e/f'B-{kind}-after.txt').read_text().splitlines()==[p+': OK' for p in paths]
+          PY_AFTER
+          cp source/donor/evidence/B-build-after.txt source/evidence/donor-build-after.txt
+          cp source/donor/evidence/B-inputs-after.txt source/evidence/donor-inputs-after.txt
+          cp source/donor/evidence/B-index.txt source/evidence/donor-index.txt
+          chmod a+x source/donor/B/bin/btrcc
+          cp source/donor/evidence/B-build.sha256 source/evidence/donor-build.sha256
+          cp source/donor/evidence/B-inputs.sha256 source/evidence/donor-source-inputs.sha256
+          # Verify every donor compiler-source input and its exact file inventory.
+          (cd baseline && sha256sum -c ../source/donor/evidence/B-inputs.sha256) > source/evidence/donor-source-check.log
+          (cd baseline && git ls-files -z | sort -z | xargs -0 sha256sum) > source/evidence/baseline-inputs.sha256
+          cmp source/evidence/baseline-inputs.sha256 source/evidence/donor-source-inputs.sha256
+          git -C baseline ls-files --stage > source/evidence/baseline-index.txt
+          cmp source/evidence/baseline-index.txt source/evidence/donor-index.txt
+          (cd source && git ls-files -z | xargs -0 sha256sum) > source/evidence/source-inputs.sha256
+          git -C source rev-parse HEAD > source/evidence/diagnostic-source-revision.txt
+          git -C source ls-files --stage > source/evidence/diagnostic-index.txt
+      - name: Build original baseline CI image
+        run: |
+          set -euo pipefail
+          (cd baseline && make devcontainer) > source/evidence/image.stdout 2> source/evidence/image.stderr
+          podman image inspect btrc-devcontainer:latest > source/evidence/image.json
+          podman image inspect btrc-devcontainer:latest --format '{{.Id}}' > source/evidence/image-id.txt
+          chmod -R a+w source
+      - name: Execute bounded causal diagnostic
+        run: |
+          set -euo pipefail
+          image=$(cat source/evidence/image-id.txt)
+          test -n "$image"
+          podman run --rm --init -v "$PWD/source:/workspace" -w /workspace \
+            -e EXPECTED_BASELINE_BTRCC_SHA256 "$image" \
+            bash src/tests/native/gui/controls/linux/scroll_focus/run-diagnostic.sh
+      - name: Retain exact source and native evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: linux-scroll-focus-3974-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            source/evidence/
+            source/src/tests/native/gui/controls/linux/scroll_focus/
+            source/src/tests/python/test_native_ui_scroll_focus_diagnostic.py
