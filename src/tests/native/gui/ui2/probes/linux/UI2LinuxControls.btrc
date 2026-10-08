@@ -1,6 +1,7 @@
 import Library.Callback;
 import Library.Vector;
 import Library.GUI.IScrollView;
+import Library.GUI.ITextField;
 import Library.GUI.ControlEvents;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.LinuxWindow;
@@ -14,8 +15,60 @@ class UI2LinuxScrollReceiver implements IScrollControlEventHandler {
 	public void scrollEvent(ScrollControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
 }
 
+class UI2LinuxTextReceiver implements ITextControlEventHandler {
+	public Vector<TextControlEvent> events = [];
+	public void textEvent(TextControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
+}
+
+class UI2LinuxTextChecks {
+	class void pump(LinuxApplication application) { for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); } }
+
+	class void focus(unsigned int window) { btrcSdlPushPointerButton(window, 12.0f, 12.0f, 1u, 1, 1u); btrcSdlPushPointerButton(window, 12.0f, 12.0f, 1u, 0, 1u); }
+
+	class void replaceDraft(unsigned int window, string text) {
+		btrcSdlPushKey(window, (unsigned int)SDL_SCANCODE_A, (unsigned int)SDLK_A, (unsigned int)SDL_KMOD_CTRL, 1, 0);
+		assert(btrcSdlPushText(window, text) == 1);
+	}
+
+	class void key(unsigned int window, unsigned int key) { btrcSdlPushKey(window, 0u, key, 0u, 1, 0); btrcSdlPushKey(window, 0u, key, 0u, 0, 0); }
+
+	class void textLifecycle() {
+		var application = LinuxApplication(64); var window = application.createWindow("UI2 text semantics", 240.0, 60.0);
+		var field = application.createTextField("accepted", "placeholder"); window.attachRoot(field); window.show();
+		var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var draft = UI2LinuxTextReceiver(); var commits = UI2LinuxTextReceiver(); var cancels = UI2LinuxTextReceiver(); var scope = CallbackScope();
+		field.onDraftChanged(draft, scope); field.onCommit(commits, scope); field.onCancel(cancels, scope);
+		UI2LinuxTextChecks.pump(application); assert(draft.events.len == 0 && commits.events.len == 0 && cancels.events.len == 0);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.replaceDraft(native.nativeId(), "draft"); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("draft") && draft.events.len > 0 && commits.events.len == 0);
+		assert(draft.events.get(draft.events.len - 1).phase == CONTROL_PHASE_DRAFT);
+		/* Publishing the accepted baseline cannot erase an unfinished draft. */
+		field.setText("accepted"); assert(field.text().equals("draft"));
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_ESCAPE); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("accepted") && cancels.events.len == 1 && commits.events.len == 0);
+		assert(cancels.events.get(0).cancelReason == CONTROL_CANCEL_ESCAPE);
+		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "committed"); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		assert(commits.events.len == 1 && commits.events.get(0).text.equals("committed") && !commits.events.get(0).composing);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application); assert(commits.events.len == 1);
+		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "abandoned"); UI2LinuxTextChecks.pump(application);
+		field.setText("model"); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("model") && cancels.events.len == 2 && commits.events.len == 1);
+		assert(cancels.events.get(1).context.origin == CONTROL_ORIGIN_MODEL && cancels.events.get(1).cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT);
+		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "retained"); UI2LinuxTextChecks.pump(application);
+		field.setEnabled(false); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("retained") && cancels.events.len == 2 && commits.events.len == 1);
+		/* SYSTEM cancellation was settled but its queued receipt is ineligible;
+		 * a later real interaction commits the retained dirty draft just once. */
+		field.setEnabled(true); UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		assert(commits.events.len == 2 && commits.events.get(1).text.equals("retained"));
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	UI2LinuxTextChecks.textLifecycle();
 	var application = LinuxApplication(32); var window = application.createWindow("UI2 scroll geometry", 200.0, 150.0);
 	var scroll = application.createScrollView(); window.attachRoot(scroll); window.show();
 	var receiver = UI2LinuxScrollReceiver(); var scope = CallbackScope(); scroll.onOffsetChanged(receiver, scope);
