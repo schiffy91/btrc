@@ -1,0 +1,34 @@
+"""Approved UI2 Linux outcomes through the real SDL provider, never a fake loop."""
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from src.tests.python.linux_provider_fixtures import build_provider_program, provider_environment, require_linux_reader
+from src.tests.runner_capabilities import linux_display_error
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_linux_ui2_worker_wake_and_host(tmp_path, request, frontend, sanitized):
+    require_linux_reader()
+    if error := linux_display_error():
+        pytest.skip(error)
+    root = Path(__file__).resolve().parents[3]
+    executable = build_provider_program(
+        root / "src/tests/native/gui/ui2/probes/linux/UI2LinuxExecutor.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        data_root=request.getfixturevalue("gui_provider_root"),
+    )
+    result = subprocess.run(
+        [str(executable)], capture_output=True, text=True, timeout=30,
+        env=provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1"),
+    )
+    (tmp_path / "stdout.txt").write_text(result.stdout)
+    (tmp_path / "stderr.txt").write_text(result.stderr)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: UI2 Linux worker native wake and hosted suspension" in result.stdout

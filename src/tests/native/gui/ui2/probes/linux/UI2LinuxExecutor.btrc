@@ -1,0 +1,64 @@
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.SDL;
+
+#include "../../Executor.btrc"
+#include <assert.h>
+#include <stdio.h>
+
+/* The owner retains the body and publisher until the worker has completed.
+ * No receiver, managed payload or last-reference release crosses the worker. */
+class UI2LinuxProducer implements INativeWorkerBody {
+	private IApplicationPublisher publisher;
+	public Atomic<bool> start;
+	public Atomic<bool> done;
+	public PublishOutcome outcome = PUBLISH_INVALID;
+
+	public UI2LinuxProducer(IApplicationPublisher publisher) {
+		self.publisher = publisher; self.start.init(false); self.done.init(false);
+	}
+
+	public int workLoop() {
+		while (!self.start.load(MemoryOrder.ACQUIRE)) { SDL_Delay(1u); }
+		/* The owner is in SDL's infinite native wait before this publication. */
+		SDL_Delay(40u);
+		self.outcome = self.publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 73LL);
+		self.done.store(true, MemoryOrder.RELEASE);
+		return 0;
+	}
+}
+
+class UI2LinuxReceiver implements IApplicationPublicationHandler {
+	public int calls = 0;
+	public long long value = 0LL;
+	public void deliver(ApplicationPublication publication) { assert(SDL_IsMainThread()); self.calls++; self.value = publication.payload; }
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	var application = LinuxApplication(4);
+	var receiver = UI2LinuxReceiver(); var scope = CallbackScope();
+	var created = application.createPublisher(2, receiver, scope);
+	assert(created.kind == APPLICATION_PUBLISHER_CREATED && created.publisher != null);
+	var producer = UI2LinuxProducer(created.publisher); var worker = NativeWorker();
+	assert(worker.start(producer) == NATIVE_WORKER_STARTED);
+	/* Drain initial SDL events, then block without a polling deadline. */
+	application.pumpOnce(0);
+	producer.start.store(true, MemoryOrder.RELEASE);
+	unsigned long long began = SDL_GetTicksNS();
+	while (receiver.calls == 0) { application.pumpOnce(-1); }
+	assert(SDL_GetTicksNS() - began < 2000000000ULL);
+	assert(receiver.calls == 1 && receiver.value == 73LL);
+	while (!producer.done.load(MemoryOrder.ACQUIRE)) { SDL_Delay(1u); }
+	assert(worker.join() && !worker.workerFailed() && producer.outcome == PUBLISH_ACCEPTED);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(created.publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 0LL) == PUBLISH_CLOSED);
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	var hosted = LinuxApplication(4); UI2ExecutorChecks.hosted(hosted);
+	assert(hosted.close() == CALLBACK_CANCELLATION_COMPLETE);
+	printf("PASS: UI2 Linux worker native wake and hosted suspension\n");
+	SDL_Quit(); return 0;
+}
