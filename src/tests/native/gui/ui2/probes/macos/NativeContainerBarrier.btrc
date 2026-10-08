@@ -29,6 +29,7 @@ class BarrierInputReceiver implements IViewPointerHandler {
 			if (self.closeContext) { self.context.close(); }
 			else {
 				var registration = self.registration; assert(registration != null);
+				if (registration == null) { throw "Barrier fixture registration is missing"; }
 				assert(registration.cancel() == CALLBACK_CANCELLATION_PENDING);
 			}
 		}
@@ -48,7 +49,11 @@ class BarrierStateReceiver implements IViewInteractionStateHandler {
 class BarrierContainerLayout implements IMacOSContainerLayout {
 	private NSView _view;
 	public MacOSViewInput? input;
-	public BarrierContainerLayout() { self._view = UI2ContainerProbe.newPlainView(); }
+	public BarrierContainerLayout() {
+		var view = UI2ContainerProbe.newPlainView();
+		if (view == null) { throw "Barrier fixture could not create its native layout"; }
+		self._view = view;
+	}
 
 	public NSView nativeView() { return self._view; }
 
@@ -65,11 +70,14 @@ class ContainerBarrierCases {
 		int available = context.terminalPool.available();
 		UI2ContainerProbe.openHost();
 		var view = UI2ContainerProbe.newInputView();
+		if (view == null) { throw "Barrier fixture could not create its native input view"; }
 		var receiver = BarrierInputReceiver(context, closeContext);
 		var input = MacOSViewInput(view, receiver, null, context);
 		receiver.registration = input;
 		assert(context.terminalPool.available() == available - 1);
-		assert(input.invoke(UI2ContainerProbe.primaryDown(view)) == null && receiver.pressed == 1);
+		var pressed = UI2ContainerProbe.primaryDown(view);
+		if (pressed == null) { throw "Barrier fixture could not create its native pointer event"; }
+		assert(input.invoke(pressed) == null && receiver.pressed == 1);
 		context.beginMutation();
 		input.detach();
 		assert(receiver.cancelled == 0 && receiver.exited == 0);
@@ -86,13 +94,16 @@ class ContainerBarrierCases {
 	class void throwingTerminal() {
 		var context = MacOSControlContext();
 		var host = UI2ContainerProbe.openHost();
+		if (host == null) { throw "Barrier fixture could not open its native host"; }
 		var layout = BarrierContainerLayout();
 		var parent = MacOSContainer(layout, context);
 		parent.attachTo(host);
 		var child = MacOSView(null, context); parent.attach(child); child.arrange(0.0, 0.0, 100.0, 100.0);
 		var receiver = BarrierInputReceiver(context, false); receiver.throwCancel = true;
 		var input = MacOSViewInput(child.nativeView(), receiver, null, context); receiver.registration = input; layout.input = input;
-		assert(input.invoke(UI2ContainerProbe.primaryDown(child.nativeView())) == null && receiver.pressed == 1);
+		var pressed = UI2ContainerProbe.primaryDown(child.nativeView());
+		if (pressed == null) { throw "Barrier fixture could not create its native pointer event"; }
+		assert(input.invoke(pressed) == null && receiver.pressed == 1);
 		long long revision = parent.treeRevision();
 		var edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_DETACH; edit.child = child; edit.index = 0;
 		var result = parent.applyBatch(revision, [edit]);
