@@ -521,9 +521,25 @@ slot before publication and abort the attempted activation. A reviewed one-file
 Application repair uses that setter before the broad run/teardown transaction,
 removing the invalid getter call and leaving the application open on rejected
 admission. Patch SHA-256 `305b5caa9bc43fa8712029911f15bc812ff805cc43ecf9024c4aedc6919edc18`
-is prepared under `macos-application-delegate-admission`; it is not yet committed
-or rerun. The original fixture remains unchanged and public native acceptance
-remains open.
+is committed as Application-only `9ff2b912`; the active parser checkout and
+ordinary index are unchanged. Fresh original qualification now passes both
+compiler projections with zero diagnostics, all 22 strict syntax units and the
+reference/plain native link. The first native child aborts on the unchanged
+`application.pollClose() == COMPLETE` assertion after a real callback requests
+closure and unwinds. The preceding native-dispatch, one-call and no-nested-work
+assertions pass. This is distinct from the earlier deliberately failing host
+case, whose deadline exception is expected. Aggregate
+`ui2-macos-public-application-9ff2b912-compiler-f75c737b/application-result.json`,
+SHA-256 `9f0fbaab192ca0b0222b07a7e74a7d793d42b14fb6eb30b162521987eab3239f`,
+retains the failure, unchanged final sources/tools and all 59 groups reaped and
+absent; the remaining three native cells do not execute. Independent review
+confirms the assertion and evidence. Source review traces a deferred pointer
+cancellation record retained by a closing view while application shutdown no
+longer dispatches that queue. A narrow per-input cancellation repair in the
+existing Context/ViewInput owners is being prepared; it must preserve unrelated
+queued handlers, native/in-flight drain and terminal-credit accounting. The
+original fixture and four-cell qualification contract remain unchanged. Public
+native acceptance remains open.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
@@ -533,7 +549,8 @@ C/Objective-C checks and 12 links. Independent review rehashes all input/log
 inventories and verifies all 180 command groups absent. Aggregate
 `a54c1f28b116c6a17bb3a9caef28379341e36e4c4d8afc52bd3b1d4457e57f0f`
 is retained in `ui2-macos-application-70df20a9-compiler-f75c737b`.
-Public ApplicationHost has not been rerun and is not qualified by those components.
+Those components do not qualify Public ApplicationHost; its actual rerun and remaining
+shutdown failure are recorded above.
 
 Text provider `b987ebdc` passes the original real AppKit field-editor fixture
 through both current compiler frontends, plain and ASan/UBSan: four native rows,
