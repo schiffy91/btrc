@@ -38,11 +38,29 @@ CONTAINER_PROBE_SYMBOLS = [
 ]
 
 
+WINDOW_PROBE_SYMBOLS = [
+    "+[UI2WindowProbe initializeAppKit]",
+    "+[UI2WindowProbe beginEditing:]",
+    "+[UI2WindowProbe editorUnchanged:]",
+    "+[UI2WindowProbe requestNativeClose:]",
+    "+[UI2WindowProbe closeCount:]",
+    "+[UI2WindowProbe setMinimized:value:]",
+    "+[UI2WindowProbe awaitMinimized:value:]",
+    "+[UI2WindowProbe faultView]",
+    "+[UI2WindowProbe setRemovalFault:]",
+    "+[UI2WindowProbe restoreFaultViewTo:]",
+    "+[UI2WindowProbe resizeNative:]",
+    "+[UI2WindowProbe finish]",
+]
+
+
 @pytest.mark.macos_gui
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize(
     ("fixture", "expected"),
     [
+        ("NativeWindowClose", "UI2 native windows preserve cancellable close identity and revision authority"),
+        ("NativeWindowState", "UI2 native window snapshots preserve revisions and independent platform state"),
         (
             "NativeApplicationHost",
             "UI2 public application host shares bounded work, worker ingress and native view delivery",
@@ -85,6 +103,17 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
         '[[native.frameworks]]\nname = "AppKit"\n'
         '[[native.sources]]\npath = "RunLoopProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
+    if fixture in {"NativeWindowClose", "NativeWindowState"}:
+        shutil.copyfile(PROBES / "WindowProbe.btrc", source.parent / "WindowProbe.btrc")
+        for name in ("WindowProbe.h", "WindowProbe.m"):
+            shutil.copyfile(PROBES / name, root / name)
+        with (root / "btrc.toml").open("a") as manifest:
+            manifest.write(
+                '[[native.bindings]]\nmodule = "WindowProbe"\nheader = "WindowProbe.h"\n'
+                'language = "objective-c"\nstandard = "c11"\n'
+                f"symbols = {json.dumps(WINDOW_PROBE_SYMBOLS)}\n"
+                '[[native.sources]]\npath = "WindowProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+            )
     if fixture == "NativeApplicationHost":
         shutil.copyfile(PROBES / "ApplicationHostProbe.btrc", source.parent / "ApplicationHostProbe.btrc")
         for name in ("ApplicationHostProbe.h", "ApplicationHostProbe.m"):
