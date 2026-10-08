@@ -48,6 +48,12 @@ for stage in controlled isolated concurrent; do
   status=$?
   set -e
   printf '%s\n' "$status" > "evidence/$stage/status"
+  printf 'X11_DIAGNOSTIC_STAGE stage=%s exit=%s\n' "$stage" "$status"
+  if [ "$status" -ne 0 ]; then
+    # Preserve actual failures in the job log even if artifact transport fails.
+    tail -n 180 "evidence/$stage/stdout.log" || printf 'Unable to read retained stdout for %s\n' "$stage"
+    tail -n 80 "evidence/$stage/stderr.log" || printf 'Unable to read retained stderr for %s\n' "$stage"
+  fi
   test "$status" -le 1
   python3 - "$stage" "$expected" <<'PY'
 import json,sys,xml.etree.ElementTree as ET
@@ -59,6 +65,7 @@ assert len(cases)==int(expected),(stage,len(cases),expected)
 assert not any(c.find('skipped') is not None or c.find('error') is not None for c in cases), 'Missing capability or setup errors do not qualify'
 result={'stage':stage,'native_window_overlap': 'unproven' if stage=='concurrent' else 'not-applicable', 'interpretation': 'scheduling-attempt-only' if stage=='concurrent' else 'bounded-fixture-observation', 'cases':[{'name':c.attrib,'failed':c.find('failure') is not None} for c in cases]}
 (root/'classification.json').write_text(json.dumps(result,indent=2)+'\n')
+print('X11_DIAGNOSTIC_CLASSIFICATION '+json.dumps(result,sort_keys=True))
 PY
   if [ "$status" -ne 0 ]; then failed=1; fi
   # An invalid controlled negative cannot establish the causal mechanism.

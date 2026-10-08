@@ -129,6 +129,18 @@ jobs:
           podman run --rm --init -v "$PWD/source:/workspace" -w /workspace \
             -e EXPECTED_BASELINE_BTRCC_SHA256 "$image" \
             bash src/tests/native/gui/controls/linux/scroll_focus/run-diagnostic.sh
+      - name: Make task evidence readable to artifact uploader
+        if: always()
+        run: |
+          set -euo pipefail
+          # The stopped rootless container owns pytest's mode0700 directories.
+          # Export only this task's evidence, with no symlink traversal or write
+          # grants. The preceding diagnostic step retains its original status.
+          test ! -L source/evidence
+          if [ -d source/evidence ]; then
+            podman unshare find -P source/evidence \
+              -type d -exec chmod a+rx {} + -o -type f -exec chmod a+r {} +
+          fi
       - name: Retain exact source and native evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
