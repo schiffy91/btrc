@@ -32,6 +32,7 @@ from tools.runbook.quiet import (
     QuietRefused,
     QuietSettings,
     QuietTimeout,
+    SimulatorProbe,
     TimeMachineProbe,
     WorkspaceProbe,
 )
@@ -393,7 +394,7 @@ def test_the_real_probes_report_on_this_host(tmp_path: Path) -> None:
     quiet = QuietCheck(tmp_path / "bench.noindex" / "run", rehearsal=True)
     observations = {observation.probe: observation for observation in quiet.report()}
 
-    assert set(observations) == {"processes", "podman", "time-machine", "background-cpu", "workspace"}
+    assert set(observations) == {"processes", "podman", "simulators", "time-machine", "background-cpu", "workspace"}
     assert all(observation.detail for observation in observations.values())
     assert "ps failed" not in observations["processes"].detail
     assert "ps failed" not in observations["background-cpu"].detail
@@ -407,3 +408,183 @@ def test_the_real_probes_report_on_this_host(tmp_path: Path) -> None:
         assert observations["time-machine"].ok
         with pytest.raises(QuietRefused):
             QuietCheck(tmp_path).wait()
+
+
+# -- exact idle infrastructure, not blanket name exemptions ---------------------------
+
+TRAMPOLINE = (
+    "/Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/"
+    "XPCServices/SimulatorTrampoline.xpc/Contents/MacOS/SimulatorTrampoline"
+)
+DESKTOP = "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
+CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
+TRANSPORT = f"{CODEX} exec-server --remote test-endpoint --environment-id test-environment"
+SIMCTL = ("/usr/bin/xcrun", "simctl", "list", "devices", "--json")
+
+
+def idle_service_table(*extra: tuple[int, int, str, float, str]) -> ProcessTable:
+    return table(
+        (1, 0, "root", 0.0, "/sbin/launchd"),
+        (100, 1, "owner", 0.0, DESKTOP),
+        (101, 100, "owner", 0.0, TRANSPORT),
+        (200, 1, "owner", 0.0, TRAMPOLINE),
+        *extra,
+    )
+
+
+def simulator_document(state: str = "Shutdown", **changes: object) -> str:
+    row = {"name": "test-device", "udid": "test-uuid", "state": state, "isAvailable": True, **changes}
+    return json.dumps({"devices": {"test-runtime": [row]}})
+
+
+def test_exact_idle_services_are_not_active_agents_or_devices() -> None:
+    observed = ProcessProbe(idle_service_table(), QuietSettings()).observe()
+    assert observed.ok and "2 idle service transports" in observed.detail
+    probe = SimulatorProbe(FakeRunner({SIMCTL: (0, simulator_document())}), required=True)
+    assert probe.observe().ok
+    assert "1 simulator devices, all Shutdown" in probe.observe().detail
+
+
+@pytest.mark.parametrize("service", ["transport", "trampoline"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_any_foreign_service_child_blocks_even_when_it_is_not_a_named_build(service: str, nested: bool) -> None:
+    parent = 101 if service == "transport" else 200
+    children = [(300, parent, "owner", 0.0, "/bin/sleep 300")]
+    if nested:
+        children.append((301, 300, "owner", 0.0, "/usr/bin/python3 arbitrary-work.py"))
+    observed = ProcessProbe(idle_service_table(*children), QuietSettings()).observe()
+    assert not observed.ok
+    assert f"pid {parent}" in observed.detail
+
+
+def test_foreign_transport_parent_identity_uses_the_same_unfiltered_snapshot() -> None:
+    # The desktop is also an ancestor of this runner and absent from foreign().
+    processes = idle_service_table((500, 100, "owner", 0.0, "python3 quiet-runner.py"))
+    observed = ProcessProbe(processes, QuietSettings()).observe()
+    assert observed.ok
+    assert "2 idle service transports" in observed.detail
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        (200, 1, "owner", 0.1, TRAMPOLINE),
+        (200, 100, "owner", 0.0, TRAMPOLINE),
+        (200, 1, "owner", 0.0, TRAMPOLINE + " --work"),
+        (200, 1, "owner", 0.0, "/tmp/SimulatorTrampoline"),
+        (101, 100, "owner", 0.1, TRANSPORT),
+        (101, 1, "owner", 0.0, TRANSPORT),
+        (101, 100, "different-user", 0.0, TRANSPORT),
+        (101, 100, "owner", 0.0, TRANSPORT + " --work"),
+        (101, 100, "owner", 0.0, TRANSPORT.replace(CODEX, "/tmp/codex")),
+        (101, 100, "owner", 0.0, f"{CODEX} exec-server --remote --invalid --environment-id test"),
+        (101, 100, "owner", 0.0, f"{CODEX} exec --task test"),
+        (101, 100, "owner", 0.0, f"{CODEX} resume"),
+    ],
+)
+def test_lookalike_or_busy_services_keep_the_original_process_block(row: tuple[int, int, str, float, str]) -> None:
+    observed = ProcessProbe(table((100, 1, "owner", 0.0, DESKTOP), row), QuietSettings()).observe()
+    assert not observed.ok
+
+
+@pytest.mark.parametrize("parent", ["/tmp/ChatGPT", DESKTOP + " --unknown"])
+def test_transport_requires_the_exact_desktop_parent(parent: str) -> None:
+    observed = ProcessProbe(
+        table((100, 1, "owner", 0.0, parent), (101, 100, "owner", 0.0, TRANSPORT)), QuietSettings()
+    ).observe()
+    assert not observed.ok
+
+
+@pytest.mark.parametrize("state", ["Booted", "Booting", "Shutting Down", "Unknown", "shutdown", ""])
+def test_every_non_shutdown_device_blocks_even_if_unavailable(state: str) -> None:
+    probe = SimulatorProbe(FakeRunner({SIMCTL: (0, simulator_document(state, isAvailable=False))}), required=True)
+    assert not probe.observe().ok
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        None,
+        (1, simulator_document()),
+        (0, ""),
+        (0, "{broken"),
+        (0, "[]"),
+        (0, "{}"),
+        (0, '{"devices": []}'),
+        (0, '{"devices": {"runtime": null}}'),
+        (0, '{"devices": {"runtime": [null]}}'),
+        (0, '{"devices": {"runtime": [{"state": "Shutdown"}]}}'),
+        (0, simulator_document(udid=[])),
+        (0, simulator_document(isAvailable="true")),
+        (0, simulator_document(name="")),
+    ],
+)
+def test_unreadable_or_malformed_device_inventory_fails_closed(output: tuple[int, str] | None) -> None:
+    assert not SimulatorProbe(FakeRunner({SIMCTL: output}), required=True).observe().ok
+
+
+def test_simulator_inventory_rejects_duplicate_devices_and_accepts_explicit_empty_inventory() -> None:
+    document = json.loads(simulator_document())
+    document["devices"]["another-runtime"] = document["devices"]["test-runtime"]
+    assert not SimulatorProbe(FakeRunner({SIMCTL: (0, json.dumps(document))}), required=True).observe().ok
+    assert SimulatorProbe(FakeRunner({SIMCTL: (0, '{"devices": {}}')}), required=True).observe().ok
+    assert SimulatorProbe(FakeRunner({}), required=False).observe().ok
+
+
+def test_device_state_is_read_on_every_sample_and_resets_the_full_quiet_window() -> None:
+    class DeviceRunner(FakeRunner):
+        def output(self, command: Sequence[str]) -> tuple[int, str] | None:
+            self.calls.append(tuple(command))
+            return 0, simulator_document("Booting" if len(self.calls) == 3 else "Shutdown")
+
+    runner = DeviceRunner({})
+    clock = FakeClock()
+    quiet = check([ProcessProbe(idle_service_table(), QuietSettings()), SimulatorProbe(runner, True)], clock)
+    verdict = quiet.wait()
+    assert verdict.quiet and verdict.windows == 2
+    assert verdict.waited_s == 130  # initial10s, retry60s, then an uninterrupted60s
+    assert len(runner.calls) == 16
+    assert len(verdict.samples) == 13
+
+
+def test_default_quiet_check_includes_device_probe_without_altering_thresholds(tmp_path: Path) -> None:
+    quiet = QuietCheck(tmp_path, runner=FakeRunner({}), system="Darwin")
+    probes = [probe for probe in quiet.probes if isinstance(probe, SimulatorProbe)]
+    assert len(probes) == 1 and probes[0].required
+    assert quiet.settings.window_s == 60 and quiet.settings.interval_s == 5
+    assert all(rule.limit_percent == 5 for rule in quiet.settings.cpu_rules)
+    for command in ("/usr/bin/launchd_sim", "/Applications/Simulator", "/usr/bin/clang -c test.c"):
+        assert not ProcessProbe(idle_service_table((999, 1, "owner", 0.0, command)), quiet.settings).observe().ok
+
+
+def test_ancestral_transport_does_not_hide_an_arbitrary_sibling_job() -> None:
+    own_launch = [
+        (400, 101, "owner", 0.0, "/bin/bash measurement-wrapper"),
+        (500, 400, "owner", 0.0, "python3 quiet-runner.py"),
+    ]
+    assert ProcessProbe(idle_service_table(*own_launch), QuietSettings()).observe().ok
+    sibling_job = [(600, 101, "owner", 0.0, "/bin/sh unrelated-job"), (601, 600, "owner", 0.0, "/bin/sleep 300")]
+    observation = ProcessProbe(idle_service_table(*own_launch, *sibling_job), QuietSettings()).observe()
+    assert not observation.ok and "service work: pid 101" in observation.detail
+
+
+def test_explicit_stricter_process_rules_still_block_idle_services() -> None:
+    settings = QuietSettings().overlay(
+        {"extra_process_rules": [{"label": "explicit service block", "pattern": "exec-server"}]}
+    )
+    observed = ProcessProbe(idle_service_table(), settings).observe()
+    assert not observed.ok and "explicit service block" in observed.detail
+    # Even a user-supplied rule equal in value to the default stays explicit.
+    settings = QuietSettings().overlay({"process_rules": [{"label": "agent", "pattern": r"(^|/)(claude|codex)(\s|$)"}]})
+    assert not ProcessProbe(idle_service_table(), settings).observe().ok
+
+
+@pytest.mark.parametrize("command", ["/bin/sleep 300", "/usr/bin/python3 arbitrary-work.py", "/usr/bin/grep output"])
+def test_own_ancestral_wrapper_does_not_excuse_foreign_siblings(command: str) -> None:
+    processes = idle_service_table(
+        (400, 101, "owner", 0.0, "/bin/bash measurement-wrapper"),
+        (500, 400, "owner", 0.0, "python3 quiet-runner.py"),
+        (600, 400, "owner", 0.0, command),
+    )
+    observed = ProcessProbe(processes, QuietSettings()).observe()
+    assert not observed.ok and "service work: pid 101" in observed.detail
