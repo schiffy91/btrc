@@ -56,8 +56,8 @@ int main() {
 	try { scroll.close(); } catch (string error) { closeRejected = !error.isEmpty(); }
 	assert(closeRejected && scroll.isOpen() && parent.childAt(0) == scroll);
 	assert(parent.detach(scroll) == scroll && parent.close() == CALLBACK_CANCELLATION_COMPLETE);
-	scroll.arrange(0.0, 0.0, 240.0, 180.0); scroll.setContentSize(1000.0, 1200.0);
 	UI2ScrollProbe.open(scroll.nativeControl());
+	scroll.arrange(0.0, 0.0, 240.0, 180.0); scroll.setContentSize(1000.0, 1200.0);
 	scroll.scrollToOffset(ScrollAssertions.offset(100.0, 200.0));
 	var receiver = ScrollReceiver(); var registration = scroll.onOffsetChanged(receiver, scope);
 	assert(receiver.events.len == 0 && !context.dispatchOne(context.detachedEvents));
@@ -151,8 +151,8 @@ int main() {
 	/* A real native wheel hits a full shared queue. Capture returns normally;
 	 * the next service reports the fault, and ownership can still close. */
 	var pressure = MacOSControlContext(1); var pressureScope = CallbackScope();
-	var blocked = MacOSScrollView(pressure); blocked.arrange(0.0, 0.0, 240.0, 180.0);
-	blocked.setContentSize(1000.0, 1200.0); UI2ScrollProbe.open(blocked.nativeControl());
+	var blocked = MacOSScrollView(pressure); UI2ScrollProbe.open(blocked.nativeControl());
+	blocked.arrange(0.0, 0.0, 240.0, 180.0); blocked.setContentSize(1000.0, 1200.0);
 	blocked.scrollToOffset(ScrollAssertions.offset(300.0, 400.0));
 	var pressureReceiver = ScrollReceiver(); blocked.onOffsetChanged(pressureReceiver, pressureScope);
 	var blocker = MacOSView(null, pressure);

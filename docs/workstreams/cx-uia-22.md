@@ -836,3 +836,26 @@ all declared fields with the original values. The interface remains unchanged;
 geometry, metadata, queue ordering and every behavioral assertion are retained.
 The integrator reviewed that field-for-field correction. Fresh qualification is
 still required; source review and formatting are the only new checks so far.
+
+### First native component execution and scroll fixture hosting
+
+Frozen 25c98801 passed all six reference/self-host component projections without
+diagnostics and all 30 strict C/Objective-C translation-unit checks. All three
+reference plain binaries linked. NativeCaptureFailure and RunLoopAttachment
+then passed their actual native runs (0.52 s and 0.59 s); the latter used the
+real CFRunLoopAddSource interposer. NativeScrollState stopped in 0.36 s with
+“Attach a native view before arranging it”: the fixture arranged an unattached
+NSScrollView before installing it in its real NSWindow. Execution stopped there;
+no sanitized or self-host native rows ran. Source, compiler, tool and linked
+binary hashes were rechecked unchanged. The immutable aggregate is
+`ui2-macos-components-25c98801/results/projection1/components/attempt-result.json`
+(SHA-256 4abff83e8747fdec4779499e9743557c7375389e52c29b98277f46afdc5ef579).
+This is component evidence, not public application or full UI2 qualification.
+
+The fixture-only correction installs each existing scroll in its real native
+host before arranging it, in both normal and pressure cases. Geometry remains
+identical and is configured before observation subscription or input. Every
+assertion, provider admission check and native input operation remains intact.
+The integrator and independent reviewer cleared the exact reorder; fresh native
+qualification remains required. The failed source/archive and outputs above
+are preserved.
