@@ -85,3 +85,18 @@ Retained evidence: `~/.cache/btrc/plan-consolidation-2026-10-07/subagent-deliver
 contains `red`, `green` (the rejected first repair) and `green-2` manifests,
 JUnit, logs and scratch. Native work ran 16:25:25–16:26:21, 16:26:48–16:27:09
 and 16:29:02–16:29:59 UTC respectively.
+
+## Hosted fixture discovery correction, 2026-10-08
+
+Additional owned path: `src/tests/python/test_native_gui_target.py`.
+Hosted CI run `37652762370`, attempt 2, executed the unit suite and found one
+failure with 6,815 passes and 3,120 skips: its wiring audit did not recognize
+`controls/macos/ButtonAlignment` as the exact GUI-root-relative fixture name.
+The actual AppKit provider/fixture and Linux GUI lanes passed their hosted runs.
+
+Apply the independently reviewed audit correction already qualified in the
+combined compiler candidate: recognize an exact root-relative filename or stem.
+Negative controls still reject sibling fixtures, the same basename under another
+directory, generic roots and unselected drivers. All 22 audit-module tests pass
+on this branch. This corrects fixture admission; it does not change provider or
+native test behavior. Final hosted and combined integration gates remain open.

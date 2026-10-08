@@ -72,6 +72,11 @@ def _covered(fixture: str, patterns: set[str]) -> bool:
         value = pattern.rstrip("/")
         if value in {str(path), path.name, path.stem}:
             return True
+        for root in FIXTURE_ROOTS:
+            if path.is_relative_to(root):
+                relative = path.relative_to(root)
+                if value in {str(relative), str(relative.with_suffix(""))}:
+                    return True
         # A full named subtree drives its descendants. Bare platform labels
         # such as "linux" are not directory references.
         if any(value.startswith(root + "/") for root in FIXTURE_ROOTS) and fixture.startswith(value + "/"):
@@ -123,6 +128,18 @@ def test_unselected_driver_does_not_hide_a_missing_fixture() -> None:
 )
 def test_literal_names_count(reference: str) -> None:
     assert _covered("src/tests/native/gui/NativeKeyboard.btrc", _driver_patterns(f"source = {reference}"))
+
+
+@pytest.mark.parametrize("reference", ['"controls/macos/ButtonAlignment"', '"controls/macos/ButtonAlignment.btrc"'])
+def test_root_relative_names_cover_only_the_exact_fixture(reference: str) -> None:
+    fixture = "src/tests/native/gui/controls/macos/ButtonAlignment.btrc"
+    others = {
+        "src/tests/native/gui/controls/macos/OtherControl.btrc",
+        "src/tests/native/gui/other/ButtonAlignment.btrc",
+    }
+    drivers = {"selected.py": f"name = {reference}"}
+    assert _uncovered({fixture, *others}, drivers, {"selected.py"}) == others
+    assert _uncovered({fixture}, drivers, set()) == {fixture}
 
 
 def test_named_subtree_and_constrained_filename_template_count() -> None:
