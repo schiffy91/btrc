@@ -214,7 +214,7 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 | Platform | Demonstrated capability | Missing product capability / next demonstrable result |
 |---|---|---|
 | macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | The coordination repair is on main after the affected native gate passed (327 pass, 67 expected skips). Current-compiler window/run-loop, application components and a real text-editing fixture pass separately. Complete public application/control integration, remaining activation/lifecycle, services and accessibility qualification stay open. |
-| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | The shared-display repair is independently qualified on its original X11 gate: 324 passes, 199 expected platform skips and no failures/errors. Qualify the assembled tree, then land UI2 and remaining features/accessibility. Wayland remains report-only until its required main acceptance. |
+| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | The assembled PR68 tree passes X11 (324 passes, 199 expected skips) and Wayland (322 passes, 199 expected skips). Physical desktop coverage, UI2 and remaining features/accessibility stay open. Wayland remains configured report-only until its required main acceptance. |
 | Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows pass and PR53 landed on main `49f136ec` | Qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
@@ -236,7 +236,7 @@ This qualifies the affected native gate; it does not establish the historical
 GPU failure's cause or the full final-tree matrix. The repair and consolidated plan landed through
 [PR69](https://github.com/schiffy91/btrc/pull/69) at `cbd3ddcd` after all 36
 selected checks passed on head `01621436`. Three scope-skipped jobs are not
-counted as evidence. The post-merge main Linux CI, Windows and Windows ARM64 workflows pass at exact `cbd3ddcd`. The macOS workflow still has its unit-test job running; self-host tests, bootstrap, C11 and both corpus jobs pass. Final post-merge status remains open until that workflow terminates.
+counted as evidence. The post-merge Linux, macOS, Windows and Windows ARM64 workflows all pass at exact main `cbd3ddcd`. This closes that integration matrix; later compiler, UI2 and product changes require their own qualification.
 
 The first Linux shared-display lease qualification, run `37743819333`, stops
 before tests on both X11 and Wayland: its diagnostic launcher bypasses Bash and
@@ -283,8 +283,8 @@ and recorded tool identities are unchanged. The 199 skips remain uncovered by
 this host, and Fontconfig diagnostics remain retained. Command leaders were
 waited/reaped; the artifact does not prove global final descendant absence.
 Evidence: `linux-gui-lease-3974-hosted-r5/INDEPENDENT-REVIEW.md`.
-Final combined-tree Linux qualification remains open. The original
-full Wayland gate at `14f9e193` passes all 322 executed cases, with 199 expected
+Combined-tree Linux qualification now passes at PR68 `00e45379`, with the
+independent report and coverage limits below. The original full Wayland gate at `14f9e193` passes all 322 executed cases, with 199 expected
 skips classified and covered on other hosts. Independent review verifies all
 521 collected/JUnit identities, 4,503 publication file hashes and modes,
 unchanged source/tools/index and the original enforced skip gate. Artifact
@@ -636,15 +636,21 @@ source-override component result, not installed-product or dependency-pin
 acceptance. Existing-owner nullable warnings remain in the logs. The matching
 Linux replay is pending. A separate production defect remains: GUIApplication
 must propagate every non-complete window-close state before releasing dependent
-view/session ownership. Source candidate `ce40e360` now calls the existing
-idempotent window close operation unconditionally and preserves all non-complete
-results. This also handles a native-closed window whose managed cleanup has not
-started. Native qualification remains pending. Independent review additionally
-confirms that the host destructor can release fields after unfinished or thrown
-cleanup; the packet must guard both paths with the existing fatal-error
-convention. Its genuine native failure, native-close and final-owner destruction
-controls are being prepared; an explicit-close pass alone will not qualify
-safe destruction. Product fixture `37bbb680` is now published privately on
+view/session ownership. Source candidate `c879fc86` calls the existing idempotent
+window close operation unconditionally and preserves all non-complete results.
+It also fatally stops destruction on unfinished or thrown cleanup before runtime
+field release; throwing from the destructor alone is insufficient because the
+runtime catches hook failures. Source and paired-control recipes are independently
+reviewed. The first original-baseline attempt transpiles and compiles but fails
+at native linking: the test driver compares a bare compiler name with the resolved
+Nix executable path and omits its probe object. No native child executes, and the
+required baseline failure is correctly refused. All five owned groups close and
+inputs remain unchanged. Retained result SHA-256:
+`18e770a3ca3464a484af76939423a8061b2454fd4f3ddfc2168f73e4cd37b722`
+in `btrsmith-window-close-f75-baseline-attempt-1/result.json`. A narrow driver
+correction is under review. Native failure propagation, native-close handling and
+final-owner destruction remain unqualified; the thrown-close guard is source
+reviewed only. Product fixture `37bbb680` is now published privately on
 `codex/native-shutdown-lifecycle`, satisfying the Linux replay's source
 reachability requirement without changing the current dependency pin.
 
@@ -669,9 +675,19 @@ unchanged retry passes. The failed artifact `11554383604`, digest
 remains retained. API 29 and Windows bootstrap also pass at the new head.
 The required explicit macOS native-GUI dispatch is
 [37791840625](https://github.com/schiffy91/btrc/actions/runs/37791840625).
-All eight Linux strict-C11 cells, release/generated/lint/format/extension and
-final release-source hygiene now pass. The exact-head Wayland log reports 322
-passes and 199 expected skips, with enforced classification. The macOS x64
+It is now running. Linux run `37786709187` is complete and independently audited:
+all 13 expected shard reports are present, tied to exact merge `d38f344f` and
+candidate tree `53a05e9f`, with fatal skip classification enforced. Unit tests
+report 7,230 passes/3,128 expected skips; self-host tests 5,857/34; both corpora
+1,019 passes with zero skips each. All eight GCC/Clang C11 cells pass 2,038 cases
+each with zero skips; bootstrap reaches its fixed point. X11 reports 324/199,
+Wayland 322/199. Wayland remains configured report-only, but its actual test step
+and JUnit pass. Release, generated-source, lint, format, extension, Linux bundle
+and final source hygiene pass. Boundary accounting is 287 checked of 311, with
+24 managed-behavior records explicitly excluded. Expected skips and physical
+Linux desktop coverage require counterpart evidence; they are not passes.
+Audit SHA-256 is `ff94d1ab8a3552c01121518f0bef6b9d4d1311d0a6449814a1055100a49164f8`
+in `pr68-00e45379-linux-final-audit/audit.json`. The macOS x64
 bundle attempt reached its unchanged 45-minute job limit during Nix dependency
 realization, before compiler/bundle tests. Its retained log digest is
 `1cd1b8ca7ce8466b4e9498fbba383a74a2442d8543d889dc327428cd29b40588`;
@@ -970,7 +986,7 @@ changes; historical test totals alone do not advance its status.
 |---|---|---|---|
 | Current compiler speed and memory matrix | Token candidate `71352c50` reduces the focused Linux heavy-stdlib reported peak by 8.241%. Combined lifetime candidate `92691bee` passes 164 focused checks. Whole-product targets remain unqualified | Performance owner; main session runs quiet measurements | Private current-product Linux RSS comparison `37771609277` failed during image-layer commit before compiler execution or samples. Mac quiet admission has no completed paired round. Stage 4/pin, Stage 5 and final product matrix remain open. |
 | Faster incremental edits | Current tuple/instance repair proves one changed group for inventory-preserving edits and three for genuinely new shared tuple shapes, across both frontends/release/debug with strict native outputs and clean-versus-incremental equality | Incremental compiler owner | Finish current combined gates, then measure edit median/p95 and memory. Full consulted-fact/analysis reuse and Stage 9 counters remain open. Work counts are not speed results. |
-| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected platform skips, zero failures/errors | Provider repair owner; main integrator qualifies | Qualify the assembled tree with the reviewed X11 coordination repair. Keep genuine external focus-loss cancellation and original native assertions. |
+| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected platform skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish Mac integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
 | UI2 events, executor and lifecycle on desktop | macOS foundation and ordered-container components have scoped native passes. Window and capture/run-loop replay each add eight native passes on compiler `f75c737b`. The public application baseline exposed 19 missing methods; their implementations now exist, with combined qualification open | Application, text-field and range/selection owners | Qualify the implemented methods with original native assertions and complete remaining application integration. Linux Window source is reviewed; its native baseline/candidate run awaits a hosted slot. Full UI2 and application quit remain open. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. With compiler `f75c737b`, Linux paired live-agent acceptance passes. Fixture repair `37bbb680` now passes original macOS native shutdown and link-plan parity through both compilers. | BTRSmith owner and integrator | Replay the corrected real-startup fixture on Linux, repair non-complete window-close propagation, then complete paired audio, installed-product and dependency-pin qualification. The full MVP remains incomplete. |
