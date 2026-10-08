@@ -204,7 +204,9 @@ class ControlEventInvocation<Receiver, Snapshot> implements IControlEventInvocat
  * CallbackScope owns this registration, which uses the existing entry gate.
  * Cancellation removes queued snapshots and waits only through polling for an
  * already-entered receiver. It never pumps, joins or blocks the UI executor. */
-class ControlEventChannel<Receiver, Snapshot> implements ICallbackRegistration {
+interface IControlEventChannel extends ICallbackRegistration { void rebind(ControlEventQueue queue); }
+
+class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	private ControlEventQueue _queue;
 	private IControlEventTarget? _target;
 	private CallbackScope _scope = CallbackScope();

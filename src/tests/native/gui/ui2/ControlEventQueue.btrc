@@ -154,7 +154,7 @@ int main() {
 	 * input is disposed, while a same-queue reorder preserves its ticket. */
 	var destination = ControlEventQueue(4, pool);
 	assert(second.publish(QueueSnapshot(50), 2LL, 13LL, 1LL));
-	second.rebind(destination);
+	IControlEventChannel route = second; route.rebind(destination);
 	assert(!queue.dispatchOne() && queue.retired(CONTROL_EVENT_INELIGIBLE) == 2LL);
 	terminal = second.beginInteraction(); assert(terminal != null);
 	second.rebind(destination);

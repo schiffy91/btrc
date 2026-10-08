@@ -202,3 +202,10 @@ close, rejection of the closed alias, and cleared pixels after explicit clear;
 its existing final application teardown remains. These are approved contract
 changes, not a new release allowance. Both new and reconciled native fixtures
 remain unexecuted; formatter/diff passed.
+
+The shared owner adds the private `IControlEventChannel` projection for rebind
+and existing cancellation. Linux nodes retain a bounded-to-live-registration
+routing inventory, prune completed channels, and route every typed control
+channel across queues through this projection. The node's existing callback
+scope remains the lifetime owner; this creates no portable wrapper API. The
+shared migration fixture now exercises the erased projection. Unexecuted.

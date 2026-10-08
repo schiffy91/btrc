@@ -229,6 +229,7 @@ class LinuxViewNode implements IControlEventTarget {
 	private bool _stateChanged = false;
 	private bool _lostEligibility = false;
 	private ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>? _stateChannel = null;
+	private Vector<IControlEventChannel> _channels = [];
 	private CallbackScope _input = CallbackScope();
 	private Vector<LinuxViewInput> _inputs = [];
 
@@ -238,6 +239,17 @@ class LinuxViewNode implements IControlEventTarget {
 	}
 
 	public void bindOwner(ILinuxView owner) { if (self._owner != null || owner == null) { throw "Native node already has an owner"; } self._owner = owner; self.refreshInteraction(false); }
+
+	private void pruneSemantic() {
+		self._input.pollCompletion();
+		for (int index = self._channels.len - 1; index >= 0; index--) { if (self._channels.get(index).pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) { self._channels.remove(index); } }
+	}
+
+	public void ownSemantic(IControlEventChannel channel) {
+		self.requireOpen(); self.pruneSemantic();
+		try { self._input.track(channel); } catch (string error) { channel.cancel(); throw error; }
+		self._channels.push(channel);
+	}
 
 	public long long generation() { return self._generation; }
 
@@ -265,11 +277,11 @@ class LinuxViewNode implements IControlEventTarget {
 	class void deliverState(IViewInteractionStateHandler receiver, ViewInteractionState state) { receiver.interactionChanged(state); }
 
 	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler receiver, CallbackScope owner) {
-		self.requireOpen();
+		self.requireOpen(); self.pruneSemantic();
 		if (self._stateChannel != null && self._stateChannel.isOpen()) { throw "Cancel the existing interaction state handler first"; }
 		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self.events(), LinuxViewObservationTarget(self), receiver, LinuxViewNode.deliverState, self._input);
 		try { owner.track(channel); } catch (string error) { channel.cancel(); throw error; }
-		self._stateChannel = channel; return channel;
+		self._stateChannel = channel; self._channels.push(channel); return channel;
 	}
 
 	/* Cache inherited facts, never a second local enabled preference. Mark the
@@ -387,7 +399,7 @@ class LinuxViewNode implements IControlEventTarget {
 		if (self.host != host) {
 			if (self._generation == 9223372036854775807LL) { throw "Native view generations exhausted"; }
 			self._generation++; self.host = host;
-			if (self._stateChannel != null && self._stateChannel.isOpen()) { self._stateChannel.rebind(self.events()); }
+			for channel in self._channels { if (channel.isOpen()) { channel.rebind(self.events()); } }
 		}
 		for child in self.children { child.attachTo(host); }
 	}
@@ -448,7 +460,7 @@ class LinuxViewNode implements IControlEventTarget {
 			}
 		}
 		if (result != CALLBACK_CANCELLATION_COMPLETE) { return result; }
-		self._inputs.clear(); self._stateChannel = null; self._owner = null;
+		self._inputs.clear(); self._channels.clear(); self._stateChannel = null; self._owner = null;
 		self.host = null;
 		self.closed = true;
 		return CALLBACK_CANCELLATION_COMPLETE;
