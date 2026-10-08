@@ -388,3 +388,10 @@ cannot absorb a newer model revision. Commit/cancel tickets precede popup openin
 subscription replacement waits for complete cancellation. Legacy titles never
 serve as keys. Source checks and native execution remain pending; this does not
 close the separately outstanding native dequeue/backpressure integration.
+
+The follow-up registration fixture cancels a scope from inside an entered real
+scroll observation, requires replacement rejection until that callback leaves,
+then registers successfully after COMPLETE and receives another observation.
+Text, scroll, view-state and window-state duplicate-channel guards now test
+cancellation completion rather than merely closed admission. Selection uses the
+same rule. Runtime/semantic proof for this new fixture remains pending.

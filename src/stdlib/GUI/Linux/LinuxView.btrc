@@ -293,7 +293,7 @@ class LinuxViewNode implements IControlEventTarget {
 
 	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler receiver, CallbackScope owner) {
 		self.requireOpen(); self.pruneSemantic();
-		if (self._stateChannel != null && self._stateChannel.isOpen()) { throw "Cancel the existing interaction state handler first"; }
+		if (self._stateChannel != null && self._stateChannel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing interaction state handler first"; }
 		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self.events(), LinuxViewObservationTarget(self), receiver, LinuxViewNode.deliverState, self._input);
 		try { owner.track(channel); } catch (string error) { channel.cancel(); throw error; }
 		self._stateChannel = channel; self._channels.push(channel); return channel;

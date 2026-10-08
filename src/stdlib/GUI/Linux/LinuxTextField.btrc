@@ -67,19 +67,19 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 	}
 
 	public ICallbackRegistration onDraftChanged(ITextControlEventHandler receiver, CallbackScope owner) {
-		if (self._draft != null && self._draft.isOpen()) { throw "Cancel the existing draft handler first"; }
+		if (self._draft != null && self._draft.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing draft handler first"; }
 		var channel = self.subscribe(receiver, owner); self._draft = channel; return channel;
 	}
 
 	public ICallbackRegistration onCommit(ITextControlEventHandler receiver, CallbackScope owner) {
-		if (self._commit != null && self._commit.isOpen()) { throw "Cancel the existing commit handler first"; }
+		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing commit handler first"; }
 		var channel = self.subscribe(receiver, owner);
 		if (self._interacting) { self._commitTicket = channel.beginInteraction(); }
 		self._commit = channel; return channel;
 	}
 
 	public ICallbackRegistration onCancel(ITextControlEventHandler receiver, CallbackScope owner) {
-		if (self._cancel != null && self._cancel.isOpen()) { throw "Cancel the existing cancel handler first"; }
+		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing cancel handler first"; }
 		var channel = self.subscribe(receiver, owner);
 		if (self._interacting) { self._cancelTicket = channel.beginInteraction(); }
 		self._cancel = channel; return channel;

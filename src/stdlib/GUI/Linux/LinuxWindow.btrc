@@ -222,7 +222,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 
 	public ICallbackRegistration onStateChanged(IWindowStateHandler receiver, CallbackScope owner) {
 		self.requireOpen();
-		if (self._stateChannel != null && self._stateChannel.isOpen()) { throw "Cancel the existing window state handler first"; }
+		if (self._stateChannel != null && self._stateChannel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing window state handler first"; }
 		self.refreshWindowState();
 		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._host.events, self, receiver, LinuxWindow.deliverState, owner);
 		try { self._callbacks.track(channel); } catch (string error) { channel.cancel(); throw error; }
