@@ -180,3 +180,26 @@ queued terminal credit until record retirement and contains false/throwing
 post-admission wake failures without reporting an ambiguous rejection. The
 shared owner supplied the correction and its fixture; this provider does not
 fork that implementation. Behavior qualification is still pending.
+
+## Continuation checkpoint
+
+Latest source checkpoints: native wake/deadline ownership 52277adf, scheduler
+admission/retirement fbb98b09, shared queue dependency 978f46c8 (exact upstream
+798e3fd0). All are unpublished. Fixture-only checkpoints remain e968c459,
+d886048d, 43cd1abf and f86484a7. Four fixture choices × two frontends × two
+sanitizer variants give 16 planned Mac rows, not executed results. The final
+function name is test_ui2_native_run_loop_modes. The integrator owns exact
+collection/skip admission and the native binding fragment. A test-only export
+of the private shared queue is assigned to its owner in GUIProviderRoot; it
+must never become a production export.
+
+Next implementation dependencies: qualify the CF projection and scheduler
+instantiation under an allocated native lane; compose publisher/host/fair-turn
+execution into MacOSApplication; then connect view/window state and all control
+channels. The planned state ownership matches Linux: an application context
+owns the terminal pool and detached queue, windows own semantic queues, views
+carry copied inherited eligibility with no child-to-parent ARC backreference,
+and state-observation admission differs from domain-input eligibility. Native
+text delegates, keyed selection, slider capture, scroll observation, batch
+rollback, close transactions and retained image concurrency remain unfinished.
+No final UI2 provider, benchmark, GUI acceptance, or main integration is claimed.
