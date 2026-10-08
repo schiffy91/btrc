@@ -12,7 +12,18 @@
     NSTimeInterval _deadline;
 }
 + (instancetype)create {
-    [NSApplication sharedApplication];
+    NSApplication *application = NSApplication.sharedApplication;
+    NSApplicationActivationPolicy before = application.activationPolicy;
+    BOOL accepted = before == NSApplicationActivationPolicyRegular ||
+        [application setActivationPolicy:NSApplicationActivationPolicyRegular];
+    fprintf(stderr, "select-host policyBefore=%ld policyAccepted=%d policyAfter=%ld active=%d running=%d\n",
+        (long)before, accepted, (long)application.activationPolicy, application.active, application.running);
+    if (!accepted || application.activationPolicy != NSApplicationActivationPolicyRegular) {
+        [NSException raise:NSInternalInconsistencyException format:@"Select host requires regular activation policy"];
+    }
+    [application finishLaunching];
+    fprintf(stderr, "select-host finishLaunching=returned policy=%ld active=%d running=%d\n",
+        (long)application.activationPolicy, application.active, application.running);
     UI2SelectProbe *probe = [[self alloc] init];
     probe->_receiver = [[NSHashTable alloc] initWithOptions:NSPointerFunctionsWeakMemory | NSPointerFunctionsObjectPointerPersonality capacity:1];
     probe->_window = [[NSWindow alloc] initWithContentRect:NSMakeRect(120, 120, 400, 180)
@@ -120,11 +131,23 @@
     if (mode == 2 && !_controlDiagnostic) { [self standardKeyboardControl:(NSPopUpButton *)view]; }
     if (mode >= 2) {
         BOOL focused = [_window makeFirstResponder:view];
+        /* SDK27 permits activation to complete later or be refused. Observe
+         * the actual host state under a bounded normal run loop; do not force it. */
+        [NSApp activate];
+        NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+        NSTimeInterval deadline = started + 3.0;
+        while (focused && (!NSApp.active || !_window.keyWindow || _window.firstResponder != view) &&
+                NSProcessInfo.processInfo.systemUptime < deadline) {
+            [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+        }
+        fprintf(stderr, "select-host keyboardReady=%d policy=%ld waited=%.6f\n",
+            focused && NSApp.active && _window.keyWindow && _window.firstResponder == view,
+            (long)NSApp.activationPolicy, NSProcessInfo.processInfo.systemUptime - started);
         fprintf(stderr, "select-keyboard class=%s focusAccepted=%d firstResponder=%d accepts=%d keyWindow=%d active=%d keyCode=%u\n",
             class_getName(view.class), focused, _window.firstResponder == view, view.acceptsFirstResponder,
             _window.keyWindow, NSApp.active, (unsigned int)[self key:mode == 3 ? 'b' : ' '].keyCode);
-        if (!focused || _window.firstResponder != view) {
-            [NSException raise:NSInternalInconsistencyException format:@"Select keyboard probe requires its actual first responder"];
+        if (!focused || !NSApp.active || !_window.keyWindow || _window.firstResponder != view) {
+            [NSException raise:NSInternalInconsistencyException format:@"Select keyboard probe requires active app, key window and actual first responder"];
         }
     }
     _button = (NSPopUpButton *)view; _terminal = terminal;
