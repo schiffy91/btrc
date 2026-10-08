@@ -21,6 +21,7 @@ RUN_TIMEOUT = 30
 @pytest.mark.skipif(sys.platform != "darwin", reason="requires real AppKit")
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.macos_gui
 def test_btrc_directory_picker_appkit(tmp_path, request, gui_provider_root, frontend, sanitized):
     if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
         pytest.skip("requires the explicitly built native header reader")
@@ -112,6 +113,7 @@ def test_btrc_directory_picker_appkit(tmp_path, request, gui_provider_root, fron
 @pytest.mark.parametrize("sanitized", [False, True])
 @pytest.mark.parametrize("consumer_first", [False, True])
 @pytest.mark.parametrize("scrolling", [False, True], ids=["field", "scroll"])
+@pytest.mark.macos_gui
 def test_btrc_text_field_and_scroll_view_appkit(tmp_path, request, frontend, sanitized, consumer_first, scrolling):
     if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
         pytest.skip("requires the explicitly built native header reader")

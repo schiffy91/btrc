@@ -177,6 +177,7 @@ def summarize_macos_shell(observations):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+@pytest.mark.macos_gui
 def test_macos_native_shell(tmp_path, request, frontend, sanitized, record_property):
     if sys.platform != "darwin":
         pytest.skip("requires macOS AppKit native shell")
