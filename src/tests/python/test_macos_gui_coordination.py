@@ -53,6 +53,18 @@ class GuiProcesses:
             # Replace only the fixture owner's view of the platform. The real
             # kernel lock is exercised on POSIX, including Linux CI; no AppKit claim.
             "owner.sys = SimpleNamespace(**(vars(sys) | {'platform': os.environ['LEASE_PLATFORM']}))\n"
+            # Observe actual kernel contention. Setup readiness alone cannot
+            # prove that a contender has reached the lease on a busy runner.
+            "if os.name == 'posix':\n"
+            "    import fcntl\n"
+            "    original_flock = fcntl.flock\n"
+            "    def observed_flock(*args, **kwargs):\n"
+            "        try:\n"
+            "            return original_flock(*args, **kwargs)\n"
+            "        except BlockingIOError:\n"
+            "            Path(os.environ['LEASE_ROLE'] + '.blocked').touch()\n"
+            "            raise\n"
+            "    fcntl.flock = observed_flock\n"
             "if os.environ.get('LEASE_TIMEOUT'):\n"
             "    original = owner._exclusive\n"
             "    def bounded(path, **kwargs):\n"
@@ -131,6 +143,15 @@ class GuiProcesses:
             assert time.monotonic() < deadline, f"{role} did not reach {event}"
             time.sleep(0.01)
 
+    def wait_for_contention_or_entry(self, role, *, parent=None):
+        """Wait for real lock contention or the body, never just process setup."""
+        deadline = time.monotonic() + 15
+        while not any((self.root / f"{role}.{event}").exists() for event in ("blocked", "entered")):
+            process = self.processes[parent or role]
+            assert process.poll() is None, process.communicate()[0]
+            assert time.monotonic() < deadline, f"{role} reached neither kernel contention nor its body"
+            time.sleep(0.01)
+
     def finish(self, role, expected=0):
         process = self.processes[role]
         output = process.communicate(timeout=15)[0]
@@ -147,8 +168,19 @@ class GuiProcesses:
             if os.name == "posix":
                 # The nested orchestration regression has a child pytest.
                 # Kill its process group even if the outer leader has exited.
+                # Reap an exited leader before signalling its remaining group.
+                # Darwin may report EPERM for an unreaped zombie-only group.
+                process.poll()
                 with suppress(ProcessLookupError):
-                    os.killpg(process.pid, signal.SIGKILL)
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except PermissionError:
+                        # A leader can exit between poll and killpg. Retry only
+                        # after proving its exit; never ignore a live denial or
+                        # assume that its descendants have also exited.
+                        if process.poll() is None:
+                            raise
+                        os.killpg(process.pid, signal.SIGKILL)
             elif process.poll() is None:
                 process.kill()
             process.communicate(timeout=15)
@@ -169,6 +201,7 @@ def test_native_gui_lease_excludes_other_gui_workers_but_not_ordinary_work(gui_p
     processes.wait("holder", "entered")
     processes.start("contender")
     processes.wait("contender", "ready")
+    processes.wait_for_contention_or_entry("contender")
     processes.start("ordinary", marked=False)
     processes.wait("ordinary", "entered")
     processes.finish("ordinary")
@@ -191,6 +224,7 @@ def test_native_gui_lease_releases_after_failed_or_dead_owner(gui_processes, rel
     processes.wait("holder", "entered")
     processes.start("contender")
     processes.wait("contender", "ready")
+    processes.wait_for_contention_or_entry("contender")
     if release == "process-death":
         holder.kill()
         holder.communicate(timeout=15)
@@ -261,6 +295,7 @@ def test_native_gui_lease_covers_fixture_teardown(gui_processes):
     processes.wait("holder", "teardown")
     processes.start("contender")
     processes.wait("contender", "ready")
+    processes.wait_for_contention_or_entry("contender")
     processes.start("ordinary", marked=False)
     processes.wait("ordinary", "entered")
     processes.finish("ordinary")
@@ -309,6 +344,7 @@ def test_native_gui_unmarked_orchestrator_waits_without_owning_child_lease(gui_p
         assert processes.processes["orchestrator"].poll() is None
         assert time.monotonic() < deadline, "nested pytest did not reach setup"
         time.sleep(0.01)
+    processes.wait_for_contention_or_entry("nested", parent="orchestrator")
     if os.name != "nt":
         assert not (processes.root / "nested.setup").exists()
     processes.start("ordinary", marked=False)
