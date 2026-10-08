@@ -14,6 +14,7 @@ from tools.native_plan import NativePlanBuilder
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.macos_gui
 def test_macos_gpu_surface_owner_resize_and_close(native_project, native_compile, gui_provider_root, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
@@ -105,6 +106,7 @@ int main() {
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.macos_gui
 def test_native_window_keyboard_monitor(native_project, native_compile, gui_provider_root, sanitize):
     source, _, _ = native_project
     source.write_text((REPO / "src/tests/native/gui/NativeKeyboard.btrc").read_text())
@@ -264,6 +266,7 @@ PROVIDER_GUI_FIXTURES = {
         ("NativeLevelIndicator", "native level value"),
     ],
 )
+@pytest.mark.macos_gui
 def test_macos_panel_and_progress_controls(
     native_project, native_compile, gui_provider_root, sanitize, fixture_name, expected
 ):
@@ -521,6 +524,7 @@ def test_macos_panel_and_progress_controls(
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.macos_gui
 def test_portable_native_example_edit_apply_and_quit(native_project, native_compile, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
@@ -592,6 +596,7 @@ def test_system_text_uses_owned_btrc_rasters(native_project, native_compile, gui
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.macos_gui
 def test_macos_view_capture_owns_native_pixels(native_project, native_compile, gui_provider_root, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
@@ -648,6 +653,7 @@ def test_macos_view_capture_owns_native_pixels(native_project, native_compile, g
 
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.macos_gui
 def test_native_capture_composes_with_image_io(native_project, native_compile, gui_provider_root, reverse, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
