@@ -61,3 +61,9 @@ This checkpoint is deliberately before provider edits. Native red has **not**
 run: the Linux qualification owns the lane. The expected baseline failure is
 current wake() rejecting the worker thread; execution must confirm it when the
 integrator grants a slot. No native or E04 pass is claimed.
+
+The driver was renamed to `test_native_ui_core_macos.py` after verifying the
+canonical `test_native_ui_*.py` discovery at Makefile:344. This is a fixture-only
+follow-up to e968c459, whose original red candidate remains retained. The
+`macos_gui` marker is present; the integrator owns adding the final execution
+function inventory at atomic landing. No Makefile exception is needed.
