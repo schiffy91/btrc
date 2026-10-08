@@ -90,8 +90,10 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 		var handler = self._pointer;
 		if (handler == null) { return false; }
 		self._delivering++;
-		try { return handler.pointer(AppPointerEvent(action, button, self._x, self._y, self._modifiers, clicks)); }
+		bool consumed = false;
+		try { consumed = handler.pointer(AppPointerEvent(action, button, self._x, self._y, self._modifiers, clicks)); }
 		finally { self._delivering--; }
+		return consumed;
 	}
 
 	private void cancelCapture() {

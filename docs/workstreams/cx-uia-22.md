@@ -576,3 +576,11 @@ The new probes and corrections are source-only. Application host wiring must
 call the guarded context service; direct shared-queue dispatch remains a private
 API and is not a substitute for that integration. No root callback, threshold,
 or native ownership assertion was weakened.
+
+A second independent source review found a BTRC control-flow mismatch in the
+new pointer entry counter: this language's current `finally` behavior does not
+run on a return escaping the `try`. The provider now stores the callback result,
+falls through the cleanup, and returns afterward. Existing barrier fixtures
+require final COMPLETE and balanced terminal credit after an actual PRESS, so
+they cover the resulting stuck-drain failure. No compiler change or execution
+claim accompanies this source correction.
