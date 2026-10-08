@@ -686,9 +686,21 @@ releases owner edges. All twelve groups close and inputs remain unchanged;
 independent review is clear. Receipt SHA-256 is
 `f1c983cb2d3747d5e335b20b944e97822763639f1f93c5fca7a88b79cedbb4fe`
 in `btrsmith-window-close-f75-destructor-baseline-attempt-2/result.json`.
-The final candidate remains unexecuted. Native failure propagation, native-close handling and
-final-owner destruction remain unqualified; the thrown-close guard is source
-reviewed only. Product fixture `37bbb680` is now published privately on
+Candidate `8f73b7d5` now passes all eight native cases with compiler `f75c737b`:
+normal close, FAILED-state propagation with retained dependencies, native-close
+handling, and final-owner destruction through each frontend. Both destructor
+children stop at the exact fatal message with SIGABRT, before the after-delete
+marker. The original paired Make and link-plan parity also pass. Independent
+review authenticates both counterfactual receipts, all 846 product and 4,499
+compiler files/modes, 39 tools/wrappers, native binaries/logs, and all 13 closed
+process groups. Inputs remain unchanged. Result
+`btrsmith-window-close-f75-candidate-attempt-2/result.json` has SHA-256
+`c99e68fdcb2ca100006fac930b480e5009449de74e257c2aeb3a844e32ab56c4`.
+This is bounded macOS source-override qualification in the retained dependency
+shell with SDK 14.4. Thrown-close handling remains source-reviewed only; retained
+ownership in the deliberate failure child does not prove failed-resource cleanup
+or cycle collection. Existing compiler/Nix warnings remain. Linux, installed
+product, dependency-pin and complete MVP acceptance are still required. Product fixture `37bbb680` is now published privately on
 `codex/native-shutdown-lifecycle`, satisfying the Linux replay's source
 reachability requirement without changing the current dependency pin.
 
@@ -740,17 +752,21 @@ bundle attempt reached its unchanged 45-minute job limit during Nix dependency
 realization, before compiler/bundle tests. Its retained log digest is
 `1cd1b8ca7ce8466b4e9498fbba383a74a2442d8543d889dc327428cd29b40588`;
 cache HTTP 429 is observed but not established as the sole cause. GitHub refused
-the immediate single-job rerun request; no retry started. Reconsider one
-unchanged retry after the original workflow is terminal. The macOS unit shard
+the immediate single-job rerun request while the workflow was live; that request
+started no retry. The original workflow is now terminal: bootstrap, both corpora,
+self-hosted tests, C11 O0/O2 and the ARM64 bundle pass. The macOS unit shard
 has now failed: 660 failures, 260 errors, 9,213 passes and 227 skips. Its log
 records previously used native-reader and Python store paths disappearing during
 the run, with secondary Python-module and child-start failures. No removal/GC
-cause is established and no blanket infrastructure classification or retry is
-claimed. Job `113343316411` log SHA-256 is
+cause is established; do not classify all failures as infrastructure. Job `113343316411` log SHA-256 is
 `2cb00dd368165e68e2038d6fb5c94742be882d3631ffa2774f541554755fd0be`; artifact `11561484842` retains the main failing unit report separately
-from a nested one-pass child report. Root-cause analysis and the complete Mac
-matrix remain open. Do not merge until the failure is resolved and required
-skip/native evidence is qualified.
+from a nested one-pass child report. On October 8 at 16:19 UTC, the one unchanged
+failed-job replay was accepted as attempt 2: unit tests and the x64 bundle are
+queued, with successful jobs retained. The original terminal snapshot has SHA-256
+`4f4515b61e8e280b0588ba6f727aa67016d757afb45e33c92de8488898e9ff24`
+in `pr68-00e45379-macos-retry-2/attempt-1-terminal.json`. Root-cause analysis and
+the complete Mac matrix remain open. Do not merge until the failure is resolved
+and required skip/native evidence is qualified.
 
 Windows PR53 previously merged on main at
 `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Its source tree is exactly the
@@ -1045,7 +1061,7 @@ changes; historical test totals alone do not advance its status.
 | Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish Mac integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
 | UI2 events, executor and lifecycle on desktop | macOS foundation and ordered-container components have scoped native passes. Window and capture/run-loop replay each add eight native passes on compiler `f75c737b`. The public application baseline exposed 19 missing methods; their implementations now exist, with combined qualification open | Application, text-field and range/selection owners | Qualify the implemented methods with original native assertions and complete remaining application integration. Linux Window source is reviewed; its native baseline/candidate run awaits a hosted slot. Full UI2 and application quit remain open. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. With compiler `f75c737b`, Linux paired live-agent acceptance passes. Fixture repair `37bbb680` now passes original macOS native shutdown and link-plan parity through both compilers. | BTRSmith owner and integrator | Replay the corrected real-startup fixture on Linux, repair non-complete window-close propagation, then complete paired audio, installed-product and dependency-pin qualification. The full MVP remains incomplete. |
+| BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. With compiler `f75c737b`, Linux paired live-agent acceptance passes. Fixture repair `37bbb680` passes original macOS native shutdown; production repair `8f73b7d5` passes all eight macOS window-close cases and link-plan parity through both compilers, with independent review clear. | BTRSmith owner and integrator | Qualify the corrected lifecycle and window-close behavior on Linux, then complete paired audio, installed-product and dependency-pin qualification. The full MVP remains incomplete. |
 | One qualified implementation on main | PR69 is merged at `cbd3ddcd`; its post-merge Linux/macOS/Windows/Windows ARM64 workflows pass. Published PR68 `00e45379` passes 172 affected checks, generated/lint/format and the unchanged hosted benchmark gate; full qualification is active. | Main integrator | Complete final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip classification and applicable native evidence, then merge qualified repairs. UI2 and product changes retain separate acceptance requirements. |
 
 For usable-library status, use the existing native catalog and platform inventory
