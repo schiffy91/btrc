@@ -108,3 +108,32 @@ capture, and requires resumed presentation after external SDL show.
 These fixtures precede their three production corrections. They are unexecuted
 red candidates, not historical-result reclassifications. No minimized/restore
 or new exposure API is added by this existing hide/show repair.
+
+### Existing-interface corrections
+
+Additional fixture-only commit: `ea84a24b` (event-pump repair already present;
+Cut/upward-popup/external-visibility production still unchanged there).
+
+- `LinuxTextField.copySelection` reports clipboard publication success. Cut
+  mutates text/selection only after that success; Copy and empty selection
+  retain their existing behavior.
+- `LinuxSelect` retains the control-local vertical offset computed when its
+  overlay is painted. Hit testing no longer recomputes a different placement
+  using a fictitious window origin of zero. No new popup sizing contract.
+- `LinuxWindow` gates rendering and wakeups through its existing native-aware
+  `isVisible`, updates state on external hidden/shown events, and lays out on
+  show before resuming presentation. Offscreen capture bypasses visibility.
+
+All fixture/production files pass syntax/format and Python lint checks. These
+are source checks only; the entire 80-row native paired/plain/sanitized suite,
+fixture-only failures and existing GUI controls still await the allocated
+Linux lane. The E40 frame observer now requires `wgpu-native` headers alongside
+SDL3, already part of that lane. The test driver is normally selected by
+`test-native-gui`'s existing glob. No native build or guest was run.
+
+Run the packet with the earlier command replacing `-k linux_event_boundary`
+with `-k "linux_event_boundary or linux_input_repair or linux_gui_controls"`.
+Before publication the integrator must add the driver/node IDs to the existing
+Linux-native-reader platform skip rules on Mac/hosted Mac, preserving their
+Linux coverage and failure semantics. The E40 catalog must retain the old
+recorded failures until new source-matched native evidence qualifies promotion.
