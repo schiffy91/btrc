@@ -1,6 +1,7 @@
 import Library.Callback;
 import Library.GUI.IView;
 import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSButton;
 import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.MacOS.MacOSRunLoop;
 
@@ -43,6 +44,19 @@ int main() {
 	assert(context.detachedEvents.dispatchOne());
 	assert(view.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
 	receiver.closing = null;
+	var button = MacOSButton("Native enabled state", null, context);
+	var buttonReceiver = NativeStateReceiver();
+	button.onInteractionStateChanged(buttonReceiver, scope);
+	button.setEnabled(false);
+	assert(!button.isEnabled() && !button.interactionState().localEnabled);
+	assert(context.detachedEvents.dispatchOne());
+	button.setVisible(false); button.setVisible(true);
+	assert(!button.isEnabled() && !button.interactionState().localEnabled);
+	assert(context.detachedEvents.dispatchOne());
+	button.setEnabled(true);
+	assert(button.isEnabled() && button.interactionState().localEnabled);
+	assert(context.detachedEvents.dispatchOne());
+	assert(button.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	context.close(); signal.close();
 	print("UI2 native view visibility updates revisioned state without inline delivery");
