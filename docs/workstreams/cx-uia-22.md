@@ -236,3 +236,10 @@ registry now lazily initializes nullable storage, and the source constructor
 uses a non-null local OwnedClosure for context construction. No compiler rule
 was relaxed. Five fixture choices yield 20 planned paired/sanitized rows; none
 of these new UI2 rows has executed yet.
+
+Publisher fixture now also calls a false-returning and a throwing host from a
+real producer. Both faults occur after admission: the producer must receive
+ACCEPTED, subsequent ingress is closed, UI service reports the wake failure,
+and cancellation retires exactly one FAILED receipt without callback delivery.
+This source-only fixture precedes the publisher implementation commit; no
+executed red/native result is claimed.
