@@ -72,7 +72,7 @@ class MacOSRunLoopDispatch {
  * Empty slots are reused only after source invalidation and callback drain.
  * No worker looks up, retains or releases any registry entry. */
 class MacOSRunLoopRegistry {
-	private class Vector<MacOSRunLoopDispatch?>? _slots;
+	class Vector<MacOSRunLoopDispatch?>? _slots;
 
 	class Vector<MacOSRunLoopDispatch?> slots() {
 		if (!NSThread.isMainThread()) { throw "Native run-loop registry requires the main thread"; }
