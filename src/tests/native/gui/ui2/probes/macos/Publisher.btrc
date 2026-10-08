@@ -92,6 +92,28 @@ int main() {
 		assert(failed.retired(CONTROL_EVENT_FAILED) == 1LL);
 		assert(failedScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	}
+	/* Suspension/resume is already committed when its source wake fails.
+	 * The publisher must seal ingress and account for the admitted record. */
+	for (int index = 0; index < 2; index++) {
+		var brokenSignal = MacOSRunLoopSignal();
+		var brokenScope = CallbackScope();
+		var brokenReceiver = PublicationReceiver();
+		var broken = MacOSPublisher(1, brokenSignal);
+		assert(broken.initialized()); broken.activate(brokenReceiver, brokenScope);
+		assert(broken.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 110LL) == PUBLISH_ACCEPTED);
+		if (index == 1) { broken.suspend(true); }
+		brokenSignal.close();
+		broken.suspend(index == 0);
+		assert(broken.failed());
+		assert(broken.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 120LL) == PUBLISH_CLOSED);
+		bool caught = false;
+		try { broken.deliverOne(); }
+		catch (string error) { caught = error == "Native publisher wake failed"; }
+		assert(caught && brokenReceiver.values.isEmpty());
+		assert(broken.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(broken.retired(CONTROL_EVENT_FAILED) == 1LL && broken.pendingCount() == 0);
+		assert(brokenScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	}
 	signal.close();
 	print("UI2 worker publication preserves capacity, receipt identity and cancellation ownership");
 	return 0;
