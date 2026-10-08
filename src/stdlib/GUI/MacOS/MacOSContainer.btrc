@@ -219,6 +219,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 		if (count > known.len) { throw "Native container contains unowned children"; }
 		for (int index = 0; index < count; index++) {
 			var child = BTRCMacOSContainerOrder.childAt(index, parent, self.arrangedOrder());
+			if (child == null) { throw "Native child membership cannot be reconciled"; }
 			MacOSContainerChild? owner = null;
 			for entry in known { if (self.capturedView(entry) == child) { owner = entry; } }
 			if (owner == null || self.entryIndex(actual, owner.view) >= 0 || child.superview() != parent) { throw "Native child membership cannot be reconciled"; }

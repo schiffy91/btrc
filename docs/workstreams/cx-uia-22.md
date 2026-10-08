@@ -611,3 +611,14 @@ plus legitimate changed interaction-state notifications; it does not fabricate
 state changes when eligibility is unchanged. Tree-notification acceptance stays
 open pending the integrator's contract interpretation. No public API or contract
 document was changed.
+
+The corrected-selector attempt at `4d1cd3d0` reached real reference BTRC
+transpilation for NativeTreeState, then stopped under the unchanged zero-
+diagnostics policy on one nullable `NSView? .superview` warning in native-order
+reconciliation. Session 70984 ended with exit 1 after 10.364 seconds and released
+both locks. Generated C and link plan are retained under
+`ui2-macos-container-projection-4d1cd3d0/results/projection1/reference/`; the other
+two fixtures and all C/link/runtime phases were not attempted. The source
+correction explicitly rejects a null child from the native enumeration before
+looking up its owner or checking its parent, preserving the existing failure
+classification. Its diagnostic-free replay remains pending.
