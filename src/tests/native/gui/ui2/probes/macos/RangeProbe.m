@@ -1,13 +1,37 @@
 #import "RangeProbe.h"
+#include <stdio.h>
 
 static NSWindow *rangeWindow;
 static NSInteger rangeEventNumber = 20000;
+
+/* Diagnostic-only target forwarding preserves the exact native action and
+ * sender while distinguishing no native movement from provider projection. */
+@interface UI2RangeActionObservation : NSObject
+@property(nonatomic, retain) id target;
+@property(nonatomic) SEL action;
+@property(nonatomic, copy) NSString *label;
+@property(nonatomic) NSUInteger count;
+- (void)observe:(NSSlider *)slider;
+@end
+
+@implementation UI2RangeActionObservation
+- (void)dealloc { self.target = nil; self.label = nil; [super dealloc]; }
+- (void)observe:(NSSlider *)slider {
+    self.count++;
+    fprintf(stderr, "RANGE_NATIVE_ACTION kind=%s count=%lu before=%.17g\n",
+        self.label.UTF8String, (unsigned long)self.count, slider.doubleValue);
+    if (self.action) [NSApp sendAction:self.action to:self.target from:slider];
+    fprintf(stderr, "RANGE_NATIVE_ACTION kind=%s count=%lu after=%.17g\n",
+        self.label.UTF8String, (unsigned long)self.count, slider.doubleValue);
+}
+@end
 
 @interface UI2RangeProbe ()
 @property(nonatomic, retain) NSHashTable *eventSlots;
 @property(nonatomic, retain) id originalTarget;
 @property(nonatomic) SEL originalAction;
 @property(nonatomic) BOOL intervened;
++ (void)observeDrag:(NSSlider *)slider fraction:(double)fraction label:(NSString *)label;
 @end
 
 @implementation UI2RangeProbe
@@ -71,6 +95,27 @@ static NSInteger rangeEventNumber = 20000;
 + (double)projected:(NSView *)view { return [(NSSlider *)view doubleValue]; }
 + (void)drag:(NSView *)view fraction:(double)fraction {
     NSSlider *slider = (NSSlider *)view;
+    NSSlider *stock = [[NSSlider alloc] initWithFrame:slider.frame];
+    NSResponder *responder = [rangeWindow.firstResponder retain];
+    @try {
+        NSCAssert(stock && slider.superview && slider.window == rangeWindow, @"Range diagnostic requires its existing native host");
+        stock.bounds = slider.bounds;
+        stock.minValue = slider.minValue; stock.maxValue = slider.maxValue;
+        stock.numberOfTickMarks = slider.numberOfTickMarks;
+        stock.tickMarkPosition = slider.tickMarkPosition;
+        stock.allowsTickMarkValuesOnly = slider.allowsTickMarkValuesOnly;
+        stock.sliderType = slider.sliderType; stock.vertical = slider.vertical;
+        stock.controlSize = slider.controlSize; stock.continuous = slider.continuous;
+        stock.enabled = slider.enabled; stock.doubleValue = slider.doubleValue;
+        [slider.superview addSubview:stock];
+        [self observeDrag:stock fraction:fraction label:@"stock"];
+    } @finally {
+        [stock removeFromSuperview]; [stock release];
+        [rangeWindow makeFirstResponder:responder]; [responder release];
+    }
+    [self observeDrag:slider fraction:fraction label:@"provider"];
+}
++ (void)observeDrag:(NSSlider *)slider fraction:(double)fraction label:(NSString *)label {
     [slider layoutSubtreeIfNeeded];
     NSSliderCell *cell = (NSSliderCell *)slider.cell;
     NSRect knob = [cell knobRectFlipped:slider.flipped];
@@ -78,6 +123,13 @@ static NSInteger rangeEventNumber = 20000;
     NSPoint start = [slider convertPoint:NSMakePoint(NSMidX(knob), NSMidY(knob)) toView:nil];
     double travel = MAX(0, NSWidth(track) - NSWidth(knob));
     NSPoint finish = [slider convertPoint:NSMakePoint(NSMinX(track) + NSWidth(knob) / 2 + fraction * travel, NSMidY(knob)) toView:nil];
+    fprintf(stderr, "RANGE_NATIVE_GEOMETRY kind=%s frame=%s bounds=%s track=%s knob=%s start=%s finish=%s travel=%.17g value=%.17g min=%.17g max=%.17g active=%d key=%d first=%d\n",
+        label.UTF8String, NSStringFromRect(slider.frame).UTF8String,
+        NSStringFromRect(slider.bounds).UTF8String, NSStringFromRect(track).UTF8String,
+        NSStringFromRect(knob).UTF8String, NSStringFromPoint(start).UTF8String,
+        NSStringFromPoint(finish).UTF8String, travel, slider.doubleValue,
+        slider.minValue, slider.maxValue, NSApp.active, rangeWindow.keyWindow,
+        rangeWindow.firstResponder == slider);
     NSInteger number = rangeEventNumber; rangeEventNumber += 3;
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
     NSEvent *up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:finish modifierFlags:0
@@ -88,10 +140,23 @@ static NSInteger rangeEventNumber = 20000;
         timestamp:now windowNumber:rangeWindow.windowNumber context:nil eventNumber:number clickCount:1 pressure:1];
     /* Invoke the real native tracking implementation; queued native drag/up
      * are consumed by its tracking loop, never by semantic test shortcuts. */
-    [NSApp postEvent:up atStart:YES];
-    [NSApp postEvent:drag atStart:YES];
-    @try { [slider mouseDown:down]; }
-    @finally {
+    id originalTarget = [slider.target retain];
+    SEL originalAction = slider.action;
+    UI2RangeActionObservation *observation = nil;
+    @try {
+        observation = [[UI2RangeActionObservation alloc] init];
+        NSCAssert(observation, @"Range diagnostic requires an action observer");
+        observation.target = originalTarget; observation.action = originalAction; observation.label = label;
+        slider.target = observation; slider.action = @selector(observe:);
+        [NSApp postEvent:up atStart:YES];
+        [NSApp postEvent:drag atStart:YES];
+        [slider mouseDown:down];
+    } @finally {
+        fprintf(stderr, "RANGE_NATIVE_RESULT kind=%s actions=%lu value=%.17g active=%d key=%d\n",
+            label.UTF8String, (unsigned long)observation.count, slider.doubleValue,
+            NSApp.active, rangeWindow.keyWindow);
+        slider.target = originalTarget; slider.action = originalAction;
+        [observation release]; [originalTarget release];
         /* A refused/abandoned track can leave our own up/drag queued. Remove
          * only this call's numbered events; never consume unrelated input. */
         for (int index = 0; index < 2; index++) {
