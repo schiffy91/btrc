@@ -1035,27 +1035,76 @@ def test_worker_timing_never_changes_the_units(compiler: str, tmp_path, request)
     assert quiet.units == timed.units
 
 
-def test_native_include_scan_formats_each_body_once(tmp_path, monkeypatch):
+def test_native_include_scan_formats_each_body_once(native_project, tmp_path, monkeypatch):
     from collections import Counter
 
     from src.compiler.python.backend.c_emitter import CEmitter
 
-    workspace = _Workspace(tmp_path.resolve())
+    source, sdk, triple = native_project
+    source = source.resolve()
+    output = tmp_path / "output"
+    output.mkdir()
     calls = Counter()
     emit = CEmitter._emit_function
 
     def counted(emitter, function):
-        if function.source_file and Path(function.source_file).is_relative_to(workspace.modules):
+        if function.source_file and Path(function.source_file).is_relative_to(source.parent):
             calls[(function.source_file, function.name)] += 1
         return emit(emitter, function)
 
     monkeypatch.setattr(CEmitter, "_emit_function", counted)
-    result, units = workspace.build("CatalogMain.btrc", tmp_path / "output", monkeypatch)
-    assert any('#include "ShapeScale.h"' in unit for unit in units.values())
-    assert calls and set(calls.values()) == {1}, calls
-    assert workspace.run(result, tmp_path / "output") == (
-        "catalog skipped empty shape of area 0\ncatalog total 15\ngallery value 1\n"
+    result = Compiler().compile(
+        source.read_text(),
+        str(source),
+        CompilerOptions(
+            include_stdlib=False,
+            use_cache=False,
+            module_units=True,
+            module_jobs=1,
+            units_prefix=str(output / "program"),
+            generated_c_path=str(output / "program.c"),
+        ),
     )
+    assert result.failure is None, result.failure
+    assert {Path(file).name for file, _name in calls} >= {"Main.btrc", "Foundation.btrc"}
+    assert any('#include "Foundation.h"' in unit for unit in result.c_units)
+    assert any('#include "Foundation.h"' not in unit for unit in result.c_units)
+    assert calls and set(calls.values()) == {1}, calls
+    sources = [output / "program.c"]
+    sources[0].write_text(result.c_source)
+    for name, text in zip(result.unit_names, result.c_units, strict=True):
+        path = output / f"program.{name}.c"
+        path.write_text(text)
+        sources.append(path)
+    executable = output / "program"
+    built = subprocess.run(
+        [
+            "/usr/bin/clang",
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            "-isysroot",
+            sdk,
+            "-target",
+            triple,
+            f"-I{source.parent.parent}",
+            *map(str, sources),
+            "-framework",
+            "CoreFoundation",
+            "-o",
+            str(executable),
+        ],
+        env=apple_environment(),
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert built.returncode == 0, built.stderr
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0, ran.stderr
 
 
 def test_native_include_scan_keeps_macro_only_and_unknown_headers():

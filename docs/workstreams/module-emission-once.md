@@ -46,8 +46,18 @@ BTRC format and diff whitespace checks pass.
 
 ## Qualification still required
 
-The new real CatalogMain regression must demonstrate repeated formatting on
-the unchanged baseline and one formatting traversal on the candidate. The other
+The first CatalogMain counterfactual unexpectedly passed on unchanged3974:
+its plain C include supplied no native binding metadata, so it never exercised
+header pruning. That result remains retained as an invalid-regression result
+(`module-emission-once/counterfactual/result.json`, SHA prefix6143e8f4); no
+candidate tests or build followed it. The corrected regression uses the existing
+actual CoreFoundation binding fixture, public compiler API at one worker,
+registered native include selection, and strict native compile/run. It must
+still demonstrate repeated formatting on the baseline and one traversal on the
+candidate. Its non-macOS skip is already classified by the existing
+`native-reader-macos-only` manifest rule for this module, with hosted macOS as
+the counterpart. No manifest, denominator, marker or provider requirement is
+weakened. The other
 new cases cover independent release/debug layouts, reused emitter state, final
 IR validation, freestanding prologues, macro-only header demand and unknown
 headers. Run these and the original affected checks, rebuild the candidate
