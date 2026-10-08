@@ -1,0 +1,598 @@
+name: Current product compiler memory diagnostic
+on:
+  push:
+    branches: [codex/diagnostic-current-product-memory-3974]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: current-product-memory-3974
+  cancel-in-progress: false
+jobs:
+  linux-x86-64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 3974d47bc87851b1ac19b8d2b4bd5022f2d94676
+          path: B
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 92691bee1b19f682d7864f3a55e8a2938f2eb00f
+          path: C
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: schiffy91/btrsmith
+          ref: d3fb25f491137ebb0f9c1f06757301cb39595a80
+          path: product
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: false
+      - name: Install immutable diagnostic and original bounded owner
+        run: |
+          set -euo pipefail
+          mkdir task evidence
+          cat > task/run-stage.py <<'BTRC_DIAGNOSTIC_FILE_0'
+          """Bounded owner for an unchanged hosted workflow stage, not a product wrapper."""
+          import argparse
+          import json
+          import os
+          from pathlib import Path
+          import signal
+          import subprocess
+          import time
+          
+          
+          class Interrupted(Exception):
+              def __init__(self, signum):
+                  self.signum = signum
+          
+          
+          def interrupted(signum, frame):
+              raise Interrupted(signum)
+          
+          
+          def main():
+              parser = argparse.ArgumentParser()
+              parser.add_argument('--seconds', type=int, required=True)
+              parser.add_argument('--label', required=True)
+              parser.add_argument('command', nargs=argparse.REMAINDER)
+              args = parser.parse_args()
+              command = args.command[1:] if args.command[:1] == ['--'] else args.command
+              if not command or not args.label.isidentifier() or not 1 <= args.seconds <= 7200:
+                  raise SystemExit('Invalid bounded stage invocation')
+              evidence = Path(os.environ['GITHUB_WORKSPACE']) / 'evidence'
+              receipt = evidence / (args.label + '-process.json')
+              if receipt.exists():
+                  raise SystemExit('Refusing to overwrite stage evidence')
+              record = {'label': args.label, 'command': command, 'started_unix': time.time(),
+                        'timeout_seconds': args.seconds, 'state': 'running'}
+              def save():
+                  receipt.write_text(json.dumps(record, indent=2) + '\n')
+              save()
+              signal.signal(signal.SIGTERM, interrupted)
+              signal.signal(signal.SIGINT, interrupted)
+              process = None
+              status = 1
+              try:
+                  process = subprocess.Popen(command, start_new_session=True)
+                  record['pid'] = process.pid
+                  record['owned_process_group'] = process.pid
+                  save()
+                  code = process.wait(timeout=args.seconds)
+                  record['returncode'] = code
+                  status = code if code >= 0 else 128 - code
+                  record['state'] = 'completed' if code == 0 else 'failed'
+              except subprocess.TimeoutExpired:
+                  record['state'] = 'timeout'
+                  status = 124
+              except Interrupted as error:
+                  record.update(state='interrupted', signal=error.signum)
+                  status = 128 + error.signum
+              except BaseException as error:
+                  record.update(state='failed', error=repr(error))
+              finally:
+                  # Repeated cancellation cannot interrupt this bounded retirement.
+                  signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                  signal.signal(signal.SIGINT, signal.SIG_IGN)
+                  if process is not None:
+                      try:
+                          try:
+                              os.killpg(process.pid, signal.SIGTERM)
+                          except ProcessLookupError:
+                              pass
+                          deadline = time.monotonic() + 10
+                          while time.monotonic() < deadline:
+                              process.poll()
+                              try:
+                                  os.killpg(process.pid, 0)
+                              except ProcessLookupError:
+                                  break
+                              time.sleep(0.05)
+                      finally:
+                          # A leader can exit while descendants retain its group.
+                          try:
+                              os.killpg(process.pid, signal.SIGKILL)
+                          except ProcessLookupError:
+                              pass
+                          try:
+                              record['reaped_returncode'] = process.wait(timeout=10)
+                              record['leader_reaped'] = True
+                          except subprocess.TimeoutExpired:
+                              record.update(state='cleanup-failed', leader_reaped=False)
+                              status = 125
+                  record.update(wrapper_status=status, finished_unix=time.time())
+                  save()
+              return status
+          
+          
+          if __name__ == '__main__':
+              raise SystemExit(main())
+          BTRC_DIAGNOSTIC_FILE_0
+          cat > task/diagnostic.py <<'BTRC_DIAGNOSTIC_FILE_1'
+          """Source-pinned Linux product diagnostic; run stages under unchanged run-stage.py."""
+          import hashlib
+          import json
+          import math
+          import os
+          from pathlib import Path
+          import platform
+          import shutil
+          import statistics
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          
+          sys.dont_write_bytecode = True
+          HERE = Path(__file__).resolve().parent
+          ROOT = Path(os.environ.get('DIAGNOSTIC_ROOT', '/workspace'))
+          OUT = ROOT / 'evidence'
+          PINS = json.loads((HERE / 'input-pins.json').read_text())
+          
+          
+          def require(ok, message):
+              if not ok:
+                  raise RuntimeError(message)
+          
+          
+          def sha(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+          
+          
+          def save(name, value):
+              (OUT / name).write_text(json.dumps(value, indent=2) + '\n')
+          
+          
+          def invoke(argv, cwd=None, env=None):
+              # The unchanged outer stage owner owns the deadline and entire process group.
+              result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True)
+              require(result.returncode == 0, f'Command failed {argv}: {result.stderr.decode(errors="replace")}')
+              return result.stdout
+          
+          
+          def inventory(root):
+              result = {}
+              for path in sorted(root.rglob('*')):
+                  require(not path.is_symlink(), 'Unexpected output symlink: ' + str(path))
+                  if path.is_file():
+                      result[str(path.relative_to(root))] = {'sha256': sha(path), 'mode': path.stat().st_mode & 0o777}
+              return result
+          
+          
+          def source_inputs():
+              rows = {}
+              for role in ('B', 'C', 'product'):
+                  tree = ROOT / role
+                  listing = invoke(['git', '-C', str(tree), 'ls-tree', '-r', PINS[role]['revision']])
+                  require(hashlib.sha256(listing).hexdigest() == PINS[role]['tree_sha256'], 'Wrong source tree: ' + role)
+                  require(invoke(['git', '-C', str(tree), 'rev-parse', 'HEAD']).decode().strip() == PINS[role]['revision'], 'Wrong checkout')
+                  tracked = {}
+                  for line in listing.decode().splitlines():
+                      metadata, name = line.split('\t', 1)
+                      mode, kind, blob = metadata.split()
+                      path = tree / name
+                      require(kind == 'blob' and mode in ('100644', '100755') and not path.is_symlink(), 'Unexpected source kind')
+                      data = path.read_bytes()
+                      require(hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() == blob, 'Changed input: ' + name)
+                      require(bool(path.stat().st_mode & 0o111) == (mode == '100755'), 'Changed executable mode')
+                      tracked[name] = {'sha256': sha(path), 'mode': path.stat().st_mode & 0o777}
+                  require(not invoke(['git', '-C', str(tree), 'status', '--porcelain', '--untracked-files=all']), 'Dirty tracked/index/untracked source')
+                  if role != 'product':
+                      for package in ('src', 'tools'):
+                          actual = {package + '/' + k: v for k, v in inventory(tree / package).items()}
+                          require(actual == {k: v for k, v in tracked.items() if k.startswith(package + '/')}, 'Additional production input')
+                  if role == 'product':
+                      actual_paths = {str(p.relative_to(tree)) for p in tree.rglob('*') if (p.is_file() or p.is_symlink()) and '.git' not in p.relative_to(tree).parts}
+                      require(actual_paths == set(tracked), 'Additional product source/cache input')
+                  rows[role] = {'files': tracked, 'index_sha256': hashlib.sha256(invoke(['git', '-C', str(tree), 'ls-files', '--stage'])).hexdigest()}
+              for package in ('src', 'tools'):
+                  b = {k: v for k, v in rows['B']['files'].items() if k.startswith(package + '/')}
+                  c = {k: v for k, v in rows['C']['files'].items() if k.startswith(package + '/')}
+                  changed = {k for k in b.keys() | c.keys() if b.get(k) != c.get(k)}
+                  require(changed == {k for k in PINS['production_owners'] if k.startswith(package + '/')}, 'Unexpected production delta')
+              return rows
+          
+          
+          def tools():
+              result = {'host': platform.platform(), 'machine': platform.machine(), 'environment': {k: os.environ.get(k) for k in ('BTRC_NATIVE_HEADER_READER', 'BTRC_NATIVE_TARGET', 'BTRC_NATIVE_SYSROOT', 'PKG_CONFIG_PATH', 'PATH', 'NIX_CFLAGS_COMPILE', 'NIX_LDFLAGS')}}
+              require(platform.system() == 'Linux' and platform.machine() == 'x86_64', 'Wrong host')
+              for name in ('cc', 'python3'):
+                  path = shutil.which(name)
+                  require(path is not None, 'Missing tool: ' + name)
+                  result[name] = {'path': path, 'resolved': str(Path(path).resolve()), 'sha256': sha(path)}
+              reader = os.environ.get('BTRC_NATIVE_HEADER_READER')
+              require(reader and Path(reader).is_file(), 'Missing selected SDK reader')
+              require(os.environ.get('BTRC_NATIVE_TARGET') == 'x86_64-unknown-linux-gnu', 'Wrong native target')
+              result['selected_reader'] = {'path': reader, 'sha256': sha(reader)}
+              result['interpreter'] = {'path': sys.executable, 'sha256': sha(sys.executable)}
+              return result
+          
+          
+          def emitted(run):
+              out = run / 'out'
+              require((out / 'p.c').is_file() and (out / 'p.json').is_file(), 'Missing primary artifacts')
+              raw = inventory(out)
+              leases = {'.btrc-publications.lock', '.btrc-output-' + hashlib.sha256(os.fsencode(out / 'p.c')).hexdigest() + '.publish.lock'}
+              require(leases <= raw.keys(), 'Missing exact publication leases')
+              semantic = {}
+              for name in raw:
+                  path = out / name
+                  if name in leases:
+                      require(path.stat().st_size == 0, 'Nonempty lease')
+                  else:
+                      require(path.suffix in ('.c', '.h', '.json'), 'Unknown emitted artifact: ' + name)
+                      text = path.read_text().replace(str(run), '<run>').replace(str(ROOT / 'B'), '<compiler-tree>')
+                      semantic[name] = hashlib.sha256(text.encode()).hexdigest()
+              require(any('p.unit-' in n and n.endswith('.c') for n in semantic), 'No actual module units')
+              return {'raw': raw, 'semantic': semantic}
+          
+          
+          def qualification(role, label):
+              tree = ROOT / role
+              env = os.environ | {'PYTHONDONTWRITEBYTECODE': '1', 'PYTEST_DISABLE_PLUGIN_AUTOLOAD': '1', 'BTRC_TEST_RUNNER': 'linux-devcontainer', 'BTRC_TEST_BTRCC': str(tree / 'bin/btrcc'), 'BTRC_HOME': str(tree / 'src'), 'TOKEN_LIFETIME_REPO': str(tree), 'PYTHONPATH': str(tree), 'BTRC_CACHE_DIR': str(OUT / (role + '-qualification-cache')), 'BTRC_STATE_DIR': str(OUT / (role + '-qualification-state'))}
+              selections = json.loads((HERE / 'semantics-selection.json').read_text())
+              cells = {'diagnostics': (['-p', 'src.tests.conftest', str(HERE / 'test_production_boundaries.py')], 120), 'managed': (['src/tests/runner.py', '--compilers=both', '-k', 'FstringEscapes or StringCharEscapes or ExceptionCleanupScopeMarkers or SwitchCaseScopeArc'], 8), 'scope': (['src/tests/btrc/test_scope_capture_parity.py'], 18), 'modules': (['--compilers=both', *selections['selectors']], 18)}
+              arguments, count = cells[label]
+              command = [sys.executable, '-m', 'pytest', '-q', '-c', str(tree / 'pyproject.toml'), '--rootdir', str(tree), '-p', 'no:cacheprovider', *arguments]
+              collected = invoke([*command, '--collect-only'], cwd=tree, env=env)
+              (OUT / f'{role}-{label}.collection').write_bytes(collected)
+              ids = [x.strip() for x in collected.decode().splitlines() if '::' in x and not x.startswith(' ')]
+              require(len(ids) == count == len(set(ids)), 'Wrong original collection')
+              xml = OUT / f'{role}-{label}.xml'
+              result = subprocess.run([*command, '--basetemp=' + str(OUT / f'{role}-{label}-tmp'), '--junitxml=' + str(xml), '--skip-report=' + str(OUT / f'{role}-{label}-skips.json')], cwd=tree, env=env)
+              require(result.returncode == 0, 'Original correctness failure')
+              cases = ET.parse(xml).getroot().findall('.//testcase')
+              expected = [('test_production_boundaries' if label == 'diagnostics' else n.split('::', 1)[0][:-3].replace('/', '.'), n.split('::', 1)[1]) for n in ids]
+              actual = [(x.attrib['classname'], x.attrib['name']) for x in cases]
+              require(sorted(actual) == sorted(expected) and len(set(actual)) == count and all(not list(x) for x in cases), 'Wrong/nonpassing original JUnit cases')
+              save(f'{role}-{label}-result.json', {'passed': count, 'ids': ids, 'xml_sha256': sha(xml)})
+          
+          
+          def sample(tag):
+              require(tag in PINS['sequence'], 'Unknown sample')
+              role = tag[-1]
+              run = OUT / ('sample-' + tag)
+              run.mkdir(exist_ok=False)
+              (run / 'cache').mkdir(); (run / 'out').mkdir()
+              sys.path.insert(0, str(ROOT / 'B'))
+              from tools.budget_bench import TimeReport
+              prefix = TimeReport.command()
+              argv = [str(ROOT / role / 'bin/btrcc'), '--strict-imports', '--target', 'linux-x64', '--debug', '--emit-link-plan', str(run / 'out/p.json'), '--emit-units', str(run / 'out/p'), '--module-units', '--jobs', '1', 'src/BTRSmith.btrc', '-o', str(run / 'out/p.c')]
+              env = os.environ | {'BTRC_HOME': str(ROOT / 'B/src'), 'BTRC_CACHE_DIR': str(run / 'cache'), 'BTRC_TIMING': '1'}
+              build = json.loads((OUT / 'builds.json').read_text())[role]
+              require(sha(ROOT / role / 'bin/btrcc') == build['binary_sha256'], 'Measured binary changed')
+              current_tools = tools()
+              require(current_tools == json.loads((OUT / 'product-tools.json').read_text()), 'Product tools changed')
+              with (run / 'stdout').open('wb') as stdout, (run / 'stderr').open('wb') as stderr:
+                  result = subprocess.run([*prefix, *argv], cwd=ROOT / 'product', env=env, stdout=stdout, stderr=stderr)
+              require(result.returncode == 0, 'Actual compiler failed')
+              require(sha(ROOT / role / 'bin/btrcc') == build['binary_sha256'], 'Measured binary changed during run')
+              usage = TimeReport.parse((run / 'stderr').read_text())
+              require(usage.max_rss_bytes is not None and usage.max_rss_bytes > 0 and usage.wall_s is not None and math.isfinite(usage.wall_s) and usage.wall_s > 0, 'Missing real RSS/wall counters')
+              if usage.instructions_retired is not None:
+                  require(usage.instructions_retired > 0, 'Invalid instruction counter')
+              save(tag + '.json', {'tag': tag, 'role': role, 'warmup': tag.startswith('warm-'), 'argv': argv, 'returncode': result.returncode, 'collector': TimeReport.collector(), 'instruction_counter': TimeReport.instruction_counter(), 'metrics': usage.metrics('') | {'wall_s': usage.wall_s, 'user_s': usage.user_s, 'system_s': usage.system_s}, 'outputs': emitted(run), 'stdout_sha256': sha(run / 'stdout'), 'stderr_sha256': sha(run / 'stderr'), 'tools_sha256': sha(OUT / 'product-tools.json')})
+          
+          
+          def builds():
+              require(source_inputs() == json.loads((OUT / 'inputs-before.json').read_text()), 'Build changed inputs')
+              require(tools() == json.loads((OUT / 'build-tools.json').read_text()), 'Build tools changed')
+              result = {}
+              for role in ('B', 'C'):
+                  receipt = json.loads((OUT / (role + '_build-process.json')).read_text())
+                  require(receipt['state'] == 'completed' and receipt['returncode'] == receipt['wrapper_status'] == 0, 'Original Make build failed')
+                  result[role] = {'source_revision': PINS[role]['revision'], 'binary_sha256': sha(ROOT / role / 'bin/btrcc'), 'generated_c_sha256': sha(ROOT / role / 'dist/btrcc.c'), 'process_sha256': sha(OUT / (role + '_build-process.json')), 'tools_sha256': sha(OUT / 'build-tools.json'), 'inputs_sha256': sha(OUT / 'inputs-before.json')}
+              retained = OUT / 'built-compilers'
+              retained.mkdir()
+              for role in ('B', 'C'):
+                  shutil.copy2(ROOT / role / 'bin/btrcc', retained / (role + '-btrcc'))
+                  shutil.copy2(ROOT / role / 'dist/btrcc.c', retained / (role + '-btrcc.c'))
+              save('builds.json', result)
+          
+          
+          def summary():
+              rows = [json.loads((OUT / (tag + '.json')).read_text()) for tag in PINS['sequence']]
+              for tag in PINS['sequence']:
+                  receipt = json.loads((OUT / (tag.replace('-', '_') + '-process.json')).read_text())
+                  require(receipt['state'] == 'completed' and receipt['returncode'] == receipt['wrapper_status'] == 0, 'Sample owner did not close successfully')
+                  row = json.loads((OUT / (tag + '.json')).read_text())
+                  require(row['outputs'] == emitted(OUT / ('sample-' + tag)), 'Sample output drift')
+              require(tools() == json.loads((OUT / 'product-tools.json').read_text()), 'Final product tools drift')
+              require(all(row['outputs']['semantic'] == rows[0]['outputs']['semantic'] for row in rows), 'B/C emitted artifacts differ')
+              report = {'scope': 'Linux x86_64 current-product diagnostic only; RSS is not Apple footprint or final target acceptance', 'sequence': PINS['sequence'], 'samples': rows, 'limits_unchanged': True}
+              for role in ('B', 'C'):
+                  metrics = [r['metrics'] for r in rows if r['role'] == role and not r['warmup']]
+                  report[role] = {key: statistics.median([m[key] for m in metrics]) if all(m[key] is not None for m in metrics) else None for key in metrics[0]}
+                  report[role]['max_rss_bytes_max'] = max(m['max_rss_bytes'] for m in metrics)
+                  report[role]['linux_reference_gap_bytes'] = max(0, report[role]['max_rss_bytes_max'] - 1610612736)
+              save('measurement-result.json', report)
+          
+          
+          if __name__ == '__main__':
+              for name, digest in json.loads((HERE / 'helper-pins.json').read_text()).items():
+                  require(sha(HERE / name) == digest, 'Diagnostic helper drift: ' + name)
+              mode = sys.argv[1]
+              if mode == 'start':
+                  save('inputs-before.json', source_inputs()); save('build-tools.json', tools())
+              elif mode == 'source-close':
+                  current = source_inputs()
+                  before = OUT / 'inputs-before.json'
+                  if before.exists():
+                      require(current == json.loads(before.read_text()), 'Host final source/index drift')
+                  save('host-source-closure.json', {'source': 'unchanged', 'before_receipt_exists': before.exists()})
+              elif mode == 'builds': builds()
+              elif mode == 'close':
+                  require(tools() == json.loads((OUT / 'build-tools.json').read_text()), 'Final build tools changed')
+                  if (OUT / 'builds.json').exists():
+                      for role, build in json.loads((OUT / 'builds.json').read_text()).items():
+                          require(sha(ROOT / role / 'bin/btrcc') == build['binary_sha256'] and sha(ROOT / role / 'dist/btrcc.c') == build['generated_c_sha256'], 'Final compiler drift')
+                  require(source_inputs() == json.loads((OUT / 'inputs-before.json').read_text()), 'Final source/index drift')
+                  save('closure.json', {'source': 'unchanged'})
+              elif mode == 'qualify': qualification(sys.argv[2], sys.argv[3])
+              elif mode == 'sample': sample(sys.argv[2])
+              elif mode == 'product-tools': save('product-tools.json', tools())
+              elif mode == 'summary': summary()
+              else: raise RuntimeError('Unknown stage')
+          BTRC_DIAGNOSTIC_FILE_1
+          cat > task/inside.sh <<'BTRC_DIAGNOSTIC_FILE_2'
+          #!/bin/bash
+          set -euo pipefail
+          cd /workspace
+          export GITHUB_WORKSPACE=/workspace
+          export GIT_CONFIG_COUNT=3
+          export GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/workspace/B
+          export GIT_CONFIG_KEY_1=safe.directory GIT_CONFIG_VALUE_1=/workspace/C
+          export GIT_CONFIG_KEY_2=safe.directory GIT_CONFIG_VALUE_2=/workspace/product
+          export PYTHONDONTWRITEBYTECODE=1
+          unset BTRC_TIMING BTRC_HOME BTRC_CACHE_DIR BTRC_TEST_BTRCC BTRC_CFLAGS
+          unset ASAN_OPTIONS UBSAN_OPTIONS LSAN_OPTIONS MAKEFLAGS PYTEST_ADDOPTS
+          # bash -c enters the image's actual saved BASH_ENV before any tool admission.
+          test -f "$BASH_ENV"
+          sha256sum "$BASH_ENV" > evidence/image-shell.sha256
+          status=1
+          finish() {
+            code=$?
+            trap - EXIT
+            set +e
+            python3 task/run-stage.py --seconds 120 --label closure -- python3 task/diagnostic.py close > evidence/closure.stdout 2> evidence/closure.stderr
+            closed=$?
+            sha256sum -c evidence/image-shell.sha256 > evidence/image-shell-final.txt
+            shell_closed=$?
+            if [ "$code" -ne 0 ] || [ "$closed" -ne 0 ] || [ "$shell_closed" -ne 0 ]; then exit 1; fi
+            exit 0
+          }
+          trap finish EXIT
+          python3 task/run-stage.py --seconds 120 --label inputs -- python3 task/diagnostic.py start > evidence/inputs.stdout 2> evidence/inputs.stderr
+          for role in B C; do
+            python3 task/run-stage.py --seconds 2400 --label "${role}_build" -- make -C "$role" -j1 NIX= btrcc > "evidence/$role-build.stdout" 2> "evidence/$role-build.stderr"
+          done
+          python3 task/run-stage.py --seconds 120 --label builds -- python3 task/diagnostic.py builds > evidence/builds.stdout 2> evidence/builds.stderr
+          for role in B C; do
+            for cell in diagnostics managed scope modules; do
+              bound=420
+              if [ "$cell" = modules ]; then bound=1020; fi
+              python3 task/run-stage.py --seconds "$bound" --label "${role}_${cell}" -- python3 task/diagnostic.py qualify "$role" "$cell" > "evidence/$role-$cell.stdout" 2> "evidence/$role-$cell.stderr"
+              if [ -f task/diagnostic-processes.jsonl ]; then mv task/diagnostic-processes.jsonl "evidence/$role-$cell-processes.jsonl"; fi
+            done
+          done
+          python3 task/run-stage.py --seconds 7140 --label product_shell -- bash -euo pipefail -c 'cd /workspace/product; nix print-dev-env --no-write-lock-file --override-input btrc github:schiffy91/btrc/3974d47bc87851b1ac19b8d2b4bd5022f2d94676 > /workspace/evidence/product-env.sh' > evidence/product-shell.stdout 2> evidence/product-shell.stderr
+          sha256sum evidence/product-env.sh > evidence/product-env.sha256
+          # Select the product's original dependencies once; no build/realization between samples.
+          env -u BASH_ENV bash -euo pipefail -c '
+            source /workspace/evidence/product-env.sh
+            export PYTHONDONTWRITEBYTECODE=1
+            cd /workspace
+            python3 task/run-stage.py --seconds 120 --label product_tools -- python3 task/diagnostic.py product-tools > evidence/product-tools.stdout 2> evidence/product-tools.stderr
+            for tag in warm-B warm-C 1-B 1-C 2-C 2-B 3-B 3-C; do
+              label=${tag//-/_}
+              python3 task/run-stage.py --seconds 240 --label "$label" -- python3 task/diagnostic.py sample "$tag" > "evidence/$tag.stdout" 2> "evidence/$tag.stderr"
+            done
+            python3 task/run-stage.py --seconds 120 --label summary -- python3 task/diagnostic.py summary > evidence/summary.stdout 2> evidence/summary.stderr
+          '
+          sha256sum -c evidence/product-env.sha256 > evidence/product-env-final.txt
+          BTRC_DIAGNOSTIC_FILE_2
+          cat > task/input-pins.json <<'BTRC_DIAGNOSTIC_FILE_3'
+          {
+            "B": {
+              "revision": "3974d47bc87851b1ac19b8d2b4bd5022f2d94676",
+              "tree_sha256": "053a6e868f948293c31c4546a3f3adf636a58ab62ccf83a391c698f539c928e6"
+            },
+            "C": {
+              "revision": "92691bee1b19f682d7864f3a55e8a2938f2eb00f",
+              "tree_sha256": "ae4d6fe6a7d9d7394961932d26d8501be2c7d9745b2d7038a3d6dd9215513e7f"
+            },
+            "product": {
+              "revision": "d3fb25f491137ebb0f9c1f06757301cb39595a80",
+              "tree_sha256": "7b639a4f57047c1567b5e5a666d08933f6242b2de35ba4ef29fbbd6d6ef47217"
+            },
+            "sequence": [
+              "warm-B",
+              "warm-C",
+              "1-B",
+              "1-C",
+              "2-C",
+              "2-B",
+              "3-B",
+              "3-C"
+            ],
+            "production_owners": [
+              "src/compiler/btrc/pipeline/ModuleUnits.btrc",
+              "src/compiler/btrc/pipeline/Pipeline.btrc"
+            ],
+            "branch": "codex/diagnostic-current-product-memory-3974",
+            "process_owner_sha256": "35fcb2e666b51026c33ddd1c07ed0a1ad718088d9ab35017fdd7cceb5db0029d"
+          }
+          BTRC_DIAGNOSTIC_FILE_3
+          cat > task/test_production_boundaries.py <<'BTRC_DIAGNOSTIC_FILE_4'
+          """Reuse existing diagnostic assertions without building unrelated inspection tools."""
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          
+          import pytest
+          
+          REPO = Path(os.environ['TOKEN_LIFETIME_REPO'])
+          sys.path.insert(0, str(REPO))
+          from src.tests.btrc import test_lexer_diagnostics as lexer
+          from src.tests.btrc import test_parser_diagnostics as parser
+          
+          CANDIDATE = Path(os.environ['BTRC_TEST_BTRCC'])
+          OUT = Path(__file__).resolve().parent
+          
+          # Retain each subprocess's original output; the repository assertions remain
+          # unchanged and receive only the already-built production compiler they need.
+          def traced(original, kind):
+              def run(command, **kwargs):
+                  result = original(command, **kwargs)
+                  with (OUT / 'diagnostic-processes.jsonl').open('a') as log:
+                      log.write(json.dumps({'kind':kind,'command':command,'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})+'\n')
+                  return result
+              return run
+          
+          lexer._run = traced(lexer._run, 'lexer')
+          parser._run = traced(parser._run, 'parser')
+          
+          @pytest.mark.parametrize('source,diagnostic', lexer.INVALID_INPUTS)
+          def test_reference_lexer_contract(source, diagnostic):
+              lexer.test_reference_lexer_matches_diagnostic_contract(source, diagnostic)
+          
+          @pytest.mark.parametrize('source,diagnostic', lexer.INVALID_INPUTS)
+          def test_production_lexer_failure(tmp_path, source, diagnostic):
+              lexer.test_invalid_input_fails_closed_at_every_driver({'compiler':CANDIDATE},tmp_path,'compiler',source,diagnostic)
+          
+          @pytest.mark.parametrize('source,expected', parser.INVALID_PROGRAMS)
+          def test_production_parser_failure(tmp_path, source, expected):
+              parser.test_invalid_program_stops_at_parser_boundary({'compiler':CANDIDATE},tmp_path,'compiler',source,expected)
+          
+          def test_production_interpolation_failure(tmp_path):
+              lexer.test_invalid_fstring_interpolation_propagates_sublexer_failure({'compiler':CANDIDATE},tmp_path,'compiler')
+          
+          def test_production_string_literal_survives_parse_scope(tmp_path):
+              parser.test_string_literal_does_not_root_same_named_function({'compiler':CANDIDATE},tmp_path)
+          
+          def test_production_macro_diagnostic(tmp_path):
+              parser.test_macro_replacement_rejects_language_callable_alias({'compiler':CANDIDATE},tmp_path)
+          BTRC_DIAGNOSTIC_FILE_4
+          cat > task/semantics-selection.json <<'BTRC_DIAGNOSTIC_FILE_5'
+          {
+            "source": "92691bee combined Pipeline token lifetime and ModuleUnits reply retirement",
+            "selectors": [
+              "src/tests/python/test_module_units.py::test_worker_counts_emit_identical_units",
+              "src/tests/python/test_module_units.py::test_worker_timing_never_changes_the_units",
+              "src/tests/python/test_module_units.py::test_inline_and_incremental_builds_print_no_worker_timing",
+              "src/tests/python/test_module_units.py::test_selfhost_private_body_edit_relowers_only_its_group",
+              "src/tests/python/test_module_units.py::test_selfhost_unchanged_groups_replay_validation_records",
+              "src/tests/python/test_module_units.py::test_selfhost_generation_references_stored_units",
+              "src/tests/python/test_module_units.py::test_an_effect_changing_edit_matches_a_clean_build",
+              "src/tests/python/test_module_units.py::test_record_round_trips_and_rejects_malformed_payloads",
+              "src/tests/python/test_module_units.py::test_module_unit_corpus_regressions_build_and_run",
+              "src/tests/python/test_module_units.py::test_a_raising_request_surfaces_its_own_diagnostic_from_any_pool",
+              "src/tests/python/test_module_units.py::test_interface_edit_and_corrupt_records_rebuild"
+            ],
+            "expected_rows": 18,
+            "execution": "pending on combined candidate; exact original collection and JUnit admission required",
+            "reference_only_controls": [
+              "test_a_raising_request_surfaces_its_own_diagnostic_from_any_pool",
+              "test_record_round_trips_and_rejects_malformed_payloads",
+              "test_interface_edit_and_corrupt_records_rebuild"
+            ]
+          }
+          BTRC_DIAGNOSTIC_FILE_5
+          cat > task/helper-pins.json <<'BTRC_DIAGNOSTIC_FILE_6'
+          {
+            "run-stage.py": "35fcb2e666b51026c33ddd1c07ed0a1ad718088d9ab35017fdd7cceb5db0029d",
+            "diagnostic.py": "42052b3e4c75df53df09ab25f047157f69f797d74844d7d4b6516efb0d1f8338",
+            "inside.sh": "186a6871c3f13101e4b0e2b2738a4785f6e569012357f3ee2510415cc6e407fc",
+            "input-pins.json": "e2f85d934e27e4fc662d69de1dec1da02e53287967f385608846a2ff6041c9f5",
+            "test_production_boundaries.py": "7774846ce070e4034904dd81c1d419d395e43fa949574254d34155e433329eff",
+            "semantics-selection.json": "df4c6732dbea0c7be16a38587977b0eea014b495c34838da8b64c1063c226b63"
+          }
+          BTRC_DIAGNOSTIC_FILE_6
+          cp task/helper-pins.json evidence/
+          cp task/input-pins.json evidence/
+          chmod a+w task evidence B C
+          for role in B C; do
+            mkdir -p "$role/bin" "$role/build" "$role/dist"
+            chmod a+w "$role/bin" "$role/build" "$role/dist"
+          done
+      - name: Original CI image
+        timeout-minutes: 90
+        run: |
+          set -euo pipefail
+          export GITHUB_WORKSPACE
+          python3 task/run-stage.py --seconds 5340 --label image -- make -C B devcontainer > evidence/image.stdout 2> evidence/image.stderr
+          podman image inspect btrc-devcontainer:latest > evidence/image.json
+          podman image inspect btrc-devcontainer:latest --format '{{.Id}}' > evidence/image-id.txt
+      - name: Serial correctness and current product comparison
+        timeout-minutes: 200
+        run: |
+          set -euo pipefail
+          image=$(cat evidence/image-id.txt)
+          # Saved BASH_ENV must be entered; an exec-only Python entry loses native-reader variables.
+          python3 task/run-stage.py --seconds 11940 --label container -- \
+            podman run --rm --name current-product-memory-3974 -v "$GITHUB_WORKSPACE:/workspace" "$image" \
+              bash -c 'exec bash /workspace/task/inside.sh' \
+            > evidence/container.stdout 2> evidence/container.stderr
+      - name: Retain failure closure and readable task evidence
+        if: always()
+        run: |
+          set +e
+          timeout --kill-after=10s 30s podman stop --time 10 current-product-memory-3974 > evidence/container-stop.stdout 2> evidence/container-stop.stderr
+          printf '%s\n' "$?" > evidence/container-stop.status
+          timeout --kill-after=10s 30s podman rm -f current-product-memory-3974 > evidence/container-remove.stdout 2> evidence/container-remove.stderr
+          printf '%s\n' "$?" > evidence/container-remove.status
+          timeout --kill-after=10s 30s podman ps -a --format json > evidence/containers-final.json 2> evidence/containers-final.stderr
+          listing_status=$?
+          printf '%s\n' "$listing_status" > evidence/containers-final.status
+          sudo find evidence -type d -exec chmod a+rx {} +
+          sudo find evidence -type f -exec chmod a+r {} +
+          set -e
+          test "$listing_status" -eq 0
+          python3 - <<'BTRC_CONTAINER_CLOSURE'
+          import json
+          from pathlib import Path
+          rows = json.loads(Path('evidence/containers-final.json').read_text())
+          assert isinstance(rows, list), 'Invalid container listing'
+          for row in rows:
+              names = row['Names']
+              names = [names] if isinstance(names, str) else names
+              assert isinstance(names, list) and all(isinstance(n, str) for n in names)
+              assert all(n.lstrip('/') != 'current-product-memory-3974' for n in names), 'Owned container remains after retirement'
+          BTRC_CONTAINER_CLOSURE
+          export DIAGNOSTIC_ROOT="$GITHUB_WORKSPACE"
+          python3 task/run-stage.py --seconds 120 --label host_closure -- python3 task/diagnostic.py source-close > evidence/host-closure.stdout 2> evidence/host-closure.stderr
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: current-product-memory-3974-92691-${{ github.run_attempt }}
+          path: |
+            evidence
+            task
+          if-no-files-found: error
+          retention-days: 14
