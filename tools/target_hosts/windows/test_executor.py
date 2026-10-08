@@ -898,7 +898,7 @@ def test_detached_gate_explicitly_forwards_binary_standard_streams(tmp_path, mon
         stderr.seek(0)
         assert stdout.read() == payload
         assert stderr.read() == b"error\x00\xff"
-    assert launches == [0x00000008 | 0x00000200]
+    assert launches == [0x08000000 | 0x00000200]
     assert events == [("error-mode", 0x0001 | 0x0002 | 0x8000), ("exit", 3)]
     assert (tmp_path / "status.txt").read_text() == "3"
 

@@ -81,12 +81,21 @@ def test_windows_orphan_header_shims_cover_emitted_stdlib_includes() -> None:
         assert (WIN / header).is_file(), header
 
 
+@pytest.mark.parametrize("declared_mkdtemp", [False, True], ids=["legacy-crt", "declared-crt"])
 def test_windows_compat_header_is_safe_across_translation_units(
     tmp_path: Path,
+    declared_mkdtemp: bool,
 ) -> None:
     zig = shutil.which("zig")
     if not zig:
         pytest.skip("zig cross compiler is unavailable")
+    declarations = []
+    if declared_mkdtemp:
+        # Newer MinGW declares mkdtemp before our forced compatibility include.
+        # Keep that boundary exercised even when CI uses older CRT headers.
+        header = tmp_path / "crt-declarations.h"
+        header.write_text("#include <stdlib.h>\nchar *__cdecl mkdtemp(char *template_path);\n")
+        declarations = ["-include", str(header)]
     executable = tmp_path / "win-compat.exe"
     subprocess.run(
         [
@@ -101,6 +110,7 @@ def test_windows_compat_header_is_safe_across_translation_units(
             "-pedantic",
             "-I",
             str(WIN),
+            *declarations,
             "-include",
             str(WIN / "btrc_win_compat.h"),
             str(NATIVE_TESTS / "win_compat_main.c"),

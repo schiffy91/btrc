@@ -1328,6 +1328,28 @@ def test_android_license_acceptance_preserves_sdkmanager_status(sdk_exit: int) -
     assert result.returncode == sdk_exit, result.stderr.decode(errors="replace")
 
 
+def test_windows_arm64_lane_keeps_cross_and_native_qualification_separate() -> None:
+    workflow = _parsed("windows-arm64.yml")
+    cross, native = workflow["jobs"]["cross"], workflow["jobs"]["native"]
+    assert cross["runs-on"] == "ubuntu-latest"
+    assert native["runs-on"] == "windows-11-arm" and native["needs"] == "cross"
+    setup = next(step for step in native["steps"] if step.get("uses", "").startswith("actions/setup-python@"))
+    assert setup["with"]["architecture"] == "arm64"
+    commands = "\n".join(step.get("run", "") for step in native["steps"])
+    assert "python -m pip install '.[dev]'" in commands
+    assert "python -m unittest tools.windows_toolchain.test_arm64 -v" in commands
+    assert "./tools/windows_toolchain/test_probe.ps1" in commands
+    compiler = next(step for step in native["steps"] if "arm64 native --cross" in step.get("run", ""))
+    assert compiler["timeout-minutes"] == "210"
+    assert "--cross-summary build/windows-arm64-input/summary.json" in compiler["run"]
+    assert "--out build/windows-arm64-native" in compiler["run"]
+    probe = next(step for step in native["steps"] if "msvc_probe.ps1" in step.get("run", ""))
+    assert probe["if"] == "${{ !cancelled() }}" and probe["timeout-minutes"] == "15"
+    evidence = native["steps"][-1]
+    assert evidence["if"] == "always()" and evidence["uses"] == UPLOAD_ARTIFACT
+    assert set(evidence["with"]["path"].splitlines()) == {"build/windows-arm64-native", "build/windows-arm64-msvc"}
+
+
 def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     """CL-UIA-11: the GUI and audio suites under X11 and Wayland, on every push."""
 

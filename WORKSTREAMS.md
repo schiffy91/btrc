@@ -211,6 +211,14 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-08 D29 follow-up claim:** the parent integrator owns
+`src/runtime/windows/btrc_win_compat.h`,
+`src/tests/python/test_native_win_compat.py` and
+`docs/workstreams/windows-arm64-native-toolchain.md` on
+`codex/windows-arm64-native-zig` from `fe115d6b` to repair the observed newer-CRT
+`mkdtemp` declaration conflict. This retains the Windows qualification gates;
+the existing native-toolchain paths remain in the same packet.
+
 **Rule.** A packet holds its **owned paths** from the moment its branch or draft PR exists until Claude integrates or abandons it. While held, no other packet edits those files. Its **must-not-touch** list is binding even when the file is free.
 
 **Integrator-owned data and generated files (§3.3.1) are never held.** Any number of in-flight packets may carry `fragment:` or `derived:` changes to them, and Claude serializes them at integration. A packet lists them as `fragment (not held): <file> <what>`; a Claude landing packet lists them as "(integrator: applies fragments; not held)".
