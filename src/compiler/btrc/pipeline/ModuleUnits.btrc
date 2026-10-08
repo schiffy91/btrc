@@ -1078,8 +1078,9 @@ class ModuleUnitCompiler {
 		 * order, which other groups' bodies can move: tuple shapes are
 		 * declared in discovery order. */
 		digest.appendText("shared:" + shared.orderDigest() + "\n");
-		for instance in input.analyzed.genericInstances { digest.appendText("class:" + instance.mangled + "\n"); }
-		for instance in input.analyzed.methodGenInstances {
+		GenericLowerer generics = GenericLowerer(input.analyzed);
+		for instance in generics.classInstances() { digest.appendText("class:" + instance.mangled + "\n"); }
+		for instance in generics.methodInstances() {
 			digest.appendText("method:" + instance.classBase + "." + instance.methodName + "<");
 			for argument in instance.classArgs { digest.appendText(positionFree.render(argument) + ","); }
 			digest.appendText(";");
