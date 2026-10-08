@@ -22,6 +22,7 @@ PROBES = ROOT / "src/tests/native/gui/ui2/probes/macos"
     [
         ("RunLoopWake", "UI2 worker wakes idle default and tracking run-loop modes without polling"),
         ("RunLoopDeadline", "UI2 monotonic deadlines wake default and tracking modes once"),
+        ("InteractionState", "UI2 view state preserves snapshots and separates observation from input eligibility"),
         ("WorkQueue", "UI2 scheduled work shares capacity, preserves rounds and applies suspension policy"),
         ("Publisher", "UI2 worker publication preserves capacity, receipt identity and cancellation ownership"),
         ("RunLoopLifetime", "UI2 wake cancellation, worker close, native allocation failure and slot reuse drain"),

@@ -1,0 +1,60 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class InteractionReceiver implements IViewInteractionStateHandler {
+	public Vector<ViewInteractionState> states = [];
+	public void interactionChanged(ViewInteractionState state) { self.states.push(state); }
+}
+
+int main() {
+	var signal = MacOSRunLoopSignal();
+	var context = MacOSControlContext(8, signal);
+	var state = MacOSViewState(context);
+	var scope = CallbackScope();
+	var receiver = InteractionReceiver();
+	state.onInteractionStateChanged(receiver, scope);
+	assert(receiver.states.isEmpty() && context.detachedEvents.pendingCount() == 0);
+	var window = context.createQueue();
+	state.rebind(window);
+	assert(!state.update(true, true, true, true, WINDOW_EXPOSURE_EXPOSED, false));
+	state.publish();
+	assert(receiver.states.isEmpty());
+	assert(window.dispatchOne());
+	var before = receiver.states.get(0);
+	assert(before.effectiveEligible && before.localEnabled && before.localVisible);
+	assert(state.update(false, true, true, true, WINDOW_EXPOSURE_EXPOSED, false));
+	state.publish();
+	assert(state.admission(state.generation()) == CONTROL_EVENT_INELIGIBLE);
+	assert(window.dispatchOne());
+	var hidden = receiver.states.get(1);
+	assert(!hidden.effectiveEligible && hidden.localEnabled && !hidden.localVisible);
+	assert(hidden.stateRevision > before.stateRevision && before.effectiveEligible);
+	/* A state observer can receive hidden/disabled state. Domain input cannot. */
+	assert(!state.update(true, false, true, true, WINDOW_EXPOSURE_EXPOSED, false));
+	state.publish(); assert(window.dispatchOne());
+	assert(!receiver.states.get(2).localEnabled);
+	assert(!state.update(true, false, true, true, WINDOW_EXPOSURE_EXPOSED, false));
+	state.publish(); assert(!window.dispatchOne());
+	assert(!state.update(true, true, true, true, WINDOW_EXPOSURE_NOT_EXPOSED, false));
+	state.publish(); assert(window.dispatchOne());
+	assert(state.interactionState().effectiveEligible);
+	long long generation = state.generation();
+	state.rebind(window); assert(state.generation() == generation);
+	assert(state.update(false, true, true, true, WINDOW_EXPOSURE_NOT_EXPOSED, false));
+	state.publish();
+	state.rebind(context.detachedEvents);
+	assert(window.pendingCount() == 0);
+	assert(state.generation() > generation);
+	assert(state.admission(generation) == CONTROL_EVENT_STALE_GENERATION);
+	assert(state.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	window.close(); context.close(); signal.close();
+	print("UI2 view state preserves snapshots and separates observation from input eligibility");
+	return 0;
+}

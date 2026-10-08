@@ -243,3 +243,13 @@ ACCEPTED, subsequent ingress is closed, UI service reports the wake failure,
 and cancellation retires exactly one FAILED receipt without callback delivery.
 This source-only fixture precedes the publisher implementation commit; no
 executed red/native result is claimed.
+
+## Interaction state fixture-only checkpoint
+
+The private state-owner regression requires immutable revisioned snapshots,
+no initial replay, hidden/disabled state observation while domain admission is
+ineligible, unchanged-state no-op, exposure independent of eligibility, and
+queue rebind retiring stale records while same-window movement preserves the
+generation. It exercises the shared semantic queue with a real native wake
+source; actual native controls and subtree wiring remain a separate next step.
+Six fixture choices mean 24 planned rows, all still unexecuted.
