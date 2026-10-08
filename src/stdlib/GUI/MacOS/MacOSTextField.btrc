@@ -176,14 +176,22 @@ class MacOSTextField implements ITextField, IMacOSView {
 	public ICallbackRegistration onCommit(ITextControlEventHandler receiver, CallbackScope owner) {
 		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing commit handler first"; }
 		var channel = self.subscribe(receiver, owner);
-		if (self._interacting) { self._commitTicket = channel.beginInteraction(); }
+		ControlEventTicket? ticket = null;
+		try {
+			if (self._interacting) { ticket = channel.beginInteraction(); if (ticket == null) { throw "Text commit reservation unavailable"; } }
+		} catch (string error) { channel.cancel(); throw error; }
+		self._commitTicket = ticket;
 		self._commit = channel; return channel;
 	}
 
 	public ICallbackRegistration onCancel(ITextControlEventHandler receiver, CallbackScope owner) {
 		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing cancel handler first"; }
 		var channel = self.subscribe(receiver, owner);
-		if (self._interacting) { self._cancelTicket = channel.beginInteraction(); }
+		ControlEventTicket? ticket = null;
+		try {
+			if (self._interacting) { ticket = channel.beginInteraction(); if (ticket == null) { throw "Text cancel reservation unavailable"; } }
+		} catch (string error) { channel.cancel(); throw error; }
+		self._cancelTicket = ticket;
 		self._cancel = channel; return channel;
 	}
 
