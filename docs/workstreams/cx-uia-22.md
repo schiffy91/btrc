@@ -915,3 +915,25 @@ control-plain.json`. The existing provider/assertions remain unchanged; a
 further public event dispatch/context control is needed before selecting a fix.
 The native lane was released immediately after this diagnostic for compiler
 qualification.
+
+The next isolated control added only AppKit's public `finishLaunching` call
+before otherwise identical setup. Both fresh processes again retained clip
+origin 300/620, with zero bounds/DidLive and one Start/End after approximately
+one second of normal run-loop service. Both reported activation policy 2,
+running=false, and no event window association. Initialization by
+`finishLaunching` alone therefore does not repair this stimulus. The original
+provider/assertions remain unchanged. Evidence:
+`ui2-macos-components-8e21f235/results/scrollNativeLaunch1/components/reference/
+control-plain.json`; prepared runner SHA-256
+`77b2b8ea1a99a602d8590ad14aa6146c01d3d470b434361fc2913f813f05e077`.
+Session 77887 terminated with status 0 and unchanged source/tool inputs; these
+are diagnostic-control executions, not ScrollView acceptance passes. The lane
+was immediately handed to the original paired product journey. A direct versus
+window-dispatch factor is being prepared separately, with no provider change.
+
+The four-method Window source draft now composes the actual IWindow additions
+into the existing native owner outside Git, with two real-window fixture/probe
+drafts and explicit application context routing. It is under independent source
+review. No Window projection, build or native acceptance is claimed; native
+application quit coordination and full public application conformance remain
+open. The frozen qualification source and checkout production files are intact.
