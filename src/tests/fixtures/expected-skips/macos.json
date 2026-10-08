@@ -147,7 +147,8 @@
         "src/tests/python/test_native_font_runtime.py",
         "src/tests/python/test_native_ui_scroll_thumb.py",
         "src/tests/python/test_native_ui_linux_spike.py",
-        "src/tests/python/test_native_ui_layout_resize.py"
+        "src/tests/python/test_native_ui_layout_resize.py",
+        "src/tests/python/test_native_ui_grid_replacement.py"
       ],
       "nodes": [
         "*::test_linux_image_decoding*",
@@ -161,7 +162,8 @@
         "*::test_linux_scroll_thumb_bounds*",
         "src/tests/python/test_native_ui_linux_spike.py::test_linux_event_boundary[[]*]",
         "src/tests/python/test_native_ui_linux_spike.py::test_linux_input_repair[[]*]",
-        "src/tests/python/test_native_ui_layout_resize.py::test_linux_layout_resize[[]*]"
+        "src/tests/python/test_native_ui_layout_resize.py::test_linux_layout_resize[[]*]",
+        "src/tests/python/test_native_ui_grid_replacement.py::test_linux_grid_replacement[[]*]"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
