@@ -166,7 +166,17 @@ Both diagnostic compilers preserve all 423 emitted C/header outputs under the
 explicit path normalization, with independently verified source/tool/process
 closure. These instrumented timings identify work; they are not performance
 acceptance results. The larger lowering buckets require a measured causal
-hypothesis before further compiler changes.
+hypothesis before further compiler changes. A third diagnostic now rejects
+foreign-declaration key preflight as the next high-payoff priority. Across 463
+conserved unit notes, 1,011,434 foreign rejections discard 1,818,645 key-building
+calls, but the complete preflight scan envelope is only 1.528 seconds; actual
+declaration ownership/emission accounts for 11.676 seconds of the enclosing
+13.949-second phase. Key construction is only a subset of that scan envelope.
+All 423 emitted C/header outputs preserve exact normalized parity, source/tools
+are unchanged, and all six build/count groups are closed. Result SHA-256:
+`17c10a6305ec92ab6e5a94ff480b4c157487d9f12e89a7d02d3da5e988d3ff70`
+in `declaration-preflight-attribution-3974-count-1/result.json`. No optimization
+or performance acceptance follows from these instrumented counts.
 
 The independent generic-plan allocation candidate `4d930d95` also builds through
 the original Linux Make recipe. Its first comparison stopped before correctness
@@ -394,7 +404,14 @@ Its first native run passes key/repeat/accessibility/assistive assertions, then
 fails the unchanged drag preview assertion. A failure-only trace records zero
 previews, seven commits, zero cancels and unchanged value 4. A pointer commit
 alone does not prove dragging works. A matched stock/native-provider input and
-geometry comparison is pending; original preview and movement assertions remain.
+geometry comparison at `209fe7f7` now shows identical frames, bounds, track,
+knob and event coordinates. Both stock NSSlider and provider remain at value 4;
+stock emits zero actions and provider emits one unchanged-value action. Both
+are inactive/non-key and loginwindow remains foreground. This diagnostic aborts
+at the earlier unchanged pointer-commit assertion, rather than the prior preview
+assertion, so it does not reproduce an identical failure. All 28 command groups
+are closed and inputs unchanged (result `f57a4e02`). The evidence does not yet
+identify a provider fix; original preview and movement assertions remain.
 
 Selection's model fixture passes reference/plain native execution. Its first
 real event fixture passes performClick and mouseDown journeys, then fails Space
@@ -567,13 +584,22 @@ cleanly at both optimization levels, with strict flags unchanged. The new tests
 fail on the unchanged baseline. Its fresh self-hosted build now passes; the same original class compiles
 cleanly through that frontend at GCC -O2 and -O3 too. Four paired corpus runtime
 rows pass (both frontends at both optimizations), with no skips. Source, tools,
-binary and process closure are verified in report `3458c356`. The full hosted Linux application replay is now running at
-[37775247066](https://github.com/schiffy91/btrsmith/actions/runs/37775247066),
-using unchanged product `d3fb25f4`, original strict flags/assertions and compiler
-`f75c737b` through both frontends. Workflow revision `b383f9f2` changes only
-compiler pins, artifact label and historical wording. Final combined gates
-remain pending. App descendants are now checked
-and cleaned on ordinary test failure as well as timeout. No full MVP claim.
+binary and process closure are verified in report `3458c356`. The full hosted Linux application replay
+[37775247066](https://github.com/schiffy91/btrsmith/actions/runs/37775247066)
+has completed with a later failure, using unchanged product `d3fb25f4`, original
+strict flags/assertions and compiler `f75c737b`. The paired live-agent acceptance
+step passes: logs record operation-channel, standalone CLI/MCP and live GUI
+journeys through both frontends. The subsequent audio step passes setup,
+terminal-disposal and session-shutdown checks through both frontends, then
+`ApplicationShutdown.reference.clang` aborts on generated condition 50.
+The exact source assertion and cause are under investigation; the self-hosted
+application-shutdown row and Linux product derivation/install do not complete.
+The private artifact is `11554081040`, SHA-256
+`9c9ed38209251a14a5ccc639dd5e3b58b0d42053118b60afa54af554e01594ee`;
+artifact provenance review remains pending. Workflow revision `b383f9f2` changes
+only compiler pins, artifact label and historical wording. Final combined gates
+remain pending. App descendants are checked and cleaned on ordinary test failure
+as well as timeout. No full MVP claim.
 
 ### Integration status in service of the goals
 
@@ -878,7 +904,7 @@ changes; historical test totals alone do not advance its status.
 | Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected platform skips, zero failures/errors | Provider repair owner; main integrator qualifies | Qualify the assembled tree with the reviewed X11 coordination repair. Keep genuine external focus-loss cancellation and original native assertions. |
 | UI2 events, executor and lifecycle on desktop | macOS foundation and ordered-container components have scoped native passes. Window and capture/run-loop replay each add eight native passes on compiler `f75c737b`. Public application baseline exposes 19 missing methods | Application, text-field and range/selection owners | Implement and qualify those methods with original native assertions. Linux Window source is reviewed; its native baseline/candidate run awaits a hosted slot. Full UI2 and application quit remain open. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. Linux original agent build fails strict GCC pointer-temporary checks; fix `f75c737b` passes through both frontends at O2/O3 | BTRSmith owner and integrator | Complete running Linux replay `37775247066` with `f75c737b`, then qualify the product pin and remaining audio, screen, build/runtime and installed-release outcomes. The full MVP remains incomplete. |
+| BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. With compiler `f75c737b`, Linux paired live-agent acceptance now passes; the following audio step fails reference application shutdown. | BTRSmith owner and integrator | Diagnose and repair the unchanged shutdown assertion, complete paired audio and installed-product qualification, then qualify the product pin and remaining MVP outcomes. The full MVP remains incomplete. |
 | One qualified implementation on main | PR69 consolidated plan and qualified Mac test coordination merged at `cbd3ddcd` after 36 passing selected checks. Prepared compiler/Linux repair integration passes 172 affected checks plus generated/lint/format | Main integrator | Complete final combined tests/bootstrap/C11/static/generated/extension/hygiene and applicable native evidence, then merge qualified repairs. Track UI2 and product changes separately until their acceptance passes. |
 
 For usable-library status, use the existing native catalog and platform inventory
