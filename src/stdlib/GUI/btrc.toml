@@ -717,3 +717,42 @@ language = "objective-c"
 standard = "c11"
 modules = ["MacOS.MacOSScrollView"]
 os = ["macos"]
+
+# Final integration fragment; not applied. Existing Window AppKit row/callback
+# owner stays unchanged. MacOSRunLoop imports the existing notification adapter.
+[[native.bindings]]
+module = "MacOS.MacOSWindow"
+header = "MacOS/Window.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = [
+	"+[BTRCMacOSWindowNotifications resized]",
+	"+[BTRCMacOSWindowNotifications backingChanged]",
+	"+[BTRCMacOSWindowNotifications screenChanged]",
+	"+[BTRCMacOSWindowNotifications becameKey]",
+	"+[BTRCMacOSWindowNotifications resignedKey]",
+	"+[BTRCMacOSWindowNotifications minimized]",
+	"+[BTRCMacOSWindowNotifications restored]",
+	"+[BTRCMacOSWindowNotifications occlusionChanged]",
+	"+[BTRCMacOSWindowNotifications sheetBegan]",
+	"+[BTRCMacOSWindowNotifications sheetEnded]",
+	"+[BTRCMacOSWindowNotifications applicationActive]",
+	"+[BTRCMacOSWindowNotifications applicationInactive]",
+	"+[BTRCMacOSWindowNotifications applicationHidden]",
+	"+[BTRCMacOSWindowNotifications applicationShown]",
+	"+[NSApplication sharedApplication]",
+	"-[NSApplication isActive]",
+	"-[NSWindow backingScaleFactor]",
+	"-[NSWindow isMiniaturized]",
+	"-[NSWindow occlusionState]",
+	"NSWindowOcclusionStateVisible",
+	"-[NSWindow attachedSheet]",
+]
+
+[[native.sources]]
+path = "MacOS/Window.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+modules = ["MacOS.MacOSWindow"]
