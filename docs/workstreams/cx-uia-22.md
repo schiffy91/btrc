@@ -528,3 +528,29 @@ UI2 deferred-input acceptance is therefore still open. Container transaction
 and application host dispatch have not yet been wired to the barrier. These
 source and fixture additions are formatter-checked only, with no new projection,
 C/link or native runtime claim.
+
+### Ordered transaction source draft
+
+The current draft implements the four `IContainer` operations in
+`MacOSContainer` and forwards them through Stack, Panel and ScrollView. It
+simulates the whole edit sequence before native mutation, retains old/proposed
+owners, captures an inverse journal, verifies actual native order, and reports
+committed, rejected, verified rollback, reconciled fault, or retained quarantine.
+MOVE uses only the reviewed native order primitive; attachment facts reconcile
+only after observed physical membership. Old append/detach mutations now enter
+the same transaction. A quarantined close retains uncertain owners until
+membership can be inspected again, then drains attached and detached children.
+
+Grid is still a cell-addressed public API. Its shared internal container now
+captures the exact native cell placement before mutation so rollback cannot
+accidentally use the grid's mutable next-insertion cursor. The optional private
+layout projection leaves existing plain/fault-injection layout implementers
+compatible; it does not add portable Grid operations. GPU and text wrapper
+attachment guards remain on their existing owners.
+
+This is an unprojected source draft pending independent journal/reconciliation
+review. The original four-error baseline and all prior runtime proof remain
+unchanged. Complete application dispatch integration, unexpected native input
+deferral, typed control event acceptance, and full UI2 remain open. No new
+compiler, syntax, link, or runtime execution occurred while the product library
+journey owns the heavy lane.

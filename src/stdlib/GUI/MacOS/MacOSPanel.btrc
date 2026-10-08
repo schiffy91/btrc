@@ -1,3 +1,5 @@
+import Library.GUI.IContainer;
+import Library.Vector;
 import Library.GUI.ControlEventQueue;
 import Library.GUI.MacOS.MacOSControlEvents;
 import Library.Image;
@@ -82,6 +84,14 @@ class MacOSPanel implements IPanel, IMacOSView {
 	public void detachFrom(NSView parent) { self._container.detachFrom(parent); }
 
 	public bool isOpen() { return self._container.isOpen(); }
+
+	public void insert(IView child, int index) { self._container.insert(child, index); }
+
+	public void move(IView child, int destinationIndex) { self._container.move(child, destinationIndex); }
+
+	public ContainerBatchResult applyBatch(long long expectedTreeRevision, Vector<ContainerEdit> edits) { return self._container.applyBatch(expectedTreeRevision, edits); }
+
+	public long long treeRevision() { return self._container.treeRevision(); }
 
 	public void attach(IView child) { self._container.attach(child); }
 
