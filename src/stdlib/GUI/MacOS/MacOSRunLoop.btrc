@@ -72,19 +72,26 @@ class MacOSRunLoopDispatch {
  * Empty slots are reused only after source invalidation and callback drain.
  * No worker looks up, retains or releases any registry entry. */
 class MacOSRunLoopRegistry {
-	class Vector<MacOSRunLoopDispatch?> slots = [];
+	private class Vector<MacOSRunLoopDispatch?>? _slots;
+
+	class Vector<MacOSRunLoopDispatch?> slots() {
+		if (!NSThread.isMainThread()) { throw "Native run-loop registry requires the main thread"; }
+		var slots = MacOSRunLoopRegistry._slots;
+		if (slots == null) { slots = []; MacOSRunLoopRegistry._slots = slots; }
+		return slots;
+	}
 
 	class int add(MacOSRunLoopDispatch dispatch) {
-		for (int index = 0; index < MacOSRunLoopRegistry.slots.len; index++) {
-			if (MacOSRunLoopRegistry.slots.get(index) == null) { MacOSRunLoopRegistry.slots.set(index, dispatch); return index; }
+		for (int index = 0; index < MacOSRunLoopRegistry.slots().len; index++) {
+			if (MacOSRunLoopRegistry.slots().get(index) == null) { MacOSRunLoopRegistry.slots().set(index, dispatch); return index; }
 		}
-		if (MacOSRunLoopRegistry.slots.len >= 256) { throw "Native run-loop source capacity exceeded"; }
-		int index = MacOSRunLoopRegistry.slots.len;
-		MacOSRunLoopRegistry.slots.push(dispatch);
+		if (MacOSRunLoopRegistry.slots().len >= 256) { throw "Native run-loop source capacity exceeded"; }
+		int index = MacOSRunLoopRegistry.slots().len;
+		MacOSRunLoopRegistry.slots().push(dispatch);
 		return index;
 	}
 
-	class void remove(int slot) { MacOSRunLoopRegistry.slots.set(slot, null); }
+	class void remove(int slot) { MacOSRunLoopRegistry.slots().set(slot, null); }
 
 	class unsigned long long nowNs() { return (unsigned long long)(CACurrentMediaTime() * 1000000000.0); }
 
@@ -129,7 +136,7 @@ class MacOSRunLoopRegistry {
 	class void perform(void* raw) {
 		if (!NSThread.isMainThread()) { Console.fatal("Native run-loop delivery requires the main thread"); }
 		struct MacOSRunLoopWakeState* state = (struct MacOSRunLoopWakeState*)raw;
-		var dispatch = MacOSRunLoopRegistry.slots.get(state->slot);
+		var dispatch = MacOSRunLoopRegistry.slots().get(state->slot);
 		if (dispatch == null) { return; }
 		try { dispatch.deliver(); }
 		catch (string error) { Console.fatal(f"Native run-loop callback failed: {error}"); }
@@ -159,10 +166,11 @@ class MacOSRunLoopSignal {
 		state->loop = CFRunLoopGetMain();
 		self._state = state;
 		self._dispatch = dispatch;
-		self._closure = new OwnedClosure<CFunction<void, void*>>(MacOSRunLoopRegistry.perform, state, MacOSRunLoopSignal.destroyState);
+		var closure = new OwnedClosure<CFunction<void, void*>>(MacOSRunLoopRegistry.perform, state, MacOSRunLoopSignal.destroyState);
+		self._closure = closure;
 		CFRunLoopSourceContext context = {0};
-		context.info = self._closure.context();
-		context.perform = self._closure.invokePointer();
+		context.info = closure.context();
+		context.perform = closure.invokePointer();
 		state->source = CFRunLoopSourceCreate(null, 0L, &context);
 		if (state->source == null) { self.close(); throw "Cannot create native run-loop wake source"; }
 		CFRunLoopAddCommonMode(state->loop, btrcMacOSTrackingRunLoopMode());

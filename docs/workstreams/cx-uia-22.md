@@ -223,3 +223,16 @@ The publisher fixture additionally places cancel-policy work behind a deferred
 head before suspension. Cleanup must retire that canceled receipt without
 delivering/reordering the deferred record or leaving a permanently runnable
 cleanup wake. This remains a fixture-only checkpoint before publisher source.
+
+## First native projection corrections
+
+Parent-owned source projection retained the actual Objective-C binding rejection:
+C functions and records require a separate C-language binding. The approved
+existing mixed-binding design now has RunLoop.h declare CF/CABase symbols and
+RunLoop.m own only the tracking-mode bridge. The native probe follows the same
+C-declaration/Objective-C-source split. The final manifest remains integrator-owned.
+The next projection reached a real BTRC static-initializer error; the UI-only
+registry now lazily initializes nullable storage, and the source constructor
+uses a non-null local OwnedClosure for context construction. No compiler rule
+was relaxed. Five fixture choices yield 20 planned paired/sanitized rows; none
+of these new UI2 rows has executed yet.

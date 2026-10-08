@@ -33,12 +33,14 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
     source.write_text((PROBES / f"{fixture}.btrc").read_text())
     shutil.copyfile(PROBES / "RunLoopProbe.btrc", source.parent / "RunLoopProbe.btrc")
     shutil.copyfile(PROBES / "RunLoopProbe.h", root / "RunLoopProbe.h")
+    shutil.copyfile(PROBES / "RunLoopProbe.m", root / "RunLoopProbe.m")
     (root / "btrc.toml").write_text(
         'manifest-version = 1\n[package]\nname = "ui2MacOSRunLoop"\n'
         '[[native.bindings]]\nmodule = "RunLoopProbe"\nheader = "RunLoopProbe.h"\n'
-        'language = "objective-c"\nstandard = "c11"\n'
+        'language = "c"\nstandard = "c11"\n'
         'symbols = ["ui2RunLoopTurn", "ui2RunLoopIsMainThread"]\n'
         '[[native.frameworks]]\nname = "AppKit"\n'
+        '[[native.sources]]\npath = "RunLoopProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
     plan = root / "RunLoop.link.json"
     compiled = native_compile(source, data_root=gui_provider_root, plan_path=plan)
