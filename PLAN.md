@@ -211,7 +211,16 @@ The unchanged source/binary first passed all 18 affected checks, with no skips
 or errors and all 17 groups closed (baseline result SHA-256
 `486f06e71d7f3b53144825cc5148e467e6801b4b048262fd9c3662eedff55f78`).
 Two host-environment preflight failures before testing remain retained.
-The candidate's six new cases, fresh self-hosted build, original paired checks,
+The first traversal counterfactual unexpectedly passes on the unchanged
+compiler: CatalogMain's plain C include provides no native binding metadata,
+so it never exercises header pruning. Receipt SHA-256 `6143e8f4a8738bb82c6bcd2466793491c2d99226ec6a80e8ee5334fc1b8cc864`
+in `module-emission-once/counterfactual/result.json` is retained as invalid-test
+evidence; no candidate tests or build followed it. Fixture-only repair `8c7a8124`
+now uses the real CoreFoundation native binding through the public compiler API
+at one worker, checks actual retained/pruned headers and source-function visits,
+and strictly compiles/runs the native result. Independent source review is clear;
+production bytes remain identical to `72357bac`. The six new cases, genuine
+counterfactual failure, fresh self-hosted build, original paired checks,
 current-product C parity and measurements remain pending. The snapshot adds an
 extra tuple/vector copy to ordinary emission, so net speed and memory benefit
 remain unproved. The branch is unpublished; it does not alter PR68's current
@@ -781,8 +790,9 @@ the run, with secondary Python-module and child-start failures. No removal/GC
 cause is established; do not classify all failures as infrastructure. Job `113343316411` log SHA-256 is
 `2cb00dd368165e68e2038d6fb5c94742be882d3631ffa2774f541554755fd0be`; artifact `11561484842` retains the main failing unit report separately
 from a nested one-pass child report. On October 8, the one unchanged
-failed-job replay was accepted as attempt 2: unit tests and the x64 bundle are
-queued, with successful jobs retained. The original terminal snapshot has SHA-256
+failed-job replay was accepted as attempt 2. The x64 release bundle now passes
+(job `113416270707`); unit tests remain queued, with other successful jobs
+retained. The original terminal snapshot has SHA-256
 `4f4515b61e8e280b0588ba6f727aa67016d757afb45e33c92de8488898e9ff24`
 in `pr68-00e45379-macos-retry-2/attempt-1-terminal.json`. Root-cause analysis and
 the complete Mac matrix remain open. Do not merge until the failure is resolved
