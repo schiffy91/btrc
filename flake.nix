@@ -154,6 +154,12 @@
       devShells = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
         system = pkgs.stdenv.hostPlatform.system;
+        nativeEnvironment = nativeHeaderEnvironment pkgs // lib.optionalAttrs isDarwin {
+          # Keep the SDK reader and its compiler-context provider identical in
+          # the development and release shells.
+          BTRC_NATIVE_PROVIDER_CC = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang";
+          BTRC_NATIVE_PROVIDER_CXX = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang++";
+        };
         defaultShell = {
           # The test suite deliberately compiles strict C at -O0. Nixpkgs'
           # fortify setup diagnoses -O0 as a preprocessor warning, and -Werror
@@ -175,15 +181,6 @@
           GPU_LDFLAGS = "-L${self.packages.${system}.wgpu-native}/lib -lwgpu_native -pthread"
             + lib.optionalString isDarwin
               " -framework Metal -framework QuartzCore -framework Foundation";
-        } // lib.optionalAttrs isDarwin {
-          # The native compiler provider that the reader's preprocessing
-          # receipts and compiler-context requests name: the LLVM 21 clang
-          # drivers the header reader is built against. The reader implements a
-          # provider only on Apple hosts and refuses one elsewhere, so a Linux
-          # shell leaves these unset and those suites skip. Only the test suites
-          # read them, so the packaged compilers' wrappers do not carry them.
-          BTRC_NATIVE_PROVIDER_CC = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang";
-          BTRC_NATIVE_PROVIDER_CXX = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang++";
         } // lib.optionalAttrs (!isDarwin) {
           # Mesa's software Vulkan driver (lavapipe) and the loader wgpu-native
           # dlopens. Only tools/virtual-display.sh selects them, so a developer's
@@ -198,10 +195,18 @@
           GI_TYPELIB_PATH = lib.makeSearchPath "lib/girepository-1.0" [
             (lib.getLib (atSpiCore pkgs)) (lib.getLib pkgs.glib) (lib.getLib pkgs.gobject-introspection)
           ];
-        } // nativeHeaderEnvironment pkgs;
+        } // nativeEnvironment;
         platforms = import ./nix/platforms.nix { inherit nixpkgs system lib; };
       in {
         default = pkgs.mkShell defaultShell;
+      } // lib.optionalAttrs isDarwin {
+        # The portable compiler, generator and bundle writer use Python's
+        # standard library. Keep their toolchain and the native smoke-test CC,
+        # without realizing pytest, LSP, GPU or editor development packages.
+        macos-release = pkgs.mkShell ({
+          inherit (defaultShell) hardeningDisable;
+          packages = with pkgs; [ python314 gcc clang zig gnumake git ];
+        } // nativeEnvironment);
       } // lib.optionalAttrs (system != "aarch64-linux") {
         # The default shell plus the Android SDK, NDK r29 and JDK 17
         # (nix/platforms.nix), kept out of the default shell and the CI image.
