@@ -114,8 +114,9 @@ int main() {
 	var publisher = publication.publisher;
 	var publisherRegistration = publication.registration;
 	if (publisher == null || publisherRegistration == null) { throw "Created public publisher has no owned route"; }
+	IApplicationPublisher workerPublisher = publisher;
 	int previousRequests = host.requests();
-	Thread<int> producer = spawn(() => { return publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 37LL) == PUBLISH_ACCEPTED ? 0 : 1; });
+	Thread<int> producer = spawn(() => { return workerPublisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 37LL) == PUBLISH_ACCEPTED ? 0 : 1; });
 	assert(producer.join() == 0 && receiver.calls == 0 && host.requests() > previousRequests);
 	attachment.serviceTurn();
 	assert(receiver.calls == 1 && receiver.payload == 37LL);
