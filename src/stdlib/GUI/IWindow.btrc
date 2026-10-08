@@ -112,7 +112,13 @@ interface IWindow {
 
 interface IWindowStateHandler { void stateChanged(WindowState state); }
 
-/* SAVE attempts are fresh and positive. Stale revisions never authorize close. */
+/* SAVE attempts are fresh and positive. Stale revisions never authorize close.
+ * In a native quit group AUTHORIZED remains held: the document owner reports
+ * every newer revision before returning to the UI executor. Nonstale CANCEL
+ * cancels the group; newer SAVE revokes authority and starts a fresh attempt;
+ * newer DISCARD explicitly authorizes that revision. Unchanged SAVE/DISCARD
+ * is an error, not another prompt. No widget revision substitutes for the
+ * document owner's revision (D29 clarification, 2026-10-08). */
 interface IWindowCloseTransaction {
 	WindowCloseOutcome decide(WindowCloseDecision decision, long long documentRevision);
 	WindowCloseOutcome completeSave(long long attempt, long long savedRevision, bool succeeded, string error);
