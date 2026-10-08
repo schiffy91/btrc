@@ -141,7 +141,12 @@ prevent a continuous quiet window; post-run inspection does not establish a
 classifier defect. Both attempts remain retained. Approximately 2 GB of
 completed historical output has now been archived with verified restoration
 inventories, providing space for a later comparison. A separately scoped Linux
-product RSS comparison is being prepared; it cannot substitute for Mac footprint. Evidence remains in
+product RSS comparison is prepared on private BTRSmith branch `0b040ca3`, with
+explicit public compiler inputs `3974d47b` and `92691bee`. It preserves the
+original product source, strict compilation recipe and paired sample order.
+Independent review is clear; the run awaits hosted capacity and has produced
+no samples. Private product source and generated output remain in private CI.
+Linux RSS cannot substitute for Mac footprint. Evidence remains in
 `compiler-lifetimes-3974/92691bee/`. Deliberately retained compiler graphs remain
 unchanged; the full final matrix is still required.
 
@@ -301,9 +306,21 @@ ASan/UBSan), four zero-diagnostic projections and all 24 strict C/Objective-C
 units. Report `e05e684b` records unchanged inputs, tool identities and closed
 process groups; aggregate SHA-256 is
 `6f5cd2f3058acca9fec82bf4b90d6677bc821b93d7ab18189d2e60821be9eccc`.
-This uses compiler `56d548c4`; qualification against the current repaired
-compiler is being prepared. Group application quit, ordinary-input integration
-and full provider acceptance remain open.
+That run uses compiler `56d548c4`. A fresh replay against repaired current
+compiler `f75c737b` now also passes all eight native rows, four zero-diagnostic
+projections, 24 strict C/Objective-C checks and eight links, with all input/tool
+checks unchanged and process groups closed. Report `904d2716` retains aggregate
+SHA-256 `1a395e4373e79835652e1d16920389750ebc4a0a14c91d50376b61f9f807a637`.
+The Linux counterpart `53e4bfaa` implements request admission, cancellable close
+transactions, save-revision/attempt authority and context modal guards in the
+existing provider owners. Independent source review and format checks pass;
+actual baseline and repaired native execution remain outstanding. The real SDL
+fixture retains drafts and tests independent windows, stale saves, cancellation,
+terminal pressure and close during callbacks. Its existing text-field dependency
+needs the actual `SDL_ClearComposition` native export in a final fragment shared
+by both qualification compositions. Neither source review nor fixture completion
+is a native pass. Group application quit, ordinary-input integration and full
+provider acceptance remain open.
 
 Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
 audio and foreign-library ownership still require their platform-specific
