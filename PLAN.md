@@ -342,7 +342,12 @@ The diagnostic and scheduling changes are published in PR68 head `6f1b81d9`;
 hosted merge `e10d8bab` has the same tree `5505ab70`. New Linux `37833377148`,
 macOS `37833377244`, Windows `37833377072`, ARM64 `37833377199` and Android
 `37833377200` workflows started at 19:37 UTC. Windows tests and Android tooling
-pass; bootstrap, remaining suites and emulator jobs are running or queued.
+pass. Windows bootstrap and both Android API 29/API 36 emulator lanes have since
+passed, as have Linux X11/Wayland GUI, both compiler corpora, bootstrap and the
+unchanged benchmark regression gate. Remaining Linux checks and Windows ARM64
+native execution are running; macOS checks are running or queued. These are
+current-candidate component results, not full final qualification or product
+performance/mobile-GUI acceptance.
 The required separate native-GUI dispatch `37835919865` started at 19:58 UTC
 on this exact head, with the reviewed worker grouping and original bounds.
 No unchanged third retry or combined hosted pass is claimed. Do not change the
@@ -741,10 +746,29 @@ exact delivery/destruction counts, native view/root/scope assertions and 30-seco
 native bounds. Its test-owned timer and explicit application context replace
 obsolete test APIs; foreign-delegate rejection moves to run admission and is
 proved to preserve the foreign owner and application's open windows. The original
-10-second stuck-subtree error oracle remains exact. Source review is clear;
-no candidate projection/native pass is claimed. Qualification retains both
-frontends, plain and ASan/UBSan, original WorkQueue/Publisher/attached-host/Window
-regressions, and every legacy lifecycle scenario.
+10-second stuck-subtree error oracle remains exact. Source review is clear. Candidate `5dd18d19` now passes all 40 focused native
+runs: five quit journeys, WorkQueue, Publisher, attached ApplicationHost and
+both Window fixtures, through both frontends in plain and ASan/UBSan modes.
+All 20 projections have zero diagnostics, all 174 strict units and 40 links pass.
+The exact original failing quit fixture now delivers both decisions and preserves
+the dirty windows on one veto. Early cancellation suppresses a queued peer
+prompt without cancelling its registration; current and stale save revisions,
+membership changes, retryable publisher cleanup, finalizer reentry and genuine
+native-only modal unwind all execute their original assertions.
+
+Independent aggregate
+`ui2-macos-native-quit-5dd18d19-compiler-f75c737b-r2/independent-qualification-audit.json`,
+SHA-256 `a639731ed60023c7b057c4dfc75bc191dae8690d7f60a333b08c7277584f2619`,
+closes all 1,050 recorded process groups and exact source/tool/log/binary pins.
+The overall runner then exits 1 at the legacy reference projection: the explicit
+test-owned `IApplicationTimer` declaration duplicates the interface synthesized
+from its native binding metadata. Receipt `42cb32412c0041784ce78e11404f5d178898e9a9131c79c9c0511ea12fb87fd4`
+retains both diagnostics. No legacy native child or self-host projection started;
+all 48 legacy runs remain required. The next repair removes only the duplicate
+fixture declaration, preserves all 12 original scenario assertions and bounds,
+and requalifies that remaining matrix. Production and the completed 40 fixtures
+must remain byte-identical to retain their scoped evidence. Full UI2 and final
+integration gates remain open.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
