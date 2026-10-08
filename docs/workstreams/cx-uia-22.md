@@ -203,3 +203,13 @@ and state-observation admission differs from domain-input eligibility. Native
 text delegates, keyed selection, slider capture, scroll observation, batch
 rollback, close transactions and retained image concurrency remain unfinished.
 No final UI2 provider, benchmark, GUI acceptance, or main integration is claimed.
+
+## Publisher fixture-only checkpoint
+
+`Publisher.btrc` uses a real worker to fill a two-record native publisher before
+any UI delivery. It checks explicit FULL, cancellation, unknown identity versus
+already-terminal identity, keyed supersession, fresh-generation retirement,
+suspension and cancellation from inside an entered receiver. Fixed disposition
+counters must conserve six admitted receipts with no pending work. The class
+does not exist at this fixture-only checkpoint; actual compiler/native red
+remains pending the allocated lane and native-binding fragment.

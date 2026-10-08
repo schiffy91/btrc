@@ -1,0 +1,64 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSExecutor;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class PublicationReceiver implements IApplicationPublicationHandler {
+	public Vector<long long> values = [];
+	public MacOSPublisher? cancelling;
+	public void deliver(ApplicationPublication publication) {
+		self.values.push(publication.payload);
+		if (self.cancelling != null) { assert(self.cancelling.cancel() == CALLBACK_CANCELLATION_PENDING); }
+	}
+}
+
+int main() {
+	var signal = MacOSRunLoopSignal();
+	var scope = CallbackScope();
+	var receiver = PublicationReceiver();
+	var publisher = MacOSPublisher(2, signal);
+	assert(publisher.initialized());
+	publisher.activate(receiver, scope);
+	Thread<int> worker = spawn(() => {
+			if (publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 10LL) != PUBLISH_ACCEPTED) { return 1; }
+			if (publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 20LL) != PUBLISH_ACCEPTED) { return 2; }
+			if (publisher.tryPublish(1LL, 3LL, WORK_SUSPENSION_DEFER, 0LL, 30LL) != PUBLISH_FULL) { return 3; }
+			return 0;
+		});
+	assert(worker.join() == 0 && receiver.values.isEmpty());
+	assert(publisher.requestCancel(1LL, 1LL) == PUBLISH_CANCEL_REQUESTED);
+	assert(publisher.deliverOne() && publisher.deliverOne() && !publisher.deliverOne());
+	assert(receiver.values.len == 1 && receiver.values.get(0) == 20LL);
+	assert(publisher.requestCancel(1LL, 1LL) == PUBLISH_CANCEL_ALREADY_TERMINAL);
+	assert(publisher.requestCancel(1LL, 3LL) == PUBLISH_CANCEL_STALE);
+	assert(publisher.tryPublish(1LL, 3LL, WORK_SUSPENSION_REPLACE, 9LL, 30LL) == PUBLISH_ACCEPTED);
+	assert(publisher.tryPublish(1LL, 4LL, WORK_SUSPENSION_REPLACE, 9LL, 40LL) == PUBLISH_REPLACED);
+	assert(publisher.tryPublish(2LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 50LL) == PUBLISH_ACCEPTED);
+	assert(publisher.tryPublish(1LL, 5LL, WORK_SUSPENSION_DEFER, 0LL, 60LL) == PUBLISH_STALE);
+	assert(publisher.deliverOne() && receiver.values.get(1) == 50LL);
+	assert(publisher.retired(CONTROL_EVENT_CANCELLED) == 1LL);
+	assert(publisher.retired(CONTROL_EVENT_DELIVERED) == 2LL);
+	assert(publisher.retired(CONTROL_EVENT_SUPERSEDED) == 1LL);
+	assert(publisher.retired(CONTROL_EVENT_STALE_GENERATION) == 1LL);
+	assert(publisher.acceptedCount() == 5LL && publisher.pendingCount() == 0);
+
+	publisher.suspend(true);
+	assert(publisher.tryPublish(2LL, 2LL, WORK_SUSPENSION_CANCEL, 0LL, 60LL) == PUBLISH_CANCELLED);
+	assert(publisher.tryPublish(2LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 60LL) == PUBLISH_ACCEPTED);
+	assert(!publisher.deliverOne());
+	publisher.suspend(false);
+	receiver.cancelling = publisher;
+	assert(publisher.deliverOne());
+	assert(publisher.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(publisher.tryPublish(2LL, 3LL, WORK_SUSPENSION_DEFER, 0LL, 70LL) == PUBLISH_CLOSED);
+	assert(publisher.acceptedCount() == 6LL && publisher.pendingCount() == 0);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	receiver.cancelling = null;
+	signal.close();
+	print("UI2 worker publication preserves capacity, receipt identity and cancellation ownership");
+	return 0;
+}
