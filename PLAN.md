@@ -112,8 +112,35 @@ still needs final combined-tree qualification before integration. Evidence:
 passing them will not establish the product compiler's ≤1.5 GiB footprint or
 its final build-time targets. The next module-build memory proposal releases
 each consumed worker reply after its independently owned output has been read;
-its ownership/lifetime observer is source-reviewed, with execution and measured
-savings still pending. Deliberately retained compiler graphs remain unchanged.
+its candidate `d7268b46` now builds with the original toolchain and verifies
+source/tool identity. Generated C confirms that the local reply is retained
+before its vector slot releases ownership. The first observer attempt stopped because its diagnostic text anchor also
+matched an embedded runtime string, after the original CatalogMain compilation
+succeeded. The corrected observer authenticates that completed baseline output. A second
+comparison correctly rejected differing path-derived unit filenames; rerunning
+only the candidate fixture with the same authenticated standard-library root
+preserves all seven original emitted C files byte for byte. At both one and
+three workers, the original compiler retains all six watched replies and the
+candidate releases all six before the next record or batch end. All 18 selected
+module semantics checks pass with zero skips, and both actual Apple Clang
+ASan/UBSan runs pass without reports. Source/tool closure and independent review
+are clear. Measured peak savings and final combined-tree gates remain pending. Deliberately retained compiler graphs remain unchanged.
+
+The independent generic-plan allocation candidate `4d930d95` also builds through
+the original Linux Make recipe. Its first comparison stopped before correctness
+and memory checks because a broad pytest selector collected ten unintended
+name matches in addition to the intended 178 rows. The exact inventory guard
+rejected them. The diagnostic now names the same 89 corpus programs through
+both frontends explicitly. Run `37743334979` has now completed: both baseline
+and candidate pass all 178 corpus executions and 22 cache checks, with zero
+skips. The real allocation observer confirms 16 / 8 / 4 / 2 fewer unused map
+allocations across its four workloads, with identical emitted C. However, all
+three candidate heavy-stdlib peak guards fail: 46,067,712 / 45,920,256 /
+45,858,816 bytes against the unchanged 45,838,336-byte allowance. Baseline
+passes two of three; dispatch passes throughout. Independent source, tool,
+process and artifact review is clear. This is proven allocation removal without
+a demonstrated peak-memory improvement; it is withheld from the integration
+candidate. Evidence: `generic-linux-peak-3974-hosted-r3/INDEPENDENT-REVIEW.md`.
 
 ### Goal 2: usable standard library and native GUI on five platforms
 
@@ -124,10 +151,46 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 | Platform | Demonstrated capability | Missing product capability / next demonstrable result |
 |---|---|---|
 | macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | Finish uninstrumented lifecycle qualification: the independent AppKit control cannot obtain focus while loginwindow is foreground. Qualify the already integrated cross-worker GUI focus coordination, resolve the separate intermittent activation failure, then deliver UI2 and remaining controls/services/accessibility. |
-| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | Current assembled X11 CI exposes three scrollbar input assertion failures (321 other cases pass, 199 skip). Diagnose and repair the native event path, qualify the assembled tree, then land UI2 and remaining features/accessibility. Wayland remains report-only until its required main acceptance. |
+| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | Current assembled X11 CI exposes three scrollbar input failures. A controlled real focus-loss trace reproduces drag cancellation, and all eight isolated variants pass; a reviewed shared-display lease is in hosted qualification. Qualify the assembled tree, then land UI2 and remaining features/accessibility. Wayland remains report-only until its required main acceptance. |
 | Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows pass and PR53 landed on main `49f136ec` | Qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
+
+The main-based canonical PLAN candidate `f01ec0ff` passes Linux, Windows and
+ARM workflows. Its Mac native GUI gate fails one unchanged self-hosted portable
+GPU case (326 pass, 67 skip): the generated program aborts in its pixel journey.
+The old artifact does not contain the failed generated C, so neither its exact
+predicate nor cause is established. All production and native-test inputs match
+main `49f136ec`. A standalone main-based AppKit coordination repair `13e147ed`
+has passed the original three-worker native gate in run `37745915293`: 327
+passes, 67 expected skips and no failures/errors across the exact 394 collected
+cases. All eight real GPU pixel journeys pass. The baseline coordination
+control has two required failures; the repair passes seven focused tests.
+Independent review verifies all 4,374 source files against Git, exact diagnostic
+pins and unchanged tools/inputs. The full artifact is retained with SHA-256
+`07e0cabe6f83b4b854b1391dd578b26b4a1b1493a87858b097a97a9d55e365f9`.
+This qualifies the affected native gate; it does not establish the historical
+GPU failure's cause or the full final-tree matrix. The repair is being assembled
+with this consolidated plan for normal final PR qualification.
+
+The first Linux shared-display lease qualification, run `37743819333`, stops
+before tests on both X11 and Wayland: its diagnostic launcher bypasses Bash and
+therefore does not load the original image's exported Nix environment. The
+image builds and immutable input checks pass; no lease or native pass is claimed.
+The minimal launcher correction now reaches the original tests in run
+`37749577958`. X11 stops in its baseline control: the execution-inventory check
+correctly fails, but a scheduling race allows the exclusion test to pass before
+the contender reaches its body. Its unchanged baseline has no Linux lease.
+Source `9b03f794` now waits for actual kernel contention or body entry before
+asserting exclusion. The original baseline correctly fails both required
+assertions; the candidate passes all 16 coordination checks with zero skips.
+A separate actual-process control verifies Darwin's zombie-only group EPERM
+and safe cleanup that still removes live descendants. The full X11 native
+stage has not run. The original full Wayland gate at `14f9e193` now passes;
+its artifact is being verified separately. A fresh X11 continuation keeps every
+original native check and the two required baseline failures. The later
+`9b03f794` test-only change is not represented as a new Wayland execution.
+Both attempts and their source/tool audits are retained.
 
 The current macOS UI2 foundation snapshot `a9ffe1bd`, using compiler `56d548c4`,
 now passes **28 actual native executions**: seven fixtures through both frontends,
@@ -155,6 +218,29 @@ Evidence: `ui2-macos-container-projection-71397941/results/projection1/component
 (SHA-256 `d6bd4646020aeb630f7352df9a0fb4cbfdd6c318036764aa30ec4319ffc4aafd`),
 with report commit `3bf85703`. Application-host wiring, ordinary input deferral,
 remaining controls, Linux UI2 and final integration remain open.
+
+The next Mac source snapshot adds staged run-loop attachment, native capture
+failure reporting and two-axis ScrollView observations. Reference projection
+of NativeCaptureFailure and RunLoopAttachment passes without diagnostics;
+Scroll projection exposed a private test export omission and then the existing
+compiler guard against mutable Objective-C object globals. Both failed attempts
+are retained. Reviewed source `61748e0c` uses typed accessors for the actual SDK
+notification identities; it does not relax the compiler or guess string names.
+Fresh projection accepts those native identities and then rejects assumed
+constructors on the approved data-only event records. Reviewed source `25c98801` now
+uses their declared fields without changing the portable contract. Frozen `25c98801` then passes all six projections and 30 strict C/Objective-C
+checks. Reference capture-failure and run-loop-attachment programs pass native
+execution; Scroll initially rejects arrange-before-attachment in its fixture.
+Fixture correction `8e21f235` preserves every assertion and attaches the view
+first. The Scroll program now passes its earlier geometry, model-event, no-op,
+invalid-input, clamping and retained-snapshot checks, then aborts at the real
+wheel notification assertion. A matched native-only AppKit control reproduces
+no movement or bounds/Did notification, while Start and End arrive during
+one second of normal run-loop service. Changing only public host-event metadata
+or line-versus-pixel units still produces no movement. A lost provider callback
+has not been established; event dispatch/context remains under investigation.
+Sanitized/self-hosted native stages have not run. The retained failures are not
+counted as complete ScrollView qualification.
 
 Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
 audio and foreign-library ownership still require their platform-specific
@@ -216,18 +302,68 @@ source/tool reconciliation passes; generated caches and package outputs are
 retained separately with exact hashes. The live GUI acceptance, entire self-hosted agent pass and repaired
 library replay remain pending. Shortening the smoke path is not acceptance.
 Nullable-owner corrections are source-reviewed but not executed. The original
-Linux x86_64 product qualification is running in
+Linux x86_64 product qualification was recorded in
 [BTRSmith PR30](https://github.com/schiffy91/btrsmith/pull/30), stacked on the
 existing pin-migration PR28, using exact product `933f79b7` and compiler
-`3974d47b`. Its original paired frontend checks and both reference/self-hosted
-library plus installed-smoke steps pass; live agent acceptance is running.
-Final artifacts and source checks remain pending, so this is not a completed
-Linux MVP qualification. Product locks remain unchanged;
+`3974d47b`. The run has completed: original paired frontend checks, both library journeys
+(one album/cell, 600 frames, teardown 4), both installed executable smokes, and
+reference AgentOperationChannel with Clang and GCC pass. The next reference
+AgentSurfaceProcessAcceptance aborts at the command-response assertion. Its
+actual Linux response was not captured, so the separately observed Mac stale
+response is not asserted as this run's cause. Self-hosted agent acceptance, live
+GUI, audio failure journeys and the final product derivation remain unrun.
+All 842 product and 4,496 compiler inputs and final Git indexes are verified
+unchanged. Artifact 11533510297 has verified SHA-256
+`209db7257e6807c26529e4e89b816cd757903850c598aa6038bb20c3a758e398`;
+`btrsmith-linux-933-3974-hosted/REPORT.md` records the bounded result. This is
+not completed Linux MVP qualification. Product locks remain unchanged;
 these results use an explicit current-compiler override, not an accepted pin bump.
 Evidence is in `btrsmith-frontend-3974-prepared/attempt-1` and
 `btrsmith-frontend-3974-prepared/library-attempt-2`. The exact realized Nix shell
 now has a task-owned GC root after its unrooted predecessor disappeared between
 runs; no global Nix settings changed.
+
+The Mac interactive fixture at `9b88ff73` now builds through both frontends
+and passes all six process-transport failure controls through each (12 native
+passes). The original reference agent channel passes too. The full journey
+progresses beyond the former stale command and reaches an unchanged UI route
+assertion. An actual event trace confirms the fixture opens Settings on Audio
+then sends a Library-only edit, which routing correctly ignores. The fixture
+now dispatches the real Library settings navigation before the unchanged edit
+and save assertions. Combined source `254284c0`, including separately reviewed
+fixture `5bded264`, gives each MCP retry a fresh
+transport request ID while retaining logical command identity, raw response
+validation and the original journey assertions. Its original reference target
+now passes both AgentOperationChannel and AgentSurfaceProcessAcceptance. The
+next LiveAgentProcessAcceptance exits before endpoint readiness. A separate
+no-build capture of the exact application prints `FAIL: Instrument material
+unavailable: No such file or directory` and exits 1; its required Rosewood.png
+is absent. The acceptance Make prerequisite builds only the executable and
+bypasses the existing `btrsmith-native` resource-staging owner. That dependency
+repair is in progress. Source, tool and executable hashes close unchanged in
+both failed-run and diagnostic records. Self-hosted full acceptance remains
+unrun. This is not yet a pass of the full
+paired journey; the earlier 12 transport controls remain tied to their exact
+source and preserved executables.
+
+Product `0b6c491a` fixes the native agent acceptance Make prerequisite to use
+the existing resource owner. The baseline fails for missing Rosewood.png;
+the repair passes 27 build-input checks, and the live app now starts. The
+reference operation-channel and standalone agent-surface journeys pass again.
+Live acceptance next aborts on typography. A no-build actual CLI/MCP capture
+confirms the library heading is 22/38/400, matching the existing stylesheet and
+independent UI integration test; the live fixture still expects 20/26/600.
+Settings and audio typography agree with their contracts. The library expectation is corrected in `9d26ff0a`; its next original replay
+passes that assertion, then fails the player weight check. A subsequent actual
+open-arrangement, ready-transport, MCP seek to frame 48000, shared CLI scrub and
+raw UI capture confirm the player heading is 22/24/400, again matching its
+stylesheet while the fixture expects weight 600. Source `d3fb25f4` corrects
+that one number and preserves the assertion. The original paired macOS replay
+is active; the complete reference and self-hosted live journeys remain unqualified.
+The corresponding Linux continuation is active in run `37753689445`, retaining
+prior frontend/library evidence separately and running the original remaining
+agent, audio and product targets. App descendants are now checked
+and cleaned on ordinary test failure as well as timeout. No full MVP claim.
 
 ### Integration status in service of the goals
 
@@ -242,23 +378,32 @@ skipped standalone jobs are not counted as evidence. This independent slice did
 not wait for UI2 or the remaining compiler work.
 
 Current broader candidate `3974d47b` is published in
-[draft PR68](https://github.com/schiffy91/btrc/pull/68). Its full hosted matrix is
-running; Android tooling/API 29/API 36, Windows, Windows ARM64, the Linux
+[draft PR68](https://github.com/schiffy91/btrc/pull/68). Its original hosted matrix has
+completed; Android tooling/API 29/API 36, Windows, Windows ARM64, the Linux
 ARM64 bundle, release/static ownership and the Linux Wayland lane pass. Linux
 and macOS bootstrap pass; all eight Linux C11 cells, all Linux test shards and
 both platforms' paired corpus lanes pass. Linux CI has completed with exactly
-the benchmark and X11 job failures; its skip classification passes. macOS
-self-hosted/unit shards remain running and are not counted as passed. Its
-benchmark job fails only the unchanged heavy-stdlib memory allowance recorded
+the benchmark and X11 job failures; its skip classification passes. The macOS
+workflow is now green, including self-hosted/unit shards and skip classification. The
+Linux benchmark job fails only the unchanged heavy-stdlib memory allowance recorded
 above. The current X11 native lane also fails three scrollbar input cases
 (reference plain/sanitized and self-hosted sanitized); self-hosted plain passes.
 The binaries abort in `ScrollJourney.run`, after the geometry checks, with
 321 other passes and 199 skips. This is an open native assertion failure, not
-a skipped capability or an accepted environment warning. The [controlled X11 focus diagnostic](https://github.com/schiffy91/btrc/actions/runs/37735904202)
-is now running with an exact, verified `3974d47b` binary from the completed
-Linux comparison. It preserves the original drag/wheel assertions and separates
-induced focus loss, isolated runs and concurrent scheduling observations. The
-cause remains unproven; evidence is `combined-3974d47b/linux-x11-current.log`. The earlier `71a22734` general CI failed on
+a skipped capability or an accepted environment warning. The first [controlled X11 diagnostic](https://github.com/schiffy91/btrc/actions/runs/37735904202)
+failed to upload container-owned evidence; that failed attempt is retained.
+Its [transport-corrected rerun](https://github.com/schiffy91/btrc/actions/runs/37738526714)
+retains a same-window DOWN with focus, then FOCUS_LOST, then MOTION; offset stays
+zero and the original offset-300 assertion aborts. All eight isolated
+original/traced, paired-frontend, plain/sanitized rows pass; concurrent scheduling
+has ten passes and two original Python failures. The historical concurrent
+event stream is still unproven. These results support qualifying coordination
+for cooperating shared-display tests while preserving cancellation for real
+external focus loss. Candidate `14f9e193` adds that bounded lease and process
+regressions; its original full X11/Wayland suites are in hosted qualification.
+No native assertion, timeout, skip allowance or provider input path changed.
+Evidence: `linux-scroll-x11-hosted-37738526714/analysis-result.json`, SHA-256
+`c59bef77236727959f4f354e8f44563f6f5cd59d9e6c548af125f6801f2822fd`. The earlier `71a22734` general CI failed on
 tuple declaration ordering, two unchanged peak-memory allowances and two unit
 contracts (compiler lambda ownership and missing signing subprocess timeouts).
 The recorded peaks are 45,973,504 against 44,789,760 bytes for
@@ -300,7 +445,7 @@ The task-started Linux VM is stopped and its locks released.
 
 `codex/integrate-qualified-linux` at `3974d47b` assembles those exact provider/test
 bytes with compiler checkpoint `56d548c4`, strengthened reuse fixtures and current
-Windows main. Its hosted gates are running, with the memory failure above; it
+Windows main. Its original hosted gates are complete, with memory and X11 failures above; it
 is not yet a qualified combined tree. The Mac skip fragments classify platform absence
 only. The normal Grid driver now records exactly four Mac skips; its precise
 admission passes0→4 replay and mismatch/Linux rejection checks, with no native
