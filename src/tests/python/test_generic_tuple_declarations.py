@@ -19,10 +19,10 @@ def test_tuple_declarations_do_not_depend_on_body_discovery_order() -> None:
     for statements in ((first, second), (second, first)):
         source = "int main() { " + " ".join(statements) + " return outer._0 + earlier._1; }"
         generated = emit_c(source)
-        shapes = re.findall(r"^struct (btrc_Tuple_\w+) \{\n.*?^\};", generated, re.MULTILINE | re.DOTALL)
+        shapes = re.findall(r"^struct (btrc_\w+) \{\n.*?^\};", generated, re.MULTILINE | re.DOTALL)
         assert len(shapes) == 3, shapes
         inner = next(shape for shape in shapes if shape == "btrc_Tuple_short_char")
-        outer = next(shape for shape in shapes if "Tuple" in shape.removeprefix("btrc_Tuple_"))
+        outer = next(shape for shape in shapes if shape not in {"btrc_Tuple_short_char", "btrc_Tuple_char_int"})
         assert shapes.index(inner) < shapes.index(outer), shapes
         declarations.append(shapes)
     assert declarations[0] == declarations[1]
