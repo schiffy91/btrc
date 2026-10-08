@@ -13,7 +13,7 @@ batch evidence. The frozen [reference](docs/design/plan-reference.md) and every
 `ref:N` line citation remain unchanged. This document has no effort or calendar
 estimates: order follows demonstrated dependencies and payoff.
 
-## Goals versus status (2026-10-07)
+## Goals versus status (2026-10-08)
 
 The owner's goals are a fast compiler across real build workloads and a usable
 standard library with native GUI on macOS, Linux, Windows, iOS/iPadOS and
@@ -73,8 +73,13 @@ quiet-service classifier (`bc685ed7`, 92 focused passes) preserves the complete
 active jobs. The second attempt still takes no samples: the retained build shell
 sets DEVELOPER_DIR to its SDK-only Nix package, preventing even the absolute
 Apple xcrun from locating simctl. The probe must query the selected installed
-Xcode without changing compiler SDK inputs; this is an environment repair, not
-a measured compiler improvement.
+Xcode without changing compiler SDK inputs. Reviewed follow-up `afda125e`
+passes 93 checks and the actual retained-shell probe, reporting all 13 devices
+Shutdown with the parent environment unchanged. The third attempt passes the
+process and simulator probes but reaches its strict 180-second deadline because
+Google Drive and mdworker do not sustain the required CPU limit; it takes zero
+compiler samples. All three attempts remain retained. No speed or memory
+improvement is claimed, and system settings remain unchanged.
 
 ### Goal 2: usable standard library and native GUI on five platforms
 
@@ -344,8 +349,9 @@ provenance, preserves full pytest parameter IDs, separates build/infrastructure
 failures, and prevents an invalid earlier attempt from erasing new retry failures
 or permitting a push. Replaying the retained release log yields two stable test
 IDs plus 38 non-test/unclassified diagnostic records and still fails qualification.
-It creates no allowance and does not qualify BTRSmith. Publication, combined
-integration and actual application requalification remain outstanding.
+It creates no allowance and does not qualify BTRSmith. The reviewed packet is
+now reconciled into the local integration candidate; publication, combined gates
+and actual application requalification remain outstanding.
 
 ### Delivery review and progress measurement (2026-10-07)
 
