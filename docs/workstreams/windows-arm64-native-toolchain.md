@@ -13,6 +13,18 @@ Owned paths:
 - `tools/windows_toolchain/test_arm64.py`
 - This report.
 
+### Follow-up claim: compatibility declaration (2026-10-08)
+
+The parent integrator owns `src/runtime/windows/btrc_win_compat.h`,
+`src/tests/python/test_native_win_compat.py`, this report and its WORKSTREAMS
+claim for the follow-up based on `fe115d6be927b23ac2bda7ef5e9bd8639de1a763`.
+Native run 37711636840 (hosted merge `adef61ea2349196924f625416361e9b625c72d5b`)
+links the minimal GNU executable successfully, then the actual strict probe
+reveals a newer MinGW `stdlib.h` declaration of `mkdtemp` conflicting with our
+static implementation. BTRC/bootstrap have not executed. Preserve the existing
+adapter semantics and generated-extern compatibility on old and new headers;
+do not gate this on a guessed toolchain version or change compiler flags.
+
 ## Evidence and intended outcome
 
 Windows75 retained actual native C object and direct no-CRT DLL link successes,
