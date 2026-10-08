@@ -150,3 +150,12 @@ superseded, closed and failed receipts without allocating producer-side managed
 state or keeping unbounded history. The fixture checks generation replacement,
 explicit cancellation, suspended cancellation, receiver delivery and failure
 cleanup conservation. All runtime and sanitizer proof remains pending.
+
+Checkpoint before independent compiler admission review: `c98552d2` preserves
+an unexecuted native eligibility fixture. LinuxContext now owns the private
+terminal pool (16384 slots), detached semantic queue and native wake adapter;
+LinuxViewNode has source-only observation/generation/eligibility foundations.
+This foundation is deliberately not claimed as an implemented operation yet:
+window/application service wiring, root refresh, enabled-control overrides,
+composition settlement and the other UI2 methods remain unfinished. No build
+or native test was attempted, and this WIP checkpoint must not land alone.
