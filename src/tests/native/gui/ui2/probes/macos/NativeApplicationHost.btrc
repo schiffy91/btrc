@@ -176,6 +176,16 @@ int main() {
 	attachment.serviceTurn();
 	assert(stateReceiver.calls == 1 && !stateReceiver.visible);
 
+	var window = application.createWindow("UI2 attached host state", 160.0, 100.0);
+	view.setVisible(true); window.attachRoot(view); window.show();
+	attachment.transition(APPLICATION_ACTIVITY_SUSPENDED);
+	var suspended = window.state();
+	assert(suspended.applicationActivity == APPLICATION_ACTIVITY_SUSPENDED && !suspended.presentable);
+	assert(!view.interactionState().effectiveEligible);
+	attachment.transition(APPLICATION_ACTIVITY_ACTIVE);
+	assert(window.state().applicationActivity == APPLICATION_ACTIVITY_ACTIVE);
+	assert(view.interactionState().effectiveEligible);
+
 	var closing = PublicClosingWork(application);
 	application.post(closing); attachment.serviceTurn();
 	assert(closing.returned);
