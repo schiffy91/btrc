@@ -96,7 +96,7 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 | Platform | Demonstrated capability | Missing product capability / next demonstrable result |
 |---|---|---|
 | macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | Finish uninstrumented lifecycle qualification: the independent AppKit control cannot obtain focus while loginwindow is foreground. Qualify the already integrated cross-worker GUI focus coordination, resolve the separate intermittent activation failure, then deliver UI2 and remaining controls/services/accessibility. |
-| Linux | SDL shell; X11 GUI/audio lane; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | Qualify the assembled input/layout/scroll/Grid repair tree, then land UI2 provider, resolve toolkit direction, and qualify remaining features and accessibility. Wayland remains report-only until its required main acceptance. |
+| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | Current assembled X11 CI exposes three scrollbar input assertion failures (321 other cases pass, 199 skip). Diagnose and repair the native event path, qualify the assembled tree, then land UI2 and remaining features/accessibility. Wayland remains report-only until its required main acceptance. |
 | Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows pass and PR53 landed on main `49f136ec` | Qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
@@ -180,7 +180,12 @@ Current broader candidate `3974d47b` is published in
 [draft PR68](https://github.com/schiffy91/btrc/pull/68). Its full hosted matrix is
 running; Android tooling/API 29/API 36 and the Linux ARM64 bundle pass. Its
 benchmark job fails only the unchanged heavy-stdlib memory allowance recorded
-above. The earlier `71a22734` general CI failed on
+above. The current X11 native lane also fails three scrollbar input cases
+(reference plain/sanitized and self-hosted sanitized); self-hosted plain passes.
+The binaries abort in `ScrollJourney.run`, after the geometry checks, with
+321 other passes and 199 skips. This is an open native assertion failure, not
+a skipped capability or an accepted environment warning. Source/event diagnosis
+is underway; evidence is `combined-3974d47b/linux-x11-current.log`. The earlier `71a22734` general CI failed on
 tuple declaration ordering, two unchanged peak-memory allowances and two unit
 contracts (compiler lambda ownership and missing signing subprocess timeouts).
 The recorded peaks are 45,973,504 against 44,789,760 bytes for
