@@ -338,9 +338,16 @@ covered. Receipt `host-compiler-launch-66047414-attempt-1/result.json`, SHA-256
 `74dfdf9306a63b439d99d0d49749754fba8aa80b9eb56427cfb7d41ae8fa0372`,
 records unchanged source/tools and all eight owned groups closed; independent
 review is clear. Report commit `decb5fd4` retains the unresolved hosted cause.
-The diagnostic and scheduling changes are assembled with this plan for a new
-source-changed PR68 qualification; no unchanged third retry or hosted pass is
-claimed. PR68 remains unqualified until the combined final gates pass.
+The diagnostic and scheduling changes are published in PR68 head `6f1b81d9`;
+hosted merge `e10d8bab` has the same tree `5505ab70`. New Linux `37833377148`,
+macOS `37833377244`, Windows `37833377072`, ARM64 `37833377199` and Android
+`37833377200` workflows started at 19:37 UTC. Windows tests and Android tooling
+pass; bootstrap, remaining suites and emulator jobs are running or queued.
+The required separate native-GUI dispatch `37835919865` started at 19:58 UTC
+on this exact head, with the reviewed worker grouping and original bounds.
+No unchanged third retry or combined hosted pass is claimed. Do not change the
+published head during qualification. PR68 remains unqualified until the combined
+final gates pass.
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
 R2 runner, source/tool inputs, eight-run order, 60-second quiet windows and
@@ -363,22 +370,33 @@ All 11,182 protected entries remain unchanged and free space rises to 82.353 GB.
 Restore the selected outputs before re-auditing historical raw outputs; current
 compiler binaries, prepared inputs, source, logs and receipts remain in place.
 
-The freed hosted slot now runs the prepared private BTRSmith Linux replay:
+The prepared private BTRSmith Linux replay is now terminal failure:
 push-triggered run `37824120618`, job `113472397499`, diagnostic head
 `b056e678107f3fbe596e46b0639865ac30baebc7`,
 exact product `8f73b7d5` and compiler `f75c737b`. Reviewed workflow SHA-256
 `52f18b20de7b1f393d3fe0bf626e3fb7e4d9c0297077d54b24a1ba7ddb03302a`
 is unchanged: original live-agent, audio and package/install targets, process
 ownership and bounds. Only its workflow file changed; product compiler pins
-remain unchanged. The original paired live-agent stage is confirmed running;
-the macOS unit wave is now terminal, leaving one hosted heavy-wave slot free.
-The next dispatch must contain a reviewed source change addressing the observed
-qualification failures; no unchanged third unit retry is planned. A redundant
+remain unchanged. The reference Clang AgentOperationChannel executable aborts
+at 19:12:02 UTC, after about 9.1 seconds of native execution, at the original
+`iterations < 1000000` guard in `agentChannelServeChild`. Make exits 134 then 2.
+The wrapper subsequently remains alive until its unchanged 5,340-second bound
+returns 124 at 19:56:10. These are distinct product and cleanup failures;
+a timeout is not 89 minutes of test progress. Self-host, audio and installation
+acceptance do not run. Exact remaining descendant identity is not recorded.
+Terminal log SHA-256 is
+`b74705a7402f35ca7d29b4bf498d10324e1a3e01cf16e3fd17eb5c6eaf1cf663`;
+artifact `11575806419` is authenticated as
+`2e51c0ce4d98b020152ed51733a6393e19b9eb0be1252ba6c429ad77d16ce904`.
+Source/tool/final-tree hashes close. Diagnose both failures before another replay;
+do not increase an iteration allowance or timeout to make this result green.
+The freed hosted slot is allocated to PR68's source-changed explicit macOS
+native-GUI gate. A redundant
 manual dispatch `37824120641` was pending with no jobs, verified to have identical
 inputs, and canceled at 18:39 UTC; the original push run is retained. Workflow
 publication itself triggers this replay, so future publication must inspect that
-run before considering any manual dispatch. A running job is not a Linux result
-or full-MVP acceptance.
+run before considering any manual dispatch. This failed replay does not supply
+Linux qualification or full-MVP acceptance.
 
 Before that attempt, a verified payload-only archive preserved 924 completed
 pre-October-8 emitted-C cache parts from 306 default-cache entries. It retained
@@ -419,6 +437,18 @@ passes two of three; dispatch passes throughout. Independent source, tool,
 process and artifact review is clear. This is proven allocation removal without
 a demonstrated peak-memory improvement; it is withheld from the integration
 candidate. Evidence: `generic-linux-peak-3974-hosted-r3/INDEPENDENT-REVIEW.md`.
+
+
+A further read-only memory audit identifies detailed setjmp flow graphs retained
+for non-setjmp functions as a falsifiable lifetime hypothesis. The current solver
+still analyzes every function; only the safety owner requires detailed root
+flows. Any change must preserve all summaries/dependencies and the general
+all-function API. Python module-unit callers currently obtain summaries through
+returned contexts, so filtering contexts alone would lose zero-root-unit exports.
+A fixed root selection and solver-owned summary accessor need paired review and
+actual retained-byte/destruction evidence before an optimization claim. Historical
+380.3 MiB attributed to the entire flow/effect category is not current savings;
+the original product workload and parity/measurement gates remain required.
 
 ### Goal 2: usable standard library and native GUI on five platforms
 
@@ -699,6 +729,22 @@ native assertion mapping and all 40 owned groups reaped/absent. Independent
 review is clear. This is the genuine reference/plain baseline failure; the
 provider repair, paired/sanitized acceptance, remaining save/revision/membership
 journeys and all 12 original lifecycle scenarios are still required.
+
+Reviewed production `39f9e0ce`, after fixture-first `2413b9dc`, now implements
+native capture-time transaction holds, deferred group decisions, membership and
+revision revalidation, and irreversible ingress sealing before user finalizers.
+Review found and corrected stale queued prompts, partial/reentrant cancellation
+progress and a native-only modal unwind deadlock. Four additional real-provider
+fixtures cover these boundaries alongside the unchanged two-dirty-window veto
+regression. The separate legacy lifecycle migration preserves all 12 scenarios,
+exact delivery/destruction counts, native view/root/scope assertions and 30-second
+native bounds. Its test-owned timer and explicit application context replace
+obsolete test APIs; foreign-delegate rejection moves to run admission and is
+proved to preserve the foreign owner and application's open windows. The original
+10-second stuck-subtree error oracle remains exact. Source review is clear;
+no candidate projection/native pass is claimed. Qualification retains both
+frontends, plain and ASan/UBSan, original WorkQueue/Publisher/attached-host/Window
+regressions, and every legacy lifecycle scenario.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
@@ -2105,8 +2151,12 @@ The remote snapshot contains 183 branches: 151 tips are ancestors of main and
 branches must also be checked before deletion; nothing is deleted by this plan.
 
 The later integration branches are tracked separately from that frozen inventory.
-These are the current checkpoints; the detailed status above retains the earlier
-failed runs and their evidence rather than replacing them with later passes.
+These rows retain historical qualification receipts as well as current heads;
+the detailed status above names the active candidate and later failures. PR60
+`50bf1c8c` and PR65 `93856dfc` are exact ancestors of PR68 `6f1b81d9` with zero
+unique commits relative to it. They remain open until qualified integration.
+PR34 `f49c5fe1` still has 13 unique commits and its iOS host files are absent from
+PR68; it requires separate reconciliation and hosted acceptance.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
@@ -2114,7 +2164,7 @@ failed runs and their evidence rather than replacing them with later passes.
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge is now included in `06c3923a`; full qualification/main landing remain pending. |
 | PR53, Windows ARM64 host | Merged main `49f136ec`, tested head `110a514c` | All five workflows and native ARM64 compiler/bootstrap/sample plus MSVC ABI/wgpu checks pass. Merged tree equals tested tree; archive checksum verified. Broader provider and combined-tree gates remain separate. |
-| PR68, compiler and Linux GUI integration | Published `00e45379`; hosted merge `d38f344f` has the same tree | Linux full matrix, X11/Wayland, Windows/ARM64, Android and unchanged benchmark guards pass. Mac corpora, self-host checks, bootstrap, C11 and both native release bundles pass; unit retry `113416271573` and explicit native-GUI retry `113422566478` are executing. The first Mac failures remain recorded above. Final Mac reports/skip classification and qualified main integration remain open. |
+| PR68, compiler and Linux GUI integration | Published `6f1b81d9`; hosted merge `e10d8bab` has the same tree | Reviewed scheduling and bounded GCC launch diagnostics pass 109 focused checks. The new full matrix and explicit native-GUI run `37835919865` are active. Previous `00e45379` Linux/Windows/ARM64/Android passes remain historical; its Mac unit rerun failed six actual GCC launch ENOENT cases, and native-GUI failed lease admission before the GPU test body. Current exact-tree gates, skip classification and main integration remain open. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 At `50bf1c8c`, the [native Linux ARM64 release job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636879)
