@@ -1496,3 +1496,17 @@ Combine the reviewed token71352 and reply-slot d726 ownership changes without
 generic4d930 or unrelated data/generated changes. Separate source evidence does
 not qualify the combination: fresh compiler, affected semantics, full final gates
 and current-product quiet memory/instruction measurements remain pending.
+
+
+## 2026-10-08 D29 macOS GUI scheduling follow-up
+
+Packet: CX-HARMONIZE-MACOS-GUI-SCHEDULING. Integrator-assigned writer:
+performance_review, based on 00e4537925211ea2e217171fb32ccbbef10840c8.
+Owned paths: `src/tests/conftest.py`,
+`src/tests/python/test_macos_gui_coordination.py`, `src/tests/skip_ledger.py`,
+`.github/workflows/macos.yml`, and this claim. Prepared through an isolated index; existing checkout/index
+and other packet refs remain unchanged. Source-only until allocated tests.
+The hosted native-GUI job opts into grouped scheduling while keeping three
+workers, the cross-session kernel lease, all bounds and the original roster.
+The canonical Make target remains configurable and unchanged; this packet
+qualifies the demonstrated hosted invocation, not every caller's scheduler.

@@ -120,7 +120,19 @@ class GuiProcesses:
             "                   env=os.environ | {'LEASE_ROLE': 'nested'}, check=True, timeout=15)\n"
         )
 
-    def start(self, role, *, marked=True, fail=False, platform=None, timeout=None, teardown=False, node=None):
+    def start(
+        self,
+        role,
+        *,
+        marked=True,
+        fail=False,
+        platform=None,
+        timeout=None,
+        teardown=False,
+        node=None,
+        selection=None,
+        arguments=(),
+    ):
         environment = os.environ | {
             "PYTHONPATH": str(REPO),
             "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
@@ -147,7 +159,8 @@ class GuiProcesses:
                 "--confcutdir=" + str(self.root),
                 "-o",
                 "cache_dir=" + environment["LEASE_CACHE"],
-                "test_process.py::" + (node or ("test_gui" if marked else "test_ordinary")),
+                *arguments,
+                selection or "test_process.py::" + (node or ("test_gui" if marked else "test_ordinary")),
             ],
             cwd=self.root,
             env=environment,
@@ -453,3 +466,243 @@ def test_all_known_linux_display_tests_claim_the_gui_session(tmp_path):
         if file == "test_native_ui_shell_linux.py" and function == "test_linux_clipboard_probe_compiles"
     ]
     assert compile_only and not any(compile_only), "compile-only clipboard probe must remain parallel"
+
+
+def test_macos_gui_loadgroup_keeps_one_worker_and_cross_session_exclusion(tmp_path):
+    processes = GuiProcesses(tmp_path)
+    (tmp_path / "test_grouped.py").write_text(
+        "import json, os, time\nfrom pathlib import Path\nimport pytest\n"
+        "@pytest.fixture\ndef lifecycle(request):\n"
+        "    name = request.node.originalname + '-' + str(request.node.callspec.params['number'])\n"
+        "    Path(name + '.setup').touch()\n"
+        "    yield\n"
+        "    Path(name + '.teardown').touch()\n"
+        "def record(name, number):\n"
+        "    Path(name + '-' + str(number) + '.entered').touch()\n"
+        "    Path(name + '-' + str(number) + '.json').write_text(json.dumps({\n"
+        "        'worker': os.environ['PYTEST_XDIST_WORKER'],\n"
+        "        'workers': int(os.environ['PYTEST_XDIST_WORKER_COUNT'])}))\n"
+        "@pytest.mark.parametrize('number', range(2))\n"
+        "def test_ordinary(number, lifecycle):\n"
+        "    record('ordinary', number)\n"
+        "@pytest.mark.macos_gui\n@pytest.mark.parametrize('number', range(6))\n"
+        "def test_grouped(number, lifecycle):\n"
+        "    record('gui', number)\n"
+        "    deadline = time.monotonic() + 20\n"
+        "    while not Path('group.release').exists():\n"
+        "        assert time.monotonic() < deadline, 'parent did not release grouped journey'\n"
+        "        time.sleep(0.01)\n"
+    )
+    try:
+        processes.start("holder")
+        processes.wait("holder", "entered")
+        processes.start(
+            "grouped",
+            selection="test_grouped.py",
+            arguments=("-p", "xdist.plugin", "--dist=loadgroup", "-n", "3"),
+        )
+        if os.name != "nt":
+            processes.wait("grouped", "blocked")
+        # Ordinary workers progress while another pytest session owns AppKit.
+        for number in range(2):
+            deadline = time.monotonic() + 15
+            while not (tmp_path / f"ordinary-{number}.entered").exists():
+                assert processes.processes["grouped"].poll() is None
+                assert time.monotonic() < deadline, "Ordinary worker blocked by grouped AppKit work"
+                time.sleep(0.01)
+        if os.name != "nt":
+            assert not list(tmp_path.glob("test_grouped-*.setup")), "Grouped worker bypassed external GUI lease"
+        processes.release()
+        processes.finish("holder")
+        (tmp_path / "group.release").touch()
+        processes.finish("grouped")
+        gui = [json.loads((tmp_path / f"gui-{number}.json").read_text()) for number in range(6)]
+        ordinary = [json.loads((tmp_path / f"ordinary-{number}.json").read_text()) for number in range(2)]
+        assert all(row["workers"] == 3 for row in gui + ordinary)
+        assert len({row["worker"] for row in gui + ordinary}) == 3
+        assert len({row["worker"] for row in gui}) == 1, "AppKit cases were scheduled onto competing workers"
+        for name, count in (("test_ordinary", 2), ("test_grouped", 6)):
+            for number in range(count):
+                assert (tmp_path / f"{name}-{number}.setup").exists()
+                assert (tmp_path / f"{name}-{number}.teardown").exists()
+    finally:
+        (tmp_path / "group.release").touch()
+        processes.close()
+
+
+def test_macos_gui_loadgroup_rejects_a_combined_resource_group(tmp_path):
+    processes = GuiProcesses(tmp_path)
+    (tmp_path / "test_conflict.py").write_text(
+        "from pathlib import Path\nimport pytest\n"
+        "@pytest.mark.macos_gui\n@pytest.mark.xdist_group(name='another-resource')\n"
+        "def test_conflict():\n    Path('unexpected-entry').touch()\n"
+    )
+    try:
+        processes.start(
+            "conflict",
+            selection="test_conflict.py",
+            arguments=("-p", "xdist.plugin", "--dist=loadgroup", "--collect-only"),
+        )
+        output = processes.finish("conflict", expected=4)
+        assert "macos_gui cannot combine with another xdist_group" in output
+        assert not (tmp_path / "unexpected-entry").exists()
+    finally:
+        processes.close()
+
+
+def test_macos_gui_grouped_reports_keep_source_identity_and_capability_coverage(tmp_path, monkeypatch):
+    import xml.etree.ElementTree as ET
+
+    from tools.qualification.skips import SkipCoverage
+
+    monkeypatch.setenv("BTRC_TEST_RUNNER", "macos-hosted")
+    processes = GuiProcesses(tmp_path)
+    with (tmp_path / "conftest.py").open("a") as stream:
+        stream.write(
+            "\ndef pytest_runtest_logreport(report):\n"
+            "    if os.environ.get('PYTEST_XDIST_WORKER'):\n"
+            "        key = hashlib.sha256((report.nodeid + report.when).encode()).hexdigest()\n"
+            "        Path('raw-' + key + '.json').write_text(json.dumps({\n"
+            "            'nodeid': report.nodeid, 'phase': report.when,\n"
+            "            'properties': report.user_properties}))\n"
+        )
+    source = tmp_path / "src/tests/python/test_native_ui_shell_linux.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("""
+import os
+import pytest
+from src.tests.runner_capabilities import CapabilityGateLog
+
+pytestmark = [pytest.mark.macos_gui, pytest.mark.xdist_group(name="macos_gui")]
+
+@pytest.fixture
+def lifecycle(request):
+    action = request.node.callspec.params["action"]
+    assert action != "setup-error", "deliberate setup error"
+    yield
+    assert action != "teardown-error", "deliberate teardown error"
+
+@pytest.mark.xdist_group(name="macos_gui")
+@pytest.mark.parametrize("action", ["pass", "skip", "call-error", "setup-error", "teardown-error"],
+                         ids=lambda action: action + "@macos_gui")
+def test_linux_native_shell(action, lifecycle):
+    reason = "requires Linux SDL native shell" if action == "skip" else None
+    CapabilityGateLog.record("grouped-fixture", reason)
+    original = os.environ["PYTEST_CURRENT_TEST"]
+    try:
+        os.environ["PYTEST_CURRENT_TEST"] = "other::test[literal@macos_gui] (call)"
+        CapabilityGateLog.record("unrelated-fixture", None)
+    finally:
+        os.environ["PYTEST_CURRENT_TEST"] = original
+    if reason:
+        pytest.skip(reason)
+    assert action != "call-error", "deliberate call error"
+""")
+    try:
+        processes.start(
+            "reports",
+            selection=str(source.relative_to(tmp_path)),
+            arguments=(
+                "-p",
+                "xdist.plugin",
+                "--dist=loadgroup",
+                "-n",
+                "3",
+                "--skip-report=reports.json",
+                "--junitxml=reports.xml",
+            ),
+        )
+        processes.finish("reports", expected=1)
+        report = json.loads((tmp_path / "reports.json").read_text())
+        prefix = "src/tests/python/test_native_ui_shell_linux.py::test_linux_native_shell"
+        expected = {
+            f"{prefix}[{action}@macos_gui]": outcome
+            for action, outcome in (
+                ("pass", "passed"),
+                ("skip", "skipped"),
+                ("call-error", "failed"),
+                ("setup-error", "error"),
+                ("teardown-error", "error"),
+            )
+        }
+        assert report["tests"] == expected
+        assert report["counts"] == {
+            "passed": 1,
+            "skipped": 1,
+            "failed": 1,
+            "error": 2,
+            "xfailed": 0,
+            "xpassed": 0,
+        }
+        assert len(report["skips"]) == 1
+        skip = report["skips"][0]
+        assert skip["nodeid"] == f"{prefix}[skip@macos_gui]"
+        assert skip["expected"] is True and skip["covered_by"] == ["linux-devcontainer"]
+        assert skip["capability"] == "grouped-fixture"
+        gates = report["capability_gates"]
+        assert {gate["nodeid"] for gate in gates if gate["capability"] == "grouped-fixture"} == {
+            f"{prefix}[{action}@macos_gui]" for action in ("pass", "skip", "call-error", "teardown-error")
+        }
+        assert [gate["nodeid"] for gate in gates if gate["capability"] == "unrelated-fixture"] == [
+            "other::test[literal@macos_gui]"
+        ]
+        cases = list(ET.parse(tmp_path / "reports.xml").iter("testcase"))
+        ids = {case.get("classname").replace(".", "/") + ".py::" + case.get("name") for case in cases}
+        assert ids == set(expected) and len(cases) == len(expected)
+        for case in cases:
+            identity = [
+                prop.get("value") for prop in case.iter("property") if prop.get("name") == "btrc.gui-report-identity"
+            ]
+            assert identity
+            for value in identity:
+                mapping = json.loads(value)
+                assert mapping["original"] in expected
+                assert mapping["scheduled"] == mapping["original"] + "@macos_gui"
+        raw = [json.loads(path.read_text()) for path in tmp_path.glob("raw-*.json")]
+        assert {row["nodeid"] for row in raw} == {node + "@macos_gui" for node in expected}
+        for row in raw:
+            for name, value in row["properties"]:
+                assert name != "btrc.gui-report-identity", "Serializer mutated the live worker report"
+                if name == "btrc.capability-gates":
+                    for gate in json.loads(value):
+                        if gate["capability"] == "grouped-fixture":
+                            assert gate["nodeid"] == row["nodeid"], "Serializer mutated the live capability payload"
+        counterpart = {
+            "runner": "linux-devcontainer",
+            "tests": {skip["nodeid"]: "passed"},
+            "skips": [{"nodeid": f"{prefix}[pass@macos_gui]", "covered_by": ["macos-hosted"]}],
+        }
+        assert SkipCoverage.claims([report, counterpart]) == ([], [], 2)
+    finally:
+        processes.close()
+
+
+@pytest.mark.parametrize("defect", ["mapping", "report", "serialized", "duplicate"])
+def test_macos_gui_report_identity_rejects_inconsistent_serialization(defect):
+    from src.tests.skip_ledger import TestReportForwarder
+
+    original = "case.py::test_case[literal@macos_gui]"
+    scheduled = original + "@macos_gui"
+    report = pytest.TestReport(
+        nodeid=scheduled,
+        location=("case.py", 0, "test_case"),
+        keywords={},
+        outcome="passed",
+        longrepr=None,
+        when="call",
+        user_properties=[],
+    )
+    report.btrc_gui_identity = (original, scheduled)
+    data = {"nodeid": scheduled, "user_properties": []}
+    if defect == "mapping":
+        report.btrc_gui_identity = (original, original + "@other")
+    elif defect == "report":
+        report.nodeid = original
+    elif defect == "serialized":
+        data["nodeid"] = original
+    else:
+        data["user_properties"] = [("btrc.gui-report-identity", "{}")]
+    serializer = TestReportForwarder().pytest_report_to_serializable(report)
+    next(serializer)
+    with pytest.raises(ValueError, match="AppKit report identity"):
+        serializer.send(data)

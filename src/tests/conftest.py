@@ -67,6 +67,28 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "linux_gui: owns shared Linux GUI focus or clipboard state")
 
 
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    """Schedule one AppKit owner per worker pool; the kernel lease spans pools."""
+    if sys.platform != "darwin" or not (
+        config.getoption("dist", default=None) == "loadgroup" or config.getoption("loadgroup", default=False)
+    ):
+        return
+    for item in items:
+        if item.get_closest_marker("macos_gui") is None:
+            continue
+        groups = {
+            str(mark.args[0] if mark.args else mark.kwargs.get("name", "default"))
+            for mark in item.iter_markers("xdist_group")
+        }
+        # xdist combines all names into a new group. Adding our name to a
+        # different group would silently restore concurrent AppKit workers.
+        if groups - {"macos_gui"}:
+            raise pytest.UsageError(f"{item.nodeid}: macos_gui cannot combine with another xdist_group")
+        if not groups:
+            item.add_marker(pytest.mark.xdist_group(name="macos_gui"))
+
+
 def _parse_compilers(raw: str) -> list[str]:
     """Parse --compilers without silently weakening the requested matrix."""
 
