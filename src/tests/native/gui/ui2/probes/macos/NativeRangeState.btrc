@@ -3,9 +3,11 @@ import Library.Math;
 import Library.GUI.ControlEvents;
 import Library.GUI.ISlider;
 import Library.GUI.MacOS.MacOSSlider;
+
 import ./RunLoopProbe.btrc;
 #include <assert.h>
 #include <math.h>
+#include <float.h>
 
 class RangeAssertions {
 	class SliderRange range(double minimum, double maximum, double step) {
@@ -30,6 +32,12 @@ int main() {
 		RangeAssertions.same(range.step, 1001.0 / (double)intervals);
 		assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
 	}
+	bool underflowRejected = false;
+	double tiny = DBL_MIN / 4503599627370496.0;
+	assert(tiny > 0.0 && tiny / 2.0 == 0.0);
+	try { var invalid = MacOSSlider(0.0, tiny, 2); invalid.close(); }
+	catch (string error) { underflowRejected = !error.isEmpty(); }
+	assert(underflowRejected);
 	var native = MacOSSlider(0.0, 10.0); ISlider slider = native;
 	slider.setRange(0.0, 10.0, 3.0);
 	slider.setValue(1.5); assert(slider.value() == 3.0); // Ties go upward.
