@@ -32,6 +32,23 @@ class UI2LinuxTextChecks {
 
 	class void key(unsigned int window, unsigned int key) { btrcSdlPushKey(window, 0u, key, 0u, 1, 0); btrcSdlPushKey(window, 0u, key, 0u, 0, 0); }
 
+	class void compositionCommitOrdering() {
+		var application = LinuxApplication(32); var window = application.createWindow("UI2 IME Return ordering", 240.0, 60.0);
+		var field = application.createTextField("", ""); window.attachRoot(field); window.show();
+		var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var receiver = UI2LinuxTextReceiver(); var scope = CallbackScope(); field.onCommit(receiver, scope);
+		UI2LinuxTextChecks.pump(application); UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.pump(application);
+		assert(btrcSdlPushEditing(native.nativeId(), "final", 5, 0) == 1); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("final") && receiver.events.len == 0);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN);
+		assert(btrcSdlPushText(native.nativeId(), "final") == 1); UI2LinuxTextChecks.pump(application);
+		assert(receiver.events.len == 1 && receiver.events.get(0).text.equals("final") && !receiver.events.get(0).composing);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		assert(receiver.events.len == 1);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
 	class void textLifecycle() {
 		var application = LinuxApplication(64); var window = application.createWindow("UI2 text semantics", 240.0, 60.0);
 		var field = application.createTextField("accepted", "placeholder"); window.attachRoot(field); window.show();
@@ -75,7 +92,7 @@ class UI2LinuxTextChecks {
 
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
-	UI2LinuxTextChecks.textLifecycle();
+	UI2LinuxTextChecks.textLifecycle(); UI2LinuxTextChecks.compositionCommitOrdering();
 	var application = LinuxApplication(32); var window = application.createWindow("UI2 scroll geometry", 200.0, 150.0);
 	var scroll = application.createScrollView(); window.attachRoot(scroll); window.show();
 	var receiver = UI2LinuxScrollReceiver(); var scope = CallbackScope(); scroll.onOffsetChanged(receiver, scope);
