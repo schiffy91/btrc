@@ -170,12 +170,13 @@ class WindowsJob:
                 specification["command"],
                 cwd=specification["cwd"],
                 env=merged_environment(os.environ, specification["env"]),
-                # Detached Windows processes cannot rely on console inheritance
-                # for stdio. Explicit handles request STARTF_USESTDHANDLES.
+                # The gate stays detached; targets use a windowless console process.
+                # Explicit stdio handles survive the gate, and Job membership
+                # still owns every descendant regardless of console flags.
                 stdin=sys.stdin,
                 stdout=sys.stdout,
                 stderr=sys.stderr,
-                creationflags=(0x00000008 | 0x00000200) if sys.platform == "win32" else 0,
+                creationflags=(0x08000000 | 0x00000200) if sys.platform == "win32" else 0,
                 check=False,
             )
         except OSError as error:

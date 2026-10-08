@@ -352,8 +352,11 @@ static inline int btrc_unsetenv(const char *name) {
 
 /* mkdtemp: create a uniquely-named temp directory. Keep the implementation
    inline because this header is force-included into every translation unit;
-   a header-level external definition would fail when native shims are linked. */
-static inline char *mkdtemp(char *tmpl) {
+   a header-level external definition would fail when native shims are linked.
+   Newer MinGW also declares mkdtemp in stdlib.h. Use an internal name, as for
+   the CRT wrappers above, so both that declaration and later generated externs
+   retain valid linkage without depending on the installed header version. */
+static inline char *btrc_win_mkdtemp(char *tmpl) {
     if (!tmpl) { errno = EINVAL; return (char *)0; }
     size_t length = strlen(tmpl);
     if (length < 6 || length == SIZE_MAX ||
@@ -388,3 +391,7 @@ static inline char *mkdtemp(char *tmpl) {
     errno = EEXIST;
     return (char *)0;
 }
+#ifdef mkdtemp
+#undef mkdtemp
+#endif
+#define mkdtemp btrc_win_mkdtemp
