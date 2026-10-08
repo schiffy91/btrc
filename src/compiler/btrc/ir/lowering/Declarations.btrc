@@ -4062,6 +4062,7 @@ class DeclarationLowerer {
 			scan.unbound = unbound;
 		}
 		scan.substitutions = {};
+		scan = self.canonicalTupleShapes(scan);
 		int s = 0;
 		while (s < scan.order.len) {
 			string mangled = scan.order.get(s);
@@ -4081,6 +4082,21 @@ class DeclarationLowerer {
 			m.structForwards.push(IRStructForward(mangled));
 			s = s + 1;
 		}
+	}
+
+	/* Order only after full discovery. Stable symbol roots and dependency-first
+	 * tuple traversal make inferred and explicit discovery paths agree, while
+	 * keeping nested by-value fields complete before their containing struct. */
+	private TupleShapeScan canonicalTupleShapes(TupleShapeScan discovered) {
+		Map<string, Node> shapes = {};
+		for (int index = 0; index < discovered.order.len; index++) {
+			shapes.put(discovered.order.get(index), discovered.tupleTypes.get(index));
+		}
+		Vector<string> symbols = shapes.keys();
+		symbols.sort();
+		TupleShapeScan ordered = TupleShapeScan();
+		for symbol in symbols { self.recordTupleShapes(shapes.get(symbol), ordered); }
+		return ordered;
 	}
 
 	/* A class's signature types first, then its members, as Python collects a

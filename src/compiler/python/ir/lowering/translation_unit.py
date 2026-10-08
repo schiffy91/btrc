@@ -618,7 +618,33 @@ class TranslationUnitLowerer:
                     seen,
                     skip_generic_methods=False,
                 )
-        return seen
+        ordered: dict[str, list[TypeExpr]] = {}
+        for symbol in sorted(seen):
+            self._order_tuple_shape(symbol, seen, ordered)
+        return ordered
+
+    def _order_tuple_shape(
+        self,
+        symbol: str,
+        shapes: dict[str, list[TypeExpr]],
+        ordered: dict[str, list[TypeExpr]],
+    ) -> None:
+        """Canonical roots with concrete nested dependencies before their owner.
+
+        Discovery is complete: this view does not re-resolve types or change the
+        span/atomic catalogs populated by the original collection walk.
+        """
+        if symbol in ordered:
+            return
+        pending = list(reversed(shapes[symbol]))
+        while pending:
+            argument = pending.pop()
+            if argument.base == "Tuple" and argument.generic_args:
+                dependency = self._type_identity.generic_symbol("Tuple", argument.generic_args)
+                self._order_tuple_shape(dependency, shapes, ordered)
+            else:
+                pending.extend(reversed(argument.generic_args))
+        ordered[symbol] = shapes[symbol]
 
     def _collect_declaration_tuple_types(
         self,
