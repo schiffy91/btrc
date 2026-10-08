@@ -75,3 +75,13 @@ native driver and probe. This extends the internal signal with the deadline
 contract the provider needs, without adding portable operations. The old owner
 has no deadline API, so semantic compilation is expected to fail until the
 implementation and native binding fragment are present. Native red is pending.
+
+## Shared private semantic dependency
+
+The integrator assigned `GUI/ControlEventQueue.btrc` to the Linux/shared owner.
+Its exact cd5530af bytes are reused here without modification. It supplies typed
+channels, reserved terminal tickets, ordered replacement barriers, retirement
+and channel migration between a detached queue and window queues. The macOS
+provider owns native capture, wake, budgets and lifecycle admission only. This
+dependency has source/static review only; generic instantiation and behavior
+remain unqualified until the shared fixtures execute.
