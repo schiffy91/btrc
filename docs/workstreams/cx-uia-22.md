@@ -174,3 +174,9 @@ cleanup and public MacOSApplication wiring remain to implement. The new owner
 also needs its own native NSThread binding row in the final fragment. Canonical
 formatting parsed it; native projection, generic/semantic compilation and actual
 WorkQueue fixture execution remain pending.
+
+Shared semantic dependency is advanced byte-for-byte to 798e3fd0: this retains
+queued terminal credit until record retirement and contains false/throwing
+post-admission wake failures without reporting an ambiguous rejection. The
+shared owner supplied the correction and its fixture; this provider does not
+fork that implementation. Behavior qualification is still pending.
