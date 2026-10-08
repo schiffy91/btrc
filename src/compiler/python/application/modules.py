@@ -21,7 +21,7 @@ from multiprocessing.connection import Connection, wait
 from typing import NoReturn, Protocol
 
 from ..analyzer.ownership import OwnershipAnalyzer
-from ..backend.c_emitter import CEmitter
+from ..backend.c_emitter import CEmitter, PreparedCUnit
 from ..frontend.native_imports import NativeHeaderSource
 from ..frontend.sources import CompilationGroups, ResolvedSource, SourceDependencyGraph
 from ..ir.lowering.exceptions import ExceptionLowerer, FunctionEffect, ParameterEffect, SetjmpUnitSolver
@@ -671,19 +671,21 @@ class SharedDeclarations:
             and declaration.header in self._native_header_names
         )
 
-    def trim_native_includes(self, unit: IRModule) -> None:
+    def trim_native_includes(self, unit: IRModule) -> PreparedCUnit | None:
         """Keep a binding include only when the unit's C names what it declares.
 
         The unit is emitted once without any binding include; that draft is the
         complete inventory of identifiers the C compiler will see. A header whose
-        declared names are unknown stays.
+        declared names are unknown stays. Return that formatted body so final
+        emission only replaces its prologue and resolves the new line positions.
         """
         everything = list(unit.preprocessor_decls)
         others = [declaration for declaration in everything if not self._native_include(declaration)]
         if len(others) == len(everything):
-            return
+            return None
         unit.preprocessor_decls = others
-        used = set(IROptimizer.identifier_tokens(CEmitter().emit_module_unit(unit)))
+        prepared = CEmitter().prepare_module_unit(unit)
+        used = set(IROptimizer.identifier_tokens(CEmitter.emit_prepared_unit(prepared, others)))
         unit.preprocessor_decls = [
             declaration
             for declaration in everything
@@ -691,6 +693,7 @@ class SharedDeclarations:
             or not self._native_header_names[declaration.header]
             or self._native_header_names[declaration.header] & used
         ]
+        return prepared
 
     def runtime_module(self, unit: IRModule) -> IRModule:
         """The runtime unit's module: `unit`'s helpers under its prologue,
@@ -1684,8 +1687,7 @@ class ModuleUnitWorker:
         kept = any(not function.is_static for function in unit.function_defs) or any(
             not declaration.is_extern for declaration in unit.global_decls
         )
-        if kept:
-            self._shared.trim_native_includes(unit)
+        prepared = self._shared.trim_native_includes(unit) if kept else None
         # The groups whose bodies or positions the unit copied; the WGSL of
         # each kernel it dispatches is built from the kernel's body.
         sources = set(unit.consulted_sources)
@@ -1694,7 +1696,13 @@ class ModuleUnitWorker:
         consulted = {groups.group_of(source) for source in sources if isinstance(source, str) and source}
         return {
             "kept": kept,
-            "text": CEmitter().emit_module_unit(unit) if kept else "",
+            "text": (
+                CEmitter.emit_prepared_module_unit(unit, prepared)
+                if prepared is not None
+                else CEmitter().emit_module_unit(unit)
+                if kept
+                else ""
+            ),
             "exports": tuple(sorted(function.name for function in unit.function_defs if not function.is_static)),
             "entry": any(function.name in {"main", "btrc_main"} for function in unit.function_defs),
             "helpers": helpers,

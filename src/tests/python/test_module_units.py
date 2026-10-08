@@ -1035,6 +1035,66 @@ def test_worker_timing_never_changes_the_units(compiler: str, tmp_path, request)
     assert quiet.units == timed.units
 
 
+def test_native_include_scan_formats_each_body_once(tmp_path, monkeypatch):
+    from collections import Counter
+
+    from src.compiler.python.backend.c_emitter import CEmitter
+
+    workspace = _Workspace(tmp_path.resolve())
+    calls = Counter()
+    emit = CEmitter._emit_function
+
+    def counted(emitter, function):
+        if function.source_file and Path(function.source_file).is_relative_to(workspace.modules):
+            calls[(function.source_file, function.name)] += 1
+        return emit(emitter, function)
+
+    monkeypatch.setattr(CEmitter, "_emit_function", counted)
+    result, units = workspace.build("CatalogMain.btrc", tmp_path / "output", monkeypatch)
+    assert any('#include "ShapeScale.h"' in unit for unit in units.values())
+    assert calls and set(calls.values()) == {1}, calls
+    assert workspace.run(result, tmp_path / "output") == (
+        "catalog skipped empty shape of area 0\ncatalog total 15\ngallery value 1\n"
+    )
+
+
+def test_native_include_scan_keeps_macro_only_and_unknown_headers():
+    from types import SimpleNamespace
+
+    from src.compiler.python.application.modules import SharedDeclarations
+    from src.compiler.python.backend.c_emitter import CEmitter
+    from src.compiler.python.ir.nodes import IRInclude, IRMacroDef, IRModule
+
+    shared = SharedDeclarations(IRModule())
+    shared.configure_native_headers(
+        [
+            SimpleNamespace(name=name, source_file=NativeHeaderSource("Bindings.btrc", header))
+            for header, name in [("Needed.h", "nativeValue"), ("Unused.h", "unusedValue"), ("Unknown.h", "")]
+        ]
+    )
+    module = IRModule(
+        preprocessor_decls=[
+            IRInclude("Unused.h", is_system=False),
+            IRInclude("stddef.h"),
+            IRMacroDef(name="ALIAS", replacement="nativeValue"),
+            IRInclude("Needed.h", is_system=False),
+            IRInclude("Unknown.h", is_system=False),
+        ]
+    )
+    prepared = shared.trim_native_includes(module)
+    assert prepared is not None
+    assert module.preprocessor_decls == [
+        IRInclude("stddef.h"),
+        IRMacroDef(name="ALIAS", replacement="nativeValue"),
+        IRInclude("Needed.h", is_system=False),
+        IRInclude("Unknown.h", is_system=False),
+    ]
+    assert CEmitter.emit_prepared_module_unit(module, prepared) == CEmitter().emit_module_unit(module)
+    ordinary = IRModule(preprocessor_decls=[IRInclude("stddef.h")])
+    assert shared.trim_native_includes(ordinary) is None
+    assert ordinary.preprocessor_decls == [IRInclude("stddef.h")]
+
+
 def test_native_includes_are_include_once_blocks(compiler: str, tmp_path, request):
     """A module unit wraps each native include in a guard named for its header,
     so a precompiled prelude that already included it leaves the unit's copy

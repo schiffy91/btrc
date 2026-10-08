@@ -162,6 +162,32 @@ def test_mutated_macro_is_revalidated_before_emission():
         CEmitter().emit(module)
 
 
+def test_prepared_module_unit_revalidates_final_ir():
+    macro = IRMacroDef(name="PAIR", params=["left", "right"])
+    module = IRModule(preprocessor_decls=[macro])
+    prepared = CEmitter().prepare_module_unit(module)
+    macro.params.append("left")
+    with pytest.raises(ValueError, match="duplicate macro parameter"):
+        CEmitter.emit_prepared_module_unit(module, prepared)
+
+    module.preprocessor_decls.clear()
+    module.function_decls.append("int untyped;")
+    with pytest.raises(TypeError, match=r"IRModule\.function_decls requires"):
+        CEmitter.emit_prepared_module_unit(module, prepared)
+
+
+def test_prepared_freestanding_unit_checks_each_prologue():
+    module = IRModule(
+        freestanding=True, needs_runtime=True, preprocessor_decls=[IRInclude("btrc_rt.h", is_system=False)]
+    )
+    prepared = CEmitter().prepare_module_unit(module)
+    with pytest.raises(ValueError, match="runtime dependency lacks"):
+        CEmitter.emit_prepared_unit(prepared, [])
+    with pytest.raises(ValueError, match="system includes must be lowered"):
+        CEmitter.emit_prepared_unit(prepared, [IRInclude("stdio.h")])
+    assert CEmitter.emit_prepared_module_unit(module, prepared) == CEmitter().emit_module_unit(module)
+
+
 def test_source_declarations_lower_to_typed_module_nodes():
     module = _generate("""
         typedef int Score;

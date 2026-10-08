@@ -67,6 +67,66 @@ def test_debug_filename_encoding_is_shared_within_one_emission(monkeypatch, spli
                     assert line == f'#line {number + 1} "{encode(filename)}"'
 
 
+@pytest.mark.parametrize("debug", [False, True])
+def test_prepared_unit_keeps_raw_body_across_prologue_layouts(debug):
+    from src.compiler.python.backend.c_emitter import CEmitter
+    from src.compiler.python.ir.nodes import (
+        CType,
+        IRBlock,
+        IRFunctionDef,
+        IRInclude,
+        IRLineMarker,
+        IRLiteral,
+        IRMacroDef,
+        IRModule,
+        IRReturn,
+    )
+
+    module = IRModule(
+        debug=debug,
+        debug_cfile='generated\\"unit.c',
+        function_defs=[
+            IRFunctionDef(
+                name="sourceFunction",
+                return_type=CType("int"),
+                body=IRBlock([IRLineMarker(file="Source.btrc", line=41), IRReturn(IRLiteral(text="7"))]),
+            ),
+            IRFunctionDef(
+                name="generatedFunction", return_type=CType("int"), body=IRBlock([IRReturn(IRLiteral(text="9"))])
+            ),
+        ],
+    )
+    emitter = CEmitter()
+    prepared = emitter.prepare_module_unit(module)
+    original = prepared.lines
+    assert isinstance(original, tuple)
+    assert any("@@BTRC_CLINE@@" in line for line in original) == debug
+    prologues = [
+        [],
+        [IRInclude("stdio.h"), IRInclude("Native.h", is_system=False), IRMacroDef(name="VALUE", replacement="7")],
+        [IRMacroDef(name="VALUE", replacement="9")],
+        [],
+    ]
+    first = None
+    for declarations in prologues:
+        module.preprocessor_decls = declarations
+        # Another emission may replace every field on the original emitter.
+        emitter.emit_module_unit(IRModule(debug=not debug, debug_cfile="unrelated.c"))
+        text = CEmitter.emit_prepared_module_unit(module, prepared)
+        assert text == CEmitter().emit_module_unit(module)
+        assert prepared.lines is original
+        assert "@@BTRC_CLINE@@" not in text
+        if debug:
+            own = CEmitter._c_line_filename(module.debug_cfile)
+            assert '#line 41 "Source.btrc"' in text
+            for number, line in enumerate(text.splitlines(), 1):
+                if line.startswith("#line ") and line.endswith(f'"{own}"'):
+                    assert line == f'#line {number + 1} "{own}"'
+        if first is None:
+            first = text
+    assert text == first
+
+
 def _presumed(text: str, own: str) -> tuple[list[tuple[str, object]], int]:
     """Each non-directive line's presumed (file, line), with the unit's own
     lines as (own, "C"); and how many directives restated the mapping the

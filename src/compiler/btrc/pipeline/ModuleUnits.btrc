@@ -629,15 +629,17 @@ class ModuleUnitDeclarations {
 	 * any of them, names something the header declares; a header whose names
 	 * are unknown stays. The draft emission is the complete inventory of the
 	 * identifiers the C compiler will see. */
-	public void trimNativeIncludes(IRModule unit) {
-		if (self.nativeHeaderNames.len == 0) { return; }
+	public PreparedCUnit? trimNativeIncludes(IRModule unit) {
+		if (self.nativeHeaderNames.len == 0) { return null; }
 		Vector<IRPreprocessorDecl> all = unit.preprocessorDecls;
 		Vector<IRPreprocessorDecl> others = [];
 		for declaration in all { if (!self.nativeInclude(declaration)) { others.push(declaration); } }
-		if (others.len == all.len) { return; }
+		if (others.len == all.len) { return null; }
 		unit.preprocessorDecls = others;
+		CEmitter emitter = CEmitter();
+		PreparedCUnit prepared = emitter.prepareModuleUnit(unit);
 		Map<string, bool> used = {};
-		ModuleUnitDeclarations.collectText(CEmitter().emitModuleUnit(unit), used);
+		ModuleUnitDeclarations.collectText(emitter.emitPreparedUnit(prepared, unit.preprocessorDecls), used);
 		Vector<IRPreprocessorDecl> kept = [];
 		for declaration in all {
 			if (self.nativeInclude(declaration)) {
@@ -649,6 +651,7 @@ class ModuleUnitDeclarations {
 			kept.push(declaration);
 		}
 		unit.preprocessorDecls = kept;
+		return prepared;
 	}
 
 	public void mergeInto(IRModule unit) {
@@ -2366,8 +2369,9 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		string text = "";
 		if (kept) {
 			self.compiler.prepareDebugPaths(unit, group);
-			self.shared.trimNativeIncludes(unit);
-			text = CEmitter().emitModuleUnit(unit);
+			PreparedCUnit? prepared = self.shared.trimNativeIncludes(unit);
+			if (prepared == null) { text = CEmitter().emitModuleUnit(unit); }
+			else { text = CEmitter().emitPreparedModuleUnit(unit, prepared); }
 		}
 		CycleReturnBoundaryLowerer boundaries = CycleReturnBoundaryLowerer();
 		JSONValue header = JSONValue.makeObject();

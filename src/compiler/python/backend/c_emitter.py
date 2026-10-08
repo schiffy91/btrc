@@ -8,6 +8,8 @@ during IR generation. The emitter just formats.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 from ..ir.nodes import (
     CType,
@@ -77,6 +79,18 @@ from .wgsl_emitter import WgslEmitter
 _INLINE_EXPRESSION_LIMIT = 1000
 
 
+@dataclass(frozen=True)
+class PreparedCUnit:
+    """One formatted body, reused only while selecting its native includes."""
+
+    lines: tuple[str, ...]
+    preprocessor_slot: int
+    include_once: bool
+    debug: bool
+    freestanding: bool
+    needs_runtime: bool
+
+
 class CEmitter:
     """Emits C source text from an IRModule."""
 
@@ -99,9 +113,6 @@ class CEmitter:
         # linkage, and a secondary unit only declares the globals and kernels.
         self._shared_linkage = False
         self._declarations_only = False
-        # A module-unit program guards each native include so a precompiled
-        # prelude that already included it leaves the unit's copy out.
-        self._include_once = False
 
     @staticmethod
     def _prepare_module(module: IRModule) -> None:
@@ -125,6 +136,30 @@ class CEmitter:
         self._prepare_module(module)
         self._line_filenames = {}
         return self._emit_unit(module, -1, 0, len(module.function_defs), runtime_definitions=False, unit_path=unit_path)
+
+    def prepare_module_unit(self, module: IRModule) -> PreparedCUnit:
+        """Format a finalized unit before its include selection; its body must stay unchanged."""
+        self._prepare_module(module)
+        self._line_filenames = {}
+        return self._prepare_unit(module, -1, 0, len(module.function_defs), runtime_definitions=False)
+
+    @classmethod
+    def emit_prepared_module_unit(cls, module: IRModule, prepared: PreparedCUnit) -> str:
+        """Revalidate the final IR and render its selected prologue around the saved body."""
+        cls._prepare_module(module)
+        return cls.emit_prepared_unit(prepared, module.preprocessor_decls)
+
+    @classmethod
+    def emit_prepared_unit(
+        cls, prepared: PreparedCUnit, declarations: Sequence[IRInclude | IRMacroDef | IRMacroUndef]
+    ) -> str:
+        """Resolve a fresh layout without consuming the body's generated-line placeholders."""
+        prologue = cls._build_preprocessor_lines(prepared, declarations)
+        lines = list(prepared.lines)
+        lines[prepared.preprocessor_slot : prepared.preprocessor_slot] = prologue
+        if prepared.debug:
+            cls._fix_cline_resets(lines)
+        return "\n".join(lines) + "\n"
 
     def emit_runtime_unit(self, module: IRModule) -> str:
         """Emit the runtime unit of a module-unit program: a module holding
@@ -196,6 +231,22 @@ class CEmitter:
         runtime_definitions: bool | None = None,
         unit_path: str = "",
     ) -> str:
+        prepared = self._prepare_unit(
+            module, unit_index, first, end, units_prefix, runtime_definitions=runtime_definitions, unit_path=unit_path
+        )
+        return self.emit_prepared_unit(prepared, module.preprocessor_decls)
+
+    def _prepare_unit(
+        self,
+        module: IRModule,
+        unit_index: int,
+        first: int,
+        end: int,
+        units_prefix: str | None = None,
+        *,
+        runtime_definitions: bool | None = None,
+        unit_path: str = "",
+    ) -> PreparedCUnit:
         """unit_index -1 is the whole program as one unit; 0 the primary of a
         split program; higher indices are secondaries. [first, end) selects
         function definitions. `runtime_definitions` marks a module-unit
@@ -206,7 +257,6 @@ class CEmitter:
         self._module = module
         self._shared_linkage = unit_index >= 0
         self._declarations_only = unit_index > 0
-        self._include_once = runtime_definitions is not None
         self._debug_cfile = module.debug_cfile
         if unit_index > 0 and (units_prefix or module.debug_cfile):
             self._debug_cfile = f"{units_prefix or module.debug_cfile}.unit-{unit_index}.c"
@@ -283,15 +333,14 @@ class CEmitter:
         for func in module.function_defs[first:end]:
             self._emit_function(func)
 
-        # Fill in the reserved include slot now that the body is complete.
-        preprocessor_lines = self._build_preprocessor_lines(module)
-        self._lines[preprocessor_slot:preprocessor_slot] = preprocessor_lines
-
-        # Resolve #line-reset placeholders now that all line positions are final.
-        if module.debug:
-            self._fix_cline_resets()
-
-        return "\n".join(self._lines) + "\n"
+        return PreparedCUnit(
+            tuple(self._lines),
+            preprocessor_slot,
+            runtime_definitions is not None,
+            module.debug,
+            module.freestanding,
+            module.needs_runtime,
+        )
 
     def _objective_c_method_signature(self, method: IRObjectiveCMethod) -> str:
         prefix = "+" if method.is_class_method else "-"
@@ -419,9 +468,11 @@ class CEmitter:
 
         return "\n".join(self._lines) + "\n"
 
+    @classmethod
     def _build_preprocessor_lines(
-        self,
-        module: IRModule,
+        cls,
+        prepared: PreparedCUnit,
+        declarations: Sequence[IRInclude | IRMacroDef | IRMacroUndef],
     ) -> list[str]:
         """Build the translation unit's include prologue.
 
@@ -434,30 +485,18 @@ class CEmitter:
 
         Runtime requirements are materialized from structured IR before this
         formatting pass; the emitter never scans generated C to infer them."""
-        if module.freestanding:
-            if any(
-                isinstance(declaration, IRInclude) and declaration.is_system
-                for declaration in module.preprocessor_decls
-            ):
+        if prepared.freestanding:
+            if any(isinstance(declaration, IRInclude) and declaration.is_system for declaration in declarations):
                 raise ValueError("freestanding system includes must be lowered before C emission")
             has_seam = any(
-                isinstance(declaration, IRInclude) and declaration.header == "btrc_rt.h"
-                for declaration in module.preprocessor_decls
+                isinstance(declaration, IRInclude) and declaration.header == "btrc_rt.h" for declaration in declarations
             )
-            if module.needs_runtime and not has_seam:
+            if prepared.needs_runtime and not has_seam:
                 raise ValueError("freestanding runtime dependency lacks a typed btrc_rt.h include")
-            lines = [
-                line
-                for declaration in module.preprocessor_decls
-                for line in self._preprocessor_text(declaration).split("\n")
-            ]
-            if lines:
-                lines.append("")
-            return lines
         lines = [
             line
-            for declaration in module.preprocessor_decls
-            for line in self._preprocessor_text(declaration).split("\n")
+            for declaration in declarations
+            for line in cls._preprocessor_text(declaration, include_once=prepared.include_once).split("\n")
         ]
         if lines:
             lines.append("")
@@ -495,7 +534,6 @@ class CEmitter:
         self._lines = []
         self._dbg_next = None
         self._dbg_presumed = None
-        self._include_once = False
 
     def _append(self, line: str) -> None:
         """Append one physical line; a btrc mapping advances past it."""
@@ -560,13 +598,14 @@ class CEmitter:
             self._line_filenames[filename] = self._c_line_filename(filename)
         self._lines.append(f'#line {line} "{self._line_filenames[filename]}"')
 
-    def _fix_cline_resets(self):
+    @classmethod
+    def _fix_cline_resets(cls, lines: list[str]) -> None:
         """Resolve generated-source placeholders after final layout is known."""
 
-        for index, line in enumerate(self._lines):
-            if self._CLINE_PLACEHOLDER in line:
-                self._lines[index] = line.replace(
-                    self._CLINE_PLACEHOLDER,
+        for index, line in enumerate(lines):
+            if cls._CLINE_PLACEHOLDER in line:
+                lines[index] = line.replace(
+                    cls._CLINE_PLACEHOLDER,
                     str(index + 2),
                 )
 
@@ -1134,17 +1173,20 @@ class CEmitter:
         replacement = f" {macro.replacement}" if macro.replacement else ""
         return f"#define {macro.name}{parameters}{replacement}"
 
+    @classmethod
     def _preprocessor_text(
-        self,
+        cls,
         declaration: IRInclude | IRMacroDef | IRMacroUndef,
+        *,
+        include_once: bool = False,
     ) -> str:
         if isinstance(declaration, IRInclude):
-            if self._include_once and not declaration.is_system:
-                return self._include_once_text(declaration)
-            return self._include_text(declaration)
+            if include_once and not declaration.is_system:
+                return cls._include_once_text(declaration)
+            return cls._include_text(declaration)
         if isinstance(declaration, IRMacroUndef):
             return f"#undef {declaration.name}"
-        return self._macro_text(declaration)
+        return cls._macro_text(declaration)
 
     @classmethod
     def _include_once_text(cls, include: IRInclude) -> str:

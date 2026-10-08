@@ -15,6 +15,37 @@ import ./RuntimeState.btrc;
  * formatting. Output ends with a trailing newline (lines joined by "\n" + "\n").
  */
 
+/* A body's raw lines belong to one finished IR unit. Rendering only changes
+ * its typed preprocessor slot and generated-line numbers; no IR or emitter
+ * survives in this value. Each composition returns independent line storage. */
+class PreparedCUnit {
+	private Vector<string> body;
+	private int preprocessorSlot;
+	private bool includeOnceValue;
+	private bool debugValue;
+
+	public PreparedCUnit(Vector<string> lines, int preprocessorSlot, bool includeOnce, bool debug) {
+		self.body = [];
+		for line in lines { self.body.push(line); }
+		self.preprocessorSlot = preprocessorSlot;
+		self.includeOnceValue = includeOnce;
+		self.debugValue = debug;
+	}
+
+	public bool includeOnce() { return self.includeOnceValue; }
+
+	public bool debug() { return self.debugValue; }
+
+	public Vector<string> compose(Vector<string> preprocessorLines) {
+		Vector<string> lines = [];
+		int index = 0;
+		while (index < self.preprocessorSlot) { lines.push(self.body.get(index)); index++; }
+		for line in preprocessorLines { lines.push(line); }
+		while (index < self.body.len) { lines.push(self.body.get(index)); index++; }
+		return lines;
+	}
+}
+
 class CEmitter {
 	private Vector<string> lines;
 	private int indent;
@@ -100,6 +131,30 @@ class CEmitter {
 		return text;
 	}
 
+	/* Prepare only after the draft's native headers have been omitted, keeping
+	 * the original type-planning and body-validation order. */
+	public PreparedCUnit prepareModuleUnit(IRModule m) {
+		self.lineFilenames = {};
+		self.moduleUnitState = 0;
+		PreparedCUnit prepared = self.prepareUnit(m, IRTypeDeclarationPlanner.plan(m), -1, 0, m.functions.len);
+		self.moduleUnitState = -1;
+		return prepared;
+	}
+
+	public string emitPreparedUnit(PreparedCUnit prepared, Vector<IRPreprocessorDecl> declarations) {
+		self.includeOnce = prepared.includeOnce();
+		self.lines = prepared.compose(self.buildPreprocessorLines(declarations));
+		if (prepared.debug()) { self.fixGeneratedLineResets(); }
+		return self.joinLines();
+	}
+
+	/* The final unit still passes through the original type planner after
+	 * header selection. Only the unchanged body formatting is reused. */
+	public string emitPreparedModuleUnit(IRModule m, PreparedCUnit prepared) {
+		IRTypeDeclarationPlanner.plan(m);
+		return self.emitPreparedUnit(prepared, m.preprocessorDecls);
+	}
+
 	/* Emit the runtime unit of a module-unit program: a module holding only
 	 * the program's helpers and their prologue, whose helper functions and
 	 * state are defined here once with external linkage. */
@@ -180,6 +235,11 @@ class CEmitter {
 	 * program; higher indices are secondaries. [first, end) selects functions.
 	 * `plan` is the module's IRTypeDeclarationPlanner order. */
 	private string emitUnit(IRModule m, Vector<IRTypeDeclarationRef> plan, int unitIndex, int first, int end, string unitsPrefix = "") {
+		PreparedCUnit prepared = self.prepareUnit(m, plan, unitIndex, first, end, unitsPrefix);
+		return self.emitPreparedUnit(prepared, m.preprocessorDecls);
+	}
+
+	private PreparedCUnit prepareUnit(IRModule m, Vector<IRTypeDeclarationRef> plan, int unitIndex, int first, int end, string unitsPrefix = "") {
 		if (m.language != "c" && m.language != "objective-c" && m.language != "c++") { throw "unsupported IR translation-unit language"; }
 		self.language = m.language;
 		self.resetLines();
@@ -276,12 +336,7 @@ class CEmitter {
 			i = i + 1;
 		}
 
-		/* Build and splice in the ordered structured preprocessor prologue. */
-		Vector<string> preprocessorLines = self.buildPreprocessorLines(m);
-		self.spliceLines(preprocessorSlot, preprocessorLines);
-		if (self.debug) { self.fixGeneratedLineResets(); }
-
-		return self.joinLines();
+		return PreparedCUnit(self.lines, preprocessorSlot, self.includeOnce, self.debug);
 	}
 
 	private string objectiveCMethodSignature(IRObjectiveCMethod method) {
@@ -389,11 +444,11 @@ class CEmitter {
 		}
 	}
 
-	private Vector<string> buildPreprocessorLines(IRModule m) {
+	private Vector<string> buildPreprocessorLines(Vector<IRPreprocessorDecl> declarations) {
 		Vector<string> out = [];
 		int i = 0;
-		while (i < m.preprocessorDecls.len) {
-			IRPreprocessorDecl declaration = m.preprocessorDecls.get(i);
+		while (i < declarations.len) {
+			IRPreprocessorDecl declaration = declarations.get(i);
 			if (declaration.kind == IR_PREPROCESSOR_INCLUDE) {
 				if (declaration.isSystem) {
 					out.push("#include <" + declaration.header + ">");
@@ -436,18 +491,6 @@ class CEmitter {
 		}
 		if (out.len > 0) { out.push(""); }
 		return out;
-	}
-
-	/* Insert `ins` lines into self.lines at index `at`. */
-	private void spliceLines(int at, Vector<string> ins) {
-		Vector<string> rebuilt = [];
-		int i = 0;
-		while (i < at) { rebuilt.push(self.lines.get(i)); i = i + 1; }
-		int j = 0;
-		while (j < ins.len) { rebuilt.push(ins.get(j)); j = j + 1; }
-		int k = at;
-		while (k < self.lines.len) { rebuilt.push(self.lines.get(k)); k = k + 1; }
-		self.lines = rebuilt;
 	}
 
 	private string joinLines() {
