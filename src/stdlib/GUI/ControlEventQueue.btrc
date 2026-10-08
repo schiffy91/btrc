@@ -55,7 +55,13 @@ class ControlEventTicket {
 
 	public void commit() { if (!self._open || self._queued) { throw "Control terminal ticket is already consumed"; } self._queued = true; }
 
-	public void retire() { if (!self._open) { return; } self._open = false; if (self._extra) { self._pool.retire(); } }
+	public void requireOwner(long long registration) { if (self._registration != registration) { throw "Control terminal ticket belongs to another registration"; } }
+
+	/* A producer may abandon only an uncommitted ticket. Once queued, its
+	 * credit belongs to the record through callback return and retirement. */
+	public void retire() { if (self._queued && self._open) { throw "Queued terminal credit belongs to its record"; } self.complete(); }
+
+	public void complete() { if (!self._open) { return; } self._open = false; if (self._extra) { self._pool.retire(); } }
 }
 
 interface IControlEventInvocation {
@@ -87,7 +93,7 @@ class ControlEventRecord {
 
 	public ControlEventDisposition invoke() { return self._invocation.invoke(); }
 
-	public void retire() { if (!self._admitted || self._retired) { throw "Semantic record retired without unique admission"; } self._retired = true; if (self._terminal != null) { self._terminal.retire(); } self._invocation.retired(); }
+	public void retire() { if (!self._admitted || self._retired) { throw "Semantic record retired without unique admission"; } self._retired = true; if (self._terminal != null) { self._terminal.complete(); } self._invocation.retired(); }
 }
 
 /* One ordered semantic stream per window/scene. Replacement never crosses an
@@ -262,6 +268,7 @@ class ControlEventChannel<Receiver, Snapshot> implements ICallbackRegistration {
 	}
 
 	public void publishTerminal(Snapshot snapshot, long long generation, long long interaction, ControlEventTicket ticket) {
+		if (ticket != null) { ticket.requireOwner(self._identity); }
 		if (!self.isOpen()) { if (ticket != null) { ticket.retire(); } return; }
 		if (snapshot == null || ticket == null || generation <= 0LL || interaction <= 0LL) { throw "Invalid semantic terminal snapshot"; }
 		ticket.validate(self._identity);

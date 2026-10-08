@@ -131,3 +131,12 @@ construction under an already-cancelled scope returning all terminal credits,
 and one registration cancelling during its terminal callback while another
 registration on the same receiver continues. Formatter and diff checks passed;
 these source assertions are not runtime evidence.
+
+Independent review identified a terminal-credit seam: a retained ticket alias
+could retire an entered extra terminal credit after its channel cancelled.
+Producer retirement now refuses a still-queued ticket; only record completion
+returns that credit. Terminal publication checks channel ownership even after
+cancellation. A dedicated unexecuted fixture cancels and republishes inside an
+extra-ticket callback, asserts capacity remains unavailable until callback
+return, and rejects a closed channel attempting to retire another channel's
+ticket. Formatter/diff checks passed; native proof remains pending.

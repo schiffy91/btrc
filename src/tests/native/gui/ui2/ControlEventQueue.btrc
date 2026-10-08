@@ -25,6 +25,24 @@ class QueueReceiver implements IQueueReceiver {
 	class void deliver(IQueueReceiver receiver, QueueSnapshot snapshot) { receiver.receive(snapshot); }
 }
 
+class QueueRetirementReceiver implements IQueueReceiver {
+	public ControlEventChannel<IQueueReceiver, QueueSnapshot>? channel;
+	public ControlEventChannel<IQueueReceiver, QueueSnapshot>? other;
+	public ControlEventTicket? ticket;
+	public ControlEventTerminalPool? pool;
+	public int calls = 0;
+	public void receive(QueueSnapshot snapshot) {
+		self.calls++;
+		assert(self.channel.cancel() == CALLBACK_CANCELLATION_PENDING);
+		bool refused = false;
+		try { self.channel.publishTerminal(snapshot, 1LL, 1LL, self.ticket); } catch (string error) { refused = true; }
+		assert(refused && self.pool.available() == 0 && self.other.beginInteraction() == null);
+		refused = false;
+		try { self.ticket.retire(); } catch (string error) { refused = true; }
+		assert(refused && self.pool.available() == 0);
+	}
+}
+
 class QueueWake implements IControlEventWake {
 	public bool fail = false;
 	public bool raises = false;
@@ -55,6 +73,26 @@ class QueueFailureChecks {
 		queue.close(); assert(receiver.values.len == 0 && wake.calls == (replacement ? 2 : 1));
 	}
 
+	class void enteredTerminalCredit() {
+		var pool = ControlEventTerminalPool(3); var queue = ControlEventQueue(2, pool);
+		var target = QueueTarget(); var receiver = QueueRetirementReceiver(); var scope = CallbackScope();
+		var first = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(queue, target, receiver, QueueReceiver.deliver, scope);
+		var second = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(queue, target, receiver, QueueReceiver.deliver, scope);
+		var base = first.beginInteraction(); assert(base != null);
+		var extra = first.beginInteraction(); assert(extra != null);
+		var otherBase = second.beginInteraction(); assert(otherBase != null && pool.available() == 0);
+		receiver.channel = first; receiver.other = second; receiver.ticket = extra; receiver.pool = pool;
+		first.publishTerminal(QueueSnapshot(70), 1LL, 1LL, extra);
+		assert(queue.dispatchOne() && receiver.calls == 1);
+		assert(first.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && pool.available() == 2);
+		bool refused = false;
+		try { first.publishTerminal(QueueSnapshot(71), 1LL, 2LL, otherBase); } catch (string error) { refused = true; }
+		assert(refused && otherBase.isOpen() && pool.available() == 2);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && pool.available() == 3);
+		receiver.channel = null; receiver.other = null; receiver.ticket = null; receiver.pool = null;
+		queue.close();
+	}
+
 	class void cancelledOwner() {
 		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(2, pool);
 		var target = QueueTarget(); var receiver = QueueReceiver(); var scope = CallbackScope();
@@ -68,7 +106,7 @@ class QueueFailureChecks {
 }
 
 int main() {
-	QueueFailureChecks.cancelledOwner();
+	QueueFailureChecks.cancelledOwner(); QueueFailureChecks.enteredTerminalCredit();
 	QueueFailureChecks.wakeFailure(false, false); QueueFailureChecks.wakeFailure(true, false);
 	QueueFailureChecks.wakeFailure(false, true); QueueFailureChecks.wakeFailure(true, true);
 	var pool = ControlEventTerminalPool(2);
