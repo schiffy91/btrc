@@ -15,3 +15,16 @@ The 16 manifest cases had 11 failures and five passes: ten legal reordered/lates
 The minimal production correction preserves a separate latest-binding reference while retaining every existing child-family dispatch/validation. Flat property-table duplicate tracking is now per binding, so a separated repeated table cannot become accepted merely because the table cursor moved. This is source implementation only until a fresh compiler and paired tests pass.
 
 Independent source/fixture review is clear. Ruff, BTRC formatter and `git diff --check` pass. A fresh self-hosted compiler and repaired paired runs remain pending.
+
+## Fresh candidate qualification
+
+Production `6b83cf1b1ffe1600d8ade721cb1e28d2ecca1902` was archived and built through the unchanged retained compiler-build recipe using the original Nix shell and Clang 21.1.8. The build authenticated the exact eight source/test donors versus the retained 3974 baseline (five already-qualified f75 donors plus this parser and two test files). Its final source/tool inventories remained unchanged; all owned process groups were absent after completion.
+
+- Build receipt: `~/.cache/btrc/plan-consolidation-2026-10-07/native-binding-metadata-order-6b83cf1b/result.json`.
+- Fresh binary SHA256: `53839021816bd41f9185fd1ec2c80a0c60b10e2f5171bbc72d513f94760e85c4`.
+- Generated compiler C SHA256: `5faf603757366b0fe2aa990b5ce4d1ae732371b871d2c60aaeeb9afc85d80435`.
+- Paired proof: `/private/tmp/btrc-audit-repair/native-binding-metadata-order/candidate-1/result.json`, SHA256 `cbc648afd4e5ebf9f8bbaacc089c3438e4363fe55df8ba05b54ca62e6078f33c`.
+
+The same 16 manifest cases all passed (13.46 seconds), including legal reordered metadata, latest-array-item selection and rejection guards. The same four real native callback rows all passed (3.86 seconds): reference/selfhost, each plain and ASan/UBSan. No skips, errors or failed assertions were admitted. The proof authenticated the build inventory and interpreter, retained original per-process deadlines, and verified source/tools and receipt/adapter hashes after both stages. All child groups were absent and gate/build locks released.
+
+This qualifies the bounded metadata ownership repair. It does not qualify the entire native manifest surface or repair the independent foreground-dependent Range pointer/Select keyboard failures. Full final-tree gates, bootstrap and integration remain pending; no publication was performed by this packet.
