@@ -182,3 +182,12 @@ settlement, button action migration, container transactions, full WindowState
 and reversible/grouped close still require wiring and genuine fixtures. The
 minimize/restore source path is not native evidence and does not close the old
 01 qualification gap. Formatter/diff checks passed; no compiler/native tests.
+
+D29 parent extends ownership to
+`src/tests/native/gui/linux/LinuxGUIControls.btrc` solely to reconcile its old
+image-close assertion with approved retained presentation. The original bytes
+remain in base `47e64e21` and the preserved immutable qualification archives.
+New fixture-only checkpoint `294f821a` captures actual GPU pixels before/after
+handle close, rejects republishing the closed alias, clears presentation and
+checks subsequent native subtree drain. It is unexecuted; no failed runtime
+result is invented or discarded.
