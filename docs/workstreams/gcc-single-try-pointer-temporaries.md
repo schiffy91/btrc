@@ -15,8 +15,8 @@ Owned paths:
 The existing setjmp safety planners own this GCC coalescing correction. No emitter,
 grammar, runtime, generated-source, flags or product workaround changes are claimed.
 Original Linux failure and local paired GCC compile-only baseline are retained.
-Reference repair qualification is recorded in the final packet report; selfhost,
-combined gates and real hosted product continuation remain pending.
+Reference and fresh selfhost repair qualification are recorded below. Combined
+gates and real hosted product continuation remain pending.
 
 ## Failure and correction
 
@@ -60,5 +60,31 @@ Evidence: `/private/tmp/btrc-audit-repair/gcc-single-try-clobber/`:
 
 Ruff lint/format, BTRC formatting and whitespace checks pass. Independent paired
 source review found no owner/parity/region-scope blocker. This is reference
-qualification, not a fresh selfhost build, full gate, Linux product acceptance,
-or performance result. All those remain required before final integration.
+qualification. Fresh selfhost qualification is recorded below; full combined gates,
+Linux product acceptance and performance outcomes are not claimed.
+
+## Fresh selfhost proof
+
+The exact `f75c737b` source builds successfully through the retained native macOS
+entry recipe with the original authenticated3974 development shell, Clang21.1.8
+and Python interpreter. No bootstrap or full matrix was substituted for this
+bounded build. Binary SHA256:
+`60639d608d3e09bec4dcdfaf76d3575cdeb135b04d2102858cf15a9f089efbf3`.
+
+That fresh compiler emits the unchanged authentic097 process class without
+diagnostics. Strict GCC15 `-O2` and `-O3` both compile its C cleanly; the authentic
+process-spawning program is never linked or run. The original corpus driver then
+executes `SingleTryPointerOperands` through both Python and selfhost frontends at
+both optimization levels: **4 passes, 0 skips/errors**, with exact frontend/node
+identities. Normal8/throw10/finally assertions and the PASS golden are unchanged.
+
+Build receipt:
+`~/.cache/btrc/plan-consolidation-2026-10-07/gcc-single-try-pointer-f75c737b/result.json`
+(SHA256 `c73f5ffbf0d3be307cfc2a1600f0fb1dcbe10f54d4604c8fc65b3f71054ca526`).
+Proof receipt: `results/selfhost1/result.json` under the evidence root above
+(SHA256 `c105c5f023320ba1878d5af68bdd6d06a5d01d40261f0f6fce33d1ab269f80c2`).
+The canonical source inventory is authenticated against the completed build;
+source/tools/interpreter/binary/script checks close unchanged and every owned
+process group is absent. Independent final source/test and qualifier reviews
+found no remaining blocker. The packet is bounded compiler qualification, not
+final-tree harmonization or actual hosted Linux product acceptance.

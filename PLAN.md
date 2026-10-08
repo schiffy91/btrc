@@ -135,8 +135,13 @@ the discarded baseline warmup, reporting a 3.053 GiB peak. The harness then
 rejects the compiler's actual publication-lock files before candidate or measured
 samples. This is no paired performance result. A reviewed exact empty-lock
 classification correction is ready; the original quiet limits, sample order,
-counters and targets are unchanged. The eight-run comparison also needs roughly
-2 GB more recoverable disk headroom. Evidence remains in
+counters and targets are unchanged. A second attempt stops at the unchanged 180-second quiet deadline, before
+any compiler execution. Background CPU and a transiently active agent transport
+prevent a continuous quiet window; post-run inspection does not establish a
+classifier defect. Both attempts remain retained. Approximately 2 GB of
+completed historical output has now been archived with verified restoration
+inventories, providing space for a later comparison. A separately scoped Linux
+product RSS comparison is being prepared; it cannot substitute for Mac footprint. Evidence remains in
 `compiler-lifetimes-3974/92691bee/`. Deliberately retained compiler graphs remain
 unchanged; the full final matrix is still required.
 
@@ -285,12 +290,20 @@ fixtures pass without diagnostics, and all 24 strict C/Objective-C units pass.
 The first native link is refused because fixture composition repeats the AppKit
 framework row; no native execution is claimed. The reviewed fixture-only
 correction keeps the inherited AppKit row once and preserves all production
-source, native predicates and plan validation. The corrected composition passes fresh paired projections, all 24 strict units
-and both reference plain links. The first actual NativeWindowClose run then
-exposes a lifecycle defect: detach failure leaves the root-mutation guard active
-and a later close is rejected. A minimal owned cleanup repair is under review;
-all original fault/retry assertions remain. Group application quit,
-ordinary-input integration and full provider acceptance remain open.
+source, native predicates and plan validation. The corrected composition passes fresh paired projections and strict units,
+then its first native execution exposes a real lifecycle defect: detach failure
+leaves the root-mutation guard active and a later close is rejected. Reviewed
+repair `b6a4fe3e` retains an explicit failure flag and error, completes owned
+cleanup, then rethrows according to the language's existing catch/finally
+contract. All original fault/retry assertions remain. Fresh qualification passes
+all eight native rows (both fixtures through both frontends, plain and
+ASan/UBSan), four zero-diagnostic projections and all 24 strict C/Objective-C
+units. Report `e05e684b` records unchanged inputs, tool identities and closed
+process groups; aggregate SHA-256 is
+`6f5cd2f3058acca9fec82bf4b90d6677bc821b93d7ab18189d2e60821be9eccc`.
+This uses compiler `56d548c4`; qualification against the current repaired
+compiler is being prepared. Group application quit, ordinary-input integration
+and full provider acceptance remain open.
 
 Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
 audio and foreign-library ownership still require their platform-specific
@@ -431,8 +444,11 @@ frontends at GCC -O2 and -O3. Paired fix `f75c737b` extends the existing typed
 setjmp storage policy to generated pointer temporaries inside protected regions.
 The reference side passes 36 focused checks and compiles that original class
 cleanly at both optimization levels, with strict flags unchanged. The new tests
-fail on the unchanged baseline. A fresh self-hosted build, the same original
-GCC proof and the hosted Linux application rerun remain pending. App descendants are now checked
+fail on the unchanged baseline. Its fresh self-hosted build now passes; the same original class compiles
+cleanly through that frontend at GCC -O2 and -O3 too. Four paired corpus runtime
+rows pass (both frontends at both optimizations), with no skips. Source, tools,
+binary and process closure are verified in report `3458c356`. The hosted Linux
+application rerun and final combined gates remain pending. App descendants are now checked
 and cleaned on ordinary test failure as well as timeout. No full MVP claim.
 
 ### Integration status in service of the goals
