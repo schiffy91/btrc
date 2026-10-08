@@ -1,0 +1,53 @@
+name: Main AppKit lease qualification
+on:
+  push:
+    branches: [codex/diagnostic-macos-gui-lease-main]
+permissions:
+  contents: read
+concurrency:
+  group: diagnostic-macos-gui-lease-main
+  cancel-in-progress: false
+jobs:
+  native-gui:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      BTRC_TEST_RUNNER: macos-hosted
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: false
+      - name: Require original native reader and exact packet
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          test "$(git rev-parse HEAD^)" = 13e147edf4ec2dc921ee1a6bb5f3baff5f1a9520
+          echo '73daebe177585ce2f99edbc01f7e133a61817c3f833948e76640890f641b59e5  src/tests/diagnostics/macos_gui_lease_pins.json' | shasum -a 256 -c -
+          reader="$(nix build .#btrc-native-header --no-link --print-out-paths --print-build-logs)/bin/btrc-native-header"
+          test -x "$reader"
+          exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
+          test "$exported" = "$reader"
+      - name: Prove process exclusion then run original three-worker native gate
+        run: |
+          set -euo pipefail
+          nix develop --command python3 src/tests/diagnostics/qualify_macos_gui_lease.py
+      - name: Retain source, process and generated-native evidence on every outcome
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: macos-gui-lease-main-evidence
+          path: |
+            build/macos-gui-lease/
+            build/skip-report*.json
+            build/test-btrcc/
+            src/tests/diagnostics/qualify_macos_gui_lease.py
+            src/tests/diagnostics/macos_gui_lease_pins.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

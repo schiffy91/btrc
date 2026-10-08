@@ -1,0 +1,58 @@
+{
+  "base": "49f136ec94bb46cf67dd9bf407df6e4b0d79332c",
+  "candidate": "13e147edf4ec2dc921ee1a6bb5f3baff5f1a9520",
+  "owned": {
+    "src/tests/conftest.py": {
+      "sha256": "b84ed4ec6e8c76a3b22553d8a16f8c64c1d8541b93899d2f80633960da2ca66b",
+      "mode": "100644"
+    },
+    "src/tests/python/test_macos_gui_coordination.py": {
+      "sha256": "0c749e9bc45a2208d6f4427f20b86c3abeddca6cb8a7ff4dcf493471771d4f80",
+      "mode": "100644"
+    },
+    "src/tests/python/test_native_app_runtime.py": {
+      "sha256": "f2fdc1cdbbf9633fa168c0c248a60e0aa555653c69d134de989a70a09444350a",
+      "mode": "100644"
+    },
+    "src/tests/python/test_native_control_sizing_runtime.py": {
+      "sha256": "b46c0dad70fad9a2d6377fca7e0631598fde9f0f0921057c1318134426f20896",
+      "mode": "100644"
+    },
+    "src/tests/python/test_native_gui_appkit.py": {
+      "sha256": "e2f43638422000384718bdc8619c9d02455bae4d83a97f83a8289fd4fdc75423",
+      "mode": "100644"
+    },
+    "src/tests/python/test_native_objective_c_delegates.py": {
+      "sha256": "3cce31b13da55fa5a3c41b5f8c8f1133f141e82aa3575f85b525181393b3ccfd",
+      "mode": "100644"
+    },
+    "src/tests/python/test_native_pointer_runtime.py": {
+      "sha256": "88e25e0ed2b5bb48a181a12fd258867191ce2b41cd42bd53be62340b822ac0ec",
+      "mode": "100644"
+    },
+    "src/tests/python/test_native_tray_runtime.py": {
+      "sha256": "2a416a458617bcd8db411a01dc83b0600e3485acc6a2dc7ed469de055d290cba",
+      "mode": "100644"
+    },
+    "src/tests/python/test_native_ui_shell_macos.py": {
+      "sha256": "446d02f4bd5069ce1443dae94df9a2710ff90e446984ffeaf8950c88a3c9cbed",
+      "mode": "100644"
+    },
+    "src/tests/python/test_native_webgpu_imports.py": {
+      "sha256": "b4851bdb120440c99d5e0df412906e15ecb130ae30bd0c5168aea157ff311044",
+      "mode": "100644"
+    },
+    "docs/workstreams/macos-gui-coordination.md": {
+      "sha256": "23ce4e8bdd9ac43c391b4212792fe55628c59858d932e58d777a7cf74e577dc4",
+      "mode": "100644"
+    }
+  },
+  "install": {
+    "src/tests/diagnostics/qualify_macos_gui_lease.py": "2ec8acc86d28dc5c19535ea2c07f5e38db54421a826390e12b9ffd9aedf2e128"
+  },
+  "install_paths": [
+    "src/tests/diagnostics/qualify_macos_gui_lease.py",
+    "src/tests/diagnostics/macos_gui_lease_pins.json",
+    ".github/workflows/macos-gui-lease-qualification.yml"
+  ]
+}
