@@ -298,9 +298,21 @@ The original 90-minute job limit was not reached. Log SHA-256
 JUnit artifact `11569359756` (archive `648d1c6c`) and skip artifact `11570077383`
 (archive `9d940f14`) are retained under
 `/private/tmp/btrc-audit-repair/pr68-00e45379-macos-gui-attempt-2`.
-A scoped scheduling repair is being prepared to group GUI cases on one of the
-existing three workers while preserving the kernel lease, all cases, skips and
-deadlines; a passing full hosted rerun remains required.
+Scheduling repair `37f0a63c` now passes all 84 focused coordination/reporting
+checks (23 coordination and 61 existing skip-ledger cases), with no errors or
+skips. The actual original-source counterfactual fails the intended competing-
+worker assertion after all eight inner cases pass: GUI cases occupy three
+workers instead of one. The repair groups marked macOS GUI cases on one of the
+existing three workers in the explicit native-GUI workflow; the kernel lease,
+original cases, skip rules and deadlines remain unchanged. Exact canonical
+report identities survive xdist grouping without modifying live worker reports
+or stripping literal parameter suffixes. Controller-synthesized crash reports
+remain fail-closed. Receipt `macos-gui-scheduling-37f0-attempt-1/result.json`,
+SHA-256 `e1b95fcb0c1e08df6fc8d9b45a8478bb6dc3013749f40f6403a4d1117b7a7db9`,
+records all eight owned process groups closed and source/tool/archive closure.
+The report/claim is committed at `c0a0bf31`; independent retained-result review
+and the full hosted native-GUI rerun remain required. This is process/reporting
+evidence, not new AppKit execution or final combined-tree qualification.
 
 The freed hosted slot now runs the prepared private BTRSmith Linux replay:
 push-triggered run `37824120618`, job `113472397499`, diagnostic head
@@ -604,6 +616,23 @@ callback-close-after-unwind, queue/work, scope and foreign-host preservation
 oracles pass. The prior four Barrier native passes remain valid because neither
 production nor that fixture changed. Standalone run/delegate rejection, full
 UI2, other platforms and the full BTRSmith MVP remain separate open outcomes.
+
+The next native capability is coordinated application quit. Documentation
+checkpoint `e91a7412` records the D29 integrator clarification in the approved
+UI2 contract and IWindow comment: held AUTHORIZED transactions accept nonstale
+CANCEL or an explicitly newer SAVE/DISCARD revision; the document owner must
+report edits before returning to the executor. Application must revalidate
+membership, handler/transaction identity and reported revisions, then seal
+irreversible ingress without intervening callbacks or user destructors. Clean
+windows remain open until the whole group commits; one cancellation preserves
+all drafts. Independent contract review is clear. The packet retains all 12
+original application lifecycle scenario oracles, documents five necessary UI2
+fixture migrations and requires real native two-window evidence before
+acceptance. Existing pending transactions must be promoted by identity without
+another prompt/save attempt, including terminate followed by completeSave
+before the originating callback unwinds. No executable implementation or native
+quit result is claimed by that documentation checkpoint. The owned packet is
+`docs/workstreams/ui2-macos-native-quit.md` on `codex/ui2-macos-native-quit`.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
