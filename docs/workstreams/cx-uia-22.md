@@ -253,3 +253,14 @@ queue rebind retiring stale records while same-window movement preserves the
 generation. It exercises the shared semantic queue with a real native wake
 source; actual native controls and subtree wiring remain a separate next step.
 Six fixture choices mean 24 planned rows, all still unexecuted.
+
+Parent's retained SDK reference projection successfully transpiles RunLoopWake,
+RunLoopDeadline and (after the shared 818e9ee0 generic correction) WorkQueue
+without diagnostics. This is frontend evidence, not C compilation or native
+execution. The Lifetime projection correctly rejected Atomic owners embedded
+in a shallow-copyable C struct: that fixture now borrows two AtomicBuffer cells
+retained until the worker joins. Publisher atomics are direct fields of the
+UI-retained class owner; its raw C ring/state contains only copyable data. The
+compiler safety rule remains unchanged. Shared queue source equals 818e9ee0
+byte-for-byte (local61012911), whose proof likewise covers reference transpile
+only.

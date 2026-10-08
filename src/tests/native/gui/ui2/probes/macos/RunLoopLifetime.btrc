@@ -1,15 +1,11 @@
 import Library.Callback;
+import Library.OwnedBuffer;
 import Library.GUI.MacOS.MacOSRunLoop;
 
 import ./RunLoopProbe.btrc;
 #include <assert.h>
 #include <stdlib.h>
 #include <unistd.h>
-
-struct WakeRace {
-	Atomic<bool> started;
-	Atomic<bool> closed;
-};
 
 class ClosingReceiver implements IAppKitNotificationObserver {
 	public int calls = 0;
@@ -53,20 +49,21 @@ int main() {
 	 * until join; its closed alias remains safe and never delivers a receiver. */
 	for (int cycle = 0; cycle < 100; cycle++) {
 		var signal = MacOSRunLoopSignal();
-		struct WakeRace* race = (struct WakeRace*)calloc(1, sizeof(struct WakeRace));
-		assert(race != null);
-		race->started.init(false);
-		race->closed.init(false);
+		AtomicBuffer<bool> storage = AtomicBuffer(2);
+		assert(storage.opened());
+		Atomic<bool>* race = storage.borrow();
+		race[0].init(false);
+		race[1].init(false);
 		Thread<int> worker = spawn(() => {
-				race->started.store(true, MemoryOrder.RELEASE);
-				while (!race->closed.load(MemoryOrder.ACQUIRE)) { signal.tryWake(); }
+				race[0].store(true, MemoryOrder.RELEASE);
+				while (!race[1].load(MemoryOrder.ACQUIRE)) { signal.tryWake(); }
 				return signal.tryWake() ? 1 : 0;
 			});
-		while (!race->started.load(MemoryOrder.ACQUIRE)) { usleep(10); }
+		while (!race[0].load(MemoryOrder.ACQUIRE)) { usleep(10); }
 		assert(signal.requestClose() == CALLBACK_CANCELLATION_COMPLETE);
-		race->closed.store(true, MemoryOrder.RELEASE);
+		race[1].store(true, MemoryOrder.RELEASE);
 		assert(worker.join() == 0);
-		free(race);
+		storage.close();
 	}
 	print("UI2 wake cancellation, worker close, native allocation failure and slot reuse drain");
 	return 0;
