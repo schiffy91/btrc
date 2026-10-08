@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 180
     env:
       CANDIDATE_SHA: 14f9e193866679f713504618238d158f9f43ece1
-      PINS_SHA256: 7c8c4084cc55b24e7183984178aa20bc603e663b823ed6d50f5abb9a34811349
+      PINS_SHA256: 1a05cad69bf4478763dbdc1f7d69c09fb4c8d3e9f6ff41a522234ea459e385f6
       BASELINE_SHA: 3974d47bc87851b1ac19b8d2b4bd5022f2d94676
       DONOR_RUN: '37732563990'
       DONOR_HEAD_SHA: ad58680cc0057dcdddadefc024caf8346315b2b4
@@ -124,7 +124,7 @@ jobs:
           image=$(cat source/evidence/image-id.txt)
           test -n "$image"
           podman run --rm --init -v "$PWD/source:/workspace" -w /workspace \
-            "$image" python3 src/tests/diagnostics/qualify_linux_gui_lease.py inside ${{ matrix.session }}
+            "$image" bash -c 'exec python3 src/tests/diagnostics/qualify_linux_gui_lease.py inside "$@"' lease-qualification ${{ matrix.session }}
       - name: Make task evidence readable to artifact uploader
         if: always()
         run: |

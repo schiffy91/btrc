@@ -219,17 +219,29 @@ def inside(session):
     red_initial = snapshot(red, provenance["base_tree"])
     write(EVIDENCE / "red-inputs-before.json", red_initial)
     donor = ROOT / "donor/B/bin/btrcc"
-    assert digest(donor) == PINS["donor_binary"]
-    assert digest(ROOT / "donor/B/dist/btrcc.c") == PINS["donor_c"]
-    tools = {name: {"path": shutil.which(name), "sha256": digest(Path(shutil.which(name)))} for name in ("cc", "c++", "python3", "make", "pkg-config")}
-    reader = Path(os.environ["BTRC_NATIVE_HEADER_READER"])
-    tools["native_reader"] = {"path": str(reader), "sha256": digest(reader)}
-    assert tools["cc"]["sha256"] == (ROOT / "donor/evidence/cc-sha256.txt").read_text().split()[0]
-    write(EVIDENCE / "tools-before.json", tools)
-    assert run("cc-version", [tools["cc"]["path"], "--version"], ROOT, environment, 30) == 0
-    assert run("python-version", [sys.executable, "--version"], ROOT, environment, 30) == 0
+    tools = {}
     failed = None
     try:
+        assert digest(donor) == PINS["donor_binary"]
+        assert digest(ROOT / "donor/B/dist/btrcc.c") == PINS["donor_c"]
+        tools = {name: {"path": shutil.which(name), "sha256": digest(Path(shutil.which(name)))} for name in ("cc", "c++", "python3", "make", "pkg-config")}
+        # The image exports its full pinned shell through BASH_ENV; enter Bash
+        # before this Python process exactly as original Make/shell jobs do.
+        shell = Path(os.environ["BASH_ENV"])
+        assert shell.is_file() and not shell.is_symlink()
+        native_environment = {name: os.environ[name] for name in ("BTRC_NATIVE_HEADER_READER", "BTRC_NATIVE_TARGET", "BTRC_NATIVE_SYSROOT")}
+        assert native_environment["BTRC_NATIVE_TARGET"] == "x86_64-unknown-linux-gnu"
+        assert Path(native_environment["BTRC_NATIVE_SYSROOT"]).is_dir()
+        assert all(value.startswith("/nix/store/") for name, value in native_environment.items() if name != "BTRC_NATIVE_TARGET")
+        tools["image_shell"] = {"path": str(shell), "sha256": digest(shell)}
+        write(EVIDENCE / "native-shell-environment.json", native_environment | {"shell_path": str(shell), "shell_sha256": digest(shell), "entry": "image Bash loads original BASH_ENV then execs unchanged Python qualifier"})
+        reader = Path(native_environment["BTRC_NATIVE_HEADER_READER"])
+        assert reader.is_file() and os.access(reader, os.X_OK)
+        tools["native_reader"] = {"path": str(reader), "sha256": digest(reader)}
+        assert tools["cc"]["sha256"] == (ROOT / "donor/evidence/cc-sha256.txt").read_text().split()[0]
+        write(EVIDENCE / "tools-before.json", tools)
+        assert run("cc-version", [tools["cc"]["path"], "--version"], ROOT, environment, 30) == 0
+        assert run("python-version", [sys.executable, "--version"], ROOT, environment, 30) == 0
         if session == "x11":
             pytest_stage("lease-red", red, [COORD + "::test_native_gui_lease_excludes_other_gui_workers_but_not_ordinary_work[linux]", COORD + "::test_all_known_linux_display_tests_claim_the_gui_session"], environment, 2, red=True)
             pytest_stage("lease-green", ROOT, [COORD], environment, 16)
@@ -279,7 +291,12 @@ def inside(session):
 
 
 
+def terminated(signum, frame):
+    raise KeyboardInterrupt("qualification received SIGTERM")
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, terminated)
     if sys.argv[1:] == ["host"]:
         host()
     elif len(sys.argv) == 3 and sys.argv[1] == "inside":
