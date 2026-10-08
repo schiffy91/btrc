@@ -707,6 +707,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 
 	/* Called by the application after dispatch so focus moves settle. */
 	public void settle() {
+		if (self._host.focusInvalidated) { self._host.focusInvalidated = false; self.syncTextInput(); }
 		self.applyFocus();
 		if (self._host.focusedId != 0) { var focused = self.locate(self._host.focusedId); if (focused == null || !focused.view.node().effectiveEligible()) { self.moveFocus(0); } }
 		if (self._host.overlayId != 0 && self.locate(self._host.overlayId) == null) { self._host.overlayId = 0; }
@@ -773,12 +774,15 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		var root = self._root;
 		if (root == null) { return null; }
 		ILinuxView detaching = root;
+		/* End editing while the old route and native composition host remain
+		 * valid, before focus departure can authorize an ordinary blur commit. */
+		detaching.node().attached = false;
+		detaching.node().markInteraction(false); detaching.node().settleInteraction();
 		self.cancelCapture();
 		self.clearHover();
 		if (self._host.focusedId != 0) { self.moveFocus(0); }
 		self._host.overlayId = 0;
-		detaching.node().attached = false;
-		detaching.attachTo(null); detaching.node().refreshInteraction(false);
+		detaching.attachTo(null); detaching.node().finishAttachment(); detaching.node().publishInteraction();
 		self._root = null;
 		self._host.invalidation.mark();
 		return root;

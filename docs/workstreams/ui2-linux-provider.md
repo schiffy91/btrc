@@ -355,3 +355,22 @@ remain separate unfinished work. This source has no semantic/native proof yet.
 Root also identified the scheduler's bool/bool ternary arithmetic promotion;
 `b30b19bf` preserves its exact lazy dispatch selection with explicit branches,
 independent of this state slice. No compiler behavior changed.
+
+### Editing settlement before route migration
+
+Fixture-only `e831b25c` covers active dirty draft and active preedit across both
+window-root and container-child detach/reattach, using real SDL input. Each
+retains the non-composing draft, emits no blur commit or stale replay, preserves
+the subscription, and commits the retained draft once after a new focus/Return.
+Fixture-only `f19e9918` also covers disable and re-enable without an intervening
+pump, followed by a real click and text/Return input.
+
+Source now marks the complete affected forest, settles on old registration and
+terminal-ticket identities, then rebinds and publishes snapshots. Window detach
+settles before ordinary focus departure. Eligibility settlement synchronously
+clears the old host focus identity; a later turn synchronizes native text-input
+state before honoring any new focus request. This avoids an eligible-again field
+retaining a host focus ID after its editor has already lost focus. The accidental
+view-owner binding in the observation adapter was moved to the actual node-view
+adoption path. All of this remains source-only: no formatting, semantic compile,
+C build or native execution ran during controlled Linux negative qualification.

@@ -133,11 +133,19 @@ class LinuxContainerMutation {
 				kind = restored ? CONTAINER_BATCH_ROLLED_BACK : CONTAINER_BATCH_FAILED_QUARANTINED;
 				if (!restored) { self._node.treeRevision++; }
 			}
-			for saved in self._saved { saved.child.node().finishAttachment(); }
 			if (kind == CONTAINER_BATCH_FAILED_QUARANTINED) {
 				Vector<ILinuxView> retained = []; for saved in self._saved { retained.push(saved.child); } self._node.quarantine(retained);
-			} else { self._node.localEligibilityChanged(); }
-			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().refreshInteraction(false); } }
+			}
+			/* Mark the entire result before callbacks; settle on the old channel
+			 * identities before rebind disposes records from removed routes. */
+			self._node.markLocalInteraction();
+			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().markInteraction(false); } }
+			self._node.settleInteraction();
+			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().settleInteraction(); } }
+			self._node.finishAttachment();
+			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().finishAttachment(); } }
+			self._node.publishInteraction();
+			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().publishInteraction(); } }
 			self._node.invalidate();
 			return self.result(kind, failedStep, failure);
 		} finally { self._node.context.mutationDepth--; self._node.treeMutation = false; }

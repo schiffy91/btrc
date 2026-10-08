@@ -45,6 +45,7 @@ class LinuxViewHost {
 	public double scale = 1.0;
 	public int focusedId = 0;
 	public int focusRequest = 0;
+	public bool focusInvalidated = false;
 	public bool textInputWanted = false;
 	public double textInputX = 0.0;
 	public double textInputY = 0.0;
@@ -75,6 +76,15 @@ class LinuxViewHost {
 	}
 
 	public void requestFocus(int id) { self.focusRequest = id; self.invalidation.mark(); }
+
+	/* Eligibility settlement invalidates the route synchronously, even if a
+	 * model callback makes the same view eligible again before the next turn. */
+	public void forgetFocus(int id) {
+		if (self.focusRequest == id) { self.focusRequest = 0; }
+		if (self.focusedId != id) { return; }
+		self.focusedId = 0; self.focusInvalidated = true;
+		self.requestTextInput(false, 0.0, 0.0, 0.0, 0.0); self.invalidation.mark();
+	}
 
 	public void requestTextInput(bool wanted, double x, double y, double width, double height) {
 		self.textInputWanted = wanted;
@@ -198,8 +208,7 @@ class LinuxViewInput implements ICallbackRegistration {
  * window can traverse, hit-test and paint without control-specific code. */
 class LinuxViewObservationTarget implements IControlEventTarget {
 	private LinuxViewNode _node;
-	public LinuxViewObservationTarget(LinuxViewNode node) { self._node = node;
-		ILinuxView owner = self; node.bindOwner(owner); }
+	public LinuxViewObservationTarget(LinuxViewNode node) { self._node = node; }
 
 	public ControlEventDisposition admission(long long generation) { return self._node.observationAdmission(generation); }
 }
@@ -292,7 +301,7 @@ class LinuxViewNode implements IControlEventTarget {
 
 	/* Cache inherited facts, never a second local enabled preference. Mark the
 	 * whole subtree unavailable before invoking cancellation/settlement hooks. */
-	private void updateInteraction(bool inherited) {
+	public void markInteraction(bool inherited) {
 		self._inherited = inherited;
 		var old = self._state; var owner = self._owner;
 		bool enabled = owner == null || owner.locallyEnabled();
@@ -306,21 +315,33 @@ class LinuxViewNode implements IControlEventTarget {
 			self._state = state; self._stateChanged = true;
 			if (old != null && old.effectiveEligible && !eligible) { self._lostEligibility = true; }
 		}
-		for child in self.children { child.node().updateInteraction(eligible); }
+		for child in self.children { child.node().markInteraction(eligible); }
 	}
 
-	private void settleInteraction() {
-		if (self._lostEligibility) { self._lostEligibility = false; if (self._owner != null) { self._owner.eligibilityLost(); } }
+	public void settleInteraction() {
+		if (self._lostEligibility) {
+			self._lostEligibility = false;
+			var previousHost = self._routedHost;
+			/* Clear dispatch identity before any synchronous cancellation receiver
+			 * can re-enable or refocus this view. The editor still settles its
+			 * retained composition using the old native host. */
+			if (previousHost != null) { previousHost.forgetFocus(self.id); }
+			if (self._owner != null) { self._owner.eligibilityLost(); }
+		}
 		for child in self.children { child.node().settleInteraction(); }
 	}
 
-	private void publishInteraction() {
+	public void publishInteraction() {
 		var channel = self._stateChannel;
 		if (self._stateChanged) { self._stateChanged = false; if (channel != null && channel.isOpen()) { if (!channel.publish(self.snapshot(), self._generation, 0LL, 1LL)) { throw "Interaction state semantic source is unavailable"; } } }
 		for child in self.children { child.node().publishInteraction(); }
 	}
 
-	public void refreshInteraction(bool inherited) { self.updateInteraction(inherited); self.settleInteraction(); self.publishInteraction(); }
+	/* Routing changes retire old records only after active interactions have
+	 * emitted their one terminal using the old registration and reservation. */
+	public void refreshInteraction(bool inherited) { self.markInteraction(inherited); self.settleInteraction(); self.finishAttachment(); self.publishInteraction(); }
+
+	public void markLocalInteraction() { self.markInteraction(self._inherited); }
 
 	public void localEligibilityChanged() { self.refreshInteraction(self._inherited); }
 
@@ -331,7 +352,6 @@ class LinuxViewNode implements IControlEventTarget {
 	public void quarantine(Vector<ILinuxView> possible) {
 		self.faulted = true;
 		for child in possible { if (self.childIndex(child) < 0 && !self._quarantined.contains(child)) { self._quarantined.push(child); child.node().attached = true; } }
-		self.localEligibilityChanged();
 	}
 
 	public bool isOpen() { return !self.closing && !self.closed; }
@@ -401,10 +421,10 @@ class LinuxViewNode implements IControlEventTarget {
 		int index = self.childIndex(child);
 		if (index < 0) { throw "View does not belong to this container"; }
 		var childNode = child.node();
-		childNode.cancelPointerCapture();
-		self.children.remove(index);
 		childNode.attached = false;
-		child.attachTo(null); childNode.refreshInteraction(false);
+		childNode.markInteraction(false); childNode.settleInteraction();
+		self.children.remove(index);
+		child.attachTo(null); childNode.finishAttachment(); childNode.publishInteraction();
 		self.invalidate();
 		return child;
 	}
@@ -421,9 +441,8 @@ class LinuxViewNode implements IControlEventTarget {
 	public void setHost(LinuxViewHost? host) {
 		self.host = host;
 		for child in self.children { child.attachTo(host); }
-		/* Native membership can change during a batch, but callback routes and
-		 * interaction generations commit only after its coherent result. */
-		if (self.context.mutationDepth == 0) { self.finishAttachment(); }
+		/* Membership is staged here. Its owner marks and settles the complete
+		 * affected forest before committing callback routes and generations. */
 	}
 
 	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self.subscribe(handler, null, owner); }
@@ -460,7 +479,7 @@ class LinuxViewNode implements IControlEventTarget {
 			for child in self._quarantined { if (self.childIndex(child) < 0) { self.children.push(child); } }
 			self._quarantined.clear();
 			self.closing = true;
-			self.updateInteraction(false); self.settleInteraction();
+			self.markInteraction(false); self.settleInteraction();
 			self._input.cancel();
 			for child in self.children { var childNode = child.node(); childNode.attached = false; child.attachTo(null); }
 			self.invalidate();
@@ -504,6 +523,7 @@ class LinuxNodeView implements ILinuxView {
 	public void adoptNode(LinuxViewNode node) {
 		if (self._node != null) { throw "Native view already has a node"; }
 		self._node = node;
+		ILinuxView owner = self; node.bindOwner(owner);
 	}
 
 	public LinuxViewNode node() { return self._node; }
