@@ -2035,6 +2035,9 @@ class ModuleUnitCompiler {
 		for (int index = 0; index < stale.len; index++) {
 			ModuleUnitGroupState state = stale.get(index);
 			string reply = finished.get(index);
+			/* The local owns this reply until the record is complete; consumed
+			 * payloads must not stay in the batch beside their copied C text. */
+			finished.set(index, "");
 			int newline = reply.indexOf("\n");
 			int headerLength = newline > 0 ? Strings.toInt(reply.substring(0, newline)) : -1;
 			if (headerLength <= 0 || newline + 1 + headerLength > reply.length()) {
