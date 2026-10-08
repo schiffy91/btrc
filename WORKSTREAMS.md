@@ -1484,3 +1484,15 @@ Every question has a default. A default marked **needs owner approval** would am
 ## 8. Appendices, writer adjustments and review
 
 The appendices (dependency resolution and path tables), the writer adjustments and the adversarial review are in [docs/workstreams/appendices.md](docs/workstreams/appendices.md).
+
+## 2026-10-08 D29 compiler lifetime combination
+
+Owner: performance_review; branch `codex/compiler-lifetimes-3974`, exact base
+`3974d47bc87851b1ac19b8d2b4bd5022f2d94676`. Claim before implementation:
+`src/compiler/btrc/pipeline/Pipeline.btrc`,
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+`docs/workstreams/compiler-lifetimes-3974.md`, and this claim only.
+Combine the reviewed token71352 and reply-slot d726 ownership changes without
+generic4d930 or unrelated data/generated changes. Separate source evidence does
+not qualify the combination: fresh compiler, affected semantics, full final gates
+and current-product quiet memory/instruction measurements remain pending.
