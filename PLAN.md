@@ -251,10 +251,33 @@ Independent review confirms source/tool/output closure and all three groups
 absent/reaped. Receipt `module-emission-once-product-660ac18d-attempt-1/result.json`
 has SHA-256 `7b11d8092a5725bc9e6dd6d6445956728ff1d100b806094cdfd504ddd36e553f`.
 Existing nullable warnings and the historical delayed baseline-output hashing
-limitation remain explicit. Report `7e4c3e30` records this result. Quiet paired
-instruction/peak-memory measurements remain pending. No performance saving is
-claimed: the snapshot adds a tuple/vector copy to ordinary emission, so net
-speed and memory benefit remain unproved. The branch is unpublished; it does not alter PR68's current
+limitation remain explicit. Report `7e4c3e30` records this result. The first
+quiet attempt passes the unchanged admission and both warmups compile with
+exit zero, but the comparison rejects their build plans before any measured
+sample. Both plans correctly hash all 422 raw emitted units; 418 hashes differ
+because debug directives embed the distinct output paths. All 423 normalized
+C/header files remain equal. Independent review confirms this comparator defect.
+The repair must authenticate every ordered raw digest before comparing digests
+of the already-normalized content, preserve all other fields/order, and reject
+corrupt hashes, missing/reordered units, source changes and other plan changes.
+Failed receipt `module-emission-once-quiet-660ac18d-attempt-1/manifest.json`,
+SHA-256 `87d5582de694d235b1a76b32e790b6fcd4861d8206a071415d2a28bfe30f7460`,
+retains both discarded warmups and unchanged final inputs; both process groups
+closed. No measured sample or performance saving is claimed. Report `dccaeb78`
+records the failure. Quiet paired instruction/peak-memory measurements remain
+pending; the snapshot's extra tuple/vector copy may offset the removed work.
+
+Before that attempt, a verified payload-only archive preserved 924 completed
+pre-October-8 emitted-C cache parts from 306 default-cache entries. It retained
+all manifests, coordination locks, current entries and proof inputs, and recovered
+1,988,952,064 allocated bytes. Archive `payloads.tar.gz` has SHA-256
+`703df2aca2a3945a5c9c82f90367a8da226abb40455ba4b73a84ddc2f1ddc5d7`;
+receipt `completed-pre-oct8-emission-cache-archive/result.json` has SHA-256
+`2d56b229908600eebabae37750b57651c9cfd8a24ab787772b52abb745c90297`.
+Its inventory and RESTORE.txt preserve bytes, modes and nanosecond mtimes.
+The benchmark uses fresh private caches; absent old payloads are normal cache
+misses through the existing driver. Free space after the failed comparison is
+about 81.843 GB, so another full eight-run campaign needs additional safe headroom. The branch is unpublished; it does not alter PR68's current
 qualification head. The first attempt's recording-only circular-reference failure is
 retained separately with zero completed samples and explicit unknown sampler
 numeric PID; fresh external checks found no surviving owned process. A direct
