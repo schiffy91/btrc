@@ -165,18 +165,23 @@ class CompilerPipeline {
 		/* Every later stage reports at combined positions; the diagnostic
 		 * owner maps them back to their own files. */
 		FeDiagnosticSources.configure(resolved, sourcePath);
-		Lexer lexer = Lexer(resolved.source, self.grammar);
-		Vector<Token> tokens = lexer.tokenize();
-		BtrccPhaseTimer.mark("lex");
-		if (lexer.failed) {
-			return self.failure(self.positionedDiagnostic(lexer.diagnostic));
-		}
+		Node program;
+		/* The AST retains its strings; parser inputs can leave scope before
+		 * analysis and lowering retain their larger graphs. */
+		{
+			Lexer lexer = Lexer(resolved.source, self.grammar);
+			Vector<Token> tokens = lexer.tokenize();
+			BtrccPhaseTimer.mark("lex");
+			if (lexer.failed) {
+				return self.failure(self.positionedDiagnostic(lexer.diagnostic));
+			}
 
-		Parser parser = Parser(tokens, self.grammar);
-		Node program = parser.parseProgram();
-		BtrccPhaseTimer.mark("parse");
-		if (parser.failed) {
-			return self.failure(self.positionedDiagnostic(parser.diagnostic));
+			Parser parser = Parser(tokens, self.grammar);
+			program = parser.parseProgram();
+			BtrccPhaseTimer.mark("parse");
+			if (parser.failed) {
+				return self.failure(self.positionedDiagnostic(parser.diagnostic));
+			}
 		}
 
 		self.hostedAbi.stampProgramSources(program, resolved.stdlibLineCount, resolved.userLines, sourcePath, self.stdlib.directory());
