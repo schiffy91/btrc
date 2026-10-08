@@ -1067,8 +1067,9 @@ def test_native_include_scan_formats_each_body_once(native_project, tmp_path, mo
     )
     assert result.failure is None, result.failure
     assert {Path(file).name for file, _name in calls} >= {"Main.btrc", "Foundation.btrc"}
-    assert any('#include "Foundation.h"' in unit for unit in result.c_units)
-    assert any('#include "Foundation.h"' not in unit for unit in result.c_units)
+    include = f'#include "{source.parent.parent / "Foundation.h"}"'
+    assert any(include in unit for unit in result.c_units)
+    assert any(include not in unit for unit in result.c_units)
     assert calls and set(calls.values()) == {1}, calls
     sources = [output / "program.c"]
     sources[0].write_text(result.c_source)
