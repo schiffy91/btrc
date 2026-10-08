@@ -1,4 +1,5 @@
 import Library.Callback;
+import Library.App;
 import Library.GUI.IApplication;
 import Library.GUI.IView;
 import Library.GUI.IWindow;
@@ -242,6 +243,7 @@ int main() {
 
 	/* One state observation precedes one terminal record in the real window
 	 * queue. A bounded turn must wake the host for the residual terminal. */
+	attachment.serviceTurn();
 	var windowStates = PublicWindowStateReceiver(); var windowClose = PublicWindowCloseReceiver();
 	window.onStateChanged(windowStates, scope); window.onCloseRequested(windowClose, scope);
 	window.setContentSize(170.0, 110.0);
