@@ -946,17 +946,19 @@ class _DarwinSigner:
         requested = self.configuration.identity
         certificate = requested
         if requested != "-":
-            command = ["/usr/bin/security", "find-identity", "-v", "-p", "codesigning"]
+            # Resolve the caller's identity without imposing a new global-trust
+            # policy: local signing certificates may be intentionally untrusted.
+            command = ["/usr/bin/security", "find-identity", "-p", "codesigning"]
             if self.keychain is not None:
                 command.append(self.keychain)
             listing = self._run(command)
             candidates = set()
             for line in listing.stdout.splitlines():
-                match = re.fullmatch(r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"(.*)"\s*', line)
+                match = re.fullmatch(r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"(.*)"(?:\s+\([A-Z][A-Z0-9_]*\))?\s*', line)
                 if match and (match[1].lower() == requested.lower() or match[2] == requested):
                     candidates.add(match[1].lower())
             if len(candidates) != 1:
-                raise NativePlanError("codesign identity must resolve to exactly one valid certificate")
+                raise NativePlanError("codesign identity must resolve to exactly one certificate")
             certificate = candidates.pop()
         return {
             "identity": requested,

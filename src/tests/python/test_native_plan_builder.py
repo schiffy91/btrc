@@ -1899,9 +1899,9 @@ def test_codesign_missing_or_ambiguous_identity_fails_closed(tmp_path, identitie
         )
         return subprocess.CompletedProcess(command, 0, listing, "")
 
-    with pytest.raises(NativePlanError, match="exactly one valid certificate"):
+    with pytest.raises(NativePlanError, match="exactly one certificate"):
         _DarwinSigner(DarwinSigning("Application", tool=str(tool)), run)
-    assert calls == [["/usr/bin/security", "find-identity", "-v", "-p", "codesigning"]]
+    assert calls == [["/usr/bin/security", "find-identity", "-p", "codesigning"]]
 
 
 @pytest.mark.parametrize("requested", ["Application", "A" * 40])
@@ -1980,3 +1980,33 @@ def test_codesign_rejects_other_hosts_or_targets_before_tools(tmp_path, monkeypa
         NativePlanBuilder(runner=never_run).build(
             plan_path=plan, generated_c=source, output=tmp_path / "program", signing=DarwinSigning("-")
         )
+
+
+@pytest.mark.parametrize("requested", ["BTRSmith Build Signing", "D3D5AA4395E93CC694C136DD3F327DB4DA18D703"])
+def test_codesign_resolves_existing_local_certificate_without_global_trust(tmp_path, requested):
+    from tools.native_plan import DarwinSigning, _DarwinSigner
+
+    tool = tmp_path / "codesign"
+    tool.write_text("fixture")
+    tool.chmod(0o755)
+    fingerprint = "d3d5aa4395e93cc694c136dd3f327db4da18d703"
+    listing = (
+        "Policy: Code Signing\n  Matching identities\n"
+        f'  1) {fingerprint.upper()} "BTRSmith Build Signing" (CSSMERR_TP_NOT_TRUSTED)\n'
+        "     1 identities found\n\n  Valid identities only\n     0 valid identities found\n"
+    )
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, listing if command[0] == "/usr/bin/security" else "", "")
+
+    signer = _DarwinSigner(DarwinSigning(requested, tool=str(tool)), run)
+    signer.sign(tmp_path / "program")
+    assert signer.context["certificate"] == fingerprint
+    assert all("-v" not in command for command in calls if command[0] == "/usr/bin/security")
+    signing = next(command for command in calls if "--sign" in command)
+    assert signing[signing.index("--sign") + 1] == fingerprint
+    verification = next(command for command in calls if "--verify" in command)
+    assert "--strict" in verification
+    assert verification[verification.index("--test-requirement") + 1] == f'=certificate leaf = H"{fingerprint}"'

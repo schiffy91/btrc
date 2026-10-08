@@ -42,7 +42,7 @@ optional identifier, and signer executable. The CLI exposes the corresponding
 `--codesign-identity`, `--codesign-keychain`, `--codesign-identifier`, and
 `--codesign-tool` flags. An omitted identifier omits the codesign flag and
 preserves existing policy; the staging path already retains the final basename.
-The builder resolves an exact valid certificate name or fingerprint, includes
+The builder resolves an exact certificate name or fingerprint, includes
 that certificate and the signing configuration/tool content in the receipt,
 and verifies the staged signature before publishing it. It revalidates signing
 context before accepting a receipt hit and before/after signing. No keychain
@@ -108,3 +108,34 @@ and scratch fixtures are retained.
 Implementation and focused validation completed 2026-10-08 00:02:19 UTC.
 The packet is ready for integrator review/combination and the unchanged real
 product paired regression, not a claim that all repository goals are complete.
+
+## Existing local certificate policy correction
+
+The integrator's unchanged paired product regression against `490507a9` failed
+both cold builds before native compilation: the valid-only identity lookup
+returned no selected certificate. Evidence is retained at
+`~/.cache/btrc/plan-consolidation-2026-10-07/btrsmith-build-artifacts-signed-490507a9`.
+Read-only public `security find-identity -p codesigning` output lists the
+existing BTRSmith Build Signing certificate with fingerprint
+`d3d5aa4395e93cc694c136dd3f327db4da18d703` and diagnostic
+`CSSMERR_TP_NOT_TRUSTED`; adding `-v` excludes it. The product's existing
+selection deliberately uses the lookup without `-v`.
+
+The resolver now preserves that caller policy: lookup without `-v`, accept
+numbered identity rows with an optional public diagnostic suffix, and require
+one exact selected name/fingerprint. This does not change system or keychain
+trust, unlock any keychain, read credentials, or weaken strict signature and
+exact-leaf verification. The builder still signs with the resolved fingerprint.
+
+Two deterministic cases containing the observed public output (name and full
+fingerprint selection) failed against `490507a9`, then passed after this repair.
+All ten signing units pass in 0.59 s; lint, formatting, and diff checks pass.
+Read-only resolution against the actual existing keychain also selects that
+same fingerprint. Public listings/context and red/green logs are retained in
+the packet evidence directory. This proves lookup compatibility; the integrator
+still owns actual paired named-certificate signing and warm-cache proof.
+
+Independent read-only review found no blocker in the resolver correction;
+unique selection, repeated-section fingerprint deduplication and strict
+exact-leaf verification remain intact. Review and focused validation finished
+2026-10-08 00:09:42 UTC. No native build or signing stage ran in this correction.
