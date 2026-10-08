@@ -95,3 +95,52 @@ consumed and that subsequent sources still work. The provider is not replaced
 by a model or copied helper. The driver retains native fault-build diagnostics.
 These fixtures are source/static checked only; no native result is claimed.
 The final marked execution function is `test_ui2_native_run_loop_modes`.
+
+## Common-mode source implementation checkpoint (unqualified)
+
+The source draft replaces NSNotificationQueue transport with one version-0 CF
+source registered in common modes, explicitly including AppKit tracking. Worker
+wake takes only a short native mutex around source signalling and wakeup. The
+raw context contains POD and a bounded UI-registry slot; the worker never
+accesses that registry or retains/releases a managed callback. A UI-only
+CallbackContext pins receiver entry, and an OwnedClosure owns raw-state cleanup.
+The registry has 256 reusable source slots; source invalidation and receiver
+cancellation must complete before slot reuse and final UI release. UI ownership
+must retain each signal until all producers have retired.
+
+A single armed common-mode CF timer replaces the requested deadline. The clock
+is CACurrentMediaTime, converted to monotonic nanoseconds; the native alarm's
+civil-time input is a wake hint, and delivery rechecks the monotonic deadline.
+An early alarm is rearmed, a due alarm signals the source after the timer callback,
+and disarming/close invalidates the timer. Native timer allocation failure is
+sticky and wakes the source so the future executor can record orderly failure.
+There is no polling timer or performBlock per work item.
+
+Internal requestClose/pollClose close ingress before draining the receiver and
+return PENDING when initiated inside delivery. Existing void close remains only
+for legacy owners that already canceled/drained their scope; new UI2 lifecycle
+callers must use the nonblocking pair. Polling never starts cancellation.
+Canonical BTRC formatting and git diff --check passed. Native binding projection,
+semantic compilation, actual fault interception and both-frontends plain/
+sanitized fixtures are **not run**; these source checkpoints are not an E04,
+E30, E31 or E40 qualification. Scheduler, publisher and full provider integration
+remain unfinished, and atomic UI2 landing is still blocked on them and evidence.
+
+The final integrator binding fragment must add these symbols to the existing
+MacOS.MacOSRunLoop binding (retaining its callback interface until consumers
+are migrated), and add that module to QuartzCore frameworks:
+
+```text
+CFRunLoopSourceContext, CFRunLoopSourceRef, CFRunLoopRef,
+CFRunLoopGetMain, CFRunLoopSourceCreate, CFRunLoopSourceSignal,
+CFRunLoopSourceInvalidate, CFRunLoopWakeUp, CFRunLoopAddSource,
+CFRunLoopAddCommonMode, CFRelease, kCFRunLoopCommonModes,
+btrcMacOSTrackingRunLoopMode,
+CFRunLoopTimerContext, CFRunLoopTimerRef, CFRunLoopTimerCreate,
+CFRunLoopAddTimer, CFRunLoopTimerInvalidate, CFAbsoluteTimeGetCurrent,
+CACurrentMediaTime
+```
+
+This is a source requirement list, not a generated catalog or verified reader
+projection. The source/fault fixture qualification will determine the exact
+accepted reader rows before the final fragment is committed.
