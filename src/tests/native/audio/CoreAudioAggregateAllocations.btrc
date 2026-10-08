@@ -2,11 +2,29 @@ import Library.Audio.MacOS.MacOSAudioDevice;
 
 #include <assert.h>
 
+void requireUnavailableDictionary(CoreAudioAggregateDescription description) {
+	bool rejected = false;
+	try { description.dictionary(); }
+	catch (string error) {
+		assert(error == "CoreAudio aggregate description is unavailable");
+		rejected = true;
+	}
+	assert(rejected);
+}
+
 int prepareDescription(int failure) {
 	aggregateAllocationFailure(failure);
 	var description = CoreAudioAggregateDescription();
+	requireUnavailableDictionary(description);
+	assert(!description.prepare("", "device-b"));
+	requireUnavailableDictionary(description);
 	assert(description.prepare("device-a", "device-b") == (failure == 0));
+	if (failure == 0) {
+		var dictionary = description.dictionary();
+		assert(dictionary != null && CFDictionaryGetCount(dictionary) > 0L);
+	} else { requireUnavailableDictionary(description); }
 	assert(!description.prepare("device-a", "device-b"));
+	if (failure != 0) { requireUnavailableDictionary(description); }
 	return aggregateAllocationCalls();
 }
 
