@@ -25,7 +25,10 @@ def test_linux_ui2_worker_wake_and_host(tmp_path, request, frontend, sanitized):
         data_root=request.getfixturevalue("gui_provider_root"),
     )
     result = subprocess.run(
-        [str(executable)], capture_output=True, text=True, timeout=30,
+        [str(executable)],
+        capture_output=True,
+        text=True,
+        timeout=30,
         env=provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1"),
     )
     (tmp_path / "stdout.txt").write_text(result.stdout)

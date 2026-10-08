@@ -1,0 +1,202 @@
+import Library.Callback;
+import Library.Console;
+import Library.GUI.IApplication;
+import Library.GUI.Linux.SDL;
+
+#include <errno.h>
+
+/* Only plain fields are touched by producers. Allocation, receiver ownership
+ * and destruction remain on the UI thread. A producer is handed a publisher
+ * already retained by its UI owner and never releases its final reference. */
+struct LinuxPublicationSlot {
+	long long generation;
+	long long sequence;
+	long long key;
+	long long payload;
+	int policy;
+};
+
+class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
+	private pthread_mutex_t* _mutex = null;
+	private struct LinuxPublicationSlot* _slots = null;
+	private int _capacity;
+	private int _count = 0;
+	private int _executing = 0;
+	private int _notifying = 0;
+	private Atomic<bool> _sealed;
+	private CallbackCancellation _cancellation = CALLBACK_CANCELLATION_NOT_REQUESTED;
+	private CallbackScope _scope = CallbackScope();
+	private bool _open = false;
+	private bool _suspended = false;
+	private bool _wakePending = false;
+	private bool _failed = false;
+	private bool _initialized = false;
+	private long long _generation = 0LL;
+	private long long _sequence = 0LL;
+	private CallbackContext<IApplicationPublicationHandler, LinuxPublisher>? _handler;
+	/* Installed and retired only on the UI executor. Producers use the field
+ 	 * directly; no managed local or producer-side reference transfer occurs. */
+	private IApplicationHost? _host;
+
+	public LinuxPublisher(int capacity, IApplicationHost? host) {
+		self._capacity = capacity; self._host = host; self._sealed.init(false);
+		self._mutex = (pthread_mutex_t*)calloc(1, sizeof(pthread_mutex_t));
+		self._slots = (struct LinuxPublicationSlot*)calloc((size_t)capacity, sizeof(struct LinuxPublicationSlot));
+		if (self._mutex == null || self._slots == null) { return; }
+		if (pthread_mutex_init(self._mutex, null) != 0) { return; }
+		self._initialized = true; self._open = true;
+	}
+
+	public bool initialized() { return self._initialized; }
+
+	public int capacity() { return self._capacity; }
+
+	public void activate(IApplicationPublicationHandler receiver, CallbackScope owner) {
+		if (!self._initialized || receiver == null) { throw "Publisher requires storage and a receiver"; }
+		var handler = new CallbackContext<IApplicationPublicationHandler, LinuxPublisher>(receiver, LinuxPublisher.unregister);
+		handler.activate(self._scope); self._handler = handler;
+		try { owner.track(self); } catch (string error) { handler.abortActivation(); self._handler = null; throw error; }
+		handler.publish(self);
+	}
+
+	/* The application locks every publisher before atomically changing its
+	 * host route. A racing host notification refuses attachment before any
+	 * source or receiver changes; no mutex remains held on that failure. */
+	public bool beginHostChange() {
+		if (pthread_mutex_trylock(self._mutex) != 0) { return false; }
+		if (self._notifying != 0) { pthread_mutex_unlock(self._mutex); return false; }
+		return true;
+	}
+
+	public void setHostLocked(IApplicationHost host) { self._host = host; }
+
+	public void endHostChange() { pthread_mutex_unlock(self._mutex); }
+
+	private void removeAt(int index) {
+		for (int next = index + 1; next < self._count; next++) { self._slots[next - 1] = self._slots[next]; }
+		self._count--;
+	}
+
+	public PublishOutcome tryPublish(long long generation, long long sequence, WorkSuspensionPolicy suspension, long long replacementKey, long long payload) {
+		if (generation <= 0LL || sequence <= 0LL || replacementKey < 0LL || suspension < WORK_SUSPENSION_CANCEL || suspension > WORK_SUSPENSION_REPLACE || (suspension == WORK_SUSPENSION_REPLACE && replacementKey == 0LL)) { return PUBLISH_INVALID; }
+		if (!self._initialized || pthread_mutex_lock(self._mutex) != 0) { return PUBLISH_RESOURCE_FAILED; }
+		if (!self._open || self._sealed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(self._mutex); return PUBLISH_CLOSED; }
+		if (generation < self._generation || (generation == self._generation && sequence <= self._sequence)) { pthread_mutex_unlock(self._mutex); return PUBLISH_STALE; }
+		if (self._suspended && suspension == WORK_SUSPENSION_CANCEL) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCELLED; }
+		int replace = -1;
+		if (replacementKey > 0LL && generation == self._generation) {
+			for (int index = self._count - 1; index >= 0; index--) {
+				if (self._slots[index].key == 0LL) { break; }
+				if (self._slots[index].key == replacementKey) { replace = index; break; }
+			}
+		}
+		bool fresh = generation > self._generation;
+		if (replace < 0 && !fresh && self._count + self._executing >= self._capacity) { pthread_mutex_unlock(self._mutex); return PUBLISH_FULL; }
+		if (fresh && self._executing >= self._capacity) { pthread_mutex_unlock(self._mutex); return PUBLISH_FULL; }
+		/* SDL_PushEvent is bounded, thread-safe and never invokes a BTRC
+ 		 * receiver. The mutex keeps the receipt invisible until wake succeeds. */
+		if (!self._wakePending && !btrcSdlPushWake()) {
+			self._failed = true; self._open = false;
+			pthread_mutex_unlock(self._mutex); return PUBLISH_WAKE_FAILED;
+		}
+		self._wakePending = true;
+		if (fresh) { self._count = 0; self._generation = generation; replace = -1; }
+		int slot = replace >= 0 ? replace : self._count++;
+		self._slots[slot].generation = generation; self._slots[slot].sequence = sequence;
+		self._slots[slot].key = replacementKey; self._slots[slot].payload = payload; self._slots[slot].policy = (int)suspension;
+		self._sequence = sequence;
+		self._notifying++;
+		pthread_mutex_unlock(self._mutex);
+		/* Host signalling is outside synchronization. Admission has committed;
+ 		 * a failed host wake seals the endpoint, never a retryable rejection. */
+		bool signalled = self._host == null || self._host.requestTurn();
+		if (pthread_mutex_lock(self._mutex) != 0) { return PUBLISH_ACCEPTED; }
+		if (!signalled) { self._failed = true; self._open = false; }
+		self._notifying--; pthread_mutex_unlock(self._mutex);
+		return replace >= 0 ? PUBLISH_REPLACED : PUBLISH_ACCEPTED;
+	}
+
+	public PublishCancelOutcome requestCancel(long long generation, long long sequence) {
+		if (!self._initialized || pthread_mutex_lock(self._mutex) != 0) { return PUBLISH_CANCEL_CLOSED; }
+		if (!self._open || self._sealed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_CLOSED; }
+		if (generation != self._generation || sequence <= 0LL || sequence > self._sequence) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_STALE; }
+		for (int index = 0; index < self._count; index++) {
+			if (self._slots[index].sequence == sequence) { self.removeAt(index); pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_REQUESTED; }
+		}
+		pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_ALREADY_TERMINAL;
+	}
+
+	public void suspend(bool suspended) {
+		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
+		self._suspended = suspended;
+		if (suspended) { for (int index = self._count - 1; index >= 0; index--) { if (self._slots[index].policy == (int)WORK_SUSPENSION_CANCEL) { self.removeAt(index); } } }
+		pthread_mutex_unlock(self._mutex);
+	}
+
+	public bool pending() {
+		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
+		bool pending = self._failed || (!self._suspended && self._count > 0);
+		pthread_mutex_unlock(self._mutex); return pending;
+	}
+
+	public bool deliverOne() {
+		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
+		self._wakePending = false;
+		if (self._failed) { pthread_mutex_unlock(self._mutex); throw "Application publisher native wake failed"; }
+		if (!self._open || self._suspended || self._count == 0) { pthread_mutex_unlock(self._mutex); return false; }
+		struct LinuxPublicationSlot slot = self._slots[0]; self.removeAt(0); self._executing++;
+		pthread_mutex_unlock(self._mutex);
+		var handler = self._handler;
+		try {
+			if (handler != null) {
+				var receiver = handler.enter();
+				if (receiver != null) {
+					try {
+						var publication = ApplicationPublication(); publication.generation = slot.generation;
+						publication.sequence = slot.sequence; publication.replacementKey = slot.key; publication.payload = slot.payload;
+						receiver.deliver(publication);
+					} finally { handler.leave(); handler.pollCompletion(); }
+				}
+			}
+		} finally {
+			if (pthread_mutex_lock(self._mutex) != 0) { Console.fatal("Publisher receipt cleanup synchronization failed"); }
+			self._executing--; pthread_mutex_unlock(self._mutex);
+		}
+		return true;
+	}
+
+	class bool unregister(LinuxPublisher publisher) { return true; }
+
+	public bool isOpen() { return !self._sealed.load(MemoryOrder.ACQUIRE) && self._handler != null && self._handler.isOpen(); }
+
+	private CallbackCancellation finishCancellation() {
+		int locked = pthread_mutex_trylock(self._mutex);
+		if (locked == EBUSY) { return CALLBACK_CANCELLATION_PENDING; }
+		if (locked != 0) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		self._open = false; self._count = 0; self._wakePending = false;
+		bool busy = self._notifying != 0;
+		pthread_mutex_unlock(self._mutex);
+		if (busy) { return CALLBACK_CANCELLATION_PENDING; }
+		self._host = null;
+		var handler = self._handler;
+		return handler == null ? CALLBACK_CANCELLATION_COMPLETE : handler.cancel();
+	}
+
+	public CallbackCancellation cancel() {
+		self._sealed.store(true, MemoryOrder.RELEASE);
+		if (self._cancellation == CALLBACK_CANCELLATION_COMPLETE || self._cancellation == CALLBACK_CANCELLATION_FAILED) { return self._cancellation; }
+		self._cancellation = self.finishCancellation(); return self._cancellation;
+	}
+
+	public CallbackCancellation pollCompletion() {
+		if (self._cancellation == CALLBACK_CANCELLATION_PENDING) { self._cancellation = self.finishCancellation(); }
+		return self._cancellation;
+	}
+
+	public void __del__() {
+		if (self._handler != null && self.cancel() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Publisher destroyed before callback drain"); }
+		self._scope.cancel();
+		if (self._initialized && pthread_mutex_destroy(self._mutex) != 0) { Console.fatal("Publisher destroyed while producer active"); }
+		free(self._slots); free(self._mutex);
+	}
+}

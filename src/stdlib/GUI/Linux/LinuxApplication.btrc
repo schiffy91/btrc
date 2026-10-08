@@ -21,6 +21,7 @@ import Library.GUI.ISelect;
 import Library.GUI.IScrollView;
 import Library.GUI.IGrid;
 import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.LinuxPublisher;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxWindow;
@@ -45,8 +46,11 @@ class LinuxDelayedWork implements ICallbackRegistration {
 	private IApplicationWork? _work;
 	private unsigned long long _deadline;
 	private bool _open = true;
+	public WorkSuspensionPolicy policy;
+	public long long replacementKey;
+	public long long round;
 
-	public LinuxDelayedWork(IApplicationWork work, unsigned long long deadlineNanoseconds) { self._work = work; self._deadline = deadlineNanoseconds; }
+	public LinuxDelayedWork(IApplicationWork work, unsigned long long deadlineNanoseconds, WorkSuspensionPolicy policy, long long replacementKey, long long round) { self._work = work; self._deadline = deadlineNanoseconds; self.policy = policy; self.replacementKey = replacementKey; self.round = round; }
 
 	public unsigned long long deadline() { return self._deadline; }
 
@@ -57,6 +61,36 @@ class LinuxDelayedWork implements ICallbackRegistration {
 	public CallbackCancellation cancel() { self._open = false; self._work = null; return CALLBACK_CANCELLATION_COMPLETE; }
 
 	public CallbackCancellation pollCompletion() { return self._open ? CALLBACK_CANCELLATION_NOT_REQUESTED : CALLBACK_CANCELLATION_COMPLETE; }
+}
+
+/* The scoped host link delegates to the same scheduler as desktop run(). */
+class LinuxHostAttachment implements IApplicationHostAttachment {
+	private LinuxApplication? _application;
+	private bool _closing = false;
+	private CallbackCancellation _result = CALLBACK_CANCELLATION_NOT_REQUESTED;
+	public LinuxHostAttachment(LinuxApplication application) { self._application = application; }
+
+	public bool isOpen() { return !self._closing && self._application != null; }
+
+	public void serviceTurn() {
+		var application = self._application;
+		if (application == null) { return; }
+		application.serviceHostTurn();
+		if (self._closing || application.quitRequested()) { self._closing = true; self.pollCompletion(); }
+	}
+
+	public void transition(ApplicationActivity activity) { var application = self._application; if (application == null || self._closing) { throw "Application host is detached"; } application.transition(activity); }
+
+	public CallbackCancellation cancel() { self._closing = true; var application = self._application; if (application != null) { application.requestQuit(); } return self.pollCompletion(); }
+
+	public CallbackCancellation pollCompletion() {
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var application = self._application;
+		if (application == null) { return self._result; }
+		self._result = application.finishHostClose();
+		if (self._result == CALLBACK_CANCELLATION_COMPLETE || self._result == CALLBACK_CANCELLATION_FAILED) { self._application = null; }
+		return self._result;
+	}
 }
 
 /* One application owner on the UI thread. run() pumps SDL events, delivers
@@ -76,8 +110,19 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private Vector<LinuxWindow> _windows = [];
 	private Vector<IView> _views = [];
 	private Vector<IView> _closingRoots = [];
-	private Vector<IApplicationWork> _work = [];
 	private Vector<LinuxDelayedWork> _delayed = [];
+	private Vector<LinuxPublisher> _publishers = [];
+	private int _publisherCapacity = 65536;
+	private int _publisherUsed = 0;
+	private int _publisherCursor = 0;
+	private IApplicationHost? _host = null;
+	private LinuxHostAttachment? _attachment = null;
+	private ApplicationActivity _activity = APPLICATION_ACTIVITY_UNKNOWN;
+	private bool _turnActive = false;
+	private int _rotation = 0;
+	private int _timerCursor = 0;
+	private int _windowCursor = 0;
+	private long long _round = 0LL;
 	private int _workCapacity;
 	private int _pendingWork = 0;
 	private bool _quitRequested = false;
@@ -112,9 +157,11 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		if (self._quitRequested) { throw "Application quit has been requested"; }
 	}
 
-	public bool isRunning() { self.requireUIThread(); return self._running; }
+	public bool isRunning() { self.requireUIThread(); return self._running || self._attachment != null; }
 
 	public bool isDispatching() { return self._dispatching; }
+
+	public bool quitRequested() { return self._quitRequested; }
 
 	/* How long run() drains a closing subtree before reporting it stalled. */
 	class double shutdownSeconds() { return 10.0; }
@@ -131,30 +178,116 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		self.requestQuit();
 	}
 
+	private void signalTurn() {
+		if (!btrcSdlPushWake()) { self.failWork("Application native wake failed"); return; }
+		if (self._host != null && !self._host.requestTurn()) { self.failWork("Application host wake failed"); }
+	}
+
 	public void post(IApplicationWork work) {
-		self.requireUIThread();
-		if (self._closing || self._closed) { throw "Application shutdown has started"; }
-		if (work == null) { throw "Application work is required"; }
-		if (self._quitRequested) { throw "Application quit has been requested"; }
-		self.pruneDelayed();
-		if (self._pendingWork + self._delayed.len >= self._workCapacity) { throw "Application work capacity exceeded"; }
-		self._work.push(work);
-		self._pendingWork++;
-		btrcSdlPushWake();
+		var result = self.schedule(work, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+		if (result.kind != SCHEDULE_ACCEPTED) { throw "Application work admission failed"; }
 	}
 
 	private void pruneDelayed() { for (int index = self._delayed.len - 1; index >= 0; index--) { if (!self._delayed.get(index).isOpen()) { self._delayed.remove(index); } } }
 
-	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
+	public ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) {
 		self.requireUIThread();
-		if (self._closing || self._closed) { throw "Application shutdown has started"; }
-		if (work == null || !Math.isFinite(delaySeconds) || delaySeconds < 0.0) { throw "Delayed work requires a finite nonnegative delay and a receiver"; }
-		if (self._quitRequested) { throw "Application quit has been requested"; }
+		if (work == null || !Math.isFinite(delaySeconds) || delaySeconds < 0.0 || replacementKey < 0LL || policy < WORK_SUSPENSION_CANCEL || policy > WORK_SUSPENSION_REPLACE || (policy == WORK_SUSPENSION_REPLACE && replacementKey == 0LL)) { throw "Invalid scheduled work"; }
+		var result = ScheduleOutcome(); result.registration = null;
+		if (self._closing || self._closed || self._quitRequested) { result.kind = SCHEDULE_CLOSED; return result; }
+		if (self._activity == APPLICATION_ACTIVITY_SUSPENDED && policy == WORK_SUSPENSION_CANCEL) { result.kind = SCHEDULE_CANCELLED; return result; }
 		self.pruneDelayed();
-		if (self._pendingWork + self._delayed.len >= self._workCapacity) { throw "Application work capacity exceeded"; }
-		var registration = LinuxDelayedWork(work, LinuxClock.after(delaySeconds));
-		self._delayed.push(registration);
-		return registration;
+		LinuxDelayedWork? replaced = null;
+		if (replacementKey > 0LL) {
+			for (int index = self._delayed.len - 1; index >= 0; index--) {
+				var previous = self._delayed.get(index);
+				if (previous.replacementKey == 0LL) { break; }
+				if (previous.replacementKey == replacementKey) { replaced = previous; break; }
+			}
+		}
+		if (replaced == null && self._pendingWork + self._delayed.len >= self._workCapacity) { result.kind = SCHEDULE_FULL; return result; }
+		var registration = LinuxDelayedWork(work, LinuxClock.after(delaySeconds), policy, replacementKey, self._round);
+		if (replaced != null) { replaced.cancel(); self.pruneDelayed(); }
+		self._delayed.push(registration); result.registration = registration;
+		result.kind = replaced == null ? SCHEDULE_ACCEPTED : SCHEDULE_REPLACED;
+		self.signalTurn(); self.updateHostDeadline(); return result;
+	}
+
+	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
+		var result = self.schedule(work, delaySeconds, WORK_SUSPENSION_DEFER, 0LL);
+		if (result.kind != SCHEDULE_ACCEPTED || result.registration == null) { throw "Application delayed work admission failed"; }
+		return result.registration;
+	}
+
+	public ApplicationPublisherOutcome createPublisher(int capacity, IApplicationPublicationHandler handler, CallbackScope owner) {
+		self.requireUIThread();
+		if (capacity <= 0 || capacity > 65536 || handler == null || owner == null) { throw "Publisher requires bounded capacity, receiver and owner"; }
+		var result = ApplicationPublisherOutcome(); result.publisher = null; result.registration = null;
+		if (self._closing || self._closed || self._quitRequested) { result.kind = APPLICATION_PUBLISHER_CLOSED; return result; }
+		self.prunePublishers();
+		if (capacity > self._publisherCapacity - self._publisherUsed) { result.kind = APPLICATION_PUBLISHER_BUDGET_EXHAUSTED; return result; }
+		var publisher = LinuxPublisher(capacity, self._host);
+		if (!publisher.initialized()) { result.kind = APPLICATION_PUBLISHER_RESOURCE_FAILED; return result; }
+		publisher.activate(handler, owner); publisher.suspend(self._activity == APPLICATION_ACTIVITY_SUSPENDED);
+		self._publishers.push(publisher); self._publisherUsed += capacity;
+		result.kind = APPLICATION_PUBLISHER_CREATED; result.publisher = publisher; result.registration = publisher; return result;
+	}
+
+	private void prunePublishers() {
+		for (int index = self._publishers.len - 1; index >= 0; index--) {
+			var publisher = self._publishers.get(index);
+			if (publisher.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) { self._publisherUsed -= publisher.capacity(); self._publishers.remove(index); }
+		}
+	}
+
+	public ApplicationHostAttachOutcome attachHost(IApplicationHost host, CallbackScope owner) {
+		self.requireUIThread();
+		if (host == null || owner == null) { throw "Application host and owner are required"; }
+		var result = ApplicationHostAttachOutcome(); result.attachment = null; result.error = "";
+		if (self._closing || self._closed || self._quitRequested) { result.kind = APPLICATION_HOST_APPLICATION_CLOSED; return result; }
+		if (self._attachment != null) { result.kind = APPLICATION_HOST_ALREADY_ATTACHED; return result; }
+		if (self._running || self._turnActive) { result.kind = APPLICATION_HOST_APPLICATION_RUNNING; return result; }
+		int locked = 0;
+		while (locked < self._publishers.len && self._publishers.get(locked).beginHostChange()) { locked++; }
+		if (locked != self._publishers.len) {
+			for (int index = 0; index < locked; index++) { self._publishers.get(index).endHostChange(); }
+			result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = "Publisher wake transition is busy"; return result;
+		}
+		var attachment = LinuxHostAttachment(self);
+		try { owner.track(attachment); }
+		catch (string error) {
+			for (int index = 0; index < locked; index++) { self._publishers.get(index).endHostChange(); }
+			result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = error; return result;
+		}
+		self._host = host; self._attachment = attachment;
+		for publisher in self._publishers { publisher.setHostLocked(host); publisher.endHostChange(); }
+		result.kind = APPLICATION_HOST_ATTACHED; result.attachment = attachment;
+		self.updateHostDeadline(); self.signalTurn(); return result;
+	}
+
+	public void transition(ApplicationActivity activity) {
+		self.requireUIThread();
+		if (activity < APPLICATION_ACTIVITY_ACTIVE || activity > APPLICATION_ACTIVITY_UNKNOWN) { throw "Invalid application activity"; }
+		self._activity = activity;
+		bool suspended = activity == APPLICATION_ACTIVITY_SUSPENDED;
+		if (suspended) { for delayed in self._delayed { if (delayed.policy == WORK_SUSPENSION_CANCEL) { delayed.cancel(); } } self.pruneDelayed(); }
+		for publisher in self._publishers { publisher.suspend(suspended); }
+		self.signalTurn(); self.updateHostDeadline();
+	}
+
+	public void serviceHostTurn() {
+		self.requireUIThread();
+		if (self._closed || self._turnActive) { return; }
+		try { self.pumpOnce(0); } catch (string error) { self.failWork(error); }
+		self.updateHostDeadline();
+	}
+
+	public CallbackCancellation finishHostClose() {
+		self.requireUIThread();
+		if (self._turnActive) { return CALLBACK_CANCELLATION_PENDING; }
+		var result = self.close();
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._attachment = null; self._host = null; return self._workFailed ? CALLBACK_CANCELLATION_FAILED : result; }
+		return result;
 	}
 
 	/* Windows and roots created here stay owned until they close. */
@@ -216,8 +349,9 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	/* Leave input beyond this turn's budget queued while work and frames progress. */
 	private void pumpEvents(int timeoutMilliseconds) {
 		BtrcSdlEvent event;
-		bool received = (timeoutMilliseconds > 0 ? btrcSdlWaitEvent(&event, timeoutMilliseconds) : btrcSdlPollEvent(&event)) != 0;
+		bool received = (timeoutMilliseconds != 0 ? btrcSdlWaitEvent(&event, timeoutMilliseconds) : btrcSdlPollEvent(&event)) != 0;
 		int dispatched = 0;
+		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
 		while (received && dispatched < 4096) {
 			dispatched++;
 			if (event.type == (unsigned int)SDL_EVENT_QUIT) { for window in self._windows { if (window.isOpen()) { window.requestNativeClose(); } } }
@@ -225,58 +359,87 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 				var target = self.windowFor(event.window);
 				if (target != null) { target.dispatch(&event); }
 			}
-			if (dispatched == 4096) { break; }
+			if (dispatched == 4096 || SDL_GetTicksNS() >= deadline) { self.signalTurn(); break; }
 			received = btrcSdlPollEvent(&event) != 0;
 		}
 		for window in self._windows { if (window.isOpen()) { window.settle(); } }
 	}
 
-	private void runWork() {
-		if (self._work.isEmpty()) { return; }
-		var batch = self._work;
-		self._work = [];
-		for work in batch {
-			try { if (!self._quitRequested) { work.run(); } }
-			catch (string error) { self.failWork(error); }
+	private void runDelayed() {
+		if (self._activity == APPLICATION_ACTIVITY_SUSPENDED) { return; }
+		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
+		int available = self._delayed.len; int examined = 0; int delivered = 0;
+		while (!self._delayed.isEmpty() && examined < available && examined < 256 && delivered < 64 && SDL_GetTicksNS() < deadline) {
+			if (self._timerCursor >= self._delayed.len) { self._timerCursor = 0; }
+			var delayed = self._delayed.get(self._timerCursor); examined++;
+			if (!delayed.isOpen()) { self._delayed.remove(self._timerCursor); continue; }
+			if (delayed.round >= self._round || delayed.deadline() > SDL_GetTicksNS()) { self._timerCursor++; continue; }
+			self._delayed.remove(self._timerCursor);
+			var work = delayed.take(); delivered++;
+			if (work == null || self._quitRequested) { continue; }
+			self._pendingWork++;
+			try { work.run(); } catch (string error) { self.failWork(error); }
 			finally { self._pendingWork--; }
 		}
 	}
 
-	private void runDelayed() {
-		unsigned long long now = SDL_GetTicksNS();
-		for (int index = 0; index < self._delayed.len; index++) {
-			var delayed = self._delayed.get(index);
-			if (!delayed.isOpen() || delayed.deadline() > now) { continue; }
-			var work = delayed.take();
-			if (work == null || self._quitRequested) { continue; }
-			try { work.run(); } catch (string error) { self.failWork(error); }
-		}
-		self.pruneDelayed();
+	private void dispatchActions() {
+		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
+		int count = self._context.actions.pendingCount();
+		for (int index = 0; index < count && index < 64 && !self._quitRequested && SDL_GetTicksNS() < deadline; index++) { self._context.actions.dispatchOne(); }
 	}
 
-	private void dispatchActions() {
-		int count = self._context.actions.pendingCount();
-		for (int index = 0; index < count && !self._quitRequested; index++) { self._context.actions.dispatchOne(); }
+	private void runPublishers() {
+		int count = self._publishers.len;
+		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
+		for (int index = 0; index < count && index < 64 && !self._quitRequested && SDL_GetTicksNS() < deadline; index++) {
+			if (self._publisherCursor >= self._publishers.len) { self._publisherCursor = 0; }
+			var publisher = self._publishers.get(self._publisherCursor++);
+			try { publisher.deliverOne(); } catch (string error) { self.failWork(error); }
+		}
+		self.prunePublishers();
+	}
+
+	private unsigned long long nextDeadline() {
+		unsigned long long deadline = 0ULL;
+		if (self._activity != APPLICATION_ACTIVITY_SUSPENDED) { for delayed in self._delayed { if (delayed.isOpen() && (deadline == 0ULL || delayed.deadline() < deadline)) { deadline = delayed.deadline(); } } }
+		for window in self._windows {
+			if (!window.isOpen()) { continue; }
+			unsigned long long wake = window.wakeAt();
+			if (wake != 0ULL && (deadline == 0ULL || wake < deadline)) { deadline = wake; }
+		}
+		return deadline;
+	}
+
+	private bool runnable() {
+		if (self._quitRequested || self._context.actions.pendingCount() > 0) { return true; }
+		for publisher in self._publishers { if (publisher.pending()) { return true; } }
+		for window in self._windows { if (window.isOpen() && window.needsFrame()) { return true; } }
+		return false;
 	}
 
 	private int waitMilliseconds() {
-		if (self._quitRequested || !self._work.isEmpty()) { return 0; }
+		if (self.runnable()) { return 0; }
 		unsigned long long now = SDL_GetTicksNS();
-		unsigned long long deadline = now + 250000000ULL;
-		for delayed in self._delayed { if (delayed.isOpen() && delayed.deadline() < deadline) { deadline = delayed.deadline(); } }
-		for window in self._windows {
-			if (!window.isOpen()) { continue; }
-			if (window.needsFrame()) { return 0; }
-			unsigned long long wake = window.wakeAt();
-			if (wake != 0ULL && wake < deadline) { deadline = wake; }
-		}
+		unsigned long long deadline = self.nextDeadline();
+		if (deadline == 0ULL) { return -1; }
 		if (deadline <= now) { return 0; }
-		return (int)((deadline - now) / 1000000ULL) + 1;
+		unsigned long long milliseconds = (deadline - now) / 1000000ULL + 1ULL;
+		return milliseconds > 2147483647ULL ? 2147483647 : (int)milliseconds;
+	}
+
+	private void updateHostDeadline() {
+		if (self._host == null) { return; }
+		self._host.scheduleTurn(self.nextDeadline());
+		if (self.runnable() && !self._host.requestTurn()) { self.failWork("Application host wake failed"); }
 	}
 
 	private void renderWindows() {
-		for (int index = self._windows.len - 1; index >= 0; index--) {
-			var window = self._windows.get(index);
+		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
+		int count = self._windows.len;
+		for (int index = 0; index < count && index < 8 && SDL_GetTicksNS() < deadline; index++) {
+			if (self._windowCursor >= self._windows.len) { self._windowCursor = 0; }
+			var window = self._windows.get(self._windowCursor++);
 			if (!window.isOpen()) { continue; }
 			if (window.closeRequested()) { window.close(); continue; }
 			if (!window.pollDevice()) { continue; }
@@ -284,27 +447,39 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		}
 		for (int index = self._windows.len - 1; index >= 0; index--) {
 			var window = self._windows.get(index);
-			if (window.isOpen()) { continue; }
-			if (window.pollClose() == CALLBACK_CANCELLATION_COMPLETE) { self._windows.remove(index); }
+			if (!window.isOpen() && window.pollClose() == CALLBACK_CANCELLATION_COMPLETE) { self._windows.remove(index); }
 		}
 	}
 
 	/* One loop turn: wait for events or the next deadline, then service everything. */
 	public void pumpOnce(int timeoutMilliseconds) {
 		self.requireUIThread();
-		if (self._dispatching) { throw "Native event dispatch is already active"; }
-		self._dispatching = true;
-		try { self.pumpEvents(timeoutMilliseconds); }
-		finally { self._dispatching = false; }
-		self.runDelayed();
-		self.runWork();
-		self.dispatchActions();
-		self.renderWindows();
+		if (self._turnActive) { throw "Native event dispatch is already active"; }
+		if (self._closed) { return; }
+		if (self._round == 9223372036854775807LL) { throw "Application scheduling rounds exhausted"; }
+		int readyTimeout = self.waitMilliseconds();
+		if (readyTimeout == 0 || (readyTimeout > 0 && (timeoutMilliseconds < 0 || readyTimeout < timeoutMilliseconds))) { timeoutMilliseconds = readyTimeout; }
+		self._round++; self._turnActive = true;
+		try {
+			/* Only the initial input phase may wait. Other classes rotate; each
+			 * gets its own count/time slice and cleanup always gets a turn. */
+			self._dispatching = true;
+			try { self.pumpEvents(timeoutMilliseconds); } finally { self._dispatching = false; }
+			for (int offset = 0; offset < 4; offset++) {
+				int phase = (self._rotation + offset) % 4;
+				if (phase == 0) { self.runDelayed(); }
+				else if (phase == 1) { self.runPublishers(); }
+				else if (phase == 2) { self.dispatchActions(); }
+				else { self.renderWindows(); }
+			}
+			self._rotation = (self._rotation + 1) % 4;
+		} finally { self._turnActive = false; }
+		self.updateHostDeadline();
 	}
 
 	public void run() {
 		self.requireUIThread();
-		if (self._running || self._dispatching) { throw "Native application loop is already active"; }
+		if (self._running || self._dispatching || self._attachment != null) { throw "Native application loop is already active or host-attached"; }
 		if (self._closed) { throw "Application shutdown has completed"; }
 		self._running = true;
 		try {
@@ -372,13 +547,16 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		if (self._running) { throw "Request application quit before closing a running application"; }
-		if (self._pendingWork > 0 && !self._quitRequested) { throw "Run the application to drain pending work before closing"; }
+		if (self._turnActive) { return CALLBACK_CANCELLATION_PENDING; }
 		self._quitRequested = true;
 		self._closing = true;
+		CallbackCancellation publishers = CALLBACK_CANCELLATION_COMPLETE;
+		for publisher in self._publishers { publishers = self.combine(publishers, publisher.cancel()); }
+		if (publishers != CALLBACK_CANCELLATION_COMPLETE) { return publishers; }
+		self.prunePublishers();
 		var views = self.closeViews();
 		if (views != CALLBACK_CANCELLATION_COMPLETE) { return views; }
 		try {
-			self._work.clear();
 			self._pendingWork = 0;
 			for delayed in self._delayed { delayed.cancel(); }
 			self._delayed.clear();
