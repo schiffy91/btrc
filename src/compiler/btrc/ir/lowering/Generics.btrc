@@ -13,12 +13,10 @@ import ../../syntax/Identity.btrc;
 class GenericClassLoweringPlan {
 	public GenInstance instance;
 	public Node declaration;
-	public Map<string, Node> substitutions;
 
-	public GenericClassLoweringPlan(GenInstance instance, Node declaration, Map<string, Node> substitutions) {
+	public GenericClassLoweringPlan(GenInstance instance, Node declaration) {
 		self.instance = instance;
 		self.declaration = declaration;
-		self.substitutions = substitutions;
 	}
 }
 
@@ -26,13 +24,11 @@ class GenericMethodLoweringPlan {
 	public MethodGenInstance instance;
 	public Node owner;
 	public Node method;
-	public Map<string, Node> substitutions;
 
-	public GenericMethodLoweringPlan(MethodGenInstance instance, Node owner, Node method, Map<string, Node> substitutions) {
+	public GenericMethodLoweringPlan(MethodGenInstance instance, Node owner, Node method) {
 		self.instance = instance;
 		self.owner = owner;
 		self.method = method;
-		self.substitutions = substitutions;
 	}
 }
 
@@ -71,9 +67,7 @@ class GenericLowerer {
 		for instance in self.classInstances() {
 			if (self.analyzed.genericClassTable.has(instance.base)) {
 				Node declaration = self.analyzed.genericClassTable.get(instance.base);
-				Node instanceType = SemanticTypeSystem.primitive(instance.base);
-				instanceType.genericArgsStorage = instance.args;
-				plans.push(GenericClassLoweringPlan(instance, declaration, SemanticTypeSystem.genericTypeMap(self.analyzed, instanceType)));
+				plans.push(GenericClassLoweringPlan(instance, declaration));
 			}
 		}
 		return plans;
@@ -95,21 +89,33 @@ class GenericLowerer {
 					method = self.analyzed.classMethod(instance.classBase, instance.methodName);
 				}
 				if (method != null) {
-					Map<string, Node> substitutions = {};
-					int classIndex = 0;
-					while (classIndex < concreteOwner.genericParams().len && classIndex < instance.classArgs.len) {
-						substitutions.put(concreteOwner.genericParams().get(classIndex), instance.classArgs.get(classIndex));
-						classIndex = classIndex + 1;
-					}
-					int methodIndex = 0;
-					while (methodIndex < method.genericParams().len && methodIndex < instance.methodArgs.len) {
-						substitutions.put(method.genericParams().get(methodIndex), instance.methodArgs.get(methodIndex));
-						methodIndex = methodIndex + 1;
-					}
-					plans.push(GenericMethodLoweringPlan(instance, concreteOwner, method, substitutions));
+					plans.push(GenericMethodLoweringPlan(instance, concreteOwner, method));
 				}
 			}
 		}
 		return plans;
+	}
+
+	/* Only tuple scanning needs substitutions. Reachability and body emission
+	 * consume the same plans without allocating these mutable maps. */
+	public Map<string, Node> classSubstitutions(GenericClassLoweringPlan plan) {
+		Node instanceType = SemanticTypeSystem.primitive(plan.instance.base);
+		instanceType.genericArgsStorage = plan.instance.args;
+		return SemanticTypeSystem.genericTypeMap(self.analyzed, instanceType);
+	}
+
+	public Map<string, Node> methodSubstitutions(GenericMethodLoweringPlan plan) {
+		Map<string, Node> substitutions = {};
+		int classIndex = 0;
+		while (classIndex < plan.owner.genericParams().len && classIndex < plan.instance.classArgs.len) {
+			substitutions.put(plan.owner.genericParams().get(classIndex), plan.instance.classArgs.get(classIndex));
+			classIndex = classIndex + 1;
+		}
+		int methodIndex = 0;
+		while (methodIndex < plan.method.genericParams().len && methodIndex < plan.instance.methodArgs.len) {
+			substitutions.put(plan.method.genericParams().get(methodIndex), plan.instance.methodArgs.get(methodIndex));
+			methodIndex = methodIndex + 1;
+		}
+		return substitutions;
 	}
 }

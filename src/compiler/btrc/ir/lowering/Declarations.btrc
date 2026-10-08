@@ -4043,7 +4043,7 @@ class DeclarationLowerer {
          * arguments. Any type parameter the substitution leaves behind stays
          * unbound. */
 		for classPlan in generics.classPlans() {
-			scan.substitutions = classPlan.substitutions;
+			scan.substitutions = generics.classSubstitutions(classPlan);
 			Vector<string> unbound = scan.bindUnbound(classPlan.declaration.genericParams());
 			string previousInstance = self.analyzed.beginInstance(GenericSpecializer.classInstanceContext(classPlan.instance));
 			self.collectClassTupleTypes(classPlan.declaration, scan);
@@ -4051,7 +4051,7 @@ class DeclarationLowerer {
 			scan.unbound = unbound;
 		}
 		for methodPlan in generics.methodPlans() {
-			scan.substitutions = methodPlan.substitutions;
+			scan.substitutions = generics.methodSubstitutions(methodPlan);
 			Vector<string> parameters = [];
 			for (int index = 0; index < methodPlan.owner.genericParams().len; index++) { parameters.push(methodPlan.owner.genericParams().get(index)); }
 			for (int index = 0; index < methodPlan.method.genericParams().len; index++) { parameters.push(methodPlan.method.genericParams().get(index)); }
