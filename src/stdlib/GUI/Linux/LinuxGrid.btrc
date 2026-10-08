@@ -149,6 +149,7 @@ class LinuxGrid extends LinuxNodeView implements IGrid {
 		var previous = self._cells.get(index);
 		if (previous == child) { return; }
 		ILinuxView? native = child == null ? null : LinuxComposite.projection(child);
+		if (native != null) { self.node().validateChild(native); }
 		if (previous != null) { self.node().detachChild(previous); self._cells.set(index, null); self._gridHidden.set(index, false); }
 		if (native == null) { return; }
 		self.node().attachChild(native);
