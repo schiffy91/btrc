@@ -10,7 +10,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[3]
 REGISTRY = REPO / "docs/qualification/devices.toml"
-ROADMAP = REPO / "CLAUDE.md"
+ROADMAP = REPO / "PLAN.md"
 STATUSES = {"available", "unverified", "unavailable"}
 REQUIRED_FIELDS = {"id", "class", "status", "name", "gates"}
 # The device classes platform-parity.md (P6, P7) and native-ui-parity.md (UI10)
@@ -30,7 +30,7 @@ REQUIRED_CLASSES = {
     "guitar-di",
     "quad-cortex",
 }
-# The stages the roadmap (CLAUDE.md, formerly PLAN.md) lists as carrying physical gates.
+# The stages the roadmap (PLAN.md) lists as carrying physical gates.
 PHYSICAL_STAGES = {23, 39, 40, 41, 42, 43}
 
 
@@ -95,14 +95,14 @@ def test_every_referenced_gate_is_a_plan_item() -> None:
     for device in DEVICES:
         referenced |= set(device["gates"]) | set(device.get("blocked_by", []))
     unknown = sorted(referenced - items.keys())
-    assert not unknown, f"not roadmap (CLAUDE.md) item ids: {unknown}"
+    assert not unknown, f"not roadmap (PLAN.md) item ids: {unknown}"
 
 
 def test_physical_gates_sit_in_their_recorded_stage() -> None:
     items = _plan_items()
     for gate, stage in REGISTRY_DATA["physical_gates"].items():
         assert stage in PHYSICAL_STAGES, gate
-        assert items[gate] == stage, f"{gate}: CLAUDE.md lists it in Stage {items[gate]}, not {stage}"
+        assert items[gate] == stage, f"{gate}: PLAN.md lists it in Stage {items[gate]}, not {stage}"
 
 
 def test_every_physical_gate_maps_to_a_device() -> None:

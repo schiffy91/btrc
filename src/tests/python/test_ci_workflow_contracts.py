@@ -767,9 +767,9 @@ def test_scope_counts_every_markdown_file_a_test_or_tool_reads_as_code() -> None
         for name in literal.findall(path.read_text(encoding="utf-8"))
         if (REPO / name).is_file()
     }
-    assert {"CLAUDE.md", "AGENTS.md", "docs/design/platform-parity.md"} <= read
+    assert {"PLAN.md", "AGENTS.md", "docs/design/platform-parity.md"} <= read
     assert sorted(name for name in read if not test_read.search(name)) == []
-    for name in ("CLAUDE.md", "src/stdlib/GUI/README.md", "docs/design/compiler-structure.md"):
+    for name in ("PLAN.md", "src/stdlib/GUI/README.md", "docs/design/compiler-structure.md"):
         assert test_read.search(name), name
     for name in (
         "docs/design/ui0-catalog.md",
@@ -890,7 +890,7 @@ def _plan(tmp_path: Path, workflow: str, tier: str) -> dict[str, object]:
         ("push", "", (), {"tier": "extended"}, "extended"),
         ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "docs/qualification/notes.md"), {}, "docs"),
         ("pull_request", "stage30/notes", ("WORKSTREAMS.md",), {}, "docs"),
-        ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "CLAUDE.md"), {}, "lane"),
+        ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "PLAN.md"), {}, "lane"),
         ("pull_request", "codex/cx-stdlib-01", ("CODEX.md",), {}, "docs"),
         ("pull_request", "stage30/notes", ("src/stdlib/GUI/README.md",), {}, "pr"),
         (

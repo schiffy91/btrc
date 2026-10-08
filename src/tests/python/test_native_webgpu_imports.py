@@ -219,6 +219,7 @@ int main() {
 
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize("consumer", ["Main", "Portable"])
+@pytest.mark.macos_gui
 def test_native_gpu_child_renders_and_reads_pixels(
     native_project, native_compile, gui_provider_root, sanitize, consumer
 ):

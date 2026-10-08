@@ -12,6 +12,7 @@ from tools.native_plan import NativePlanBuilder
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.macos_gui
 def test_native_control_sizing(native_project, native_compile, sanitize):
     source, _, _ = native_project
     source.write_text((REPO / "src/tests/native/gui/NativeControlSizing.btrc").read_text())

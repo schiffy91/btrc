@@ -5,8 +5,16 @@ Read this ENTIRE file before writing any code.
 
 ## Second agent: Codex
 
+**2026-10-07 owner update:** PLAN.md D29 consolidates the queues and explicitly
+authorizes the current harmonization session to implement and integrate into
+main after review and gates. It overrides conflicting role/path restrictions
+below for this session only. Architecture and evidence requirements remain.
+Mac host capacity rules apply when working on the Mac; the container exemption
+below applies only in a cloud container.
+
+
 OpenAI Codex builds in this repository beside Claude under D27 as amended by
-D28 (CLAUDE.md). Codex's active queue is [CODEX.md](CODEX.md).
+D28 and D29 (PLAN.md). Both active queues are in [PLAN.md](PLAN.md).
 [`WORKSTREAMS.md`](WORKSTREAMS.md) §3 holds claims and protocol.
 
 - **Applies to Codex:** everything here about architecture, the pipeline,
@@ -34,7 +42,7 @@ D28 (CLAUDE.md). Codex's active queue is [CODEX.md](CODEX.md).
   - `Makefile`, `flake.nix`, `flake.lock`, `nix/*`, `src/tests/conftest.py`,
     `src/tests/runner_capabilities.py`, `tools/native_plan.py`,
     `tools/budget_bench.py`, `.github/workflows/**` (and `ci/proposed/`),
-    CLAUDE.md (and the PLAN.md pointer), and this file.
+    PLAN.md, its CLAUDE.md/CODEX.md entry points, and this file.
 - **Integrator-owned data** (`btrc.toml` exports and native rows,
   expected-skip manifests, denominators, Makefile lines, `ci/tiers.toml`)
   changes only in a final `fragment: <what>` commit, and regenerated outputs
@@ -47,11 +55,11 @@ D28 (CLAUDE.md). Codex's active queue is [CODEX.md](CODEX.md).
 
 This project is too large for a single context window. You WILL run out of memory.
 
-### Current state (2026-09-30)
+### Current roadmap and historical baseline
 
-Work happens directly on `main`. [`CLAUDE.md`](CLAUDE.md) is the sequential
-43-stage roadmap for everything that remains, with every decision resolved
-(it moved there from PLAN.md on 2026-10-06; PLAN.md is a pointer);
+The integrator lands reviewed work on `main`. [`PLAN.md`](PLAN.md) is the
+single roadmap and provider queue, consolidated on 2026-10-07. Its current
+status distinguishes integrated work, open reviews and missing qualification;
 the previous plan is frozen verbatim in `docs/design/plan-reference.md` and
 cited as `ref:N`. Never edit the frozen reference.
 
@@ -99,10 +107,17 @@ JSON.
 | --- | --- |
 | `make test` (8 xdist workers) | most of the machine; nothing heavy beside it |
 | `make bootstrap` (431k-line TU at `-O2`) | memory risk; runs alone |
-| podman `linux-ci` machine (`podman-machine-default`) | 24 GiB, 6 CPUs, 40 GB disk |
+| Dedicated podman `linux-ci` configuration (`podman-machine-default`) | 24 GiB, 6 CPUs, 40 GB disk |
 | Android emulator | about 4 GiB each |
 | iOS simulator | about 2–3 GiB each |
 | BTRSmith self-host compile at `--jobs 1` / cold dev aggregate | 3.0 / 4.8 GiB |
+
+The podman row describes the dedicated guest configuration in `flake.nix`,
+not the current shared guest. On 2026-10-07, the existing machine was verified
+as shared with SEMU: **8 CPUs, 28 GiB RAM, 180 GiB virtual disk**. Reuse it
+without recreating, resetting or resizing it to match the dedicated configuration.
+Apply the load rules to its actual resource allocation; see PLAN.md's host
+capacity record for the authorized cleanup and preserved recovery evidence.
 
 - **Gates** run from a clone outside Google Drive, one at a time, holding
   `~/.cache/btrc/locks/gate`. `make bootstrap` never runs beside the parallel

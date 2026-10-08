@@ -14,9 +14,11 @@ src/tests/fixtures/expected-skips/. `--skip-report` names the file.
 import contextlib
 import hashlib
 import inspect
+import json
 import os
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -61,6 +63,7 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     """Record every skip and capability gate in this session's skip report."""
     SkipLedger.install(config)
+    config.addinivalue_line("markers", "macos_gui: requires exclusive AppKit application execution on macOS")
 
 
 def _parse_compilers(raw: str) -> list[str]:
@@ -201,8 +204,8 @@ def _btrcc_fingerprint(compiler: list[str]) -> str:
 
 
 @contextlib.contextmanager
-def _exclusive(lock_path: Path):
-    """Serialize one build across xdist workers and concurrent runs."""
+def _exclusive(lock_path: Path, *, timeout: float | None = None, owner: str = ""):
+    """Serialize shared resources across workers; bounded leases identify their holder."""
 
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":  # pragma: no cover - POSIX advisory locks only
@@ -210,12 +213,50 @@ def _exclusive(lock_path: Path):
         return
     import fcntl
 
-    with lock_path.open("w") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    # Do not truncate before acquiring: waiting processes need the holder's
+    # diagnostic record. The file stays in place; the kernel owns the lease.
+    with lock_path.open("a+") as handle:
+        if timeout is None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        else:
+            deadline = time.monotonic() + timeout
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        handle.seek(0)
+                        holder = handle.read().strip() or "not yet recorded"
+                        raise TimeoutError(
+                            f"Timed out after {timeout:g}s waiting for {lock_path}; last recorded holder: {holder}"
+                        ) from None
+                    time.sleep(min(0.05, max(0, deadline - time.monotonic())))
         try:
+            if owner:
+                handle.seek(0)
+                handle.truncate()
+                json.dump({"pid": os.getpid(), "owner": owner}, handle)
+                handle.flush()
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@pytest.fixture(autouse=True)
+def _macos_gui_session(request):
+    """Only AppKit execution owns focus; ordinary workers remain parallel.
+
+    This checkout lease is distinct from the outer host gui-capture lease.
+    Keeping it in pytest's shared cache makes it common to xdist workers and
+    concurrent pytest processes, without inheriting or reacquiring host locks.
+    """
+    if sys.platform != "darwin" or request.node.get_closest_marker("macos_gui") is None:
+        yield
+        return
+    lock_path = request.config.cache.mkdir("macos-gui") / "execution.lock"
+    with _exclusive(lock_path, timeout=1800, owner=request.node.nodeid):
+        yield
 
 
 @pytest.fixture(scope="session")

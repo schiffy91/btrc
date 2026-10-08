@@ -12,6 +12,7 @@ from tools.native_plan import NativePlanBuilder
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.macos_gui
 def test_native_pointer_routing(native_project, native_compile, gui_provider_root, sanitize):
     source, _, _ = native_project
     root = source.parent.parent
