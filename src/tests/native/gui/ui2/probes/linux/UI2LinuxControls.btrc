@@ -17,6 +17,35 @@ class UI2LinuxScrollReceiver implements IScrollControlEventHandler {
 	public void scrollEvent(ScrollControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
 }
 
+class UI2LinuxReplacingScrollReceiver implements IScrollControlEventHandler {
+	public IScrollView view;
+	public CallbackScope scope = CallbackScope();
+	public CallbackScope replacement = CallbackScope();
+	public int calls = 0;
+	public bool rejectedWhileEntered = false;
+	public UI2LinuxReplacingScrollReceiver(IScrollView view) { self.view = view; }
+	public void scrollEvent(ScrollControlEvent event) {
+		self.calls++;
+		if (self.calls != 1) { return; }
+		assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING);
+		try { self.view.onOffsetChanged(self, self.replacement); }
+		catch (string error) { self.rejectedWhileEntered = true; }
+	}
+}
+
+class UI2LinuxRegistrationChecks {
+	class void enteredReplacement() {
+		var application = LinuxApplication(16); var window = application.createWindow("UI2 registration drain", 180.0, 100.0);
+		var scroll = application.createScrollView(); window.attachRoot(scroll); window.show(); UI2LinuxTextChecks.pump(application);
+		var receiver = UI2LinuxReplacingScrollReceiver(scroll); scroll.onOffsetChanged(receiver, receiver.scope);
+		scroll.setContentSize(400.0, 400.0); UI2LinuxTextChecks.pump(application);
+		assert(receiver.calls == 1 && receiver.rejectedWhileEntered && receiver.scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		scroll.onOffsetChanged(receiver, receiver.replacement); scroll.scrollTo(10.0); UI2LinuxTextChecks.pump(application); assert(receiver.calls == 2);
+		assert(receiver.replacement.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
 class UI2LinuxTextReceiver implements ITextControlEventHandler {
 	public Vector<TextControlEvent> events = [];
 	public void textEvent(TextControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
@@ -178,7 +207,7 @@ class UI2LinuxTextChecks {
 
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
-	UI2LinuxSelectionChecks.keyedSelection();
+	UI2LinuxRegistrationChecks.enteredReplacement(); UI2LinuxSelectionChecks.keyedSelection();
 	UI2LinuxTextChecks.textLifecycle(); UI2LinuxTextChecks.compositionCommitOrdering();
 	UI2LinuxTextChecks.refocusAfterEligibilityLoss();
 	UI2LinuxTextChecks.detachEditing(false, false); UI2LinuxTextChecks.detachEditing(true, false);
