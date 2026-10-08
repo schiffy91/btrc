@@ -138,6 +138,11 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	private bool _focused = false;
 	private bool _suspended = false;
 	private bool _closeRequested = false;
+	private ControlEventChannel<LinuxWindowCloseReceiver, IWindowCloseTransaction>? _closeChannel;
+	private LinuxWindowCloseRegistration? _closeRegistration;
+	private LinuxWindowCloseTransaction? _transaction;
+	private long long _nextCloseInteraction = 1LL;
+	private long long _nextSaveAttempt = 1LL;
 	private bool _closing = false;
 	private bool _closed = false;
 	private bool _rootClosing = false;
@@ -229,6 +234,77 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		self._stateChannel = channel; return channel;
 	}
 
+	public ICallbackRegistration onCloseRequested(IWindowCloseRequestHandler handler, CallbackScope owner) {
+		if (handler == null || owner == null) { throw "Window close handler and owner are required"; }
+		self.requireOpen(); self._context.requireMutationAllowed();
+		var previous = self._closeRegistration;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing close handler first"; }
+		var receiver = LinuxWindowCloseReceiver(self, handler);
+		var channel = new ControlEventChannel<LinuxWindowCloseReceiver, IWindowCloseTransaction>(self._host.events, self, receiver, LinuxWindowCloseReceiver.deliver, self._callbacks);
+		var registration = LinuxWindowCloseRegistration(self, channel);
+		try { owner.track(registration); self._callbacks.track(registration); }
+		catch (string error) { registration.cancel(); throw error; }
+		self._closeChannel = channel; self._closeRegistration = registration;
+		return registration;
+	}
+
+	public WindowCloseRequestOutcome requestClose(WindowCloseReason reason) {
+		self._context.requireUI(); self._context.requireMutationAllowed();
+		if (reason != WINDOW_CLOSE_NATIVE_REQUEST && reason != WINDOW_CLOSE_APPLICATION_QUIT && reason != WINDOW_CLOSE_PROGRAM_REQUEST) { throw "Invalid window close reason"; }
+		var result = WindowCloseRequestOutcome();
+		if (self._window == null) { result.kind = WINDOW_CLOSE_REQUEST_CLOSED; return result; }
+		if (self._closing || self._closed) { result.kind = WINDOW_CLOSE_REQUEST_CLOSING; return result; }
+		var pending = self._transaction;
+		if (pending != null && pending.pending()) { result.kind = WINDOW_CLOSE_REQUEST_ALREADY_PENDING; result.transaction = pending; return result; }
+		var channel = self._closeChannel; var registration = self._closeRegistration;
+		if (registration == null || !registration.isOpen() || channel == null || !channel.isOpen()) {
+			result.kind = WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER; self.close(); return result;
+		}
+		if (self._nextCloseInteraction == 9223372036854775807LL) { throw "Window close interaction identities exhausted"; }
+		var ticket = channel.beginInteraction();
+		if (ticket == null) { throw "Window close handler is no longer live"; }
+		var transaction = LinuxWindowCloseTransaction(self, self._context, false);
+		long long interaction = self._nextCloseInteraction++;
+		try { channel.publishTerminal(transaction, 1LL, interaction, ticket); }
+		catch (string error) { ticket.retire(); transaction.resolve(WINDOW_CLOSE_CANCELLED); throw error; }
+		/* requestTurn never services inline: publish identity only after the
+		 * terminal has a committed queue receipt. Failed admission leaves no pending request. */
+		self._transaction = transaction;
+		result.kind = WINDOW_CLOSE_REQUEST_PENDING; result.transaction = transaction; return result;
+	}
+
+	public bool isPendingClose(LinuxWindowCloseTransaction transaction) { self._context.requireUI(); return self._transaction == transaction && self.isOpen(); }
+
+	public long long nextCloseSaveAttempt() {
+		self._context.requireUI();
+		if (self._nextSaveAttempt == 9223372036854775807LL) { throw "Window save attempts exhausted"; }
+		return self._nextSaveAttempt++;
+	}
+
+	public void retireCloseTransaction(LinuxWindowCloseTransaction transaction) {
+		self._context.requireUI(); if (self._transaction == transaction) { self._transaction = null; }
+	}
+
+	public void consumeCloseAuthorization(LinuxWindowCloseTransaction transaction) {
+		self._context.requireUI();
+		if (!self.isPendingClose(transaction) || transaction.state() != WINDOW_CLOSE_AUTHORIZED) { throw "Window close authorization is stale"; }
+		transaction.resolve(WINDOW_CLOSE_CLOSING); self._transaction = null; self.close();
+	}
+
+	public void closeHandlerCancelled(LinuxWindowCloseRegistration registration) {
+		self._context.requireUI(); if (self._closeRegistration != registration) { return; }
+		var pending = self._transaction;
+		if (pending != null) {
+			if (self._closing || self._closed) { pending.resolve(WINDOW_CLOSE_OWNER_LOST); }
+			else { pending.resolve(WINDOW_CLOSE_CANCELLED); }
+			self._transaction = null;
+		}
+	}
+
+	public void enterCloseDecision() { self._context.enterCloseDecision(); }
+
+	public void leaveCloseDecision() { self._context.leaveCloseDecision(); }
+
 	public bool focusObserved() { return self._focusObserved; }
 
 	public void applicationActivity(ApplicationActivity activity) { self._activity = activity; self._suspended = activity == APPLICATION_ACTIVITY_SUSPENDED; self.refreshInteraction(); }
@@ -237,9 +313,24 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 
 	public SDL_Window* nativeWindow() { self.requireOpen(); return self._window; }
 
-	public int semanticPending() { return self._host.events.pendingCount(); }
+	public int semanticPending() { return self._host.events.pendingCount() + (self._closeRequested ? 1 : 0); }
 
-	public bool dispatchSemantic() { return self._host.events.dispatchOne(); }
+	public bool dispatchSemantic() {
+		self._context.requireUI();
+		if (self._context.mutationDepth > 0) { return false; }
+		bool requested = self.serviceNativeClose();
+		bool delivered = self._host.events.dispatchOne();
+		return requested || delivered;
+	}
+
+	/* Capture only records readiness. Transaction admission and user delivery
+	 * belong to the ordinary bounded semantic turn, never SDL dispatch. */
+	public bool serviceNativeClose() {
+		self._context.requireMutationAllowed();
+		if (!self._closeRequested) { return false; }
+		self._closeRequested = false;
+		self.requestClose(WINDOW_CLOSE_NATIVE_REQUEST); return true;
+	}
 
 	public void suspendInput(bool suspended) { self._suspended = suspended; self.refreshInteraction(); }
 
@@ -797,7 +888,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	public bool isFocused() { return self.isOpen() && self._focused; }
 
 	public void showAlert(string title, string message) {
-		self.requireOpen();
+		self.requireOpen(); self._context.requireNoCloseDecision();
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title, message, self._window);
 	}
 
@@ -811,10 +902,16 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	}
 
 	public CallbackCancellation close() {
+		self._context.requireUI();
 		if (self._context.mutationDepth > 0) { throw "Cannot close a window during native tree mutation"; }
 		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (!self._closing) { self._closing = true; self.refreshInteraction(); self._host.invalidation.mark(); }
+		if (!self._closing) {
+			self._closing = true; self._closeRequested = false;
+			var pending = self._transaction;
+			if (pending != null) { pending.resolve(WINDOW_CLOSE_OWNER_LOST); self._transaction = null; }
+			self.refreshInteraction(); self._host.invalidation.mark();
+		}
 		return self.pollClose();
 	}
 
@@ -879,4 +976,112 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	}
 
 	public void __del__() { if (self._window != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
+}
+
+class LinuxWindowCloseTransaction implements IWindowCloseTransaction {
+	private LinuxContext _context;
+	private LinuxWindow? _owner;
+	private WindowCloseState _state = WINDOW_CLOSE_AWAITING_DECISION;
+	private long long _revision = 0LL;
+	private bool _hasRevision = false;
+	private long long _attempt = 0LL;
+	private bool _coordinated;
+
+	public LinuxWindowCloseTransaction(LinuxWindow owner, LinuxContext context, bool coordinated) {
+		context.requireUI(); self._context = context; self._owner = owner; self._coordinated = coordinated;
+	}
+
+	private WindowCloseOutcome outcome(WindowCloseOutcomeKind kind) {
+		var result = WindowCloseOutcome(); result.kind = kind; result.state = self._state; result.attempt = self._attempt; return result;
+	}
+
+	public WindowCloseState state() { self._context.requireUI(); return self._state; }
+
+	public bool pending() { self._context.requireUI(); return self._state == WINDOW_CLOSE_AWAITING_DECISION || self._state == WINDOW_CLOSE_SAVING || self._state == WINDOW_CLOSE_AUTHORIZED; }
+
+	/* Cancellation seals the existing registration first; already admitted
+	 * callbacks may finish, but their later decisions cannot revive this owner. */
+	public void resolve(WindowCloseState state) {
+		self._context.requireUI();
+		if (!self.pending()) { return; }
+		if (state != WINDOW_CLOSE_CANCELLED && state != WINDOW_CLOSE_OWNER_LOST && state != WINDOW_CLOSE_CLOSING) { throw "Invalid close transaction retirement"; }
+		self._state = state; self._attempt = 0LL; self._owner = null;
+	}
+
+	private WindowCloseOutcome authorize(LinuxWindow owner) {
+		self._state = WINDOW_CLOSE_AUTHORIZED; self._attempt = 0LL;
+		if (!self._coordinated) { owner.consumeCloseAuthorization(self); }
+		return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+	}
+
+	public WindowCloseOutcome decide(WindowCloseDecision decision, long long documentRevision) {
+		self._context.requireUI();
+		var owner = self._owner;
+		if (owner == null || !self.pending() || !owner.isPendingClose(self)) { return self.outcome(WINDOW_CLOSE_OUTCOME_NOT_PENDING); }
+		if (self._hasRevision && documentRevision < self._revision) { return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_REVISION); }
+		if (decision != WINDOW_CLOSE_DECISION_SAVE && decision != WINDOW_CLOSE_DECISION_DISCARD && decision != WINDOW_CLOSE_DECISION_CANCEL) { throw "Invalid close decision"; }
+		if (self._state == WINDOW_CLOSE_AUTHORIZED) { throw "Close authorization is awaiting coordinated consumption"; }
+		if (decision == WINDOW_CLOSE_DECISION_CANCEL) {
+			self._revision = documentRevision; self._hasRevision = true; self.resolve(WINDOW_CLOSE_CANCELLED); owner.retireCloseTransaction(self);
+			return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+		}
+		if (self._state == WINDOW_CLOSE_SAVING) {
+			if (decision != WINDOW_CLOSE_DECISION_SAVE || documentRevision <= self._revision) { throw "Only a newer document revision may update an active save"; }
+			self._revision = documentRevision; self._hasRevision = true; return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+		}
+		if (decision == WINDOW_CLOSE_DECISION_DISCARD) { self._revision = documentRevision; self._hasRevision = true; return self.authorize(owner); }
+		/* Exhaustion fails before changing the transaction's revision/state. */
+		long long attempt = owner.nextCloseSaveAttempt();
+		self._revision = documentRevision; self._hasRevision = true; self._attempt = attempt; self._state = WINDOW_CLOSE_SAVING;
+		return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+	}
+
+	public WindowCloseOutcome completeSave(long long attempt, long long savedRevision, bool succeeded, string error) {
+		self._context.requireUI();
+		var owner = self._owner;
+		if (owner == null || !self.pending() || !owner.isPendingClose(self)) { return self.outcome(WINDOW_CLOSE_OUTCOME_NOT_PENDING); }
+		if (attempt <= 0LL || attempt != self._attempt) { return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT); }
+		if (self._state != WINDOW_CLOSE_SAVING) { throw "No matching save is active"; }
+		if (!succeeded) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED); }
+		if (!self._hasRevision || savedRevision > self._revision) { throw "Save completion revision was not acknowledged"; }
+		if (savedRevision < self._revision) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_REVISION); }
+		return self.authorize(owner);
+	}
+}
+
+/* This adaptor does not own a second callback gate. The semantic channel owns
+ * receiver entry and drain; cancellation additionally resolves the Window's
+ * pending transaction, including cancellation through either owning scope. */
+class LinuxWindowCloseRegistration implements ICallbackRegistration {
+	private LinuxWindow? _owner;
+	private ICallbackRegistration _channel;
+	public LinuxWindowCloseRegistration(LinuxWindow owner, ICallbackRegistration channel) { self._owner = owner; self._channel = channel; }
+
+	public bool isOpen() { return self._channel.isOpen(); }
+
+	public CallbackCancellation cancel() {
+		var owner = self._owner;
+		var result = self._channel.cancel();
+		if (owner != null) { owner.closeHandlerCancelled(self); }
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._owner = null; }
+		return result;
+	}
+
+	public CallbackCancellation pollCompletion() {
+		var result = self._channel.pollCompletion();
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._owner = null; }
+		return result;
+	}
+}
+
+class LinuxWindowCloseReceiver {
+	private LinuxWindow _owner;
+	private IWindowCloseRequestHandler _handler;
+	public LinuxWindowCloseReceiver(LinuxWindow owner, IWindowCloseRequestHandler handler) { self._owner = owner; self._handler = handler; }
+
+	class void deliver(LinuxWindowCloseReceiver receiver, IWindowCloseTransaction transaction) {
+		receiver._owner.enterCloseDecision();
+		try { receiver._handler.closeRequested(transaction); }
+		finally { receiver._owner.leaveCloseDecision(); }
+	}
 }

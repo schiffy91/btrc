@@ -458,7 +458,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			if (self._windowCursor >= self._windows.len) { self._windowCursor = 0; }
 			var window = self._windows.get(self._windowCursor++);
 			if (!window.isOpen()) { continue; }
-			if (window.closeRequested()) { window.close(); continue; }
+			if (window.closeRequested()) { window.serviceNativeClose(); if (!window.isOpen()) { continue; } }
 			if (!window.pollDevice()) { continue; }
 			if (window.needsFrame()) { window.render(false); }
 		}

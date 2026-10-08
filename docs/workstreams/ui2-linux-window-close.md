@@ -23,3 +23,45 @@ behavior, not Linux evidence. Native SDL baseline and paired/sanitized acceptanc
 must execute on a real Linux runner before any passing implementation claim.
 Source preparation waits for the allocated native/guest lane; hosted waves are
 currently occupied. No VM, compiler, native program or test has run for this packet.
+
+## Source checkpoints and pending acceptance
+
+Claim335f0f43 precedes fixture-only a058e53f. Independent source review found
+no blocker in that fixture. Its real SDL close event must reach the ordinary
+window dispatcher; delivery must remain queued. The original assertions cover
+independent windows, repeated identity, stale revision/attempt rejection,
+failed-save retry, cancellation preserving root/text, terminal reservation
+under ordinary queue pressure, entered-callback close drain, rejected scope
+admission and a shared cross-window modal guard. Native quit grouping is not
+covered by this component.
+
+The production draft reuses the existing LinuxWindow, LinuxContext,
+ControlEventQueue and CallbackScope owners. A native close flag counts as
+pending semantic work; its service admits a reserved terminal record, and the
+application no longer bypasses that decision by force-closing the window in
+its render phase. Forced close resolves an existing transaction OWNER_LOST.
+The receiver's finally-only cleanup balances the shared modal guard on both
+normal and throwing callbacks under the language's existing exception rules.
+
+Static preparation at 2026-10-08 11:19 UTC: canonical BTRC formatter, Ruff on
+the changed driver and git diff --check passed. No compiler projection, C
+compilation, test process or SDL execution has run. Source-only work proceeded
+while the serialized native lane and hosted waves belonged to other packets.
+
+The next Linux acceptance must execute a058e53f as the baseline, retain its
+actual failure, then use the repaired source with identical fixture, current authenticated
+compiler and Linux SDK/image. Run the dedicated driver with
+`-k UI2LinuxWindowClose` through the existing headless session, both frontends
+and both plain/sanitized rows. Preserve generated C, native plans, stdout,
+stderr, exact test identity/count, source/tool hashes and process closure.
+Do not count a skip as native acceptance. The integrator must compose the
+current Linux GUI lease/known-driver admission before the normal full GUI gate;
+this source base predates that separately qualified coordination packet.
+
+Independent bounded production source review found no blocker in the four-file
+Window/context/application/modal-routing delta. Compilation and native acceptance
+remain pending. Qualification composition also needs the inherited text slice's
+`SDL_ClearComposition` binding: existing LinuxTextField.btrc calls it, but this
+base's SDL symbol list does not expose it. Keep that exact native dependency in
+both baseline and candidate composition; do not remove the retained-draft oracle.
+The manifest remains integrator-owned and untouched by this implementation.

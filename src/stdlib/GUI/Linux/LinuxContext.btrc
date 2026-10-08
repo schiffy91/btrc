@@ -119,6 +119,28 @@ class LinuxSemanticWake implements IControlEventWake {
  * retains no view. */
 class LinuxContext {
 	public int mutationDepth = 0;
+	private int _closeDecisions = 0;
+
+	public void requireUI() { if (!SDL_IsMainThread()) { throw "Native window operations require the UI thread"; } }
+
+	public void requireMutationAllowed() { self.requireUI(); if (self.mutationDepth > 0) { throw "Cannot admit window close during native tree mutation"; } }
+
+	public void enterCloseDecision() {
+		self.requireUI();
+		if (self._closeDecisions == 2147483647) { throw "Close decision callback admission is exhausted"; }
+		self._closeDecisions++;
+	}
+
+	public void leaveCloseDecision() {
+		self.requireUI();
+		if (self._closeDecisions <= 0) { throw "Close decision callback admission underflow"; }
+		self._closeDecisions--;
+	}
+
+	public void requireNoCloseDecision() {
+		self.requireUI();
+		if (self._closeDecisions != 0) { throw "Nested modal operations are forbidden inside close-decision callbacks"; }
+	}
 	public LinuxFonts fonts;
 	public ControlEventTerminalPool terminalPool;
 	public ControlEventQueue detachedEvents;
