@@ -33,3 +33,20 @@ replacement layout implementation. Check the offset immediately after layout
 Native runs/builds/guests are not authorized yet: parent owns qualification
 scheduling. Historical combined `0f6f3448` source is unavailable; its old passing
 counts are not evidence for this reconstruction. Source/format checks only.
+
+### Fixture-only checkpoint
+
+Both native fixtures use the real factory-created Grid/Stack/ScrollView and
+four opaque 100-point color bands in a 400-point document. Initial height 80
+and offset 320 show yellow; enlargement to 180 must clamp to 220 and show blue;
+repeating that layout must be stable; enlargement to 440 removes overflow and
+shows red; shrinking to 80 preserves offset zero, and scrolling to the end again
+shows yellow. Each checks `scrollOffset`, node height and content translation
+before capture, actual GPU pixels after capture, retained child identity and
+completed subtree shutdown. Both Stack orientations contain the same real Grid,
+so virtual dispatch is tested through two production layout owners.
+
+The normal driver is `test_native_ui_layout_resize.py`: grid/row/column ×
+Python/selfhost × plain/ASan+UBSan = 12 native rows. Reader/platform/display
+guards precede expensive fixtures. Fixture-only source is not an executed red
+result. Native/guest/build execution remains unstarted.
