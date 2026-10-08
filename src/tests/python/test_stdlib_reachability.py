@@ -185,3 +185,31 @@ class Leaf extends Middle { public Leaf() {} }
     assert ("method", "node") in selected and ("method", "middle") in selected
     assert ("method", "unusedRoot") not in selected
     assert ("method", "node") not in reach.selected_callables(named["Leaf"], None)
+
+
+def test_interface_ancestors_reach_inherited_signature_types_without_retaining_unrelated_types() -> None:
+    stdlib = Parser(
+        Lexer(
+            """
+interface Returned { int value(); }
+interface Argument { int argument(); }
+interface Parent { Returned make(Argument value); }
+interface Middle extends Parent {}
+interface Leaf extends Middle { int tag(); }
+interface Orphan { int unused(); }
+""",
+            "<stdlib>",
+        ).tokenize()
+    ).parse()
+    for declaration in stdlib.declarations:
+        declaration.source_file = CompilerStdlibSource("<stdlib>")
+    user = Parser(Lexer("int use(Leaf source) { return source.tag(); }", "<user>").tokenize()).parse()
+    declarations = stdlib.declarations + user.declarations
+    named = _by_name(declarations)
+    reach = StdlibReachability(declarations)
+    assert reach.reaches(named["Leaf"])
+    assert reach.reaches(named["Middle"])
+    assert reach.reaches(named["Parent"])
+    assert reach.reaches(named["Returned"])
+    assert reach.reaches(named["Argument"])
+    assert not reach.reaches(named["Orphan"])
