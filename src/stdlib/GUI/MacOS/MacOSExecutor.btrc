@@ -1,0 +1,226 @@
+import Library.Callback;
+import Library.Console;
+import Library.Math;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+/* UI-only admitted work. The queue retains this record while a receiver is
+ * entered, so a callback cannot evade capacity by posting its replacement. */
+class MacOSScheduledWork implements ICallbackRegistration {
+	public unsigned long long deadline;
+	public long long sequence;
+	public long long key;
+	public WorkSuspensionPolicy policy;
+	private CallbackContext<IApplicationWork, MacOSScheduledWork> _callback;
+	private MacOSRunLoopSignal _signal;
+	private bool _cancelled = false;
+	private bool _executing = false;
+	private ControlEventDisposition _disposition = CONTROL_EVENT_CANCELLED;
+
+	public MacOSScheduledWork(IApplicationWork work, CallbackScope owner, MacOSRunLoopSignal signal, unsigned long long deadline, long long sequence, WorkSuspensionPolicy policy, long long key) {
+		self._signal = signal; self.deadline = deadline; self.sequence = sequence; self.policy = policy; self.key = key;
+		self._callback = new CallbackContext<IApplicationWork, MacOSScheduledWork>(work, MacOSScheduledWork.unregister);
+		self._callback.activate(owner);
+		self._callback.publish(self);
+	}
+
+	class bool unregister(MacOSScheduledWork work) { work._cancelled = true; work._signal.tryWake(); return true; }
+
+	public bool isOpen() { return !self._cancelled && self._callback.isOpen(); }
+
+	public bool executing() { return self._executing; }
+
+	public ControlEventDisposition disposition() { return self._disposition; }
+
+	public CallbackCancellation cancel() { return self._callback.cancel(); }
+
+	public CallbackCancellation pollCompletion() { return self._callback.pollCompletion(); }
+
+	public void retireAs(ControlEventDisposition disposition) {
+		if (self._executing) { self.cancel(); return; }
+		self._disposition = disposition;
+		self.cancel();
+	}
+
+	public void invoke() {
+		var receiver = self._callback.enter();
+		if (receiver == null) { return; }
+		self._executing = true;
+		self._disposition = CONTROL_EVENT_FAILED;
+		try { receiver.run(); self._disposition = CONTROL_EVENT_DELIVERED; }
+		finally {
+			self._executing = false;
+			self._callback.leave();
+			self._callback.cancel();
+			self._callback.pollCompletion();
+		}
+	}
+}
+
+/* Immediate work and future timers share one admission budget. A round takes
+ * a sequence watermark; work posted from a handler is never part of that
+ * round. The executor checks its time/count budgets before serviceOne. */
+class MacOSWorkQueue {
+	private int _capacity;
+	private bool _open = true;
+	private bool _suspended = false;
+	private bool _dispatching = false;
+	private bool _failed = false;
+	private long long _sequence = 0LL;
+	private CallbackScope _scope = CallbackScope();
+	private MacOSRunLoopSignal _signal;
+	private Vector<MacOSScheduledWork> _entries = [];
+	private Vector<long long> _retired = [];
+
+	public MacOSWorkQueue(int capacity, MacOSRunLoopSignal signal) {
+		self.requireUI();
+		if (capacity <= 0 || capacity > 65536 || signal == null) { throw "Invalid application work queue capacity"; }
+		self._capacity = capacity; self._signal = signal;
+		for (int index = 0; index < 7; index++) { self._retired.push(0LL); }
+	}
+
+	private void requireUI() { if (!NSThread.isMainThread()) { throw "Native application work requires the main thread"; } }
+
+	private void countRetired(ControlEventDisposition disposition) {
+		long long count = self._retired.get((int)disposition);
+		if (count == 9223372036854775807LL) { throw "Application work receipt counters exhausted"; }
+		self._retired.set((int)disposition, count + 1LL);
+	}
+
+	private void prune() {
+		for (int index = self._entries.len - 1; index >= 0; index--) {
+			var entry = self._entries.get(index);
+			if (!entry.isOpen() && !entry.executing() && entry.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) {
+				self._entries.remove(index); self.countRetired(entry.disposition());
+			}
+		}
+		self._scope.pollCompletion();
+	}
+
+	public long long retired(ControlEventDisposition disposition) { self.requireUI(); self.prune(); return self._retired.get((int)disposition); }
+
+	public bool failed() { self.requireUI(); return self._failed; }
+
+	public int pendingCount() { self.requireUI(); self.prune(); return self._entries.len; }
+
+	public long long beginRound() { self.requireUI(); self.prune(); return self._sequence; }
+
+	private unsigned long long deadline(double delaySeconds) {
+		if (!Math.isFinite(delaySeconds) || delaySeconds < 0.0) { throw "Application work requires a finite nonnegative delay"; }
+		unsigned long long now = MacOSRunLoopSignal.monotonicNowNs();
+		if (delaySeconds >= (double)(18446744073709551615ULL - now) / 1000000000.0) { throw "Application work deadline is not representable"; }
+		return now + (unsigned long long)(delaySeconds * 1000000000.0);
+	}
+
+	private void wake() {
+		if (self._signal.tryWake()) { return; }
+		/* Admission already committed. Never turn this into a rejection that
+		 * invites duplicate resubmission; retain failed receipt accounting. */
+		self._failed = true; self._open = false;
+		for entry in self._entries { if (entry.isOpen()) { entry.retireAs(CONTROL_EVENT_FAILED); } }
+		self.prune();
+	}
+
+	public ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) {
+		self.requireUI();
+		if (work == null || policy < WORK_SUSPENSION_CANCEL || policy > WORK_SUSPENSION_REPLACE || replacementKey < 0LL || (policy == WORK_SUSPENSION_REPLACE && replacementKey == 0LL)) { throw "Invalid scheduled application work"; }
+		unsigned long long due = self.deadline(delaySeconds);
+		var result = ScheduleOutcome();
+		result.registration = null;
+		if (!self._open) { result.kind = SCHEDULE_CLOSED; return result; }
+		if (self._suspended && policy == WORK_SUSPENSION_CANCEL) { result.kind = SCHEDULE_CANCELLED; return result; }
+		self.prune();
+		int replacement = -1;
+		if (replacementKey > 0LL) {
+			for (int index = self._entries.len - 1; index >= 0; index--) {
+				var previous = self._entries.get(index);
+				if (previous.key == 0LL || previous.executing()) { break; }
+				if (previous.key == replacementKey) { replacement = index; break; }
+			}
+		}
+		if (replacement < 0 && self._entries.len == self._capacity) { result.kind = SCHEDULE_FULL; return result; }
+		if (self._sequence == 9223372036854775807LL) { throw "Application work identities exhausted"; }
+		var entry = MacOSScheduledWork(work, self._scope, self._signal, due, self._sequence + 1LL, policy, replacementKey);
+		self._sequence++;
+		if (replacement >= 0) {
+			var previous = self._entries.get(replacement);
+			previous.retireAs(CONTROL_EVENT_SUPERSEDED);
+			if (previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { entry.cancel(); throw "Queued replacement unexpectedly has an entered receiver"; }
+			self.countRetired(previous.disposition());
+			self._entries.set(replacement, entry);
+			result.kind = SCHEDULE_REPLACED;
+		} else { self._entries.push(entry); result.kind = SCHEDULE_ACCEPTED; }
+		result.registration = entry;
+		self.wake();
+		return result;
+	}
+
+	public void post(IApplicationWork work) {
+		var result = self.schedule(work, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+		if (result.kind == SCHEDULE_FULL) { throw "Application work capacity exceeded"; }
+		if (result.kind != SCHEDULE_ACCEPTED) { throw "Application shutdown has started"; }
+	}
+
+	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
+		var result = self.schedule(work, delaySeconds, WORK_SUSPENSION_DEFER, 0LL);
+		if (result.kind == SCHEDULE_FULL) { throw "Application work capacity exceeded"; }
+		if (result.kind != SCHEDULE_ACCEPTED || result.registration == null) { throw "Application shutdown has started"; }
+		return result.registration;
+	}
+
+	public void suspend(bool suspended) {
+		self.requireUI();
+		if (self._suspended == suspended) { return; }
+		self._suspended = suspended;
+		if (suspended) {
+			for entry in self._entries { if (entry.policy == WORK_SUSPENSION_CANCEL && entry.isOpen()) { entry.cancel(); } }
+			self.prune();
+		} else if (self._open) { self.wake(); }
+	}
+
+	/* Zero disarms the host timer. Suspended/future work retains its original
+	 * deadline; overdue work becomes runnable once after resume. */
+	public unsigned long long nextDeadline() {
+		self.requireUI(); self.prune();
+		if (!self._open || self._suspended) { return 0ULL; }
+		unsigned long long next = 0ULL;
+		for entry in self._entries {
+			if (entry.isOpen() && !entry.executing() && (next == 0ULL || entry.deadline < next)) { next = entry.deadline; }
+		}
+		return next;
+	}
+
+	public bool serviceOne(long long round) {
+		self.requireUI();
+		if (self._dispatching) { throw "Application work cannot re-enter its scheduling round"; }
+		if (self._failed) { throw "Application work native wake failed"; }
+		self.prune();
+		if (!self._open || self._suspended) { return false; }
+		unsigned long long now = MacOSRunLoopSignal.monotonicNowNs();
+		for entry in self._entries {
+			if (!entry.isOpen() || entry.sequence > round || entry.deadline > now) { continue; }
+			self._dispatching = true;
+			try { entry.invoke(); }
+			finally { self._dispatching = false; self.prune(); }
+			return true;
+		}
+		return false;
+	}
+
+	public CallbackCancellation cancel() {
+		self.requireUI(); self._open = false;
+		for entry in self._entries { if (entry.isOpen()) { entry.retireAs(CONTROL_EVENT_CLOSED); } }
+		return self.pollCompletion();
+	}
+
+	public CallbackCancellation pollCompletion() {
+		self.requireUI();
+		if (self._open) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		self.prune();
+		return self._entries.isEmpty() && !self._dispatching ? CALLBACK_CANCELLATION_COMPLETE : CALLBACK_CANCELLATION_PENDING;
+	}
+
+	public void __del__() { if (self.cancel() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Application work queue destroyed before receiver drain"); } }
+}

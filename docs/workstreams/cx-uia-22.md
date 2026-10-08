@@ -155,3 +155,22 @@ replacement retires one superseded receipt. This fixture-only checkpoint precede
 MacOSExecutor.btrc. Its native compilation/execution remains pending; the new
 internal owner is absent at baseline. It supplements, rather than replaces, the
 required public IApplication host and real-loop acceptance journeys.
+
+## Scheduled-work source checkpoint (unqualified)
+
+MacOSExecutor.btrc now contains MacOSWorkQueue and its scoped admitted-work
+record. Immediate and delayed calls share the same capacity while queued,
+executing or suspended. Cancellation releases the receiver through CallbackContext
+and wakes the native source to reconsider the deadline. Each scheduling round
+uses an admission-sequence watermark, so a self-posted call waits for another
+round. Replacement stops at ordered/executing barriers; cancel/defer/replace
+suspension behavior and bounded receipt-disposition counters are explicit.
+Cancellation during an entered receiver stays PENDING until return. The queue
+never closes its shared native signal or enters a loop.
+
+This is scheduler storage/admission code, not the complete fair executor: native
+turn count/time budgets, publisher rotation, host attachment, application/window
+cleanup and public MacOSApplication wiring remain to implement. The new owner
+also needs its own native NSThread binding row in the final fragment. Canonical
+formatting parsed it; native projection, generic/semantic compilation and actual
+WorkQueue fixture execution remain pending.
