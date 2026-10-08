@@ -631,8 +631,8 @@ _METHOD_INSTANCE_ORDER_PROGRAM = {
 
 float total() {
     Converter converter = new Converter();
-    int whole = converter.identity<int>(2);
-    float part = converter.identity<float>(0.5);
+    int whole = converter.identity(2);
+    float part = converter.identity(0.5);
     return whole + part;
 }
 """,
@@ -652,13 +652,15 @@ float total() {
         ),
         pytest.param(
             _METHOD_INSTANCE_ORDER_PROGRAM,
-            "int whole = converter.identity<int>(2);",
-            "float part = converter.identity<float>(0.5);",
+            "int whole = converter.identity(2);",
+            "float part = converter.identity(0.5);",
             id="method",
         ),
     ],
 )
-def test_swapping_instance_uses_keeps_the_template_unit_exact(compiler: str, debug, files, first, second, tmp_path, request):
+def test_swapping_instance_uses_keeps_the_template_unit_exact(
+    compiler: str, debug, files, first, second, tmp_path, request
+):
     """G12/SB-29: discovery order changes only Use, never the template unit."""
     # Preserve line count and indentation so debug output in Lib cannot move.
     original = files["Use.btrc"]
