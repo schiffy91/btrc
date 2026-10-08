@@ -1,4 +1,5 @@
 import Library.GUI.ControlEventQueue;
+import Library.GUI.ControlEvents;
 import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.IView;
 import Library.Callback;
@@ -7,18 +8,49 @@ import Library.GUI.ITextField;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
 
+/* The generated stored callback owns entry/cancellation. This receiver only
+ * forwards native capture; application receivers run through the semantic queue. */
+class MacOSTextEvents implements IAppKitTextEvents {
+	private MacOSTextField _owner;
+	public MacOSTextEvents(MacOSTextField owner) { self._owner = owner; }
+
+	public bool shouldBegin() { return self._owner.nativeBegin(); }
+
+	public void changed() { self._owner.nativeChanged(); }
+
+	public void ended() { self._owner.nativeEnded(); }
+
+	public bool command(int kind) { return self._owner.nativeCommand(kind); }
+}
+
 /* Main-thread owner of an actual AppKit text field, not a painted imitation.
  * MacOSView owns attachment, input and teardown; this owner adds editing and
  * ends any active field-editor session before the view closes. AppKit owns
  * selection, IME and field editing. */
 class MacOSTextField implements ITextField, IMacOSView {
-	private NSTextField? _control;
+	private BTRCMacOSTextField? _control;
 	private MacOSView _view;
+	private CallbackScope _native = CallbackScope();
+	private bool _closing = false;
+	private int _changing = 0;
+	private string _acceptedText;
+	private string _draftText;
+	private bool _interacting = false;
+	private long long _interaction = 0LL;
+	private long long _sequence = 0LL;
+	private long long _modelRevision = 1LL;
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _draft;
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _commit;
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _cancel;
+	private ControlEventTicket? _commitTicket;
+	private ControlEventTicket? _cancelTicket;
 
 	public MacOSTextField(string text = "", string placeholder = "", MacOSControlContext? context = null) {
 		self._control = null;
 		self.requireMainThread();
-		var control = NSTextField.textFieldWithString(AppKitText.nativeValue(text));
+		if (text == null || placeholder == null) { throw "Native text field text is missing"; }
+		self._acceptedText = text; self._draftText = text;
+		var control = BTRCMacOSTextField.fieldWithText(AppKitText.nativeValue(text));
 		if (control == null) { throw "Cannot create native text field"; }
 		self._control = control;
 		self._view = MacOSView(control, context);
@@ -26,20 +58,24 @@ class MacOSTextField implements ITextField, IMacOSView {
 		 * control heights buttons use, so mixed toolbars align without padding hacks. */
 		control.setBezelStyle(NSTextFieldRoundedBezel);
 		self.setPlaceholder(placeholder);
+		try { control.setSemanticEvents(MacOSTextEvents(self), self._native); }
+		catch (string error) { self._native.cancel(); self._view.close(); self._control = null; throw error; }
 	}
 
 	private void requireMainThread() {
 		if (!NSThread.isMainThread()) { throw "AppKit text fields require the main thread"; }
 	}
 
-	public NSTextField nativeControl() {
+	private BTRCMacOSTextField nativeField() {
 		self.requireMainThread();
 		var control = self._control;
-		if (control == null || !self._view.isOpen()) { throw "Text field is closed"; }
+		if (control == null || self._closing || !self._view.isOpen()) { throw "Text field is closed"; }
 		return control;
 	}
 
-	public bool isOpen() { self.requireMainThread(); return self._control != null && self._view.isOpen(); }
+	public NSTextField nativeControl() { return self.nativeField(); }
+
+	public bool isOpen() { self.requireMainThread(); return self._control != null && !self._closing && self._view.isOpen(); }
 
 	public NSView nativeView() { return self.nativeControl(); }
 
@@ -47,7 +83,12 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public void reconcileAttachment(NSView? parent) { self.nativeControl(); self._view.reconcileAttachment(parent); }
 
-	public void detachFrom(NSView parent) { self.nativeControl(); self._view.detachFrom(parent); }
+	public void detachFrom(NSView parent) {
+		var control = self.nativeControl();
+		if (control.superview() != parent) { throw "View does not belong to this native parent"; }
+		self.markInteraction(false, WINDOW_EXPOSURE_UNKNOWN, null); self.settleInteraction();
+		self._view.detachFrom(parent);
+	}
 
 	public double fittingWidth() { self.nativeControl(); return self._view.fittingWidth(); }
 
@@ -57,7 +98,10 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
 
-	public void settleInteraction() { self._view.settleInteraction(); }
+	public void settleInteraction() {
+		if (!self.interactionOwner().interactionState().effectiveEligible) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS, false); }
+		self._view.settleInteraction();
+	}
 
 	public void publishInteraction() { self._view.publishInteraction(); }
 
@@ -73,27 +117,38 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
 
-	public void setVisible(bool visible) { self.nativeControl(); self._view.setVisible(visible); }
+	public void setVisible(bool visible) {
+		self.nativeControl();
+		if (!visible && self._view.isVisible()) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS, false); }
+		self._view.setVisible(visible);
+	}
 
 	public void arrange(double x, double y, double width, double height) { self.nativeControl(); self._view.arrange(x, y, width, height); }
 
-	public string text() {
-		var control = self.nativeControl();
-		control.validateEditing();
-		return AppKitText.ownedValue(control.stringValue());
-	}
+	public string text() { return AppKitText.ownedValue(self.nativeField().liveText()); }
 
 	/* Re-publishing unchanged application state must not reset selection or
 	 * the active input-method composition. */
 	public void setText(string text) {
-		var control = self.nativeControl();
-		if (self.text().equals(text)) { return; }
-		control.setStringValue(AppKitText.nativeValue(text));
+		var control = self.nativeField();
+		if (text == null) { throw "Native text field text is missing"; }
+		if (self._acceptedText.equals(text)) { return; }
+		if (self._modelRevision == 9223372036854775807LL) { throw "Text model revisions exhausted"; }
+		self.cancelInteraction(CONTROL_ORIGIN_MODEL, CONTROL_CANCEL_MODEL_REPLACEMENT, false);
+		self._changing++;
+		try { control.replaceText(AppKitText.nativeValue(text)); }
+		finally { self._changing--; }
+		self._acceptedText = text; self._draftText = text; self._modelRevision++;
 	}
 
 	public void setPlaceholder(string text) { self.nativeControl().setPlaceholderString(AppKitText.nativeValue(text)); }
 
-	public void setEnabled(bool enabled) { var control = self.nativeControl(); control.setEnabled(enabled); self._view.localEnabledChanged(control.isEnabled()); }
+	public void setEnabled(bool enabled) {
+		var control = self.nativeControl();
+		if (control.isEnabled() == enabled) { return; }
+		if (!enabled) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS, false); }
+		control.setEnabled(enabled); self._view.localEnabledChanged(control.isEnabled());
+	}
 
 	public void setFont(double size) {
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native text field font size"; }
@@ -104,8 +159,158 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public bool isEnabled() { return self.nativeControl().isEnabled(); }
 
+	class void deliverText(ITextControlEventHandler receiver, TextControlEvent event) { receiver.textEvent(event); }
+
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent> subscribe(ITextControlEventHandler receiver, CallbackScope owner) {
+		self.nativeControl(); var state = self.interactionOwner();
+		var channel = new ControlEventChannel<ITextControlEventHandler, TextControlEvent>(state.events(), state, receiver, MacOSTextField.deliverText, owner);
+		try { state.own(channel); } catch (string error) { channel.cancel(); throw error; }
+		return channel;
+	}
+
+	public ICallbackRegistration onDraftChanged(ITextControlEventHandler receiver, CallbackScope owner) {
+		if (self._draft != null && self._draft.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing draft handler first"; }
+		var channel = self.subscribe(receiver, owner); self._draft = channel; return channel;
+	}
+
+	public ICallbackRegistration onCommit(ITextControlEventHandler receiver, CallbackScope owner) {
+		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing commit handler first"; }
+		var channel = self.subscribe(receiver, owner);
+		if (self._interacting) { self._commitTicket = channel.beginInteraction(); }
+		self._commit = channel; return channel;
+	}
+
+	public ICallbackRegistration onCancel(ITextControlEventHandler receiver, CallbackScope owner) {
+		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing cancel handler first"; }
+		var channel = self.subscribe(receiver, owner);
+		if (self._interacting) { self._cancelTicket = channel.beginInteraction(); }
+		self._cancel = channel; return channel;
+	}
+
+	private void releaseTickets() {
+		if (self._commitTicket != null && !self._commitTicket.queued()) { self._commitTicket.retire(); }
+		if (self._cancelTicket != null && !self._cancelTicket.queued()) { self._cancelTicket.retire(); }
+		self._commitTicket = null; self._cancelTicket = null;
+	}
+
+	private void beginInteraction() {
+		if (self._interacting) { return; }
+		if (self._interaction == 9223372036854775807LL) { throw "Text interaction identities exhausted"; }
+		try {
+			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); if (self._commitTicket == null) { throw "Text commit reservation unavailable"; } }
+			if (self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Text cancel reservation unavailable"; } }
+		} catch (string error) { self.releaseTickets(); throw error; }
+		self._interaction++; self._interacting = true;
+	}
+
+	private TextControlEvent snapshot(ControlPhase phase, ControlOrigin origin, ControlCancelReason reason, string text, bool composing) {
+		if (self._sequence == 9223372036854775807LL) { throw "Text event sequences exhausted"; }
+		var context = ControlEventContext(); context.generation = self.interactionOwner().generation(); context.interaction = self._interaction;
+		context.sequence = ++self._sequence; context.modelRevision = self._modelRevision; context.origin = origin;
+		var event = TextControlEvent(); event.context = context; event.phase = phase; event.cancelReason = reason;
+		event.text = text; event.composing = composing; return event;
+	}
+
+	private void publishDraft() {
+		var field = self.nativeField(); var text = AppKitText.ownedValue(field.liveText()); bool composing = field.composing();
+		if (!composing) { self._draftText = text; }
+		var channel = self._draft;
+		if (channel != null && channel.isOpen()) {
+			var event = self.snapshot(CONTROL_PHASE_DRAFT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE, text, composing);
+			if (!channel.publish(event, event.context.generation, self._interaction, 1LL)) { throw "Text draft semantic queue cannot admit native input"; }
+		}
+	}
+
+	private void commitInteraction() {
+		if (!self._interacting) { return; }
+		var field = self.nativeField();
+		if (field.composing()) { return; }
+		var text = AppKitText.ownedValue(field.liveText()); self._draftText = text;
+		self._interacting = false;
+		try {
+			if (!text.equals(self._acceptedText)) {
+				var event = self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE, text, false);
+				self._acceptedText = text;
+				var channel = self._commit; var ticket = self._commitTicket;
+				if (channel != null && channel.isOpen() && ticket != null) { channel.publishTerminal(event, event.context.generation, self._interaction, ticket); }
+			}
+		} finally { self.releaseTickets(); }
+	}
+
+	private void cancelInteraction(ControlOrigin origin, ControlCancelReason reason, bool restore) {
+		if (!self._interacting) { return; }
+		var field = self.nativeField();
+		if (!field.composing()) { self._draftText = AppKitText.ownedValue(field.liveText()); }
+		if (restore) { self._draftText = self._acceptedText; }
+		self._interacting = false;
+		self._changing++;
+		try {
+			/* Changed-model and lifecycle settlement establish an explicit native
+			 * editing boundary. The unchanged setter never reaches this path. */
+			field.replaceText(AppKitText.nativeValue(self._draftText));
+			var channel = self._cancel; var ticket = self._cancelTicket;
+			if (channel != null && channel.isOpen() && ticket != null) {
+				var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason, self._draftText, false);
+				channel.publishTerminal(event, event.context.generation, self._interaction, ticket);
+			}
+		} finally { self._changing--; self.releaseTickets(); }
+	}
+
+	/* Every foreign entry contains capture failures. A rejected native begin
+	 * precedes editing; terminal capacity is never acquired per keystroke. */
+	public bool nativeBegin() {
+		bool accepted = false;
+		try {
+			if (self.isOpen() && self._changing == 0 && self.interactionOwner().context().admitNativeInput() && self.interactionOwner().interactionState().effectiveEligible) {
+				self.beginInteraction(); self._draftText = self.text(); accepted = true;
+			}
+		} catch (string error) { self.interactionOwner().context().recordNativeFailure(error); }
+		return accepted;
+	}
+
+	public void nativeChanged() {
+		try {
+			if (self.isOpen() && self._changing == 0) {
+				if (!self.interactionOwner().context().admitNativeInput() || !self.interactionOwner().interactionState().effectiveEligible) { throw "Text input entered an ineligible native owner"; }
+				if (!self._interacting) { throw "Native text changed without an admitted edit interaction"; }
+				self.publishDraft();
+			}
+		} catch (string error) { self.interactionOwner().context().recordNativeFailure(error); }
+	}
+
+	public void nativeEnded() {
+		try { if (self.isOpen() && self._changing == 0) { self.commitInteraction(); } }
+		catch (string error) { self.interactionOwner().context().recordNativeFailure(error); }
+	}
+
+	public bool nativeCommand(int kind) {
+		bool consumed = false;
+		try {
+			if (self.isOpen() && self._changing == 0) {
+				if (!self.interactionOwner().context().admitNativeInput() || !self.interactionOwner().interactionState().effectiveEligible) { consumed = true; }
+				else {
+					var field = self.nativeField();
+					if (kind == 1 && !field.composing()) { self.beginInteraction(); self.commitInteraction(); }
+					else if (kind == 2) {
+						if (field.composing()) {
+							self._changing++;
+							try { field.discardCompositionKeepingText(AppKitText.nativeValue(self._draftText)); }
+							finally { self._changing--; }
+							self.publishDraft();
+						} else { self.beginInteraction(); self.cancelInteraction(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE, true); }
+						consumed = true;
+					}
+				}
+			}
+		} catch (string error) { self.interactionOwner().context().recordNativeFailure(error); consumed = true; }
+		return consumed;
+	}
+
 	public CallbackCancellation pollClose() {
 		self.requireMainThread();
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var native = self._native.pollCompletion();
+		if (native != CALLBACK_CANCELLATION_COMPLETE) { return native; }
 		var state = self._view.pollClose();
 		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._control = null; }
 		return state;
@@ -115,13 +320,13 @@ class MacOSTextField implements ITextField, IMacOSView {
 		self.requireMainThread();
 		var control = self._control;
 		if (control == null) { return CALLBACK_CANCELLATION_COMPLETE; }
-		if (self._view.isOpen()) {
+		if (!self._closing) {
 			self._view.requireDetached();
-			// End any field-editor session while the control is still in its window.
+			self._closing = true; self._interacting = false; self.releaseTickets();
+			self._native.cancel();
 			control.abortEditing();
+			self._view.close();
 		}
-		var state = self._view.close();
-		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._control = null; }
-		return state;
+		return self.pollClose();
 	}
 }
