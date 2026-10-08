@@ -57,6 +57,12 @@ skips (129.72 seconds). Both compilers, plain and ASan/UBSan, execute actual
 rendering, rejected-child pixel/identity preservation and ownership assertions.
 The original four strict-C failures remain retained, with no assertion weakened.
 
+All four fixture-only Grid negative controls also execute (130.43 seconds).
+Each compiles and links successfully, then aborts at the intended old-child
+identity assertion in `verifyCell`; none reports a sanitizer error. The exact
+classification is retained in `rows/grid-red/native-red-classification.json`.
+This completes the isolated native red/green proof for the Grid repair.
+
 Evidence is under `linux-provider-native-2202-grid47/repaired-808592c9/`:
 `compiler-build.json`, `native-elf.json`, `admission-sequence.json` and per-row
 logs/XML. Exact source inventories identify each original provider revision and
@@ -67,7 +73,9 @@ x86-64, macOS or physical-device evidence.
 
 ## Remaining acceptance
 
-Genuine Grid fixture-only negative controls and the remaining 96 reconstructed
-provider cases still need execution. Full final-tree bootstrap, strict C11,
+The remaining 96 reconstructed provider cases are running after an isolated
+fixture typing correction (`2e82334d`). The original setup error remains retained;
+the replacement lazy branches pass 96 truth/observation combinations through
+both compilers' strict-C executables before native rerun. Full final-tree bootstrap, strict C11,
 normal test matrix and hosted gates remain required before main integration.
 No compiler performance improvement or complete platform qualification is claimed.

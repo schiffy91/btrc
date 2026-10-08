@@ -91,7 +91,7 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 |---|---|---|
 | macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | Finish uninstrumented lifecycle qualification: the independent AppKit control cannot obtain focus while loginwindow is foreground. Add cross-worker GUI focus coordination, resolve the separate intermittent activation failure, then deliver UI2 and remaining controls/services/accessibility. |
 | Linux | SDL shell; X11 GUI/audio lane; repaired Wayland candidate passes dedicated checks | Land current-interface input/layout repairs and UI2 provider, resolve toolkit direction, and qualify remaining features and accessibility. Wayland remains report-only until its required main acceptance. |
-| Windows | Compiler/host infrastructure and partial SDK integration; reviewed native-only toolchain update passes the previously crashing executable link | Complete actual ARM64 compiler/bootstrap and ABI/wgpu qualification, then qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. |
+| Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows for that branch pass | Integrate the qualified repair, then qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
 
@@ -131,14 +131,24 @@ account requirements remain explicit where automated tests cannot prove them.
 [draft PR68](https://github.com/schiffy91/btrc/pull/68) while its final hosted
 matrix runs. Android tooling and API 29/36 emulator jobs pass in run
 `37715597832`; Windows native checks and bootstrap pass in `37715597803`.
-General CI and macOS remain queued. Main remains `87dd60d7`; none of these pending checks
-counts as qualification. Two code-PR waves are active: PR68 and Windows PR53.
+General CI is still running, with two terminal failed jobs: a tuple declaration
+ordering mismatch between compilers, and two compiler peak-memory regressions.
+The self-host shard records 5,849 passes, 34 skips and one failure in
+`TupleGenericInstanceType.btrc`; native bootstrap, both Linux GUI lanes and
+release jobs pass. The benchmark reports `CompileStdlibHeavy` at 45,973,504 bytes
+against 44,789,760 and `RunDispatch` at 18,989,056 against 17,924,096, exceeding
+the unchanged peak allowances. Logs are retained in `hosted-71-current/`; both
+failures require repair, and macOS remains queued. Main remains `87dd60d7`; none of these pending checks
+counts as qualification. Windows PR53's five hosted workflows now pass, including
+actual ARM64 compiler/bootstrap and MSVC ABI/wgpu execution. PR68 remains active.
 Independent UI2 source work and the local Linux native qualification continue.
 The first four Linux Grid rows fail strict-C compilation in both compilers
 because inherited interface types are pruned. Paired repair `808592c9` follows
 fixture-only `72be5947`; the fresh Linux compiler passes all 11 relevant
-regressions, and all four plain/sanitized Grid cases now pass. Genuine Grid
-negative controls and the other 96 provider cases remain in progress. This repair is kept
+regressions, and all four plain/sanitized Grid cases now pass. All four genuine
+Grid negative controls also reach the intended child-identity assertion after
+successful strict-C compilation/linking. The other 96 provider cases are running
+after a separately proved fixture typing correction; they are not yet qualified. This repair is kept
 separate from frozen PR68. See [the repair evidence](docs/workstreams/interface-parent-reachability.md).
 
 
@@ -271,8 +281,18 @@ five compatibility checks pass afterward, with no skips. These local checks are
 Windows cross-compilation/linking, not Windows runtime evidence. Independent
 review is clear and the follow-up is published to the same PR for native rerun;
 the prior general CI is superseded. Rerun `37714407651` now passes its ARM64
-cross-build and has reached the native compiler/bootstrap step on Windows; its
-result and subsequent ABI/wgpu checks remain pending. These repairs
+cross-build, native compiler build, three-stage byte-stable bootstrap and compiled
+sample execution on Windows 11 ARM64. Cross/native sample C is identical.
+The following MSVC ABI/wgpu smoke also passes, creating an instance and returning
+an actual adapter through its callback. General CI, Windows, Host Windows and
+macOS workflows all pass for published `110a514c`. The native job tests hosted
+merge `93093bd4`; final combined-tree qualification and main integration remain.
+The retained 146,088,636-byte artifact matches its hosted SHA-256
+`4c4c5c0522f132f8a029567f4e23d832f8e6c86204f16529249995e0fa369226`.
+Native compiler SHA-256 is
+`9b0e5cfdc66c90e3d9096617261ccb2383a30933b2c85172ea9863ba86c99e4f`.
+Evidence is retained under `windows-110-native/`, including both native summary
+JSON files, the full archive, index and retrieval receipt. These repairs
 restore verification capability; they do not demonstrate compiler speed gains.
 The plan-reader modules passed 155 checks at `27417a89`.
 
@@ -1067,8 +1087,8 @@ failed runs and their evidence rather than replacing them with later passes.
 | PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. All eight strict-C11 configurations (GCC and Clang, -O0 through -O3) passed 2,036 checks each without skips. The serialized remaining-gate run finished successfully, including the plan and diff checks. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge is now included in `06c3923a`; full qualification/main landing remain pending. |
-| PR53, Windows ARM64 host | Published `110a514c` | Native Zig 0.17.0 links the minimal GNU executable; the reviewed newer-CRT mkdtemp adapter repair passes five local cross-compile checks. Rerun 37714407651 passes cross-build and is executing native compiler/bootstrap; qualification remains pending. |
-| PR68, `codex/integrate-compiler-harmonization` | Published `71a22734` | Frozen combined source: G12, signed native-link cache, Mac button/lifecycle/GUI coordination and reviewed tooling repairs. Android tooling/API29/API36 pass; general/macOS queued and Windows running. Main integration remains gated. |
+| PR53, Windows ARM64 host | Published `110a514c` | All five hosted workflows pass. Native ARM64 compiler build/bootstrap/sample and MSVC ABI/wgpu execution pass in 37714407651; archive checksum verified locally. Final combined-tree integration remains. |
+| PR68, `codex/integrate-compiler-harmonization` | Published `71a22734` | Android tooling/API29/API36, Windows/native bootstrap, Linux bootstrap/release and both GUI lanes pass. General CI still running with tuple-order parity and two peak-memory regressions already failed; macOS queued. Main integration remains gated on repair and qualification. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 At `50bf1c8c`, the [native Linux ARM64 release job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636879)
@@ -1278,7 +1298,7 @@ qualify a reconstruction. Independent repair units must not wait on this recover
 | CX-STDLIB-01 (from UIA23) | Retain queued input; match popup hit testing to painted position; preserve text/selection on clipboard Cut failure; honor external hide/show rendering | Historical `d6df2cb6335e122526204f0408602aeef6d31b66` is unavailable locally and remotely; its 84-case record does not qualify reconstructed code. E40 `bbe4f56e` recovered; current reconstruction `42d5a7c1` has 80 native cases, static checks pass, execution pending | Execute preserved fixture-only red and reconstructed green through the normal driver, both compilers and sanitizer/control cases on final source; catalog: a new `evidence/ui2-linux-e40.toml` shard plus the E40 hunk in `cases/E25-E47.toml`, carried per WORKSTREAMS §3.3 step 4 ([catalog README](docs/design/native-ui-catalog/README.md)) |
 | CX-STDLIB-02 (from UIB26) | Grid and both Stack orientations invoke child layout so scroll offsets clamp after resize | Historical combined `0f6f3448967720480365d43980c74baf7280b7e4` and resize fixtures are unavailable; its 40-case record is historical. Reconstructed `364a2bd6` changes three child-layout dispatch calls and adds 12 native cases; static checks pass | Execute fixture-only red `366da1cd` and repaired green with both compilers and sanitizers; verify actual pixel/offset behavior and fixture discovery |
 | CX-STDLIB-03 (from UIB18) | Explicit Mac button alignment survives title/symbol updates; defaults preserved | Original `f6071c8a` unavailable; reconstructed in PR66 (`4f5c9b30`). Actual AppKit red: four failures; corrected integration `37a8ae67`: four passes through both compilers, plain/sanitized | Hosted branch checks pass; the final combined-tree gate and main integration remain. Focused native proof and retained intermediate failure are recorded in the packet report |
-| CX-STDLIB-04 | Reject an invalid Linux grid replacement without losing the old child | Reviewed source `47e64e21`, fixture-only red `36b47db5`; initial four rows fail in generated C; after paired compiler fix `808592c9`, all four native rows pass through Python/self-host, plain/ASan/UBSan | Complete the genuine fixture-only negative controls, then final combined-tree gates/main integration. Green execution proves rejected replacement retains identity/pixels, same-child no-op, valid replacement/null clear and cleanup |
+| CX-STDLIB-04 | Reject an invalid Linux grid replacement without losing the old child | Reviewed source `47e64e21`, fixture-only red `36b47db5`; after paired compiler fix `808592c9`, all four native rows pass through Python/self-host, plain/ASan/UBSan, and all four genuine negative controls fail the intended old-child identity assertion | Final combined-tree gates/main integration remain. Green execution proves rejected replacement retains identity/pixels, same-child no-op, valid replacement/null clear and cleanup; negative controls compile/link successfully and have no sanitizer diagnostic |
 | CX-STDLIB-05 | Keep scrollbar geometry valid in a tiny viewport and at large finite content extents | Reviewed provider `6720fc0b`, final admission checkpoint `e3281e6e`; fixture-only parent `7c060d08` preserves the native red candidate. Formatting, discovery and import checks pass (10 checks); four Mac platform skips are classified with no Linux allowance | Run the dedicated actual pixel/pointer/wheel regression through both compilers and sanitizer variants on Linux, including zero/tiny track and `1e308` content. Mac skip admission is not native Linux evidence. No executed native failure/pass or main landing is claimed yet |
 
 ### Repair files and test admission
@@ -1316,7 +1336,20 @@ with actual pixel and ownership assertions (129.72 seconds). Binary SHA-256 is
 `1739f6b16838694fa52297379f431777238ed8a01ec24577fc51ca7d9b07c505`.
 Source-inventoried qualification composites retain each original provider tree
 and identical repaired compiler inputs; all original archives/failures remain.
-The genuine Grid negative controls and other 96 provider cases are still pending.
+The genuine Grid negative controls now execute: all four compile/link successfully
+and abort at the intended `IGrid_childAt(grid, 0, 0) == previous` assertion in
+`verifyCell`, with no sanitizer diagnostic (130.43 seconds). Their receipt is
+`rows/grid-red/native-red-classification.json` beneath the repaired evidence root.
+The first 96-case attempt stops at fixture setup because its boolean conditional
+expression promotes to int under both compilers' existing numeric rules.
+Fixture-only `2e82334d` replaces that one expression with equivalent lazy if/else
+branches. Thresholds and assertions are unchanged. Both frontends reject the
+original expression; both repaired strict-C executables pass 96 truth and lazy
+evaluation combinations. That proof is `frame-progress-proof-808592c9/result.json`.
+The corrected native 96-case suite is now running; its original setup failure is
+retained and no complete result is claimed yet. The E40 counterfactual uses the
+same corrected fixture/observer ABI with original `5299b7a8` production behavior,
+whose only relevant green delta is the 4096-event dequeue boundary.
 The original build took 470.21 seconds and its required target-row comparison
 241.46 seconds; these are preparation elapsed times, not benchmark measurements.
 The source repair requires a fresh build/comparison, while the image and SDK
@@ -1327,12 +1360,17 @@ replacement, is preserved at `47e64e21` with fixture-only parent `36b47db5`: it
 validates the new child's lifecycle/parent/cycle conditions before detaching the
 old child. Its four native rows test rejected replacement retaining identity and
 pixels, valid replacement, null clear and ownership cleanup. Source review and
-static checks are clear; native green behavior passes as recorded above, while
-fixture-only negative controls and final integration remain pending. Minimize/
+static checks are clear; native green behavior and genuine fixture-only negative
+controls pass as recorded above, while final integration remains pending. Minimize/
 restore and final X11/Wayland acceptance remain separate. UI2 macOS and Linux
 provider implementation has started independently on preserved branches, using
 the approved interface and existing completion hook; native qualification and
-atomic interface/provider landing are still required.
+atomic interface/provider landing are still required. Six macOS UI2 foundation
+fixture types now pass real-SDK reference transpilation and 20 strict-C/Objective-C
+syntax checks on a source-inventoried private binding composition. They have not
+yet linked or executed, and no paired native UI2 acceptance is claimed. Linux's
+publisher foundation reference-transpiles with its real SDK at `818e9ee0`; later
+queue, text and lifecycle source work still requires fresh qualification.
 
 CX-STDLIB-01 production files are
 `src/stdlib/GUI/Linux/{LinuxApplication,LinuxSelect,LinuxTextField,LinuxWindow}.btrc`.
