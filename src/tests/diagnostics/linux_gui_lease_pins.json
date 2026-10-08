@@ -1,0 +1,24 @@
+{
+  "base": "3974d47bc87851b1ac19b8d2b4bd5022f2d94676",
+  "candidate": "14f9e193866679f713504618238d158f9f43ece1",
+  "production": {
+    "src/tests/conftest.py": "e9ba70fe6c66430b3ec59c95ca6f7e68fd05b101359193b0145b6db42362c22b",
+    "src/tests/python/test_macos_gui_coordination.py": "f286b1d0211d944f2f1a1a71664eebe47eacfcb92cc7fe04e920b4182ecce24f",
+    "src/tests/python/test_native_linux_providers.py": "77fb784fb559e8e5282e068c3abcdd139c7c4d25d5f2e235d9dd504376b796ec",
+    "src/tests/python/test_native_ui_grid_replacement.py": "5f6aed30b2346937eed78ee7e8709d0e945b3491196a10ed1c7f8a889074972c",
+    "src/tests/python/test_native_ui_layout_resize.py": "5eb8ccdf910265c6e3ae338227c4b3c682671796f425148cddfaa97011d91929",
+    "src/tests/python/test_native_ui_linux_spike.py": "cecb34b2e69aa1835229e127b954a5f1bf655cd3b41d53a5c027ce03cce0eaba",
+    "src/tests/python/test_native_ui_scroll_thumb.py": "638905ea061c8260c307e4b95f321762184c73820ded043c566d294156e75e6d",
+    "src/tests/python/test_native_ui_sdl_clipboard_requestor.py": "0c5db3fb73b8f61a203cb407698bc8815ede4665a56be5df06304148fd087309",
+    "src/tests/python/test_native_ui_shell_linux.py": "1d6791cc7e9981a9d788803b4a9fde3ced2f9c79d18ae8b38628574679cf89ac"
+  },
+  "donor_binary": "cc8dac03d30959e27af44637c3f5cdfb73c91b8998c25b5e50ab3934b6976c61",
+  "donor_c": "f2b0be1037218607e6dc10bba804dc54ce36355a5a23007fe151581c094f679b",
+  "installed": {
+    "src/tests/diagnostics/qualify_linux_gui_lease.py": "1c2afc258df68cccc48f60aaa76df8367f68eca73d1ce65abdeded537b3033f4",
+    "src/tests/diagnostics/test_native_ui_scroll_focus_diagnostic.py": "5e8aa2c7b699bf2bddd34bffc1626e6e637d253204214f89707e86c64a1528b6",
+    "src/tests/native/gui/controls/linux/scroll_focus/FocusPeer.c": "69c5def2d2f3547c5be6215babd29b309fe8bde562a575ca420b860af9f1dd5c",
+    "src/tests/native/gui/controls/linux/scroll_focus/ScrollThumbTrace.btrc": "b7f67941f7940fa3505748e5343806ba893edec59e0af5a6fc77abf590dcabc5",
+    "src/tests/native/gui/controls/linux/scroll_focus/ScrollTrace.c": "5a831f6cfbd42c52f935274a2da5cb521df0d0cdd93b4a0c2130f4d05212d515"
+  }
+}
