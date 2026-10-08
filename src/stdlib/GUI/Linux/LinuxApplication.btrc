@@ -469,7 +469,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	/* One loop turn: wait for events or the next deadline, then service everything. */
 	public void pumpOnce(int timeoutMilliseconds) {
 		self.requireUIThread();
-		if (self._turnActive) { throw "Native event dispatch is already active"; }
+		if (self._turnActive || self._context.mutationDepth > 0) { throw "Native event dispatch is already active"; }
 		if (self._closed) { return; }
 		if (self._round == 9223372036854775807LL) { throw "Application scheduling rounds exhausted"; }
 		int readyTimeout = self.waitMilliseconds();

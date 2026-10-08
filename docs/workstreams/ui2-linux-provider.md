@@ -229,3 +229,19 @@ registration identity before any closed-channel cleanup. New unexecuted cases
 try a closed channel against an extra ticket from a second queue, once sharing
 the application pool and once using a different pool, then prove the rightful
 channel can still deliver and return every credit. Formatter/diff passed.
+
+Container fixture-only checkpoint `644f3200` checks real overlapping panel pixels
+and generation-preserving move, stale rejection, failed provider attachment with
+successful inverse, failed inverse quarantine, retained ownership and eventual
+close. The attachment fault is injected after the actual provider node route
+changes; it does not implement the result policy. Native execution is pending.
+
+Container mutation source is checkpointed for semantic compilation review:
+whole-sequence validation precedes native work; saved routes/frames and owning
+references support inverses; unknown inverse failure quarantines the last
+coherent child order while retaining additional possible children for close.
+Move uses order changes without detach. Channel routes/generations are deferred
+across native mutation and committed only at the coherent result; native pump
+reentry is barred. This draft still needs independent source review (including
+post-result notification failure handling), paired transpilation and real native
+red/green qualification. It must not be described as a completed outcome.

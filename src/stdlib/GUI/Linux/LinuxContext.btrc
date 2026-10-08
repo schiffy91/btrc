@@ -118,6 +118,7 @@ class LinuxSemanticWake implements IControlEventWake {
 /* Application-wide services every drawn view shares. Views retain it; it
  * retains no view. */
 class LinuxContext {
+	public int mutationDepth = 0;
 	public LinuxFonts fonts;
 	public ControlEventTerminalPool terminalPool;
 	public ControlEventQueue detachedEvents;

@@ -738,6 +738,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	public CallbackCancellation close() {
+		if (self._context.mutationDepth > 0) { throw "Cannot close a window during native tree mutation"; }
 		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (!self._closing) { self._closing = true; self.refreshInteraction(); self._host.invalidation.mark(); }

@@ -24,7 +24,7 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 
 	public LinuxSelect(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); self.node().focusable = true; }
 
-	public void attachTo(LinuxViewHost? host) { if (host == null) { self.closeMenu(); } self.node().setHost(host); }
+	public void attachTo(LinuxViewHost? host) { if (host == null && self.node().context.mutationDepth == 0) { self.closeMenu(); } self.node().setHost(host); }
 
 	private void validateSelection(int count, int index) {
 		if (count == 0 ? index != -1 : index < 0 || index >= count) { throw "Native selection index is out of range"; }

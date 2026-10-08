@@ -214,6 +214,11 @@ class LinuxViewNode implements IControlEventTarget {
 	public bool attached = false;
 	public bool closing = false;
 	public bool closed = false;
+	public bool faulted = false;
+	public bool treeMutation = false;
+	public long long treeRevision = 1LL;
+	private Vector<ILinuxView> _quarantined = [];
+	private LinuxViewHost? _routedHost = null;
 	public LinuxViewHost? host = null;
 	public Vector<ILinuxView> children = [];
 	public double contentOffsetX = 0.0;
@@ -264,7 +269,7 @@ class LinuxViewNode implements IControlEventTarget {
 
 	public bool effectiveEligible() { return self.isOpen() && self._state != null && self._state.effectiveEligible; }
 
-	public ViewInteractionState interactionState() { self.requireOpen(); return self.snapshot(); }
+	public ViewInteractionState interactionState() { self.requireInspection(); return self.snapshot(); }
 
 	private ViewInteractionState snapshot() {
 		var state = ViewInteractionState(); var current = self._state;
@@ -290,13 +295,13 @@ class LinuxViewNode implements IControlEventTarget {
 		self._inherited = inherited;
 		var old = self._state; var owner = self._owner;
 		bool enabled = owner == null || owner.locallyEnabled();
-		bool eligible = self.isOpen() && self.attached && self.host != null && inherited && self.visible && enabled;
+		bool eligible = self.isOpen() && !self.faulted && self.attached && self.host != null && inherited && self.visible && enabled;
 		WindowExposure exposure = self.host == null ? WINDOW_EXPOSURE_UNKNOWN : self.host.exposure;
-		if (old == null || old.localVisible != self.visible || old.localEnabled != enabled || old.inheritedEligible != inherited || old.effectiveEligible != eligible || old.exposure != exposure) {
+		if (old == null || old.localVisible != self.visible || old.localEnabled != enabled || old.inheritedEligible != inherited || old.effectiveEligible != eligible || old.exposure != exposure || old.faulted != self.faulted) {
 			if (old != null && old.stateRevision == 9223372036854775807LL) { throw "Native interaction revisions exhausted"; }
 			var state = ViewInteractionState(); state.localVisible = self.visible; state.localEnabled = enabled;
 			state.inheritedEligible = inherited; state.effectiveEligible = eligible; state.layoutParticipating = true;
-			state.exposure = exposure; state.faulted = false; state.stateRevision = old == null ? 1LL : old.stateRevision + 1LL;
+			state.exposure = exposure; state.faulted = self.faulted; state.stateRevision = old == null ? 1LL : old.stateRevision + 1LL;
 			self._state = state; self._stateChanged = true;
 			if (old != null && old.effectiveEligible && !eligible) { self._lostEligibility = true; }
 		}
@@ -318,7 +323,15 @@ class LinuxViewNode implements IControlEventTarget {
 
 	public void localEligibilityChanged() { self.refreshInteraction(self._inherited); }
 
-	public void requireOpen() { if (self.closing || self.closed) { throw "Native view is closing or closed"; } }
+	public void requireInspection() { if (self.closing || self.closed) { throw "Native view is closing or closed"; } }
+
+	public void requireOpen() { self.requireInspection(); if (self.faulted) { throw "Native view is quarantined"; } }
+
+	public void quarantine(Vector<ILinuxView> possible) {
+		self.faulted = true;
+		for child in possible { if (self.childIndex(child) < 0 && !self._quarantined.contains(child)) { self._quarantined.push(child); child.node().attached = true; } }
+		self.localEligibilityChanged();
+	}
 
 	public bool isOpen() { return !self.closing && !self.closed; }
 
@@ -395,13 +408,21 @@ class LinuxViewNode implements IControlEventTarget {
 		return child;
 	}
 
-	public void setHost(LinuxViewHost? host) {
-		if (self.host != host) {
+	public void finishAttachment() {
+		if (self._routedHost != self.host) {
 			if (self._generation == 9223372036854775807LL) { throw "Native view generations exhausted"; }
-			self._generation++; self.host = host;
+			self._generation++; self._routedHost = self.host;
 			for channel in self._channels { if (channel.isOpen()) { channel.rebind(self.events()); } }
 		}
+		for child in self.children { child.node().finishAttachment(); }
+	}
+
+	public void setHost(LinuxViewHost? host) {
+		self.host = host;
 		for child in self.children { child.attachTo(host); }
+		/* Native membership can change during a batch, but callback routes and
+		 * interaction generations commit only after its coherent result. */
+		if (self.context.mutationDepth == 0) { self.finishAttachment(); }
 	}
 
 	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self.subscribe(handler, null, owner); }
@@ -434,6 +455,9 @@ class LinuxViewNode implements IControlEventTarget {
 		if (self.closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		self.requireDetached();
 		if (!self.closing) {
+			if (self.context.mutationDepth > 0) { throw "Cannot close a view during native tree mutation"; }
+			for child in self._quarantined { if (self.childIndex(child) < 0) { self.children.push(child); } }
+			self._quarantined.clear();
 			self.closing = true;
 			self.updateInteraction(false); self.settleInteraction();
 			self._input.cancel();
@@ -461,7 +485,7 @@ class LinuxViewNode implements IControlEventTarget {
 		}
 		if (result != CALLBACK_CANCELLATION_COMPLETE) { return result; }
 		self._inputs.clear(); self._channels.clear(); self._stateChannel = null; self._owner = null;
-		self.host = null;
+		self.host = null; self._routedHost = null;
 		self.closed = true;
 		return CALLBACK_CANCELLATION_COMPLETE;
 	}
