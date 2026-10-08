@@ -3,6 +3,7 @@ import Library.Vector;
 import Library.GUI.IScrollView;
 import Library.GUI.ITextField;
 import Library.GUI.ISelect;
+import Library.GUI.IView;
 import Library.GUI.ControlEvents;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.LinuxWindow;
