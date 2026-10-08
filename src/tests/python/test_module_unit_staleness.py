@@ -621,21 +621,59 @@ int main() {
 }
 
 
-def test_swapping_instance_uses_keeps_the_template_unit_exact(compiler: str, tmp_path, request):
-    """SB-D8: a template's instances were emitted in discovery order."""
-    _, incremental, _ = _incremental_matches_clean(
+_METHOD_INSTANCE_ORDER_PROGRAM = {
+    "Lib.btrc": """class Converter {
+    public Converter() {}
+    public T identity<T>(T value) { return value; }
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+float total() {
+    Converter converter = new Converter();
+    int whole = converter.identity<int>(2);
+    float part = converter.identity<float>(0.5);
+    return whole + part;
+}
+""",
+    "Main.btrc": _INSTANCE_ORDER_PROGRAM["Main.btrc"],
+}
+
+
+@pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
+@pytest.mark.parametrize(
+    "files,first,second",
+    [
+        pytest.param(
+            _INSTANCE_ORDER_PROGRAM,
+            "Box<int> whole = new Box<int>(2);",
+            "Box<float> part = new Box<float>(0.5);",
+            id="class",
+        ),
+        pytest.param(
+            _METHOD_INSTANCE_ORDER_PROGRAM,
+            "int whole = converter.identity<int>(2);",
+            "float part = converter.identity<float>(0.5);",
+            id="method",
+        ),
+    ],
+)
+def test_swapping_instance_uses_keeps_the_template_unit_exact(compiler: str, debug, files, first, second, tmp_path, request):
+    """G12/SB-29: discovery order changes only Use, never the template unit."""
+    # Preserve line count and indentation so debug output in Lib cannot move.
+    original = files["Use.btrc"]
+    between = original[original.index(first) + len(first) : original.index(second)]
+    cold, incremental, _ = _incremental_matches_clean(
         compiler,
         request,
         tmp_path,
-        _INSTANCE_ORDER_PROGRAM,
-        {
-            "Use.btrc": (
-                "Box<int> whole = new Box<int>(2);\n\tBox<float> part = new Box<float>(0.5);",
-                "Box<float> part = new Box<float>(0.5);\n\tBox<int> whole = new Box<int>(2);",
-            )
-        },
+        files,
+        {"Use.btrc": (first + between + second, second + between + first)},
+        *(["--debug"] if debug else []),
     )
-    _lowered(incremental, 3)
+    changed = {name for name, text in incremental.units.items() if text != cold.units[name]}
+    assert len(changed) == 1 and next(iter(changed)).startswith("p.unit-Use-"), changed
+    _lowered(incremental, 1)
 
 
 @pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
