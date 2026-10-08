@@ -147,8 +147,12 @@ explicit public compiler inputs `3974d47b` and `92691bee`. It preserves the
 original product source, strict compilation recipe and paired sample order.
 Independent review is clear; private run
 [37771609277](https://github.com/schiffy91/btrsmith/actions/runs/37771609277)
-is active, building the original CI image. No comparison samples are available
-yet. Private product source and generated output remain in private CI.
+has failed while the original devcontainer recipe committed its realized Nix
+layer: Podman reported `io: read/write on closed pipe`. No compiler comparison
+or sample stage ran. The logs do not establish disk exhaustion or OOM as the
+cause. Final container inventory is empty and source checks pass. Retain this
+infrastructure failure; any unchanged-recipe retry follows the hosted capacity
+limit and the one-retry infrastructure rule. Private product source and generated output remain in private CI.
 Linux RSS cannot substitute for Mac footprint. Evidence remains in
 `compiler-lifetimes-3974/92691bee/`. Deliberately retained compiler graphs remain
 unchanged; the full final matrix is still required.
@@ -156,7 +160,7 @@ unchanged; the full final matrix is still required.
 Two current-product diagnostic hypotheses have now been measured and rejected
 as optimization priorities. The setjmp solve performs 134,606 definition scans
 for 45,877 actual flows; this does not support the proposed sparse worklist.
-Repeated native-header validation/construction is real, but its native prefix
+Repeated native-header validation/construction is real, but its foreign-group native prefix
 accounts for only 0.346 seconds of the instrumented 83.444-second phase sum.
 Both diagnostic compilers preserve all 423 emitted C/header outputs under the
 explicit path normalization, with independently verified source/tool/process
@@ -248,8 +252,17 @@ and still rejects missing, duplicate and wrong identities. Its hosted run
 has completed successfully. Its complete 129,604,291-byte artifact has passed
 ZIP integrity and SHA-256 verification
 (`2366679d471dadce9905e3eb0f304f23f484dbac79f01727d96e8f9e80583d19`).
-Independent review of the final native inventory, skip ledger and provenance is
-in progress; final combined-tree Linux qualification remains open. The original
+Independent review is complete: the original full X11 Make shard contains
+523 cases, with 324 passes, 199 expected platform skips and zero failures/errors.
+Both required lease baseline failures, all 16 repaired coordination checks,
+one controlled real focus-loss case, eight isolated native rows and 12
+lease-scheduled native rows pass their respective oracles. All 4,503 publication
+files independently match Git blobs and modes; source/index before and after
+and recorded tool identities are unchanged. The 199 skips remain uncovered by
+this host, and Fontconfig diagnostics remain retained. Command leaders were
+waited/reaped; the artifact does not prove global final descendant absence.
+Evidence: `linux-gui-lease-3974-hosted-r5/INDEPENDENT-REVIEW.md`.
+Final combined-tree Linux qualification remains open. The original
 full Wayland gate at `14f9e193` passes all 322 executed cases, with 199 expected
 skips classified and covered on other hosts. Independent review verifies all
 521 collected/JUnit identities, 4,503 publication file hashes and modes,
@@ -497,8 +510,12 @@ cleanly at both optimization levels, with strict flags unchanged. The new tests
 fail on the unchanged baseline. Its fresh self-hosted build now passes; the same original class compiles
 cleanly through that frontend at GCC -O2 and -O3 too. Four paired corpus runtime
 rows pass (both frontends at both optimizations), with no skips. Source, tools,
-binary and process closure are verified in report `3458c356`. The hosted Linux
-application rerun and final combined gates remain pending. App descendants are now checked
+binary and process closure are verified in report `3458c356`. The full hosted Linux application replay is now running at
+[37775247066](https://github.com/schiffy91/btrsmith/actions/runs/37775247066),
+using unchanged product `d3fb25f4`, original strict flags/assertions and compiler
+`f75c737b` through both frontends. Workflow revision `b383f9f2` changes only
+compiler pins, artifact label and historical wording. Final combined gates
+remain pending. App descendants are now checked
 and cleaned on ordinary test failure as well as timeout. No full MVP claim.
 
 ### Integration status in service of the goals
@@ -799,12 +816,12 @@ changes; historical test totals alone do not advance its status.
 
 | Outcome | Current state / evidence | Responsible role | Next acceptance and actual blocker |
 |---|---|---|---|
-| Current compiler speed and memory matrix | Token candidate `71352c50` reduces the focused Linux heavy-stdlib reported peak by 8.241%. Combined lifetime candidate `92691bee` passes 164 focused checks. Whole-product targets remain unqualified | Performance owner; main session runs quiet measurements | Private current-product Linux RSS comparison `37771609277` is running. Mac quiet admission has no completed paired round. Stage 4/pin, Stage 5 and final product matrix remain open. |
+| Current compiler speed and memory matrix | Token candidate `71352c50` reduces the focused Linux heavy-stdlib reported peak by 8.241%. Combined lifetime candidate `92691bee` passes 164 focused checks. Whole-product targets remain unqualified | Performance owner; main session runs quiet measurements | Private current-product Linux RSS comparison `37771609277` failed during image-layer commit before compiler execution or samples. Mac quiet admission has no completed paired round. Stage 4/pin, Stage 5 and final product matrix remain open. |
 | Faster incremental edits | Current tuple/instance repair proves one changed group for inventory-preserving edits and three for genuinely new shared tuple shapes, across both frontends/release/debug with strict native outputs and clean-versus-incremental equality | Incremental compiler owner | Finish current combined gates, then measure edit median/p95 and memory. Full consulted-fact/analysis reuse and Stage 9 counters remain open. Work counts are not speed results. |
-| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` succeeds; artifact review is in progress | Provider repair owner; main integrator qualifies | Finish independent X11 source/inventory/skip review, then qualify the assembled tree. Keep genuine external focus-loss cancellation and original native assertions. |
+| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected platform skips, zero failures/errors | Provider repair owner; main integrator qualifies | Qualify the assembled tree with the reviewed X11 coordination repair. Keep genuine external focus-loss cancellation and original native assertions. |
 | UI2 events, executor and lifecycle on desktop | macOS foundation and ordered-container components have scoped native passes. Window and capture/run-loop replay each add eight native passes on compiler `f75c737b`. Public application baseline exposes 19 missing methods | Application, text-field and range/selection owners | Implement and qualify those methods with original native assertions. Linux Window source is reviewed; its native baseline/candidate run awaits a hosted slot. Full UI2 and application quit remain open. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. Linux original agent build fails strict GCC pointer-temporary checks; fix `f75c737b` passes through both frontends at O2/O3 | BTRSmith owner and integrator | Run the prepared full Linux replay with `f75c737b`, then qualify the product pin and remaining audio, screen, build/runtime and installed-release outcomes. The full MVP remains incomplete. |
+| BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. Linux original agent build fails strict GCC pointer-temporary checks; fix `f75c737b` passes through both frontends at O2/O3 | BTRSmith owner and integrator | Complete running Linux replay `37775247066` with `f75c737b`, then qualify the product pin and remaining audio, screen, build/runtime and installed-release outcomes. The full MVP remains incomplete. |
 | One qualified implementation on main | PR69 consolidated plan and qualified Mac test coordination merged at `cbd3ddcd` after 36 passing selected checks. Prepared compiler/Linux repair integration passes 172 affected checks plus generated/lint/format | Main integrator | Complete final combined tests/bootstrap/C11/static/generated/extension/hygiene and applicable native evidence, then merge qualified repairs. Track UI2 and product changes separately until their acceptance passes. |
 
 For usable-library status, use the existing native catalog and platform inventory
