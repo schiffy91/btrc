@@ -1027,3 +1027,33 @@ and whitespace checks pass. Repaired native qualification remains pending.
 Source diagnosis and repair occurred while the GCC compiler packet owned the
 native lane. No native launch overlapped. The original failed bundle and binary
 remain intact; a fresh immutable source bundle is required for the retry.
+
+
+## Window component qualification
+
+The independently reviewed cleanup repair b6a4fe3e completed session12425 with
+status0 on Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0. Both NativeWindowClose and
+NativeWindowState passed reference and self-hosted projection with no diagnostics,
+all24 strict C/Objective-C unit checks, all eight plain/sanitized links and all
+eight actual native runs (two fixtures, two frontends, two modes). The sanitizer
+mode retained the existing ASan/UBSan failure policy. Original native detach
+fault/recovery, close transaction, editor, pressure and state assertions were
+unchanged. This closes the observed mutation-guard failure for these components.
+
+The source-pinned aggregate is ui2-macos-window-b6a4fe3e/window-result.json,
+SHA-2566f5cd2f3058acca9fec82bf4b90d6677bc821b93d7ab18189d2e60821be9eccc.
+It hashes all12 stage receipts; their source/tool end checks are unchanged, every
+command's stdout/stderr hash was checked, and all owned process IDs/groups were
+absent after completion. The prepared manifest is
+8dbafe851c3e09d7ba94044f847cb656fe04426ab207a19653d73309fa30f2cc;
+reference/self-host compiler source remains56d548c4 and self-host binary remains
+41fde50cf256b3ef5a322648d0f5dd735f03ea28677d5bfb4c6f9423d90c13a1.
+Initial capacity was82.114GB and every stage/command retained the80GB admission.
+
+The frozen candidate waited while the GCC packet and then the strict quiet
+benchmark attempt owned the lane. Qualification started only after explicit
+handoff; gate/gui-capture/build locks were released immediately after closure.
+No benchmark or other native job overlapped. This is bounded Window component
+qualification, not full public Application, quit grouping, all controls, the
+unresolved Scroll stimulus, atomic two-provider UI2, or the final repository gate.
+All prior failed bundles and actual diagnostic results remain preserved.
