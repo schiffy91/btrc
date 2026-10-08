@@ -79,7 +79,9 @@ int main(int argc, char** argv) {
 	int firstDelivered = keys.codes.len;
 	bool bounded = remaining == (count > 4096 ? count - 4096 : 0);
 	bool workProgress = work.runs == 1;
-	bool frameProgress = (terminal == 3 && count <= 4096) ? !window.isOpen() : eventBoundaryFrames() > framesBefore;
+	bool frameProgress;
+	if (terminal == 3 && count <= 4096) { frameProgress = !window.isOpen(); }
+	else { frameProgress = eventBoundaryFrames() > framesBefore; }
 	for (int turn = 0; turn < 4 && eventBoundaryQueued() > 0; turn++) { owner.pumpOnce(0); }
 	int mismatch = 0;
 	for (int index = 0; index < keys.codes.len; index++) {
