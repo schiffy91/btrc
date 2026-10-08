@@ -49,6 +49,30 @@ class UI2LinuxTextChecks {
 		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	}
 
+	class void detachEditing(bool composing, bool containerChild) {
+		var application = LinuxApplication(32); var window = application.createWindow("UI2 editor route migration", 240.0, 60.0);
+		var field = application.createTextField("accepted", ""); var container = application.createContainer();
+		if (containerChild) { container.attach(field); field.arrange(0.0, 0.0, 240.0, 60.0); window.attachRoot(container); }
+		else { window.attachRoot(field); }
+		window.show(); var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var commits = UI2LinuxTextReceiver(); var cancels = UI2LinuxTextReceiver(); var scope = CallbackScope();
+		field.onCommit(commits, scope); field.onCancel(cancels, scope);
+		UI2LinuxTextChecks.pump(application); UI2LinuxTextChecks.focus(native.nativeId());
+		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "retained"); UI2LinuxTextChecks.pump(application);
+		if (composing) { assert(btrcSdlPushEditing(native.nativeId(), "marked", 3, 0) == 1); UI2LinuxTextChecks.pump(application); assert(field.text().equals("retainedmarked")); }
+		if (containerChild) { assert(container.detach(field) == field); }
+		else { assert(window.detachRoot() == field); }
+		assert(field.text().equals("retained") && !field.interactionState().effectiveEligible);
+		UI2LinuxTextChecks.pump(application); assert(commits.events.len == 0 && cancels.events.len == 0);
+		if (containerChild) { container.attach(field); }
+		else { window.attachRoot(field); }
+		UI2LinuxTextChecks.pump(application); assert(field.interactionState().effectiveEligible && commits.events.len == 0 && cancels.events.len == 0);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		assert(commits.events.len == 1 && commits.events.get(0).text.equals("retained") && !commits.events.get(0).composing && cancels.events.len == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
 	class void textLifecycle() {
 		var application = LinuxApplication(64); var window = application.createWindow("UI2 text semantics", 240.0, 60.0);
 		var field = application.createTextField("accepted", "placeholder"); window.attachRoot(field); window.show();
@@ -93,6 +117,8 @@ class UI2LinuxTextChecks {
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
 	UI2LinuxTextChecks.textLifecycle(); UI2LinuxTextChecks.compositionCommitOrdering();
+	UI2LinuxTextChecks.detachEditing(false, false); UI2LinuxTextChecks.detachEditing(true, false);
+	UI2LinuxTextChecks.detachEditing(false, true); UI2LinuxTextChecks.detachEditing(true, true);
 	var application = LinuxApplication(32); var window = application.createWindow("UI2 scroll geometry", 200.0, 150.0);
 	var scroll = application.createScrollView(); window.attachRoot(scroll); window.show();
 	var receiver = UI2LinuxScrollReceiver(); var scope = CallbackScope(); scroll.onOffsetChanged(receiver, scope);
