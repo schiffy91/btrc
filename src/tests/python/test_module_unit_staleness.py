@@ -678,6 +678,80 @@ def test_swapping_instance_uses_keeps_the_template_unit_exact(
     _lowered(incremental, 1)
 
 
+@pytest.mark.parametrize(
+    "files,old,new",
+    [
+        pytest.param(
+            _INSTANCE_ORDER_PROGRAM,
+            "Box<float> part = new Box<float>(0.5);",
+            "Box<double> part = new Box<double>(0.5);",
+            id="class",
+        ),
+        pytest.param(
+            _METHOD_INSTANCE_ORDER_PROGRAM,
+            "float part = converter.identity(0.5);",
+            "int part = converter.identity(3);",
+            id="method",
+        ),
+    ],
+)
+def test_changed_instance_set_invalidates_template_units(compiler: str, files, old, new, tmp_path, request):
+    """Canonical order must still key every actually demanded specialization."""
+    cold, incremental, _ = _incremental_matches_clean(compiler, request, tmp_path, files, {"Use.btrc": (old, new)})
+    templates = [name for name in cold.units if name.startswith("p.unit-Lib-")]
+    assert len(templates) == 1
+    assert incremental.units[templates[0]] != cold.units[templates[0]]
+    # The current whole-program facts key conservatively invalidates all three.
+    _lowered(incremental, 3)
+
+
+_DEPENDENT_INSTANCE_PROGRAM = {
+    "Lib.btrc": """struct ZRecord { int value; };
+
+class ABox<T> {
+    public T value;
+    public ABox(T value) { self.value = value; }
+    public T get() { return self.value; }
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+int total() {
+    ZRecord record = {7};
+    ABox<int> number = new ABox<int>(2);
+    ABox<ZRecord> wrapped = new ABox<ZRecord>(record);
+    ZRecord result = wrapped.get();
+    return number.get() + result.value;
+}
+""",
+    "Main.btrc": """import ./Use.btrc;
+
+int main() { return total() == 9 ? 0 : 1; }
+""",
+}
+
+
+def test_canonical_instance_order_preserves_by_value_dependencies(compiler: str, tmp_path, request):
+    """ABox sorts before ZRecord, but its by-value field needs ZRecord first."""
+    first = "ABox<int> number = new ABox<int>(2);"
+    second = "ABox<ZRecord> wrapped = new ABox<ZRecord>(record);"
+    cold, incremental, _ = _incremental_matches_clean(
+        compiler,
+        request,
+        tmp_path,
+        _DEPENDENT_INSTANCE_PROGRAM,
+        {"Use.btrc": (first + "\n    " + second, second + "\n    " + first)},
+    )
+    _lowered(incremental, 1)
+    templates = [name for name in cold.units if name.startswith("p.unit-Lib-")]
+    assert len(templates) == 1
+    assert incremental.units[templates[0]] == cold.units[templates[0]]
+    definitions = [text for text in incremental.units.values() if "struct btrc_ABox_ZRecord {" in text]
+    assert definitions
+    for text in definitions:
+        assert text.index("struct ZRecord {") < text.index("struct btrc_ABox_ZRecord {")
+
+
 @pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
 def test_an_unrelated_line_shift_reuses_every_other_unit(compiler: str, debug: bool, tmp_path, request):
     """The fixes stay narrow: lines added above a plain function relower only its group."""
