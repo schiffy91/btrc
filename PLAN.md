@@ -357,7 +357,7 @@ none of the original assertions changed. Independent application, text-field
 and range/selection implementation claims now target those concrete gaps.
 This is the first public application baseline, not a complete application pass.
 
-Current implementations now close the source gaps but remain separately qualified.
+The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
 NativeContainerBarrier and NativeCaptureFailure through both frontends, plain
 and ASan/UBSan: 12 native rows, six zero-diagnostic projections, 28 strict
