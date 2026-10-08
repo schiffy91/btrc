@@ -2,8 +2,10 @@ import Library.Callback;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.MacOS.MacOSView;
 
 #include <assert.h>
@@ -40,28 +42,38 @@ void verifyQuitAdmission(IApplication application) {
 	assert(rejected);
 }
 
-class QuitOnTimer implements IAppKitDelayedWork {
+/* Native timer entry belongs to this fixture. Normal work enters through the
+ * application executor; a modal timer runs inside an already active turn. */
+interface IApplicationTimer {
+	void invoke(NSTimer timer);
+}
+
+class QuitOnTimer implements IApplicationTimer, IApplicationWork {
 	private IApplication _application;
 	private IWindow _window;
 	private IView _child;
 	private bool _native;
 	private bool _pending;
+	private bool _modal;
 
-	public QuitOnTimer(IApplication application, IWindow window, IView child, bool native, bool pending) {
+	public QuitOnTimer(IApplication application, IWindow window, IView child, bool native, bool pending, bool modal = false) {
 		self._application = application;
 		self._window = window;
 		self._child = child;
 		self._native = native;
 		self._pending = pending;
+		self._modal = modal;
 	}
 
 	public void invoke(NSTimer timer) {
 		assert(self._application.isRunning() && timer.isValid());
+		if (self._modal) { self.run(); } else { self._application.post(self); }
+	}
+
+	public void run() {
+		assert(self._application.isRunning());
 		bool rejected = false;
 		try { self._application.run(); } catch (string error) { rejected = true; }
-		assert(rejected);
-		rejected = false;
-		try { self._application.close(); } catch (string error) { rejected = true; }
 		assert(rejected);
 		deliveries++;
 		if (self._pending) {
@@ -75,6 +87,7 @@ class QuitOnTimer implements IAppKitDelayedWork {
 		else { self._application.requestQuit(); }
 		self._application.requestQuit();
 		verifyQuitAdmission(self._application);
+		assert(self._application.close() == CALLBACK_CANCELLATION_PENDING);
 		// Shutdown must happen after this callback and NSApplication.run return.
 		assert(self._window.isOpen() && self._child.isOpen());
 		assert(ApplicationProbe.liveViews() == 1L);
@@ -94,7 +107,7 @@ class ModalWork implements IApplicationWork {
 	public void run() {
 		workDelivered++;
 		var scope = CallbackScope();
-		ApplicationProbe.modalTimer(QuitOnTimer(self._application, self._window, self._child, self._native, true), scope);
+		ApplicationProbe.modalTimer(QuitOnTimer(self._application, self._window, self._child, self._native, true, true), scope);
 		var response = ApplicationProbe.runAlert();
 		fprintf(stderr, "modal response=%ld delivered=%d pending-work-delivered=%d\n", (long)response, deliveries, workDelivered);
 		assert(response == NSModalResponseAbort);
@@ -117,9 +130,23 @@ class StuckView implements IMacOSView {
 
 	public NSView nativeView() { return self._view.nativeView(); }
 
+	public MacOSViewState interactionOwner() { return self._view.interactionOwner(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._view.settleInteraction(); }
+
+	public void publishInteraction() { self._view.publishInteraction(); }
+
 	public void attachTo(NSView parent) { self._view.attachTo(parent); }
 
 	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public void reconcileAttachment(NSView? parent) { self._view.reconcileAttachment(parent); }
 
 	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
 
@@ -152,12 +179,15 @@ class StuckView implements IMacOSView {
 void verifyStuckShutdown() {
 	var application = MacOSApplication(4);
 	var window = application.createWindow("Native stuck shutdown", 240.0, 120.0);
-	var root = MacOSContainer();
-	var child = StuckView(MacOSView(ApplicationProbe.newView()));
+	var root = application.createContainer();
+	var nativeRoot = (IMacOSView?)root;
+	assert(nativeRoot != null);
+	if (nativeRoot == null) { throw "Application container has no native view projection"; }
+	var child = StuckView(MacOSView(ApplicationProbe.newView(), nativeRoot.interactionOwner().context()));
 	root.attach(child);
 	window.attachRoot(root);
 	holdClose = true;
-	application.requestQuit();
+	application.post(ScheduledWork(application, window, 0));
 	string failure = "";
 	try { application.run(); } catch (string error) { failure = error; }
 	assert(failure.equals("Native subtree shutdown did not complete"));
@@ -198,16 +228,27 @@ int main(int argc, char** argv) {
 	bool nativePending = strcmp(argv[1], "native-pending") == 0;
 	bool modal = strcmp(argv[1], "modal-native") == 0 || strcmp(argv[1], "modal-portable") == 0;
 	IApplication application = MacOSApplication(4);
-	assert(!application.isRunning() && ApplicationProbe.hasDelegate());
+	assert(!application.isRunning() && !ApplicationProbe.hasDelegate());
 	bool rejected = false;
-	try { var duplicate = MacOSApplication(); } catch (string error) { rejected = error.equals("Native delegate slot is already occupied"); }
-	assert(rejected && ApplicationProbe.hasDelegate());
 	var window = application.createWindow("Native application lifecycle", 480.0, 240.0);
-	var root = MacOSContainer();
-	var child = MacOSView(ApplicationProbe.newView());
+	var root = application.createContainer();
+	var nativeRoot = (IMacOSView?)root;
+	assert(nativeRoot != null);
+	if (nativeRoot == null) { throw "Application container has no native view projection"; }
+	var child = MacOSView(ApplicationProbe.newView(), nativeRoot.interactionOwner().context());
 	root.attach(child);
 	window.attachRoot(root);
 	assert(ApplicationProbe.liveViews() == 1L);
+	ApplicationProbe.occupyDelegate();
+	try {
+		var duplicate = MacOSApplication();
+		assert(ApplicationProbe.ownsDelegate());
+		assert(duplicate.close() == CALLBACK_CANCELLATION_COMPLETE);
+		try { application.run(); } catch (string error) { rejected = error.equals("Native delegate slot is already occupied"); }
+		assert(rejected && ApplicationProbe.ownsDelegate());
+		assert(!application.isRunning() && window.isOpen() && child.isOpen());
+	} finally { ApplicationProbe.releaseDelegate(); }
+	assert(!ApplicationProbe.hasDelegate());
 	var timers = CallbackScope();
 	if (modal) { application.post(ModalWork(application, window, child, strcmp(argv[1], "modal-native") == 0)); }
 	else if (scheduled) { application.post(ScheduledWork(application, window, 2048)); assert(workDelivered == 0); }
@@ -217,20 +258,27 @@ int main(int argc, char** argv) {
 		rejected = false;
 		try { application.post(ScheduledWork(application, window, 0)); } catch (string error) { rejected = error.equals("Application work capacity exceeded"); }
 		assert(rejected && workDestroyed == 1 && workDelivered == 0);
-		rejected = false;
-		try { application.close(); } catch (string error) { rejected = true; }
-		assert(rejected && window.isOpen());
+		assert(window.isOpen());
 		application.requestQuit();
+		int beforeRejected = workDestroyed;
 		rejected = false;
 		try { application.post(ScheduledWork(application, window, 0)); } catch (string error) { rejected = true; }
-		assert(rejected && workDestroyed == 2);
+		assert(rejected && workDestroyed == beforeRejected + 1);
 	}
 	else if (beforeRun) { application.requestQuit(); application.requestQuit(); verifyQuitAdmission(application); }
-	else { NSTimer.scheduledTimerWithTimeInterval(0.02, false, QuitOnTimer(application, window, child, strcmp(argv[1], "native") == 0 || nativePending, nativePending), timers); }
+	else { ApplicationProbe.timer(QuitOnTimer(application, window, child, strcmp(argv[1], "native") == 0 || nativePending, nativePending), timers); }
 	bool workFailure = false;
-	try { application.run(); } catch (string error) {
-		if (!failedWork || !error.equals(emptyFailure ? "" : "Expected application work failure")) { throw error; }
-		workFailure = true;
+	if (beforeRun || cancelledWork) {
+		rejected = false;
+		try { application.run(); } catch (string error) { rejected = true; }
+		assert(rejected && window.isOpen() && child.isOpen());
+		assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(application.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	} else {
+		try { application.run(); } catch (string error) {
+			if (!failedWork || !error.equals(emptyFailure ? "" : "Expected application work failure")) { throw error; }
+			workFailure = true;
+		}
 	}
 	assert(workFailure == failedWork);
 	assert(!application.isRunning() && !ApplicationProbe.hasDelegate());
