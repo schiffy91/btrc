@@ -6,7 +6,8 @@ providers' own conformance fixtures still assert native state through their
 modules: on macOS the action queue, view capture, the GPU surface and AppKit
 readback through ``IMacOSView``; on Linux synthetic SDL input and a drawn
 ``LinuxNodeView`` whose shutdown stalls. They compile against this copy of
-``src/``, which differs only in that manifest's export list.
+``src/``, which differs only in that manifest's export list. The shared private semantic
+queue is also exposed solely for these white-box fixtures.
 
 ``python -m src.tests.gui_provider_root <root> <compiler arguments>`` runs the
 Python compiler's CLI against such a root, as ``BTRC_HOME`` does for btrcc.
@@ -40,6 +41,9 @@ class GUIProviderRoot:
             for path in sorted((root / "stdlib/GUI" / platform).glob("*.btrc"))
             if path.stem != "GUIProvider" and f"{platform}.{path.stem}" not in exported
         ]
+        # Shared receipt tests inspect this private owner; it is not a product API.
+        if (root / "stdlib/GUI/ControlEventQueue.btrc").is_file() and "ControlEventQueue" not in exported:
+            provider.append("ControlEventQueue")
         assert text.count("exports = [") == 1, "the GUI manifest declares one export list"
         manifest.write_text(
             text.replace("exports = [", "exports = [" + "".join(f'"{name}", ' for name in provider)), encoding="utf-8"
