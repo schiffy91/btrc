@@ -30,7 +30,9 @@ int main() {
 	queue.post(first);
 	assert(queue.schedule(second, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_FULL);
 	assert(first.calls == 0 && later.calls == 0);
-	assert(delayed.registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	var registration = delayed.registration;
+	if (registration == null) { throw "Accepted delayed work has no registration"; }
+	assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	queue.post(second);
 	long long round = queue.beginRound();
 	assert(queue.serviceOne(round) && queue.serviceOne(round) && !queue.serviceOne(round));
