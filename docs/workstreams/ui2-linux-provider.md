@@ -114,3 +114,20 @@ eligibility/generation, in-flight cancellation, cross-queue migration,
 same-queue preservation and throwing-receiver retirement. All are still
 **unexecuted**. Formatter/Ruff/diff checks passed. No provider wiring or UI2
 acceptance is inferred from this shared source checkpoint.
+
+Source review found that user-provided wake adapters can throw after admission.
+The Linux publisher now catches that failure, seals the endpoint, preserves the
+original ACCEPTED/REPLACED outcome, and retires an atomic notification claim in
+`finally`. This eliminates the second mutex acquisition and its stranded-claim
+failure path. The UI service reports the latched failure; cancellation can
+still drain the accepted receipt and release the host. The shared semantic
+queue applies the same post-admission rule for both false and throwing wakes.
+No retries or synthetic delivery hide a native source failure.
+
+Additional unexecuted native fixtures cover the throwing host's accepted and
+replacement paths, stable COMPLETE cancellation with no receiver entry or wake
+retry, false/throwing semantic wakes for initial/replacement records, rejected
+construction under an already-cancelled scope returning all terminal credits,
+and one registration cancelling during its terminal callback while another
+registration on the same receiver continues. Formatter and diff checks passed;
+these source assertions are not runtime evidence.

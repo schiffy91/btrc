@@ -3,6 +3,7 @@ import Library.BackgroundJobs.NativeWorker;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxPublisher;
 import Library.GUI.Linux.SDL;
 
 #include "../../Executor.btrc"
@@ -37,8 +38,37 @@ class UI2LinuxReceiver implements IApplicationPublicationHandler {
 	public void deliver(ApplicationPublication publication) { assert(SDL_IsMainThread()); self.calls++; self.value = publication.payload; }
 }
 
+class UI2ThrowingHost implements IApplicationHost {
+	public bool raises = false;
+	public int calls = 0;
+	public bool requestTurn() { self.calls++; if (self.raises) { throw "deliberate host wake failure"; } return true; }
+
+	public void scheduleTurn(unsigned long long deadline) {}
+}
+
+class UI2PublisherFailureChecks {
+	class void throwingHost(bool replacement) {
+		var host = UI2ThrowingHost(); var publisher = LinuxPublisher(2, host);
+		var receiver = UI2LinuxReceiver(); var scope = CallbackScope();
+		assert(publisher.initialized()); publisher.activate(receiver, scope);
+		if (replacement) { assert(publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 1LL, 60LL) == PUBLISH_ACCEPTED); }
+		host.raises = true;
+		assert(publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 1LL, 61LL) == (replacement ? PUBLISH_REPLACED : PUBLISH_ACCEPTED));
+		assert(publisher.tryPublish(1LL, 3LL, WORK_SUSPENSION_DEFER, 1LL, 62LL) == PUBLISH_CLOSED);
+		bool failed = false;
+		try { publisher.deliverOne(); } catch (string error) { failed = true; }
+		assert(failed && receiver.calls == 0 && host.calls == (replacement ? 2 : 1));
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(publisher.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(publisher.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(publisher.tryPublish(1LL, 4LL, WORK_SUSPENSION_DEFER, 1LL, 63LL) == PUBLISH_CLOSED);
+		assert(receiver.calls == 0 && host.calls == (replacement ? 2 : 1));
+	}
+}
+
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	UI2PublisherFailureChecks.throwingHost(false); UI2PublisherFailureChecks.throwingHost(true);
 	var application = LinuxApplication(4);
 	var receiver = UI2LinuxReceiver(); var scope = CallbackScope();
 	var created = application.createPublisher(2, receiver, scope);

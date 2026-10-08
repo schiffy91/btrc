@@ -123,7 +123,13 @@ class ControlEventQueue {
 
 	public long long retired(ControlEventDisposition disposition) { return self._retired.get((int)disposition); }
 
-	private void wake() { if (self._wake != null && !self._wake.requestTurn()) { self._wakeFailed = true; } }
+	private void wake() {
+		/* The receipt is already committed. Neither a false native result nor
+		 * a throwing adapter may turn it into an ambiguous producer rejection.
+		 * The next service turn reports failure; cancellation still drains. */
+		try { if (self._wake != null && !self._wake.requestTurn()) { self._wakeFailed = true; } }
+		catch (string error) { self._wakeFailed = true; }
+	}
 
 	private void retireRecord(ControlEventRecord record, ControlEventDisposition disposition) {
 		long long count = self._retired.get((int)disposition);

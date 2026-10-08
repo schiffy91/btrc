@@ -19,13 +19,58 @@ class QueueReceiver implements IQueueReceiver {
 	public void receive(QueueSnapshot snapshot) {
 		self.values.push(snapshot.value);
 		if (self.fail) { throw "deliberate semantic failure"; }
-		if (self.cancelDuring != null) { assert(self.cancelDuring.cancel() == CALLBACK_CANCELLATION_PENDING); }
+		if (self.cancelDuring != null) { var registration = self.cancelDuring; self.cancelDuring = null; assert(registration.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	}
 
 	class void deliver(IQueueReceiver receiver, QueueSnapshot snapshot) { receiver.receive(snapshot); }
 }
 
+class QueueWake implements IControlEventWake {
+	public bool fail = false;
+	public bool raises = false;
+	public int calls = 0;
+	public bool requestTurn() { self.calls++; if (self.raises) { throw "deliberate wake failure"; } return !self.fail; }
+}
+
+class QueueFailureChecks {
+	class void wakeFailure(bool raises, bool replacement) {
+		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(2, pool);
+		var wake = QueueWake(); queue.setWake(wake);
+		var target = QueueTarget(); var receiver = QueueReceiver(); var scope = CallbackScope();
+		var channel = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(queue, target, receiver, QueueReceiver.deliver, scope);
+		if (replacement) { assert(channel.publish(QueueSnapshot(60), 1LL, 1LL, 1LL)); }
+		wake.raises = raises; wake.fail = true;
+		assert(channel.publish(QueueSnapshot(61), 1LL, 1LL, 1LL));
+		assert(queue.pendingCount() == 1 && receiver.values.len == 0);
+		assert(queue.retired(CONTROL_EVENT_SUPERSEDED) == (replacement ? 1LL : 0LL));
+		assert(!channel.publish(QueueSnapshot(62), 1LL, 1LL, 1LL));
+		assert(wake.calls == (replacement ? 2 : 1));
+		bool failed = false;
+		try { queue.dispatchOne(); } catch (string error) { failed = true; }
+		assert(failed && queue.pendingCount() == 1 && receiver.values.len == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(channel.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(queue.pendingCount() == 0 && queue.retired(CONTROL_EVENT_CANCELLED) == 1LL && pool.available() == 1);
+		assert(!channel.publish(QueueSnapshot(63), 1LL, 1LL, 1LL));
+		queue.close(); assert(receiver.values.len == 0 && wake.calls == (replacement ? 2 : 1));
+	}
+
+	class void cancelledOwner() {
+		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(2, pool);
+		var target = QueueTarget(); var receiver = QueueReceiver(); var scope = CallbackScope();
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		bool failed = false;
+		try { var channel = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(queue, target, receiver, QueueReceiver.deliver, scope); }
+		catch (string error) { failed = true; }
+		assert(failed && pool.available() == 1 && queue.pendingCount() == 0 && receiver.values.len == 0);
+		queue.close();
+	}
+}
+
 int main() {
+	QueueFailureChecks.cancelledOwner();
+	QueueFailureChecks.wakeFailure(false, false); QueueFailureChecks.wakeFailure(true, false);
+	QueueFailureChecks.wakeFailure(false, true); QueueFailureChecks.wakeFailure(true, true);
 	var pool = ControlEventTerminalPool(2);
 	var queue = ControlEventQueue(4, pool);
 	var target = QueueTarget(); var receiver = QueueReceiver(); var scope = CallbackScope();
@@ -61,8 +106,10 @@ int main() {
 	terminal = first.beginInteraction(); assert(terminal != null);
 	first.publishTerminal(QueueSnapshot(40), 2LL, 12LL, terminal);
 	assert(first.publish(QueueSnapshot(41), 2LL, 12LL, 1LL));
+	assert(second.publish(QueueSnapshot(42), 2LL, 12LL, 1LL));
 	assert(queue.dispatchOne()); assert(first.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(receiver.values.get(receiver.values.len - 1) == 40);
+	assert(queue.dispatchOne() && receiver.values.get(receiver.values.len - 1) == 42);
 	assert(!queue.dispatchOne() && queue.retired(CONTROL_EVENT_CANCELLED) == 1LL);
 	receiver.cancelDuring = null;
 	/* A retained subscription can cross window/detached domains; old queued

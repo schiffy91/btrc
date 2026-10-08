@@ -22,14 +22,14 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 	private int _capacity;
 	private int _count = 0;
 	private int _executing = 0;
-	private int _notifying = 0;
+	private Atomic<uint> _notifying;
 	private Atomic<bool> _sealed;
 	private CallbackCancellation _cancellation = CALLBACK_CANCELLATION_NOT_REQUESTED;
 	private CallbackScope _scope = CallbackScope();
 	private bool _open = false;
 	private bool _suspended = false;
 	private bool _wakePending = false;
-	private bool _failed = false;
+	private Atomic<bool> _failed;
 	private bool _initialized = false;
 	private long long _generation = 0LL;
 	private long long _sequence = 0LL;
@@ -39,7 +39,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 	private IApplicationHost? _host;
 
 	public LinuxPublisher(int capacity, IApplicationHost? host) {
-		self._capacity = capacity; self._host = host; self._sealed.init(false);
+		self._capacity = capacity; self._host = host; self._sealed.init(false); self._notifying.init(0u); self._failed.init(false);
 		self._mutex = (pthread_mutex_t*)calloc(1, sizeof(pthread_mutex_t));
 		self._slots = (struct LinuxPublicationSlot*)calloc((size_t)capacity, sizeof(struct LinuxPublicationSlot));
 		if (self._mutex == null || self._slots == null) { return; }
@@ -64,7 +64,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 	 * source or receiver changes; no mutex remains held on that failure. */
 	public bool beginHostChange() {
 		if (pthread_mutex_trylock(self._mutex) != 0) { return false; }
-		if (self._notifying != 0) { pthread_mutex_unlock(self._mutex); return false; }
+		if (self._notifying.load(MemoryOrder.ACQUIRE) != 0u) { pthread_mutex_unlock(self._mutex); return false; }
 		return true;
 	}
 
@@ -83,6 +83,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		if (!self._open || self._sealed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(self._mutex); return PUBLISH_CLOSED; }
 		if (generation < self._generation || (generation == self._generation && sequence <= self._sequence)) { pthread_mutex_unlock(self._mutex); return PUBLISH_STALE; }
 		if (self._suspended && suspension == WORK_SUSPENSION_CANCEL) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCELLED; }
+		if (self._notifying.load(MemoryOrder.ACQUIRE) == 4294967295u) { pthread_mutex_unlock(self._mutex); return PUBLISH_RESOURCE_FAILED; }
 		int replace = -1;
 		if (replacementKey > 0LL && generation == self._generation) {
 			for (int index = self._count - 1; index >= 0; index--) {
@@ -96,7 +97,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		/* SDL_PushEvent is bounded, thread-safe and never invokes a BTRC
  		 * receiver. The mutex keeps the receipt invisible until wake succeeds. */
 		if (!self._wakePending && !btrcSdlPushWake()) {
-			self._failed = true; self._open = false; self._sealed.store(true, MemoryOrder.RELEASE);
+			self._failed.store(true, MemoryOrder.RELEASE); self._open = false; self._sealed.store(true, MemoryOrder.RELEASE);
 			pthread_mutex_unlock(self._mutex); return PUBLISH_WAKE_FAILED;
 		}
 		self._wakePending = true;
@@ -105,14 +106,19 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		self._slots[slot].generation = generation; self._slots[slot].sequence = sequence;
 		self._slots[slot].key = replacementKey; self._slots[slot].payload = payload; self._slots[slot].policy = (int)suspension;
 		self._sequence = sequence;
-		self._notifying++;
+		self._notifying.fetchAdd(1u, MemoryOrder.ACQ_REL);
 		pthread_mutex_unlock(self._mutex);
 		/* Host signalling is outside synchronization. Admission has committed;
  		 * a failed host wake seals the endpoint, never a retryable rejection. */
-		bool signalled = self._host == null || self._host.requestTurn();
-		if (pthread_mutex_lock(self._mutex) != 0) { return PUBLISH_ACCEPTED; }
-		if (!signalled) { self._failed = true; self._open = false; self._sealed.store(true, MemoryOrder.RELEASE); }
-		self._notifying--; pthread_mutex_unlock(self._mutex);
+		bool signalled = false;
+		try { signalled = self._host == null || self._host.requestTurn(); }
+		catch (string error) { signalled = false; }
+		finally {
+			if (!signalled) { self._failed.store(true, MemoryOrder.RELEASE); self._sealed.store(true, MemoryOrder.RELEASE); }
+			/* Native synchronization cannot strand the notification claim: this
+			 * retirement needs no second mutex acquisition on any exit path. */
+			self._notifying.fetchSub(1u, MemoryOrder.RELEASE);
+		}
 		return replace >= 0 ? PUBLISH_REPLACED : PUBLISH_ACCEPTED;
 	}
 
@@ -135,14 +141,14 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 
 	public bool pending() {
 		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
-		bool pending = self._failed || (!self._suspended && self._count > 0);
+		bool pending = self._failed.load(MemoryOrder.ACQUIRE) || (!self._suspended && self._count > 0);
 		pthread_mutex_unlock(self._mutex); return pending;
 	}
 
 	public bool deliverOne() {
 		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
 		self._wakePending = false;
-		if (self._failed) { pthread_mutex_unlock(self._mutex); throw "Application publisher native wake failed"; }
+		if (self._failed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(self._mutex); throw "Application publisher native wake failed"; }
 		if (!self._open || self._suspended || self._count == 0) { pthread_mutex_unlock(self._mutex); return false; }
 		struct LinuxPublicationSlot slot = self._slots[0]; self.removeAt(0); self._executing++;
 		pthread_mutex_unlock(self._mutex);
@@ -174,7 +180,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		if (locked == EBUSY) { return CALLBACK_CANCELLATION_PENDING; }
 		if (locked != 0) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
 		self._open = false; self._count = 0; self._wakePending = false;
-		bool busy = self._notifying != 0;
+		bool busy = self._notifying.load(MemoryOrder.ACQUIRE) != 0u;
 		pthread_mutex_unlock(self._mutex);
 		if (busy) { return CALLBACK_CANCELLATION_PENDING; }
 		self._host = null;
