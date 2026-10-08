@@ -216,10 +216,13 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 native `MacOS/Range.h`, `Range.m`, `Select.h`, `Select.m` bridges,
 `src/tests/native/gui/ui2/probes/macos/NativeRangeState.btrc`,
 `NativeSelectionState.btrc`, their dedicated Range/Select probe modules,
-`src/tests/python/test_native_ui_range_selection_macos.py`, and
+`src/tests/python/test_native_ui_range_macos.py`,
+`src/tests/python/test_native_ui_selection_macos.py`, and
 `docs/workstreams/ui2-macos-range-selection.md` on
 `codex/ui2-macos-slider-select` from `904d2716` in the existing android-host clone.
-The authentic public-application baseline on provider `b6a4fe3e` and compiler
+The execution subagent implements Slider/Range and the parent implements
+Select/Selection in disjoint paths in this clone; the parent alone stages and
+commits. The authentic public-application baseline on provider `b6a4fe3e` and compiler
 `f75c737b` has six missing slider and seven missing selection methods. Reuse the
 approved contracts and shared semantic owners; no portable API, shared context,
 compiler or runtime change is claimed. Native bindings are a final fragment.

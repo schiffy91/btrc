@@ -48,6 +48,25 @@ no-op and rejected-input preservation, queue pressure, cancellation while queued
 and inside delivery, hidden/detached/closed owners, and no callbacks after drain.
 Never replace the original public Application fixture with a narrowed provider.
 
-Current state: claim and design only; no range/selection production edits,
-component projection, native build or execution in this packet yet. Complete
-public application and both desktop providers remain separate final gates.
+Current source checkpoint: fixture-only selection `112616a6` and range
+`bead0ca4` preserve their acceptance before production edits. The selection
+implementation now owns and validates keyed model snapshots, the legacy index
+projection, no-op publication and typed semantic channels/terminal reservations.
+Its private typed AppKit subclass captures native menu tracking through the
+existing generated weak sink and CallbackScope; it owns no product model.
+Source formatting/lint pass. SDK projection, actual native menu journeys and
+paired/sanitized execution are still outstanding; this is not a provider pass.
+
+The range implementation is assigned to the execution subagent in disjoint
+Slider/Range paths; only the parent stages and commits this shared clone.
+Selection is owned by the parent. No shared callback or context owner is changed.
+
+Selection acceptance of the already accepted key follows the existing Linux
+provider: preserve already queued CHANGE snapshots, emit no USER COMMIT and
+retire unused terminal credits, including after navigation away and back. This
+avoids inventing a product command or cancellation reason. Native menu fixtures
+must explicitly cover this case. All queued domain terminals retain the approved
+invocation-time eligibility check; a dropped accepted commit is never replaced
+with a second cancellation.
+
+Complete public application and both desktop providers remain final gates.
