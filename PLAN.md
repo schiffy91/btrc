@@ -91,7 +91,12 @@ The immutable 851-file D9 workload is reverified. The current-source attempt
 also stops at its unchanged 180-second quiet deadline: actual `mds`/`mdworker`
 CPU exceeds 5%, while guests are stopped and all other probes pass. It records
 zero compiler samples (`token-current-3974/quiet-diagnostic-1`), supplies no
-performance result, and does not replace Stage 5 or the full final matrix.
+performance result, and does not replace Stage 5 or the full final matrix. A separate
+[focused Linux x86_64 comparison](https://github.com/schiffy91/btrc/actions/runs/37732563990)
+is running the original heavy-stdlib/dispatch peak checks on baseline `3974d47b`
+and candidate `71352c50`, alternating six checks with unchanged allowances.
+The existing integrated-candidate CI runs remain intact; no diagnostic result
+is available yet.
 
 ### Goal 2: usable standard library and native GUI on five platforms
 
@@ -116,7 +121,10 @@ C/Objective-C syntax checks and 28 links pass. This component is not on main and
 does not qualify the complete provider: ordered-container tree cases, remaining
 controls, application integration and Linux UI2 are still open. Evidence remains
 in `ui2-macos-qualification-a9ffe1bd/`; the first warning-producing attempt is
-preserved separately.
+preserved separately. The first ordered-container reference projection at
+`4d1cd3d0` passes SDK selection and transpilation but stops on a nullable native
+child warning. Reviewed guard `7a95ccdf` awaits a fresh projection; no later
+syntax, link or runtime stage is counted as passed.
 
 Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
 audio and foreign-library ownership still require their platform-specific
@@ -161,10 +169,16 @@ with 26 build-input tests passing. Failed evidence remains retained.
 
 The library passes do not qualify the native agent channel: both launches
 reported an invalid endpoint. Its 123-byte socket path exceeds Darwin's usable
-103-byte limit. A centralized bounded endpoint policy and real long-path
-server/client regression are under review; shortening the smoke path is not
-acceptance. Nullable-owner corrections are source-reviewed but not executed.
-Linux x86_64 qualification is prepared, not run. Product locks remain unchanged;
+103-byte limit. Product `933f79b7` now implements a reviewed centralized bounded endpoint
+policy. The separate long-path regression reproduces the original native
+INVALID/EINVAL failure through both compilers; repaired storage passes four
+reference/self-hosted × Clang/GCC native runs. The repaired live channel and
+library journey are still pending; shortening the smoke path is not acceptance.
+Nullable-owner corrections are source-reviewed but not executed. The original
+Linux x86_64 product qualification is running in
+[BTRSmith PR30](https://github.com/schiffy91/btrsmith/pull/30), stacked on the
+existing pin-migration PR28, using exact product `933f79b7` and compiler
+`3974d47b`. Product locks remain unchanged;
 these results use an explicit current-compiler override, not an accepted pin bump.
 Evidence is in `btrsmith-frontend-3974-prepared/attempt-1` and
 `btrsmith-frontend-3974-prepared/library-attempt-2`. The exact realized Nix shell
