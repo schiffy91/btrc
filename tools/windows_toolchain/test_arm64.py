@@ -751,11 +751,18 @@ class Arm64EvidenceTests(unittest.TestCase):
                     self.assertEqual(os.environ[key], inherited[key])
                 (root / "interrupted-evidence").write_text(str(attempt))
                 # Exercise the existing process boundary with a real Python child.
-                observed = json.loads(evidence.run(
-                    [sys.executable, "-c", "import os,json; print(json.dumps({k:os.environ[k] for k in "
-                     "('ZIG_GLOBAL_CACHE_DIR','ZIG_LOCAL_CACHE_DIR')}))"],
-                    "cache-child", timeout=10,
-                ))
+                observed = json.loads(
+                    evidence.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            "import os,json; print(json.dumps({k:os.environ[k] for k in "
+                            "('ZIG_GLOBAL_CACHE_DIR','ZIG_LOCAL_CACHE_DIR')}))",
+                        ],
+                        "cache-child",
+                        timeout=10,
+                    )
+                )
                 self.assertEqual(observed, {key: evidence.environment[key] for key in inherited})
                 self.assertEqual(evidence.report["status"], "failed")
                 self.assertEqual(evidence.report["native_execution"], "not-run")

@@ -52,6 +52,56 @@ No global platform pin, ABI, deadline or acceptance criterion changes.
 
 ## Qualification status
 
-Claim recorded before implementation. Focused regression tests will precede
-the repair. Actual Windows native qualification and hosted CI remain pending;
-no Mac test can supply that evidence. The parent owns publication and CI slots.
+Claim commit: `34170217`. Fixture-only red commit: `f008131c`.
+
+The native archive row now owns its version as well as URL, size and digest.
+`identify()` validates the version selected by the execution mode. The existing
+cross version pin and cross manifest checks stay at 0.16.0. Native reports carry
+the selected archive metadata, actual Zig version, and verified cross Zig
+version separately. The unchanged workflow validates the downloaded archive's
+size and SHA-256 before placing its executable on PATH. Local metadata review
+does not claim that the Windows archive was downloaded or executed here.
+
+After validating the cross artifact, each native invocation creates a unique
+cache root beneath its evidence directory, with empty global/local caches.
+Both environment variables override inherited cache paths in the private child
+environment, including subsequent bootstrap children. The parent environment
+is unchanged. Failed cache directories remain retained with the evidence;
+repeating an invocation never reuses or deletes them.
+
+Focused validation used retained Python
+`/nix/store/35r726j0hx21698i9p7ry53l1afprc84-python3-3.14.6-env/bin/python3`:
+
+```text
+PYTHONDONTWRITEBYTECODE=1 <python> -m unittest tools.windows_toolchain.test_arm64 -v
+PYTHONDONTWRITEBYTECODE=1 BTRC_TEST_RUNNER=macos <python> -m pytest -q \
+  src/tests/python/test_ci_workflow_contracts.py::test_windows_arm64_lane_keeps_cross_and_native_qualification_separate
+```
+
+- Baseline: 38 tests, 37 passed and one existing Windows-native skip, 3.209 s.
+- Red: both new regression tests fail against unmodified production; native
+  mode incorrectly accepts the cross pin and lacks isolated cache provenance.
+- Green: 40 tests, 39 passed and the same native-only skip, 3.293 s. The cache
+  regression executes a real Python child through the shared process owner,
+  verifies both environment values, and retains the first failed run's marker
+  across a second run with the same output directory.
+- The existing workflow separation contract passed, 1 test in 0.18 s.
+- Ruff lint/format and `git diff --check` passed. The qualified Python contains
+  no Ruff module; the check used the retained Ruff 0.15.14 executable instead.
+- Independent source/wiring review by execution_review found no blocker. It
+  compared the pin with both retained and live official metadata and checked
+  that fresh caches reach bootstrap without weakening cross/native gates.
+
+Evidence lives outside Drive at
+`~/.cache/btrc/plan-consolidation-2026-10-07/windows-native-zig-017/`:
+`baseline.log`, `red.log`, `green.log`, `workflow.log`, and retained official
+index/release-note responses. The native pin was compared directly with the
+official index's `0.17.0` ARM64 Windows row. Index response SHA-256:
+`4787934a28d494dc496d93cfa46cabb840158db938cfbea0cde3f3cce63bb936`;
+release-note response SHA-256:
+`55d4e9d4b489195dbca2631169b6def135ef97c05a7742c784ca28cacb7dd210`.
+
+Time categories: source/review and small Python checks only; no local compiler
+build, native gate, guest, or measurement. Actual Windows native qualification,
+archive verification, full bootstrap and hosted CI remain pending. No Mac test
+can supply that evidence. The parent owns publication and CI slots.

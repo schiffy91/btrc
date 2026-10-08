@@ -11,6 +11,7 @@ import platform
 import shlex
 import sys
 import sysconfig
+import tempfile
 import time
 from pathlib import Path
 
@@ -78,9 +79,22 @@ class Evidence:
     def identify(self) -> None:
         self.report["revision"] = self.run(["git", "rev-parse", "HEAD"], "revision", timeout=60).decode().strip()
         version = self.run([self.zig, "version"], "zig-version", timeout=60).decode().strip()
-        if version != PINS["zig_version"]:
-            raise RuntimeError(f"expected pinned Zig {PINS['zig_version']}, got {version}")
+        native = self.report.get("mode") == "native"
+        expected = PINS["zig_windows_arm64"]["version"] if native else PINS["zig_version"]
+        if version != expected:
+            raise RuntimeError(f"expected pinned Zig {expected}, got {version}")
         self.report["zig_version"] = version
+        if native:
+            self.report["zig_archive"] = dict(PINS["zig_windows_arm64"])
+
+    def isolate_native_cache(self) -> None:
+        """Give this run and every bootstrap child fresh caches; retain failed runs."""
+        root = Path(tempfile.mkdtemp(prefix="zig-cache-", dir=self.output))
+        global_cache, local_cache = root / "global", root / "local"
+        global_cache.mkdir()
+        local_cache.mkdir()
+        self.environment.update(ZIG_GLOBAL_CACHE_DIR=str(global_cache), ZIG_LOCAL_CACHE_DIR=str(local_cache))
+        self.report["zig_cache"] = {"root": str(root), "global": str(global_cache), "local": str(local_cache)}
 
     def diagnose_windows_failure(self) -> None:
         """Keep bounded, read-only crash observations without replacing the error."""
@@ -285,6 +299,7 @@ $report | ConvertTo-Json -Depth 6
                 raise RuntimeError(f"cross artifact differs from its Linux manifest: {field}")
         self.report["cross_summary_sha256"] = hashlib.sha256(data).hexdigest()
         self.report["cross_source_revision"] = summary["revision"]
+        self.report["cross_zig_version"] = summary["zig_version"]
 
     def native(self, cross: Path, cross_summary: Path) -> None:
         # Leave ten minutes of the 210-minute hosted step for report/cleanup.
@@ -296,6 +311,7 @@ $report | ConvertTo-Json -Depth 6
             raise RuntimeError("cross artifact must be separate from the native output directory")
         self.report["cross_compiler"] = pe_arm64(cross)
         self.verify_cross(cross_summary)
+        self.isolate_native_cache()
         self.probe_native_toolchain()
         native = self.build()
         sample = ROOT / "src/tests/strings/BracesInCodeGen.btrc"
