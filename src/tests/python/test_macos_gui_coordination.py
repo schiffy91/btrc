@@ -1,5 +1,6 @@
 """Real process exclusion for native GUI pytest leases; no GUI/compiler is launched."""
 
+import hashlib
 import json
 import os
 import signal
@@ -47,8 +48,14 @@ class GuiProcesses:
         self.platform = platform
         self.processes = {}
         (root / "conftest.py").write_text(
-            "import os, sys\nfrom pathlib import Path\nfrom types import SimpleNamespace\nimport pytest\n"
+            "import hashlib, json, os, sys\nfrom pathlib import Path\nfrom types import SimpleNamespace\nimport pytest\n"
             "from src.tests import conftest as owner\n"
+            "gui_lock_path = None\n"
+            "owner_path = Path(owner.__file__).resolve()\n"
+            "assert owner_path == Path(os.environ['LEASE_OWNER_PATH']), 'Wrong GUI fixture owner'\n"
+            "owner_sha = hashlib.sha256(owner_path.read_bytes()).hexdigest()\n"
+            "assert owner_sha == os.environ['LEASE_OWNER_SHA256'], 'Changed GUI fixture owner'\n"
+            "Path(os.environ['LEASE_ROLE'] + '.owner.json').write_text(json.dumps({'path': str(owner_path), 'sha256': owner_sha}))\n"
             "pytest_plugins = ['src.tests.conftest']\n"
             # Replace only the fixture owner's view of the platform. The real
             # kernel lock is exercised on POSIX, including Linux CI; no AppKit claim.
@@ -62,7 +69,9 @@ class GuiProcesses:
             "        try:\n"
             "            return original_flock(*args, **kwargs)\n"
             "        except BlockingIOError:\n"
-            "            Path(os.environ['LEASE_ROLE'] + '.blocked').touch()\n"
+            "            expected = gui_lock_path\n"
+            "            if expected is not None and expected.exists() and os.path.samestat(os.fstat(args[0]), expected.stat()):\n"
+            "                Path(os.environ['LEASE_ROLE'] + '.blocked').write_text(str(expected.resolve()))\n"
             "            raise\n"
             "    fcntl.flock = observed_flock\n"
             "if os.environ.get('LEASE_TIMEOUT'):\n"
@@ -71,6 +80,10 @@ class GuiProcesses:
             "        return original(path, **(kwargs | {'timeout': float(os.environ['LEASE_TIMEOUT'])}))\n"
             "    owner._exclusive = bounded\n"
             "def pytest_configure(config):\n"
+            "    global gui_lock_path\n"
+            "    gui_lock_path = config.cache.mkdir('macos-gui' if os.environ['LEASE_PLATFORM'] == 'darwin' else 'linux-gui') / 'execution.lock'\n"
+            "    assert config.inipath.resolve() == Path(os.environ['LEASE_CONFIG']), 'Wrong GUI pytest configuration'\n"
+            "    assert Path(config.getini('cache_dir')).resolve() == Path(os.environ['LEASE_CACHE']), 'Wrong GUI pytest cache'\n"
             "    config.addinivalue_line('markers', 'macos_gui: shared AppKit session')\n"
             "    config.addinivalue_line('markers', 'linux_gui: shared Linux display session')\n"
             "@pytest.hookimpl(tryfirst=True)\n"
@@ -102,7 +115,8 @@ class GuiProcesses:
             "def test_ordinary(journey_fixture):\n    journey()\n"
             "def test_orchestrator(journey_fixture):\n"
             "    journey()\n"
-            "    subprocess.run([sys.executable, '-m', 'pytest', '-q', 'test_process.py::test_gui'],\n"
+            "    subprocess.run([sys.executable, '-m', 'pytest', '-q', '-c', os.environ['LEASE_CONFIG'],\n"
+            "                    '--confcutdir=' + str(Path.cwd()), '-o', 'cache_dir=' + os.environ['LEASE_CACHE'], 'test_process.py::test_gui'],\n"
             "                   env=os.environ | {'LEASE_ROLE': 'nested'}, check=True, timeout=15)\n"
         )
 
@@ -112,6 +126,10 @@ class GuiProcesses:
             "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
             "PYTEST_ADDOPTS": "",
             "LEASE_PLATFORM": platform or self.platform,
+            "LEASE_CONFIG": str((REPO / "pyproject.toml").resolve()),
+            "LEASE_CACHE": str((self.root / ".pytest_cache").resolve()),
+            "LEASE_OWNER_PATH": str((REPO / "src/tests/conftest.py").resolve()),
+            "LEASE_OWNER_SHA256": hashlib.sha256((REPO / "src/tests/conftest.py").read_bytes()).hexdigest(),
             "LEASE_ROLE": role,
             "LEASE_FAIL": "1" if fail else "0",
             "LEASE_TIMEOUT": "" if timeout is None else str(timeout),
@@ -123,6 +141,11 @@ class GuiProcesses:
                 "-m",
                 "pytest",
                 "-q",
+                "-c",
+                environment["LEASE_CONFIG"],
+                "--confcutdir=" + str(self.root),
+                "-o",
+                "cache_dir=" + environment["LEASE_CACHE"],
                 "test_process.py::" + (node or ("test_gui" if marked else "test_ordinary")),
             ],
             cwd=self.root,
@@ -266,6 +289,8 @@ def test_all_known_appkit_execution_tests_claim_the_gui_session(tmp_path):
             sys.executable,
             "-m",
             "pytest",
+            "-c",
+            str(REPO / "pyproject.toml"),
             "--collect-only",
             "-q",
             "-p",
@@ -391,6 +416,8 @@ def test_all_known_linux_display_tests_claim_the_gui_session(tmp_path):
             sys.executable,
             "-m",
             "pytest",
+            "-c",
+            str(REPO / "pyproject.toml"),
             "--collect-only",
             "-q",
             "-p",

@@ -1,9 +1,9 @@
 {
   "base": "3974d47bc87851b1ac19b8d2b4bd5022f2d94676",
-  "candidate": "9b03f794b2faca8b9c52dced97da5598e000ca7d",
+  "candidate": "a5e26ab8a551f0d39d6978cb1aae3ee14b59f468",
   "production": {
     "src/tests/conftest.py": "e9ba70fe6c66430b3ec59c95ca6f7e68fd05b101359193b0145b6db42362c22b",
-    "src/tests/python/test_macos_gui_coordination.py": "336457a9234325010de55b17a43b0655d059ae125d61428d63a9652e2750652e",
+    "src/tests/python/test_macos_gui_coordination.py": "f205435f49c85918db65a6bc3c27b1b95bee659740fa3573434c1c2c41042da7",
     "src/tests/python/test_native_linux_providers.py": "77fb784fb559e8e5282e068c3abcdd139c7c4d25d5f2e235d9dd504376b796ec",
     "src/tests/python/test_native_ui_grid_replacement.py": "5f6aed30b2346937eed78ee7e8709d0e945b3491196a10ed1c7f8a889074972c",
     "src/tests/python/test_native_ui_layout_resize.py": "5eb8ccdf910265c6e3ae338227c4b3c682671796f425148cddfaa97011d91929",
