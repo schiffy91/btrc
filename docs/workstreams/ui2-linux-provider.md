@@ -303,3 +303,31 @@ All retirement paths update the same bounded ledger and aggregate dispositions.
 This follow-up has formatting/diff inspection only and is **not covered by the
 818 projection**; both frontend source checks and native red/green execution
 remain pending. No heavy process was launched for this follow-up.
+
+### Text source slice in progress
+
+Fixture-only checkpoints `0d954a84` and `64fbc034` stage real SDL key/text and
+TEXT_EDITING ingress for draft/commit/Escape, identical accepted-baseline
+publication, MODEL cancellation, marked-text cancellation and retained dirty
+draft across eligibility loss. The source implementation now keeps accepted
+text, non-composing draft and preedit separately; preedit selection offsets are
+converted from SDL UTF-8 scalar offsets to byte boundaries. It paints marked
+text/caret/selection, routes TEXT_EDITING to actual text targets, and uses the
+shared typed channels with terminal tickets acquired at interaction start.
+
+SDL's documented `SDL_ClearComposition(SDL_Window*)` returns success/failure and
+must run on the main thread; failure is retained as a provider error, not a
+successful cancellation. SDL editing start/length are UTF-8 character offsets.
+Primary references: https://wiki.libsdl.org/SDL3/SDL_ClearComposition and
+https://wiki.libsdl.org/SDL3/SDL_TextEditingEvent .
+
+Integrator native binding additions are required: `SDL_EVENT_TEXT_EDITING`,
+`SDL_ClearComposition`, `btrcSdlPushEditing`, and read-only borrow
+`btrcSdlPushEditing.text`. The new push helper only constructs a real SDL event
+using the existing bounded text-ring lifetime; it owns no editing behavior.
+No production manifest or generated file was edited. The fixtures and source
+have not been semantically compiled or executed while the controlled native
+qualification lane runs. Ordinary focus departure while SDL still reports
+composition needs native-ordering review; the draft treats that as a SYSTEM
+platform interruption, whereas finalized dirty text commits on ordinary blur.
+This source checkpoint is not a platform adaptation approval or UI2 acceptance.

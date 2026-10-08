@@ -114,6 +114,7 @@ interface ILinuxView extends IView {
 
 /* A focused control that hosts an input-method composition. */
 interface ILinuxTextTarget {
+	void textEditing(string value, int start, int length);
 	void textInputArea(LinuxViewHost host, double x, double y);
 }
 

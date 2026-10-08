@@ -71,6 +71,7 @@ static inline void btrcSdlFlatten(const SDL_Event* source, BtrcSdlEvent* out) {
 		out->text = source->edit.text;
 		out->data1 = source->edit.start;
 		out->data2 = source->edit.length;
+		for (int slot = 0; slot < 16; slot++) { if (source->edit.text == btrcSdlTextRing[slot]) { btrcSdlTextRingTaken++; break; } }
 	} else if (source->type == SDL_EVENT_TEXT_INPUT) {
 		out->window = source->text.windowID;
 		out->text = source->text.text;
@@ -224,4 +225,18 @@ static inline int btrcSdlPushText(unsigned int window, const char* text) {
 	if (!SDL_PushEvent(&event)) { return 0; }
 	btrcSdlTextRingPushed++;
 	return 1;
+}
+
+/* Real TEXT_EDITING ingress, sharing the same bounded synthetic-text lifetime
+ * as TEXT_INPUT; this helper does not implement provider composition policy. */
+static inline int btrcSdlPushEditing(unsigned int window, const char* text, int start, int length) {
+	size_t bytes = strlen(text);
+	if (bytes > 63u || btrcSdlTextRingPushed - btrcSdlTextRingTaken >= 16u) { return 0; }
+	char* slot = btrcSdlTextRing[btrcSdlTextRingPushed % 16u];
+	memcpy(slot, text, bytes); slot[bytes] = '\0';
+	SDL_Event event; memset(&event, 0, sizeof(event));
+	event.type = SDL_EVENT_TEXT_EDITING; event.edit.windowID = window;
+	event.edit.text = slot; event.edit.start = start; event.edit.length = length;
+	if (!SDL_PushEvent(&event)) { return 0; }
+	btrcSdlTextRingPushed++; return 1;
 }

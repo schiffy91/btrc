@@ -627,6 +627,16 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 			self.applyFocus();
 			return;
 		}
+		if (type == (unsigned int)SDL_EVENT_TEXT_EDITING) {
+			if (event->text != null && self._host.focusedId != 0) {
+				var focused = self.locate(self._host.focusedId);
+				if (focused != null && focused.view.node().effectiveEligible()) {
+					var target = (ILinuxTextTarget?)focused.view;
+					if (target != null) { target.textEditing(Strings.copy((char*)event->text), event->data1, event->data2); }
+				}
+			}
+			return;
+		}
 		if (type == (unsigned int)SDL_EVENT_TEXT_INPUT) {
 			if (event->text != null && self._host.focusedId != 0) {
 				var focused = self.locate(self._host.focusedId);
