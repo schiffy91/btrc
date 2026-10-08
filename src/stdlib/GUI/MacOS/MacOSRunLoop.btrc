@@ -151,8 +151,9 @@ class MacOSRunLoopSignal {
 	private OwnedClosure<CFunction<void, void*>>? _closure;
 	private MacOSRunLoopDispatch? _dispatch;
 	private bool _subscribed = false;
+	private bool _registered = false;
 
-	public MacOSRunLoopSignal() {
+	public MacOSRunLoopSignal(bool registered = true) {
 		self.requireMainThread();
 		var sender = NSObject.new();
 		if (sender == null) { throw "Cannot create native run-loop wake identity"; }
@@ -173,8 +174,19 @@ class MacOSRunLoopSignal {
 		context.perform = closure.invokePointer();
 		state->source = CFRunLoopSourceCreate(null, 0L, &context);
 		if (state->source == null) { self.close(); throw "Cannot create native run-loop wake source"; }
+		if (registered) { self.registerSource(); }
+	}
+
+	/* Application-owned signals stage their native registration until attach.
+	 * CFSourceSignal may mark this same owned source before registration; adding
+	 * it preserves that pending readiness without another source or timer. */
+	private void registerSource() {
+		struct MacOSRunLoopWakeState* state = self._state;
+		if (state == null || state->closed || state->source == null) { throw "Native run-loop signal is closed"; }
+		if (self._registered) { return; }
 		CFRunLoopAddCommonMode(state->loop, btrcMacOSTrackingRunLoopMode());
 		CFRunLoopAddSource(state->loop, state->source, kCFRunLoopCommonModes);
+		self._registered = true;
 	}
 
 	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native run-loop signal ownership requires the main thread"; } }
@@ -192,7 +204,10 @@ class MacOSRunLoopSignal {
 		var dispatch = self._dispatch;
 		if (dispatch == null) { throw "Native run-loop signal is closed"; }
 		if (self._subscribed) { throw "Native run-loop signal already has a subscriber"; }
+		/* Admission can fail before registration. No native operation below
+		 * invokes the receiver; the UI thread owns source closure/registration. */
 		dispatch.subscribe(receiver, scope);
+		self.registerSource();
 		self._subscribed = true;
 	}
 
@@ -217,6 +232,7 @@ class MacOSRunLoopSignal {
 		self.requireMainThread();
 		struct MacOSRunLoopWakeState* state = self._state;
 		if (state == null || state->closed) { throw "Native run-loop signal is closed"; }
+		if (!self._registered && monotonicDeadlineNs != 0ULL) { throw "Attach native dispatch before scheduling its timer"; }
 		if (state->deadline == monotonicDeadlineNs) { return; }
 		MacOSRunLoopRegistry.disarmTimer(state);
 		state->deadline = monotonicDeadlineNs;
@@ -257,6 +273,7 @@ class MacOSRunLoopSignal {
 		if (state->closed) { return self.pollClose(); }
 		if (pthread_mutex_lock(&state->mutex) != 0) { throw "Cannot close native run-loop wake synchronization"; }
 		state->closed = true;
+		self._registered = false;
 		MacOSRunLoopRegistry.disarmTimer(state);
 		state->deadline = 0ULL;
 		if (state->source != null) {

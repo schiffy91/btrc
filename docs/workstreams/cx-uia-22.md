@@ -779,3 +779,15 @@ registration. Duplicate subscription cannot replace that successful route;
 actual default/tracking-mode delivery and closed-source suppression remain
 required. Source preparation and formatting only; no baseline compiler or
 native execution has run for this fixture yet.
+
+The staged-signal implementation now accepts private constructor argument
+`registered = false`; standalone callers retain the prior eager default.
+Subscription commits callback-scope admission before registering the same CF
+source, so pre-attachment worker readiness survives without a polling timer or
+second source. Nonzero native timer scheduling before registration is rejected
+before changing any deadline. Source review found no fallible acquisition after
+receiver publication: the remaining CF add operations are void and do not pump
+callbacks; UI ownership excludes concurrent source closure. Duplicate admission
+preserves the existing route. The independent reviewer cleared this bounded
+source change. Actual AddSource counts and replay remain unexecuted, and the
+application has not yet switched to staged registration.
