@@ -25,6 +25,7 @@ class MacOSView implements IMacOSView {
 	private Vector<MacOSViewInput> _inputs = [];
 	private MacOSViewState? _interaction;
 	private bool _inherited = false;
+	private bool _lostEligibility = false;
 	private WindowExposure _exposure = WINDOW_EXPOSURE_UNKNOWN;
 
 	public MacOSView(NSView? view = null, MacOSControlContext? context = null) {
@@ -54,20 +55,33 @@ class MacOSView implements IMacOSView {
 
 	/* Containers/windows provide copied inherited facts. This does not retain
 	 * their native or BTRC owners; same-window route changes are no-ops. */
-	public void refreshInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events = null) {
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events = null) {
 		var view = self.nativeView(); var state = self.interactionOwner();
 		self._inherited = inherited; self._exposure = exposure;
-		if (state.update(!view.isHidden(), state.interactionState().localEnabled, inherited, self._attached, exposure, false)) { self.cancelPointerCapture(); }
+		if (state.update(!view.isHidden(), state.interactionState().localEnabled, inherited, self._attached, exposure, false)) { self._lostEligibility = true; }
 		if (events != null) { state.rebind(events); }
-		state.publish();
+	}
+
+	public void settleInteraction() {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		if (self._lostEligibility) { self._lostEligibility = false; self.cancelPointerCapture(); }
+	}
+
+	public void publishInteraction() { var state = self.interactionOwner(); if (!self._closing) { state.publish(); } }
+
+	/* Only leaves use this combined convenience. A container invokes each
+	 * phase across its entire subtree before beginning the next phase. */
+	public void refreshInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events = null) {
+		self.markInteraction(inherited, exposure, events);
+		self.settleInteraction(); self.publishInteraction();
 	}
 
 	/* A control calls this after changing its actual native enabled flag. The
 	 * snapshot is observation data; the control's getter remains authoritative. */
 	public void localEnabledChanged(bool enabled) {
 		var view = self.nativeView(); var state = self.interactionOwner();
-		if (state.update(!view.isHidden(), enabled, self._inherited, self._attached, self._exposure, false)) { self.cancelPointerCapture(); }
-		state.publish();
+		if (state.update(!view.isHidden(), enabled, self._inherited, self._attached, self._exposure, false)) { self._lostEligibility = true; }
+		self.settleInteraction(); self.publishInteraction();
 	}
 
 	public NSView nativeView() {

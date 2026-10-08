@@ -324,3 +324,9 @@ borrowed signal/host calls in generated producer code (no managed ARC transfer),
 and 20 strict C/Objective-C syntax checks across programs and native adapters.
 Those checks did not produce objects, link executables, or execute native code.
 The new native-view slice is not covered by that frozen proof.
+
+The leaf owner exposes separate markInteraction / settleInteraction /
+publishInteraction phases for upcoming container traversal. Its combined
+refresh remains leaf-only, and an eligibility-loss flag survives between the
+mark and settle phases. This is preparation for the required whole-subtree
+barrier, not evidence that containers are already wired or qualified.
