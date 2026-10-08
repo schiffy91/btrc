@@ -39,7 +39,7 @@ class RangeDelivery {
 	class void interruption(NSView parent, int mode) {
 		var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(16, signal);
 		var slider = MacOSSlider(0.0, 10.0, 10, context); slider.attachTo(parent); slider.arrange(20.0, 20.0, 300.0, 30.0);
-		slider.markInteraction(true, WINDOW_EXPOSURE_VISIBLE, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction(); slider.setValue(4.0);
+		slider.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction(); slider.setValue(4.0);
 		var scope = CallbackScope(); var commit = RangeReceiver(); var cancel = RangeReceiver();
 		slider.onCommit(commit, scope); slider.onCancel(cancel, scope);
 		var intervention = RangeIntervention(slider, mode); var nativeScope = CallbackScope(); var probe = UI2RangeProbe.probe();
@@ -68,7 +68,7 @@ class RangeDelivery {
 	class void pressure(NSView parent) {
 		var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(4, signal);
 		var slider = MacOSSlider(0.0, 10.0, 10, context); slider.attachTo(parent); slider.arrange(20.0, 20.0, 300.0, 30.0);
-		slider.markInteraction(true, WINDOW_EXPOSURE_VISIBLE, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction();
+		slider.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction();
 		var scope = CallbackScope(); var receiver = RangeReceiver(); slider.onPreview(receiver, scope);
 		var state = slider.interactionOwner();
 		var fill = new ControlEventChannel<RangeReceiver, SliderControlEvent>(context.detachedEvents, state, receiver, RangeDelivery.deliver, scope);
@@ -94,7 +94,7 @@ int main() {
 	var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(16, signal);
 	var slider = MacOSSlider(0.0, 10.0, 10, context); slider.attachTo(parent);
 	slider.arrange(20.0, 20.0, 300.0, 30.0);
-	slider.markInteraction(true, WINDOW_EXPOSURE_VISIBLE, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction();
+	slider.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction();
 	assert(slider.interactionState().effectiveEligible);
 	var scope = CallbackScope(); var preview = RangeReceiver(); var commit = RangeReceiver(); var cancel = RangeReceiver();
 	slider.onPreview(preview, scope); slider.onCommit(commit, scope); slider.onCancel(cancel, scope);

@@ -46,7 +46,7 @@ class SelectionInput {
 		var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(1, signal);
 		var select = MacOSSelect(context); select.setOptions(SelectionInput.model()); select.attachTo(parent);
 		select.arrange(20.0, 20.0, 240.0, 30.0);
-		select.markInteraction(true, WINDOW_EXPOSURE_VISIBLE, context.detachedEvents); select.settleInteraction(); select.publishInteraction();
+		select.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); select.settleInteraction(); select.publishInteraction();
 		var scope = CallbackScope(); var changes = SelectionReceiver(probe); var commits = SelectionReceiver(probe);
 		select.onChanged(changes, scope); select.onCommit(commits, scope);
 		probe.journey(select.nativeView(), 0, 0); SelectionInput.tracked(probe);
@@ -54,7 +54,7 @@ class SelectionInput {
 		probe.journey(select.nativeView(), 0, 0);
 		assert(!probe.timedOut() && probe.opened() == 0 && probe.actions() == 0 && select.selectedKey() == "beta");
 		bool failed = false;
-		try { context.dispatchOne(context.detachedEvents); } catch (string error) { failed = true; }
+		try { context.dispatchOne(context.detachedEvents); } catch (string error) { failed = error == "Native selection cannot admit input while its semantic queue is full"; }
 		assert(failed && changes.events.len == 0 && commits.events.len == 0);
 		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		select.detachFrom(parent); assert(select.close() == CALLBACK_CANCELLATION_COMPLETE);
@@ -83,7 +83,7 @@ int main() {
 	var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(16, signal);
 	var select = MacOSSelect(context); select.setOptions(SelectionInput.model()); select.attachTo(parent);
 	select.arrange(20.0, 20.0, 240.0, 30.0);
-	select.markInteraction(true, WINDOW_EXPOSURE_VISIBLE, context.detachedEvents); select.settleInteraction(); select.publishInteraction();
+	select.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); select.settleInteraction(); select.publishInteraction();
 	assert(select.interactionState().effectiveEligible);
 	var scope = CallbackScope(); var nativeScope = CallbackScope();
 	var change = SelectionReceiver(probe); var commit = SelectionReceiver(probe); var cancel = SelectionReceiver(probe);
