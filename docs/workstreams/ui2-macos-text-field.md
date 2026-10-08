@@ -57,7 +57,8 @@ draft cancellation, detach/reattach/move, queue ordering/pressure, scope cancell
 and entered-callback close. Programmatic field-editor composition is mechanism
 evidence; owner IME evidence remains separate. Request early reference SDK
 projection, then paired strict C/native plain+ASan/UBSan qualification on the
-exact final source. No tests or native builds have run for this packet.
+exact final source. Native execution has not run for this packet; source
+projections are recorded below.
 
 ## Source checkpoint and pending qualification
 
@@ -91,8 +92,8 @@ generated files remain unchanged. Final integration must apply the same binding
 rows once and remove any redundant test-only application. The private queue is
 exported only in that fixture's copied data root.
 
-Formatting, Ruff and diff checks pass. Reference SDK projection is the next
-required step; native helper compilation, plain/sanitized execution, capacity
+Formatting, Ruff and diff checks pass. Native helper compilation,
+plain/sanitized execution, capacity
 overlap, Escape, route migration and entered-handler close still require actual
 qualification. No full E01/IME/owner-session acceptance is claimed.
 
@@ -110,3 +111,13 @@ through the existing MacOSView quarantine admission, while private retained
 field access remains available for composition settlement and close. A separate
 fixture checkpoint checks rejected mutation and successful close on that boundary.
 No compiler nullability rule, binding assertion or native test assertion changed.
+
+The corrected c4720eab source passes the same reference SDK projection on f75
+with zero diagnostics in 8.634 seconds. The exact receipt SHA256 is
+`fa6e33ac60837ae96d80bed71b7420297ff168205752b25af17d5779b8f22554`,
+retained under `ui2-macos-text-c4720eab-compiler-f75c737b/results/textProjection1/`
+with generated C and native plan. All four commands returned and reaped zero,
+their process groups were absent afterward, and final source/tool inputs were
+unchanged. This is semantic and SDK projection proof only; no C compilation,
+link, native execution or physical IME acceptance is claimed. The original failed
+d456 projection remains preserved.
