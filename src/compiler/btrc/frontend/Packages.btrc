@@ -399,12 +399,18 @@ class FeManifestBlock {
 	private Map<string, bool> copiedInputNames = {};
 	private Map<string, bool> recordSnapshotNames = {};
 	private Map<string, bool> variadicCallNames = {};
+	private Map<string, bool> propertyTables = {};
 
 	public FeManifestBlock(string tableName, string manifestPath) {
 		self.tableName = tableName;
 		self.manifestPath = manifestPath;
 		self.fields = {};
 		self.resourceNames = {};
+	}
+
+	public void declarePropertyTable(string name) {
+		if (self.propertyTables.has(name)) { FePackageFailure.fail(f"duplicate binding property table '{name}'"); }
+		self.propertyTables.put(name, true);
 	}
 
 	public void declareResource(string name) {
@@ -1622,6 +1628,7 @@ class FePackageManifestParser {
 	private FeParsedPackageManifest parseManifest(bool deferNative) {
 		string section = "";
 		FeManifestBlock? block = null;
+		FeManifestBlock? latestBinding = null;
 		var packageFields = FeManifestBlock("package", self.manifestPath);
 		bool restrictedExports = false;
 		bool sawVersion = false;
@@ -1646,11 +1653,15 @@ class FePackageManifestParser {
 				}
 				block = FeManifestBlock(tableArray, self.manifestPath);
 				nativeBlocks.push(block);
+				if (block.isBinding()) { latestBinding = block; }
 				section = tableArray;
 				continue;
 			}
 			string table = bracketed ? TOML.sectionName(line) : "";
 			if (!table.isEmpty()) {
+				/* TOML child tables belong to the latest binding array item even
+				 * when another native or package table intervenes. */
+				if (table.startsWith("native.bindings.")) { block = latestBinding; }
 				string copiedInputPrefix = "native.bindings.copied-inputs.";
 				if (table.startsWith(copiedInputPrefix)) {
 					string name = TOML.unquote(table.substring(copiedInputPrefix.length(), table.length() - copiedInputPrefix.length()));
@@ -1738,7 +1749,8 @@ class FePackageManifestParser {
 					continue;
 				}
 				if (table.equals("native.bindings.object-fields") || table.equals("native.bindings.borrowed-results") || table.equals("native.bindings.resource-parameters") || table.equals("native.bindings.resource-results")) {
-					if (block == null || !block.isBinding() || section.equals(table)) { FePackageFailure.fail("object-fields requires a preceding native binding"); }
+					if (block == null || !block.isBinding()) { FePackageFailure.fail("object-fields requires a preceding native binding"); }
+					block.declarePropertyTable(table);
 					section = table;
 					continue;
 				}
