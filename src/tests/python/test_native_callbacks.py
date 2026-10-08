@@ -1,6 +1,7 @@
 """C function-pointer callbacks: receivers, leases, context slots and the resources they borrow."""
 
 import json
+import tomllib
 
 import pytest
 
@@ -31,6 +32,40 @@ def callback_project(native_project):
         encoding="utf-8",
     )
     return source, sdk, triple
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_native_callback_metadata_after_unrelated_source(callback_project, native_compile, sanitized):
+    source, sdk, triple = callback_project
+    root = source.parent.parent
+    manifest_path = root / "btrc.toml"
+    original = manifest_path.read_text(encoding="utf-8")
+    marker = "[native.bindings.callbacks."
+    binding, metadata = original.split(marker, 1)
+    unrelated = '[[native.sources]]\npath = "Unrelated.c"\nlanguage = "c"\nstandard = "c11"\n'
+    reordered = binding + unrelated + marker + metadata
+    assert tomllib.loads(original + unrelated) == tomllib.loads(reordered)
+    manifest_path.write_text(reordered, encoding="utf-8")
+    (root / "Unrelated.c").write_text("/* Metadata ordering fixture. */\n", encoding="utf-8")
+    source.write_text(
+        """import ./Foundation.btrc;
+#include <assert.h>
+class Visitor implements IVisitor {
+    public int calls = 0;
+    public int invoke(int value) { self.calls++; return value * 2; }
+}
+int main() {
+    var visitor = Visitor();
+    assert(VisitNow(10, visitor) == 42);
+    assert(visitor.calls == 2);
+    return 0;
+}
+""",
+        encoding="utf-8",
+    )
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitized, frameworks=())
 
 
 @pytest.mark.parametrize("sanitized", [False, True])

@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -114,6 +115,77 @@ def _binding_source(root: Path, declaration: str, imported: bool = False) -> Pat
     source = root / "src/Main.btrc"
     source.write_text(("import ./Api.btrc;\n" if imported else "") + "int main() { return 0; }\n", encoding="utf-8")
     return source
+
+
+@pytest.mark.parametrize("family", ["callback", "resource", "object-fields"])
+@pytest.mark.parametrize("separator", ["source", "framework", "package"])
+def test_binding_child_tables_keep_their_array_owner(semantic_btrcc, tmp_path, family, separator):
+    binding = _BINDING
+    if family == "callback":
+        child = (
+            '[native.bindings.callbacks."measure.callback"]\ncontext = "context"\ncontext-index = 0\n'
+            'interface = "IVisitor"\nlifetime = "call"\nfailure = "abort"\nexecutor = "caller"\n'
+        )
+    elif family == "resource":
+        binding = binding.replace('["measure"]', '["WidgetRef", "WidgetRetain", "WidgetRelease"]')
+        child = (
+            '[native.bindings.resources.WidgetRef]\nownership = "reference-counted"\n'
+            'retain = "WidgetRetain"\nrelease = "WidgetRelease"\n'
+        )
+    else:
+        binding = binding.replace('["measure"]', '["Outer", "Inner"]') + 'owned-records = ["Outer", "Inner"]\n'
+        child = '[native.bindings.object-fields]\n"Outer.child" = "Inner"\n'
+    unrelated = {
+        "source": '[[native.sources]]\npath = "Probe.c"\nlanguage = "c"\nstandard = "c11"\n',
+        "framework": '[[native.frameworks]]\nname = "Foundation"\nos = ["macos"]\n',
+        "package": '[package]\nname = "bindings"\n',
+    }[separator]
+    prefix = "manifest-version = 1\n" + ("" if separator == "package" else '[package]\nname = "bindings"\n')
+    adjacent = prefix + binding + child + unrelated
+    interleaved = prefix + binding + unrelated + child
+    assert tomllib.loads(adjacent) == tomllib.loads(interleaved)
+    source = _binding_source(tmp_path, binding)
+    (tmp_path / "Probe.c").write_text("/* Unrelated native source. */\n", encoding="utf-8")
+    (tmp_path / "btrc.toml").write_text(interleaved, encoding="utf-8")
+    for result in (_reference(source, tmp_path / "Reference.c"), _selfhost(semantic_btrcc, source)):
+        assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_binding_child_tables_select_latest_binding(semantic_btrcc, tmp_path, invalid):
+    first = _BINDING.replace('["measure"]', '["First", "FirstRetain", "FirstRelease"]')
+    second = first.replace('module = "Api"', 'module = "Other"').replace("First", "Last")
+    child = (
+        '[native.bindings.resources.Last]\nownership = "reference-counted"\n'
+        'retain = "LastRetain"\nrelease = "LastRelease"\n'
+    )
+    if invalid:
+        child = child.replace("Last", "First")
+    source = _binding_source(tmp_path, first + second + "[dependencies]\n" + child)
+    (tmp_path / "src/Other.btrc").write_text("", encoding="utf-8")
+    for result in (_reference(source, tmp_path / "Reference.c"), _selfhost(semantic_btrcc, source)):
+        assert (result.returncode != 0) == invalid, result.stderr
+        if invalid:
+            assert "selected" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "failure", ["missing-owner", "unknown", "duplicate-table", "duplicate-field", "duplicate-callback"]
+)
+def test_binding_child_order_preserves_rejections(semantic_btrcc, tmp_path, failure):
+    flat = "[native.bindings.object-fields]\n"
+    callback = '[native.bindings.callbacks."measure.callback"]\n'
+    declarations = {
+        "missing-owner": "[dependencies]\n" + flat,
+        "unknown": _BINDING + "[dependencies]\n[native.bindings.not-a-contract]\n",
+        "duplicate-table": _BINDING + flat + "[dependencies]\n" + flat,
+        "duplicate-field": _BINDING + flat + '"Outer.child" = "Inner"\n"Outer.child" = "Inner"\n',
+        "duplicate-callback": _BINDING + callback + "[dependencies]\n" + callback,
+    }
+    source = _binding_source(tmp_path, declarations[failure])
+    for result in (_reference(source, tmp_path / "Reference.c"), _selfhost(semantic_btrcc, source)):
+        assert result.returncode != 0, (failure, result.stdout)
+        assert result.stderr
 
 
 @pytest.mark.parametrize(
