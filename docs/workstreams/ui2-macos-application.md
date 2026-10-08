@@ -55,3 +55,13 @@ queries do not dequeue; remaining window terminals request another bounded turn.
 Native multi-window quit coordination remains separate. The normal native
 pointer/key callback reentrancy seam has been reported for a coordinated existing
 context guard; public-host conformance and internal-run regressions remain open.
+
+The integrator subsequently approved the narrow existing-context correction:
+MacOSControlContext counts entered synchronous native receivers, and the
+existing pointer/scroll/key owners balance that guard with finally-only exits.
+Host service and application resource close consult the same guard. Deferred
+service readiness wakes after the outer receiver or transaction unwinds;
+application work still uses its separate existing scheduling-round guard.
+Fixture-only0924e7ec/b2f16dbd inject actual owned-window AppKit mouse/key events,
+requiring no nested work and PENDING close until native return. These cases
+remain unexecuted. No new public API or copied lifecycle owner was introduced.

@@ -88,11 +88,12 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 
 	private bool pointer(AppPointerAction action, AppPointerButton button = APP_POINTER_BUTTON_NONE, int clicks = 0) {
 		var handler = self._pointer;
-		if (handler == null) { return false; }
+		if (handler == null || !self._context.isOpen()) { return false; }
+		self._context.enterNativeDelivery();
 		self._delivering++;
 		bool consumed = false;
 		try { consumed = handler.pointer(AppPointerEvent(action, button, self._x, self._y, self._modifiers, clicks)); }
-		finally { self._delivering--; }
+		finally { self._delivering--; self._context.leaveNativeDelivery(); }
 		return consumed;
 	}
 
@@ -169,7 +170,11 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 		if (type == NSEventTypeScrollWheel) {
 			var handler = self._scroll;
 			if (!inside || handler == null) { return native; }
-			return handler.scroll(AppScrollEvent(native.scrollingDeltaX(), native.scrollingDeltaY(), self._x, self._y, native.hasPreciseScrollingDeltas(), self.phase(native.phase()), self.phase(native.momentumPhase()), self._modifiers)) ? null : native;
+			self._context.enterNativeDelivery(); self._delivering++;
+			bool consumed = false;
+			try { consumed = handler.scroll(AppScrollEvent(native.scrollingDeltaX(), native.scrollingDeltaY(), self._x, self._y, native.hasPreciseScrollingDeltas(), self.phase(native.phase()), self.phase(native.momentumPhase()), self._modifiers)); }
+			finally { self._delivering--; self._context.leaveNativeDelivery(); }
+			return consumed ? null : native;
 		}
 		if (type == NSEventTypeMouseExited && native.trackingArea() == self._tracking) { inside = false; }
 		bool consumed = false;

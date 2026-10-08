@@ -34,6 +34,8 @@ class MacOSControlContext {
 	private bool _mutating = false;
 	private bool _unexpectedInput = false;
 	private bool _dispatchingInput = false;
+	private int _nativeDeliveryDepth = 0;
+	private bool _serviceDeferred = false;
 	private bool _mutationWakeFailed = false;
 	private string _nativeFailure = "";
 	private Vector<IMacOSDeferredInput> _deferredInput = [];
@@ -69,6 +71,32 @@ class MacOSControlContext {
 	public void requireMutationAllowed() {
 		self.requireUI();
 		if (self._closed || self._mutating) { throw "Native semantic context cannot admit a reentrant mutation"; }
+	}
+
+	/* Legacy synchronous pointer/scroll/key receivers share this admission
+	 * guard with the host executor. There is no separate application depth. */
+	public void enterNativeDelivery() {
+		self.requireUI();
+		if (self._closed || self._mutating || self._nativeDeliveryDepth == 2147483647) { throw "Native receiver delivery is unavailable"; }
+		self._nativeDeliveryDepth++;
+	}
+
+	public bool deliveryActive() { self.requireUI(); return self._nativeDeliveryDepth > 0 || self._dispatchingInput; }
+
+	public void deferService() { self.requireUI(); self._serviceDeferred = true; }
+
+	private void wakeDeferredService() {
+		if (!self._serviceDeferred || self._mutating || self.deliveryActive()) { return; }
+		self._serviceDeferred = false;
+		if (self._closed) { return; }
+		try { if (!self.wake.requestTurn()) { self._mutationWakeFailed = true; } }
+		catch (string error) { self._mutationWakeFailed = true; }
+	}
+
+	public void leaveNativeDelivery() {
+		self.requireUI();
+		if (self._nativeDeliveryDepth <= 0) { throw "Native receiver delivery underflow"; }
+		self._nativeDeliveryDepth--; self.wakeDeferredService();
 	}
 
 	public bool mutating() { self.requireUI(); return self._mutating; }
@@ -125,11 +153,11 @@ class MacOSControlContext {
 
 	public bool dispatchOne(ControlEventQueue queue) {
 		self.requireUI();
-		if (self._mutating || self._dispatchingInput) { return false; }
+		if (self._mutating || self.deliveryActive()) { self.deferService(); return false; }
 		if (self._deferredInput.len > 0) {
 			var input = self._deferredInput.get(0); self._deferredInput.remove(0);
 			self._dispatchingInput = true;
-			try { input.drainDeferredInput(); } finally { self._dispatchingInput = false; }
+			try { input.drainDeferredInput(); } finally { self._dispatchingInput = false; self.wakeDeferredService(); }
 			return true;
 		}
 		if (self._nativeFailure != "") { throw self._nativeFailure; }
@@ -157,6 +185,7 @@ class MacOSControlContext {
 		self.requireUI();
 		if (!self._mutating) { throw "Native transaction barrier is not active"; }
 		self._mutating = false;
+		self.wakeDeferredService();
 		if (self._deferredInput.len > 0) {
 			try { if (!self.wake.requestTurn()) { self._mutationWakeFailed = true; } }
 			catch (string error) { self._mutationWakeFailed = true; }

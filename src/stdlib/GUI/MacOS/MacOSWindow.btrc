@@ -102,7 +102,11 @@ class MacOSWindowKeys implements IAppKitEventMonitor {
 		AppKeyAction action = down ? APP_KEY_PRESSED : APP_KEY_RELEASED;
 		if (type == NSEventTypeKeyDown && native.isARepeat()) { action = APP_KEY_REPEATED; }
 		var modifiers = AppKeyModifiers((flags & NSEventModifierFlagShift) != 0UL, (flags & NSEventModifierFlagControl) != 0UL, (flags & NSEventModifierFlagOption) != 0UL, (flags & NSEventModifierFlagCommand) != 0UL);
-		return self._handler.key(AppKeyboardEvent(action, key, modifiers)) ? null : native;
+		self._context.enterNativeDelivery();
+		bool consumed = false;
+		try { consumed = self._handler.key(AppKeyboardEvent(action, key, modifiers)); }
+		finally { self._context.leaveNativeDelivery(); }
+		return consumed ? null : native;
 	}
 }
 
