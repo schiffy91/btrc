@@ -303,13 +303,19 @@ existing three workers while preserving the kernel lease, all cases, skips and
 deadlines; a passing full hosted rerun remains required.
 
 The freed hosted slot now runs the prepared private BTRSmith Linux replay:
-workflow dispatch `37824120641`, diagnostic head `b056e678107f3fbe596e46b0639865ac30baebc7`,
+push-triggered run `37824120618`, job `113472397499`, diagnostic head
+`b056e678107f3fbe596e46b0639865ac30baebc7`,
 exact product `8f73b7d5` and compiler `f75c737b`. Reviewed workflow SHA-256
 `52f18b20de7b1f393d3fe0bf626e3fb7e4d9c0297077d54b24a1ba7ddb03302a`
 is unchanged: original live-agent, audio and package/install targets, process
 ownership and bounds. Only its workflow file changed; product compiler pins
 remain unchanged. Mac unit plus private Linux occupy the two hosted heavy-wave
-slots. Dispatch is not a Linux result or full-MVP acceptance.
+slots. The original paired live-agent stage is confirmed running. A redundant
+manual dispatch `37824120641` was pending with no jobs, verified to have identical
+inputs, and canceled at 18:39 UTC; the original push run is retained. Workflow
+publication itself triggers this replay, so future publication must inspect that
+run before considering any manual dispatch. A running job is not a Linux result
+or full-MVP acceptance.
 
 Before that attempt, a verified payload-only archive preserved 924 completed
 pre-October-8 emitted-C cache parts from 306 default-cache entries. It retained
@@ -570,15 +576,34 @@ pass through both frontends, plain and ASan/UBSan, including unrelated queue
 survival, entered cancellation, idempotence and balanced credits. The unchanged
 ApplicationHost fixture passes both projections/strict checks and reference/plain
 link, then fails `ui2DispatchHostInput(kind)` before that iteration's receiver
-and close assertions. The selected iteration/window is not logged, so a stale
-closed-window hypothesis remains unproven. The original probe chooses the first
-same-title window; minimal failure-only diagnostics are next. Aggregate
+and close assertions. The selected iteration/window was not logged in that run. A separate
+failure-only diagnostic subsequently proves that kind 1 selects the previous
+invisible, empty same-title window while the current visible window has one
+child. Selection, stimulus and assertions remained unchanged during that
+observation; receipt `c8ce66c031e7f745e1a495959d6ca61c7bffc19733f016d798fb51d43739cfe5`
+retains it and all 40 groups closed. Probe-only `af71b170` now selects exactly
+one visible same-title window and rejects ambiguity, preserving the original
+child count, event and assertions. Diagnostic logging is not retained. Aggregate
 `ui2-macos-deferred-input-676d5043-compiler-f75c737b/cancellation-application-result.json`,
 SHA-256 `e3b6a071f73a495f187efceb8ff8e6f7177ad69d7c84d0dfb11633bf5df46aa0`,
 records unchanged inputs and all 151 groups closed. Independent evidence review
-is clear; the remaining three Application native cells are unrun. The original
-Application fixture and four-cell qualification contract remain unchanged.
-Public native acceptance remains open.
+is clear; the remaining three Application native cells were unrun in that
+failed attempt. The fresh probe-corrected original ApplicationHost qualification
+now passes all four native cells: reference/selfhost, plain and ASan/UBSan. Both
+projections have zero diagnostics, all 22 strict source checks and four native
+links pass. Every native run reaches the original final marker with only the
+exact intentional `Host deadline failure` stderr from the earlier failure case;
+there are no sanitizer diagnostics. Aggregate
+`ui2-macos-public-application-af71b170-compiler-f75c737b/application-result.json`,
+SHA-256 `b9c1d2dc59beae175500f2674cb14937412cdbbbbf4853c25b985042af9c742f`,
+records the original rich fixture `3c9554ce`, unchanged production `676d5043`,
+compiler `f75c737b`/binary `60639d60`, all 122 groups reaped/absent and closed
+source/tool/output hashes. Independent review confirms this exact composed
+App/Text/Range/Select attached-host capability on SDK 27, arm64 target 14. The
+callback-close-after-unwind, queue/work, scope and foreign-host preservation
+oracles pass. The prior four Barrier native passes remain valid because neither
+production nor that fixture changed. Standalone run/delegate rejection, full
+UI2, other platforms and the full BTRSmith MVP remain separate open outcomes.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
