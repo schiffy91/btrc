@@ -1057,3 +1057,25 @@ No benchmark or other native job overlapped. This is bounded Window component
 qualification, not full public Application, quit grouping, all controls, the
 unresolved Scroll stimulus, atomic two-provider UI2, or the final repository gate.
 All prior failed bundles and actual diagnostic results remain preserved.
+
+
+## Window qualification against the current repaired compiler
+
+Session71597 repeated the complete two-fixture Window qualification on unchanged
+provider b6a4fe3e with authenticated compiler f75c737b, binary
+60639d608d3e09bec4dcdfaf76d3575cdeb135b04d2102858cf15a9f089efbf3.
+All four projections,24 strict C/Objective-C units, eight links and eight native
+rows passed through both frontends in plain and ASan/UBSan modes. Original
+assertions, provider/fixture bytes, native flags and qualifier04aabd95 were
+unchanged. Independent pin review authenticated the compiler build receipts,
+archive, selected131 source files and executable before execution.
+
+Evidence: ui2-macos-window-b6a4fe3e-compiler-f75c737b/window-result.json,
+SHA-2561a395e4373e79835652e1d16920389750ebc4a0a14c91d50376b61f9f807a637.
+The aggregate hashes all12 stage receipts. Their final source/tool checks were
+unchanged, stdout/stderr hashes matched, and all owned process groups were absent
+on release. Initial free capacity was82.008GB with unchanged per-command80GB
+admission. The candidate waited through the integrator's affected test check and
+began only after explicit gate handoff. All locks were released at terminal0.
+This updates the bounded Window proof to the current compiler; it does not close
+the remaining Application, controls, Scroll, two-provider or final-gate outcomes.
