@@ -197,8 +197,14 @@ bound, source/tool closure and owned-group cleanup pass. Receipt
 `0d763bb83d497004da0ac51cff00da2b3c2d61449fa8ca3bdda2541fc80da806`.
 These are intrusive attribution observations, not speed or memory acceptance.
 The raw profile records macOS 27.0.1 (26A434), alongside the inherited required
-host label macOS 27.0; neither is silently rewritten. Hotspot interpretation is
-pending. The first attempt's recording-only circular-reference failure is
+host label macOS 27.0; neither is silently rewritten. The profile identifies duplicated body emission in both compiler implementations:
+module-unit header selection renders the complete draft, then final emission
+renders the same body again. There are 354 draft-emission and 351 other
+module-emission samples among 7,091 main-thread observations. These overlapping
+owner counts are attribution, not a savings estimate. A reviewed design reuses
+an emitter-owned immutable body within one finish operation while preserving
+complete-draft identifier scanning, final IR validation, prologue policy and
+separate debug-line finalization. Implementation and benefit remain unproven. The first attempt's recording-only circular-reference failure is
 retained separately with zero completed samples and explicit unknown sampler
 numeric PID; fresh external checks found no surviving owned process. A direct
 identity-serialization regression reproduces that bug and verifies the corrected
@@ -673,7 +679,14 @@ the exact generated assertion that the application must return FAILED. This
 qualifies the counterfactual, not the fix. All ten owned groups are absent and
 inputs remain unchanged. Receipt `btrsmith-window-close-f75-baseline-attempt-2/result.json`
 has SHA-256 `1b8de5dc4b10783ac6c724f329e47f52b9c317a1624fe3cafa50e8d672f9bd5d`.
-The old-destructor counterfactual and final candidate still await execution. Native failure propagation, native-close handling and
+The old-destructor counterfactual also reproduces through both compilers: normal
+and native-closed controls pass, while unique deletion returns after the exact
+FAILED/retained-dependency marker. Generated C confirms the unguarded hook then
+releases owner edges. All twelve groups close and inputs remain unchanged;
+independent review is clear. Receipt SHA-256 is
+`f1c983cb2d3747d5e335b20b944e97822763639f1f93c5fca7a88b79cedbb4fe`
+in `btrsmith-window-close-f75-destructor-baseline-attempt-2/result.json`.
+The final candidate remains unexecuted. Native failure propagation, native-close handling and
 final-owner destruction remain unqualified; the thrown-close guard is source
 reviewed only. Product fixture `37bbb680` is now published privately on
 `codex/native-shutdown-lifecycle`, satisfying the Linux replay's source
@@ -728,8 +741,16 @@ realization, before compiler/bundle tests. Its retained log digest is
 `1cd1b8ca7ce8466b4e9498fbba383a74a2442d8543d889dc327428cd29b40588`;
 cache HTTP 429 is observed but not established as the sole cause. GitHub refused
 the immediate single-job rerun request; no retry started. Reconsider one
-unchanged retry after the original workflow is terminal. Remaining full-matrix,
-skip and native results must be verified before merge.
+unchanged retry after the original workflow is terminal. The macOS unit shard
+has now failed: 660 failures, 260 errors, 9,213 passes and 227 skips. Its log
+records previously used native-reader and Python store paths disappearing during
+the run, with secondary Python-module and child-start failures. No removal/GC
+cause is established and no blanket infrastructure classification or retry is
+claimed. Job `113343316411` log SHA-256 is
+`2cb00dd3`; artifact `11561484842` retains the main failing unit report separately
+from a nested one-pass child report. Root-cause analysis and the complete Mac
+matrix remain open. Do not merge until the failure is resolved and required
+skip/native evidence is qualified.
 
 Windows PR53 previously merged on main at
 `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Its source tree is exactly the
