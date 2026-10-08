@@ -325,9 +325,22 @@ there is no evidence yet establishing garbage collection as the cause. The
 `11573200267` (archive `cf8da9ee`) are retained in
 `/private/tmp/btrc-audit-repair/pr68-00e45379-macos-unit-attempt-2`;
 `audit.json` records the source/chronology review. No JUnit artifact was uploaded;
-the retained unit skip ledger and job log supply these counts. A bounded
-failure-time toolchain diagnostic is being prepared; no unchanged third retry
-is authorized by this result. PR68 remains unqualified.
+the retained unit skip ledger and job log supply these counts. Diagnostic
+source `66047414` now captures bounded metadata at initial compiler selection
+and at an actual selected-executable FileNotFoundError: wrapper/symlink/store
+ancestor and readable shebang interpreter identity. It does not re-resolve,
+replace, skip or retry the selected compiler, and preserves the original test
+exception/outcome. The existing selection baseline has 15 passes; the candidate
+has 109 passes (25 selection/diagnostic, 23 coordination and 61 skip-ledger),
+with no errors/skips and exact collection/JUnit correspondence. Real controlled
+wrapper/interpreter/parent removal and nested pytest failure reporting are
+covered. Receipt `host-compiler-launch-66047414-attempt-1/result.json`, SHA-256
+`74dfdf9306a63b439d99d0d49749754fba8aa80b9eb56427cfb7d41ae8fa0372`,
+records unchanged source/tools and all eight owned groups closed; independent
+review is clear. Report commit `decb5fd4` retains the unresolved hosted cause.
+The diagnostic and scheduling changes are assembled with this plan for a new
+source-changed PR68 qualification; no unchanged third retry or hosted pass is
+claimed. PR68 remains unqualified until the combined final gates pass.
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
 R2 runner, source/tool inputs, eight-run order, 60-second quiet windows and
