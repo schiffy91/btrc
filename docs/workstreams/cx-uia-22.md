@@ -675,3 +675,40 @@ native behavior was attempted in these bounded stages; MOVE editor continuity,
 rollback fault behavior and terminal-delivery execution remain open. Earlier
 failed selector/nullability evidence is preserved alongside the successful
 source-pinned preparation.
+
+
+### Ordered-container bounded native qualification
+
+Frozen provider `71397941` now passes the allocated component qualification:
+six diagnostic-free projections, 34 strict C/Objective-C translation-unit
+checks, 12 successful links, and all 12 actual native runs (NativeTreeState,
+NativeContainerOrder and NativeContainerBarrier × reference/selfhost ×
+plain/ASan+UBSan). Final session 46199 ended with exit 0; gate and gui-capture
+are released. No capability skip, original assertion change, provider focus
+exception or diagnostic waiver was used.
+
+The actual native cases exercise subtree eligibility, ordered insertion/move,
+native child counts/order, real field-editor identity/selection/marked text,
+zero-operation invalid/stale batch rejection, before/after attachment/order
+faults, inverse failure and native reconciliation/quarantine, retained ownership,
+semantic delivery barriers and deferred terminal callbacks (including callbacks
+that cancel/close or throw after the typed batch result is returned). These are
+bounded fixture observations, not full application-host/control integration.
+
+Both generated frontends passed 17 strict translation units each. Each
+sanitized variant recorded 20 real compile/link commands with
+`-fsanitize=address,undefined -fno-sanitize-recover=all`; all six sanitized native
+executions returned 0 with expected output and no sanitizer failure in retained
+stderr. All 319 frozen provider inputs, 131 compiler inputs, the retained
+self-hosted compiler and every linked executable were independently rehashed
+after completion. Complete commands/stdout/stderr and failed predecessors remain
+under `ui2-macos-container-projection-71397941/results/projection1/`.
+The aggregate `component-result.json` SHA256 is
+`d6bd4646020aeb630f7352df9a0fb4cbfdd6c318036764aa30ec4319ffc4aafd`.
+
+This closes the bounded native evidence gap for these three fixtures. It does
+not close the remaining normal native-input deferral/application-host wiring,
+all typed controls, lifecycle/publisher integration, the documented tree-change
+notification wording seam, atomic Linux/macOS UI2 landing, or the final full
+repository/platform matrix. No partial provider landing or release claim follows
+from this component result.
