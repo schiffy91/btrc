@@ -275,3 +275,31 @@ eligibility neither delivers nor replays it, and scope drain returns the base
 credit. This does not add a terminal bypass or a second public contract. The
 expanded fixture reference-transpiles (exit 0, 2.24 seconds); all behavioral
 assertions remain unexecuted. Evidence: `ui2-linux-source-projection/terminal-eligibility/`.
+
+### Linux SDK projection and cancellation identity follow-up
+
+The allocated existing-image reference projection passed against provider source
+`818e9ee049041cd3eb5da7c90afd45a7a2db4aa3` and compiler
+`808592c9735bd012fbde0dfd000ac8a72911de97` in 5.787 seconds. It used the real
+Linux ARM native reader and strict imports, with a 90-second deadline; no C
+compilation/link, GUI execution or assertion execution occurred. The isolated
+entry retains the exact receiver/host/receipt-check class block from the native
+executor fixture. Evidence lives at
+`linux-provider-native-2202-grid47/ui2-publisher-818e9ee0/` in the consolidation
+root; result, source inventory, reader/shell hashes and generated C are retained.
+The full application scheduler was not projected: it remains in the real
+LinuxApplication owner, whose provider-conformance work is incomplete. No fake
+providers or copied scheduler implementation stand in for that closure.
+
+Emitted-source review then exposed an independent cancellation identity defect:
+a never-admitted sequence gap below the high-water mark, or an already-entered
+callback, was reported as already terminal. Fixture-only checkpoint `3e71518d`
+adds gap, entered-call, true terminal, bounded eviction and conservation checks.
+The subsequent implementation retains only `capacity` recent terminal identities
+in preallocated plain storage under the existing mutex and separately recognizes
+the currently entered identity. Unknown/evicted identities are STALE; entered
+cancellation intent is REQUESTED, and the already-entered call may finish once.
+All retirement paths update the same bounded ledger and aggregate dispositions.
+This follow-up has formatting/diff inspection only and is **not covered by the
+818 projection**; both frontend source checks and native red/green execution
+remain pending. No heavy process was launched for this follow-up.
