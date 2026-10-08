@@ -17,18 +17,47 @@ def test_ui2_semantic_queue(tmp_path, request, frontend, sanitized):
     generated = tmp_path / "Queue.c"
     environment = os.environ | {"BTRC_HOME": str(data)}
     if frontend == "python":
-        command = [sys.executable, "-m", "src.tests.gui_provider_root", str(data), "--no-cache", str(source), "-o", str(generated)]
+        command = [
+            sys.executable,
+            "-m",
+            "src.tests.gui_provider_root",
+            str(data),
+            "--no-cache",
+            str(source),
+            "-o",
+            str(generated),
+        ]
     else:
         command = [str(request.getfixturevalue("immutable_btrcc")), str(source)]
     result = subprocess.run(command, cwd=root, env=environment, capture_output=True, text=True, timeout=180)
     assert result.returncode == 0, result.stderr
     if frontend == "selfhost":
         generated.write_text(result.stdout)
-    flags = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"] if sanitized else []
+    flags = (
+        ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"] if sanitized else []
+    )
     executable = tmp_path / "Queue"
     compile_result = subprocess.run(
-        [os.environ.get("BTRC_NATIVE_PROVIDER_CC", "cc"), "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O1", "-pthread", *flags, str(generated), "-lm", "-o", str(executable)],
-        cwd=root, env=environment, capture_output=True, text=True, timeout=180,
+        [
+            os.environ.get("BTRC_NATIVE_PROVIDER_CC", "cc"),
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O1",
+            "-pthread",
+            *flags,
+            str(generated),
+            "-lm",
+            "-o",
+            str(executable),
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=180,
     )
     assert compile_result.returncode == 0, compile_result.stderr
     result = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)

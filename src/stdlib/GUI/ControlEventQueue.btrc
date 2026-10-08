@@ -1,0 +1,308 @@
+/* Private UI-executor semantic transport shared by the desktop providers.
+ * Public UI2 values remain in ControlEvents; this owner never captures native
+ * input, starts a loop, or transfers managed snapshots across threads. */
+import Library.Callback;
+import Library.Vector;
+import Library.Console;
+
+enum ControlEventDisposition {
+	CONTROL_EVENT_DELIVERED,
+	CONTROL_EVENT_CANCELLED,
+	CONTROL_EVENT_STALE_GENERATION,
+	CONTROL_EVENT_SUPERSEDED,
+	CONTROL_EVENT_CLOSED,
+	CONTROL_EVENT_FAILED,
+	CONTROL_EVENT_INELIGIBLE
+};
+
+interface IControlEventTarget { ControlEventDisposition admission(long long generation); }
+interface IControlEventWake { bool requestTurn(); }
+
+/* Reserved COMMIT/CANCEL storage is separate from ordinary records and from
+ * the provider's always-serviceable close/cancellation/cleanup control lane. */
+class ControlEventTerminalPool {
+	private int _capacity;
+	private int _used = 0;
+	public ControlEventTerminalPool(int capacity) { if (capacity <= 0 || capacity > 65536) { throw "Invalid control terminal capacity"; } self._capacity = capacity; }
+
+	/* UI-only semantic callbacks have no independent native registration.
+	 * CallbackContext seals its entry gate before this barrier is queried. */
+	class bool unregister(ControlEventTerminalPool pool) { return true; }
+
+	public int available() { return self._capacity - self._used; }
+
+	public bool reserve() { if (self._used == self._capacity) { return false; } self._used++; return true; }
+
+	public void retire() { if (self._used <= 0) { throw "Control terminal reservation underflow"; } self._used--; }
+}
+
+/* A unique interaction ticket cannot be reused after retirement. The channel
+ * holds its base credit until registration drain; overlapping interactions
+ * take extra pool credits and return them as their own terminal retires. */
+class ControlEventTicket {
+	private ControlEventTerminalPool _pool;
+	private long long _registration;
+	private bool _extra;
+	private bool _open = true;
+	private bool _queued = false;
+	public ControlEventTicket(ControlEventTerminalPool pool, long long registration, bool extra) { self._pool = pool; self._registration = registration; self._extra = extra; }
+
+	public bool isOpen() { return self._open; }
+
+	public bool queued() { return self._queued; }
+
+	public void validate(long long registration) { if (!self._open || self._queued || self._registration != registration) { throw "Control terminal ticket is stale or belongs to another registration"; } }
+
+	public void commit() { if (!self._open || self._queued) { throw "Control terminal ticket is already consumed"; } self._queued = true; }
+
+	public void retire() { if (!self._open) { return; } self._open = false; if (self._extra) { self._pool.retire(); } }
+}
+
+interface IControlEventInvocation {
+	void admitted();
+	ControlEventDisposition invoke();
+	void retired();
+}
+
+class ControlEventRecord {
+	public long long registration;
+	public long long generation;
+	public long long interaction;
+	public long long key;
+	private IControlEventInvocation _invocation;
+	private ControlEventTicket? _terminal;
+	private bool _admitted = false;
+	private bool _retired = false;
+	public ControlEventRecord(long long registration, long long generation, long long interaction, long long key, IControlEventInvocation invocation, ControlEventTicket? terminal) {
+		self.registration = registration; self.generation = generation; self.interaction = interaction; self.key = key; self._invocation = invocation; self._terminal = terminal;
+	}
+
+	public bool terminal() { return self._terminal != null; }
+
+	public bool replaces(ControlEventRecord previous) { return !self.terminal() && self.key > 0LL && self.registration == previous.registration && self.generation == previous.generation && self.interaction == previous.interaction && self.key == previous.key; }
+
+	public bool replaceable() { return !self.terminal() && self.key > 0LL; }
+
+	public void admit() { if (self._admitted) { throw "Semantic record admitted twice"; } self._admitted = true; if (self._terminal != null) { self._terminal.commit(); } self._invocation.admitted(); }
+
+	public ControlEventDisposition invoke() { return self._invocation.invoke(); }
+
+	public void retire() { if (!self._admitted || self._retired) { throw "Semantic record retired without unique admission"; } self._retired = true; if (self._terminal != null) { self._terminal.retire(); } self._invocation.retired(); }
+}
+
+/* One ordered semantic stream per window/scene. Replacement never crosses an
+ * ordered record from any control. Accepted/executing normal records share
+ * one budget; terminal tickets are precharged to the independent pool. */
+class ControlEventQueue {
+	private int _capacity;
+	private int _normal = 0;
+	private bool _closed = false;
+	private bool _dispatching = false;
+	private bool _wakeFailed = false;
+	private long long _nextRegistration = 1LL;
+	private ControlEventTerminalPool _pool;
+	private IControlEventWake? _wake = null;
+	private Vector<ControlEventRecord> _records = [];
+	private Vector<long long> _retired = [];
+
+	public ControlEventQueue(int normalCapacity, ControlEventTerminalPool pool) {
+		if (normalCapacity <= 0 || normalCapacity > 65536 || pool == null) { throw "Invalid semantic queue capacity"; }
+		self._capacity = normalCapacity; self._pool = pool;
+		for (int index = 0; index < 7; index++) { self._retired.push(0LL); }
+	}
+
+	public ControlEventTerminalPool terminalPool() { return self._pool; }
+
+	public void setWake(IControlEventWake wake) { if (wake == null || self._closed) { throw "Semantic queue requires a live wake"; } self._wake = wake; }
+
+	public long long registrationIdentity() { if (self._closed || self._nextRegistration == 9223372036854775807LL) { throw "Semantic registration identities exhausted or queue closed"; } return self._nextRegistration++; }
+
+	public int pendingCount() { return self._records.len; }
+
+	public bool canCapture(int maximumRecords) { return !self._closed && !self._wakeFailed && maximumRecords >= 0 && maximumRecords <= self._capacity - self._normal; }
+
+	public long long retired(ControlEventDisposition disposition) { return self._retired.get((int)disposition); }
+
+	private void wake() { if (self._wake != null && !self._wake.requestTurn()) { self._wakeFailed = true; } }
+
+	private void retireRecord(ControlEventRecord record, ControlEventDisposition disposition) {
+		long long count = self._retired.get((int)disposition);
+		if (count == 9223372036854775807LL) { throw "Semantic receipt counters exhausted"; }
+		self._retired.set((int)disposition, count + 1LL);
+		if (!record.terminal()) { self._normal--; }
+		record.retire();
+	}
+
+	public bool enqueue(ControlEventRecord record) {
+		if (self._closed || self._wakeFailed) { return false; }
+		int replacement = -1;
+		if (record.replaceable()) {
+			for (int index = self._records.len - 1; index >= 0; index--) {
+				var previous = self._records.get(index);
+				if (!previous.replaceable()) { break; }
+				if (record.replaces(previous)) { replacement = index; break; }
+			}
+		}
+		if (!record.terminal() && replacement < 0 && self._normal == self._capacity) { return false; }
+		if (replacement >= 0) { self.retireRecord(self._records.get(replacement), CONTROL_EVENT_SUPERSEDED); }
+		record.admit(); if (!record.terminal()) { self._normal++; }
+		if (replacement >= 0) { self._records.set(replacement, record); } else { self._records.push(record); }
+		self.wake(); return true;
+	}
+
+	public void cancelRegistration(long long registration, ControlEventDisposition disposition = CONTROL_EVENT_CANCELLED) {
+		for (int index = self._records.len - 1; index >= 0; index--) {
+			var record = self._records.get(index);
+			if (record.registration == registration) { self._records.remove(index); self.retireRecord(record, disposition); }
+		}
+	}
+
+	public bool dispatchOne() {
+		if (self._wakeFailed) { throw "Semantic queue native wake failed"; }
+		if (self._dispatching) { throw "Semantic delivery cannot re-enter"; }
+		if (self._records.isEmpty()) { return false; }
+		var record = self._records.get(0); self._records.remove(0);
+		self._dispatching = true;
+		ControlEventDisposition disposition = CONTROL_EVENT_FAILED;
+		try { disposition = record.invoke(); }
+		finally { self._dispatching = false; self.retireRecord(record, disposition); }
+		return true;
+	}
+
+	public void close() {
+		self._closed = true; self._wake = null;
+		while (!self._records.isEmpty()) { var record = self._records.get(0); self._records.remove(0); self.retireRecord(record, CONTROL_EVENT_CLOSED); }
+	}
+}
+
+class ControlEventInvocation<Receiver, Snapshot> implements IControlEventInvocation {
+	private ControlEventChannel<Receiver, Snapshot> _channel;
+	private Snapshot _snapshot;
+	private long long _generation;
+	public ControlEventInvocation(ControlEventChannel<Receiver, Snapshot> channel, Snapshot snapshot, long long generation) { self._channel = channel; self._snapshot = snapshot; self._generation = generation; }
+
+	public void admitted() { self._channel.admitted(); }
+
+	public ControlEventDisposition invoke() { return self._channel.deliver(self._snapshot, self._generation); }
+
+	public void retired() { self._channel.retired(); }
+}
+
+/* One typed live registration. The provider owns duplicate-channel rejection;
+ * CallbackScope owns this registration, which uses the existing entry gate.
+ * Cancellation removes queued snapshots and waits only through polling for an
+ * already-entered receiver. It never pumps, joins or blocks the UI executor. */
+class ControlEventChannel<Receiver, Snapshot> implements ICallbackRegistration {
+	private ControlEventQueue _queue;
+	private IControlEventTarget? _target;
+	private CallbackScope _scope = CallbackScope();
+	private CallbackContext<Receiver, ControlEventTerminalPool>? _handler;
+	private CFunction<void, Receiver, Snapshot> _deliver;
+	private long long _identity;
+	private bool _reserved = false;
+	private bool _cancelling = false;
+	private int _pending = 0;
+	private ControlEventTicket? _baseTicket = null;
+	private Vector<ControlEventTicket> _tickets = [];
+	private CallbackCancellation _cancellation = CALLBACK_CANCELLATION_NOT_REQUESTED;
+
+	public ControlEventChannel(ControlEventQueue queue, IControlEventTarget target, Receiver receiver, CFunction<void, Receiver, Snapshot> deliver, CallbackScope owner) {
+		if (queue == null || target == null || receiver == null || deliver == null || owner == null) { throw "Semantic subscription requires queue, target, receiver and owner"; }
+		self._queue = queue; self._target = target; self._deliver = deliver; self._identity = queue.registrationIdentity();
+		if (!queue.terminalPool().reserve()) { throw "Control terminal reservation capacity exceeded"; }
+		self._reserved = true;
+		var handler = new CallbackContext<Receiver, ControlEventTerminalPool>(receiver, ControlEventTerminalPool.unregister);
+		handler.activate(self._scope); self._handler = handler;
+		try { owner.track(self); handler.publish(queue.terminalPool()); }
+		catch (string error) { handler.abortActivation(); self._cancelling = true; self.releaseReservation(); throw error; }
+	}
+
+	public bool isOpen() { return !self._cancelling && self._handler != null && self._handler.isOpen(); }
+
+	public void admitted() { self._pending++; }
+
+	public void retired() { if (self._pending <= 0) { throw "Semantic registration receipt underflow"; } self._pending--; }
+
+	/* Same-window reorder preserves interaction state. Detach/reattach uses
+	 * the application's detached queue, with the same terminal pool. Native
+	 * owners settle eligibility loss before moving their channel route. */
+	public void rebind(ControlEventQueue queue) {
+		if (queue == null || queue.terminalPool() != self._queue.terminalPool()) { throw "Semantic channel cannot cross application terminal pools"; }
+		if (queue == self._queue) { return; }
+		if (!self.isOpen()) { throw "Semantic channel is cancelled"; }
+		long long identity = queue.registrationIdentity();
+		self._queue.cancelRegistration(self._identity, CONTROL_EVENT_INELIGIBLE);
+		for ticket in self._tickets { if (!ticket.queued()) { ticket.retire(); } }
+		self._queue = queue; self._identity = identity;
+	}
+
+	public ControlEventTicket? beginInteraction() {
+		if (!self.isOpen()) { return null; }
+		for (int index = self._tickets.len - 1; index >= 0; index--) { if (!self._tickets.get(index).isOpen()) { self._tickets.remove(index); } }
+		bool extra = self._baseTicket != null && self._baseTicket.isOpen();
+		if (extra && !self._queue.terminalPool().reserve()) { return null; }
+		var ticket = ControlEventTicket(self._queue.terminalPool(), self._identity, extra);
+		if (!extra) { self._baseTicket = ticket; }
+		self._tickets.push(ticket); return ticket;
+	}
+
+	/* The provider captures a fresh owning snapshot and never mutates it
+	 * after successful admission. A false return transfers no receipt. */
+	public bool publish(Snapshot snapshot, long long generation, long long interaction, long long replacementKey) {
+		if (!self.isOpen()) { return false; }
+		if (snapshot == null || generation <= 0LL || interaction < 0LL || replacementKey < 0LL) { throw "Invalid semantic snapshot identity"; }
+		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
+		return self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, replacementKey, invocation, null));
+	}
+
+	public void publishTerminal(Snapshot snapshot, long long generation, long long interaction, ControlEventTicket ticket) {
+		if (!self.isOpen()) { if (ticket != null) { ticket.retire(); } return; }
+		if (snapshot == null || ticket == null || generation <= 0LL || interaction <= 0LL) { throw "Invalid semantic terminal snapshot"; }
+		ticket.validate(self._identity);
+		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
+		if (!self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, 0LL, invocation, ticket))) {
+			/* Only a sealed/failed queue can reject a pre-reserved terminal;
+			 * no ordinary pressure path reaches this branch. */
+			ticket.retire(); throw "Control terminal queue is closed or its native source failed";
+		}
+	}
+
+	public ControlEventDisposition deliver(Snapshot snapshot, long long generation) {
+		var handler = self._handler; var target = self._target;
+		if (self._cancelling || handler == null || target == null) { return CONTROL_EVENT_CANCELLED; }
+		ControlEventDisposition disposition = target.admission(generation);
+		if (disposition != CONTROL_EVENT_DELIVERED) { return disposition; }
+		var receiver = handler.enter();
+		if (receiver == null) { return CONTROL_EVENT_CANCELLED; }
+		try { self._deliver(receiver, snapshot); }
+		finally { handler.leave(); handler.pollCompletion(); }
+		return CONTROL_EVENT_DELIVERED;
+	}
+
+	private void releaseReservation() {
+		if (self._reserved) { self._reserved = false; self._queue.terminalPool().retire(); }
+	}
+
+	public CallbackCancellation cancel() {
+		if (self._cancellation == CALLBACK_CANCELLATION_COMPLETE && !self._reserved) { return self._cancellation; }
+		self._cancelling = true;
+		self._queue.cancelRegistration(self._identity);
+		for ticket in self._tickets { if (!ticket.queued()) { ticket.retire(); } }
+		var handler = self._handler;
+		self._cancellation = handler == null ? CALLBACK_CANCELLATION_COMPLETE : handler.cancel();
+		return self.pollCompletion();
+	}
+
+	public CallbackCancellation pollCompletion() {
+		if (!self._cancelling) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var handler = self._handler;
+		if (handler != null) { self._cancellation = handler.pollCompletion(); }
+		if (self._cancellation == CALLBACK_CANCELLATION_COMPLETE) {
+			if (self._pending != 0) { return CALLBACK_CANCELLATION_PENDING; }
+			self.releaseReservation(); self._tickets.clear(); self._baseTicket = null; self._target = null;
+		}
+		return self._cancellation;
+	}
+
+	public void __del__() { if (self._queue != null && self.cancel() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Semantic registration destroyed before callback drain"); } }
+}

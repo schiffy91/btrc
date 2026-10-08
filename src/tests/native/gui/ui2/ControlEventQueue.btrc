@@ -15,10 +15,13 @@ class QueueTarget implements IControlEventTarget {
 class QueueReceiver implements IQueueReceiver {
 	public Vector<int> values = [];
 	public ICallbackRegistration? cancelDuring = null;
+	public bool fail = false;
 	public void receive(QueueSnapshot snapshot) {
 		self.values.push(snapshot.value);
+		if (self.fail) { throw "deliberate semantic failure"; }
 		if (self.cancelDuring != null) { assert(self.cancelDuring.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	}
+
 	class void deliver(IQueueReceiver receiver, QueueSnapshot snapshot) { receiver.receive(snapshot); }
 }
 
@@ -62,7 +65,25 @@ int main() {
 	assert(receiver.values.get(receiver.values.len - 1) == 40);
 	assert(!queue.dispatchOne() && queue.retired(CONTROL_EVENT_CANCELLED) == 1LL);
 	receiver.cancelDuring = null;
+	/* A retained subscription can cross window/detached domains; old queued
+	 * input is disposed, while a same-queue reorder preserves its ticket. */
+	var destination = ControlEventQueue(4, pool);
+	assert(second.publish(QueueSnapshot(50), 2LL, 13LL, 1LL));
+	second.rebind(destination);
+	assert(!queue.dispatchOne() && queue.retired(CONTROL_EVENT_INELIGIBLE) == 2LL);
+	terminal = second.beginInteraction(); assert(terminal != null);
+	second.rebind(destination);
+	second.publishTerminal(QueueSnapshot(51), 2LL, 14LL, terminal);
+	assert(destination.dispatchOne() && receiver.values.get(receiver.values.len - 1) == 51);
+	receiver.fail = true;
+	assert(second.publish(QueueSnapshot(52), 2LL, 15LL, 1LL));
+	bool failed = false;
+	try { destination.dispatchOne(); } catch (string error) { failed = true; }
+	assert(failed && destination.retired(CONTROL_EVENT_FAILED) == 1LL);
+	receiver.fail = false;
+	terminal = second.beginInteraction(); assert(terminal != null); terminal.retire();
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && pool.available() == 2);
+	destination.close();
 	queue.close();
 	printf("PASS: UI2 semantic order reservations cancellation and eligibility\n");
 	return 0;

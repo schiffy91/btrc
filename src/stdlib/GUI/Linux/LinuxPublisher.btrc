@@ -96,7 +96,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		/* SDL_PushEvent is bounded, thread-safe and never invokes a BTRC
  		 * receiver. The mutex keeps the receipt invisible until wake succeeds. */
 		if (!self._wakePending && !btrcSdlPushWake()) {
-			self._failed = true; self._open = false;
+			self._failed = true; self._open = false; self._sealed.store(true, MemoryOrder.RELEASE);
 			pthread_mutex_unlock(self._mutex); return PUBLISH_WAKE_FAILED;
 		}
 		self._wakePending = true;
@@ -111,7 +111,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
  		 * a failed host wake seals the endpoint, never a retryable rejection. */
 		bool signalled = self._host == null || self._host.requestTurn();
 		if (pthread_mutex_lock(self._mutex) != 0) { return PUBLISH_ACCEPTED; }
-		if (!signalled) { self._failed = true; self._open = false; }
+		if (!signalled) { self._failed = true; self._open = false; self._sealed.store(true, MemoryOrder.RELEASE); }
 		self._notifying--; pthread_mutex_unlock(self._mutex);
 		return replace >= 0 ? PUBLISH_REPLACED : PUBLISH_ACCEPTED;
 	}

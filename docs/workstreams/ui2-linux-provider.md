@@ -13,13 +13,13 @@ not an independently shippable provider/interface release.
 - `src/stdlib/GUI/Linux/SDL.h`
 - `src/tests/native/gui/ui2/probes/linux/{UI2LinuxProbe,UI2LinuxExecutor,UI2LinuxControls,UI2LinuxLifecycle}.btrc`
 - `src/tests/native/gui/ui2/probes/linux/{UI2LinuxProbe.h,UI2LinuxProbe.c}`
-- `src/tests/python/test_native_ui2_linux.py`
+- `src/tests/python/test_native_ui_core_linux.py`
 - this report
 
 Parent assignment adds the shared **private** semantic owner
 `src/stdlib/GUI/ControlEventQueue.btrc`, its dedicated
 `src/tests/native/gui/ui2/ControlEventQueue.btrc` regression and
-`src/tests/python/test_native_ui2_queue.py` driver. Both desktop providers use
+`src/tests/python/test_native_ui_control_queue.py` driver. Both desktop providers use
 this one implementation; `ControlEvents.btrc` remains the approved public
 value surface. The existing click ActionMailbox is not replaced wholesale.
 
@@ -82,3 +82,35 @@ stubs were added. Public interface bytes remain exactly the approved dependency.
 Only formatter and diff checks have run; no compiler, C, native or pytest test
 has run on this UI2 source. The 53 operations remain unqualified until the
 complete atomic provider landing and its required gates.
+
+The dedicated drivers are named `test_native_ui_core_linux.py` and
+`test_native_ui_control_queue.py` to join the existing Makefile
+`test_native_ui_*.py` collection. The original fixture-only commits remain
+preserved; no Makefile discovery exception is needed.
+
+## Shared private semantic owner
+
+The dedicated fixture-only checkpoint `f401dfea` precedes
+ControlEventQueue production. The queue is UI-executor-only, one per window,
+with an application terminal pool; it has no native loop/wake implementation.
+Typed channels reuse CallbackContext admission and receiver drain. Every live
+channel holds a base terminal credit, and overlapping interactions draw extra
+credits before native begin. Tickets are unique and retired exactly once;
+normal capacity includes executing records. Replacement is confined to the
+matching owner/generation/interaction/key in a replaceable suffix. Disposition
+counters are seven bounded counters, not an ever-growing receipt log.
+
+`rebind` preserves receiver/scope/reservation for detach and reattachment within
+one application. A same-queue move changes nothing; crossing queues disposes
+old queued snapshots as ineligible and retires unused tickets. A detached
+application queue supports subscription before window attachment. Native owners
+must settle eligibility before rebind and capture immutable owning snapshots.
+Explicit `ticket.retire()` releases a ticket when native begin rolls back or an
+interaction ends without a terminal event.
+
+The source fixture covers replacement barriers, normal saturation with terminal
+progress, refusal of additional overlapping reservations, delivery-time
+eligibility/generation, in-flight cancellation, cross-queue migration,
+same-queue preservation and throwing-receiver retirement. All are still
+**unexecuted**. Formatter/Ruff/diff checks passed. No provider wiring or UI2
+acceptance is inferred from this shared source checkpoint.
