@@ -27,28 +27,23 @@ def sanitized(request):
     return request.param
 
 
-@pytest.fixture(scope="module")
-def event_boundary_program(tmp_path_factory, request, frontend, sanitized):
-    """Only the actual provider dequeues; the native observer delegates every poll."""
+def _build_probe(tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers):
     require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
     # Request expensive fixtures only after the platform/reader/display guards.
     data_root = request.getfixturevalue("gui_provider_root")
     root = Path(__file__).resolve().parents[3]
-    directory = tmp_path_factory.mktemp(f"e40-{frontend}-{'sanitized' if sanitized else 'plain'}")
-    probe = root / "src/tests/native/gui/shell/probes/linux/EventBoundary"
-    source = NativeBindingPackage.write(
-        root / "src/tests/native/gui/linux/LinuxEventBoundary.btrc",
-        directory / "package",
-        probe.with_suffix(".h"),
-        ("eventBoundaryArm", "eventBoundaryQueued", "eventBoundaryLatest", "eventBoundaryClose", "eventBoundaryDisarm"),
-    )
+    directory = tmp_path_factory.mktemp(f"{Path(program).stem}-{frontend}-{'sanitized' if sanitized else 'plain'}")
+    probe = root / probe_name
+    source = NativeBindingPackage.write(root / program, directory / "package", probe.with_suffix(".h"), symbols)
     generated, plan = directory / "Program.c", directory / "Program.json"
     transpile_provider_program(source, generated, plan, frontend, request, data_root=data_root)
-    flags = shlex.split(subprocess.check_output(["pkg-config", "--cflags", "sdl3"], text=True, timeout=TOOL_TIMEOUT))
+    flags = shlex.split(
+        subprocess.check_output(["pkg-config", "--cflags", "sdl3", "wgpu-native"], text=True, timeout=TOOL_TIMEOUT)
+    )
     sanitizers = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
-    observer = directory / "EventBoundary.o"
+    observer = directory / f"{probe.name}.o"
     subprocess.run(
         [
             "cc",
@@ -76,13 +71,49 @@ def event_boundary_program(tmp_path_factory, request, frontend, sanitized):
         if "-c" in command:
             command[1:1] = sanitizers
         elif "-o" in command:
-            command.extend([str(observer), "-Wl,--wrap=SDL_PollEvent", *sanitizers])
+            command.extend([str(observer), *(f"-Wl,--wrap={symbol}" for symbol in wrappers), *sanitizers])
         kwargs.setdefault("timeout", C_COMPILE_TIMEOUT)
         return subprocess.run(command, **kwargs)
 
-    executable = directory / "EventBoundary"
+    executable = directory / "Program"
     NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
     return executable
+
+
+@pytest.fixture(scope="module")
+def event_boundary_program(tmp_path_factory, request, frontend, sanitized):
+    """Only the actual provider dequeues; the observer delegates polls/presentation."""
+    return _build_probe(
+        tmp_path_factory,
+        request,
+        frontend,
+        sanitized,
+        "src/tests/native/gui/linux/LinuxEventBoundary.btrc",
+        "src/tests/native/gui/shell/probes/linux/EventBoundary",
+        (
+            "eventBoundaryArm",
+            "eventBoundaryQueued",
+            "eventBoundaryLatest",
+            "eventBoundaryFrames",
+            "eventBoundaryClose",
+            "eventBoundaryDisarm",
+        ),
+        ("SDL_PollEvent", "wgpuSurfacePresent"),
+    )
+
+
+@pytest.fixture(scope="module")
+def input_repair_program(tmp_path_factory, request, frontend, sanitized):
+    return _build_probe(
+        tmp_path_factory,
+        request,
+        frontend,
+        sanitized,
+        "src/tests/native/gui/ui2/probes/linux/LinuxInputRepair.btrc",
+        "src/tests/native/gui/ui2/probes/linux/InputRepair",
+        ("inputFailClipboard", "inputClipboardWrites", "inputClipboardMatches", "inputFrames", "inputVisibility"),
+        ("SDL_SetClipboardText", "wgpuSurfacePresent"),
+    )
 
 
 @pytest.mark.parametrize("count", [4095, 4096, 4097, 8193])
@@ -100,4 +131,19 @@ def test_linux_event_boundary(event_boundary_program, sanitized, count, terminal
     (tmp_path / "stdout.txt").write_text(result.stdout)
     (tmp_path / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "bounded=1 work=1 lossless=1" in result.stdout, result.stdout
+    assert "bounded=1 work=1 frame=1 lossless=1" in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("mode", [0, 1, 2, 3], ids=["failed-cut", "popup-below", "popup-above", "external-visibility"])
+def test_linux_input_repair(input_repair_program, sanitized, mode, tmp_path):
+    result = subprocess.run(
+        [str(input_repair_program), str(mode)],
+        capture_output=True,
+        text=True,
+        timeout=45,
+        env=provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1"),
+    )
+    (tmp_path / "stdout.txt").write_text(result.stdout)
+    (tmp_path / "stderr.txt").write_text(result.stderr)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"PASS: Linux input repair {mode}" in result.stdout, result.stdout

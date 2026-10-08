@@ -86,3 +86,25 @@ nor the original native reproduction has been executed in this reconstruction.
 Static format checks and `git diff --check` pass. Full E40 rendering progress,
 remaining input outcomes, catalog/skip admission, native qualification and
 normal final gates remain open.
+
+### Additional fixture-only checkpoint
+
+Added a link-only `wgpuSurfacePresent` observer to E40. Startup waits boundedly
+for a successful native presentation. After queuing input and invalidating the
+field, the first loop turn must successfully present another frame while
+backlog remains; a close request within that same turn must instead close the
+window. This supersedes the earlier missing-frame-assertion note; execution is
+still pending. The observer returns the original GPU result unchanged.
+
+The new `LinuxInputRepair.btrc` and `InputRepair.c/.h` probe under the claimed
+UI2 Linux probe directory cover failed Cut, downward/upward popups, and external
+SDL hide/show (16 executions across the paired/sanitized matrix). Cut injects a
+failed clipboard write, then retries without reselecting to prove both text and
+selection survived. Popup checks an unhighlighted menu pixel in GPU readback
+before clicking that exact item at a nested nonzero origin. Visibility observes
+successful presentations, suppresses hidden-window work, preserves offscreen
+capture, and requires resumed presentation after external SDL show.
+
+These fixtures precede their three production corrections. They are unexecuted
+red candidates, not historical-result reclassifications. No minimized/restore
+or new exposure API is added by this existing hide/show repair.

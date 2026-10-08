@@ -52,7 +52,10 @@ int main(int argc, char** argv) {
 	var keys = BoundaryKeys();
 	var scope = CallbackScope();
 	window.onKey(keys, scope);
-	owner.pumpOnce(0);
+	window.show();
+	unsigned long long readyDeadline = SDL_GetTicksNS() + 10000000000ULL;
+	while (eventBoundaryFrames() == 0 && SDL_GetTicksNS() < readyDeadline) { owner.pumpOnce(10); }
+	assert(eventBoundaryFrames() > 0);
 	eventBoundaryArm(id);
 	Vector<unsigned int> scans = [(unsigned int)SDL_SCANCODE_A, (unsigned int)SDL_SCANCODE_D, (unsigned int)SDL_SCANCODE_S, (unsigned int)SDL_SCANCODE_W];
 	Vector<int> expected = [];
@@ -69,11 +72,14 @@ int main(int argc, char** argv) {
 	assert(eventBoundaryQueued() == count);
 	var work = BoundaryWork();
 	application.post(work);
+	field.setPlaceholder("frame progress");
+	int framesBefore = eventBoundaryFrames();
 	owner.pumpOnce(0);
 	int remaining = eventBoundaryQueued();
 	int firstDelivered = keys.codes.len;
 	bool bounded = remaining == (count > 4096 ? count - 4096 : 0);
 	bool workProgress = work.runs == 1;
+	bool frameProgress = (terminal == 3 && count <= 4096) ? !window.isOpen() : eventBoundaryFrames() > framesBefore;
 	for (int turn = 0; turn < 4 && eventBoundaryQueued() > 0; turn++) { owner.pumpOnce(0); }
 	int mismatch = 0;
 	for (int index = 0; index < keys.codes.len; index++) {
@@ -87,8 +93,8 @@ int main(int argc, char** argv) {
 	 * before closure cancels the tail; no duplicate or extra delivery passes. */
 	bool cardinality = keys.codes.len == expected.len;
 	if (terminal == 3) { cardinality = keys.codes.len >= boundary - 1 && keys.codes.len <= expected.len; }
-	bool passed = bounded && workProgress && mismatch == 0 && cardinality && eventBoundaryQueued() == 0 && (terminal != 1 || keys.releases == 1) && (terminal != 2 || textDelivered) && (terminal != 3 || closeDelivered);
-	printf("E40 count=%d terminal=%d boundary=%d first_keys=%d queued_after_first=%d total_keys=%d expected_keys=%d first_key_mismatch=%d releases=%d text=%d close=%d bounded=%d work=%d lossless=%d\n", count, terminal, boundary, firstDelivered, remaining, keys.codes.len, expected.len, mismatch, keys.releases, textDelivered ? 1 : 0, closeDelivered ? 1 : 0, bounded ? 1 : 0, work.runs, passed ? 1 : 0);
+	bool passed = bounded && workProgress && frameProgress && mismatch == 0 && cardinality && eventBoundaryQueued() == 0 && (terminal != 1 || keys.releases == 1) && (terminal != 2 || textDelivered) && (terminal != 3 || closeDelivered);
+	printf("E40 count=%d terminal=%d boundary=%d first_keys=%d queued_after_first=%d total_keys=%d expected_keys=%d first_key_mismatch=%d releases=%d text=%d close=%d bounded=%d work=%d frame=%d lossless=%d\n", count, terminal, boundary, firstDelivered, remaining, keys.codes.len, expected.len, mismatch, keys.releases, textDelivered ? 1 : 0, closeDelivered ? 1 : 0, bounded ? 1 : 0, work.runs, frameProgress ? 1 : 0, passed ? 1 : 0);
 	fflush(stdout);
 	eventBoundaryDisarm();
 	scope.cancel();

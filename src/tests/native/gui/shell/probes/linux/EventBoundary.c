@@ -1,9 +1,21 @@
 #include "EventBoundary.h"
 #include <SDL3/SDL.h>
+#include <webgpu.h>
 #include <stdlib.h>
 
 static unsigned int target;
 static int latest;
+static int frames;
+
+/* Observe successful native presentation without changing the GPU result. */
+WGPUStatus __real_wgpuSurfacePresent(WGPUSurface surface);
+WGPUStatus __wrap_wgpuSurfacePresent(WGPUSurface surface) {
+    WGPUStatus result = __real_wgpuSurfacePresent(surface);
+    if (result == WGPUStatus_Success) { frames++; }
+    return result;
+}
+
+int eventBoundaryFrames(void) { return frames; }
 
 /* Link-only observation: delegate every poll unchanged, preserving its result.
  * The synthetic keycode carries a unique ordinal before the provider maps it
