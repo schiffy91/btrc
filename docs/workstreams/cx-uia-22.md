@@ -658,3 +658,20 @@ pressed/cancelled/exited count, semantic barrier, typed batch ownership,
 revision and balanced-credit predicate. These are fixture precondition checks;
 provider behavior, compiler acceptance and diagnostic policy are unchanged.
 The corrected fixture has not yet been projected or executed.
+
+
+At frozen `71397941`, all three ordered-container fixtures (NativeTreeState,
+NativeContainerOrder and NativeContainerBarrier) now pass reference and
+self-hosted SDK/BTRC projection with zero diagnostics. Sessions 52922 and 17238
+both ended with exit 0, taking 28.352 and 11.210 seconds respectively. The
+reference compiler is exact `56d548c4`; the retained self-hosted binary SHA256 is
+`41fde50cf256b3ef5a322648d0f5dd735f03ea28677d5bfb4c6f9423d90c13a1`.
+Input inventories and native reader/tool identities passed their end checks.
+The paired result is
+`ui2-macos-container-projection-71397941/results/projection1/paired-result.json`
+(SHA256 `eb087dcc0905faa3d6bb1682b8bfc6415b2447626a6826b54ee2858e74870d0e`).
+Both leases are released. No strict C compilation, linking, sanitizer run or
+native behavior was attempted in these bounded stages; MOVE editor continuity,
+rollback fault behavior and terminal-delivery execution remain open. Earlier
+failed selector/nullability evidence is preserved alongside the successful
+source-pinned preparation.
