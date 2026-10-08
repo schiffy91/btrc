@@ -3,6 +3,7 @@ import Library.Vector;
 import Library.GUI.IView;
 import Library.GUI.MacOS.AppKitEvents;
 import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSControlEvents;
 
 class MacOSViewFocus implements IAppKitNotificationObserver {
 	private MacOSViewInput _input;
@@ -14,7 +15,18 @@ class MacOSViewFocus implements IAppKitNotificationObserver {
 /* One native subscription, not another view owner. The view and caller scopes
  * share its cancellation identity; native callbacks retain the receiver until
  * admission closes and in-flight dispatch drains. */
-class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
+class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMacOSDeferredInput {
+	private MacOSControlContext _context;
+	private bool _terminalReserved = false;
+	private bool _deferred = false;
+	private bool _pendingCancel = false;
+	private bool _pendingExit = false;
+	private AppPointerButton _pendingButton = APP_POINTER_BUTTON_NONE;
+	private double _pendingX = 0.0;
+	private double _pendingY = 0.0;
+	private AppKeyModifiers _pendingModifiers = AppKeyModifiers(false, false, false, false);
+	private IViewPointerHandler? _pendingHandler;
+	private int _delivering = 0;
 	private NSView? _view;
 	private IViewPointerHandler? _pointer;
 	private IViewScrollHandler? _scroll;
@@ -27,8 +39,9 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 	private double _y = 0.0;
 	private AppKeyModifiers _modifiers = AppKeyModifiers(false, false, false, false);
 
-	public MacOSViewInput(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll) {
+	public MacOSViewInput(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, MacOSControlContext context) {
 		if ((pointer == null) == (scroll == null)) { throw "View input requires exactly one handler"; }
+		context.reserveDeferredInput(); self._terminalReserved = true; self._context = context;
 		self._view = view;
 		self._pointer = pointer;
 		self._scroll = scroll;
@@ -75,14 +88,45 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 
 	private bool pointer(AppPointerAction action, AppPointerButton button = APP_POINTER_BUTTON_NONE, int clicks = 0) {
 		var handler = self._pointer;
-		return handler != null && handler.pointer(AppPointerEvent(action, button, self._x, self._y, self._modifiers, clicks));
+		if (handler == null) { return false; }
+		self._delivering++;
+		try { return handler.pointer(AppPointerEvent(action, button, self._x, self._y, self._modifiers, clicks)); }
+		finally { self._delivering--; }
 	}
 
 	private void cancelCapture() {
 		var button = self._captured;
-		self._captured = APP_POINTER_BUTTON_NONE;
+		bool inside = self._inside;
+		self._captured = APP_POINTER_BUTTON_NONE; self._inside = false;
+		if (self._context.mutating() && (button != APP_POINTER_BUTTON_NONE || inside)) {
+			if (!self._deferred) {
+				self._pendingX = self._x; self._pendingY = self._y; self._pendingModifiers = self._modifiers;
+				self._pendingHandler = self._pointer; self._deferred = true; self._context.deferInput(self);
+			}
+			if (button != APP_POINTER_BUTTON_NONE) { self._pendingCancel = true; self._pendingButton = button; }
+			if (inside) { self._pendingExit = true; }
+			return;
+		}
 		if (button != APP_POINTER_BUTTON_NONE) { self.pointer(APP_POINTER_CANCELLED, button); }
-		if (self._inside) { self._inside = false; self.pointer(APP_POINTER_EXITED); }
+		if (inside) { self.pointer(APP_POINTER_EXITED); }
+	}
+
+	public void drainDeferredInput() {
+		self._context.requireUI();
+		if (!self._deferred || self._context.mutating()) { throw "Native terminal delivery has no resolved transaction"; }
+		var handler = self._pendingHandler;
+		bool cancelled = self._pendingCancel; bool exited = self._pendingExit;
+		var button = self._pendingButton; double x = self._pendingX; double y = self._pendingY; var modifiers = self._pendingModifiers;
+		self._deferred = false; self._pendingCancel = false; self._pendingExit = false; self._pendingHandler = null;
+		self._delivering++;
+		try {
+			/* Cancellation seals receiver admission, including an already queued
+			 * terminal. Its retained payload still drains exactly once. */
+			if (self._open && self._context.isOpen() && handler != null) {
+				if (cancelled) { handler.pointer(AppPointerEvent(APP_POINTER_CANCELLED, button, x, y, modifiers, 0)); }
+				if (exited && self._open && self._context.isOpen()) { handler.pointer(AppPointerEvent(APP_POINTER_EXITED, APP_POINTER_BUTTON_NONE, x, y, modifiers, 0)); }
+			}
+		} finally { self._delivering--; self.pollCompletion(); }
 	}
 
 	public void focusLost(NSNotification notification) {
@@ -95,6 +139,7 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 	public void detach() { if (self._open) { self.cancelCapture(); } }
 
 	public NSEvent? invoke(NSEvent native) {
+		if (!self._context.admitNativeInput()) { return null; }
 		var view = self._view;
 		if (!self._open || view == null) { return native; }
 		var window = view.window();
@@ -172,15 +217,16 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 	public CallbackCancellation pollCompletion() {
 		if (!NSThread.isMainThread()) { throw "View input requires the main thread"; }
 		if (self._open) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (self._deferred || self._delivering > 0) { return CALLBACK_CANCELLATION_PENDING; }
 		var state = self._native.pollCompletion();
-		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._view = null; self._pointer = null; self._scroll = null; }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { if (self._terminalReserved) { self._context.retireDeferredInput(); self._terminalReserved = false; } self._view = null; self._pointer = null; self._scroll = null; }
 		return state;
 	}
 
-	class ICallbackRegistration subscribe(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope viewOwner, CallbackScope owner, Vector<MacOSViewInput> inputs) {
+	class ICallbackRegistration subscribe(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope viewOwner, CallbackScope owner, Vector<MacOSViewInput> inputs, MacOSControlContext context) {
 		viewOwner.pollCompletion();
 		for (int index = inputs.len - 1; index >= 0; index--) { if (!inputs.get(index).isOpen()) { inputs.remove(index); } }
-		var registration = MacOSViewInput(view, pointer, scroll);
+		var registration = MacOSViewInput(view, pointer, scroll, context);
 		try {
 			viewOwner.track(registration);
 			owner.track(registration);

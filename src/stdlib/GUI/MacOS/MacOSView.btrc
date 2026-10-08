@@ -180,9 +180,9 @@ class MacOSView implements IMacOSView {
 
 	public bool isVisible() { return !self.nativeView().isHidden(); }
 
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs); }
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs, self.interactionOwner().context()); }
 
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs); }
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs, self.interactionOwner().context()); }
 
 	public void cancelPointerCapture() { MacOSViewInput.detached(self._inputs); }
 

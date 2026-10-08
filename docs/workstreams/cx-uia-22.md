@@ -511,3 +511,20 @@ their attachment fact. Reconciliation does not settle, publish, rebind, or
 create a second owner. The nullable-return warning uses a checked local as in
 the previously qualified leaf correction. Ordered conformance and transaction
 barrier integration remain unfinished; this source increment is unprojected.
+
+The provider-private context/input barrier draft follows fixture-only
+`42870710`: semantic servicing checks the barrier before dequeue; legacy
+CANCEL/EXIT delivery copies fixed payloads into one pre-reserved terminal record
+per input registration and runs only after coherent transaction cleanup. Scope
+cancellation seals queued admission, and receiver entry keeps cancellation
+pending. Independent review caught an EXIT admission check after a CANCEL
+receiver closes the context; the source now rechecks context and registration
+immediately before EXIT, with a deterministic fixture for that transition.
+
+Normal pointer/scroll consumption remains synchronous outside mutation.
+Unexpected ordinary monitor entry while a transaction is active is currently
+an explicit latched transaction failure, not normal-input deferral; complete
+UI2 deferred-input acceptance is therefore still open. Container transaction
+and application host dispatch have not yet been wired to the barrier. These
+source and fixture additions are formatter-checked only, with no new projection,
+C/link or native runtime claim.

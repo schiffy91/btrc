@@ -21,6 +21,8 @@ class MacOSSemanticWake implements IControlEventWake {
 /* Application-wide terminal reservations, not per-window quotas. Views may
  * subscribe before attachment through the detached queue in this same pool.
  * The context owns no view, window, receiver or application backreference. */
+interface IMacOSDeferredInput { void drainDeferredInput(); }
+
 class MacOSControlContext {
 	class MacOSControlContext? _default = null;
 	public ControlEventTerminalPool terminalPool;
@@ -28,6 +30,10 @@ class MacOSControlContext {
 	public MacOSSemanticWake wake;
 	private int _capacity;
 	private bool _closed = false;
+	private bool _mutating = false;
+	private bool _unexpectedInput = false;
+	private bool _drainingInput = false;
+	private Vector<IMacOSDeferredInput> _deferredInput = [];
 
 	/* Legacy native constructors participate in the same application even
 	 * when called before its event loop is initialized. This bounded context
@@ -57,9 +63,74 @@ class MacOSControlContext {
 		queue.setWake(self.wake); return queue;
 	}
 
+	public void requireMutationAllowed() {
+		self.requireUI();
+		if (self._closed || self._mutating) { throw "Native semantic context cannot admit a reentrant mutation"; }
+	}
+
+	public bool mutating() { self.requireUI(); return self._mutating; }
+
+	public void beginMutation() { self.requireMutationAllowed(); self._unexpectedInput = false; self._mutating = true; }
+
+	public void requireMutationHealthy() {
+		self.requireUI();
+		if (!self._mutating || self._unexpectedInput) { throw "Native input dispatch entered an active container transaction"; }
+	}
+
+	/* Native operations never pump the run loop. Unexpected monitor entry is
+	 * an observable transaction failure, never an application callback against
+	 * intermediate ownership. The outer native step checks this latch. */
+	public bool admitNativeInput() {
+		self.requireUI();
+		if (self._closed) { return false; }
+		if (self._mutating) { self._unexpectedInput = true; return false; }
+		return true;
+	}
+
+	/* Each legacy input registration reserves one terminal slot up front.
+	 * Its fixed pending CANCEL/EXIT payload shares one deferred record; it can
+	 * therefore never be rejected by ordinary semantic pressure. */
+	public void reserveDeferredInput() {
+		self.requireMutationAllowed();
+		if (!self.terminalPool.reserve()) { throw "Native input terminal capacity is exhausted"; }
+	}
+
+	public void retireDeferredInput() { self.requireUI(); self.terminalPool.retire(); }
+
+	public void deferInput(IMacOSDeferredInput input) {
+		self.requireUI();
+		if (!self._mutating) { throw "Deferred native input requires an active transaction"; }
+		self._deferredInput.push(input);
+	}
+
+	public bool dispatchOne(ControlEventQueue queue) {
+		self.requireUI();
+		if (self._mutating || self._closed) { return false; }
+		return queue.dispatchOne();
+	}
+
+	/* The container clears its mutation flag and installs the final coherent
+	 * snapshot/revision before calling this. A user callback failure here is
+	 * post-commit delivery failure, never a reason to claim native rollback. */
+	public void endMutation() {
+		self.requireUI();
+		if (!self._mutating) { throw "Native transaction barrier is not active"; }
+		self._mutating = false;
+		if (self._drainingInput) { return; }
+		self._drainingInput = true;
+		string failure = "";
+		try {
+			while (self._deferredInput.len > 0) {
+				var input = self._deferredInput.get(0); self._deferredInput.remove(0);
+				try { input.drainDeferredInput(); } catch (string error) { if (failure.isEmpty()) { failure = error; } }
+			}
+		} finally { self._drainingInput = false; }
+		if (!failure.isEmpty()) { throw failure; }
+	}
+
 	public bool isOpen() { self.requireUI(); return !self._closed; }
 
-	public void close() { self.requireUI(); if (self._closed) { return; } self._closed = true; self.detachedEvents.close(); self.wake.host = null; }
+	public void close() { self.requireUI(); if (self._mutating) { throw "Cannot close a context during native mutation"; } if (self._closed) { return; } self._closed = true; self.detachedEvents.close(); self.wake.host = null; }
 }
 
 /* Observation channels must deliver a new hidden/disabled snapshot even when
@@ -101,6 +172,8 @@ class MacOSViewState implements IControlEventTarget {
 	public long long generation() { self._context.requireUI(); return self._generation; }
 
 	public ControlEventQueue events() { self._context.requireUI(); return self._events; }
+
+	public MacOSControlContext context() { self._context.requireUI(); return self._context; }
 
 	public void requireSameContext(MacOSViewState other) {
 		self.requireOpen(); other.requireOpen();
