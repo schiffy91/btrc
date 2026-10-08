@@ -314,6 +314,34 @@ The report/claim is committed at `40bbafd3`; independent retained-result review
 is clear. The full hosted native-GUI rerun remains required. This is process/reporting
 evidence, not new AppKit execution or final combined-tree qualification.
 
+The unchanged macOS unit retry finishes at 19:06 UTC with 10,127 passes, 227
+expected skips and six failures, with zero setup errors. All 920 failures/errors
+from attempt one now pass. Each new failure is ENOENT launching the same selected
+absolute Nix GCC wrapper; no GCC or generated-C diagnostic is reached. The six
+Clang counterparts and 210 other GCC-parameter cases pass. Failure alone cannot
+distinguish a missing wrapper from a missing script interpreter/loader, and
+there is no evidence yet establishing garbage collection as the cause. The
+10,360 case identities match attempt one. Log SHA-256 `d64591d3` and artifact
+`11573200267` (archive `cf8da9ee`) are retained in
+`/private/tmp/btrc-audit-repair/pr68-00e45379-macos-unit-attempt-2`;
+`audit.json` records the source/chronology review. No JUnit artifact was uploaded;
+the retained unit skip ledger and job log supply these counts. A bounded
+failure-time toolchain diagnostic is being prepared; no unchanged third retry
+is authorized by this result. PR68 remains unqualified.
+
+A fresh compiler measurement preparation preserves the byte-identical reviewed
+R2 runner, source/tool inputs, eight-run order, 60-second quiet windows and
+180/240-second admission/compile bounds. Attempt three is still unrun; a single
+current preliminary observation cannot substitute for full admission. Completed
+historical product outputs and the discarded R2 warmup outputs have been
+archived with exact bytes/modes/symlinks verified before removal. Receipt
+`completed-product-and-warmup-archive-2026-10-08/result.json` has SHA-256
+`887e4ba1858fee74967bb136272da16d400387096e553221a6cffdf518fa6c48`;
+archive SHA-256 `e2077414e4a3253281aef5240386dfdeaf88d379c9283a5f941b5960ca8698ce`.
+All 11,182 protected entries remain unchanged and free space rises to 82.353 GB.
+Restore the selected outputs before re-auditing historical raw outputs; current
+compiler binaries, prepared inputs, source, logs and receipts remain in place.
+
 The freed hosted slot now runs the prepared private BTRSmith Linux replay:
 push-triggered run `37824120618`, job `113472397499`, diagnostic head
 `b056e678107f3fbe596e46b0639865ac30baebc7`,
@@ -321,8 +349,10 @@ exact product `8f73b7d5` and compiler `f75c737b`. Reviewed workflow SHA-256
 `52f18b20de7b1f393d3fe0bf626e3fb7e4d9c0297077d54b24a1ba7ddb03302a`
 is unchanged: original live-agent, audio and package/install targets, process
 ownership and bounds. Only its workflow file changed; product compiler pins
-remain unchanged. Mac unit plus private Linux occupy the two hosted heavy-wave
-slots. The original paired live-agent stage is confirmed running. A redundant
+remain unchanged. The original paired live-agent stage is confirmed running;
+the macOS unit wave is now terminal, leaving one hosted heavy-wave slot free.
+The next dispatch must contain a reviewed source change addressing the observed
+qualification failures; no unchanged third unit retry is planned. A redundant
 manual dispatch `37824120641` was pending with no jobs, verified to have identical
 inputs, and canceled at 18:39 UTC; the original push run is retained. Workflow
 publication itself triggers this replay, so future publication must inspect that
