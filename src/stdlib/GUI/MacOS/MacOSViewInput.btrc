@@ -218,6 +218,10 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 			self._tracking = null;
 			self.cancelCapture();
 		}
+		if (self._deferred) {
+			self._context.cancelDeferredInput(self);
+			self._deferred = false; self._pendingCancel = false; self._pendingExit = false; self._pendingHandler = null;
+		}
 		return self.pollCompletion();
 	}
 

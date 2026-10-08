@@ -151,6 +151,21 @@ class MacOSControlContext {
 		self._deferredInput.push(input);
 	}
 
+	/* Cancellation retires only this registration's queued payload. A record
+	 * already popped for delivery remains governed by its entered-call drain. */
+	public void cancelDeferredInput(IMacOSDeferredInput input) {
+		self.requireUI();
+		int found = -1;
+		for (int index = 0; index < self._deferredInput.len; index++) {
+			if (self._deferredInput.get(index) == input) {
+				if (found >= 0) { throw "Deferred native input is queued more than once"; }
+				found = index;
+			}
+		}
+		if (found < 0) { throw "Deferred native input is no longer queued"; }
+		self._deferredInput.remove(found);
+	}
+
 	public bool dispatchOne(ControlEventQueue queue) {
 		self.requireUI();
 		if (self._mutating || self.deliveryActive()) { self.deferService(); return false; }
