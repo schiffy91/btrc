@@ -48,6 +48,15 @@ int main() {
 	assert(!disabled.interactionState().effectiveEligible && !disabled.isEnabled());
 	assert(receiver.calls == 0 && events.dispatchOne());
 	assert(receiver.calls == 1 && !events.dispatchOne());
+	var foreignContext = MacOSControlContext();
+	var foreignLeaf = MacOSView(null, foreignContext);
+	bool rejected = false;
+	try { root.attach(foreignLeaf); } catch (string error) { rejected = !error.isEmpty(); }
+	assert(rejected && root.childCount() == 1);
+	assert(foreignLeaf.nativeView().superview() == null && foreignLeaf.isOpen());
+	assert(!foreignLeaf.interactionState().effectiveEligible);
+	assert(foreignLeaf.close() == CALLBACK_CANCELLATION_COMPLETE);
+	foreignContext.close();
 	long long revision = leaf.interactionState().stateRevision;
 	receiver.expected = false;
 	root.setVisible(false);
@@ -72,6 +81,12 @@ int main() {
 	assert(!branch.isOpen() && !leaf.isOpen() && !disabled.isOpen());
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(host.close() == CALLBACK_CANCELLATION_COMPLETE);
+	/* Existing direct constructors share the application's default context. */
+	var defaultRoot = MacOSContainer();
+	var defaultLeaf = MacOSView();
+	assert(defaultRoot.interactionOwner().events() == defaultLeaf.interactionOwner().events());
+	defaultRoot.attach(defaultLeaf);
+	assert(defaultRoot.close() == CALLBACK_CANCELLATION_COMPLETE && !defaultLeaf.isOpen());
 	events.close(); context.close(); signal.close();
 	print("UI2 native subtree state preserves disabled preference across hide and reattachment");
 	return 0;
