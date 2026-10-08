@@ -356,12 +356,15 @@ def test_macos_panel_and_progress_controls(
         timer_interface = "IApplicationTimer" if application else "IAppKitDelayedWork"
         declarations = (
             "+ (void)occupyDelegate;\n+ (BOOL)ownsDelegate;\n+ (void)releaseDelegate;\n"
-            "+ (NSTimer*)timer:(void (^)(NSTimer*))block;\n" if application else ""
+            "+ (NSTimer*)timer:(void (^)(NSTimer*))block;\n"
+            if application
+            else ""
         )
         delegate = (
             "#include <assert.h>\n@interface ApplicationForeignDelegate : NSObject <NSApplicationDelegate>\n@end\n"
             "@implementation ApplicationForeignDelegate\n@end\nstatic ApplicationForeignDelegate *foreignDelegate;\n"
-            if application else ""
+            if application
+            else ""
         )
         methods = (
             "+ (void)occupyDelegate { assert(NSApp.delegate == nil && foreignDelegate == nil); "
@@ -371,17 +374,21 @@ def test_macos_panel_and_progress_controls(
             "[foreignDelegate release]; foreignDelegate = nil; }\n"
             "+ (NSTimer*)timer:(void (^)(NSTimer*))block { "
             "return [NSTimer scheduledTimerWithTimeInterval:0.02 repeats:NO block:block]; }\n"
-            if application else ""
+            if application
+            else ""
         )
         symbols = (
             '"+[ApplicationProbe occupyDelegate]", "+[ApplicationProbe ownsDelegate]", "+[ApplicationProbe releaseDelegate]", '
-            '"+[ApplicationProbe timer:]", "-[NSTimer isValid]", ' if application else ""
+            '"+[ApplicationProbe timer:]", "-[NSTimer isValid]", '
+            if application
+            else ""
         )
         timer_binding = (
             '[native.bindings.callbacks."+[ApplicationProbe timer:].block"]\n'
             'interface = "IApplicationTimer"\nlifetime = "stored"\nfailure = "abort"\nexecutor = "caller"\n'
             'unregister = "-[NSTimer invalidate]"\nactivation-failure = "abort"\ncancellation = "entry-barrier"\n'
-            if application else ""
+            if application
+            else ""
         )
         (root / "ApplicationProbe.h").write_text(
             "#import <AppKit/AppKit.h>\nNS_ASSUME_NONNULL_BEGIN\n@interface ApplicationProbe : NSObject\n"

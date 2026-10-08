@@ -44,10 +44,6 @@ void verifyQuitAdmission(IApplication application) {
 
 /* Native timer entry belongs to this fixture. Normal work enters through the
  * application executor; a modal timer runs inside an already active turn. */
-interface IApplicationTimer {
-	void invoke(NSTimer timer);
-}
-
 class QuitOnTimer implements IApplicationTimer, IApplicationWork {
 	private IApplication _application;
 	private IWindow _window;
