@@ -215,7 +215,8 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 `src/stdlib/GUI/MacOS/MacOSSlider.btrc`, `MacOSSelect.btrc`, any required typed
 native `MacOS/Range.h`, `Range.m`, `Select.h`, `Select.m` bridges,
 `src/tests/native/gui/ui2/probes/macos/NativeRangeState.btrc`,
-`NativeSelectionState.btrc`, their dedicated Range/Select probe modules,
+`NativeSelectionState.btrc`, `NativeRangeEvents.btrc`, `NativeSelectionEvents.btrc`,
+their dedicated Range/Select probe modules,
 `src/tests/python/test_native_ui_range_macos.py`,
 `src/tests/python/test_native_ui_selection_macos.py`, and
 `docs/workstreams/ui2-macos-range-selection.md` on

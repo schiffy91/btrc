@@ -70,3 +70,23 @@ invocation-time eligibility check; a dropped accepted commit is never replaced
 with a second cancellation.
 
 Complete public application and both desktop providers remain final gates.
+
+
+## First selection projection
+
+The original immutable `bf76cc65` reference projection accepts the typed native
+binding and then fails on one inherited-method projection in cancellation.
+Receipt `6c28b35b7902fdf4bcfe737b722699d32860365e70c4eeb56545585c5c4197c5`
+retains the failure. Source correction `b0a39d0c` uses an explicit NSPopUpButton
+local on the same native object; no binding, assertion or compiler behavior
+changed. Its fresh projection now passes with zero diagnostics in 8.898 seconds.
+Receipt `2aeafe858e89a93b7dd9d373f71770474e5e5818fdfb917e6eba439d903e5fee`
+and generated C `afea6b679a25efddfbd7081014ccc99b45758dee07bb76e3fffc7eaffabbbf66`
+are retained in `ui2-macos-selection-b0a39d0c-compiler-f75c737b`.
+Both attempts preserve source/tool identities, waited child statuses and absent
+process groups. This is semantic projection, not native syntax/link/execution.
+
+Native-source ownership remains under qualification: native.sources compile
+without ARC, unlike generated adapters. The initial helper's weak ivar therefore
+needs a supported MRC implementation. Real popup/type-selection/Escape fixtures
+are being added independently before claiming native input acceptance.
