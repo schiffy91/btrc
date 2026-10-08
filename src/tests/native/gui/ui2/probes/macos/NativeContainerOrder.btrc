@@ -19,6 +19,8 @@ class ContainerOrderCases {
 	class void order(IContainer parent, Vector<IView> expected, bool stack) {
 		assert(parent.childCount() == expected.len);
 		var native = (IMacOSView)parent;
+		if (stack) { assert(UI2ContainerProbe.arrangedCount(native.nativeView()) == expected.len); }
+		else { assert(UI2ContainerProbe.childCount(native.nativeView()) == expected.len); }
 		for (int index = 0; index < expected.len; index++) {
 			assert(parent.childAt(index) == expected.get(index));
 			var child = (IMacOSView)expected.get(index);
@@ -64,13 +66,17 @@ class ContainerOrderCases {
 
 		/* A bad final edit rejects the entire sequence before the earlier MOVE. */
 		revision = parent.treeRevision();
+		UI2ContainerProbe.observeMutations(projection.nativeView());
 		var rejected = parent.applyBatch(revision, [ContainerOrderCases.edit(CONTAINER_EDIT_MOVE, first, 0), ContainerOrderCases.edit(CONTAINER_EDIT_INSERT, last, 0)]);
 		assert(rejected.kind == CONTAINER_BATCH_REJECTED && parent.treeRevision() == revision);
+		assert(UI2ContainerProbe.orderCalls() == 0);
 		ContainerOrderCases.order(parent, [last, editor, extra, first], stack);
 		assert(UI2ContainerProbe.editorUnchanged() && UI2ContainerProbe.editingNotifications() == 0);
 		rejected = parent.applyBatch(revision - 1LL, [ContainerOrderCases.edit(CONTAINER_EDIT_MOVE, first, 0)]);
 		assert(rejected.kind == CONTAINER_BATCH_REJECTED && parent.treeRevision() == revision);
+		assert(UI2ContainerProbe.orderCalls() == 0);
 		ContainerOrderCases.order(parent, [last, editor, extra, first], stack);
+		UI2ContainerProbe.resetFaults();
 		assert(parent.detach(extra) == extra && extra.isOpen() && extra.nativeView().superview() == null);
 		assert(extra.close() == CALLBACK_CANCELLATION_COMPLETE);
 		projection.detachFrom(host);

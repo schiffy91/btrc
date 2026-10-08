@@ -3,6 +3,9 @@
 /* Test-only inspection and targeted native faults. No method implements a
  * container operation on the provider's behalf. */
 @interface UI2ContainerProbe : NSObject
++ (int)childCount:(NSView *)parent;
++ (int)arrangedCount:(NSView *)stack;
++ (void)observeMutations:(NSView *)parent;
 + (int)indexOf:(NSView *)child inParent:(NSView *)parent;
 + (int)arrangedIndexOf:(NSView *)child inStack:(NSView *)stack;
 + (void)armOrderFaults:(NSView *)parent first:(int)first second:(int)second firstAfter:(bool)firstAfter secondAfter:(bool)secondAfter hideMembership:(bool)hideMembership;

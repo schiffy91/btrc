@@ -38,7 +38,7 @@ static void failOrder(void) {
 }
 
 static bool shouldFailAttachment(NSView *parent, NSView *child) {
-    if (parent != faultParent || child != faultChild) { return false; }
+    if (parent != faultParent || (faultChild != nil && child != faultChild)) { return false; }
     orderCalls++;
     return orderCalls == firstFailure || orderCalls == secondFailure;
 }
@@ -80,6 +80,19 @@ static NSArray<NSView *> *interceptedSubviews(NSView *self, SEL selector) {
 }
 
 @implementation UI2ContainerProbe
++ (int)childCount:(NSView *)parent { return (int)parent.subviews.count; }
+
++ (int)arrangedCount:(NSView *)stack {
+    if (![stack isKindOfClass:NSStackView.class]) { return -1; }
+    return (int)((NSStackView *)stack).arrangedSubviews.count;
+}
+
++ (void)observeMutations:(NSView *)parent {
+    [self armOrderFaults:parent first:0 second:0 firstAfter:false secondAfter:false hideMembership:false];
+    originalAdd = method_setImplementation(class_getInstanceMethod(NSView.class, @selector(addSubview:)), (IMP)interceptedAdd);
+    originalRemove = method_setImplementation(class_getInstanceMethod(NSView.class, @selector(removeFromSuperview)), (IMP)interceptedRemove);
+}
+
 + (int)indexOf:(NSView *)child inParent:(NSView *)parent {
     NSUInteger index = [parent.subviews indexOfObjectIdenticalTo:child];
     return index == NSNotFound ? -1 : (int)index;

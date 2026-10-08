@@ -485,3 +485,8 @@ A subsequent fixture-only extension targets actual `addSubview:` and
 verified rollback to restore both native membership and the managed restriction
 against closing an attached child. These four paths are prepared, not executed;
 unexpected-input and reentrant-delivery fixtures remain outstanding.
+
+Independent fixture review identified two oracle gaps, now strengthened in
+source: rejected/stale batches require zero actual native mutation calls, and
+order checks require exact native subview/arranged-subview counts as well as
+each identity's index. Review and formatting are not execution evidence.
