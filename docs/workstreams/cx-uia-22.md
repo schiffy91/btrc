@@ -67,3 +67,11 @@ canonical `test_native_ui_*.py` discovery at Makefile:344. This is a fixture-onl
 follow-up to e968c459, whose original red candidate remains retained. The
 `macos_gui` marker is present; the integrator owns adding the final execution
 function inventory at atomic landing. No Makefile exception is needed.
+
+A second fixture-only checkpoint adds `RunLoopDeadline.btrc`: one monotonic
+deadline must wake each real native mode, never early or inline; replacement,
+disarming and close must suppress superseded callbacks. It shares the actual
+native driver and probe. This extends the internal signal with the deadline
+contract the provider needs, without adding portable operations. The old owner
+has no deadline API, so semantic compilation is expected to fail until the
+implementation and native binding fragment are present. Native red is pending.

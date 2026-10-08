@@ -17,12 +17,19 @@ PROBES = ROOT / "src/tests/native/gui/ui2/probes/macos"
 
 @pytest.mark.macos_gui
 @pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize(
+    ("fixture", "expected"),
+    [
+        ("RunLoopWake", "UI2 worker wakes idle default and tracking run-loop modes without polling"),
+        ("RunLoopDeadline", "UI2 monotonic deadlines wake default and tracking modes once"),
+    ],
+)
 def test_ui2_worker_wake_services_default_and_tracking_modes(
-    native_project, native_compile, gui_provider_root, sanitize
+    native_project, native_compile, gui_provider_root, sanitize, fixture, expected
 ):
     source, _sdk, _triple = native_project
     root = source.parent.parent
-    source.write_text((PROBES / "RunLoopWake.btrc").read_text())
+    source.write_text((PROBES / f"{fixture}.btrc").read_text())
     shutil.copyfile(PROBES / "RunLoopProbe.btrc", source.parent / "RunLoopProbe.btrc")
     shutil.copyfile(PROBES / "RunLoopProbe.h", root / "RunLoopProbe.h")
     (root / "btrc.toml").write_text(
@@ -54,4 +61,4 @@ def test_ui2_worker_wake_services_default_and_tracking_modes(
     (root / "run.stdout").write_text(completed.stdout)
     (root / "run.stderr").write_text(completed.stderr)
     assert completed.returncode == 0, (completed.returncode, completed.stdout, completed.stderr)
-    assert "UI2 worker wakes idle default and tracking run-loop modes without polling" in completed.stdout
+    assert expected in completed.stdout

@@ -1,0 +1,48 @@
+import Library.Callback;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./RunLoopProbe.btrc;
+#include <assert.h>
+
+class DeadlineReceiver implements IAppKitNotificationObserver {
+	public int calls = 0;
+	public unsigned long long deliveredAt = 0ULL;
+
+	public void invoke(NSNotification notification) {
+		assert(ui2RunLoopIsMainThread());
+		self.deliveredAt = MacOSRunLoopSignal.monotonicNowNs();
+		self.calls++;
+	}
+}
+
+int main() {
+	for (int tracking = 0; tracking < 2; tracking++) {
+		var signal = MacOSRunLoopSignal();
+		var receiver = DeadlineReceiver();
+		var scope = CallbackScope();
+		signal.subscribe(receiver, scope);
+		unsigned long long due = MacOSRunLoopSignal.monotonicNowNs() + 20000000ULL;
+		signal.scheduleTurn(due);
+		assert(receiver.calls == 0);
+		unsigned long long stop = due + 1000000000ULL;
+		while (receiver.calls == 0 && MacOSRunLoopSignal.monotonicNowNs() < stop) {
+			ui2RunLoopTurn(tracking != 0, 0.25);
+		}
+		assert(receiver.calls == 1 && receiver.deliveredAt >= due);
+		assert(!signal.failed());
+		/* Replace, then disarm: neither old deadline can deliver. */
+		signal.scheduleTurn(MacOSRunLoopSignal.monotonicNowNs() + 10000000ULL);
+		signal.scheduleTurn(MacOSRunLoopSignal.monotonicNowNs() + 20000000ULL);
+		signal.scheduleTurn(0ULL);
+		ui2RunLoopTurn(tracking != 0, 0.05);
+		assert(receiver.calls == 1);
+		/* Closing an armed deadline invalidates its callback admission. */
+		signal.scheduleTurn(MacOSRunLoopSignal.monotonicNowNs() + 10000000ULL);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		signal.close();
+		ui2RunLoopTurn(tracking != 0, 0.05);
+		assert(receiver.calls == 1);
+	}
+	print("UI2 monotonic deadlines wake default and tracking modes once");
+	return 0;
+}
