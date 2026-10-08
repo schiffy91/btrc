@@ -122,7 +122,7 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
             manifest.write(
                 '[[native.bindings]]\nmodule = "ApplicationHostProbe"\nheader = "ApplicationHostProbe.h"\n'
                 'language = "c"\nstandard = "c11"\n'
-                'symbols = ["ui2InstallHostDelegate", "ui2HostDelegateUnchanged", "ui2RestoreHostDelegate"]\n'
+                'symbols = ["ui2InstallHostDelegate", "ui2HostDelegateUnchanged", "ui2RestoreHostDelegate", "ui2DispatchHostInput"]\n'
                 '[[native.sources]]\npath = "ApplicationHostProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
             )
     if fixture in {"NativeContainerOrder", "NativeContainerBarrier"}:

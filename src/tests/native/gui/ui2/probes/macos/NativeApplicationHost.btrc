@@ -85,6 +85,43 @@ class PublicClosingWork implements IApplicationWork {
 	public void run() { assert(self._application.close() == CALLBACK_CANCELLATION_PENDING); self.returned = true; }
 }
 
+class PublicNativeReentry implements IViewPointerHandler, IWindowKeyHandler {
+	private IApplication _application;
+	private IApplicationHostAttachment _attachment;
+	private PublicCountWork _work;
+	public int calls = 0;
+	public PublicNativeReentry(IApplication application, IApplicationHostAttachment attachment, PublicCountWork work) { self._application = application; self._attachment = attachment; self._work = work; }
+
+	private void entered() {
+		self.calls++; self._application.post(self._work);
+		self._attachment.serviceTurn(); assert(self._work.calls == 0);
+		assert(self._application.close() == CALLBACK_CANCELLATION_PENDING);
+		assert(self._attachment.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
+	}
+
+	public bool pointer(AppPointerEvent event) { if (event.action == APP_POINTER_PRESSED) { self.entered(); return true; } return false; }
+
+	public bool key(AppKeyboardEvent event) { self.entered(); return true; }
+}
+
+class PublicNativeCallbackCases {
+	class void run() {
+		for (int kind = 0; kind < 2; kind++) {
+			IApplication application = MacOSApplication(2); var host = PublicTestHost(); var scope = CallbackScope();
+			var attached = application.attachHost(host, scope); var attachment = attached.attachment;
+			if (attachment == null) { throw "Native callback fixture did not attach"; }
+			var window = application.createWindow("UI2 host input guard", 160.0, 100.0);
+			var view = application.createContainer(); window.attachRoot(view); view.arrange(0.0, 0.0, 160.0, 100.0); window.show();
+			var work = PublicCountWork(); var receiver = PublicNativeReentry(application, attachment, work);
+			if (kind == 0) { view.onPointer(receiver, scope); } else { window.onKey(receiver, scope); }
+			assert(ui2DispatchHostInput(kind)); assert(receiver.calls == 1 && work.calls == 0);
+			assert(application.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+			assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+			assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && ui2HostDelegateUnchanged());
+		}
+	}
+}
+
 class PublicAttachmentFailures {
 	class void run() {
 		for (int throwing = 0; throwing < 2; throwing++) {
@@ -122,6 +159,7 @@ class PublicAttachmentFailures {
 int main() {
 	ui2InstallHostDelegate();
 	PublicAttachmentFailures.run();
+	PublicNativeCallbackCases.run();
 	var independent = MacOSContainer();
 	IApplication application = MacOSApplication(2);
 	assert(ui2HostDelegateUnchanged() && !application.isRunning());
