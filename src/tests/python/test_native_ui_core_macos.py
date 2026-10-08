@@ -62,6 +62,28 @@ APPLICATION_QUIT_PROBE_BINDINGS = (
 )
 
 
+APPLICATION_QUIT_FIXTURES = {
+    "NativeApplicationQuit",
+    "NativeApplicationQuitEarlyCancel",
+    "NativeApplicationQuitTransactions",
+    "NativeApplicationQuitCleanup",
+    "NativeApplicationQuitModal",
+}
+
+APPLICATION_QUIT_FAULT_BINDINGS = (
+    '[[native.bindings]]\nmodule = "ApplicationQuitFaults"\nheader = "ApplicationQuitFaults.h"\n'
+    'language = "c"\nstandard = "c11"\n'
+    'symbols = ["ui2ArmQuitPublisherFault", "ui2DisarmQuitPublisherFault", "ui2QuitPublisherFaultCount"]\n'
+    '[[native.sources]]\npath = "ApplicationQuitFaults.c"\nlanguage = "c"\nstandard = "c11"\n'
+)
+
+APPLICATION_QUIT_MODAL_BINDINGS = (
+    '[[native.bindings]]\nmodule = "ApplicationQuitModal"\nheader = "ApplicationQuitModal.h"\n'
+    'language = "c"\nstandard = "c11"\nsymbols = ["ui2RunNativeQuitModal"]\n'
+    '[[native.sources]]\npath = "ApplicationQuitModal.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+)
+
+
 @pytest.mark.macos_gui
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize(
@@ -76,6 +98,22 @@ APPLICATION_QUIT_PROBE_BINDINGS = (
         (
             "NativeApplicationQuit",
             "UI2 native application quit preserves all dirty windows when one decision cancels",
+        ),
+        (
+            "NativeApplicationQuitEarlyCancel",
+            "UI2 native quit cancellation suppresses queued decisions without cancelling handlers",
+        ),
+        (
+            "NativeApplicationQuitTransactions",
+            "UI2 native application quit revalidates saves membership and sealed ingress",
+        ),
+        (
+            "NativeApplicationQuitCleanup",
+            "UI2 application quit retries native publisher cleanup without reopening ingress",
+        ),
+        (
+            "NativeApplicationQuitModal",
+            "UI2 native quit unwinds modal receivers before deferred cancellable decisions",
         ),
         ("RunLoopWake", "UI2 worker wakes idle default and tracking run-loop modes without polling"),
         (
@@ -112,7 +150,7 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
         '[[native.bindings]]\nmodule = "RunLoopProbe"\nheader = "RunLoopProbe.h"\n'
         'language = "c"\nstandard = "c11"\n'
         'symbols = ["ui2RunLoopTurn", "ui2RunLoopIsMainThread", "ui2InitializeAppKit"]\n'
-        + ("" if fixture == "NativeApplicationQuit" else '[[native.frameworks]]\nname = "AppKit"\n')
+        + ("" if fixture in APPLICATION_QUIT_FIXTURES else '[[native.frameworks]]\nname = "AppKit"\n')
         + '[[native.sources]]\npath = "RunLoopProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
     if fixture in {"NativeWindowClose", "NativeWindowState"}:
@@ -137,12 +175,24 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
                 'symbols = ["ui2InstallHostDelegate", "ui2HostDelegateUnchanged", "ui2RestoreHostDelegate", "ui2DispatchHostInput"]\n'
                 '[[native.sources]]\npath = "ApplicationHostProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
             )
-    if fixture == "NativeApplicationQuit":
+    if fixture in APPLICATION_QUIT_FIXTURES - {"NativeApplicationQuitCleanup"}:
         shutil.copyfile(PROBES / "ApplicationQuitProbe.btrc", source.parent / "ApplicationQuitProbe.btrc")
         for name in ("ApplicationQuitProbe.h", "ApplicationQuitProbe.m"):
             shutil.copyfile(PROBES / name, root / name)
         with (root / "btrc.toml").open("a") as manifest:
             manifest.write(APPLICATION_QUIT_PROBE_BINDINGS)
+    if fixture == "NativeApplicationQuitCleanup":
+        shutil.copyfile(PROBES / "ApplicationQuitFaults.btrc", source.parent / "ApplicationQuitFaults.btrc")
+        for name in ("ApplicationQuitFaults.h", "ApplicationQuitFaults.c"):
+            shutil.copyfile(PROBES / name, root / name)
+        with (root / "btrc.toml").open("a") as manifest:
+            manifest.write(APPLICATION_QUIT_FAULT_BINDINGS)
+    if fixture == "NativeApplicationQuitModal":
+        shutil.copyfile(PROBES / "ApplicationQuitModal.btrc", source.parent / "ApplicationQuitModal.btrc")
+        for name in ("ApplicationQuitModal.h", "ApplicationQuitModal.m"):
+            shutil.copyfile(PROBES / name, root / name)
+        with (root / "btrc.toml").open("a") as manifest:
+            manifest.write(APPLICATION_QUIT_MODAL_BINDINGS)
     if fixture in {"NativeContainerOrder", "NativeContainerBarrier"}:
         shutil.copyfile(PROBES / "ContainerProbe.btrc", source.parent / "ContainerProbe.btrc")
         for name in ("ContainerProbe.h", "ContainerProbe.m"):
