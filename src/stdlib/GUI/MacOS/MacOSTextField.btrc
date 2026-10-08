@@ -45,6 +45,8 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public void attachTo(NSView parent) { self.nativeControl(); self._view.attachTo(parent); }
 
+	public void reconcileAttachment(NSView? parent) { self.nativeControl(); self._view.reconcileAttachment(parent); }
+
 	public void detachFrom(NSView parent) { self.nativeControl(); self._view.detachFrom(parent); }
 
 	public double fittingWidth() { self.nativeControl(); return self._view.fittingWidth(); }

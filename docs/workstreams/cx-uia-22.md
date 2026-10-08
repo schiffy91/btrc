@@ -490,3 +490,24 @@ Independent fixture review identified two oracle gaps, now strengthened in
 source: rejected/stale batches require zero actual native mutation calls, and
 order checks require exact native subview/arranged-subview counts as well as
 each identity's index. Review and formatting are not execution evidence.
+
+### Executed ordered-container baseline
+
+At fixture-only `3fab9f9e`, the frozen reference compiler `56d548c4` rejected
+the original `NativeTreeState` in 4.685 seconds with exactly the four missing
+`IContainer` operations and one nullable `NSView` return warning in
+`MacOSContainer.nativeView`. Session 38659 ended with exit 1, and both host
+leases were released. Evidence is
+`ui2-macos-container-baseline-3fab9f9e/results/baseline1/reference/` under the
+standing evidence root. An initial invalid `--stage` argument started no
+compiler and is retained separately in `invocation-error.json`. No native C,
+link, or program execution occurred.
+
+The first production source increment adds the narrow native ordering adapter
+and a private `IMacOSView.reconcileAttachment` operation. Each existing wrapper
+forwards to its actual view/container owner, preserving GPU/text owner guards;
+the two underlying owners compare the actual native superview before updating
+their attachment fact. Reconciliation does not settle, publish, rebind, or
+create a second owner. The nullable-return warning uses a checked local as in
+the previously qualified leaf correction. Ordered conformance and transaction
+barrier integration remain unfinished; this source increment is unprojected.

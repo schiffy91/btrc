@@ -15,6 +15,7 @@ interface IMacOSView extends IView {
 	void publishInteraction();
 	NSView nativeView();
 	void attachTo(NSView parent);
+	void reconcileAttachment(NSView? parent);
 	void detachFrom(NSView parent);
 	void cancelPointerCapture();
 }
@@ -137,6 +138,14 @@ class MacOSView implements IMacOSView {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		if (parent == null || child == null || child.superview() != parent) { throw "View does not belong to this native parent"; }
 		child.removeFromSuperview();
+	}
+
+	/* A container transaction has already proved native membership. Update
+	 * this existing owner's fact without publishing, settling or rebinding. */
+	public void reconcileAttachment(NSView? parent) {
+		var view = self.nativeView();
+		if (view.superview() != parent) { throw "Native attachment reconciliation does not match the view parent"; }
+		self._attached = parent != null;
 	}
 
 	public void attachTo(NSView parent) {

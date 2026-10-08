@@ -109,11 +109,12 @@ class MacOSContainer implements IContainer, IMacOSView {
 
 	public NSView nativeView() {
 		self.requireMainThread();
-		if (self._view == null) { throw "Native container is closed"; }
+		var view = self._view;
+		if (view == null) { throw "Native container is closed"; }
 		if (self._closing) { throw "Native container shutdown has started"; }
 		var interaction = self._interaction;
 		if (interaction != null && (!interaction.isOpen() || interaction.faulted())) { throw "Native container is quarantined"; }
-		return self._view;
+		return view;
 	}
 
 	private IMacOSView projection(IView child) {
@@ -223,6 +224,12 @@ class MacOSContainer implements IContainer, IMacOSView {
 		self._mutating = false;
 		self.refreshInteraction();
 		return child;
+	}
+
+	public void reconcileAttachment(NSView? parent) {
+		var view = self.mutationView();
+		if (view.superview() != parent) { throw "Native attachment reconciliation does not match the container parent"; }
+		self._attached = parent != null;
 	}
 
 	public void attachTo(NSView parent) {
