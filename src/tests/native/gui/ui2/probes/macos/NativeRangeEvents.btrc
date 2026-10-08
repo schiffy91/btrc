@@ -42,7 +42,10 @@ class RangeDelivery {
 		slider.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction(); slider.setValue(4.0);
 		var scope = CallbackScope(); var commit = RangeReceiver(); var cancel = RangeReceiver();
 		slider.onCommit(commit, scope); slider.onCancel(cancel, scope);
-		var intervention = RangeIntervention(slider, mode); var nativeScope = CallbackScope(); var probe = UI2RangeProbe.probe();
+		var intervention = RangeIntervention(slider, mode); var nativeScope = CallbackScope();
+		var maybeProbe = UI2RangeProbe.probe();
+		if (maybeProbe == null) { throw "Range fixture failed to allocate its native probe"; }
+		UI2RangeProbe probe = maybeProbe;
 		probe.setEvents(intervention, nativeScope);
 		probe.dragWithEvents(slider.nativeView(), 0.75);
 		assert(intervention.entered && commit.events.len == 0 && cancel.events.len == 0);
@@ -90,7 +93,9 @@ class RangeDelivery {
 }
 
 int main() {
-	var parent = UI2RangeProbe.open();
+	var maybeParent = UI2RangeProbe.open();
+	if (maybeParent == null) { throw "Range fixture failed to open its native window"; }
+	NSView parent = maybeParent;
 	var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(16, signal);
 	var slider = MacOSSlider(0.0, 10.0, 10, context); slider.attachTo(parent);
 	slider.arrange(20.0, 20.0, 300.0, 30.0);
