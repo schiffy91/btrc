@@ -243,10 +243,18 @@ reference `f5bc22e9b3d6b77278274a2d2cb2fa64dd4c8c114f3b1fdb014ea66e4e382ee8`,
 build `edb08b87c2b22a07589ea6afafc4c0fd2367dd6e82e62fd30ffd859a2280cbcc`,
 paired `052063121c3f1553208f9076d0da158399de5301abcf658c982bda2c8efd13d3`.
 Report commit `1dbe4717` records the focused qualification without changing
-production. Exact current-product parity across 423 generated C/header outputs
-and quiet instruction/peak-memory comparisons remain pending. No performance
-saving is claimed: the snapshot adds a tuple/vector copy to ordinary emission,
-so net speed and memory benefit remain unproved. The branch is unpublished; it does not alter PR68's current
+production. Current-product parity now passes for all 423 generated C/header
+names and bytes after only the permitted output-directory normalization. The
+original BTRSmith `d3fb25f4` workload and 240-second compile bound are unchanged;
+the compiler exits zero at one worker, lowers 461 units and reuses none.
+Independent review confirms source/tool/output closure and all three groups
+absent/reaped. Receipt `module-emission-once-product-660ac18d-attempt-1/result.json`
+has SHA-256 `7b11d8092a5725bc9e6dd6d6445956728ff1d100b806094cdfd504ddd36e553f`.
+Existing nullable warnings and the historical delayed baseline-output hashing
+limitation remain explicit. Report `7e4c3e30` records this result. Quiet paired
+instruction/peak-memory measurements remain pending. No performance saving is
+claimed: the snapshot adds a tuple/vector copy to ordinary emission, so net
+speed and memory benefit remain unproved. The branch is unpublished; it does not alter PR68's current
 qualification head. The first attempt's recording-only circular-reference failure is
 retained separately with zero completed samples and explicit unknown sampler
 numeric PID; fresh external checks found no surviving owned process. A direct
@@ -441,6 +449,17 @@ fixture capture warning is repaired by binding its already-checked publisher;
 none of the original assertions changed. Independent application, text-field
 and range/selection implementation claims now target those concrete gaps.
 This is the first public application baseline, not a complete application pass.
+The next public-host composition is now concrete and independently reviewed:
+Application base `b97732ba`, Text donor `88db78e5` and Range/Select donor
+`209fe7f7` supply all 19 methods, with the shared interfaces unchanged. The
+frozen bundle `ui2-macos-public-application-b97732ba-compiler-f75c737b` retains
+343 provider and 131 compiler inputs, qualified compiler `f75c737b`, and the
+original richer fixture SHA-256 `3c9554ce8a82fe2eea27b3e2450f81bf3cf54ef550069c0529aeb00a8dc3943b`.
+Its only metadata composition is the existing three provider binding fragments
+and removal of the duplicate fixture AppKit row. Prepared `b84fea33` and
+qualifier `17f46bfe` preserve the original paired projections, strict checks,
+plain/sanitized execution, assertions and deadlines. No test/native execution
+has yet qualified this public composition.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
