@@ -152,11 +152,26 @@ def identities(nodes):
     return result
 
 
-def collect(name, root, selectors, env, session=None):
+def collect(name, root, selectors, env, session=None, *, concurrent=False):
     target = EVIDENCE / (name + "-nodes.json")
     plugin = EVIDENCE / "lease_inventory.py"
-    plugin.write_text("import json,os\nfrom pathlib import Path\ndef pytest_collection_finish(session):\n    Path(os.environ['LEASE_COLLECTION']).write_text(json.dumps([i.nodeid for i in session.items]))\n")
-    environment = env | {"PYTHONPATH": os.pathsep.join([str(EVIDENCE), str(root)]), "LEASE_COLLECTION": str(target)}
+    plugin.write_text("""import json, os
+from pathlib import Path
+
+def pytest_collection_finish(session):
+    nodes = []
+    for item in session.items:
+        node = item.nodeid
+        if os.environ.get("LEASE_GROUPED") == "1":
+            # xdist's loadgroup worker appends the sorted marker identities.
+            groups = {str(mark.args[0] if mark.args else mark.kwargs.get("name", "default"))
+                      for mark in item.iter_markers("xdist_group")}
+            if groups:
+                node += "@" + "_".join(sorted(groups))
+        nodes.append(node)
+    Path(os.environ["LEASE_COLLECTION"]).write_text(json.dumps(nodes))
+""")
+    environment = env | {"PYTHONPATH": os.pathsep.join([str(EVIDENCE), str(root)]), "LEASE_COLLECTION": str(target), "LEASE_GROUPED": "1" if concurrent else "0"}
     argv = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "lease_inventory", "-o", f"cache_dir={EVIDENCE / (name + '-cache')}", *selectors]
     if session:
         argv = [str(root / "tools/ui/headless-session.sh"), "--" + session, "--", *argv]
@@ -167,7 +182,7 @@ def collect(name, root, selectors, env, session=None):
 
 
 def pytest_stage(name, root, selectors, env, count, *, red=False, session=None, concurrent=False):
-    nodes = collect(name, root, selectors, env, session)
+    nodes = collect(name, root, selectors, env, session, concurrent=concurrent)
     assert len(nodes) == count, (name, len(nodes), count)
     directory = EVIDENCE / name
     argv = [sys.executable, "-m", "pytest", "-q", "-vv", "-ra", f"--basetemp={directory / 'pytest'}", f"--junitxml={directory / 'junit.xml'}", "-o", f"cache_dir={root / '.pytest_cache'}", *selectors]
