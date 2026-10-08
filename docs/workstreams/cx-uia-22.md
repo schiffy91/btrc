@@ -886,3 +886,18 @@ tool inputs were unchanged after execution. Exact evidence is
 observer-plain.json`. A separate matched native-only control and bounded normal
 run-loop observation are prepared but have not run; assertions and provider
 behavior remain unchanged pending that evidence.
+
+The matched native-only NSScrollView diagnostic subsequently completed both
+independent processes. With the original line-wheel input it reproduced zero
+bounds movement and zero DidLive notifications immediately and after 1.002 s
+of default-run-loop service; Start and End each occurred once. A second process
+changed only public CoreGraphics under-pointer window metadata and event
+location. The location changed, but NSEvent still reported no associated window;
+there was again no movement or DidLive after 1.004 s. These are diagnostic
+controls, not provider acceptance passes. They leave the provider defect
+unproven and preserve the original failing predicate. Summary:
+`ui2-macos-components-8e21f235/results/scroll-diagnostic-summary.json`, SHA-256
+`e1a28be51db82b93f9b1b3840fb9ff6a1cc1d6afc4830edcd5126492b63114a2`.
+The next separately prepared factor changes only CG wheel units from line to
+pixel and records fixed/point/accelerated payloads; it remains unexecuted while
+the compiler qualification owns the native lane.
