@@ -4,6 +4,7 @@ import Library.Image;
 import Library.GUI.Linux.LinuxImageView;
 import Library.GUI.Linux.LinuxWindow;
 import Library.GUI.IView;
+import Library.GUI.IWindow;
 import Library.GUI.IContainer;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
@@ -16,6 +17,36 @@ import Library.GUI.Linux.SDL;
 class UI2LinuxStateReceiver implements IViewInteractionStateHandler {
 	public Vector<ViewInteractionState> states = [];
 	public void interactionChanged(ViewInteractionState state) { assert(SDL_IsMainThread()); self.states.push(state); }
+}
+
+class UI2LinuxWindowStateReceiver implements IWindowStateHandler {
+	public Vector<WindowState> states = [];
+	public IWindow? closeDuring;
+	public void stateChanged(WindowState state) {
+		self.states.push(state);
+		var window = self.closeDuring;
+		if (window != null) { self.closeDuring = null; assert(window.close() == CALLBACK_CANCELLATION_PENDING); }
+	}
+}
+
+class UI2LinuxWindowStateChecks {
+	class void state(LinuxApplication application) {
+		var window = application.createWindow("UI2 coherent window state", 140.0, 90.0);
+		var receiver = UI2LinuxWindowStateReceiver(); var scope = CallbackScope(); window.onStateChanged(receiver, scope);
+		var initial = window.state(); assert(!initial.requestedVisible && !initial.nativeVisible && !initial.presentable);
+		assert(receiver.states.len == 0 && initial.width == 140.0 && initial.height == 90.0 && initial.backingScale > 0.0);
+		window.show(); var shown = window.state(); assert(shown.requestedVisible && shown.nativeVisible && shown.presentable && shown.stateRevision > initial.stateRevision);
+		window.setContentSize(180.0, 120.0); var resized = window.state(); assert(resized.width == 180.0 && resized.height == 120.0 && resized.stateRevision > shown.stateRevision);
+		for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+		assert(receiver.states.len > 0 && receiver.states.get(receiver.states.len - 1).width == 180.0);
+		long long revision = window.state().stateRevision; window.setContentSize(180.0, 120.0); assert(window.state().stateRevision == revision);
+		window.hide(); var hidden = window.state(); assert(!hidden.requestedVisible && !hidden.nativeVisible && !hidden.presentable && hidden.notExposedReason == WINDOW_EXPOSURE_REASON_HIDDEN);
+		for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+		receiver.closeDuring = window; window.show();
+		for (int turn = 0; turn < 100 && window.pollClose() != CALLBACK_CANCELLATION_COMPLETE; turn++) { application.pumpOnce(0); }
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !window.state().nativeVisible && !window.state().presentable);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	}
 }
 
 class UI2LinuxImageChecks {
@@ -123,7 +154,7 @@ int main() {
 	window.close();
 	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
 	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
-	UI2LinuxImageChecks.retainedPixels(application); UI2LinuxMutationChecks.mutation(application);
+	UI2LinuxWindowStateChecks.state(application); UI2LinuxImageChecks.retainedPixels(application); UI2LinuxMutationChecks.mutation(application);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	printf("PASS: UI2 Linux inherited eligibility and scoped observations\n"); SDL_Quit(); return 0;
 }
