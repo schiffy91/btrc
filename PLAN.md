@@ -141,9 +141,11 @@ child warning. Guard `7a95ccdf` fixes that warning: the fresh NativeTreeState
 reference projection is diagnostic-free. NativeContainerOrder then stops on
 three unchecked interface casts and two nullable host arguments in its fixture.
 Fixture correction `59cb61d9` now passes NativeContainerOrder's reference
-projection too. NativeContainerBarrier then reports seven nullable-value
-warnings in its fixture; checked-local corrections are being prepared. No later
-syntax, link or runtime stage is counted as passed.
+projection too. NativeContainerBarrier's seven nullable-value warnings are
+fixed by checked fixture locals in `8f6c8b21`. Frozen snapshot `71397941` now
+passes all three fixtures through both compilers with zero diagnostics. Strict
+C/Objective-C, linking and actual native execution are the next checks;
+projection alone does not close container behavior or the complete UI2 provider.
 
 Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
 audio and foreign-library ownership still require their platform-specific
