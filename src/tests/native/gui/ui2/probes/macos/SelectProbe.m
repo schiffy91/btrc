@@ -1,0 +1,114 @@
+#import "SelectProbe.h"
+#include <stdio.h>
+
+@implementation UI2SelectProbe {
+    NSWindow *_window;
+    NSPopUpButton *_button;
+    NSTimer *_timer;
+    NSHashTable *_receiver;
+    NSInteger _opened, _highlights, _actions, _step, _terminal;
+    BOOL _inside, _timedOut;
+    NSTimeInterval _deadline;
+}
++ (instancetype)create {
+    [NSApplication sharedApplication];
+    UI2SelectProbe *probe = [[self alloc] init];
+    probe->_receiver = [[NSHashTable alloc] initWithOptions:NSPointerFunctionsWeakMemory | NSPointerFunctionsObjectPointerPersonality capacity:1];
+    probe->_window = [[NSWindow alloc] initWithContentRect:NSMakeRect(120, 120, 400, 180)
+        styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    probe->_window.releasedWhenClosed = NO;
+    [probe->_window makeKeyAndOrderFront:nil];
+    return [probe autorelease];
+}
+- (NSView *)parent { return _window.contentView; }
+- (void)setTrackingReceiver:(id<UI2SelectTrackingReceiver>)receiver {
+    [_receiver removeAllObjects];
+    if (receiver) { [_receiver addObject:receiver]; }
+}
+- (id<UI2SelectTrackingReceiver>)trackingReceiver { return [[_receiver.anyObject retain] autorelease]; }
+- (BOOL)inside { return _inside; }
+- (BOOL)timedOut { return _timedOut; }
+- (NSInteger)opened { return _opened; }
+- (NSInteger)highlights { return _highlights; }
+- (NSInteger)actions { return _actions; }
+- (NSEvent *)key:(unichar)code {
+    NSString *text = [NSString stringWithCharacters:&code length:1];
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
+        timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:_window.windowNumber context:nil
+        characters:text charactersIgnoringModifiers:text isARepeat:NO keyCode:0];
+}
+- (void)began:(NSNotification *)notice {
+    (void)notice; _opened++;
+    fprintf(stderr, "select-native begin inside=%d selected=%ld\n", _inside, (long)_button.indexOfSelectedItem);
+}
+- (void)action:(NSNotification *)notice {
+    (void)notice; _actions++;
+    fprintf(stderr, "select-native action inside=%d highlighted=%ld selected=%ld\n", _inside,
+        (long)[_button.menu indexOfItem:_button.menu.highlightedItem], (long)_button.indexOfSelectedItem);
+}
+- (void)ended:(NSNotification *)notice {
+    (void)notice;
+    fprintf(stderr, "select-native end inside=%d selected=%ld\n", _inside, (long)_button.indexOfSelectedItem);
+}
+- (void)tick:(NSTimer *)timer {
+    (void)timer;
+    if (NSProcessInfo.processInfo.systemUptime >= _deadline) {
+        _timedOut = YES;
+        fprintf(stderr, "select-native timeout opened=%ld step=%ld\n", (long)_opened, (long)_step);
+        [_button.menu cancelTrackingWithoutAnimation];
+        return;
+    }
+    if (!_opened) { return; }
+    if (_step == 0) {
+        _step = 1;
+        [NSApp postEvent:[self key:'b'] atStart:NO];
+    } else if (_step == 1 && [_button.menu indexOfItem:_button.menu.highlightedItem] == 1) {
+        _step = 2; _highlights++;
+        fprintf(stderr, "select-native highlight inside=%d index=1\n", _inside);
+        // This is an actual native tracking observation, not a semantic injection.
+        [[self trackingReceiver] highlighted];
+        if (_terminal != 2) { [NSApp postEvent:[self key:_terminal == 1 ? 0x1b : '\r'] atStart:NO]; }
+    }
+}
+- (void)journey:(NSView *)view mode:(NSInteger)mode terminal:(NSInteger)terminal {
+    if (_inside || ![view isKindOfClass:NSPopUpButton.class] || view.window != _window) {
+        [NSException raise:NSInternalInconsistencyException format:@"Select probe requires its mounted native popup"];
+    }
+    _button = (NSPopUpButton *)view; _terminal = terminal;
+    _opened = 0; _highlights = 0; _actions = 0; _step = 0; _timedOut = NO;
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    [center addObserver:self selector:@selector(began:) name:NSMenuDidBeginTrackingNotification object:_button.menu];
+    [center addObserver:self selector:@selector(action:) name:NSMenuDidSendActionNotification object:_button.menu];
+    [center addObserver:self selector:@selector(ended:) name:NSMenuDidEndTrackingNotification object:_button.menu];
+    _deadline = NSProcessInfo.processInfo.systemUptime + 3.0;
+    _timer = [[NSTimer timerWithTimeInterval:0.01 target:self selector:@selector(tick:) userInfo:nil repeats:YES] retain];
+    [NSRunLoop.mainRunLoop addTimer:_timer forMode:NSEventTrackingRunLoopMode];
+    [NSRunLoop.mainRunLoop addTimer:_timer forMode:NSDefaultRunLoopMode];
+    _inside = YES;
+    @try {
+        if (mode == 0) { [_button performClick:nil]; }
+        else if (mode == 1) {
+            NSPoint point = [_button convertPoint:NSMakePoint(NSMidX(_button.bounds), NSMidY(_button.bounds)) toView:nil];
+            NSEvent *event = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:point modifierFlags:0
+                timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:_window.windowNumber context:nil
+                eventNumber:1 clickCount:1 pressure:1];
+            [_button mouseDown:event];
+        } else { [_button keyDown:[self key:mode == 3 ? 'b' : ' ']]; }
+    } @finally {
+        _inside = NO;
+        [_timer invalidate]; [_timer release]; _timer = nil;
+        [center removeObserver:self];
+        fprintf(stderr, "select-native return opened=%ld highlights=%ld actions=%ld selected=%ld timeout=%d\n",
+            (long)_opened, (long)_highlights, (long)_actions, (long)_button.indexOfSelectedItem, _timedOut);
+        _button = nil;
+    }
+}
+- (void)printable:(NSView *)view { [self journey:view mode:3 terminal:0]; }
+- (void)close {
+    [_timer invalidate]; [_timer release]; _timer = nil;
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [_receiver removeAllObjects]; [_receiver release]; _receiver = nil;
+    [_window orderOut:nil]; [_window close]; [_window release]; _window = nil;
+}
+- (void)dealloc { [self close]; [super dealloc]; }
+@end

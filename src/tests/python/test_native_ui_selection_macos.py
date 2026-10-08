@@ -46,20 +46,64 @@ modules = ["MacOS.MacOSSelect"]
 os = ["macos"]
 """
 
+SELECTION_PROBE_BINDINGS = """
+# Test package fragment; GUI already supplies AppKit. No framework row here.
+[[native.bindings]]
+module = "SelectProbe"
+header = "SelectProbe.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+ "+[UI2SelectProbe create]", "-[UI2SelectProbe parent]",
+ "-[UI2SelectProbe setTrackingReceiver:]", "-[UI2SelectProbe trackingReceiver]",
+ "-[UI2SelectProbe journey:mode:terminal:]", "-[UI2SelectProbe printable:]",
+ "-[UI2SelectProbe inside]", "-[UI2SelectProbe timedOut]", "-[UI2SelectProbe opened]",
+ "-[UI2SelectProbe highlights]", "-[UI2SelectProbe actions]", "-[UI2SelectProbe close]",
+ "-[UI2SelectTrackingReceiver highlighted]"
+]
+[native.bindings.callbacks."-[UI2SelectProbe setTrackingReceiver:].receiver"]
+interface = "IUI2SelectTrackingReceiver"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[UI2SelectProbe setTrackingReceiver:]"
+slot-getter = "-[UI2SelectProbe trackingReceiver]"
+methods = ["-[UI2SelectTrackingReceiver highlighted]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.sources]]
+path = "SelectProbe.m"
+language = "objective-c"
+standard = "c11"
+"""
+
 
 @pytest.mark.macos_gui
 @pytest.mark.parametrize("sanitize", [False, True])
-def test_native_selection_state(native_project, native_compile, gui_provider_root, sanitize):
+@pytest.mark.parametrize(
+    "program, expected",
+    [
+        ("NativeSelectionState", "UI2 native selection owns keyed snapshots and preserves rejected models"),
+        ("NativeSelectionEvents", "PASS: native popup input preserves ordered selection and cancellation ownership"),
+    ],
+)
+def test_native_selection_state(native_project, native_compile, gui_provider_root, sanitize, program, expected):
     source, _sdk, _triple = native_project
     root = source.parent.parent
-    source.write_text((PROBES / "NativeSelectionState.btrc").read_text())
+    source.write_text((PROBES / f"{program}.btrc").read_text())
+    bindings = ""
+    if program == "NativeSelectionEvents":
+        shutil.copyfile(PROBES / "SelectProbe.btrc", source.parent / "SelectProbe.btrc")
+        for name in ("SelectProbe.h", "SelectProbe.m"):
+            shutil.copyfile(PROBES / name, root / name)
+        bindings = SELECTION_PROBE_BINDINGS
     data_root = root / "provider-data"
     shutil.copytree(gui_provider_root, data_root, symlinks=True)
     manifest = data_root / "stdlib/GUI/btrc.toml"
     manifest.write_text(
         manifest.read_text().replace("exports = [", 'exports = ["ControlEventQueue", ', 1) + SELECTION_PROVIDER_BINDINGS
     )
-    (root / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "ui2MacOSSelection"\n')
+    (root / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "ui2MacOSSelection"\n' + bindings)
     plan = root / "Selection.link.json"
     compiled = native_compile(source, data_root=data_root, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
@@ -87,4 +131,4 @@ def test_native_selection_state(native_project, native_compile, gui_provider_roo
     (root / "run.stdout").write_text(completed.stdout)
     (root / "run.stderr").write_text(completed.stderr)
     assert completed.returncode == 0, (completed.returncode, completed.stdout, completed.stderr)
-    assert "UI2 native selection owns keyed snapshots and preserves rejected models" in completed.stdout
+    assert expected in completed.stdout
