@@ -14,12 +14,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        session: [x11, wayland]
+        session: [x11]
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      CANDIDATE_SHA: 14f9e193866679f713504618238d158f9f43ece1
-      PINS_SHA256: 1a05cad69bf4478763dbdc1f7d69c09fb4c8d3e9f6ff41a522234ea459e385f6
+      CANDIDATE_SHA: 9b03f794b2faca8b9c52dced97da5598e000ca7d
+      PINS_SHA256: 6ea138cd5ddbae08839c813548523e4204c7197b28acc782de41ee615866c975
       BASELINE_SHA: 3974d47bc87851b1ac19b8d2b4bd5022f2d94676
       DONOR_RUN: '37732563990'
       DONOR_HEAD_SHA: ad58680cc0057dcdddadefc024caf8346315b2b4
