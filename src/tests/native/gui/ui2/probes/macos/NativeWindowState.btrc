@@ -1,0 +1,58 @@
+/* Source-only real-Window fixture draft; native probe/bindings and cohesive
+ * provider integration remain required before projection/qualification. */
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSControlEvents;
+import ./WindowProbe.btrc;
+#include <assert.h>
+
+class WindowStates implements IWindowStateHandler {
+	public Vector<WindowState> states = [];
+	public void stateChanged(WindowState state) { self.states.push(state); }
+}
+
+int main() {
+	UI2WindowProbe.initializeAppKit();
+	var context = MacOSControlContext(); var scope = CallbackScope();
+	var provider = MacOSWindow("UI2 state", 320.0, 200.0, null, context);
+	IWindow window = provider; var native = provider.nativeWindow();
+	var receiver = WindowStates(); var registration = window.onStateChanged(receiver, scope);
+	var initial = window.state();
+	assert(initial.stateRevision > 0LL && initial.width == 320.0 && initial.height == 200.0);
+	assert(!initial.requestedVisible && !initial.nativeVisible);
+	assert(receiver.states.len == 0); provider.dispatchPendingEvents(); assert(receiver.states.len == 0);
+	window.setContentSize(360.0, 220.0); var resized = window.state();
+	assert(resized.width == 360.0 && resized.height == 220.0 && resized.stateRevision > initial.stateRevision);
+	assert(initial.width == 320.0 && initial.height == 200.0); // Owning retained copy.
+	assert(receiver.states.len == 0); provider.dispatchPendingEvents();
+	assert(receiver.states.len == 1 && receiver.states.get(0).stateRevision == resized.stateRevision);
+	window.setContentSize(360.0, 220.0); provider.dispatchPendingEvents();
+	assert(window.state().stateRevision == resized.stateRevision && receiver.states.len == 1);
+	window.show(); var shown = window.state();
+	assert(shown.requestedVisible && shown.nativeVisible == native.isVisible());
+	assert(shown.windowActive == native.isKeyWindow() && shown.backingScale == native.backingScaleFactor());
+	assert(shown.applicationActivity != APPLICATION_ACTIVITY_SUSPENDED);
+	provider.dispatchPendingEvents();
+	UI2WindowProbe.setMinimized(native, true);
+	assert(UI2WindowProbe.awaitMinimized(native, true));
+	provider.dispatchPendingEvents(); var minimized = window.state();
+	assert(minimized.requestedVisible && minimized.minimized && !minimized.presentable);
+	assert(minimized.notExposedReason == WINDOW_EXPOSURE_REASON_MINIMIZED);
+	UI2WindowProbe.setMinimized(native, false); assert(UI2WindowProbe.awaitMinimized(native, false));
+	provider.dispatchPendingEvents();
+	window.hide(); var hidden = window.state();
+	assert(!hidden.requestedVisible && !hidden.nativeVisible && !hidden.presentable);
+	assert(hidden.notExposedReason == WINDOW_EXPOSURE_REASON_HIDDEN);
+	provider.dispatchPendingEvents();
+	assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	int calls = receiver.states.len; window.setContentSize(380.0, 240.0); provider.dispatchPendingEvents();
+	assert(receiver.states.len == calls);
+	assert(window.close() == CALLBACK_CANCELLATION_COMPLETE);
+	var closed = window.state(); assert(!closed.nativeVisible && !closed.presentable);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+	print("UI2 native window snapshots preserve revisions and independent platform state");
+	return 0;
+}

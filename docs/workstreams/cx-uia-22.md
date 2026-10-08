@@ -937,3 +937,36 @@ drafts and explicit application context routing. It is under independent source
 review. No Window projection, build or native acceptance is claimed; native
 application quit coordination and full public application conformance remain
 open. The frozen qualification source and checkout production files are intact.
+
+## Window fixture-only semantic baseline
+
+The reviewed Window fixture/probe checkpoint adds real two-window close
+transactions, save/edit/late-result authority, editor identity, terminal pressure,
+callback-initiated close, state snapshots and native before/after detach faults.
+The post-fault state getter and real native resize must not re-enable a
+quarantined root; recovery retains exact native ownership. These assertions
+remain unexecuted as native tests. The source-only packet and projection runner
+received independent review before baseline execution.
+
+On 2026-10-08, allocated session32300 completed the reference-only baseline
+on unchanged provider8e21f235 and reference compiler56d548c4. NativeWindowClose
+failed semantic compilation in5.29s with28 diagnostics, including all four
+missing IWindow methods (requestClose, onCloseRequested, state, onStateChanged),
+the new context constructor argument and shared close-decision guard. SDK/probe
+projection succeeded; these are genuine missing provider capabilities, not
+setup failures. First-failure policy left NativeWindowState unprojected. No C
+compile, link or native runtime was attempted.
+
+Exact evidence: ui2-macos-window-baseline-39a453f8/results/projection1/result.json,
+SHA-256134d12c41d8b1e595344ffae5fbd60704d09bdd5cdde0e7aa9a5511ac0c1f8e6.
+Compiler result SHA-256a7d6dc540493f6d43b78d66d49807e6c2e24e3aad4c7efe7a77e998c040ff4d9.
+All source/tool inputs remained unchanged, both owned process groups were
+absent and leaders reaped, and gate/gui-capture were released immediately for
+the combined compiler's focused checks. Baseline failure remains status1.
+
+Source work and peer review occurred while other packets owned the heavy lane;
+the prepared bundle waited through the combined compiler build and the
+integrator's seven coordination checks. No native jobs overlapped. The upcoming
+Window repair must pass both projections, strict C/ObjC and eight planned
+plain/sanitized native rows before any bounded component qualification claim.
+Application quit grouping and complete public application conformance stay open.

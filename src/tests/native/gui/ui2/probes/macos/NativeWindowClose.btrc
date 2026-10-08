@@ -1,0 +1,182 @@
+/* Source-only fixture draft, not yet admitted/projected. WindowProbe is a
+ * forthcoming native probe owning real field-editor observations only. */
+import Library.Callback;
+import Library.App;
+import Library.Vector;
+import Library.GUI.IWindow;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.MacOS.MacOSRunLoop;
+import ./WindowProbe.btrc;
+#include <assert.h>
+
+class WindowRequests implements IWindowCloseRequestHandler {
+	public Vector<IWindowCloseTransaction> requests = [];
+	public MacOSWindow? closing;
+	public bool closePending = false;
+	public MacOSWindow? modalTarget;
+	public bool modalRejected = false;
+	public bool throwAfter = false;
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		self.requests.push(transaction);
+		var target = self.modalTarget;
+		if (target != null) {
+			try { target.showAlert("must not open", "close callback"); }
+			catch (string error) { self.modalRejected = !error.isEmpty(); }
+		}
+		if (self.throwAfter) { throw "controlled close receiver failure"; }
+		var closing = self.closing;
+		if (closing != null) { self.closePending = closing.close() == CALLBACK_CANCELLATION_PENDING; }
+	}
+}
+
+class WindowKeyCalls implements IWindowKeyHandler {
+	public int calls = 0;
+	public bool key(AppKeyboardEvent event) { self.calls++; return false; }
+}
+
+class WindowPressureStates implements IWindowStateHandler {
+	public int calls = 0;
+	public void stateChanged(WindowState state) { self.calls++; }
+}
+
+class WindowCloseChecks {
+	class IWindowCloseTransaction pending(WindowCloseRequestOutcome outcome, WindowCloseRequestOutcomeKind kind) {
+		assert(outcome.kind == kind); var transaction = outcome.transaction;
+		if (transaction == null) { throw "Pending close lacks transaction identity"; }
+		return transaction;
+	}
+
+	class void service(MacOSWindow window) { window.dispatchPendingEvents(); }
+}
+
+int main() {
+	UI2WindowProbe.initializeAppKit();
+	var context = MacOSControlContext(4); var scope = CallbackScope();
+	var first = MacOSWindow("UI2 first", 320.0, 200.0, null, context);
+	var second = MacOSWindow("UI2 second", 320.0, 200.0, null, context);
+	IWindow firstPublic = first; IWindow secondPublic = second;
+	var firstNative = first.nativeWindow();
+	var a = WindowRequests(); var b = WindowRequests(); a.modalTarget = second;
+	var ar = firstPublic.onCloseRequested(a, scope); var br = secondPublic.onCloseRequested(b, scope);
+	bool duplicateRejected = false;
+	try { firstPublic.onCloseRequested(WindowRequests(), scope); } catch (string error) { duplicateRejected = !error.isEmpty(); }
+	assert(duplicateRejected && ar.isOpen());
+	firstPublic.show(); secondPublic.show();
+	UI2WindowProbe.beginEditing(first.nativeWindow());
+	UI2WindowProbe.requestNativeClose(first.nativeWindow());
+	assert(a.requests.len == 0 && firstPublic.isOpen()); // Synchronous native veto, no inline app handler.
+	WindowCloseChecks.service(first);
+	assert(a.requests.len == 1 && firstPublic.isOpen() && a.modalRejected); a.modalTarget = null;
+	var original = a.requests.get(0);
+	assert(WindowCloseChecks.pending(firstPublic.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_ALREADY_PENDING) == original);
+	var other = WindowCloseChecks.pending(secondPublic.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	assert(other != original && b.requests.len == 0); WindowCloseChecks.service(second);
+	assert(b.requests.len == 1 && b.requests.get(0) == other);
+	var saving = original.decide(WINDOW_CLOSE_DECISION_SAVE, 4LL);
+	assert(saving.kind == WINDOW_CLOSE_OUTCOME_APPLIED && saving.state == WINDOW_CLOSE_SAVING && saving.attempt > 0LL);
+	assert(original.decide(WINDOW_CLOSE_DECISION_SAVE, 5LL).attempt == saving.attempt);
+	assert(original.completeSave(saving.attempt + 1LL, 5LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT);
+	assert(original.completeSave(saving.attempt, 4LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+	assert(original.state() == WINDOW_CLOSE_AWAITING_DECISION && firstPublic.isOpen());
+	assert(original.decide(WINDOW_CLOSE_DECISION_DISCARD, 4LL).kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+	var retry = original.decide(WINDOW_CLOSE_DECISION_SAVE, 5LL); assert(retry.attempt > saving.attempt);
+	assert(original.completeSave(retry.attempt, 5LL, false, "controlled save failure").state == WINDOW_CLOSE_AWAITING_DECISION);
+	assert(original.decide(WINDOW_CLOSE_DECISION_CANCEL, 5LL).state == WINDOW_CLOSE_CANCELLED);
+	assert(firstPublic.isOpen() && UI2WindowProbe.editorUnchanged(first.nativeWindow()));
+	assert(original.completeSave(retry.attempt, 5LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	assert(other.state() == WINDOW_CLOSE_AWAITING_DECISION && secondPublic.isOpen());
+	assert(br.cancel() == CALLBACK_CANCELLATION_COMPLETE && other.state() == WINDOW_CLOSE_CANCELLED);
+	assert(secondPublic.isOpen());
+	assert(secondPublic.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER);
+	assert(secondPublic.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	var final = WindowCloseChecks.pending(firstPublic.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	WindowCloseChecks.service(first); assert(a.requests.len == 2);
+	var currentSave = final.decide(WINDOW_CLOSE_DECISION_SAVE, 6LL);
+	assert(final.completeSave(currentSave.attempt, 6LL, true, "").state == WINDOW_CLOSE_CLOSING);
+	assert(firstPublic.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(final.decide(WINDOW_CLOSE_DECISION_DISCARD, 6LL).kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	assert(UI2WindowProbe.closeCount(firstNative) == 1);
+	var third = MacOSWindow("UI2 discard", 320.0, 200.0, null, context);
+	var c = WindowRequests(); third.onCloseRequested(c, scope);
+	var discard = WindowCloseChecks.pending(third.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	WindowCloseChecks.service(third);
+	assert(discard.decide(WINDOW_CLOSE_DECISION_DISCARD, 9LL).state == WINDOW_CLOSE_CLOSING);
+	assert(third.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	var fourth = MacOSWindow("UI2 callback close", 320.0, 200.0, null, context);
+	var d = WindowRequests(); d.closing = fourth; var dr = fourth.onCloseRequested(d, scope);
+	var forced = WindowCloseChecks.pending(fourth.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	WindowCloseChecks.service(fourth);
+	assert(d.closePending && forced.state() == WINDOW_CLOSE_OWNER_LOST);
+	assert(fourth.pollClose() == CALLBACK_CANCELLATION_COMPLETE && dr.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	d.closing = null;
+	// One ordinary slot is already occupied; the reserved close record still
+	// commits and preserves cross-channel ordering rather than evicting state.
+	var pressureContext = MacOSControlContext(1);
+	int available = pressureContext.terminalPool.available();
+	var pressure = MacOSWindow("UI2 close pressure", 200.0, 120.0, null, pressureContext);
+	var pressureStates = WindowPressureStates(); var pressureRequests = WindowRequests();
+	pressure.onStateChanged(pressureStates, scope); pressure.onCloseRequested(pressureRequests, scope);
+	pressure.setContentSize(220.0, 140.0);
+	var pressurePending = WindowCloseChecks.pending(pressure.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	assert(pressureStates.calls == 0 && pressureRequests.requests.len == 0);
+	WindowCloseChecks.service(pressure);
+	assert(pressureStates.calls == 1 && pressureRequests.requests.len == 0);
+	WindowCloseChecks.service(pressure);
+	assert(pressureRequests.requests.len == 1 && pressureRequests.requests.get(0) == pressurePending);
+	assert(pressurePending.decide(WINDOW_CLOSE_DECISION_CANCEL, 0LL).state == WINDOW_CLOSE_CANCELLED);
+	assert(pressure.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(pressureContext.terminalPool.available() == available); pressureContext.close();
+
+	// A throwing receiver must release the application-wide modal guard.
+	var throwing = MacOSWindow("UI2 close throw", 200.0, 120.0, null, context);
+	var throwingReceiver = WindowRequests(); throwingReceiver.throwAfter = true;
+	throwing.onCloseRequested(throwingReceiver, scope);
+	var throwingPending = WindowCloseChecks.pending(throwing.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	bool threw = false;
+	try { WindowCloseChecks.service(throwing); } catch (string error) { threw = error == "controlled close receiver failure"; }
+	assert(threw); context.requireNoCloseDecision();
+	assert(throwing.close() == CALLBACK_CANCELLATION_COMPLETE && throwingPending.state() == WINDOW_CLOSE_OWNER_LOST);
+
+	// Failed external-scope admission leaves neither a live intercept nor a
+	// lost terminal credit behind.
+	var rejectedScope = CallbackScope(); rejectedScope.cancel();
+	var rejected = MacOSWindow("UI2 rejected handler", 200.0, 120.0, null, context);
+	int oldCredits = context.terminalPool.available(); bool rejectedHandler = false;
+	try { rejected.onCloseRequested(WindowRequests(), rejectedScope); } catch (string error) { rejectedHandler = !error.isEmpty(); }
+	assert(rejectedHandler && context.terminalPool.available() == oldCredits);
+	assert(rejected.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER);
+	assert(rejected.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	// Native detach failure cannot discard the root or permanently disable
+	// cleanup. Both sides of the side effect retain the same logical owner.
+	for (int mode = 1; mode <= 4; mode++) {
+		var faultWindow = MacOSWindow("UI2 detach failure", 240.0, 160.0, null, context);
+		var faultRoot = MacOSView(UI2WindowProbe.faultView(), context);
+		faultWindow.show(); faultWindow.attachRoot(faultRoot); var parent = faultWindow.contentView();
+		assert(faultRoot.interactionState().effectiveEligible);
+		var keyCalls = WindowKeyCalls(); faultWindow.onKey(keyCalls, scope);
+		UI2WindowProbe.setRemovalFault(mode);
+		bool detachFailed = false;
+		try { faultWindow.detachRoot(); } catch (string error) { detachFailed = !error.isEmpty(); }
+		assert(detachFailed && faultWindow.root() == faultRoot && faultRoot.isOpen() && keyCalls.calls == 0);
+		bool mutationRejected = false;
+		try { faultWindow.setContentSize(250.0, 170.0); } catch (string error) { mutationRejected = !error.isEmpty(); }
+		assert(mutationRejected);
+		faultWindow.state(); UI2WindowProbe.resizeNative(faultWindow.nativeWindow()); faultWindow.state();
+		assert(!faultRoot.interactionState().effectiveEligible);
+		if (mode == 1) { assert(faultRoot.nativeView().superview() == parent); }
+		else if (mode == 2 || mode == 4) { assert(faultRoot.nativeView().superview() == null); }
+		if (mode == 3) {
+			assert(faultWindow.close() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
+			assert(faultWindow.root() == faultRoot && faultRoot.isOpen());
+			UI2WindowProbe.restoreFaultViewTo(parent);
+			assert(faultWindow.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		} else { assert(faultWindow.close() == CALLBACK_CANCELLATION_COMPLETE); }
+		assert(!faultRoot.isOpen() && faultWindow.root() == null);
+	}
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	UI2WindowProbe.finish(); context.close();
+	print("UI2 native windows preserve cancellable close identity and revision authority");
+	return 0;
+}
