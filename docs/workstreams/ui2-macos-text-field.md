@@ -139,3 +139,23 @@ MRC-owned host/editor/text snapshots, and the fixture relies on the provider's
 AppKit framework row instead of declaring it twice. No compiler flags, callback
 API, semantic assertions or production native manifest changed. These repairs
 require a fresh paired native attempt before any runtime claim.
+
+## Original native fixture qualified
+
+On exact b987ebdc provider/current f75 compiler, both reference and selfhost
+projections passed without diagnostics, all twelve strict C/Objective-C unit
+checks passed, and the four plain/ASan+UBSan link/native rows passed. Aggregate
+`text-result.json` SHA256
+`273bdd3bbd6579527c18f631de3ac9e4b61b80458750ec1ad056409fa203fb84`
+is retained under `ui2-macos-text-b987ebdc-native-compiler-f75c737b`. All 92
+commands returned/reaped zero, their retained logs were rehashed, all process
+groups were absent afterward, and every stage closed its original source/tool
+inventory unchanged. Original compiler flags, fixture assertions and deadlines
+were used. The earlier failed MRC attempt remains retained separately.
+
+This qualifies the original NativeTextState checks: actual field-editor drafts,
+Return plus end-edit deduplication, changed-model cancellation, programmatic
+marked text and unchanged editor preservation, eligibility settlement, queued
+commit retirement, late subscription, immutable payloads and quarantine cleanup.
+It does not establish physical IME behavior, all Escape/migration/entered-close
+cases, or complete application/provider acceptance.
