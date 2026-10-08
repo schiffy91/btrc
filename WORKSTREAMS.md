@@ -1,9 +1,15 @@
-# WORKSTREAMS: the shared work plan for Claude, Codex and the owner
+# WORKSTREAMS: path claims, packet dependencies and coordination protocol
 
-**Status:** in force, 2026-10-03 (D27, §2); amended 2026-10-06 by D28. **Roadmap and decisions:** [CLAUDE.md](CLAUDE.md) (formerly PLAN.md, now a pointer). **Rules every agent follows:** [AGENTS.md](AGENTS.md). **Codex's active queue:** [CODEX.md](CODEX.md).
+**2026-10-07 consolidation (D29).** [PLAN.md](PLAN.md) is the sole active
+roadmap and queue for both roles. CLAUDE.md and CODEX.md are compatibility entry
+points. This file retains claims and protocol; historical split-file statements
+below are superseded by D29. The current session is authorized to implement and
+integrate after the required review and gates. No qualification bar is waived.
+
+**Historical protocol status:** in force, 2026-10-03 (D27, §2); amended 2026-10-06 by D28. **Roadmap and decisions:** [PLAN.md](PLAN.md). **Rules every agent follows:** [AGENTS.md](AGENTS.md). **Provider queue:** [PLAN.md](PLAN.md#provider-implementation-queue).
 **Contents:** 449 work packets (Claude 185, Codex 209, owner 55), generated from six planning analysts' output plus the writer adjustments in §9 and the review changes in §10, with four packets added on 2026-10-03 (`CX-UIA-30`, `CL-UIA-24`, `CL-R-50`, `CL-P2-29`; [codex-ui-lanes.md](docs/workstreams/codex-ui-lanes.md)).
 
-**D28 (2026-10-06).** [CODEX.md](CODEX.md) is Codex's active queue and results. This file keeps the shared path claims (§3.3), the cross-agent dependencies and the protocol (§3). Where a D27-era clause here conflicts with D28, D28 governs, including a conflicting Codex scheduling clause below that carries no D28 note. Packet ids are kept for traceability.
+**D28 (2026-10-06).** [PLAN.md](PLAN.md) is Codex's active queue and results. This file keeps the shared path claims (§3.3), the cross-agent dependencies and the protocol (§3). Where a D27-era clause here conflicts with D28, D28 governs, including a conflicting Codex scheduling clause below that carries no D28 note. Packet ids are kept for traceability.
 
 1. [Purpose and how to use this doc](#1-purpose-and-how-to-use-this-doc)
 2. [Decision D27](#2-decision-d27-two-builder-agents-and-which-ui-work-starts-early)
