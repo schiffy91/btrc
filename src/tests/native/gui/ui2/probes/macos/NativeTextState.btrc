@@ -67,6 +67,14 @@ int main() {
 	assert(context.detachedEvents.retired(CONTROL_EVENT_INELIGIBLE) == retired + 1LL);
 	field.setEnabled(true); assert(!context.dispatchOne(context.detachedEvents));
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	// A receiver may join an edit already admitted by the native begin hook.
+	assert(UI2TextProbe.begin(field.nativeControl()));
+	UI2TextProbe.insert(field.nativeControl(), AppKitText.nativeValue("late"));
+	var lateScope = CallbackScope(); var late = NativeTextReceiver();
+	field.onCommit(late, lateScope); UI2TextProbe.accept(field.nativeControl());
+	assert(late.events.len == 0); NativeTextAssertions.drain(context);
+	assert(late.events.len == 1 && late.events.get(0).text == "late");
+	assert(lateScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	field.detachFrom(parent); assert(field.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(context.terminalPool.available() == 16384); context.close(); UI2TextProbe.close();
 	printf("UI2 native text preserves draft ownership and ordered terminal eligibility\n"); return 0;
