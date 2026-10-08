@@ -83,7 +83,8 @@ def test_windows_orphan_header_shims_cover_emitted_stdlib_includes() -> None:
 
 @pytest.mark.parametrize("declared_mkdtemp", [False, True], ids=["legacy-crt", "declared-crt"])
 def test_windows_compat_header_is_safe_across_translation_units(
-    tmp_path: Path, declared_mkdtemp: bool,
+    tmp_path: Path,
+    declared_mkdtemp: bool,
 ) -> None:
     zig = shutil.which("zig")
     if not zig:

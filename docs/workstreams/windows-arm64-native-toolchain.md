@@ -113,7 +113,36 @@ official index's `0.17.0` ARM64 Windows row. Index response SHA-256:
 release-note response SHA-256:
 `55d4e9d4b489195dbca2631169b6def135ef97c05a7742c784ca28cacb7dd210`.
 
-Time categories: source/review and small Python checks only; no local compiler
-build, native gate, guest, or measurement. Actual Windows native qualification,
-archive verification, full bootstrap and hosted CI remain pending. No Mac test
-can supply that evidence. The parent owns publication and CI slots.
+The pin repair was published at `fe115d6b`. Actual native run 37711636840 verifies
+and runs Zig 0.17.0 on Windows ARM64 with ARM64 Python. Its ordinary minimal GNU
+executable link succeeds (exit zero); object generation also passes. The strict
+stdio probe stops at a C declaration error, before BTRC or bootstrap executes:
+newer MinGW `stdlib.h` declares `mkdtemp`, while our force-included compatibility
+header defines a static function with the same name. The independent MSVC/wgpu
+smoke remains separate. This advances the investigation beyond the previous
+driver access violation but does not qualify the native BTRC compiler.
+
+The follow-up names the existing implementation `btrc_win_mkdtemp` and maps the
+portable name with an object-like macro after its definition, following the
+existing locale/stdio/durability wrappers. Its argument validation, collision
+retry, allocation, errors and directory creation are unchanged. The CRT keeps
+its own declaration; generated extern declarations and calls resolve to the
+already-declared internal wrapper. No version test or toolchain flag is added.
+
+The existing three-translation-unit strict C11 regression now also force-includes
+an external CRT declaration before the compatibility header, reproducing newer
+headers on the retained older Zig cross compiler. Fixture-only checkpoint
+`1a80527d` gives **one pass and one failure**, with the same static-versus-external
+linkage diagnostic in all three translation units. With the fix, the complete
+compatibility module has **five passes, zero skips** in 1.25 seconds using
+Zig 0.16.0. It verifies compilation/linking, later generated-style externs and
+multiple translation units against both header layouts. Windows executables are
+not run on this Mac; actual native runtime/bootstrap qualification still requires
+the hosted rerun. Evidence is retained at
+`~/.cache/btrc/plan-consolidation-2026-10-07/windows-mkdtemp-compat/`, with the
+actual failed native artifact at sibling `windows-fe115d6b-native/`.
+
+Time categories: the pin repair used source/review and small Python checks;
+the follow-up additionally ran the bounded Windows cross-compile regression
+under the Mac's gate/build locks. No measurement or Windows native execution is
+claimed from local checks. The parent owns publication and CI slots.
