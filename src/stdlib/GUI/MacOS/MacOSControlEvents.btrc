@@ -1,0 +1,164 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+/* Semantic queues are UI-only. Worker ingress has its own POD publisher;
+ * this adapter therefore never changes or borrows a host from a worker. */
+class MacOSSemanticWake implements IControlEventWake {
+	private MacOSRunLoopSignal? _signal;
+	public IApplicationHost? host;
+	public MacOSSemanticWake(MacOSRunLoopSignal? signal) { self._signal = signal; }
+
+	public bool requestTurn() {
+		if (self._signal != null && !self._signal.tryWake()) { return false; }
+		return self.host == null || self.host.requestTurn();
+	}
+}
+
+/* Application-wide terminal reservations, not per-window quotas. Views may
+ * subscribe before attachment through the detached queue in this same pool.
+ * The context owns no view, window, receiver or application backreference. */
+class MacOSControlContext {
+	public ControlEventTerminalPool terminalPool;
+	public ControlEventQueue detachedEvents;
+	public MacOSSemanticWake wake;
+	private int _capacity;
+	private bool _closed = false;
+
+	public MacOSControlContext(int capacity = 256, MacOSRunLoopSignal? signal = null) {
+		self.requireUI();
+		if (capacity <= 0 || capacity > 65536) { throw "Invalid native semantic queue capacity"; }
+		self._capacity = capacity;
+		self.terminalPool = ControlEventTerminalPool(16384);
+		self.wake = MacOSSemanticWake(signal);
+		self.detachedEvents = self.createQueue();
+	}
+
+	public void requireUI() { if (!NSThread.isMainThread()) { throw "Native semantic ownership requires the main thread"; } }
+
+	public ControlEventQueue createQueue() {
+		self.requireUI();
+		if (self._closed) { throw "Native semantic context is closed"; }
+		var queue = ControlEventQueue(self._capacity, self.terminalPool);
+		queue.setWake(self.wake); return queue;
+	}
+
+	public bool isOpen() { self.requireUI(); return !self._closed; }
+
+	public void close() { self.requireUI(); if (self._closed) { return; } self._closed = true; self.detachedEvents.close(); self.wake.host = null; }
+}
+
+/* Observation channels must deliver a new hidden/disabled snapshot even when
+ * user input has become ineligible. They still enforce owner generation. */
+class MacOSStateObservation implements IControlEventTarget {
+	private MacOSViewState _state;
+	public MacOSStateObservation(MacOSViewState state) { self._state = state; }
+
+	public ControlEventDisposition admission(long long generation) { return self._state.observationAdmission(generation); }
+}
+
+/* Copied inherited facts and snapshots, never a parent/native-owner pointer.
+ * The native owner remains authoritative for its local flags and calls update
+ * after native mutation. Subtrees update all nodes before settling interactions,
+ * then publish after the native transaction is coherent. */
+class MacOSViewState implements IControlEventTarget {
+	private MacOSControlContext _context;
+	private ControlEventQueue _events;
+	private CallbackScope _scope = CallbackScope();
+	private Vector<IControlEventChannel> _channels = [];
+	private ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>? _observation;
+	private ViewInteractionState _state;
+	private long long _generation = 1LL;
+	private bool _changed = false;
+	private bool _closing = false;
+
+	public MacOSViewState(MacOSControlContext context) {
+		context.requireUI(); self._context = context; self._events = context.detachedEvents;
+		self._state = ViewInteractionState(); self._state.localVisible = true; self._state.localEnabled = true;
+		self._state.layoutParticipating = true; self._state.exposure = WINDOW_EXPOSURE_UNKNOWN; self._state.stateRevision = 1LL;
+	}
+
+	private void requireOpen() { self._context.requireUI(); if (self._closing || !self._context.isOpen()) { throw "Native view state is closed"; } }
+
+	public long long generation() { self._context.requireUI(); return self._generation; }
+
+	public ControlEventQueue events() { self._context.requireUI(); return self._events; }
+
+	public ControlEventDisposition observationAdmission(long long generation) {
+		self._context.requireUI();
+		if (self._closing || !self._context.isOpen()) { return CONTROL_EVENT_CLOSED; }
+		return generation == self._generation ? CONTROL_EVENT_DELIVERED : CONTROL_EVENT_STALE_GENERATION;
+	}
+
+	public ControlEventDisposition admission(long long generation) {
+		ControlEventDisposition status = self.observationAdmission(generation);
+		if (status == CONTROL_EVENT_DELIVERED && !self._state.effectiveEligible) { return CONTROL_EVENT_INELIGIBLE; }
+		return status;
+	}
+
+	public ViewInteractionState interactionState() {
+		self._context.requireUI();
+		var state = ViewInteractionState(); var current = self._state;
+		state.localVisible = current.localVisible; state.localEnabled = current.localEnabled;
+		state.inheritedEligible = current.inheritedEligible; state.effectiveEligible = current.effectiveEligible;
+		state.layoutParticipating = current.layoutParticipating; state.exposure = current.exposure;
+		state.faulted = current.faulted; state.stateRevision = current.stateRevision; return state;
+	}
+
+	public void own(IControlEventChannel channel) {
+		self.requireOpen();
+		self._scope.pollCompletion();
+		for (int index = self._channels.len - 1; index >= 0; index--) { if (self._channels.get(index).pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) { self._channels.remove(index); } }
+		try { self._scope.track(channel); } catch (string error) { channel.cancel(); throw error; }
+		self._channels.push(channel);
+	}
+
+	class void deliverState(IViewInteractionStateHandler receiver, ViewInteractionState state) { receiver.interactionChanged(state); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler receiver, CallbackScope owner) {
+		self.requireOpen();
+		if (self._observation != null && self._observation.isOpen()) { throw "Cancel the existing interaction state handler first"; }
+		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self._events, MacOSStateObservation(self), receiver, MacOSViewState.deliverState, owner);
+		self.own(channel); self._observation = channel; return channel;
+	}
+
+	/* Returns whether eligibility was lost. The caller settles its native
+	 * composition/capture before publish; no user receiver runs here. */
+	public bool update(bool visible, bool enabled, bool inherited, bool attached, WindowExposure exposure, bool faulted) {
+		self.requireOpen();
+		var old = self._state;
+		bool eligible = attached && visible && enabled && inherited && !faulted;
+		if (old.localVisible == visible && old.localEnabled == enabled && old.inheritedEligible == inherited && old.effectiveEligible == eligible && old.exposure == exposure && old.faulted == faulted) { return false; }
+		if (old.stateRevision == 9223372036854775807LL) { throw "Native interaction revisions exhausted"; }
+		var state = ViewInteractionState(); state.localVisible = visible; state.localEnabled = enabled;
+		state.inheritedEligible = inherited; state.effectiveEligible = eligible; state.layoutParticipating = true;
+		state.exposure = exposure; state.faulted = faulted; state.stateRevision = old.stateRevision + 1LL;
+		self._state = state; self._changed = true;
+		return old.effectiveEligible && !eligible;
+	}
+
+	public void publish() {
+		self.requireOpen();
+		if (!self._changed) { return; }
+		var channel = self._observation;
+		if (channel != null && channel.isOpen() && !channel.publish(self.interactionState(), self._generation, 0LL, 1LL)) { throw "Interaction state semantic source is unavailable"; }
+		self._changed = false;
+	}
+
+	public void rebind(ControlEventQueue events) {
+		self.requireOpen();
+		if (events == self._events) { return; }
+		if (events == null || events.terminalPool() != self._context.terminalPool) { throw "Native views cannot cross application contexts"; }
+		if (self._generation == 9223372036854775807LL) { throw "Native interaction generations exhausted"; }
+		try { for channel in self._channels { if (channel.isOpen()) { channel.rebind(events); } } }
+		catch (string error) { self.close(); throw error; }
+		self._events = events; self._generation++;
+	}
+
+	public CallbackCancellation close() { self._context.requireUI(); self._closing = true; return self._scope.cancel(); }
+
+	public CallbackCancellation pollClose() { self._context.requireUI(); return self._closing ? self._scope.pollCompletion() : CALLBACK_CANCELLATION_NOT_REQUESTED; }
+}

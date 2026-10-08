@@ -264,3 +264,32 @@ UI-retained class owner; its raw C ring/state contains only copyable data. The
 compiler safety rule remains unchanged. Shared queue source equals 818e9ee0
 byte-for-byte (local61012911), whose proof likewise covers reference transpile
 only.
+
+## Publisher and interaction-state source checkpoints
+
+MacOSPublisher now owns the bounded POD ring/recent-terminal ledger, direct
+class-owned atomics, UI callback gate, and borrowed worker host route. Admission
+and callback entry share a mutex; host callbacks run outside it with an atomic
+in-flight claim. Cancellation seals ingress without joining a producer and
+waits through polling for entered callbacks/host notifications. Accepted records
+remain charged until one explicit disposition; an unknown sequence gap is not
+reported as already-terminal. Suspended cancellation cleanup can bypass a
+deferred head without changing surviving domain order. False/throwing host
+requests after admission preserve ACCEPTED and latch failure. Independent review
+found the suspend/resume native wake was unchecked; fixture b06727bd now covers
+that failure and the source seals/latches it consistently.
+
+MacOSControlEvents adds the application terminal pool/detached queue and copied
+view interaction snapshots. Observation admission checks live generation while
+domain admission also checks eligibility. Native owners must supply actual local
+flags, mark a complete subtree before settling interactions, then publish; this
+file does not claim that native wiring already exists. Cross-window channel
+routing uses the shared core; partial rebind failure closes the state owner and
+must be exposed as native-owner quarantine, never a fictitious rollback.
+
+Both drafts passed independent source review (including the publisher correction),
+canonical formatting and diff checks only. Actual semantic compilation, generated
+worker-call ARC audit, paired native/sanitized fixtures and host/application
+integration remain open. No native build or GUI execution ran in this agent's
+source lane. The final MacOSControlEvents binding requires NSThread; the
+integrator owns that row and all catalog/skip/generated integration.

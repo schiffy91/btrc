@@ -6,6 +6,8 @@ import Library.GUI.IApplication;
 import Library.GUI.ControlEventQueue;
 import Library.GUI.MacOS.MacOSRunLoop;
 
+#include <errno.h>
+
 /* UI-only admitted work. The queue retains this record while a receiver is
  * entered, so a callback cannot evade capacity by posting its replacement. */
 class MacOSScheduledWork implements ICallbackRegistration {
@@ -223,4 +225,329 @@ class MacOSWorkQueue {
 	}
 
 	public void __del__() { if (self.cancel() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Application work queue destroyed before receiver drain"); } }
+}
+
+struct MacOSPublicationRecord {
+	long long generation;
+	long long sequence;
+	long long key;
+	long long payload;
+	int policy;
+	bool cancelled;
+};
+
+struct MacOSPublicationReceipt {
+	long long generation;
+	long long sequence;
+};
+
+/* Producer-reachable mutable storage is plain data guarded by one native
+ * mutex. Atomic seal/notification fields on the retained class allow UI cancellation
+ * without waiting for a producer or releasing its host route prematurely. */
+struct MacOSPublisherState {
+	pthread_mutex_t mutex;
+	struct MacOSPublicationRecord* slots;
+	struct MacOSPublicationReceipt* receipts;
+	long long retired[7];
+	int capacity;
+	int head;
+	int count;
+	int receiptHead;
+	int receiptCount;
+	bool open;
+	bool suspended;
+	bool executing;
+	struct MacOSPublicationRecord current;
+	long long generation;
+	long long sequence;
+	long long accepted;
+};
+
+class MacOSPublisher implements IApplicationPublisher, ICallbackRegistration {
+	private Atomic<bool> _sealed;
+	private Atomic<bool> _failed;
+	private Atomic<uint> _notifying;
+	private struct MacOSPublisherState* _state = null;
+	private bool _initialized = false;
+	private MacOSRunLoopSignal _signal;
+	private IApplicationHost? _host;
+	private CallbackScope _scope = CallbackScope();
+	private CallbackContext<IApplicationPublicationHandler, MacOSPublisher>? _handler;
+	private CallbackCancellation _cancellation = CALLBACK_CANCELLATION_NOT_REQUESTED;
+
+	public MacOSPublisher(int capacity, MacOSRunLoopSignal signal, IApplicationHost? host = null) {
+		self.requireUI();
+		if (capacity <= 0 || capacity > 65536 || signal == null) { throw "Invalid native publisher capacity"; }
+		self._sealed.init(false); self._failed.init(false); self._notifying.init(0u);
+		self._signal = signal; self._host = host;
+		self._state = (struct MacOSPublisherState*)calloc(1, sizeof(struct MacOSPublisherState));
+		if (self._state == null) { return; }
+		self._state->capacity = capacity;
+		self._state->slots = (struct MacOSPublicationRecord*)calloc((size_t)capacity, sizeof(struct MacOSPublicationRecord));
+		self._state->receipts = (struct MacOSPublicationReceipt*)calloc((size_t)capacity, sizeof(struct MacOSPublicationReceipt));
+		if (self._state->slots == null || self._state->receipts == null || pthread_mutex_init(&self._state->mutex, null) != 0) { return; }
+		self._initialized = true; self._state->open = true;
+	}
+
+	private void requireUI() { if (!NSThread.isMainThread()) { throw "Native publisher ownership requires the main thread"; } }
+
+	public bool initialized() { self.requireUI(); return self._initialized; }
+
+	public int capacity() { self.requireUI(); return self._state == null ? 0 : self._state->capacity; }
+
+	public void activate(IApplicationPublicationHandler receiver, CallbackScope owner) {
+		self.requireUI();
+		if (!self._initialized || self._handler != null || receiver == null) { throw "Publisher activation requires storage and a receiver"; }
+		var handler = new CallbackContext<IApplicationPublicationHandler, MacOSPublisher>(receiver, MacOSPublisher.unregister);
+		handler.activate(self._scope); self._handler = handler;
+		try { owner.track(self); }
+		catch (string error) { handler.abortActivation(); self._handler = null; throw error; }
+		handler.publish(self);
+	}
+
+	class bool unregister(MacOSPublisher publisher) { return true; }
+
+	/* Called only with the POD mutex held, on either producer or UI executor.
+	 * The bounded recent-receipt ledger distinguishes a known terminal receipt
+	 * from an unaccepted sequence gap; an evicted identity is conservatively stale. */
+	private void retireRecord(struct MacOSPublicationRecord record, ControlEventDisposition disposition) {
+		self._state->retired[(int)disposition]++;
+		int position = (self._state->receiptHead + self._state->receiptCount) % self._state->capacity;
+		if (self._state->receiptCount == self._state->capacity) {
+			position = self._state->receiptHead;
+			self._state->receiptHead = (self._state->receiptHead + 1) % self._state->capacity;
+		} else { self._state->receiptCount++; }
+		self._state->receipts[position].generation = record.generation;
+		self._state->receipts[position].sequence = record.sequence;
+	}
+
+	private struct MacOSPublicationRecord pop() {
+		struct MacOSPublicationRecord record = self._state->slots[self._state->head];
+		self._state->head = (self._state->head + 1) % self._state->capacity; self._state->count--;
+		return record;
+	}
+
+	private void clear(ControlEventDisposition disposition) {
+		while (self._state->count > 0) {
+			struct MacOSPublicationRecord record = self.pop();
+			self.retireRecord(record, record.cancelled ? CONTROL_EVENT_CANCELLED : disposition);
+		}
+	}
+
+	public PublishOutcome tryPublish(long long generation, long long sequence, WorkSuspensionPolicy suspension, long long replacementKey, long long payload) {
+		if (generation <= 0LL || sequence <= 0LL || replacementKey < 0LL || suspension < WORK_SUSPENSION_CANCEL || suspension > WORK_SUSPENSION_REPLACE || (suspension == WORK_SUSPENSION_REPLACE && replacementKey == 0LL)) { return PUBLISH_INVALID; }
+		if (!self._initialized || pthread_mutex_lock(&self._state->mutex) != 0) { return PUBLISH_RESOURCE_FAILED; }
+		if (!self._state->open || self._sealed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(&self._state->mutex); return PUBLISH_CLOSED; }
+		if (generation < self._state->generation || (generation == self._state->generation && sequence <= self._state->sequence)) { pthread_mutex_unlock(&self._state->mutex); return PUBLISH_STALE; }
+		if (self._state->suspended && suspension == WORK_SUSPENSION_CANCEL) { pthread_mutex_unlock(&self._state->mutex); return PUBLISH_CANCELLED; }
+		if (self._state->accepted == 9223372036854775807LL || self._notifying.load(MemoryOrder.ACQUIRE) == 4294967295u) { pthread_mutex_unlock(&self._state->mutex); return PUBLISH_RESOURCE_FAILED; }
+		bool fresh = generation > self._state->generation;
+		int replacement = -1;
+		if (!fresh && replacementKey > 0LL) {
+			for (int offset = self._state->count - 1; offset >= 0; offset--) {
+				int index = (self._state->head + offset) % self._state->capacity;
+				if (self._state->slots[index].key == 0LL) { break; }
+				if (!self._state->slots[index].cancelled && self._state->slots[index].key == replacementKey) { replacement = index; break; }
+			}
+		}
+		int executing = self._state->executing ? 1 : 0;
+		if (replacement < 0 && ((!fresh && self._state->count + executing >= self._state->capacity) || (fresh && executing >= self._state->capacity))) { pthread_mutex_unlock(&self._state->mutex); return PUBLISH_FULL; }
+		/* Source signalling cannot invoke a receiver inline. Its wake cannot
+		 * observe this record until the same mutex publishes it below. */
+		if (!self._signal.tryWake()) {
+			self._failed.store(true, MemoryOrder.RELEASE); self._sealed.store(true, MemoryOrder.RELEASE);
+			pthread_mutex_unlock(&self._state->mutex); return PUBLISH_WAKE_FAILED;
+		}
+		if (fresh) { self.clear(CONTROL_EVENT_STALE_GENERATION); self._state->generation = generation; }
+		if (replacement >= 0) { self.retireRecord(self._state->slots[replacement], CONTROL_EVENT_SUPERSEDED); }
+		int slot = replacement;
+		if (slot < 0) { slot = (self._state->head + self._state->count) % self._state->capacity; self._state->count++; }
+		self._state->slots[slot].generation = generation; self._state->slots[slot].sequence = sequence;
+		self._state->slots[slot].key = replacementKey; self._state->slots[slot].payload = payload;
+		self._state->slots[slot].policy = (int)suspension; self._state->slots[slot].cancelled = false;
+		self._state->sequence = sequence; self._state->accepted++;
+		self._notifying.fetchAdd(1u, MemoryOrder.ACQ_REL);
+		pthread_mutex_unlock(&self._state->mutex);
+		self.notifyHost();
+		return replacement >= 0 ? PUBLISH_REPLACED : PUBLISH_ACCEPTED;
+	}
+
+	private void notifyHost() {
+		/* UI ownership retains this host field until all notifying claims end.
+		 * Producers never create/release a managed local copy. A post-commit
+		 * failure seals ingress, but does not invite duplicate resubmission. */
+		bool signalled = false;
+		try { signalled = self._host == null || self._host.requestTurn(); }
+		catch (string error) { signalled = false; }
+		finally {
+			if (!signalled) { self._failed.store(true, MemoryOrder.RELEASE); self._sealed.store(true, MemoryOrder.RELEASE); }
+			self._notifying.fetchSub(1u, MemoryOrder.RELEASE);
+		}
+	}
+
+	public PublishCancelOutcome requestCancel(long long generation, long long sequence) {
+		if (!self._initialized || pthread_mutex_lock(&self._state->mutex) != 0) { return PUBLISH_CANCEL_CLOSED; }
+		if (!self._state->open || self._sealed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(&self._state->mutex); return PUBLISH_CANCEL_CLOSED; }
+		if (generation != self._state->generation || sequence <= 0LL) { pthread_mutex_unlock(&self._state->mutex); return PUBLISH_CANCEL_STALE; }
+		bool found = false;
+		for (int offset = 0; offset < self._state->count; offset++) {
+			int index = (self._state->head + offset) % self._state->capacity;
+			if (self._state->slots[index].sequence == sequence) { self._state->slots[index].cancelled = true; found = true; break; }
+		}
+		if (self._state->executing && self._state->current.generation == generation && self._state->current.sequence == sequence) { self._state->current.cancelled = true; found = true; }
+		if (found) {
+			/* Cancellation is already committed; a failed wake is observable at
+			 * service/cleanup, not disguised as a retryable rejection. */
+			if (!self._signal.tryWake()) { self._failed.store(true, MemoryOrder.RELEASE); self._sealed.store(true, MemoryOrder.RELEASE); }
+			bool notify = self._notifying.load(MemoryOrder.ACQUIRE) < 4294967295u;
+			if (notify) { self._notifying.fetchAdd(1u, MemoryOrder.ACQ_REL); }
+			else { self._failed.store(true, MemoryOrder.RELEASE); self._sealed.store(true, MemoryOrder.RELEASE); }
+			pthread_mutex_unlock(&self._state->mutex);
+			if (notify) { self.notifyHost(); }
+			return PUBLISH_CANCEL_REQUESTED;
+		}
+		for (int offset = 0; offset < self._state->receiptCount; offset++) {
+			int index = (self._state->receiptHead + offset) % self._state->capacity;
+			if (self._state->receipts[index].generation == generation && self._state->receipts[index].sequence == sequence) { pthread_mutex_unlock(&self._state->mutex); return PUBLISH_CANCEL_ALREADY_TERMINAL; }
+		}
+		pthread_mutex_unlock(&self._state->mutex); return PUBLISH_CANCEL_STALE;
+	}
+
+	/* Attachment changes no route while a producer has borrowed it. The
+	 * application holds every publisher's successful lock before committing
+	 * a multi-publisher host transition, then releases all of them. */
+	public bool beginHostChange() {
+		self.requireUI();
+		if (!self._initialized || pthread_mutex_trylock(&self._state->mutex) != 0) { return false; }
+		if (self._notifying.load(MemoryOrder.ACQUIRE) != 0u) { pthread_mutex_unlock(&self._state->mutex); return false; }
+		return true;
+	}
+
+	public void setHostLocked(IApplicationHost? host) { self.requireUI(); self._host = host; }
+
+	public void endHostChange() { self.requireUI(); pthread_mutex_unlock(&self._state->mutex); }
+
+	public void suspend(bool suspended) {
+		self.requireUI();
+		if (pthread_mutex_lock(&self._state->mutex) != 0) { throw "Native publisher synchronization failed"; }
+		self._state->suspended = suspended;
+		if (suspended) {
+			for (int offset = 0; offset < self._state->count; offset++) {
+				int index = (self._state->head + offset) % self._state->capacity;
+				if (self._state->slots[index].policy == (int)WORK_SUSPENSION_CANCEL) { self._state->slots[index].cancelled = true; }
+			}
+		}
+		pthread_mutex_unlock(&self._state->mutex);
+		if (!self._signal.tryWake()) { self._failed.store(true, MemoryOrder.RELEASE); self._sealed.store(true, MemoryOrder.RELEASE); }
+	}
+
+	public bool failed() { self.requireUI(); return self._state != null && self._failed.load(MemoryOrder.ACQUIRE); }
+
+	public bool pending() {
+		self.requireUI();
+		if (pthread_mutex_lock(&self._state->mutex) != 0) { throw "Native publisher synchronization failed"; }
+		bool pending = self._failed.load(MemoryOrder.ACQUIRE) || (!self._state->suspended && self._state->count > 0);
+		if (!pending) {
+			for (int offset = 0; offset < self._state->count; offset++) { if (self._state->slots[(self._state->head + offset) % self._state->capacity].cancelled) { pending = true; break; } }
+		}
+		pthread_mutex_unlock(&self._state->mutex); return pending;
+	}
+
+	public long long acceptedCount() { self.requireUI(); if (pthread_mutex_lock(&self._state->mutex) != 0) { throw "Native publisher synchronization failed"; } long long value = self._state->accepted; pthread_mutex_unlock(&self._state->mutex); return value; }
+
+	public long long retired(ControlEventDisposition disposition) { self.requireUI(); if (pthread_mutex_lock(&self._state->mutex) != 0) { throw "Native publisher synchronization failed"; } long long value = self._state->retired[(int)disposition]; pthread_mutex_unlock(&self._state->mutex); return value; }
+
+	public int pendingCount() { self.requireUI(); if (pthread_mutex_lock(&self._state->mutex) != 0) { throw "Native publisher synchronization failed"; } int value = self._state->count + (self._state->executing ? 1 : 0); pthread_mutex_unlock(&self._state->mutex); return value; }
+
+	public bool deliverOne() {
+		self.requireUI();
+		if (pthread_mutex_lock(&self._state->mutex) != 0) { throw "Native publisher synchronization failed"; }
+		if (self._failed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(&self._state->mutex); throw "Native publisher wake failed"; }
+		if (self._state->executing) { pthread_mutex_unlock(&self._state->mutex); throw "Native publisher delivery cannot re-enter"; }
+		if (self._state->count == 0) { pthread_mutex_unlock(&self._state->mutex); return false; }
+		int selected = 0;
+		if (self._state->suspended) {
+			selected = -1;
+			for (int offset = 0; offset < self._state->count; offset++) {
+				if (self._state->slots[(self._state->head + offset) % self._state->capacity].cancelled) { selected = offset; break; }
+			}
+			if (selected < 0) { pthread_mutex_unlock(&self._state->mutex); return false; }
+		}
+		struct MacOSPublicationRecord record = self._state->slots[(self._state->head + selected) % self._state->capacity];
+		if (selected == 0) { record = self.pop(); }
+		else {
+			/* Retire cancelled control work behind suspended deferred work
+			 * without changing the order of any surviving domain record. */
+			for (int offset = selected; offset + 1 < self._state->count; offset++) {
+				self._state->slots[(self._state->head + offset) % self._state->capacity] = self._state->slots[(self._state->head + offset + 1) % self._state->capacity];
+			}
+			self._state->count--;
+		}
+		if (record.cancelled || !self._state->open || self._sealed.load(MemoryOrder.ACQUIRE) || record.generation != self._state->generation) {
+			ControlEventDisposition disposition = CONTROL_EVENT_CANCELLED;
+			if (!record.cancelled) { disposition = record.generation != self._state->generation ? CONTROL_EVENT_STALE_GENERATION : CONTROL_EVENT_CLOSED; }
+			self.retireRecord(record, disposition); pthread_mutex_unlock(&self._state->mutex); return true;
+		}
+		var handler = self._handler;
+		/* Validation, dequeue and entry pinning share one linearization point.
+		 * New generations may arrive after entry, but cannot revoke that call. */
+		if (handler == null) { self.retireRecord(record, CONTROL_EVENT_CANCELLED); pthread_mutex_unlock(&self._state->mutex); return true; }
+		var receiver = handler.enter();
+		if (receiver == null) { self.retireRecord(record, CONTROL_EVENT_CANCELLED); pthread_mutex_unlock(&self._state->mutex); return true; }
+		self._state->executing = true; self._state->current = record;
+		pthread_mutex_unlock(&self._state->mutex);
+		ControlEventDisposition disposition = CONTROL_EVENT_FAILED;
+		try {
+			var publication = ApplicationPublication(); publication.generation = record.generation; publication.sequence = record.sequence;
+			publication.replacementKey = record.key; publication.payload = record.payload;
+			receiver.deliver(publication); disposition = CONTROL_EVENT_DELIVERED;
+		} finally {
+			handler.leave(); handler.pollCompletion();
+			if (pthread_mutex_lock(&self._state->mutex) != 0) { Console.fatal("Native publisher receipt retirement synchronization failed"); }
+			self._state->executing = false; self.retireRecord(record, disposition);
+			pthread_mutex_unlock(&self._state->mutex);
+		}
+		return true;
+	}
+
+	public bool isOpen() { self.requireUI(); return self._initialized && !self._sealed.load(MemoryOrder.ACQUIRE) && self._handler != null && self._handler.isOpen(); }
+
+	private CallbackCancellation finishCancellation() {
+		if (!self._initialized) { return CALLBACK_CANCELLATION_COMPLETE; }
+		int locked = pthread_mutex_trylock(&self._state->mutex);
+		if (locked == EBUSY) { return CALLBACK_CANCELLATION_PENDING; }
+		if (locked != 0) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		self._state->open = false;
+		self.clear(self._failed.load(MemoryOrder.ACQUIRE) ? CONTROL_EVENT_FAILED : CONTROL_EVENT_CLOSED);
+		bool notifying = self._notifying.load(MemoryOrder.ACQUIRE) != 0u;
+		bool executing = self._state->executing;
+		pthread_mutex_unlock(&self._state->mutex);
+		if (notifying) { return CALLBACK_CANCELLATION_PENDING; }
+		self._host = null;
+		var handler = self._handler;
+		var state = handler == null ? CALLBACK_CANCELLATION_COMPLETE : handler.cancel();
+		return state == CALLBACK_CANCELLATION_COMPLETE && executing ? CALLBACK_CANCELLATION_PENDING : state;
+	}
+
+	public CallbackCancellation cancel() {
+		self.requireUI();
+		if (self._state != null) { self._sealed.store(true, MemoryOrder.RELEASE); }
+		if (self._cancellation == CALLBACK_CANCELLATION_COMPLETE || self._cancellation == CALLBACK_CANCELLATION_FAILED) { return self._cancellation; }
+		self._cancellation = self.finishCancellation(); return self._cancellation;
+	}
+
+	public CallbackCancellation pollCompletion() {
+		self.requireUI();
+		if (self._cancellation == CALLBACK_CANCELLATION_PENDING) { self._cancellation = self.finishCancellation(); }
+		return self._cancellation;
+	}
+
+	public void __del__() {
+		self.requireUI();
+		if (self.cancel() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native publisher destroyed before producer and callback drain"); }
+		self._scope.cancel();
+		if (self._state == null) { return; }
+		if (self._initialized && pthread_mutex_destroy(&self._state->mutex) != 0) { Console.fatal("Native publisher destroyed during publication"); }
+		free(self._state->slots); free(self._state->receipts); free(self._state); self._state = null;
+	}
 }
