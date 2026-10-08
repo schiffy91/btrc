@@ -1265,7 +1265,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
     assert steps[suite] == {
         "run": "nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 "
         "BTRC_TEST_RUN_TIMEOUT=60 test-native-gui",
-        "env": {"PYTEST_ADDOPTS": "--junitxml=build/junit/native-gui.xml"},
+        "env": {"PYTEST_ADDOPTS": "--dist=loadgroup --junitxml=build/junit/native-gui.xml"},
     }
 
     # Each keeps its JUnit results, then (the skip-report contract) its skip report.
