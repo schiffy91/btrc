@@ -672,6 +672,21 @@ before the originating callback unwinds. No executable implementation or native
 quit result is claimed by that documentation checkpoint. The owned packet is
 `docs/workstreams/ui2-macos-native-quit.md` on `codex/ui2-macos-native-quit`.
 
+Fixture-only commit `f573f8dd` now demonstrates the actual missing native quit
+behavior. Reference projection has zero diagnostics, all 11 strict units and
+plain linking pass, then real NSApplication termination returns with one request
+but zero close-decision deliveries. The native process aborts at the exact
+`journey.cancellationObserved` assertion after its native-return/count assertion
+passes. Both dirty windows therefore have no opportunity to veto this shutdown.
+Aggregate `ui2-macos-native-quit-f573f8dd-baseline-compiler-f75c737b/baseline-result.json`,
+SHA-256 `d3912db46a1be0dd7bb7ea3805c090cc8a39f5893ab5a453f38ed27f51ee6943`,
+and native-stage receipt `cdfb0064904a6673e5d412f0cccbfe86f04edbc3691f8e9e5a864f40af472c96`
+retain the original bounds, unchanged 347 provider/131 compiler files, exact
+native assertion mapping and all 40 owned groups reaped/absent. Independent
+review is clear. This is the genuine reference/plain baseline failure; the
+provider repair, paired/sanitized acceptance, remaining save/revision/membership
+journeys and all 12 original lifecycle scenarios are still required.
+
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
 NativeContainerBarrier and NativeCaptureFailure through both frontends, plain
