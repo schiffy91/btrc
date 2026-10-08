@@ -128,8 +128,11 @@ controls, application integration and Linux UI2 are still open. Evidence remains
 in `ui2-macos-qualification-a9ffe1bd/`; the first warning-producing attempt is
 preserved separately. The first ordered-container reference projection at
 `4d1cd3d0` passes SDK selection and transpilation but stops on a nullable native
-child warning. Reviewed guard `7a95ccdf` awaits a fresh projection; no later
-syntax, link or runtime stage is counted as passed.
+child warning. Guard `7a95ccdf` fixes that warning: the fresh NativeTreeState
+reference projection is diagnostic-free. NativeContainerOrder then stops on
+three unchecked interface casts and two nullable host arguments in its fixture;
+that fixture repair and NativeContainerBarrier remain pending. No later syntax,
+link or runtime stage is counted as passed.
 
 Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
 audio and foreign-library ownership still require their platform-specific
@@ -177,8 +180,13 @@ reported an invalid endpoint. Its 123-byte socket path exceeds Darwin's usable
 103-byte limit. Product `933f79b7` now implements a reviewed centralized bounded endpoint
 policy. The separate long-path regression reproduces the original native
 INVALID/EINVAL failure through both compilers; repaired storage passes four
-reference/self-hosted × Clang/GCC native runs. The repaired live channel and
-library journey are still pending; shortening the smoke path is not acceptance.
+reference/self-hosted × Clang/GCC native runs. The repaired reference
+AgentOperationChannel subsequently reaches its native PASS marker for canonical
+responses, recovery, reconnect, borrowed-session ownership and UI capture. The
+next AgentSurfaceProcessAcceptance aborts because a command response is not
+`applied`; diagnosis and final failed-run source/output reconciliation are
+underway. The live GUI acceptance, entire self-hosted agent pass and repaired
+library replay remain pending. Shortening the smoke path is not acceptance.
 Nullable-owner corrections are source-reviewed but not executed. The original
 Linux x86_64 product qualification is running in
 [BTRSmith PR30](https://github.com/schiffy91/btrsmith/pull/30), stacked on the
@@ -206,9 +214,10 @@ Current broader candidate `3974d47b` is published in
 [draft PR68](https://github.com/schiffy91/btrc/pull/68). Its full hosted matrix is
 running; Android tooling/API 29/API 36, Windows, Windows ARM64, the Linux
 ARM64 bundle, release/static ownership and the Linux Wayland lane pass. Linux
-and macOS bootstrap pass; all eight Linux C11 cells, Linux unit tests and both
-platforms' paired corpus lanes pass. Remaining self-hosted/unit shards are
-still running and are not counted as passed. Its
+and macOS bootstrap pass; all eight Linux C11 cells, all Linux test shards and
+both platforms' paired corpus lanes pass. Linux CI has completed with exactly
+the benchmark and X11 job failures; its skip classification passes. macOS
+self-hosted/unit shards remain running and are not counted as passed. Its
 benchmark job fails only the unchanged heavy-stdlib memory allowance recorded
 above. The current X11 native lane also fails three scrollbar input cases
 (reference plain/sanitized and self-hosted sanitized); self-hosted plain passes.
