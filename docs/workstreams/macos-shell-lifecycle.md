@@ -158,3 +158,38 @@ run. Source snapshots/hashes, commands, logs and XML are retained. Session 54647
 ended successfully and all test execution stopped for the quiet restart.
 Root's independent static review found no blocker in the four code/test files
 or the trace runner. Final native execution remains pending.
+
+## Full suite-context trace and uninstrumented result
+
+The reviewed repair was committed as `c0e4d48a` after Ruff lint/format and diff
+checks. `focused-trace-1` passed all 47 tests in 651.09 s on that clean source,
+using unchanged production compiler SHA `85c4029079568b3a73fbd6853148d5b1e8038a05224e6e75c4ccd3768511e1c3`.
+All 420 traced NativeShell subprocesses exited zero. No captured policy became
+non-Regular after launch and no setter returned false. The longest zero-owner
+drain was 0.230768 s; all four deliberately held fields remained visible through
+the 2 s deadline and disappeared only after release. End HEAD/status were
+verified. This trace did not reproduce or repair the activation exception.
+
+`focused-2` then ran the same source without injection: 44 passed and three
+failed in 395.44 s. Every BTRC main journey completed 100 cycles/100 frames with
+zero owned survivors. Plain selfhost and both sanitized variants failed in the
+independent control before cycle 1: active=0, key=0, policy=Regular, after the
+unchanged 15 s deadline. Those cases did not reach their restore loops. Plain
+reference completed its full checks. The original provider activation exception
+did not recur. The successful traced and failed uninstrumented plain-selfhost
+controls are byte-identical (`18e82d2268711b634725492175452932c4e2eaf4c7376ffc7edccbd2d6a9d772`)
+and were never injected; their preceding shell journeys were both inactive/keyless
+throughout. The actual failed evidence remains retained, not classified green.
+
+Diagnostic-5 placed that exact control binary in a conventional temporary app
+bundle and launched it with public `open -n -W`, retaining stdout/stderr. It also
+failed the same focus guard before cycle 1. `open` returned zero, which is only
+its launch status and is explicitly not reported as the application's status.
+A public metadata-only probe then reported frontmost pid 455,
+`com.apple.loginwindow`, active=true, on-console=true, login-done=true.
+Foreground ownership by loginwindow prevents the required visible active/key
+journey in this host state. No user content, credentials, Accessibility prompts
+or settings were accessed or changed. Further GUI launches stopped; the native
+lane was released. Final uninstrumented qualification requires an active user
+desktop, and the original intermittent policy/setter failure remains a separate
+open diagnosis. No deadline, skip, class allowance or growth check was weakened.
