@@ -15,6 +15,9 @@
 + (NSView *)openHost;
 + (NSView *)newField;
 + (NSView *)newInputView;
++ (NSView *)newPlainView;
++ (NSView *)addUnarrangedChild:(NSView *)stack;
++ (void)removeForeignChild:(NSView *)child;
 + (NSEvent *)primaryDown:(NSView *)view;
 + (void)beginEditing:(NSView *)field;
 + (bool)editorUnchanged;

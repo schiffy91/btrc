@@ -1,5 +1,8 @@
 import Library.Callback;
 import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSViewInput;
 import Library.GUI.MacOS.MacOSControlEvents;
 
@@ -11,6 +14,7 @@ class BarrierInputReceiver implements IViewPointerHandler {
 	public MacOSControlContext context;
 	public MacOSViewInput? registration;
 	public bool closeContext;
+	public bool throwCancel = false;
 	public int pressed = 0;
 	public int cancelled = 0;
 	public int exited = 0;
@@ -21,6 +25,7 @@ class BarrierInputReceiver implements IViewPointerHandler {
 		if (event.action == APP_POINTER_PRESSED) { self.pressed++; return true; }
 		if (event.action == APP_POINTER_CANCELLED) {
 			self.cancelled++;
+			if (self.throwCancel) { throw "deferred cancel failure"; }
 			if (self.closeContext) { self.context.close(); }
 			else {
 				var registration = self.registration; assert(registration != null);
@@ -35,6 +40,23 @@ class BarrierInputReceiver implements IViewPointerHandler {
 class BarrierStateReceiver implements IViewInteractionStateHandler {
 	public int calls = 0;
 	public void interactionChanged(ViewInteractionState state) { self.calls++; assert(!state.localVisible); }
+}
+
+/* A native layout hook can synchronously settle capture during removal.
+ * It invokes the real provider registration; it never performs the container
+ * mutation or callback deferral on the provider's behalf. */
+class BarrierContainerLayout implements IMacOSContainerLayout {
+	private NSView _view;
+	public MacOSViewInput? input;
+	public BarrierContainerLayout() { self._view = UI2ContainerProbe.newPlainView(); }
+
+	public NSView nativeView() { return self._view; }
+
+	public NSView childParent() { return self._view; }
+
+	public void arrangeChild(NSView child) {}
+
+	public void forgetChild(NSView child) { if (self.input != null) { self.input.detach(); } }
 }
 
 class ContainerBarrierCases {
@@ -52,11 +74,39 @@ class ContainerBarrierCases {
 		input.detach();
 		assert(receiver.cancelled == 0 && receiver.exited == 0);
 		context.endMutation();
+		assert(receiver.cancelled == 0 && context.pendingInput() == 1);
+		assert(context.dispatchOne(context.detachedEvents));
 		assert(receiver.cancelled == 1 && receiver.exited == 0);
 		assert(input.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(context.terminalPool.available() == available);
 		receiver.registration = null;
 		UI2ContainerProbe.closeHost(); context.close();
+	}
+
+	class void throwingTerminal() {
+		var context = MacOSControlContext();
+		var host = UI2ContainerProbe.openHost();
+		var layout = BarrierContainerLayout();
+		var parent = MacOSContainer(layout, context);
+		parent.attachTo(host);
+		var child = MacOSView(null, context); parent.attach(child); child.arrange(0.0, 0.0, 100.0, 100.0);
+		var receiver = BarrierInputReceiver(context, false); receiver.throwCancel = true;
+		var input = MacOSViewInput(child.nativeView(), receiver, null, context); receiver.registration = input; layout.input = input;
+		assert(input.invoke(UI2ContainerProbe.primaryDown(child.nativeView())) == null && receiver.pressed == 1);
+		long long revision = parent.treeRevision();
+		var edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_DETACH; edit.child = child; edit.index = 0;
+		var result = parent.applyBatch(revision, [edit]);
+		assert(result.kind == CONTAINER_BATCH_COMMITTED && result.treeRevision == revision + 1LL);
+		assert(parent.childCount() == 0 && result.detached.len == 1 && result.detached.get(0) == child);
+		assert(child.isOpen() && child.nativeView().superview() == null);
+		assert(receiver.cancelled == 0 && context.pendingInput() == 1);
+		bool failed = false;
+		try { context.dispatchOne(context.detachedEvents); } catch (string error) { failed = error == "deferred cancel failure"; }
+		assert(failed && receiver.cancelled == 1 && receiver.exited == 0 && context.pendingInput() == 0);
+		assert(parent.treeRevision() == result.treeRevision && parent.childCount() == 0);
+		assert(input.cancel() == CALLBACK_CANCELLATION_COMPLETE); receiver.registration = null; layout.input = null;
+		assert(child.close() == CALLBACK_CANCELLATION_COMPLETE); parent.detachFrom(host);
+		assert(parent.close() == CALLBACK_CANCELLATION_COMPLETE); UI2ContainerProbe.closeHost(); context.close();
 	}
 
 	class void semantic() {
@@ -81,6 +131,7 @@ class ContainerBarrierCases {
 int main() {
 	ui2InitializeAppKit();
 	ContainerBarrierCases.semantic();
+	ContainerBarrierCases.throwingTerminal();
 	ContainerBarrierCases.input(true);
 	ContainerBarrierCases.input(false);
 	print("UI2 container barriers defer terminal input and seal reentrant receiver admission");

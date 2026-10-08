@@ -85,6 +85,28 @@ class ContainerOrderCases {
 		UI2ContainerProbe.closeHost(); context.close();
 	}
 
+	class void unknownPhysicalChild() {
+		var context = MacOSControlContext();
+		var parent = MacOSStack(true, 0.0, context);
+		var first = MacOSView(null, context); var second = MacOSView(null, context);
+		parent.attach(first); parent.attach(second);
+		var native = parent.nativeView();
+		var foreign = UI2ContainerProbe.addUnarrangedChild(native);
+		long long revision = parent.treeRevision();
+		UI2ContainerProbe.observeMutations(native);
+		var result = parent.applyBatch(revision, [ContainerOrderCases.edit(CONTAINER_EDIT_MOVE, second, 0)]);
+		assert(UI2ContainerProbe.orderCalls() == 0);
+		UI2ContainerProbe.resetFaults();
+		assert(result.kind == CONTAINER_BATCH_FAILED_QUARANTINED && parent.interactionState().faulted);
+		assert(result.retained.len == 2 && result.detached.len == 0);
+		assert(parent.childCount() == 2 && parent.childAt(0) == first && parent.childAt(1) == second);
+		assert(parent.close() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
+		assert(first.isOpen() && second.isOpen());
+		UI2ContainerProbe.removeForeignChild(foreign);
+		assert(parent.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!first.isOpen() && !second.isOpen()); context.close();
+	}
+
 	class void attachmentFault(bool detach, bool after) {
 		var context = MacOSControlContext();
 		var parent = MacOSContainer(null, context);
@@ -161,6 +183,7 @@ int main() {
 	ui2InitializeAppKit();
 	ContainerOrderCases.normal(false);
 	ContainerOrderCases.normal(true);
+	ContainerOrderCases.unknownPhysicalChild();
 	ContainerOrderCases.attachmentFault(false, false);
 	ContainerOrderCases.attachmentFault(false, true);
 	ContainerOrderCases.attachmentFault(true, false);

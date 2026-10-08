@@ -150,6 +150,21 @@ static NSArray<NSView *> *interceptedSubviews(NSView *self, SEL selector) {
     return hostWindow.contentView;
 }
 
++ (NSView *)newPlainView { return [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 300, 200)]; }
+
++ (NSView *)addUnarrangedChild:(NSView *)stack {
+    NSCAssert([stack isKindOfClass:NSStackView.class], @"actual NSStackView required");
+    NSUInteger arranged = ((NSStackView *)stack).arrangedSubviews.count;
+    NSUInteger physical = stack.subviews.count;
+    NSView *foreign = [[NSView alloc] initWithFrame:NSZeroRect];
+    [stack addSubview:foreign];
+    NSCAssert(((NSStackView *)stack).arrangedSubviews.count == arranged, @"foreign child must stay unarranged");
+    NSCAssert(stack.subviews.count == physical + 1, @"foreign physical child must be present");
+    return foreign;
+}
+
++ (void)removeForeignChild:(NSView *)child { [child removeFromSuperview]; }
+
 + (NSView *)newInputView {
     NSCAssert(hostWindow != nil, @"input view requires host");
     NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];

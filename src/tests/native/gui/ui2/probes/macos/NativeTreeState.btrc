@@ -9,6 +9,16 @@ import Library.GUI.MacOS.MacOSRunLoop;
 import ./RunLoopProbe.btrc;
 #include <assert.h>
 
+class FailingContainerConstruction implements IMacOSContainerLayout {
+	public NSView nativeView() { throw "injected container construction failure"; }
+
+	public NSView childParent() { throw "construction never published a native parent"; }
+
+	public void arrangeChild(NSView child) {}
+
+	public void forgetChild(NSView child) {}
+}
+
 class NativeTreeReceiver implements IViewInteractionStateHandler {
 	public IView first;
 	public IView second;
@@ -28,6 +38,10 @@ int main() {
 	ui2InitializeAppKit();
 	var signal = MacOSRunLoopSignal();
 	var context = MacOSControlContext(32, signal);
+	bool constructionFailed = false;
+	try { var unused = MacOSContainer(FailingContainerConstruction(), context); }
+	catch (string error) { constructionFailed = error == "injected container construction failure"; }
+	assert(constructionFailed);
 	var events = context.createQueue();
 	var scope = CallbackScope();
 	var host = MacOSView(null, context);
