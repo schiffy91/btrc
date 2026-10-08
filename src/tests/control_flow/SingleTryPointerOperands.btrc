@@ -1,0 +1,24 @@
+#include <stdlib.h>
+int produceValue() { return 4; }
+
+void store(int* values, int value) { values[0] = value; }
+
+int pointerTry(bool fail) {
+	int* values = (int*)malloc(sizeof(int));
+	if (values == NULL) { return -1; }
+	values[0] = 0;
+	try {
+		store(values, produceValue());
+		values[0] = values[0] + 3;
+		if (fail) { throw "expected"; }
+	} catch (string error) {
+		values[0] = values[0] + 2;
+	} finally {
+		values[0] = values[0] + 1;
+	}
+	int result = values[0];
+	free(values);
+	return result;
+}
+
+int main() { assert(pointerTry(false) == 8 && pointerTry(true) == 10); print("PASS"); return 0; }

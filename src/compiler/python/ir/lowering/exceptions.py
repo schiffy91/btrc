@@ -968,15 +968,16 @@ class _LexicalVisibilityPass:
         GCC's -Wclobbered judges register pseudos after -O2 coalescing, which
         may merge a generated temporary declared after a setjmp with a value
         live across it; large functions then warn about storage that is never
-        live there. Two shapes are qualified: every return temporary of a
-        setjmp function, and every generated local inside a try that encloses
-        another try. Volatile storage is never coalesced. Arrays are memory
-        already, and a local whose address is taken lives in memory and keeps
+        live there. Qualify return temporaries of a setjmp function, generated
+        pointer storage inside a try or handler, and every generated local
+        inside a try that encloses another try. Volatile storage is never
+        coalesced. Arrays are memory already, and a local whose address is
+        taken lives in memory and keeps
         its declared pointee type for the API that receives the address.
         """
         addressed: set[str] = set()
         self._addressed_names(value, addressed)
-        self._qualify_generated(value, addressed, nested=False)
+        self._qualify_generated(value, addressed, nested=False, protected=False)
 
     def _addressed_names(self, value: object, addressed: set[str]) -> None:
         if isinstance(value, IRAddressOf) and isinstance(value.expr, IRExpr):
@@ -990,11 +991,13 @@ class _LexicalVisibilityPass:
             for item in value:
                 self._addressed_names(item, addressed)
 
-    def _qualify_generated(self, value: object, addressed: set[str], *, nested: bool) -> None:
+    def _qualify_generated(self, value: object, addressed: set[str], *, nested: bool, protected: bool) -> None:
         if isinstance(value, IRVarDecl):
+            storage = self._effects.flow.storages.get(id(value))
+            pointer_in_region = protected and storage is not None and storage.is_pointer
             if (
                 ExceptionLowerer.compiler_storage_name(value.name)
-                and (nested or value.name.startswith("__btrc_ret_"))
+                and (nested or pointer_in_region or value.name.startswith("__btrc_ret_"))
                 and ExceptionLowerer._automatic(value)
                 and value.array_size is None
                 and not value.is_unsized_array
@@ -1010,12 +1013,14 @@ class _LexicalVisibilityPass:
         ):
             # A try whose protected or handler region holds another try.
             nested = True
+        if isinstance(value, IRIf) and ExceptionLowerer.contains_setjmp(value.condition):
+            protected = True
         if dataclasses.is_dataclass(value):
             for field in dataclasses.fields(value):
-                self._qualify_generated(getattr(value, field.name), addressed, nested=nested)
+                self._qualify_generated(getattr(value, field.name), addressed, nested=nested, protected=protected)
         elif isinstance(value, (list, tuple)):
             for item in value:
-                self._qualify_generated(item, addressed, nested=nested)
+                self._qualify_generated(item, addressed, nested=nested, protected=protected)
 
     def block(self, block: IRBlock | None, inherited=()) -> None:
         if block is None:
