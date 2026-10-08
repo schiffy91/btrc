@@ -93,7 +93,6 @@ def test_native_range(native_project, native_compile, gui_provider_root, sanitiz
         manifest.write(
             f'[[native.bindings]]\nmodule = "{probe}"\nheader = "{probe}.h"\nlanguage = "{language}"\nstandard = "c11"\n'
             f"symbols = {json.dumps(symbols)}\n"
-            f'[[native.sources]]\npath = "{probe}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     if probe == "RangeProbe":
         with (root / "btrc.toml").open("a") as manifest:
@@ -109,6 +108,8 @@ methods = ["-[UI2RangeIntervention rangeAction]"]
 activation-failure = "abort"
 cancellation = "entry-barrier"
 """)
+    with (root / "btrc.toml").open("a") as manifest:
+        manifest.write(f'[[native.sources]]\npath = "{probe}.m"\nlanguage = "objective-c"\nstandard = "c11"\n')
     plan = root / "Range.link.json"
     compiled = native_compile(source, data_root=data_root, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
