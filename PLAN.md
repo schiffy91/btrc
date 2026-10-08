@@ -29,7 +29,8 @@ they do not by themselves demonstrate faster compilation or delivered GUI featur
 **Overall:** the compiler is substantially implemented and has broad correctness
 evidence. Final performance acceptance is open. Desktop GUI shells and selected
 features work, while the complete desktop library and Windows/mobile providers
-remain incomplete. The Windows ARM64 slice is on main; the broader integrated candidate is not yet qualified. There is no
+remain incomplete. The Windows ARM64 slice and consolidated plan are on main `cbd3ddcd`;
+the broader compiler and GUI candidate is not yet qualified. There is no
 defensible overall percentage complete: the remaining items have different scope
 and several acceptance measurements are missing.
 
@@ -144,11 +145,24 @@ inventories, providing space for a later comparison. A separately scoped Linux
 product RSS comparison is prepared on private BTRSmith branch `0b040ca3`, with
 explicit public compiler inputs `3974d47b` and `92691bee`. It preserves the
 original product source, strict compilation recipe and paired sample order.
-Independent review is clear; the run awaits hosted capacity and has produced
-no samples. Private product source and generated output remain in private CI.
+Independent review is clear; private run
+[37771609277](https://github.com/schiffy91/btrsmith/actions/runs/37771609277)
+is active, building the original CI image. No comparison samples are available
+yet. Private product source and generated output remain in private CI.
 Linux RSS cannot substitute for Mac footprint. Evidence remains in
 `compiler-lifetimes-3974/92691bee/`. Deliberately retained compiler graphs remain
 unchanged; the full final matrix is still required.
+
+Two current-product diagnostic hypotheses have now been measured and rejected
+as optimization priorities. The setjmp solve performs 134,606 definition scans
+for 45,877 actual flows; this does not support the proposed sparse worklist.
+Repeated native-header validation/construction is real, but its native prefix
+accounts for only 0.346 seconds of the instrumented 83.444-second phase sum.
+Both diagnostic compilers preserve all 423 emitted C/header outputs under the
+explicit path normalization, with independently verified source/tool/process
+closure. These instrumented timings identify work; they are not performance
+acceptance results. The larger lowering buckets require a measured causal
+hypothesis before further compiler changes.
 
 The independent generic-plan allocation candidate `4d930d95` also builds through
 the original Linux Make recipe. Its first comparison stopped before correctness
@@ -194,8 +208,10 @@ Independent review verifies all 4,374 source files against Git, exact diagnostic
 pins and unchanged tools/inputs. The full artifact is retained with SHA-256
 `07e0cabe6f83b4b854b1391dd578b26b4a1b1493a87858b097a97a9d55e365f9`.
 This qualifies the affected native gate; it does not establish the historical
-GPU failure's cause or the full final-tree matrix. The repair is being assembled
-with this consolidated plan for normal final PR qualification.
+GPU failure's cause or the full final-tree matrix. The repair and consolidated plan landed through
+[PR69](https://github.com/schiffy91/btrc/pull/69) at `cbd3ddcd` after all 36
+selected checks passed on head `01621436`. Three scope-skipped jobs are not
+counted as evidence. The post-merge main workflows are running.
 
 The first Linux shared-display lease qualification, run `37743819333`, stops
 before tests on both X11 and Wayland: its diagnostic launcher bypasses Bash and
@@ -228,8 +244,12 @@ success, not a new native assertion failure. Diagnostic `7661fa34` records exact
 collected grouping markers when the stage uses loadgroup; a real four-case
 parallel-runner proof verifies positional, keyword, default and combined markers,
 and still rejects missing, duplicate and wrong identities. Its hosted run
-`37763215278` is active. Neither the full X11 gate nor final Linux matrix is
-claimed green. The original
+[37763215278](https://github.com/schiffy91/btrc/actions/runs/37763215278)
+has completed successfully. Its complete 129,604,291-byte artifact has passed
+ZIP integrity and SHA-256 verification
+(`2366679d471dadce9905e3eb0f304f23f484dbac79f01727d96e8f9e80583d19`).
+Independent review of the final native inventory, skip ledger and provenance is
+in progress; final combined-tree Linux qualification remains open. The original
 full Wayland gate at `14f9e193` passes all 322 executed cases, with 199 expected
 skips classified and covered on other hosts. Independent review verifies all
 521 collected/JUnit identities, 4,503 publication file hashes and modes,
@@ -311,6 +331,19 @@ compiler `f75c737b` now also passes all eight native rows, four zero-diagnostic
 projections, 24 strict C/Objective-C checks and eight links, with all input/tool
 checks unchanged and process groups closed. Report `904d2716` retains aggregate
 SHA-256 `1a395e4373e79835652e1d16920389750ebc4a0a14c91d50376b61f9f807a637`.
+The same provider/current-compiler pair now also passes all eight native
+capture-failure and run-loop-attachment rows (two fixtures, both frontends,
+plain and ASan/UBSan), four diagnostic-free projections, 16 strict units and
+eight links. All source/tool checks and process cleanup pass; aggregate
+`74f102369d7a003a4d50371d19f677818b4769eccb8d592d7f0454aa04346043`
+is retained in `ui2-macos-foundations-b6a4fe3e-compiler-f75c737b`.
+The authentic public `NativeApplicationHost` baseline then fails on 19 missing
+methods: TextField 3, Slider 6, Select 7 and Application 3. A separate nullable
+fixture capture warning is repaired by binding its already-checked publisher;
+none of the original assertions changed. Independent application, text-field
+and range/selection implementation claims now target those concrete gaps.
+This is the first public application baseline, not a complete application pass.
+
 The Linux counterpart `53e4bfaa` implements request admission, cancellable close
 transactions, save-revision/attempt authority and context modal guards in the
 existing provider owners. Independent source review and format checks pass;
@@ -470,7 +503,16 @@ and cleaned on ordinary test failure as well as timeout. No full MVP claim.
 
 ### Integration status in service of the goals
 
-**Current checkpoint, October 8:** Windows PR53 is merged on main at
+**Current checkpoint, October 8:** main is `cbd3ddcdb25b9c7519f2babc3dce38647b3a0212`,
+which merged the consolidated plan and qualified Mac test-coordination repair
+through PR69. The final PR head passed 36 selected checks; post-merge workflows
+are still running. This does not merge the remaining compiler/UI2/product work.
+The locally assembled candidate combines the reviewed token/reply lifetime,
+GCC pointer-temporary and Linux test-coordination repairs. Its 172 affected
+checks, generated-source validation, lint and formatting pass; its full matrix
+and applicable native qualification remain required.
+
+Windows PR53 previously merged on main at
 `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Its source tree is exactly the
 qualified `110a514c` / hosted merge `93093bd4` tree. All five hosted workflows
 passed, including actual Windows ARM64 compiler/bootstrap, sample execution and
@@ -757,13 +799,13 @@ changes; historical test totals alone do not advance its status.
 
 | Outcome | Current state / evidence | Responsible role | Next acceptance and actual blocker |
 |---|---|---|---|
-| Current compiler speed and memory matrix | Historical product targets remain unqualified. Token candidate `71352c50` passes 292 focused checks, self-emission/C-byte parity and all three original Linux peak checks; heavy-stdlib reported peak falls 8.241% relative to exact `3974d47b` | Performance owner; main session runs quiet measurements | Qualify the token change on the combined tree. Mac D9 takes zero samples because actual background CPU fails the unchanged quiet gate. Formal Stage 4/pin and full Stage 5/product matrix remain open. |
+| Current compiler speed and memory matrix | Token candidate `71352c50` reduces the focused Linux heavy-stdlib reported peak by 8.241%. Combined lifetime candidate `92691bee` passes 164 focused checks. Whole-product targets remain unqualified | Performance owner; main session runs quiet measurements | Private current-product Linux RSS comparison `37771609277` is running. Mac quiet admission has no completed paired round. Stage 4/pin, Stage 5 and final product matrix remain open. |
 | Faster incremental edits | Current tuple/instance repair proves one changed group for inventory-preserving edits and three for genuinely new shared tuple shapes, across both frontends/release/debug with strict native outputs and clean-versus-incremental equality | Incremental compiler owner | Finish current combined gates, then measure edit median/p95 and memory. Full consulted-fact/analysis reuse and Stage 9 counters remain open. Work counts are not speed results. |
-| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Assembled `3974d47b` Wayland passes, while X11 has three ScrollThumbBounds native assertion failures | Provider repair owner; main integrator qualifies | Diagnostic `37735904202` failed to export detailed traces because container-owned directories were unreadable to the artifact uploader. Repair collection, rerun, select a causal-evidence-backed fix, then qualify affected and combined gates. Focus interference remains unproven. |
-| UI2 events, executor and lifecycle on desktop | macOS foundation `a9ffe1bd` passes 28 native runs. Ordered-container snapshot `71397941` adds six clean projections, 34 strict checks, 12 links and 12 actual native runs across both compilers/plain/sanitized; exact inputs and sanitizer flags verified | UI2 interface owner and platform owners | Finish application-host input barriers, ordinary input deferral, typed controls, Linux provider and atomic interface/provider landing. Component qualification does not close full UI2. Resolve the notification recipient contract without fabricating interaction-state changes. |
-| Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on main `49f136ec`; mobile fixture-host results above remain separate from complete providers | Platform slice owners | Prove real Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Both original macOS 600-frame library journeys pass against `3974d47b`. Bounded endpoint `933f79b7` passes four storage native rows and reference AgentOperationChannel. Linux paired frontend and both library/installed-smoke steps pass, with live-agent acceptance still running | BTRSmith owner and integrator | Qualify the reviewed dynamic-revision process fixture and its transport negatives; then complete both frontend live GUI/agent journeys, Linux artifacts/source checks, pin qualification and remaining screen/build/runtime budgets. Current override proof is not locked-release acceptance. |
-| One qualified implementation on main | Windows slice is merged at `49f136ec`, all its post-merge workflows pass. PR68/current `3974d47b` has full boundary recapture; Linux is blocked by peak-memory and X11 failures, with Mac unit qualification still running | Main integrator | Land the independently qualified consolidated plan; combine the measured token repair and causal GUI repair, then complete final-tree tests/bootstrap/C11/static/generated/extension/hygiene and applicable native evidence. macOS UI2 and product repairs remain separately tracked. |
+| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` succeeds; artifact review is in progress | Provider repair owner; main integrator qualifies | Finish independent X11 source/inventory/skip review, then qualify the assembled tree. Keep genuine external focus-loss cancellation and original native assertions. |
+| UI2 events, executor and lifecycle on desktop | macOS foundation and ordered-container components have scoped native passes. Window and capture/run-loop replay each add eight native passes on compiler `f75c737b`. Public application baseline exposes 19 missing methods | Application, text-field and range/selection owners | Implement and qualify those methods with original native assertions. Linux Window source is reviewed; its native baseline/candidate run awaits a hosted slot. Full UI2 and application quit remain open. |
+| Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
+| BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. Linux original agent build fails strict GCC pointer-temporary checks; fix `f75c737b` passes through both frontends at O2/O3 | BTRSmith owner and integrator | Run the prepared full Linux replay with `f75c737b`, then qualify the product pin and remaining audio, screen, build/runtime and installed-release outcomes. The full MVP remains incomplete. |
+| One qualified implementation on main | PR69 consolidated plan and qualified Mac test coordination merged at `cbd3ddcd` after 36 passing selected checks. Prepared compiler/Linux repair integration passes 172 affected checks plus generated/lint/format | Main integrator | Complete final combined tests/bootstrap/C11/static/generated/extension/hygiene and applicable native evidence, then merge qualified repairs. Track UI2 and product changes separately until their acceptance passes. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
@@ -942,7 +984,9 @@ do not repeat a failed access request.
 The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `49f136ec` (qualified Windows PR53); the earlier integration checkpoints below retain their original evidence. PR60 is published at `50bf1c8c`,
+Current upstream main is `cbd3ddcd` (qualified Windows PR53 followed by
+consolidated-plan/Mac-coordination PR69); the earlier integration checkpoints
+below retain their original evidence. PR60 is published at `50bf1c8c`,
 combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
 and diagnostic corrections. Predecessor `b5e3f81a` found nine failures in
 the structural audit's raw-source parser. Repair `bb40e39c` passes the expanded
