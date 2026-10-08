@@ -1,3 +1,6 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.IView;
 import Library.Callback;
 import Library.Math;
 import Library.GUI.ITextField;
@@ -12,13 +15,13 @@ class MacOSTextField implements ITextField, IMacOSView {
 	private NSTextField? _control;
 	private MacOSView _view;
 
-	public MacOSTextField(string text = "", string placeholder = "") {
+	public MacOSTextField(string text = "", string placeholder = "", MacOSControlContext? context = null) {
 		self._control = null;
 		self.requireMainThread();
 		var control = NSTextField.textFieldWithString(AppKitText.nativeValue(text));
 		if (control == null) { throw "Cannot create native text field"; }
 		self._control = control;
-		self._view = MacOSView(control);
+		self._view = MacOSView(control, context);
 		/* Rounded bezels center their text vertically and share the native
 		 * control heights buttons use, so mixed toolbars align without padding hacks. */
 		control.setBezelStyle(NSTextFieldRoundedBezel);
@@ -48,6 +51,18 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public double fittingHeight() { self.nativeControl(); return self._view.fittingHeight(); }
 
+	public MacOSViewState interactionOwner() { return self._view.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._view.settleInteraction(); }
+
+	public void publishInteraction() { self._view.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
 	public bool isVisible() { self.nativeControl(); return self._view.isVisible(); }
 
 	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { self.nativeControl(); return self._view.onPointer(handler, owner); }
@@ -76,7 +91,7 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public void setPlaceholder(string text) { self.nativeControl().setPlaceholderString(AppKitText.nativeValue(text)); }
 
-	public void setEnabled(bool enabled) { self.nativeControl().setEnabled(enabled); }
+	public void setEnabled(bool enabled) { var control = self.nativeControl(); control.setEnabled(enabled); self._view.localEnabledChanged(control.isEnabled()); }
 
 	public void setFont(double size) {
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native text field font size"; }

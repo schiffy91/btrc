@@ -330,3 +330,54 @@ publishInteraction phases for upcoming container traversal. Its combined
 refresh remains leaf-only, and an eligibility-loss flag survives between the
 mark and settle phases. This is preparation for the required whole-subtree
 barrier, not evidence that containers are already wired or qualified.
+
+## Subtree and context source freeze — 2026-10-08 03:32 UTC
+
+Fixture-only cb5e4372 adds NativeTreeState, a real NSView nested tree that checks
+deferred coherent observations, ancestor hide/show, unchanged local disabled
+preference, detach/reattach, and descendant close ownership. Fixture-only
+ce074cde and 0047bb5b add explicit foreign-context rejection with the exact
+old native/logical tree retained, default-constructor composition, and renewal
+after the default context closes. Eight fixture choices now describe 32 paired
+plain/sanitized rows. These new rows have not been transpiled or executed.
+
+All existing macOS IView wrappers now forward state subscriptions and the three
+private traversal phases to their existing native owner. Constructors accept
+the optional shared semantic context without changing existing arguments.
+Containers mark every descendant before any eligibility settlement, then
+publish observations after the coherent transition. Route migration occurs
+after settlement, so a terminal uses its original registration reservation.
+Detach marks eligibility before native removal; visibility/detach failures
+retain native owners and expose quarantine instead of reporting a rollback.
+
+Independent review identified context rejection occurring after native attach.
+The corrected admission checks semantic pool identity before native attachment
+or ownership transfer. Legacy direct constructors share a lazy UI-only default
+context; a closed default is renewed. Closing an individual view/container does
+not close that context. This replaces the earlier per-constructor standalone
+fallback. Application claim, wake adoption, shutdown and sequential-application
+qualification remain part of the unfinished application integration; this
+source checkpoint does not claim those are implemented.
+
+Fixture-only a8702f8e additionally cancels a state registration from its entered
+receiver and requires replacement rejection until the callback drains, followed
+by successful replacement after COMPLETE. Source correction 2014f750 checks
+pollCompletion rather than isOpen. It is a genuine lifetime assertion, but its
+red and green executions remain pending.
+
+The independent reviewer cleared the bounded context correction and reviewed
+the traversal shape. Canonical BTRC formatting, Python formatting/lint and
+git diff --check are the only local checks in this source lane. No SDK reader,
+reference/selfhost compilation, C/link job, GUI test or guest ran alongside
+the Linux qualification. Earlier six-fixture reference/strict-C evidence is
+pinned to its earlier inputs and does not qualify this freeze.
+
+Next qualification should project the six foundations plus NativeViewState
+first. NativeTreeState deliberately precedes the still-unimplemented ordered
+IContainer operations; it can first stop at interface completeness. Ordered
+container transactions, native input/domain eligibility gates, control event
+settlement, application/window host lifecycle and fair turn composition remain
+unfinished. No complete provider or atomic UI2 landing is claimed. This slice
+adds no native selectors beyond the previously reported ui2InitializeAppKit
+probe declaration; the parent still owns every binding/export/generated and
+known-AppKit admission fragment.

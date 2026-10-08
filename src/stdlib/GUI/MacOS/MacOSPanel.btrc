@@ -1,3 +1,5 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.Image;
 import Library.Math;
 import Library.Callback;
@@ -69,7 +71,7 @@ class MacOSPanel implements IPanel, IMacOSView {
 	private MacOSContainer _container;
 	private MacOSPanelLayout _layout;
 
-	public MacOSPanel(RGBA fill, double radius = 0.0) { self._layout = MacOSPanelLayout(fill, radius); self._container = MacOSContainer(self._layout); }
+	public MacOSPanel(RGBA fill, double radius = 0.0, MacOSControlContext? context = null) { self._layout = MacOSPanelLayout(fill, radius); self._container = MacOSContainer(self._layout, context); }
 
 	public NSView nativeView() { return self._container.nativeView(); }
 
@@ -92,6 +94,18 @@ class MacOSPanel implements IPanel, IMacOSView {
 	public double fittingHeight() { return self._container.fittingHeight(); }
 
 	public void arrange(double x, double y, double width, double height) { self._container.arrange(x, y, width, height); }
+
+	public MacOSViewState interactionOwner() { return self._container.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._container.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._container.settleInteraction(); }
+
+	public void publishInteraction() { self._container.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._container.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._container.onInteractionStateChanged(handler, owner); }
 
 	public bool isVisible() { return self._container.isVisible(); }
 

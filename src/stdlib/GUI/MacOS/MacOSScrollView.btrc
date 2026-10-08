@@ -1,3 +1,5 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.Math;
 import Library.Callback;
 import Library.Console;
@@ -103,7 +105,7 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 	private MacOSContainer _container;
 	private MacOSScrollLayout _layout;
 
-	public MacOSScrollView() { self._layout = MacOSScrollLayout(); self._container = MacOSContainer(self._layout); }
+	public MacOSScrollView(MacOSControlContext? context = null) { self._layout = MacOSScrollLayout(); self._container = MacOSContainer(self._layout, context); }
 
 	public NSView nativeView() { return self._container.nativeView(); }
 
@@ -135,6 +137,18 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 		self.nativeControl().tile();
 		self.scrollTo(offset);
 	}
+
+	public MacOSViewState interactionOwner() { return self._container.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._container.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._container.settleInteraction(); }
+
+	public void publishInteraction() { self._container.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._container.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._container.onInteractionStateChanged(handler, owner); }
 
 	public bool isVisible() { return self._container.isVisible(); }
 

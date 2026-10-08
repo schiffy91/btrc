@@ -1,3 +1,4 @@
+import Library.GUI.ControlEventQueue;
 import Library.Math;
 import Library.Callback;
 import Library.GUI.IButton;
@@ -52,6 +53,14 @@ class MacOSButton implements IButton, IMacOSView {
 	public double fittingHeight() { return self._view.fittingHeight(); }
 
 	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public MacOSViewState interactionOwner() { return self._view.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._view.settleInteraction(); }
+
+	public void publishInteraction() { self._view.publishInteraction(); }
 
 	public ViewInteractionState interactionState() { return self._view.interactionState(); }
 

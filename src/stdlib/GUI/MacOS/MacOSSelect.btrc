@@ -1,3 +1,6 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.IView;
 import Library.Vector;
 import Library.Callback;
 import Library.GUI.ISelect;
@@ -11,12 +14,12 @@ class MacOSSelect implements ISelect, IMacOSView {
 	private NSPopUpButton? _button;
 	private MacOSView _view;
 
-	public MacOSSelect() {
+	public MacOSSelect(MacOSControlContext? context = null) {
 		if (!NSThread.isMainThread()) { throw "Native selections require the main thread"; }
 		var button = NSPopUpButton.new();
 		if (button == null) { throw "Cannot create native selection"; }
 		self._button = button;
-		self._view = MacOSView(button);
+		self._view = MacOSView(button, context);
 		button.setPullsDown(false);
 		button.setAutoenablesItems(false);
 		self.setItems(new Vector<string>(), -1);
@@ -45,6 +48,18 @@ class MacOSSelect implements ISelect, IMacOSView {
 	public double fittingHeight() { return self._view.fittingHeight(); }
 
 	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public MacOSViewState interactionOwner() { return self._view.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._view.settleInteraction(); }
+
+	public void publishInteraction() { self._view.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
 
 	public bool isVisible() { return self._view.isVisible(); }
 
@@ -101,7 +116,7 @@ class MacOSSelect implements ISelect, IMacOSView {
 		return title == null ? "" : AppKitText.ownedValue(title);
 	}
 
-	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
+	public void setEnabled(bool enabled) { var control = self.control(); control.setEnabled(enabled); self._view.localEnabledChanged(control.isEnabled()); }
 
 	public void setFont(double size) {
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native selection font size"; }

@@ -1,3 +1,6 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.IView;
 import Library.Math;
 import Library.Callback;
 import Library.GUI.ISlider;
@@ -13,13 +16,13 @@ class MacOSSlider implements ISlider, IMacOSView {
 	private double _maximum;
 	private int _intervals;
 
-	public MacOSSlider(double minimum, double maximum, int intervals = 0) {
+	public MacOSSlider(double minimum, double maximum, int intervals = 0, MacOSControlContext? context = null) {
 		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
 		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || maximum <= minimum || !Math.isFinite(maximum - minimum) || intervals < 0 || intervals > 1000) { throw "Invalid native slider range"; }
 		var slider = NSSlider.new();
 		if (slider == null) { throw "Cannot create native slider"; }
 		self._slider = slider;
-		self._view = MacOSView(slider);
+		self._view = MacOSView(slider, context);
 		self._minimum = minimum;
 		self._maximum = maximum;
 		self._intervals = intervals;
@@ -51,6 +54,18 @@ class MacOSSlider implements ISlider, IMacOSView {
 
 	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
 
+	public MacOSViewState interactionOwner() { return self._view.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._view.settleInteraction(); }
+
+	public void publishInteraction() { self._view.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
 	public bool isVisible() { return self._view.isVisible(); }
 
 	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
@@ -72,7 +87,7 @@ class MacOSSlider implements ISlider, IMacOSView {
 		slider.setDoubleValue(value);
 	}
 
-	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
+	public void setEnabled(bool enabled) { var control = self.control(); control.setEnabled(enabled); self._view.localEnabledChanged(control.isEnabled()); }
 
 	public bool isEnabled() { return self.control().isEnabled(); }
 

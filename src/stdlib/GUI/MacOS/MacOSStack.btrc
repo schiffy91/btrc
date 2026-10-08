@@ -1,3 +1,5 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.Math;
 import Library.Console;
 import Library.Callback;
@@ -78,7 +80,7 @@ class MacOSStack implements IStack, IMacOSView {
 	private MacOSContainer _container;
 	private MacOSStackLayout _layout;
 
-	public MacOSStack(bool vertical, double spacing) { self._layout = MacOSStackLayout(vertical, spacing); self._container = MacOSContainer(self._layout); }
+	public MacOSStack(bool vertical, double spacing, MacOSControlContext? context = null) { self._layout = MacOSStackLayout(vertical, spacing); self._container = MacOSContainer(self._layout, context); }
 
 	public NSView nativeView() { return self._container.nativeView(); }
 
@@ -101,6 +103,18 @@ class MacOSStack implements IStack, IMacOSView {
 	public double fittingHeight() { return self._container.fittingHeight(); }
 
 	public void arrange(double x, double y, double width, double height) { self._container.arrange(x, y, width, height); }
+
+	public MacOSViewState interactionOwner() { return self._container.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._container.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._container.settleInteraction(); }
+
+	public void publishInteraction() { self._container.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._container.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._container.onInteractionStateChanged(handler, owner); }
 
 	public bool isVisible() { return self._container.isVisible(); }
 

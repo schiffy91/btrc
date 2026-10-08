@@ -22,11 +22,22 @@ class MacOSSemanticWake implements IControlEventWake {
  * subscribe before attachment through the detached queue in this same pool.
  * The context owns no view, window, receiver or application backreference. */
 class MacOSControlContext {
+	class MacOSControlContext? _default = null;
 	public ControlEventTerminalPool terminalPool;
 	public ControlEventQueue detachedEvents;
 	public MacOSSemanticWake wake;
 	private int _capacity;
 	private bool _closed = false;
+
+	/* Legacy native constructors participate in the same application even
+	 * when called before its event loop is initialized. This bounded context
+	 * retains no views or application owner; explicit contexts remain isolated. */
+	class MacOSControlContext defaultContext() {
+		if (!NSThread.isMainThread()) { throw "Native semantic ownership requires the main thread"; }
+		var current = MacOSControlContext._default;
+		if (current == null || !current.isOpen()) { current = MacOSControlContext(); MacOSControlContext._default = current; }
+		return current;
+	}
 
 	public MacOSControlContext(int capacity = 256, MacOSRunLoopSignal? signal = null) {
 		self.requireUI();
@@ -90,6 +101,11 @@ class MacOSViewState implements IControlEventTarget {
 	public long long generation() { self._context.requireUI(); return self._generation; }
 
 	public ControlEventQueue events() { self._context.requireUI(); return self._events; }
+
+	public void requireSameContext(MacOSViewState other) {
+		self.requireOpen(); other.requireOpen();
+		if (self._context.terminalPool != other._context.terminalPool) { throw "Native views cannot cross application contexts"; }
+	}
 
 	public ControlEventDisposition observationAdmission(long long generation) {
 		self._context.requireUI();

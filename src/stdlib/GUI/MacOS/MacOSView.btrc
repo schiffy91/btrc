@@ -9,6 +9,10 @@ import Library.GUI.ControlEventQueue;
 /* Provider-only projection for composition. Querying it aliases the existing
  * receiver, without exposing native handles on the portable IView contract. */
 interface IMacOSView extends IView {
+	MacOSViewState interactionOwner();
+	void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events);
+	void settleInteraction();
+	void publishInteraction();
 	NSView nativeView();
 	void attachTo(NSView parent);
 	void detachFrom(NSView parent);
@@ -26,6 +30,8 @@ class MacOSView implements IMacOSView {
 	private MacOSViewState? _interaction;
 	private bool _inherited = false;
 	private bool _lostEligibility = false;
+	private ControlEventQueue? _nextEvents;
+	private bool _routePending = false;
 	private WindowExposure _exposure = WINDOW_EXPOSURE_UNKNOWN;
 
 	public MacOSView(NSView? view = null, MacOSControlContext? context = null) {
@@ -33,7 +39,7 @@ class MacOSView implements IMacOSView {
 		self._view = view == null ? NSView.new() : view;
 		if (self._view == null) { throw "Cannot create native view"; }
 		var semanticContext = context;
-		if (semanticContext == null) { semanticContext = MacOSControlContext(); }
+		if (semanticContext == null) { semanticContext = MacOSControlContext.defaultContext(); }
 		self._interaction = MacOSViewState(semanticContext);
 		self.refreshInteraction(false, WINDOW_EXPOSURE_UNKNOWN);
 	}
@@ -59,7 +65,7 @@ class MacOSView implements IMacOSView {
 		var view = self.nativeView(); var state = self.interactionOwner();
 		self._inherited = inherited; self._exposure = exposure;
 		if (state.update(!view.isHidden(), state.interactionState().localEnabled, inherited, self._attached, exposure, false)) { self._lostEligibility = true; }
-		if (events != null) { state.rebind(events); }
+		self._nextEvents = events; self._routePending = true;
 	}
 
 	public void settleInteraction() {
@@ -67,7 +73,14 @@ class MacOSView implements IMacOSView {
 		if (self._lostEligibility) { self._lostEligibility = false; self.cancelPointerCapture(); }
 	}
 
-	public void publishInteraction() { var state = self.interactionOwner(); if (!self._closing) { state.publish(); } }
+	public void publishInteraction() {
+		var state = self.interactionOwner(); if (self._closing) { return; }
+		if (self._routePending) {
+			if (self._nextEvents == null) { state.rebindDetached(); } else { state.rebind(self._nextEvents); }
+			self._routePending = false;
+		}
+		state.publish();
+	}
 
 	/* Only leaves use this combined convenience. A container invokes each
 	 * phase across its entire subtree before beginning the next phase. */
@@ -140,11 +153,15 @@ class MacOSView implements IMacOSView {
 	public void detachFrom(NSView parent) {
 		var view = self.nativeView();
 		if (!self._attached) { throw "View has no container attachment"; }
-		self.cancelPointerCapture();
-		MacOSView.detachNative(view, parent);
-		self._attached = false;
-		self.interactionOwner().rebindDetached();
-		self.refreshInteraction(false, WINDOW_EXPOSURE_UNKNOWN);
+		/* Native detach may synchronously end editing. Seal eligibility first,
+		 * while terminal reservations still belong to their original queue. */
+		self.markInteraction(false, WINDOW_EXPOSURE_UNKNOWN);
+		try {
+			self.settleInteraction();
+			MacOSView.detachNative(view, parent);
+			self._attached = false;
+			self.publishInteraction();
+		} catch (string error) { self.quarantineInteraction(error); throw error; }
 	}
 
 	public double fittingWidth() { return self.nativeView().fittingSize().width; }
@@ -186,27 +203,28 @@ class MacOSView implements IMacOSView {
 		view.setFrame(frame);
 	}
 
+	private void quarantineInteraction(string failure) {
+		if (self._closing || self._view == null) { return; }
+		var state = self.interactionOwner();
+		if (!state.isOpen()) { self._input.cancel(); return; }
+		state.update(!self._view.isHidden(), state.interactionState().localEnabled, false, self._attached, self._exposure, true);
+		try { self._input.cancel(); state.publish(); }
+		catch (string cleanup) { throw f"Native interaction failed: {failure}; quarantine failed: {cleanup}"; }
+	}
+
 	public void setHidden(bool hidden) {
 		var view = self.nativeView();
 		if (view.isHidden() == hidden) { return; }
 		var state = self.interactionOwner();
 		bool enabled = state.interactionState().localEnabled;
-		state.update(!hidden, enabled, self._inherited, self._attached, self._exposure, false);
+		if (state.update(!hidden, enabled, self._inherited, self._attached, self._exposure, false)) { self._lostEligibility = true; }
 		try {
 			/* A synchronous cancellation observer must already see input sealed. */
-			if (hidden) { self.cancelPointerCapture(); }
+			self.settleInteraction();
 			if (self._closing) { return; }
 			view.setHidden(hidden);
-		} catch (string error) {
-			if (!self._closing) {
-				state.update(!view.isHidden(), enabled, false, self._attached, self._exposure, true);
-				try { self._input.cancel(); }
-				catch (string cleanup) { throw f"Native visibility failed: {error}; input cancellation failed: {cleanup}"; }
-				state.publish();
-			}
-			throw error;
-		}
-		state.publish();
+			self.publishInteraction();
+		} catch (string error) { self.quarantineInteraction(error); throw error; }
 	}
 
 	public CallbackCancellation pollClose() {

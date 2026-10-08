@@ -2,6 +2,9 @@ import Library.Callback;
 import Library.Vector;
 import Library.Console;
 import Library.GUI.IContainer;
+import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSViewInput;
 
@@ -38,22 +41,78 @@ class MacOSContainer implements IContainer, IMacOSView {
 	private Vector<MacOSViewInput> _inputs = [];
 	private bool _mutating = false;
 	private string _closeFailure = "";
+	private MacOSViewState? _interaction;
+	private bool _inherited = false;
+	private bool _lostEligibility = false;
+	private WindowExposure _exposure = WINDOW_EXPOSURE_UNKNOWN;
+	private ControlEventQueue? _windowEvents;
+	private bool _routePending = false;
 
-	public MacOSContainer(IMacOSContainerLayout? layout = null) {
+	public MacOSContainer(IMacOSContainerLayout? layout = null, MacOSControlContext? context = null) {
 		self.requireMainThread();
 		self._layout = layout;
 		self._view = layout == null ? NSView.new() : layout.nativeView();
 		if (self._view == null) { throw "Cannot create native container"; }
+		var semanticContext = context;
+		if (semanticContext == null) { semanticContext = MacOSControlContext.defaultContext(); }
+		self._interaction = MacOSViewState(semanticContext);
 	}
 
 	private void requireMainThread() {
 		if (!NSThread.isMainThread()) { throw "Native containers require the main thread"; }
 	}
 
+	public MacOSViewState interactionOwner() {
+		self.requireMainThread(); var state = self._interaction;
+		if (state == null) { throw "Native container interaction state is unavailable"; }
+		return state;
+	}
+
+	public ViewInteractionState interactionState() {
+		self.requireMainThread();
+		if (self._view == null || self._closing) { throw "Native container is closed"; }
+		return self.interactionOwner().interactionState();
+	}
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { self.nativeView(); return self.interactionOwner().onInteractionStateChanged(handler, owner); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) {
+		var view = self.nativeView(); var state = self.interactionOwner();
+		self._inherited = inherited; self._exposure = exposure; self._windowEvents = events;
+		if (state.update(!view.isHidden(), true, inherited, self._attached, exposure, false)) { self._lostEligibility = true; }
+		self._routePending = true;
+		bool eligible = state.interactionState().effectiveEligible;
+		for child in self._children { if (!child.closing) { self.projection(child.view).markInteraction(eligible, exposure, events); } }
+	}
+
+	public void settleInteraction() {
+		self.requireMainThread();
+		if (self._lostEligibility) { self._lostEligibility = false; MacOSViewInput.detached(self._inputs); }
+		for child in self._children { if (!child.closing && child.view.isOpen()) { self.projection(child.view).settleInteraction(); } }
+	}
+
+	public void publishInteraction() {
+		self.requireMainThread(); if (self._closing) { return; }
+		var state = self.interactionOwner();
+		if (self._routePending) {
+			if (self._windowEvents == null) { state.rebindDetached(); } else { state.rebind(self._windowEvents); }
+			self._routePending = false;
+		}
+		state.publish();
+		for child in self._children { if (!child.closing && child.view.isOpen()) { self.projection(child.view).publishInteraction(); } }
+	}
+
+	private void refreshInteraction() {
+		self.markInteraction(self._inherited, self._exposure, self._windowEvents);
+		self.settleInteraction(); self.publishInteraction();
+	}
+
 	public NSView nativeView() {
 		self.requireMainThread();
 		if (self._view == null) { throw "Native container is closed"; }
 		if (self._closing) { throw "Native container shutdown has started"; }
+		var interaction = self._interaction;
+		if (interaction != null && (!interaction.isOpen() || interaction.faulted())) { throw "Native container is quarantined"; }
 		return self._view;
 	}
 
@@ -90,13 +149,14 @@ class MacOSContainer implements IContainer, IMacOSView {
 	public void attach(IView child) {
 		var parent = self.mutationView();
 		self._mutating = true;
-		try { self.attachChild(child, parent); } catch (string error) { self._mutating = false; throw error; }
+		try { self.attachChild(child, parent); self.refreshInteraction(); } catch (string error) { self._mutating = false; throw error; }
 		self._mutating = false;
 	}
 
 	private void attachChild(IView child, NSView parent) {
 		var childParent = self._layout == null ? parent : self._layout.childParent();
 		var native = self.projection(child);
+		self.interactionOwner().requireSameContext(native.interactionOwner());
 		var childView = native.nativeView();
 		MacOSView.validateAttachment(childView, childParent);
 		// Retain before publishing to AppKit, so allocation cannot fail after
@@ -161,6 +221,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 			throw error;
 		}
 		self._mutating = false;
+		self.refreshInteraction();
 		return child;
 	}
 
@@ -181,14 +242,15 @@ class MacOSContainer implements IContainer, IMacOSView {
 	public void detachFrom(NSView parent) {
 		var view = self.mutationView();
 		if (!self._attached) { throw "View has no container attachment"; }
-		self.cancelPointerCapture();
 		self._mutating = true;
-		try { MacOSView.detachNative(view, parent); } catch (string error) {
-			self._mutating = false;
-			throw error;
-		}
-		self._mutating = false;
-		self._attached = false;
+		try {
+			self.markInteraction(false, WINDOW_EXPOSURE_UNKNOWN, null);
+			self.settleInteraction();
+			MacOSView.detachNative(view, parent);
+			self._attached = false;
+			self.publishInteraction();
+		} catch (string error) { self.quarantineInteraction(error); throw error; }
+		finally { self._mutating = false; }
 	}
 
 	public double fittingWidth() { return self.nativeView().fittingSize().width; }
@@ -208,14 +270,40 @@ class MacOSContainer implements IContainer, IMacOSView {
 		for child in self._children { if (!child.closing) { self.projection(child.view).cancelPointerCapture(); } }
 	}
 
-	public void setVisible(bool visible) { self.nativeView().setHidden(!visible); }
+	private void quarantineInteraction(string failure) {
+		var state = self.interactionOwner(); var view = self._view;
+		if (view == null || self._closing) { return; }
+		if (!state.isOpen()) { self._input.cancel(); return; }
+		state.update(!view.isHidden(), true, false, self._attached, self._exposure, true);
+		/* Every child is marked before cancellation can enter user code. The
+		 * tree and native owners remain inspectable until explicit close. */
+		for child in self._children { if (!child.closing) { self.projection(child.view).markInteraction(false, self._exposure, self._windowEvents); } }
+		try { self._input.cancel(); self.settleInteraction(); state.publish(); }
+		catch (string cleanup) { throw f"Native interaction failed: {failure}; quarantine failed: {cleanup}"; }
+	}
+
+	public void setVisible(bool visible) {
+		var view = self.mutationView();
+		if (view.isHidden() == !visible) { return; }
+		var state = self.interactionOwner();
+		self._mutating = true;
+		try {
+			if (state.update(visible, true, self._inherited, self._attached, self._exposure, false)) { self._lostEligibility = true; }
+			bool eligible = state.interactionState().effectiveEligible;
+			for child in self._children { if (!child.closing) { self.projection(child.view).markInteraction(eligible, self._exposure, self._windowEvents); } }
+			self.settleInteraction();
+			view.setHidden(!visible);
+			self.publishInteraction();
+		} catch (string error) { self.quarantineInteraction(error); throw error; }
+		finally { self._mutating = false; }
+	}
 
 	public CallbackCancellation close() {
 		self.requireMainThread();
 		if (self._view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
-		if (!self._closing) { self._closing = true; self._input.cancel(); }
+		if (!self._closing) { self._closing = true; self.interactionOwner().close(); self._input.cancel(); }
 		return self.pollClose();
 	}
 
@@ -227,6 +315,8 @@ class MacOSContainer implements IContainer, IMacOSView {
 		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		var input = self._input.pollCompletion();
 		if (input != CALLBACK_CANCELLATION_COMPLETE) { return input; }
+		var semantic = self.interactionOwner().pollClose();
+		if (semantic != CALLBACK_CANCELLATION_COMPLETE) { return semantic; }
 		self._mutating = true;
 		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		try {
