@@ -421,10 +421,15 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 		var parent = self.contentView();
 		var native = self.projection(view);
 		if (native.interactionOwner().context() != self._context) { throw "Window root cannot cross application contexts"; }
+		bool failed = false; string failure = "";
 		self._context.beginMutation(); self._mutating = true;
 		try { self.mountRoot(view, parent); self.refreshRootState(); self._context.requireMutationHealthy(); }
-		catch (string error) { if (self._root != null) { self.quarantineRoot(error); } throw error; }
+		catch (string error) {
+			failed = true; failure = error;
+			if (self._root != null) { self.quarantineRoot(error); }
+		}
 		finally { self._mutating = false; self._context.endMutation(); }
+		if (failed) { throw failure; }
 	}
 
 	private void mountRoot(IView view, NSView parent) {
@@ -458,6 +463,7 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 		var root = self._root;
 		if (root == null) { return null; }
 		var parent = self.contentView();
+		bool failed = false; string failure = "";
 		self._context.beginMutation(); self._mutating = true;
 		try {
 			var native = self.projection(root); var child = native.nativeView();
@@ -466,8 +472,9 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 			MacOSView.detachNative(child, parent); native.reconcileAttachment(null);
 			native.publishInteraction(); self._context.requireMutationHealthy();
 			self._root = null;
-		} catch (string error) { self.quarantineRoot(error); throw error; }
+		} catch (string error) { failed = true; failure = error; self.quarantineRoot(error); }
 		finally { self._mutating = false; self._context.endMutation(); }
+		if (failed) { throw failure; }
 		return root;
 	}
 

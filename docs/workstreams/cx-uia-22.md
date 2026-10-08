@@ -995,3 +995,35 @@ only whitespace versus the reviewed source mirrors; git diff --check passed.
 No repaired Window projection, native link or runtime has run. Complete public
 Application/quit coordination, normal input deferral, all controls and atomic
 both-provider UI2 landing remain separate unfinished acceptance.
+
+
+## Window native qualification and mutation cleanup correction
+
+The committed12afdfff provider passed both Window fixtures through reference and
+self-hosted semantic projection with zero diagnostics, then all24 strict C/ObjC
+checks. The first private link attempt stopped on a duplicate AppKit framework
+row in fixture metadata; its failed report is preserved. A separately reviewed
+r2 bundle removed only that duplicate row and repeated both projections and
+strict checks successfully. Both reference plain links then passed.
+
+Session27482 ran NativeWindowClose and returned1 with `Unhandled exception:
+Window root mutation is already active`. This is a real provider failure. It
+stopped the remaining native rows; NativeWindowState runtime, sanitizer rows and
+self-hosted runtime remain unexecuted. Evidence is
+ui2-macos-window-12afdfff-r2/results/projection1/windows/reference/run-plain.json
+(SHA-256762be40ee13043bad451d3017595091d6d76b9a66d17dc976c2d4fc599ba43dd).
+Source/tool closure passed and all owned process groups were absent on release.
+
+The retained generated C proves detachRoot rethrows from its catch before
+resetting `_mutating` and ending the context transaction. The accepted corpus
+src/tests/control_flow/ExceptionsInnerCatchRethrowWithFinally.btrc explicitly
+pins that catch-rethrow behavior; this is a provider misuse of the current
+language contract, not a newly claimed compiler defect. attachRoot had the same
+pattern. Both now retain the original error with a separate failure flag, fall
+through cleanup, and rethrow afterward. The flag preserves empty-string errors;
+quarantine and all native fault/recovery assertions are unchanged. Formatting
+and whitespace checks pass. Repaired native qualification remains pending.
+
+Source diagnosis and repair occurred while the GCC compiler packet owned the
+native lane. No native launch overlapped. The original failed bundle and binary
+remain intact; a fresh immutable source bundle is required for the retry.
