@@ -118,6 +118,7 @@ def input_repair_program(tmp_path_factory, request, frontend, sanitized):
 
 @pytest.mark.parametrize("count", [4095, 4096, 4097, 8193])
 @pytest.mark.parametrize("terminal", [0, 1, 2, 3], ids=["keys", "release", "text", "close"])
+@pytest.mark.linux_gui
 def test_linux_event_boundary(event_boundary_program, sanitized, count, terminal, tmp_path):
     """Lossless, bounded delivery and inter-turn work progress must all hold."""
     environment = provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1")
@@ -135,6 +136,7 @@ def test_linux_event_boundary(event_boundary_program, sanitized, count, terminal
 
 
 @pytest.mark.parametrize("mode", [0, 1, 2, 3], ids=["failed-cut", "popup-below", "popup-above", "external-visibility"])
+@pytest.mark.linux_gui
 def test_linux_input_repair(input_repair_program, sanitized, mode, tmp_path):
     result = subprocess.run(
         [str(input_repair_program), str(mode)],

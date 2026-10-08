@@ -20,6 +20,7 @@ from src.tests.runner_capabilities import linux_display_error
     ],
     ids=["grid", "row", "column"],
 )
+@pytest.mark.linux_gui
 def test_linux_layout_resize(tmp_path, request, frontend, sanitized, fixture, arguments, expected):
     require_linux_reader()
     if error := linux_display_error():

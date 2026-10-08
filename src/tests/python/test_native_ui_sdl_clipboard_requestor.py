@@ -45,6 +45,7 @@ def requestor_probe(tmp_path_factory) -> Path:
 
 
 @pytest.mark.parametrize("destroyed", [False, True], ids=["live-requestor", "destroyed-requestor"])
+@pytest.mark.linux_gui
 def test_sdl_clipboard_owner_survives_its_requestor(requestor_probe: Path, destroyed: bool) -> None:
     completed = subprocess.run(
         [str(requestor_probe), "1" if destroyed else "0"],

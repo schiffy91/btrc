@@ -15,6 +15,7 @@ from src.tests.runner_capabilities import linux_display_error
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+@pytest.mark.linux_gui
 def test_linux_scroll_thumb_bounds(tmp_path, request, frontend, sanitized):
     require_linux_reader()
     if error := linux_display_error():

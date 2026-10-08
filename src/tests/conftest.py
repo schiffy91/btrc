@@ -64,6 +64,7 @@ def pytest_configure(config):
     """Record every skip and capability gate in this session's skip report."""
     SkipLedger.install(config)
     config.addinivalue_line("markers", "macos_gui: requires exclusive AppKit application execution on macOS")
+    config.addinivalue_line("markers", "linux_gui: owns shared Linux GUI focus or clipboard state")
 
 
 def _parse_compilers(raw: str) -> list[str]:
@@ -256,6 +257,24 @@ def _macos_gui_session(request):
         yield
         return
     lock_path = request.config.cache.mkdir("macos-gui") / "execution.lock"
+    with _exclusive(lock_path, timeout=1800, owner=request.node.nodeid):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _linux_gui_session(request):
+    """Serialize display-mutating Linux journeys, including their fixture lifetime.
+
+    Like the AppKit lease, this is shared by workers/processes using this
+    checkout's pytest cache, not the outer host gui-capture lock. X11 and
+    Wayland can share one desktop focus domain, so protocol is not a bypass.
+    Delegating desktop collectors stay unmarked: their child pytest cases
+    acquire the lease; the parent must not hold it while waiting for them.
+    """
+    if sys.platform != "linux" or request.node.get_closest_marker("linux_gui") is None:
+        yield
+        return
+    lock_path = request.config.cache.mkdir("linux-gui") / "execution.lock"
     with _exclusive(lock_path, timeout=1800, owner=request.node.nodeid):
         yield
 
