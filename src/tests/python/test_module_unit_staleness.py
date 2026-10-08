@@ -621,21 +621,135 @@ int main() {
 }
 
 
-def test_swapping_instance_uses_keeps_the_template_unit_exact(compiler: str, tmp_path, request):
-    """SB-D8: a template's instances were emitted in discovery order."""
-    _, incremental, _ = _incremental_matches_clean(
+_METHOD_INSTANCE_ORDER_PROGRAM = {
+    "Lib.btrc": """class Converter {
+    public Converter() {}
+    public T identity<T>(T value) { return value; }
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+float total() {
+    Converter converter = new Converter();
+    int whole = converter.identity(2);
+    float part = converter.identity(0.5);
+    return whole + part;
+}
+""",
+    "Main.btrc": _INSTANCE_ORDER_PROGRAM["Main.btrc"],
+}
+
+
+@pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
+@pytest.mark.parametrize(
+    "files,first,second",
+    [
+        pytest.param(
+            _INSTANCE_ORDER_PROGRAM,
+            "Box<int> whole = new Box<int>(2);",
+            "Box<float> part = new Box<float>(0.5);",
+            id="class",
+        ),
+        pytest.param(
+            _METHOD_INSTANCE_ORDER_PROGRAM,
+            "int whole = converter.identity(2);",
+            "float part = converter.identity(0.5);",
+            id="method",
+        ),
+    ],
+)
+def test_swapping_instance_uses_keeps_the_template_unit_exact(
+    compiler: str, debug, files, first, second, tmp_path, request
+):
+    """G12/SB-29: discovery order changes only Use, never the template unit."""
+    # Preserve line count and indentation so debug output in Lib cannot move.
+    original = files["Use.btrc"]
+    between = original[original.index(first) + len(first) : original.index(second)]
+    cold, incremental, _ = _incremental_matches_clean(
         compiler,
         request,
         tmp_path,
-        _INSTANCE_ORDER_PROGRAM,
-        {
-            "Use.btrc": (
-                "Box<int> whole = new Box<int>(2);\n\tBox<float> part = new Box<float>(0.5);",
-                "Box<float> part = new Box<float>(0.5);\n\tBox<int> whole = new Box<int>(2);",
-            )
-        },
+        files,
+        {"Use.btrc": (first + between + second, second + between + first)},
+        *(["--debug"] if debug else []),
     )
+    changed = {name for name, text in incremental.units.items() if text != cold.units[name]}
+    assert len(changed) == 1 and next(iter(changed)).startswith("p.unit-Use-"), changed
+    _lowered(incremental, 1)
+
+
+@pytest.mark.parametrize(
+    "files,old,new",
+    [
+        pytest.param(
+            _INSTANCE_ORDER_PROGRAM,
+            "Box<float> part = new Box<float>(0.5);",
+            "Box<double> part = new Box<double>(0.5);",
+            id="class",
+        ),
+        pytest.param(
+            _METHOD_INSTANCE_ORDER_PROGRAM,
+            "float part = converter.identity(0.5);",
+            "int part = converter.identity(3);",
+            id="method",
+        ),
+    ],
+)
+def test_changed_instance_set_invalidates_template_units(compiler: str, files, old, new, tmp_path, request):
+    """Canonical order must still key every actually demanded specialization."""
+    cold, incremental, _ = _incremental_matches_clean(compiler, request, tmp_path, files, {"Use.btrc": (old, new)})
+    templates = [name for name in cold.units if name.startswith("p.unit-Lib-")]
+    assert len(templates) == 1
+    assert incremental.units[templates[0]] != cold.units[templates[0]]
+    # The current whole-program facts key conservatively invalidates all three.
     _lowered(incremental, 3)
+
+
+_DEPENDENT_INSTANCE_PROGRAM = {
+    "Lib.btrc": """struct ZRecord { int value; };
+
+class ABox<T> {
+    public T value;
+    public ABox(T value) { self.value = value; }
+    public T get() { return self.value; }
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+int total() {
+    ZRecord record = {7};
+    ABox<int> number = new ABox<int>(2);
+    ABox<ZRecord> wrapped = new ABox<ZRecord>(record);
+    ZRecord result = wrapped.get();
+    return number.get() + result.value;
+}
+""",
+    "Main.btrc": """import ./Use.btrc;
+
+int main() { return total() == 9 ? 0 : 1; }
+""",
+}
+
+
+def test_canonical_instance_order_preserves_by_value_dependencies(compiler: str, tmp_path, request):
+    """ABox sorts before ZRecord, but its by-value field needs ZRecord first."""
+    first = "ABox<int> number = new ABox<int>(2);"
+    second = "ABox<ZRecord> wrapped = new ABox<ZRecord>(record);"
+    cold, incremental, _ = _incremental_matches_clean(
+        compiler,
+        request,
+        tmp_path,
+        _DEPENDENT_INSTANCE_PROGRAM,
+        {"Use.btrc": (first + "\n    " + second, second + "\n    " + first)},
+    )
+    _lowered(incremental, 1)
+    templates = [name for name in cold.units if name.startswith("p.unit-Lib-")]
+    assert len(templates) == 1
+    assert incremental.units[templates[0]] == cold.units[templates[0]]
+    definitions = [text for text in incremental.units.values() if "struct btrc_ABox_ZRecord {" in text]
+    assert definitions
+    for text in definitions:
+        assert text.index("struct ZRecord {") < text.index("struct btrc_ABox_ZRecord {")
 
 
 @pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])

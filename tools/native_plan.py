@@ -904,6 +904,94 @@ class _RetainedGenerations:
             shutil.rmtree(path, ignore_errors=True)
 
 
+@dataclass(frozen=True)
+class DarwinSigning:
+    """Explicit signing policy; credentials and keychain unlocking belong to the caller."""
+
+    identity: str
+    keychain: Path | None = None
+    identifier: str | None = None
+    tool: str = "/usr/bin/codesign"
+
+
+class _DarwinSigner:
+    """Finalize a staged Mach-O before its exact-byte link receipt is published."""
+
+    def __init__(self, configuration: DarwinSigning, runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
+        self.configuration = configuration
+        self.runner = runner
+        PlanJson.text(configuration.identity, "codesign identity")
+        if configuration.identifier is not None:
+            PlanJson.text(configuration.identifier, "codesign identifier")
+        PlanJson.text(configuration.tool, "codesign tool")
+        self.tool = shutil.which(configuration.tool)
+        if self.tool is None:
+            raise NativePlanError(f"codesign tool is unavailable: {configuration.tool!r}")
+        self.keychain = None
+        if configuration.keychain is not None:
+            self.keychain = str(configuration.keychain.resolve(strict=True))
+            PlanPaths.regular_file(self.keychain, "codesign keychain")
+        self.context = self._context()
+
+    def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+        try:
+            result = self.runner(command, capture_output=True, text=True, check=False, shell=False, timeout=60)
+        except subprocess.TimeoutExpired as error:
+            raise NativePlanError("codesign operation timed out") from error
+        if result.returncode:
+            raise NativePlanError(f"codesign operation failed: {result.stderr.strip()}")
+        return result
+
+    def _context(self) -> dict[str, object]:
+        requested = self.configuration.identity
+        certificate = requested
+        if requested != "-":
+            # Resolve the caller's identity without imposing a new global-trust
+            # policy: local signing certificates may be intentionally untrusted.
+            command = ["/usr/bin/security", "find-identity", "-p", "codesigning"]
+            if self.keychain is not None:
+                command.append(self.keychain)
+            listing = self._run(command)
+            candidates = set()
+            for line in listing.stdout.splitlines():
+                match = re.fullmatch(r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"(.*)"(?:\s+\([A-Z][A-Z0-9_]*\))?\s*', line)
+                if match and (match[1].lower() == requested.lower() or match[2] == requested):
+                    candidates.add(match[1].lower())
+            if len(candidates) != 1:
+                raise NativePlanError("codesign identity must resolve to exactly one certificate")
+            certificate = candidates.pop()
+        return {
+            "identity": requested,
+            "certificate": certificate,
+            "keychain": self.keychain,
+            "identifier": self.configuration.identifier,
+            "tool": _DarwinLinkReceipt.file_identity(self.tool),
+        }
+
+    def validate_context(self) -> None:
+        if self._context() != self.context:
+            raise NativePlanError("codesign configuration changed during the build")
+
+    def sign(self, staged: Path) -> None:
+        self.validate_context()
+        command = [self.tool, "--force", "--sign", str(self.context["certificate"])]
+        if self.keychain is not None:
+            command.extend(["--keychain", self.keychain])
+        if self.configuration.identifier is not None:
+            command.extend(["--identifier", self.configuration.identifier])
+        self._run([*command, str(staged)])
+        verification = [self.tool, "--verify", "--strict"]
+        requirements = []
+        if self.context["certificate"] != "-":
+            requirements.append(f'certificate leaf = H"{self.context["certificate"]}"')
+        if self.configuration.identifier is not None:
+            requirements.append("identifier " + json.dumps(self.configuration.identifier, ensure_ascii=False))
+        if requirements:
+            verification.extend(["--test-requirement", "=" + " and ".join(requirements)])
+        self._run([*verification, str(staged)])
+        self.validate_context()
+
+
 class NativePlanBuilder:
     """Compile and link exactly one validated plan without a command shell."""
 
@@ -934,6 +1022,7 @@ class NativePlanBuilder:
         debug_info: bool = False,
         object_cache: Path | None = None,
         report_path: Path | None = None,
+        signing: DarwinSigning | None = None,
     ) -> NativeBuildReport:
         started = time.perf_counter()
         if type(optimization) is not int or optimization not in range(4):
@@ -945,6 +1034,9 @@ class NativePlanBuilder:
         plan_path = plan_path.parent.resolve(strict=True) / plan_path.name
         generated_c = generated_c.parent.resolve(strict=True) / generated_c.name
         with self._reader.generation(plan_path, generated_c) as plan:
+            if signing is not None and (sys.platform != "darwin" or plan.operating_system != "macos"):
+                raise NativePlanError("codesign requires a Darwin host and macOS target")
+            signer = _DarwinSigner(signing, self._runner) if signing is not None else None
             report = NativeBuildReport(
                 plan.label,
                 optimization,
@@ -1184,7 +1276,7 @@ class NativePlanBuilder:
                     unit.preprocessing_status.startswith("receipt-") for unit in report.units
                 )
                 report.preprocessing_hits = sum(unit.preprocessing_status == "receipt-hit" for unit in report.units)
-                self._link(report, objects, staged, output, cache, prefetch)
+                self._link(report, objects, staged, output, cache, prefetch, signer)
             if cache is not None:
                 cache.prune()
             report.wall_s = time.perf_counter() - started
@@ -1201,6 +1293,7 @@ class NativePlanBuilder:
         output: Path,
         cache: _ObjectCache | None,
         prefetch: threading.Thread | None = None,
+        signer: _DarwinSigner | None = None,
     ) -> None:
         publication = ArtifactPublisher()
         # A parent lock also serializes differently spelled aliases of the
@@ -1233,11 +1326,14 @@ class NativePlanBuilder:
                             for unit in report.units
                         ],
                         "sources": [unit.source for unit in report.units],
+                        **({"signing": signer.context} if signer is not None else {}),
                     },
                 )
                 context = receipt.context()
                 report.link_cache_status = "unsupported-input" if context is None else "miss"
                 if context is not None and receipt.retained(context):
+                    if signer is not None:
+                        signer.validate_context()
                     report.link_cache_status = "hit"
                     report.link_validation_s = time.perf_counter() - started
                     return
@@ -1282,6 +1378,8 @@ class NativePlanBuilder:
                             and receipt.context() == context
                         )
                     report.link_validation_s += time.perf_counter() - started
+            if signer is not None:
+                signer.sign(staged)
             os.replace(staged, output)
             if qualified:
                 report.link_cache_status = (
@@ -2643,7 +2741,29 @@ def main(argv: Sequence[str] | None = None, *, process_workers: bool = False) ->
         default=2,
         help="native optimization level (default: 2; use 0 for unoptimized debugging)",
     )
+    parser.add_argument("--codesign-identity", help="Darwin signing certificate name or SHA-1; '-' for ad-hoc")
+    parser.add_argument("--codesign-keychain", type=Path, help="already-unlocked signing keychain")
+    parser.add_argument(
+        "--codesign-identifier", help="explicit signature identifier; otherwise preserve codesign defaults"
+    )
+    parser.add_argument("--codesign-tool", default="/usr/bin/codesign", help="Darwin signing executable")
     arguments = parser.parse_args(argv)
+    if arguments.codesign_identity is None and (
+        arguments.codesign_keychain is not None
+        or arguments.codesign_identifier is not None
+        or arguments.codesign_tool != "/usr/bin/codesign"
+    ):
+        parser.error("codesign options require --codesign-identity")
+    signing = (
+        DarwinSigning(
+            arguments.codesign_identity,
+            arguments.codesign_keychain,
+            arguments.codesign_identifier,
+            arguments.codesign_tool,
+        )
+        if arguments.codesign_identity is not None
+        else None
+    )
     try:
         NativePlanBuilder(process_workers=process_workers).build(
             plan_path=arguments.plan,
@@ -2657,6 +2777,7 @@ def main(argv: Sequence[str] | None = None, *, process_workers: bool = False) ->
             debug_info=arguments.debug_info,
             object_cache=arguments.object_cache,
             report_path=arguments.report_json,
+            signing=signing,
         )
     except (NativePlanError, OSError) as error:
         sys.stderr.write(f"btrc-native-plan: error: {error}\n")

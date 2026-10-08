@@ -199,7 +199,13 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
     (tmp_path / "shell.stdout").write_text(result.stdout)
     (tmp_path / "shell.stderr").write_text(result.stderr)
     diagnostics = diagnose_macos_retention(executable, tmp_path, environment) if sys.platform == "darwin" else []
-    pytest_message = result.stderr + result.stdout + "\n" + json.dumps(diagnostics, indent=2)
+    pytest_message = (
+        f"Shell returncode={result.returncode}\n"
+        + result.stderr
+        + result.stdout
+        + "\n"
+        + json.dumps(diagnostics, indent=2)
+    )
     assert result.returncode == 0, pytest_message
     assert all(item["returncode"] == 0 for item in diagnostics), pytest_message
     assert "ERROR: AddressSanitizer" not in result.stderr and "runtime error:" not in result.stderr
@@ -324,9 +330,34 @@ def exercise_macos_control(tmp_path, sanitized):
     ]
     assert [row[0] for row in rows] == list(range(1, 101))
     assert all(row[1] == 0 for row in rows), rows
+    probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+    assert len(probes) == 100 and all(probe["probe"] == "macos-appkit" for probe in probes)
+    # A real strong reference must exhaust the probe deadline, remain visible,
+    # and disappear only after the independent control releases it.
+    try:
+        retained = subprocess.run(
+            [str(executable), "--retain-provider"], capture_output=True, text=True, env=environment, timeout=30
+        )
+    except subprocess.TimeoutExpired as error:
+        (tmp_path / "appkit-retained-control.stdout").write_bytes(error.stdout or b"")
+        (tmp_path / "appkit-retained-control.stderr").write_bytes(error.stderr or b"")
+        raise
+    (tmp_path / "appkit-retained-control.stdout").write_text(retained.stdout)
+    (tmp_path / "appkit-retained-control.stderr").write_text(retained.stderr)
+    assert retained.returncode == 4, retained.stderr + retained.stdout
+    assert "APPKIT retained=1 released=0" in retained.stdout.splitlines()
+    drains = re.findall(
+        r"^SHELL drain turns=(\d+) seconds=([0-9.]+) deadline=([0-9.]+) provider=(\d+)$",
+        retained.stderr,
+        re.MULTILINE,
+    )
+    assert len(drains) == 2 and [int(row[3]) for row in drains] == [1, 0], retained.stderr
+    assert float(drains[0][1]) >= float(drains[0][2]) == 2.0
     return {
         "kind": "public-appkit-only; no BTRC runtime/provider or GPU proof",
+        "retained_provider_control": {"returncode": retained.returncode, "drains": drains},
         "teardown": rows,
+        "tab_context": [probe["key_views"]["tab_context"] for probe in probes],
         "private_classes": macos_private_survivors(result.stderr, [row[2] for row in rows]),
         "source_sha256": {source.name: hashlib.sha256(source.read_bytes()).hexdigest() for source in sources},
         "build_command": command,

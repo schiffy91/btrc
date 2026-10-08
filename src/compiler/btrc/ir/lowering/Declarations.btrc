@@ -3991,14 +3991,11 @@ class DeclarationLowerer {
 			}
 			i = i + 1;
 		}
-		/* Forward typedefs for concrete generic instances, in discovery order
-         * (mirrors legacy forward-declaration phase-1 generic loop). These
-         * come after the non-generic class typedefs and before function fwds. */
-		int g = 0;
-		while (g < self.analyzed.genericInstances.len) {
-			GenInstance gi = self.analyzed.genericInstances.get(g);
-			m.structForwards.push(IRStructForward(gi.mangled));
-			g = g + 1;
+		/* Forward declarations use the same canonical instance order as bodies.
+		 * They still precede definitions and function prototypes. */
+		GenericLowerer generics = GenericLowerer(self.analyzed);
+		for instance in generics.classInstances() {
+			m.structForwards.push(IRStructForward(instance.mangled));
 		}
 		/* Tuple struct definitions + typedefs (mirrors _emit_tuple_structs):
          * emitted after the generic typedefs and before the deferred function

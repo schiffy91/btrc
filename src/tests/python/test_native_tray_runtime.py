@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.macos_gui
 def test_native_tray_lifecycle(native_project, native_compile, tmp_path, sanitized):
     source = ROOT / "src/tests/native/tray/TrayNative.btrc"
     plan = tmp_path / "Tray.json"

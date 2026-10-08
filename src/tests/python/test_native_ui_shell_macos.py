@@ -60,6 +60,13 @@ def summarize_macos_shell(observations):
     assert len(baseline["teardown"]) == len(baseline["private_classes"]) == 100
     assert [row[0] for row in baseline["teardown"]] == list(range(1, 101))
     assert all(len(row) == 3 and row[1] == 0 for row in baseline["teardown"])
+    # An inactive native control misses helpers created during active editing.
+    # Require the measured journey, never merely an activation request.
+    control_context = baseline.get("tab_context")
+    assert isinstance(control_context, list) and len(control_context) == 100
+    for cycle_context in control_context:
+        assert isinstance(cycle_context, list) and len(cycle_context) == 3
+        assert all(context["application_active"] is True and context["window_key"] is True for context in cycle_context)
     private_classes = observations.get("private_classes")
     assert isinstance(private_classes, list) and len(private_classes) == 100
     allowance = {}
@@ -170,6 +177,7 @@ def summarize_macos_shell(observations):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+@pytest.mark.macos_gui
 def test_macos_native_shell(tmp_path, request, frontend, sanitized, record_property):
     if sys.platform != "darwin":
         pytest.skip("requires macOS AppKit native shell")
@@ -268,6 +276,7 @@ def _observation_fixture():
             "kind": "public-appkit-only; no BTRC runtime/provider or GPU proof",
             "teardown": [[cycle + 1, 0, 1] for cycle in range(100)],
             "private_classes": [{"AppKitHelper": 1} for _ in range(100)],
+            "tab_context": [copy.deepcopy(keys["tab_context"]) for _ in range(100)],
         },
     }
 
@@ -442,5 +451,27 @@ def test_macos_shell_private_control_rejects_growth_after_lazy_first_observation
         if count:
             control["private_classes"][cycle]["LazyAppKitHelper"] = count
         control["teardown"][cycle][2] = 1 + count
+    with pytest.raises(AssertionError):
+        summarize_macos_shell(observed)
+
+
+@pytest.mark.parametrize(
+    "defect", ["missing", "partial_cycles", "partial_context", "inactive", "not_key", "nonboolean"]
+)
+def test_macos_shell_private_control_requires_active_key_journey(defect):
+    observed = _observation_fixture()
+    control = observed["appkit_control"]
+    if defect == "missing":
+        del control["tab_context"]
+    elif defect == "partial_cycles":
+        control["tab_context"].pop()
+    elif defect == "partial_context":
+        control["tab_context"][37].pop()
+    elif defect == "inactive":
+        control["tab_context"][37][1]["application_active"] = False
+    elif defect == "not_key":
+        control["tab_context"][37][1]["window_key"] = False
+    elif defect == "nonboolean":
+        control["tab_context"][37][1]["window_key"] = 1
     with pytest.raises(AssertionError):
         summarize_macos_shell(observed)

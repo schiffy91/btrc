@@ -4,6 +4,7 @@ A round starts only when every probe passes on every sample of one window
 (60 s, a sample every 5 s):
 
 - no other agents, builds or guests (a process scan);
+- every device reported by CoreSimulator is Shutdown (macOS);
 - the btrc podman machine is stopped (``podman machine list --format json``);
 - Time Machine is idle (``tmutil currentphase`` is ``BackupNotRunning``);
 - Google Drive, ``mds`` and ``mdworker`` each use under 5% CPU;
@@ -23,6 +24,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import time
@@ -184,14 +186,19 @@ class Probe(Protocol):
 class CommandRunner:
     """Runs one probe command; tests replace it with canned output."""
 
-    def output(self, command: Sequence[str]) -> tuple[int, str] | None:
+    def output(self, command: Sequence[str], *, environment: Mapping[str, str] | None = None) -> tuple[int, str] | None:
         """(exit code, stdout), or None when the program is not installed."""
 
         if shutil.which(command[0]) is None:
             return None
         try:
             completed = subprocess.run(
-                list(command), capture_output=True, text=True, errors="replace", timeout=PROBE_TIMEOUT_S
+                list(command),
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=PROBE_TIMEOUT_S,
+                env=environment,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             return 127, str(error)
@@ -264,13 +271,19 @@ class ProcessTable:
     COMMAND: Sequence[str] = ("ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "user=", "-o", "pcpu=", "-o", "args=")
 
     def snapshot(self) -> list[ProcessInfo] | None:
+        processes = self.all_processes()
+        return None if processes is None else self.foreign(processes)
+
+    def all_processes(self) -> list[ProcessInfo] | None:
+        """One unfiltered snapshot, retaining parent identity for service classification."""
+
         if self.proc is not None and (processes := self.proc.processes()) is not None:
-            return self.foreign(processes)
+            return processes
         result = self.runner.output(self.COMMAND)
         if result is None or result[0] != 0:
             return None
         processes = [process for line in result[1].splitlines() if (process := self.parse(line)) is not None]
-        return self.foreign(processes)
+        return processes
 
     @staticmethod
     def parse(line: str) -> ProcessInfo | None:
@@ -310,20 +323,94 @@ class ProcessProbe:
     settings: QuietSettings
     name: str = "processes"
 
+    @staticmethod
+    def service_rule(process: ProcessInfo, all_processes: list[ProcessInfo]) -> ProcessRule | None:
+        """Identify only the default rule that mistakes trusted infrastructure for work."""
+
+        trampoline = (
+            "/Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/"
+            "XPCServices/SimulatorTrampoline.xpc/Contents/MacOS/SimulatorTrampoline"
+        )
+        if process.args == trampoline and process.ppid == 1:
+            return DEFAULT_PROCESS_RULES[-1]
+        parent = next((row for row in all_processes if row.pid == process.ppid), None)
+        try:
+            argv = shlex.split(process.args)
+        except ValueError:
+            return None
+        transport = (
+            len(argv) == 6
+            and argv[0] == "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
+            and argv[1:3] == ["exec-server", "--remote"]
+            and argv[4] == "--environment-id"
+            and all(value and not value.startswith("-") for value in (argv[3], argv[5]))
+            and parent is not None
+            and parent.args == "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
+            and parent.ppid == 1
+            and parent.user == process.user
+        )
+        return DEFAULT_PROCESS_RULES[0] if transport else None
+
+    @staticmethod
+    def descendants(pid: int, processes: list[ProcessInfo]) -> set[int]:
+        descendants = {pid}
+        while True:
+            expanded = descendants | {row.pid for row in processes if row.ppid in descendants}
+            if expanded == descendants:
+                return descendants
+            descendants = expanded
+
+    def service_has_work(self, service: ProcessInfo, processes: list[ProcessInfo]) -> bool:
+        """Reject all foreign descendants, including arbitrary zero-CPU jobs.
+
+        Only the existing process table's own ancestry/direct-probe exclusions
+        apply. Sharing an ancestral wrapper does not excuse sibling work.
+        This local check cannot prove remote-job absence: the caller still
+        owns the no-other-active-jobs scheduling barrier.
+        """
+
+        if service.cpu_percent != 0.0:
+            return True
+        foreign = {row.pid for row in self.table.foreign(processes)}
+        return bool((self.descendants(service.pid, processes) - {service.pid}) & foreign)
+
     def observe(self) -> Observation:
-        processes = self.table.snapshot()
-        if processes is None:
+        all_processes = self.table.all_processes()
+        if all_processes is None:
             return Observation(self.name, False, "ps failed; cannot scan processes")
+        processes = self.table.foreign(all_processes)
         offenders: list[str] = []
+        foreign_pids = {row.pid for row in processes}
+        # An ancestral transport is normally removed with the launch shell.
+        # Check it too, so unrelated jobs beneath that same transport cannot hide.
+        for process in all_processes:
+            if (
+                process.pid not in foreign_pids
+                and self.service_rule(process, all_processes) is not None
+                and self.service_has_work(process, all_processes)
+            ):
+                offenders.append(f"service work: pid {process.pid}")
+        passive = 0
         for process in processes:
             if any(re.search(pattern, process.args) for pattern in self.settings.ignore):
                 continue
+            service_rule = self.service_rule(process, all_processes)
+            idle_service = service_rule is not None and not self.service_has_work(process, all_processes)
+            passive += int(idle_service)
             for rule in self.settings.process_rules:
+                # Skip only the unchanged default rule, never an explicitly
+                # configured replacement/extra rule that is stricter.
+                if idle_service and rule is service_rule:
+                    continue
                 if rule.matches(process):
                     offenders.append(f"{rule.label}: pid {process.pid} {process.args[:100]}")
                     break
         if not offenders:
-            return Observation(self.name, True, f"{len(processes)} processes, no agent, build or guest")
+            return Observation(
+                self.name,
+                True,
+                f"{len(processes)} processes, no agent, build or guest; {passive} idle service transports",
+            )
         shown = "; ".join(offenders[:5]) + (f"; and {len(offenders) - 5} more" if len(offenders) > 5 else "")
         return Observation(
             self.name, False, shown, "stop the agent sessions, builds and guests listed (or tune quiet.toml)"
@@ -385,6 +472,53 @@ class PodmanProbe:
                     self.name, False, f"podman machine {self.machine} is running", f"podman machine stop {self.machine}"
                 )
         return Observation(self.name, True, f"podman machine {self.machine} is stopped")
+
+
+@dataclass
+class SimulatorProbe:
+    """Every listed device must be explicitly Shutdown, including unavailable devices."""
+
+    runner: CommandRunner
+    required: bool
+    name: str = "simulators"
+
+    def observe(self) -> Observation:
+        if not self.required:
+            return Observation(self.name, True, "CoreSimulator is not required on this host")
+        # simctl belongs to the selected installed Xcode, not the compiler's
+        # pinned SDK. Clear build-shell redirects for this subprocess only.
+        environment = os.environ.copy()
+        for name in ("DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS"):
+            environment.pop(name, None)
+        result = self.runner.output(("/usr/bin/xcrun", "simctl", "list", "devices", "--json"), environment=environment)
+        if result is None or result[0] != 0:
+            return Observation(self.name, False, "simctl device listing failed; cannot establish shutdown")
+        try:
+            document = json.loads(result[1])
+        except json.JSONDecodeError:
+            return Observation(self.name, False, "simctl device listing is not valid JSON")
+        if not isinstance(document, dict) or not isinstance(document.get("devices"), dict):
+            return Observation(self.name, False, "simctl device listing has an invalid devices mapping")
+        devices = []
+        seen = set()
+        for runtime, rows in document["devices"].items():
+            if not isinstance(runtime, str) or not runtime or not isinstance(rows, list):
+                return Observation(self.name, False, "simctl device listing has an invalid runtime group")
+            for row in rows:
+                if (
+                    not isinstance(row, dict)
+                    or any(not isinstance(row.get(key), str) or not row[key] for key in ("name", "udid", "state"))
+                    or not isinstance(row.get("isAvailable"), bool)
+                    or row["udid"] in seen
+                ):
+                    return Observation(self.name, False, "simctl device listing has an invalid or duplicate device")
+                seen.add(row["udid"])
+                devices.append(row)
+        active = [row for row in devices if row["state"] != "Shutdown"]
+        if active:
+            states = ", ".join(sorted({row["state"] for row in active}))
+            return Observation(self.name, False, f"{len(active)} simulator devices are not Shutdown: {states}")
+        return Observation(self.name, True, f"{len(devices)} simulator devices, all Shutdown")
 
 
 @dataclass
@@ -482,6 +616,7 @@ class QuietCheck:
             probes = (
                 ProcessProbe(table, self.settings),
                 PodmanProbe(runner, self.settings.podman_machine),
+                SimulatorProbe(runner, required=self.system == "Darwin"),
                 TimeMachineProbe(runner, required=self.system == "Darwin"),
                 CpuProbe(table, self.settings),
                 WorkspaceProbe(workspace, Path(self.settings.workspace_root)),

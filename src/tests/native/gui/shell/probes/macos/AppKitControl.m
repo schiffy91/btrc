@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #include <stdio.h>
+#include <string.h>
 #import "ShellProbe.h"
 
 @interface BaselineJourney : NSObject {
@@ -24,10 +25,20 @@
     _field = field;
     _scroll = scroll;
     _deadline = NSProcessInfo.processInfo.systemUptime + 15;
+    [NSApp activateIgnoringOtherApps:YES];
+    [window makeKeyAndOrderFront:nil];
     _timer = [NSTimer scheduledTimerWithTimeInterval:0.01 target:self selector:@selector(tick:)
         userInfo:nil repeats:YES];
 }
 - (void)action:(id)sender { (void)sender; _actions++; }
+- (BOOL)ensureActiveWindow {
+    if (NSApp.isActive && _window.isKeyWindow) { return YES; }
+    /* Activation is asynchronous and can be lost between lifecycles. Retry
+     * within the journey deadline; a request alone is not focus evidence. */
+    [NSApp activateIgnoringOtherApps:YES];
+    [_window makeKeyAndOrderFront:nil];
+    return NO;
+}
 - (void)stop {
     [_timer invalidate];
     [NSApp stop:nil];
@@ -38,15 +49,20 @@
 - (void)tick:(NSTimer *)timer {
     (void)timer;
     if (NSProcessInfo.processInfo.systemUptime >= _deadline) {
-        fprintf(stderr, "BASELINE event deadline at step=%d actions=%d\n", _step, _actions);
+        fprintf(stderr, "BASELINE event deadline at step=%d actions=%d active=%d key=%d policy=%ld\n",
+            _step, _actions, NSApp.isActive, _window.isKeyWindow, (long)NSApp.activationPolicy);
         [self stop]; return;
     }
     switch (_step) {
-        case 0: shellProbeObserve(); shellProbeClick(70, 30); break;
+        case 0:
+            if (![self ensureActiveWindow]) { return; }
+            shellProbeObserve(); shellProbeClick(70, 30); break;
         case 1:
             if (shellProbeFocus() != 1) { return; }
             shellProbeTab(); break;
-        case 2: shellProbeDump(); shellProbeClick(70, 30); break;
+        case 2:
+            if (![self ensureActiveWindow]) { return; }
+            shellProbeDump(); shellProbeClick(70, 30); break;
         case 3:
             if (shellProbeFocus() != 1) { return; }
             shellProbeText(); shellProbeEnter(); break;
@@ -74,7 +90,10 @@
  * No BTRC runtime, callback bridge or GUI provider is linked. The ordinary
  * NSView in the GPU slot provides no rendering or GPU-lifetime evidence.
  * Weak probe sets survive all 100 cycles; no survivor whitelist is encoded. */
-int main(void) {
+int main(int argc, char **argv) {
+    BOOL retainedProvider = argc == 2 && strcmp(argv[1], "--retain-provider") == 0;
+    if (argc != 1 && !retainedProvider) { return 6; }
+    NSTextField *heldField = nil;
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
         if (app.activationPolicy != NSApplicationActivationPolicyRegular &&
@@ -84,7 +103,7 @@ int main(void) {
         }
         [app finishLaunching];
     }
-    for (int cycle = 0; cycle < 100; cycle++) {
+    for (int cycle = 0; cycle < (retainedProvider ? 1 : 100); cycle++) {
         @autoreleasepool {
             NSWindow *window = [NSWindow new];
             window.releasedWhenClosed = NO;
@@ -136,6 +155,7 @@ int main(void) {
             [window endEditingFor:nil];
             [root removeFromSuperview];
             [field abortEditing];
+            if (retainedProvider) { heldField = [field retain]; }
             [field removeFromSuperview];
             [button removeFromSuperview];
             [scroll setDocumentView:nil];
@@ -152,6 +172,15 @@ int main(void) {
         int retained = shellProbePrivateCount();
         printf("APPKIT cycle=%d owned=%d private=%d\n", cycle + 1, provider, retained);
         fflush(stdout);
+        if (retainedProvider) {
+            if (provider != 1) { [heldField release]; return 7; }
+            [heldField release];
+            heldField = nil;
+            shellProbeDrain();
+            int released = shellProbeNativeCount();
+            printf("APPKIT retained=%d released=%d\n", provider, released);
+            return released == 0 ? 4 : 8;
+        }
         if (provider) { return 4; }
     }
     return 0;

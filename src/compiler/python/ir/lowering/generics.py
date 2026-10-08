@@ -183,15 +183,20 @@ class GenericSpecializer:
             for declaration in self._analyzed.program.declarations
             if isinstance(declaration, ClassDecl) and declaration.generic_params
         }
+        views = []
         for base_name, instances in self._analyzed.generic_instances.items():
             declaration = declarations.get(base_name)
             info = self._analyzed.class_table.get(base_name)
             if declaration is None or info is None:
                 continue
             for arguments in instances:
-                yield self._view(declaration, base_name, info.generic_params, arguments)
+                views.append(self._view(declaration, base_name, info.generic_params, arguments))
+        # Emission order must not depend on the order bodies discovered demand.
+        # Leave the analyzer's lists intact: replay and closure use that order.
+        return iter(sorted(views, key=lambda view: view.symbol))
 
     def method_views(self) -> Iterator[SpecializedDeclarationView[MethodDecl]]:
+        views = []
         for (class_name, method_name), instances in self._analyzed.generic_method_instances.items():
             info = self._analyzed.class_table.get(class_name)
             method = info.methods.get(method_name) if info is not None else None
@@ -204,20 +209,23 @@ class GenericSpecializer:
                 symbol = self._type_identity.method_instance_symbol(
                     class_name, class_arguments, method_name, method_arguments
                 )
-                yield SpecializedDeclarationView(
-                    declaration=method,
-                    substitution=substitution,
-                    symbol=symbol,
-                    base_name=f"{class_name}.{method_name}",
-                    type_arguments=tuple(arguments),
-                    selected_callables=frozenset(),
-                    owner_name=class_name,
-                    owner_symbol=(
-                        self._type_identity.specialization_symbol(class_name, class_arguments)
-                        if class_arguments
-                        else class_name
-                    ),
+                views.append(
+                    SpecializedDeclarationView(
+                        declaration=method,
+                        substitution=substitution,
+                        symbol=symbol,
+                        base_name=f"{class_name}.{method_name}",
+                        type_arguments=tuple(arguments),
+                        selected_callables=frozenset(),
+                        owner_name=class_name,
+                        owner_symbol=(
+                            self._type_identity.specialization_symbol(class_name, class_arguments)
+                            if class_arguments
+                            else class_name
+                        ),
+                    )
                 )
+        return iter(sorted(views, key=lambda view: view.symbol))
 
     def _view(
         self,
