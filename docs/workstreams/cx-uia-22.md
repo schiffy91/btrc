@@ -600,3 +600,14 @@ The correction selects the bridge's three exact class method selectors in the
 private fragment, and the test driver's exact twenty `UI2ContainerProbe`
 selectors. It changes projection metadata, not compiler acceptance or runtime
 behavior. The original rejected manifest/attempt remains immutable.
+
+Independent contract review identified an unresolved notification wording seam:
+`ui2-lifecycle.md:124` says a committed batch produces one tree revision and
+notification, while the finalized surface in `ui2-approved.md:303–304` defines
+`applyBatch` and `treeRevision` without a tree-change subscription or payload.
+`ViewInteractionState` does not contain order or tree revision. The provider
+therefore preserves exactly one committed tree revision and the typed result,
+plus legitimate changed interaction-state notifications; it does not fabricate
+state changes when eligibility is unchanged. Tree-notification acceptance stays
+open pending the integrator's contract interpretation. No public API or contract
+document was changed.
