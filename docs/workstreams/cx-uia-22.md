@@ -791,3 +791,13 @@ callbacks; UI ownership excludes concurrent source closure. Duplicate admission
 preserves the existing route. The independent reviewer cleared this bounded
 source change. Actual AddSource counts and replay remain unexecuted, and the
 application has not yet switched to staged registration.
+
+The application factory foundation now allocates its own explicit semantic
+context and passes it to all 15 view factory constructor calls. Final application
+cleanup closes that context only after owned views and action ownership drain.
+Fixture checkpoint 50267441 additionally rejects attachment of a standalone
+context's container without changing either owner, then requires that standalone
+view to survive application close. Independent source review cleared this
+bounded ownership change. Public window/root routing, staged application attach
+and fair executor servicing remain unfinished; this source step is not a
+public application qualification.

@@ -16,6 +16,7 @@ import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSActionQueue;
 import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.IStack;
 import Library.GUI.MacOS.MacOSStack;
 import Library.GUI.IGPUView;
@@ -306,6 +307,7 @@ class MacOSApplication implements IApplication {
 	private CallbackScope _shutdown;
 	private MacOSActionQueue _actions;
 	private MacOSRunLoopSignal _signal;
+	private MacOSControlContext? _context;
 	private Vector<MacOSWindow> _windows = [];
 	private Vector<IView> _views = [];
 	private bool _closing = false;
@@ -317,6 +319,7 @@ class MacOSApplication implements IApplication {
 		self._application = NSApplication.sharedApplication();
 		self._signal = MacOSRunLoopSignal();
 		self._actions = MacOSActionQueue(workCapacity, self._signal);
+		self._context = MacOSControlContext(workCapacity, self._signal);
 		self._shutdown = CallbackScope();
 		self._events = MacOSApplicationEvents(workCapacity, self._actions, self._windows, self._views, self._shutdown);
 		self._callbacks = CallbackScope();
@@ -414,6 +417,16 @@ class MacOSApplication implements IApplication {
 		if (self._events.quitRequested) { throw "Application quit has been requested"; }
 	}
 
+	/* Every application factory passes this explicit owner. Standalone native
+	 * constructors may use their compatibility context, but never determine an
+	 * application's semantic pool or its lifetime. */
+	private MacOSControlContext controlContext() {
+		self.requireCreation();
+		var context = self._context;
+		if (context == null) { throw "Application semantic ownership is unavailable"; }
+		return context;
+	}
+
 	private void rememberView(IView view) {
 		for (int index = self._views.len - 1; index >= 0; index--) {
 			var previous = self._views.get(index);
@@ -422,35 +435,35 @@ class MacOSApplication implements IApplication {
 		self._views.push(view);
 	}
 
-	public IButton createButton(string title) { self.requireCreation(); var button = MacOSButton(title, self._actions); self.rememberView(button); return button; }
+	public IButton createButton(string title) { self.requireCreation(); var button = MacOSButton(title, self._actions, self.controlContext()); self.rememberView(button); return button; }
 
-	public ITextField createTextField(string text, string placeholder) { self.requireCreation(); var field = MacOSTextField(text, placeholder); self.rememberView(field); return field; }
+	public ITextField createTextField(string text, string placeholder) { self.requireCreation(); var field = MacOSTextField(text, placeholder, self.controlContext()); self.rememberView(field); return field; }
 
-	public IContainer createContainer() { self.requireCreation(); var container = MacOSContainer(); self.rememberView(container); return container; }
+	public IContainer createContainer() { self.requireCreation(); var container = MacOSContainer(null, self.controlContext()); self.rememberView(container); return container; }
 
-	public IStack createRow(double spacing) { self.requireCreation(); var row = MacOSStack(false, spacing); self.rememberView(row); return row; }
+	public IStack createRow(double spacing) { self.requireCreation(); var row = MacOSStack(false, spacing, self.controlContext()); self.rememberView(row); return row; }
 
-	public IStack createColumn(double spacing) { self.requireCreation(); var column = MacOSStack(true, spacing); self.rememberView(column); return column; }
+	public IStack createColumn(double spacing) { self.requireCreation(); var column = MacOSStack(true, spacing, self.controlContext()); self.rememberView(column); return column; }
 
-	public IGPUView createGPUView(bool capture) { self.requireCreation(); var view = MacOSGPUView(capture); self.rememberView(view); return view; }
+	public IGPUView createGPUView(bool capture) { self.requireCreation(); var view = MacOSGPUView(capture, self.controlContext()); self.rememberView(view); return view; }
 
-	public ILabel createLabel(string text) { self.requireCreation(); var view = MacOSLabel(text); self.rememberView(view); return view; }
+	public ILabel createLabel(string text) { self.requireCreation(); var view = MacOSLabel(text, self.controlContext()); self.rememberView(view); return view; }
 
-	public IImageView createImageView() { self.requireCreation(); var view = MacOSImageView(); self.rememberView(view); return view; }
+	public IImageView createImageView() { self.requireCreation(); var view = MacOSImageView(self.controlContext()); self.rememberView(view); return view; }
 
-	public IPanel createPanel(RGBA fill, double radius) { self.requireCreation(); var view = MacOSPanel(fill, radius); self.rememberView(view); return view; }
+	public IPanel createPanel(RGBA fill, double radius) { self.requireCreation(); var view = MacOSPanel(fill, radius, self.controlContext()); self.rememberView(view); return view; }
 
-	public IProgressIndicator createProgressIndicator() { self.requireCreation(); var view = MacOSProgressIndicator(); self.rememberView(view); return view; }
+	public IProgressIndicator createProgressIndicator() { self.requireCreation(); var view = MacOSProgressIndicator(self.controlContext()); self.rememberView(view); return view; }
 
-	public ILevelIndicator createLevelIndicator(double warning, double critical) { self.requireCreation(); var view = MacOSLevelIndicator(warning, critical); self.rememberView(view); return view; }
+	public ILevelIndicator createLevelIndicator(double warning, double critical) { self.requireCreation(); var view = MacOSLevelIndicator(warning, critical, self.controlContext()); self.rememberView(view); return view; }
 
-	public ISlider createSlider(double minimum, double maximum, int intervals) { self.requireCreation(); var view = MacOSSlider(minimum, maximum, intervals); self.rememberView(view); return view; }
+	public ISlider createSlider(double minimum, double maximum, int intervals) { self.requireCreation(); var view = MacOSSlider(minimum, maximum, intervals, self.controlContext()); self.rememberView(view); return view; }
 
-	public ISelect createSelect() { self.requireCreation(); var view = MacOSSelect(); self.rememberView(view); return view; }
+	public ISelect createSelect() { self.requireCreation(); var view = MacOSSelect(self.controlContext()); self.rememberView(view); return view; }
 
-	public IScrollView createScrollView() { self.requireCreation(); var view = MacOSScrollView(); self.rememberView(view); return view; }
+	public IScrollView createScrollView() { self.requireCreation(); var view = MacOSScrollView(self.controlContext()); self.rememberView(view); return view; }
 
-	public IGrid createGrid(int columns, int rows, double columnSpacing, double rowSpacing) { self.requireCreation(); var view = MacOSGrid(columns, rows, columnSpacing, rowSpacing); self.rememberView(view); return view; }
+	public IGrid createGrid(int columns, int rows, double columnSpacing, double rowSpacing) { self.requireCreation(); var view = MacOSGrid(columns, rows, columnSpacing, rowSpacing, self.controlContext()); self.rememberView(view); return view; }
 
 	public CallbackCancellation pollClose() {
 		self.requireMainThread();
@@ -476,6 +489,8 @@ class MacOSApplication implements IApplication {
 		} catch (string error) { self._closeFailure = error; throw error; }
 		release self._views;
 		self._actions.close();
+		var context = self._context;
+		if (context != null) { context.close(); self._context = null; }
 		self._signal.close();
 		self._closed = true;
 		return CALLBACK_CANCELLATION_COMPLETE;
