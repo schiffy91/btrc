@@ -16,6 +16,7 @@ from src.tests.runner_capabilities import linux_display_error
     [
         ("UI2LinuxExecutor.btrc", "PASS: UI2 Linux worker native wake and hosted suspension"),
         ("UI2LinuxLifecycle.btrc", "PASS: UI2 Linux inherited eligibility and scoped observations"),
+        ("UI2LinuxControls.btrc", "PASS: UI2 Linux two-axis geometry and native wheel observations"),
     ],
 )
 def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized, fixture, marker):

@@ -1,0 +1,53 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IScrollView;
+import Library.GUI.ControlEvents;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+
+class UI2LinuxScrollReceiver implements IScrollControlEventHandler {
+	public Vector<ScrollControlEvent> events = [];
+	public void scrollEvent(ScrollControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	var application = LinuxApplication(32); var window = application.createWindow("UI2 scroll geometry", 200.0, 150.0);
+	var scroll = application.createScrollView(); window.attachRoot(scroll); window.show();
+	var receiver = UI2LinuxScrollReceiver(); var scope = CallbackScope(); scroll.onOffsetChanged(receiver, scope);
+	assert(receiver.events.len == 0); scroll.setContentSize(800.0, 600.0);
+	var requested = ScrollOffset(); requested.x = 120.0; requested.y = 80.0; scroll.scrollToOffset(requested);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(scroll.offset().x == 120.0 && scroll.offset().y == 80.0);
+	assert(receiver.events.len > 0 && receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_MODEL);
+	int count = receiver.events.len; scroll.scrollToOffset(scroll.offset());
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(receiver.events.len == count);
+	scroll.scrollTo(95.0); assert(scroll.offset().x == 120.0 && scroll.offset().y == 95.0);
+	var native = (ILinuxWindow?)window; assert(native != null);
+	btrcSdlPushWheel(native.nativeId(), 50.0f, 50.0f, -2.0f, -3.0f);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(scroll.offset().x > 120.0 && scroll.offset().y > 95.0);
+	assert(receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_USER);
+	requested.x = 900.0; requested.y = 900.0; scroll.scrollToOffset(requested);
+	assert(scroll.offset().x == 600.0 && scroll.offset().y == 450.0);
+	scroll.arrange(0.0, 0.0, 250.0, 190.0);
+	assert(scroll.offset().x == 550.0 && scroll.offset().y == 410.0);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_SYSTEM);
+	scroll.setContentSize(20.0, 20.0);
+	assert(scroll.offset().x == 0.0 && scroll.offset().y == 0.0);
+	assert(scroll.visibleRect().width == 20.0 && scroll.visibleRect().height == 20.0);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	count = receiver.events.len; scroll.setContentSize(1000.0, 1000.0); scroll.scrollTo(10.0);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(receiver.events.len == count);
+	window.close();
+	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
+	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	printf("PASS: UI2 Linux two-axis geometry and native wheel observations\n"); SDL_Quit(); return 0;
+}
