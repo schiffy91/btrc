@@ -285,8 +285,31 @@ records unchanged final inputs and the sole owned compiler group absent and
 reaped with exit zero. Independent review confirms refusal evidence only. The
 local lane is released with 81.962 GB free; there is no automatic retry or new
 performance claim. The reviewed ApplicationHost repair is next in the local
-qualification lane. Hosted macOS unit and explicit GUI retries remain live on
-`00e45379` at the 18:00 UTC check; the two hosted heavy-wave slots remain full.
+qualification lane. Hosted macOS unit and explicit GUI retries were live on
+`00e45379` at the 18:00 UTC check. The GUI retry later completes with a setup
+failure at 18:20 UTC: exactly 522 identities match between JUnit and skip report,
+with 352 passed, 169 expected platform skips and one GPU case that never reaches
+native entry because GUI-lease admission expires at 1,800 seconds. The recorded
+last holder itself passes; polling contention supports a starvation diagnosis,
+not a claim that one native child hung for 30 minutes. Independent review
+reconciles all skips; the Make skip-gate command did not run after pytest failed.
+The original 90-minute job limit was not reached. Log SHA-256
+`bd17ddbfd2f99a969e3769e6e81227c7279a24d30857d7402a8fa9d08ae4265c`,
+JUnit artifact `11569359756` (archive `648d1c6c`) and skip artifact `11570077383`
+(archive `9d940f14`) are retained under
+`/private/tmp/btrc-audit-repair/pr68-00e45379-macos-gui-attempt-2`.
+A scoped scheduling repair is being prepared to group GUI cases on one of the
+existing three workers while preserving the kernel lease, all cases, skips and
+deadlines; a passing full hosted rerun remains required.
+
+The freed hosted slot now runs the prepared private BTRSmith Linux replay:
+workflow dispatch `37824120641`, diagnostic head `b056e678107f3fbe596e46b0639865ac30baebc7`,
+exact product `8f73b7d5` and compiler `f75c737b`. Reviewed workflow SHA-256
+`52f18b20de7b1f393d3fe0bf626e3fb7e4d9c0297077d54b24a1ba7ddb03302a`
+is unchanged: original live-agent, audio and package/install targets, process
+ownership and bounds. Only its workflow file changed; product compiler pins
+remain unchanged. Mac unit plus private Linux occupy the two hosted heavy-wave
+slots. Dispatch is not a Linux result or full-MVP acceptance.
 
 Before that attempt, a verified payload-only archive preserved 924 completed
 pre-October-8 emitted-C cache parts from 306 default-cache entries. It retained
@@ -535,11 +558,27 @@ retains the failure, unchanged final sources/tools and all 59 groups reaped and
 absent; the remaining three native cells do not execute. Independent review
 confirms the assertion and evidence. Source review traces a deferred pointer
 cancellation record retained by a closing view while application shutdown no
-longer dispatches that queue. A narrow per-input cancellation repair in the
-existing Context/ViewInput owners is being prepared; it must preserve unrelated
-queued handlers, native/in-flight drain and terminal-credit accounting. The
-original fixture and four-cell qualification contract remain unchanged. Public
-native acceptance remains open.
+longer dispatches that queue. Fixture-only `21ee445b` reproduces this exact
+native cancellation failure after both real PRESS callbacks, two reserved
+credits and two queued records; receipt `4cc3fab55004a1db56602c1b370363b5e4845533864946bb310534ddacf79ce1`
+retains the original failure and all 30 groups closed. Repair `676d5043` removes
+only the canceled registration's queued record using the existing Context and
+ViewInput owners, preserving native/in-flight drain and terminal-credit ownership.
+Independent review confirms the approved contract already suppresses queued
+delivery after registration cancellation. All four repaired Barrier cases now
+pass through both frontends, plain and ASan/UBSan, including unrelated queue
+survival, entered cancellation, idempotence and balanced credits. The unchanged
+ApplicationHost fixture passes both projections/strict checks and reference/plain
+link, then fails `ui2DispatchHostInput(kind)` before that iteration's receiver
+and close assertions. The selected iteration/window is not logged, so a stale
+closed-window hypothesis remains unproven. The original probe chooses the first
+same-title window; minimal failure-only diagnostics are next. Aggregate
+`ui2-macos-deferred-input-676d5043-compiler-f75c737b/cancellation-application-result.json`,
+SHA-256 `e3b6a071f73a495f187efceb8ff8e6f7177ad69d7c84d0dfb11633bf5df46aa0`,
+records unchanged inputs and all 151 groups closed. Independent evidence review
+is clear; the remaining three Application native cells are unrun. The original
+Application fixture and four-cell qualification contract remain unchanged.
+Public native acceptance remains open.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
