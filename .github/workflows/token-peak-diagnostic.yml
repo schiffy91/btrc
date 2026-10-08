@@ -1,0 +1,145 @@
+# PREPARED ONLY. Not installed or dispatched. Exact candidate must be published first.
+name: Token peak diagnostic
+on:
+  push:
+    branches: [codex/diagnostic-token-peak-3974]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: token-peak-diagnostic
+  cancel-in-progress: false
+jobs:
+  paired-linux-x86-64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 3974d47bc87851b1ac19b8d2b4bd5022f2d94676
+          path: B
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 71352c50120a20d250be2e8243fd2b8271aa1271
+          path: C
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: false
+      - name: Prepare original CI image and serial orchestration
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          mkdir host-evidence
+          (cd B && make devcontainer) > host-evidence/image.stdout 2> host-evidence/image.stderr
+          podman image inspect btrc-devcontainer:latest > host-evidence/image.json
+          podman image inspect btrc-devcontainer:latest --format '{{.Id}}' > host-evidence/image-id.txt
+          mkdir evidence
+          chmod a+w evidence
+          chmod -R a+w B C
+          cat > inside.sh <<'TOKEN_PEAK_SCRIPT'
+          #!/bin/bash
+          # Prepared only. Run inside the exact baseline-generated CI image on Linux x86_64.
+          set -euo pipefail
+          cd /workspace
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test -d evidence
+          test -z "$(find evidence -mindepth 1 -print -quit)"
+          # Rootless Podman maps the host checkout owner differently from container UID 1000.
+          # Scope trust to these two immutable checkouts for this process and its children.
+          export GIT_CONFIG_COUNT=2
+          export GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/workspace/B
+          export GIT_CONFIG_KEY_1=safe.directory GIT_CONFIG_VALUE_1=/workspace/C
+          # Keep the original image's native SDK/compiler environment. Only remove
+          # explicit measurement/cache overrides; podman receives no host --env flags.
+          unset BTRC_TIMING BTRC_HOME BTRC_CACHE_DIR BTRC_TEST_BTRCC BTRC_CFLAGS
+          unset ASAN_OPTIONS UBSAN_OPTIONS LSAN_OPTIONS
+          export PYTHONDONTWRITEBYTECODE=1
+          unset MAKEFLAGS PYTEST_ADDOPTS
+          base=3974d47bc87851b1ac19b8d2b4bd5022f2d94676
+          candidate=71352c50120a20d250be2e8243fd2b8271aa1271
+          test "$(git -C B rev-parse HEAD)" = "$base"
+          test "$(git -C C rev-parse HEAD)" = "$candidate"
+          for role in B C; do
+            test -z "$(git -C "$role" status --porcelain --untracked-files=all)"
+            (cd "$role" && git ls-files -z | sort -z | xargs -0 sha256sum) > "evidence/$role-inputs.sha256"
+            git -C "$role" ls-files --stage > "evidence/$role-index.txt"
+          done
+          for path in flake.nix flake.lock Makefile tools/bench tools/host_c_compiler.py src/tests/benchmarks src/tests/fixtures/benchmarks; do
+            diff -qr "B/$path" "C/$path"
+          done
+          command -v cc > evidence/cc-path.txt
+          cc --version > evidence/cc-version.txt
+          sha256sum "$(command -v cc)" > evidence/cc-sha256.txt
+          python3 --version > evidence/python-version.txt
+          uname -a > evidence/host.txt
+          for role in B C; do
+            set +e
+            (cd "$role" && timeout --kill-after=10s 2400s make -j1 NIX= btrcc) > "evidence/$role-build.stdout" 2> "evidence/$role-build.stderr"
+            status=$?
+            set -e
+            printf '%s\n' "$status" > "evidence/$role-build.status"
+            test "$status" -eq 0
+            sha256sum "$role/bin/btrcc" "$role/dist/btrcc.c" > "evidence/$role-build.sha256"
+          done
+          failed=0
+          for item in 1-B 1-C 2-C 2-B 3-B 3-C; do
+            role=${item#*-}
+            set +e
+            (cd "$role" && timeout --kill-after=10s 300s python3 -m tools.bench check \
+              --btrcc "/workspace/$role/bin/btrcc" --cc cc \
+              --programs CompileStdlibHeavy,RunDispatch --peak-only --no-reference \
+              --repeat 3 --strict --timings report \
+              --json "/workspace/evidence/$item.json" --out-dir "/workspace/evidence/$item-scratch") \
+              > "evidence/$item.stdout" 2> "evidence/$item.stderr"
+            status=$?
+            set -e
+            printf '%s\n' "$status" > "evidence/$item.status"
+            test "$status" -le 1
+            python3 - "$item" "$role" <<'PY'
+          import json,math,sys
+          from pathlib import Path
+          name,role=sys.argv[1:]
+          d=json.loads((Path('evidence')/(name+'.json')).read_text())
+          assert d['meta']['platform']=='linux-x86_64',d['meta']
+          assert d['meta']['repeat']==3 and d['meta']['peak_counter']=='maxrss',d['meta']
+          assert d['meta']['btrcc']==f'/workspace/{role}/bin/btrcc'
+          assert set(d['metrics'])=={'btrcc.compile.CompileStdlibHeavy_peak','btrcc.compile.RunDispatch_peak'}
+          assert all(math.isfinite(v) and v>0 for v in d['metrics'].values())
+          PY
+            if [ "$status" -ne 0 ]; then failed=1; fi
+          done
+          for role in B C; do
+            (cd "$role" && sha256sum -c "/workspace/evidence/$role-inputs.sha256") > "evidence/$role-inputs-after.txt"
+            git -C "$role" ls-files --stage > "evidence/$role-index-after.txt"
+            cmp "evidence/$role-index.txt" "evidence/$role-index-after.txt"
+            test -z "$(git -C "$role" status --porcelain --untracked-files=all)"
+            sha256sum -c "evidence/$role-build.sha256" > "evidence/$role-build-after.txt"
+          done
+          exit "$failed"
+          TOKEN_PEAK_SCRIPT
+      - name: Build exact sources and retain all original peak-check outcomes
+        run: |
+          set -euo pipefail
+          image=$(cat host-evidence/image-id.txt)
+          test -n "$image"
+          podman run --rm --init -v "$PWD:/workspace" -w /workspace "$image" bash /workspace/inside.sh
+      - name: Retain diagnostic evidence even when an original check fails
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: token-peak-3974-71352
+          path: |
+            host-evidence/
+            evidence/
+            inside.sh
+            B/bin/btrcc
+            C/bin/btrcc
+            B/dist/btrcc.c
+            C/dist/btrcc.c
+          if-no-files-found: error
+          retention-days: 14
