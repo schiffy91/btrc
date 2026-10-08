@@ -1,0 +1,70 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.ISelect;
+import Library.GUI.MacOS.MacOSSelect;
+import Library.GUI.MacOS.MacOSControlEvents;
+
+#include <assert.h>
+
+class NativeSelectionReceiver implements ISelectionControlEventHandler {
+	public Vector<SelectionControlEvent> events = [];
+	public void selectionEvent(SelectionControlEvent event) { self.events.push(event); }
+}
+
+class NativeSelectionAssertions {
+	class SelectOption option(string key, string title, bool enabled = true) {
+		var option = SelectOption(); option.key = key; option.title = title; option.enabled = enabled; return option;
+	}
+
+	class SelectModel model() {
+		var model = SelectModel(); model.options = [];
+		model.options.push(NativeSelectionAssertions.option("first", "Duplicate"));
+		model.options.push(NativeSelectionAssertions.option("second", "Duplicate", false));
+		model.selectedKey = "second"; model.availability = SELECT_AVAILABILITY_READY; model.statusText = "Ready"; return model;
+	}
+}
+
+int main() {
+	var context = MacOSControlContext(8); var scope = CallbackScope();
+	var select = MacOSSelect(context);
+	var changes = NativeSelectionReceiver(); var commits = NativeSelectionReceiver(); var cancels = NativeSelectionReceiver();
+	select.onChanged(changes, scope); select.onCommit(commits, scope); select.onCancel(cancels, scope);
+	assert(select.optionsState().availability == SELECT_AVAILABILITY_EMPTY && select.selectedKey() == null);
+	var model = NativeSelectionAssertions.model(); select.setOptions(model);
+	assert(select.itemCount() == 2 && select.selectedIndex() == 1 && select.selectedKey() == "second");
+	assert(select.selectedTitle() == "Duplicate" && !select.isItemEnabled(1));
+	model.options.get(1).key = "mutated"; model.options.get(1).title = "Caller changed"; model.options.clear();
+	assert(select.selectedKey() == "second" && select.selectedTitle() == "Duplicate" && select.itemCount() == 2);
+	var retained = select.optionsState(); retained.options.get(0).title = "Mutated getter";
+	select.setSelectedKey("first"); assert(select.selectedTitle() == "Duplicate" && select.selectedIndex() == 0);
+	assert(retained.selectedKey == "second"); select.setSelectedIndex(-1); assert(select.selectedKey() == null);
+	select.setSelectedKey("second"); assert(select.selectedKey() == "second" && !select.isItemEnabled(1));
+	select.setItemEnabled(1, true); assert(select.isItemEnabled(1));
+	for (int invalid = 0; invalid < 4; invalid++) {
+		var rejected = NativeSelectionAssertions.model();
+		if (invalid == 0) { rejected.options.get(1).key = "first"; }
+		if (invalid == 1) { rejected.options.get(1).key = ""; }
+		if (invalid == 2) { rejected.selectedKey = "missing"; }
+		if (invalid == 3) { rejected.availability = SELECT_AVAILABILITY_EMPTY; }
+		bool failed = false; try { select.setOptions(rejected); } catch (string error) { failed = true; }
+		assert(failed && select.itemCount() == 2 && select.selectedKey() == "second" && select.isItemEnabled(1));
+	}
+	var loading = select.optionsState(); loading.availability = SELECT_AVAILABILITY_LOADING; loading.statusText = "Refreshing";
+	select.setOptions(loading); assert(select.selectedKey() == "second" && select.optionsState().statusText == "Refreshing");
+	select.setOptions(loading); // An identical snapshot is a true no-op.
+	var empty = SelectModel(); empty.options = []; empty.selectedKey = null; empty.availability = SELECT_AVAILABILITY_EMPTY; empty.statusText = "";
+	select.setOptions(empty); assert(select.itemCount() == 0 && select.selectedIndex() == -1 && select.selectedTitle() == "");
+	Vector<string> titles = ["Same", "Same"]; select.setItems(titles, 1);
+	var legacy = select.optionsState(); assert(legacy.options.get(0).key != legacy.options.get(1).key);
+	select.setItems(titles, 1); assert(select.selectedKey() != legacy.selectedKey);
+	bool badIndex = false; try { select.setItems(titles, -1); } catch (string error) { badIndex = true; }
+	assert(badIndex && select.selectedIndex() == 1);
+	while (context.dispatchOne(context.detachedEvents)) {}
+	assert(changes.events.len == 0 && commits.events.len == 0 && cancels.events.len == 0);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(select.close() == CALLBACK_CANCELLATION_COMPLETE && context.terminalPool.available() == 16384);
+	context.close();
+	print("UI2 native selection owns keyed snapshots and preserves rejected models"); return 0;
+}
