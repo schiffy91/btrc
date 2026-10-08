@@ -547,6 +547,8 @@ def test_a_new_tuple_shape_in_one_body_keeps_other_units_exact(compiler: str, de
     """SB-D7: moving discovery of an existing shape changes only Lib's unit."""
     # Use already owns (double, int). Add its earlier discovery without moving
     # source lines, so debug positions in other units remain unchanged too.
+    # Reuse Use's mentioned local name too: a new referenced identifier would
+    # exercise the separate whole-program mentioned-name invalidation guard.
     cold, incremental, _ = _incremental_matches_clean(
         compiler,
         request,
@@ -555,7 +557,7 @@ def test_a_new_tuple_shape_in_one_body_keeps_other_units_exact(compiler: str, de
         {
             "Lib.btrc": (
                 '(int, string) pair = (value, "lib");',
-                '(double, int) flag = (0.5, value); (int, string) pair = (flag._1, "lib");',
+                '(double, int) left = (0.5, value); (int, string) pair = (left._1, "lib");',
             )
         },
         *(["--debug"] if debug else []),
