@@ -189,6 +189,21 @@ nonquiet attribution, not a speedup or product memory acceptance result. The
 first build's diagnostic-only managed-to-raw pointer rejection remains retained;
 the successful correction uses the existing nonretaining AST identity string.
 
+A native stack profile of unchanged compiler `3974d47b` on product `d3fb25f4`
+now completes with 7,091 main-thread samples and all 423 generated C/header files
+preserving normalized parity. Exact process identity, original 240-second compile
+bound, source/tool closure and owned-group cleanup pass. Receipt
+`current-product-stack-3974-attempt-2/result.json` has SHA-256
+`0d763bb83d497004da0ac51cff00da2b3c2d61449fa8ca3bdda2541fc80da806`.
+These are intrusive attribution observations, not speed or memory acceptance.
+The raw profile records macOS 27.0.1 (26A434), alongside the inherited required
+host label macOS 27.0; neither is silently rewritten. Hotspot interpretation is
+pending. The first attempt's recording-only circular-reference failure is
+retained separately with zero completed samples and explicit unknown sampler
+numeric PID; fresh external checks found no surviving owned process. A direct
+identity-serialization regression reproduces that bug and verifies the corrected
+copied ancestry rows before the successful run.
+
 The independent generic-plan allocation candidate `4d930d95` also builds through
 the original Linux Make recipe. Its first comparison stopped before correctness
 and memory checks because a broad pytest selector collected ten unintended
@@ -701,7 +716,11 @@ in `pr68-00e45379-linux-final-audit/audit.json`. The macOS ARM64 bundle now also
 passes archive construction, relocation and execution of its strictly compiled
 output (job `113343316526`). The Mac bootstrap boundary artifact likewise checks
 287 of 311 records and excludes the same 24 managed-behavior records; it does
-not fill the Linux exclusion. Artifact `11559776904` has ZIP SHA-256
+not fill the Linux exclusion. The exact-tree build-safety contract explicitly
+keeps observed proof separate from the portable main gate; no required counterpart
+workflow exists. Keep the 24 records unchecked. The existing opt-in observed
+capture route is available without rewriting the frozen observation contract.
+Artifact `11559776904` has ZIP SHA-256
 `204066ca5f2cd1b9f95ab0f07ff50f93cfb11b109fa9b9eedfde7c921be1de8e`.
 The macOS x64
 bundle attempt reached its unchanged 45-minute job limit during Nix dependency
