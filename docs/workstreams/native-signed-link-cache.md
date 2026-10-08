@@ -3,6 +3,11 @@
 Packet: native-signed-link-cache. Branch: `codex/native-signed-link-cache`.
 Base: `dff538ef502f4a074c3019f677220810e4061225`.
 
+Current outcome: real certificate-backed downstream paired regression passes
+on source override `3c5a89ec`; locked-product and final combined qualification
+remain open. The chronological pending statements below describe their earlier
+checkpoints; the final section records the actual product proof.
+
 Owned paths:
 - `tools/native_plan.py`
 - `src/tests/python/test_native_link_reuse.py`
@@ -139,3 +144,34 @@ Independent read-only review found no blocker in the resolver correction;
 unique selection, repeated-section fingerprint deduplication and strict
 exact-leaf verification remain intact. Review and focused validation finished
 2026-10-08 00:09:42 UTC. No native build or signing stage ran in this correction.
+
+## Actual paired product regression passed
+
+The integrator ran the two original, unchanged
+`BuildArtifacts.*BuildArtifactsTests.test_import_content_touch_edit_and_removal`
+cases through both compiler frontends: **2 passed in 16.093 s**, terminal exit 0.
+Evidence (manifest, exact tools, per-step output/signature capture, and unittest
+log) is retained at
+`~/.cache/btrc/plan-consolidation-2026-10-07/btrsmith-build-artifacts-signed-3c5a89ec/`.
+
+The exact source combination was product
+`e00c61d2cb38286eafece19f7107a3dd5c27230d`, native-plan provider
+`3c5a89ec3529491bfe44c5988b14a8c56fa854b7`, and compiler source
+`dff538ef502f4a074c3019f677220810e4061225` with the existing compiler binary
+SHA-256 `85c4029079568b3a73fbd6853148d5b1e8038a05224e6e75c4ccd3768511e1c3`.
+
+For both frontends, cold/warm/touch retained the same signed executable identity
+and designated requirement, and warm/touch performed zero links. Each of the
+five successful build phases retained the same designated requirement,
+`identifier btrsmith and certificate leaf = H"d3d5aa4395e93cc694c136dd3f327db4da18d703"`,
+including content edits. Signature checks used the existing named certificate,
+not ad-hoc signing. The original removed-import negative assertion also passed;
+no test assertion was weakened. Evidence retention reported no errors and all
+three source trees were clean at the run's end.
+
+This closes the reproduced signed warm-link defect for the measured source
+combination. It remains diagnostic source-override evidence: the product's
+compiler lock is still `cdf9d952011d5ee93bcdbdb9bd31d58d15f072ef`. It does not
+qualify the product shell, locked package, complete release suite, or final
+combined compiler tree. Those integration gates remain with the integrator.
+This report-only update changes no provider or product source and reruns no tests.
