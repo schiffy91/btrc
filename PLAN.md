@@ -83,9 +83,13 @@ improvement is claimed, and system settings remain unchanged. The current `3974d
 hosted benchmark run has one failing memory row: `CompileStdlibHeavy` uses
 45,936,640 bytes against the unchanged effective limit of 45,838,336 bytes
 (96 KiB over); `RunDispatch` now passes at 18,829,312 bytes. Token-lifetime
-candidate `71352c50` is being built against exact baseline `3974d47b` with the
-same Nix Clang 21.1.8. The immutable 851-file D9 workload is reverified. No
-current paired samples exist yet; that diagnostic does not replace Stage 5.
+candidate `71352c50` and exact baseline `3974d47b` both build with the same
+Nix Clang 21.1.8. Their 292 focused diagnostic, managed-literal and scope
+checks pass with zero skips; candidate self-emission and literal C-byte parity
+also pass. Archived source bytes/modes and actual tool identities are verified.
+The immutable 851-file D9 workload is reverified. The current quiet admission
+is in progress, with no current paired samples yet; this diagnostic does not
+replace Stage 5 or the full final matrix.
 
 ### Goal 2: usable standard library and native GUI on five platforms
 
@@ -178,7 +182,8 @@ not wait for UI2 or the remaining compiler work.
 
 Current broader candidate `3974d47b` is published in
 [draft PR68](https://github.com/schiffy91/btrc/pull/68). Its full hosted matrix is
-running; Android tooling/API 29/API 36 and the Linux ARM64 bundle pass. Its
+running; Android tooling/API 29/API 36, Windows, Windows ARM64, the Linux
+ARM64 bundle, release/static ownership and the Linux Wayland lane pass. Its
 benchmark job fails only the unchanged heavy-stdlib memory allowance recorded
 above. The current X11 native lane also fails three scrollbar input cases
 (reference plain/sanitized and self-hosted sanitized); self-hosted plain passes.
