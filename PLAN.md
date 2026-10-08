@@ -228,12 +228,25 @@ retains that fixture failure; no candidate tests/build followed it. Fixture-only
 `660ac18d` now checks the exact resolved native header identity. Independent
 source and recipe reviews are clear; fresh R3 preparation preserves all original
 bounds, source/tool pins and the requirement for an actual repeated-body Counter
-failure on baseline `3974d47b`. No performance saving is claimed.
-The six new cases, genuine
-counterfactual failure, fresh self-hosted build, original paired checks,
-current-product C parity and measurements remain pending. The snapshot adds an
-extra tuple/vector copy to ordinary emission, so net speed and memory benefit
-remain unproved. The branch is unpublished; it does not alter PR68's current
+failure on baseline `3974d47b`. R3 now proves that counterfactual: both observed
+source functions have traversal count two. The old control successfully
+transpiles and checks header selection, then fails before its native C/run step.
+Candidate `660ac18d` passes all 18 reference checks, including the six new cases
+and strict native compile/run, with zero failures/errors/skips. The original
+MacOSMain/Nix Clang 21.1.8 `-O2` build succeeds within its unchanged 1800-second
+bound; fresh binary SHA-256 `181e0d52ebe87396427155304f4bdd42b9f685e718aff06bbee352e8943f6625`
+then passes all 18 original paired checks with no skips/errors. Independent
+review confirms exact source/tool/JUnit identities and all 42 owned groups
+closed. Under `module-emission-once-r3/`, receipt SHA-256 values are:
+counterfactual `2327cf60538dd5cf9431fcb251eb5ea650f4bc2adc4803ca1fe5f04442b90dc5`,
+reference `f5bc22e9b3d6b77278274a2d2cb2fa64dd4c8c114f3b1fdb014ea66e4e382ee8`,
+build `edb08b87c2b22a07589ea6afafc4c0fd2367dd6e82e62fd30ffd859a2280cbcc`,
+paired `052063121c3f1553208f9076d0da158399de5301abcf658c982bda2c8efd13d3`.
+Report commit `1dbe4717` records the focused qualification without changing
+production. Exact current-product parity across 423 generated C/header outputs
+and quiet instruction/peak-memory comparisons remain pending. No performance
+saving is claimed: the snapshot adds a tuple/vector copy to ordinary emission,
+so net speed and memory benefit remain unproved. The branch is unpublished; it does not alter PR68's current
 qualification head. The first attempt's recording-only circular-reference failure is
 retained separately with zero completed samples and explicit unknown sampler
 numeric PID; fresh external checks found no surviving owned process. A direct
@@ -1842,7 +1855,7 @@ failed runs and their evidence rather than replacing them with later passes.
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge is now included in `06c3923a`; full qualification/main landing remain pending. |
 | PR53, Windows ARM64 host | Merged main `49f136ec`, tested head `110a514c` | All five workflows and native ARM64 compiler/bootstrap/sample plus MSVC ABI/wgpu checks pass. Merged tree equals tested tree; archive checksum verified. Broader provider and combined-tree gates remain separate. |
-| PR68, `codex/integrate-compiler-harmonization` | Published `71a22734` | Android tooling/API29/API36, Windows/native bootstrap, Linux bootstrap/release and both GUI lanes pass. General CI still running with tuple-order parity and two peak-memory regressions already failed; macOS queued. Main integration remains gated on repair and qualification. |
+| PR68, compiler and Linux GUI integration | Published `00e45379`; hosted merge `d38f344f` has the same tree | Linux full matrix, X11/Wayland, Windows/ARM64, Android and unchanged benchmark guards pass. Mac corpora, self-host checks, bootstrap, C11 and both native release bundles pass; unit retry `113416271573` and explicit native-GUI retry `113422566478` are executing. The first Mac failures remain recorded above. Final Mac reports/skip classification and qualified main integration remain open. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 At `50bf1c8c`, the [native Linux ARM64 release job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636879)
