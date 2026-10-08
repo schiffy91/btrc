@@ -123,7 +123,7 @@ class UI2LinuxTextChecks {
 		if (composing) { assert(btrcSdlPushEditing(native.nativeId(), "marked", 3, 0) == 1); UI2LinuxTextChecks.pump(application); assert(field.text().equals("retainedmarked")); }
 		if (containerChild) { assert(container.detach(field) == field); }
 		else { assert(window.detachRoot() == field); }
-		assert(field.text().equals("retained") && !field.interactionState().effectiveEligible);
+		assert(field.text().equals("retained") && !field.interactionState().effectiveEligible && field.interactionState().exposure == WINDOW_EXPOSURE_UNKNOWN);
 		UI2LinuxTextChecks.pump(application); assert(commits.events.len == 0 && cancels.events.len == 0);
 		if (containerChild) { container.attach(field); }
 		else { window.attachRoot(field); }

@@ -782,7 +782,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		self.clearHover();
 		if (self._host.focusedId != 0) { self.moveFocus(0); }
 		self._host.overlayId = 0;
-		detaching.attachTo(null); detaching.node().finishAttachment(); detaching.node().publishInteraction();
+		detaching.attachTo(null); detaching.node().markInteraction(false); detaching.node().finishAttachment(); detaching.node().publishInteraction();
 		self._root = null;
 		self._host.invalidation.mark();
 		return root;

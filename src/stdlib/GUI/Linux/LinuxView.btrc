@@ -424,7 +424,7 @@ class LinuxViewNode implements IControlEventTarget {
 		childNode.attached = false;
 		childNode.markInteraction(false); childNode.settleInteraction();
 		self.children.remove(index);
-		child.attachTo(null); childNode.finishAttachment(); childNode.publishInteraction();
+		child.attachTo(null); childNode.markInteraction(false); childNode.finishAttachment(); childNode.publishInteraction();
 		self.invalidate();
 		return child;
 	}
