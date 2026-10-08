@@ -124,7 +124,7 @@ class MacOSViewState implements IControlEventTarget {
 
 	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler receiver, CallbackScope owner) {
 		self.requireOpen();
-		if (self._observation != null && self._observation.isOpen()) { throw "Cancel the existing interaction state handler first"; }
+		if (self._observation != null && self._observation.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing interaction state handler first"; }
 		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self._events, MacOSStateObservation(self), receiver, MacOSViewState.deliverState, owner);
 		self.own(channel); self._observation = channel; return channel;
 	}
