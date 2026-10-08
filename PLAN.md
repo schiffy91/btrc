@@ -140,14 +140,18 @@ patched source matches the reviewed draft; normal repository qualification is
 the next gate.
 The failed matrix and skip inventory remain preserved under
 `combined-06c3923a`; the candidate has no passing full result.
-The repaired candidate is frozen at `dff538ef`; its normal static checks and full
-`make test` (including serial bootstrap) are running under the gate lock. It
-reuses the fresh compiler only after confirming that its delta from `06c3923a`
-contains PLAN.md and the three audit files, with identical compiler binary hash.
-The parallel suite has reported three failure markers near its end; final case
-details remain pending while its last worker continues. This is not a passing
-combined gate.
-Explicit bootstrap, strict C11 and final main integration remain pending.
+The repaired candidate `dff538ef` passed lint, formatting, generated-source and
+extension checks. Its full parallel suite finished with **17,855 passes, 168
+skips and three failures** in the macOS native-shell lifecycle test. The failures
+are plain-selfhost activation during repeated application cycles, a surviving
+provider NSTextField during sanitized-selfhost teardown, and a surviving
+NSTextField during sanitized-python restoration. Their raw source, executables,
+logs and XML remain retained in `combined-dff538ef`; diagnosis is active.
+The fresh compiler was reused only after verifying that the delta from
+`06c3923a` contains PLAN.md and three audit files, with identical binary hash.
+The parallel failure stopped the embedded serial bootstrap. Explicit bootstrap,
+strict C11 and final main integration remain pending. This is not a qualified
+combined tree.
 The Darwin Python/libffi repair `2e8e3711` now passes the actual callback smoke,
 46 build-safety checks and upstream CFFI's 1,888 checks (161 skips, four deselected,
 four expected failures). Its four-platform package evaluation also passed;
@@ -158,7 +162,8 @@ compiler qualification: the test still expected nine diagnostic commands, while
 Windows correctly adds a tenth crash-location command. Fix `483e5bab` explicitly
 checks the Windows, macOS and Linux command sequences and bounds; its 36-test
 module has 35 passes and one native-only skip locally. The correction was
-published normally to PR53 at `483e5bab`; native Windows run `37701082806` passed
+published normally to PR53 at `483e5bab`; general CI `37701082801` passed all
+19 executed jobs. Native Windows run `37701082806` passed
 preflight but failed before BTRC/bootstrap execution. Minimal ARM64 objects build,
 while direct linking crashes in the root Zig process at `zig.exe + 0x910f34`.
 The artifact records an access violation but no stack; it does not establish an
@@ -178,9 +183,13 @@ reference/selfhost × plain/ASan+UBSan (four passes, no skips, 52.80 seconds).
 same provider/fixture/driver bytes and its evidence report. Hosted branch and
 final combined-tree gates remain open; the repair is not yet on main. PR66's nine
 failed CI jobs in run `37652762370` never started: each has the same GitHub runner
-acquisition failure and zero executed steps. Their qualification remains missing;
-attempt 2 now retries only those failed jobs. Executed native Mac GUI and Linux X11/Wayland lanes
-passed, along with bootstrap and the recorded successful shards.
+acquisition failure and zero executed steps. Attempt 2 is terminal: eight retried
+jobs passed; the unit job ran and failed
+only `test_native_gui_target_drives_every_fixture` because it did not discover
+the nested ButtonAlignment fixture (6,815 passes, 3,120 skips). The audit repair
+already present in `dff538ef` addresses this exact path-discovery defect; it must
+also be applied and rerun on the published branch. Executed native Mac GUI and
+Linux X11/Wayland lanes passed, along with bootstrap and successful shards.
 [PR67](https://github.com/schiffy91/btrc/pull/67) claims `CX-UIA-21`. Local source
 `ca4782e1` implements the approved 53 operations, values, facade and completion
 hook, plus portable fixtures and the final catalog fragment. Independent review
@@ -208,11 +217,11 @@ changes; historical test totals alone do not advance its status.
 |---|---|---|---|
 | Current compiler speed and memory matrix | Historical `65057cb` values above; no current product acceptance | Performance owner; main session runs quiet measurements | Qualify the D9 measurement copy/pin and run Stage 5's complete matrix with compiler, application and toolchain SHAs, sample counts, median/p95/max and footprint. Stage 4/pin prerequisites and quiet host remain open. Earlier diagnostics must be labelled pre-Stage-4 and cannot close Stage 5. |
 | Faster incremental edits | Exactly-one-changed-group reuse remains unqualified | Incremental compiler owner | Follow Stages 6–9: reviewed keys/journal, invalidation regressions, unchanged groups not lowered, then edit median/p95 and memory versus the same baseline. Select optimizations from measured attribution. |
-| Useful desktop library improvement | `CX-STDLIB-03` reconstructed and native red/green proven on the integration candidate; PR66 awaits hosted/final gates. `01`/`02` source recovery remains open | Provider repair owner; main integrator qualifies | Land the reviewed button repair after its gates. Recover or reconstruct `01`/`02`; independently reproduce `04`/`05`. Historical unpublished-source results do not qualify a reconstruction. |
+| Useful desktop library improvement | `CX-STDLIB-03` reconstructed and native red/green proven on the integration candidate; PR66 awaits hosted/final gates. `01`/`02` historical fixes are unavailable; reconstruction has started from current source and recoverable E40 | Provider repair owner; main integrator qualifies | Land the reviewed button repair after its gates. Reconstruct `01`/`02` and execute current-source native red/green evidence; independently reproduce `04`/`05`. Historical unpublished-source results do not qualify a reconstruction. |
 | UI2 events, executor and lifecycle on desktop | Contracts approved; local `ca4782e1` has 26 paired native/sanitizer BackgroundJobs passes and 114 catalog passes; desktop providers and atomic landing remain open | UI2 interface owner, then platform owners | Continue with the desktop providers and real UI2 probe collectors; there is no compiler prerequisite. Reconcile overlapping repairs first, then land interface/macOS/Linux together with catalog acceptance. Do not restart completed design approval. |
 | Windows and mobile application-facing services | Fixture-host results above; complete providers not delivered | Platform slice owners | Use the per-platform checkpoints below: real Windows SDK/service operation; iOS and Android file persistence; then native button/text field/lifecycle. Each waits only for its own demonstrated ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Main `adb3276f`, compiler pin `05ec9cb7`; current requalification open. Signed warm/touch rebuild defect repaired and verified through both compilers on the current source override | BTRSmith owner and integrator | Integrate the reviewed native signing fix and product caller, qualify the compiler pin and frontend/library smoke, then complete MVP screen journeys and build/runtime budgets. Windows/mobile library completion is not a prerequisite for the macOS/Linux MVP; later platform releases remain separate outcomes. |
-| One qualified implementation on main | `06c3923a` stopped with 17 failures, 17,838 passes and 168 skips; its three audit repairs passed 186 isolated checks and are committed. Repaired candidate `dff538ef` is running normal static/full-suite gates | Main integrator | Qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
+| One qualified implementation on main | `06c3923a` stopped with 17 failures, 17,838 passes and 168 skips; its three audit repairs passed 186 isolated checks and are committed. Repaired candidate `dff538ef` passes static checks; parallel suite has 17,855 passes, 168 skips and three macOS shell lifecycle failures under active repair | Main integrator | Qualify the exact combined tree, land and update branch/issue dispositions. Published, locally tested and merged are separate states. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
@@ -1127,8 +1136,8 @@ reconstruction. Independent repair units must not wait on this recovery.
 
 | Unit | Outcome and scope | Starting evidence | Remaining acceptance |
 |---|---|---|---|
-| CX-STDLIB-01 (from UIA23) | Retain queued input; match popup hit testing to painted position; preserve text/selection on clipboard Cut failure; honor external hide/show rendering | `d6df2cb6335e122526204f0408602aeef6d31b66`; 84 native cases across staged revisions, plus final controls | Port to current main, wire normal driver, rerun both compilers and sanitizer/control cases on final source; catalog: a new `evidence/ui2-linux-e40.toml` shard plus the E40 hunk in `cases/E25-E47.toml`, carried per WORKSTREAMS §3.3 step 4 ([catalog README](docs/design/native-ui-catalog/README.md)) |
-| CX-STDLIB-02 (from UIB26) | Grid and both Stack orientations invoke child layout so scroll offsets clamp after resize | Combined `0f6f3448967720480365d43980c74baf7280b7e4`; 40/40 final-source native cases | Port combined repair, wire normal driver, verify actual pixel/offset behavior and fixture discovery |
+| CX-STDLIB-01 (from UIA23) | Retain queued input; match popup hit testing to painted position; preserve text/selection on clipboard Cut failure; honor external hide/show rendering | Historical `d6df2cb6335e122526204f0408602aeef6d31b66` is unavailable locally and remotely; its 84-case record does not qualify reconstructed code. E40 reproduction `bbe4f56e` is recoverable | Reconstruct on current source, recover E40, wire normal driver, rerun both compilers and sanitizer/control cases on final source; catalog: a new `evidence/ui2-linux-e40.toml` shard plus the E40 hunk in `cases/E25-E47.toml`, carried per WORKSTREAMS §3.3 step 4 ([catalog README](docs/design/native-ui-catalog/README.md)) |
+| CX-STDLIB-02 (from UIB26) | Grid and both Stack orientations invoke child layout so scroll offsets clamp after resize | Historical combined `0f6f3448967720480365d43980c74baf7280b7e4` and resize fixtures are unavailable; its 40-case record is historical | Reconstruct child-layout dispatch and resize fixtures on current source, wire normal driver, verify actual pixel/offset behavior and fixture discovery |
 | CX-STDLIB-03 (from UIB18) | Explicit Mac button alignment survives title/symbol updates; defaults preserved | Original `f6071c8a` unavailable; reconstructed in PR66 (`4f5c9b30`). Actual AppKit red: four failures; corrected integration `37a8ae67`: four passes through both compilers, plain/sanitized | Hosted branch checks, normal gate and final main integration remain; focused native proof and retained intermediate failure are recorded in the packet report |
 | CX-STDLIB-04 | Reject an invalid Linux grid replacement without losing the old child | Source finding: Linux detaches before validating; Mac validates/rolls back | Reproduce with an already-parented replacement; check old child identity/rendering, valid replacement, null clear and ownership cleanup; fix only after reproduction |
 | CX-STDLIB-05 | Keep scrollbar geometry valid in a tiny viewport and at large finite content extents | Reviewed provider `6720fc0b`, final admission checkpoint `e3281e6e`; fixture-only parent `7c060d08` preserves the native red candidate. Formatting, discovery and import checks pass (10 checks); four Mac platform skips are classified with no Linux allowance | Run the dedicated actual pixel/pointer/wheel regression through both compilers and sanitizer variants on Linux, including zero/tiny track and `1e308` content. Mac skip admission is not native Linux evidence. No executed native failure/pass or main landing is claimed yet |
@@ -1137,18 +1146,23 @@ reconstruction. Independent repair units must not wait on this recovery.
 
 CX-STDLIB-01 production files are
 `src/stdlib/GUI/Linux/{LinuxApplication,LinuxSelect,LinuxTextField,LinuxWindow}.btrc`.
-Its existing event fixture is under `src/tests/native/gui/linux/`; the other probes
-are under `src/tests/native/gui/ui2/probes/linux/`. Move the existing collector into
-`src/tests/python/test_native_ui_linux_spike.py` with the established platform,
-native-reader and display guards; remove the old collector to avoid duplicate
-unguarded collection. The historical `spike` spelling does not relax acceptance.
+Recover the event fixture under `src/tests/native/gui/linux/` from retained E40
+commit `bbe4f56e9a462002bb8d96df4bc7c7d1bed4a6f3`. Reconstruct the unavailable
+popup, clipboard and visibility probes under `src/tests/native/gui/ui2/probes/linux/`.
+Move the recovered collector into `src/tests/python/test_native_ui_linux_spike.py`
+with the established platform, native-reader and display guards; remove the old
+collector to avoid duplicate unguarded collection. The historical `spike`
+spelling does not relax acceptance.
 Its catalog update is the new `docs/design/native-ui-catalog/evidence/ui2-linux-e40.toml`
 shard plus the E40 hunk in `docs/design/native-ui-catalog/cases/E25-E47.toml`.
 
-CX-STDLIB-02 owns `src/stdlib/GUI/Linux/{LinuxGrid,LinuxStack}.btrc`, the existing
+CX-STDLIB-02 owns `src/stdlib/GUI/Linux/{LinuxGrid,LinuxStack}.btrc`, reconstructed
 `src/tests/native/gui/layout/linux/{LinuxGridScrollResize,LinuxStackScrollResize}.btrc`
-fixtures and `src/tests/python/test_native_ui_layout_resize.py`. Use the combined
-repair rather than applying both the original Grid-only and combined patches.
+fixtures and `src/tests/python/test_native_ui_layout_resize.py`. Grid and both
+Stack orientations must invoke the child view's layout override; ScrollView
+already owns offset clamping. Recovering the historical combined repair failed
+in the hub, active/parked clones and exact GitHub object lookup; do not repeat
+that search or treat its old passing counts as evidence for this reconstruction.
 CX-STDLIB-04 follows this unit because both edit LinuxGrid; reserve any needed
 LinuxViewNode validation change explicitly. CX-STDLIB-05 owns LinuxScrollView and
 its dedicated fixture/driver, independently of the grid writer.
