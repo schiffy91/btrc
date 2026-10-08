@@ -43,6 +43,10 @@ CONTAINER_PROBE_SYMBOLS = [
 @pytest.mark.parametrize(
     ("fixture", "expected"),
     [
+        (
+            "NativeApplicationHost",
+            "UI2 public application host shares bounded work, worker ingress and native view delivery",
+        ),
         ("RunLoopWake", "UI2 worker wakes idle default and tracking run-loop modes without polling"),
         ("RunLoopDeadline", "UI2 monotonic deadlines wake default and tracking modes once"),
         ("NativeViewState", "UI2 native view visibility updates revisioned state without inline delivery"),
@@ -52,6 +56,10 @@ CONTAINER_PROBE_SYMBOLS = [
             "UI2 native container transactions preserve editor state and report verified rollback ownership",
         ),
         ("NativeContainerBarrier", "UI2 container barriers defer terminal input and seal reentrant receiver admission"),
+        (
+            "NativeCaptureFailure",
+            "UI2 native capture failures surface after barriers without escaping native callbacks",
+        ),
         ("InteractionState", "UI2 view state preserves snapshots and separates observation from input eligibility"),
         ("WorkQueue", "UI2 scheduled work shares capacity, preserves rounds and applies suspension policy"),
         ("Publisher", "UI2 worker publication preserves capacity, receipt identity and cancellation ownership"),
@@ -73,6 +81,17 @@ def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_
         '[[native.frameworks]]\nname = "AppKit"\n'
         '[[native.sources]]\npath = "RunLoopProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
+    if fixture == "NativeApplicationHost":
+        shutil.copyfile(PROBES / "ApplicationHostProbe.btrc", source.parent / "ApplicationHostProbe.btrc")
+        for name in ("ApplicationHostProbe.h", "ApplicationHostProbe.m"):
+            shutil.copyfile(PROBES / name, root / name)
+        with (root / "btrc.toml").open("a") as manifest:
+            manifest.write(
+                '[[native.bindings]]\nmodule = "ApplicationHostProbe"\nheader = "ApplicationHostProbe.h"\n'
+                'language = "c"\nstandard = "c11"\n'
+                'symbols = ["ui2InstallHostDelegate", "ui2HostDelegateUnchanged", "ui2RestoreHostDelegate"]\n'
+                '[[native.sources]]\npath = "ApplicationHostProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+            )
     if fixture in {"NativeContainerOrder", "NativeContainerBarrier"}:
         shutil.copyfile(PROBES / "ContainerProbe.btrc", source.parent / "ContainerProbe.btrc")
         for name in ("ContainerProbe.h", "ContainerProbe.m"):

@@ -712,3 +712,46 @@ all typed controls, lifecycle/publisher integration, the documented tree-change
 notification wording seam, atomic Linux/macOS UI2 landing, or the final full
 repository/platform matrix. No partial provider landing or release claim follows
 from this component result.
+
+## Public application-host slice: fixture checkpoint
+
+The next product-facing fixture is `NativeApplicationHost.btrc`. It uses the
+actual `IApplication` returned by `MacOSApplication`, not a narrowed test
+application. Its native test host installs a real AppKit delegate before
+construction and verifies that construction, attachment and teardown preserve
+that identity. Public calls cover no-inline dispatch, the shared post/schedule
+capacity, cancellation/disarming of a future timer, next-round reposts and
+reentrant service, injected suspension policies, worker publication, a real
+factory-created view's semantic observation and close from entered work.
+`NativeCaptureFailure.btrc` separately requires sticky first-error reporting
+outside the container barrier, including false/throwing host wake and a closed
+native source; fault reporting must leave cleanup available.
+
+These are **unexecuted fixture checkpoints**, not red execution evidence. The
+previous qualified provider remains 71397941. The public application currently
+lacks createPublisher/schedule/attachHost, and its reachable window, text,
+selection, slider and scroll owners still have missing approved UI2 operations.
+A genuine application projection may report those conformance dependencies
+before running the host fixture. They will not be hidden by stubs, narrowed
+interfaces, changed assertions or a private replacement application.
+
+The application implementation will own one explicit semantic context and pass
+it to every factory; it will not borrow the standalone default context. One
+executor state machine will serve external attachment and desktop run. Delegate
+installation belongs only to the desktop run owner. Native wake registration,
+host receiver and producer routes must be acquired/rolled back together; host
+route changes must hold each publisher's existing change guard. Service uses a
+sequence watermark for work, bounded rotating lanes for work, publishers and
+semantic queues, and a cleanup opportunity on every turn. Count/time limits are
+implementation facts to record and qualify, not an E40 pass claim. The service
+boundary catches failures, seals ingress and initiates nonblocking drain; it
+must never lose the public typed attachment/cancellation outcome to a receiver
+exception. Normal pointer/key consumption remains synchronous where the
+existing public bool contract requires it; transaction barriers and semantic
+host service must prevent callbacks against intermediate ownership.
+
+The integrator owns a disjoint source-only MacOSScrollView correction and its
+new fixture, including explicit context constructor injection. The macOS agent
+retains Application/Executor/ControlEvents and other named claimed owners.
+Production binding manifests, generated files and final AppKit execution
+inventory remain integrator-owned. No new native execution has begun.
