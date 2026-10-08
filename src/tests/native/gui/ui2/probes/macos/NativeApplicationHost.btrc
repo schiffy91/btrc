@@ -112,7 +112,10 @@ class PublicAttachmentFailures {
 		var work = PublicCountWork(); failed.post(work);
 		attachment.serviceTurn();
 		assert(work.calls == 1 && failed.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
-		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && ui2HostDelegateUnchanged());
+		assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_FAILED);
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && owner.pendingCount() == 0);
+		assert(attachment.cancel() == CALLBACK_CANCELLATION_FAILED && attachment.pollCompletion() == CALLBACK_CANCELLATION_FAILED);
+		assert(ui2HostDelegateUnchanged());
 	}
 }
 
