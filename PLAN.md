@@ -266,6 +266,13 @@ retains both discarded warmups and unchanged final inputs; both process groups
 closed. No measured sample or performance saving is claimed. Report `dccaeb78`
 records the failure. Quiet paired instruction/peak-memory measurements remain
 pending; the snapshot's extra tuple/vector copy may offset the removed work.
+Comparator R2 is now independently reviewed: runner `53840249`, pins `73e80f71`,
+control proof `8667a5a5`. The original comparator rejects the actual warmups;
+the corrected comparator accepts them only after authenticating ordered raw
+hashes. Five controls reject corrupt hashes, missing/reordered units, semantic C
+changes and other plan changes. An initial control-copy newline error is retained.
+Quiet limits, sample order, deadlines and cleanup remain unchanged. This is a
+comparator proof, not a new compiler or performance run.
 
 Before that attempt, a verified payload-only archive preserved 924 completed
 pre-October-8 emitted-C cache parts from 306 default-cache entries. It retained
@@ -277,7 +284,14 @@ receipt `completed-pre-oct8-emission-cache-archive/result.json` has SHA-256
 Its inventory and RESTORE.txt preserve bytes, modes and nanosecond mtimes.
 The benchmark uses fresh private caches; absent old payloads are normal cache
 misses through the existing driver. Free space after the failed comparison is
-about 81.843 GB, so another full eight-run campaign needs additional safe headroom. The branch is unpublished; it does not alter PR68's current
+about 81.843 GB, so another full eight-run campaign needs additional safe headroom. A second
+verified archive now preserves six completed product-parity/failed-warmup output
+and cache trees, recovering 532,267,008 bytes and leaving about 82.344 GB free.
+All 24,755 protected objects remain unchanged. Receipt
+`completed-emission-quiet-warmups-archive-2026-10-08/manifest.json` has SHA-256
+`fec9b58fe8ed62a2bec87ff8f453c1e7d9433749c152dc4feebd01975c1770c4`.
+Restore these archived outputs before historical parity/comparator re-audits;
+the next runner uses their authenticated compact receipts. The branch is unpublished; it does not alter PR68's current
 qualification head. The first attempt's recording-only circular-reference failure is
 retained separately with zero completed samples and explicit unknown sampler
 numeric PID; fresh external checks found no surviving owned process. A direct
@@ -481,8 +495,21 @@ original richer fixture SHA-256 `3c9554ce8a82fe2eea27b3e2450f81bf3cf54ef550069c0
 Its only metadata composition is the existing three provider binding fragments
 and removal of the duplicate fixture AppKit row. Prepared `b84fea33` and
 qualifier `17f46bfe` preserve the original paired projections, strict checks,
-plain/sanitized execution, assertions and deadlines. No test/native execution
-has yet qualified this public composition.
+plain/sanitized execution, assertions and deadlines. Its first reference
+projection now stops on one actual diagnostic: `NSApplication.delegate` is not
+an exposed method. The earlier 19 missing-method errors do not recur. Result
+`results/application1/application/reference/project-plain.json` has SHA-256
+`4f805ef0f439d6e3fec830a460c2ae88ba7f4e6ebd6eac73eaffa0955abe066e`;
+all four groups close and inputs remain unchanged. No self-host, C/link or native
+stage executes. Slot getters are intentionally private to the callback owner.
+Both compiler implementations already make the scoped setter reject an occupied
+slot before publication and abort the attempted activation. A reviewed one-file
+Application repair uses that setter before the broad run/teardown transaction,
+removing the invalid getter call and leaving the application open on rejected
+admission. Patch SHA-256 `305b5caa9bc43fa8712029911f15bc812ff805cc43ecf9024c4aedc6919edc18`
+is prepared under `macos-application-delegate-admission`; it is not yet committed
+or rerun. The original fixture remains unchanged and public native acceptance
+remains open.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
 Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
