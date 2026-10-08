@@ -221,3 +221,11 @@ geometry/drag behavior remains. This does not claim E09 focus or UI6 collection
 anchor behavior. Fixture and implementation are still unexecuted; only formatter
 and diff checks passed. Expanded IContainer and other UI2 controls still need
 implementation before the whole provider can compile/qualify.
+
+A further independent source review found queue-local registration identifiers
+could collide across windows. The application terminal pool now allocates
+monotonic registration identities, and tickets check both pool identity and
+registration identity before any closed-channel cleanup. New unexecuted cases
+try a closed channel against an extra ticket from a second queue, once sharing
+the application pool and once using a different pool, then prove the rightful
+channel can still deliver and return every credit. Formatter/diff passed.

@@ -73,6 +73,25 @@ class QueueFailureChecks {
 		queue.close(); assert(receiver.values.len == 0 && wake.calls == (replacement ? 2 : 1));
 	}
 
+	class void foreignQueueTicket(bool distinctPool) {
+		var firstPool = ControlEventTerminalPool(4);
+		var secondPool = distinctPool ? ControlEventTerminalPool(2) : firstPool;
+		var firstQueue = ControlEventQueue(2, firstPool); var secondQueue = ControlEventQueue(2, secondPool);
+		var target = QueueTarget(); var receiver = QueueReceiver(); var scope = CallbackScope();
+		var first = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(firstQueue, target, receiver, QueueReceiver.deliver, scope);
+		var second = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(secondQueue, target, receiver, QueueReceiver.deliver, scope);
+		var base = second.beginInteraction(); var extra = second.beginInteraction(); assert(base != null && extra != null);
+		assert(first.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		int available = secondPool.available(); bool refused = false;
+		try { first.publishTerminal(QueueSnapshot(80), 1LL, 1LL, extra); } catch (string error) { refused = true; }
+		assert(refused && extra.isOpen() && secondPool.available() == available);
+		second.publishTerminal(QueueSnapshot(81), 1LL, 1LL, extra);
+		assert(secondQueue.dispatchOne() && receiver.values.len == 1 && receiver.values.get(0) == 81);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(firstPool.available() == 4 && secondPool.available() == (distinctPool ? 2 : 4));
+		firstQueue.close(); secondQueue.close();
+	}
+
 	class void enteredTerminalCredit() {
 		var pool = ControlEventTerminalPool(3); var queue = ControlEventQueue(2, pool);
 		var target = QueueTarget(); var receiver = QueueRetirementReceiver(); var scope = CallbackScope();
@@ -106,6 +125,7 @@ class QueueFailureChecks {
 }
 
 int main() {
+	QueueFailureChecks.foreignQueueTicket(false); QueueFailureChecks.foreignQueueTicket(true);
 	QueueFailureChecks.cancelledOwner(); QueueFailureChecks.enteredTerminalCredit();
 	QueueFailureChecks.wakeFailure(false, false); QueueFailureChecks.wakeFailure(true, false);
 	QueueFailureChecks.wakeFailure(false, true); QueueFailureChecks.wakeFailure(true, true);

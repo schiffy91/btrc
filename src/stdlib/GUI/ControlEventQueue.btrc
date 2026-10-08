@@ -23,6 +23,7 @@ interface IControlEventWake { bool requestTurn(); }
 class ControlEventTerminalPool {
 	private int _capacity;
 	private int _used = 0;
+	private long long _nextRegistration = 1LL;
 	public ControlEventTerminalPool(int capacity) { if (capacity <= 0 || capacity > 65536) { throw "Invalid control terminal capacity"; } self._capacity = capacity; }
 
 	/* UI-only semantic callbacks have no independent native registration.
@@ -30,6 +31,8 @@ class ControlEventTerminalPool {
 	class bool unregister(ControlEventTerminalPool pool) { return true; }
 
 	public int available() { return self._capacity - self._used; }
+
+	public long long registrationIdentity() { if (self._nextRegistration == 9223372036854775807LL) { throw "Control registration identities exhausted"; } return self._nextRegistration++; }
 
 	public bool reserve() { if (self._used == self._capacity) { return false; } self._used++; return true; }
 
@@ -55,7 +58,7 @@ class ControlEventTicket {
 
 	public void commit() { if (!self._open || self._queued) { throw "Control terminal ticket is already consumed"; } self._queued = true; }
 
-	public void requireOwner(long long registration) { if (self._registration != registration) { throw "Control terminal ticket belongs to another registration"; } }
+	public void requireOwner(ControlEventTerminalPool pool, long long registration) { if (self._pool != pool || self._registration != registration) { throw "Control terminal ticket belongs to another registration"; } }
 
 	/* A producer may abandon only an uncommitted ticket. Once queued, its
 	 * credit belongs to the record through callback return and retirement. */
@@ -105,7 +108,6 @@ class ControlEventQueue {
 	private bool _closed = false;
 	private bool _dispatching = false;
 	private bool _wakeFailed = false;
-	private long long _nextRegistration = 1LL;
 	private ControlEventTerminalPool _pool;
 	private IControlEventWake? _wake = null;
 	private Vector<ControlEventRecord> _records = [];
@@ -121,7 +123,7 @@ class ControlEventQueue {
 
 	public void setWake(IControlEventWake wake) { if (wake == null || self._closed) { throw "Semantic queue requires a live wake"; } self._wake = wake; }
 
-	public long long registrationIdentity() { if (self._closed || self._nextRegistration == 9223372036854775807LL) { throw "Semantic registration identities exhausted or queue closed"; } return self._nextRegistration++; }
+	public long long registrationIdentity() { if (self._closed) { throw "Semantic queue is closed"; } return self._pool.registrationIdentity(); }
 
 	public int pendingCount() { return self._records.len; }
 
@@ -270,7 +272,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	}
 
 	public void publishTerminal(Snapshot snapshot, long long generation, long long interaction, ControlEventTicket ticket) {
-		if (ticket != null) { ticket.requireOwner(self._identity); }
+		if (ticket != null) { ticket.requireOwner(self._queue.terminalPool(), self._identity); }
 		if (!self.isOpen()) { if (ticket != null) { ticket.retire(); } return; }
 		if (snapshot == null || ticket == null || generation <= 0LL || interaction <= 0LL) { throw "Invalid semantic terminal snapshot"; }
 		ticket.validate(self._identity);
