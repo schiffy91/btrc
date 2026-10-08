@@ -1,5 +1,8 @@
 import Library.Callback;
 import Library.Vector;
+import Library.Image;
+import Library.GUI.Linux.LinuxImageView;
+import Library.GUI.Linux.LinuxWindow;
 import Library.GUI.IView;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.SDL;
@@ -10,6 +13,34 @@ import Library.GUI.Linux.SDL;
 class UI2LinuxStateReceiver implements IViewInteractionStateHandler {
 	public Vector<ViewInteractionState> states = [];
 	public void interactionChanged(ViewInteractionState state) { assert(SDL_IsMainThread()); self.states.push(state); }
+}
+
+class UI2LinuxImageChecks {
+	class void retainedPixels(LinuxApplication application) {
+		var window = application.createWindow("UI2 retained pixels", 80.0, 80.0);
+		LinuxWindow? native = (LinuxWindow?)window; assert(native != null);
+		var view = application.createImageView(); window.attachRoot(view); window.show();
+		var pixels = Image(2, 2);
+		for (int index = 0; index < 4; index++) { pixels.data[index * 4] = 12; pixels.data[index * 4 + 1] = 210; pixels.data[index * 4 + 2] = 34; pixels.data[index * 4 + 3] = 255; }
+		var handle = LinuxImageHandle.create(pixels, 4); view.setImageHandle(handle);
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (!native.pollDevice() && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); }
+		assert(native.pollDevice());
+		var before = native.render(true); assert(before != null);
+		var first = before.pixel(before.width / 2, before.height / 2); assert(first.green > 190 && first.red < 30);
+		handle.close();
+		var after = native.render(true); assert(after != null);
+		var retained = after.pixel(after.width / 2, after.height / 2);
+		assert(retained.red == first.red && retained.green == first.green && retained.blue == first.blue);
+		assert(view.fittingWidth() == 2.0 && view.fittingHeight() == 2.0);
+		bool refused = false; try { view.setImageHandle(handle); } catch (string error) { refused = true; } assert(refused);
+		view.setImageHandle(null);
+		var cleared = native.render(true); assert(cleared != null);
+		assert(cleared.pixel(cleared.width / 2, cleared.height / 2).green < 100);
+		window.close();
+		for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
 }
 
 int main() {
@@ -45,6 +76,7 @@ int main() {
 	window.close();
 	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
 	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
+	UI2LinuxImageChecks.retainedPixels(application);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	printf("PASS: UI2 Linux inherited eligibility and scoped observations\n"); SDL_Quit(); return 0;
 }
