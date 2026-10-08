@@ -42,13 +42,32 @@ The original Linux failure remains in
 `linux-provider-native-2202-grid47/rows/grid-green/`, and current-source diagnosis
 in that evidence root's `diagnostic-current/`.
 
+## Linux source-matched qualification
+
+The fresh `808592c9` compiler build passes on native Linux ARM64 with GCC 15.2
+at `-O2`. Binary SHA-256:
+`1739f6b16838694fa52297379f431777238ed8a01ec24577fc51ca7d9b07c505`.
+The immutable image, native reader and shell are unchanged from the first
+attempt. The existing Linux LP64 target-row equality check and paired functional
+baseline pass. All **11 compiler regression rows pass with zero skips** (3.207
+seconds), including reference/self-hosted strict-C compilation and execution.
+
+The same binary then runs all **four Grid04 native rows successfully**, zero
+skips (129.72 seconds). Both compilers, plain and ASan/UBSan, execute actual
+rendering, rejected-child pixel/identity preservation and ownership assertions.
+The original four strict-C failures remain retained, with no assertion weakened.
+
+Evidence is under `linux-provider-native-2202-grid47/repaired-808592c9/`:
+`compiler-build.json`, `native-elf.json`, `admission-sequence.json` and per-row
+logs/XML. Exact source inventories identify each original provider revision and
+the reviewed compiler/current caller-tooling overlay. Original source archives
+and compiler binary are untouched. The host remains Apple M1 Max, 8P+2E, 64 GiB,
+macOS 27.0; execution is in its actual Linux AArch64 guest. This is not native
+x86-64, macOS or physical-device evidence.
+
 ## Remaining acceptance
 
-A fresh source-matched Linux self-hosted compiler build is running. Its paired
-regression must pass before rerunning Grid04, the genuine fixture-only negative
-controls and the remaining 96 reconstructed provider cases. Private qualification
-composites retain each original provider revision, overlay the reviewed compiler
-and current caller tooling, and record exact source inventories; original archives
-and the old compiler binary remain intact. Full final-tree bootstrap, strict C11,
+Genuine Grid fixture-only negative controls and the remaining 96 reconstructed
+provider cases still need execution. Full final-tree bootstrap, strict C11,
 normal test matrix and hosted gates remain required before main integration.
-No compiler performance improvement or native Grid success is claimed here.
+No compiler performance improvement or complete platform qualification is claimed.

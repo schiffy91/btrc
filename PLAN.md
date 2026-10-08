@@ -130,14 +130,15 @@ account requirements remain explicit where automated tests cannot prove them.
 **Current checkpoint, October 8:** published candidate `71a22734` is frozen in
 [draft PR68](https://github.com/schiffy91/btrc/pull/68) while its final hosted
 matrix runs. Android tooling and API 29/36 emulator jobs pass in run
-`37715597832`; general CI and macOS are queued, and Windows native checks and
-bootstrap are running. Main remains `87dd60d7`; none of these pending checks
+`37715597832`; Windows native checks and bootstrap pass in `37715597803`.
+General CI and macOS remain queued. Main remains `87dd60d7`; none of these pending checks
 counts as qualification. Two code-PR waves are active: PR68 and Windows PR53.
 Independent UI2 source work and the local Linux native qualification continue.
 The first four Linux Grid rows fail strict-C compilation in both compilers
 because inherited interface types are pruned. Paired repair `808592c9` follows
-fixture-only `72be5947`; the reference checks now pass (10), while a fresh Linux
-self-host build and actual native rerun remain in progress. This repair is kept
+fixture-only `72be5947`; the fresh Linux compiler passes all 11 relevant
+regressions, and all four plain/sanitized Grid cases now pass. Genuine Grid
+negative controls and the other 96 provider cases remain in progress. This repair is kept
 separate from frozen PR68. See [the repair evidence](docs/workstreams/interface-parent-reachability.md).
 
 
@@ -1277,7 +1278,7 @@ qualify a reconstruction. Independent repair units must not wait on this recover
 | CX-STDLIB-01 (from UIA23) | Retain queued input; match popup hit testing to painted position; preserve text/selection on clipboard Cut failure; honor external hide/show rendering | Historical `d6df2cb6335e122526204f0408602aeef6d31b66` is unavailable locally and remotely; its 84-case record does not qualify reconstructed code. E40 `bbe4f56e` recovered; current reconstruction `42d5a7c1` has 80 native cases, static checks pass, execution pending | Execute preserved fixture-only red and reconstructed green through the normal driver, both compilers and sanitizer/control cases on final source; catalog: a new `evidence/ui2-linux-e40.toml` shard plus the E40 hunk in `cases/E25-E47.toml`, carried per WORKSTREAMS §3.3 step 4 ([catalog README](docs/design/native-ui-catalog/README.md)) |
 | CX-STDLIB-02 (from UIB26) | Grid and both Stack orientations invoke child layout so scroll offsets clamp after resize | Historical combined `0f6f3448967720480365d43980c74baf7280b7e4` and resize fixtures are unavailable; its 40-case record is historical. Reconstructed `364a2bd6` changes three child-layout dispatch calls and adds 12 native cases; static checks pass | Execute fixture-only red `366da1cd` and repaired green with both compilers and sanitizers; verify actual pixel/offset behavior and fixture discovery |
 | CX-STDLIB-03 (from UIB18) | Explicit Mac button alignment survives title/symbol updates; defaults preserved | Original `f6071c8a` unavailable; reconstructed in PR66 (`4f5c9b30`). Actual AppKit red: four failures; corrected integration `37a8ae67`: four passes through both compilers, plain/sanitized | Hosted branch checks pass; the final combined-tree gate and main integration remain. Focused native proof and retained intermediate failure are recorded in the packet report |
-| CX-STDLIB-04 | Reject an invalid Linux grid replacement without losing the old child | Reviewed source `47e64e21`, fixture-only red `36b47db5`; all four attempted native rows fail earlier in compiler-generated C, before Grid behavior executes | Execute native red/green: parented/closed/cyclic replacement preserves old identity and pixels; same-child no-op, valid replacement and null clear retain ownership guarantees |
+| CX-STDLIB-04 | Reject an invalid Linux grid replacement without losing the old child | Reviewed source `47e64e21`, fixture-only red `36b47db5`; initial four rows fail in generated C; after paired compiler fix `808592c9`, all four native rows pass through Python/self-host, plain/ASan/UBSan | Complete the genuine fixture-only negative controls, then final combined-tree gates/main integration. Green execution proves rejected replacement retains identity/pixels, same-child no-op, valid replacement/null clear and cleanup |
 | CX-STDLIB-05 | Keep scrollbar geometry valid in a tiny viewport and at large finite content extents | Reviewed provider `6720fc0b`, final admission checkpoint `e3281e6e`; fixture-only parent `7c060d08` preserves the native red candidate. Formatting, discovery and import checks pass (10 checks); four Mac platform skips are classified with no Linux allowance | Run the dedicated actual pixel/pointer/wheel regression through both compilers and sanitizer variants on Linux, including zero/tiny track and `1e308` content. Mac skip admission is not native Linux evidence. No executed native failure/pass or main landing is claimed yet |
 
 ### Repair files and test admission
@@ -1307,17 +1308,27 @@ not executed. Reviewed paired repair `808592c9` adds the missing interface-paren
 reachability edge in the two existing lowering owners; it does not weaken
 pruning or change the emitter. Fixture-only `72be5947` records three failures and
 eight passes; repaired reference closure/strict-C execution records ten passes.
-Fresh self-host and native qualification use new source-inventoried composites
-with identical repaired compiler inputs, retaining all original archives and
-failures. Neither the repaired self-host nor Grid behavior is qualified yet. Recoverable archival of completed,
+The fresh Linux ARM64 self-host build now passes, followed by LP64 target-row
+identity, paired functional baseline and **11 regression passes, zero skips**
+(including strict-C execution through both compilers). Grid04 then executes
+**four native passes, zero skips**, plain and ASan/UBSan through both compilers
+with actual pixel and ownership assertions (129.72 seconds). Binary SHA-256 is
+`1739f6b16838694fa52297379f431777238ed8a01ec24577fc51ca7d9b07c505`.
+Source-inventoried qualification composites retain each original provider tree
+and identical repaired compiler inputs; all original archives/failures remain.
+The genuine Grid negative controls and other 96 provider cases are still pending.
+The original build took 470.21 seconds and its required target-row comparison
+241.46 seconds; these are preparation elapsed times, not benchmark measurements.
+The source repair requires a fresh build/comparison, while the image and SDK
+provisioning are reused. Recoverable archival of completed,
 unopened September benchmark caches freed 4.85 GB; post-provision free space was
 84.955 GB, above the unchanged 80 GB gate. Logs, source and binaries are retained. A fifth repair, Grid child
 replacement, is preserved at `47e64e21` with fixture-only parent `36b47db5`: it
 validates the new child's lifecycle/parent/cycle conditions before detaching the
 old child. Its four native rows test rejected replacement retaining identity and
 pixels, valid replacement, null clear and ownership cleanup. Source review and
-static checks are clear; native red/green behavior remains pending behind the
-paired compiler repair above. Minimize/
+static checks are clear; native green behavior passes as recorded above, while
+fixture-only negative controls and final integration remain pending. Minimize/
 restore and final X11/Wayland acceptance remain separate. UI2 macOS and Linux
 provider implementation has started independently on preserved branches, using
 the approved interface and existing completion hook; native qualification and
