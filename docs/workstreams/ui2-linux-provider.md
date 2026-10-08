@@ -159,3 +159,9 @@ This foundation is deliberately not claimed as an implemented operation yet:
 window/application service wiring, root refresh, enabled-control overrides,
 composition settlement and the other UI2 methods remain unfinished. No build
 or native test was attempted, and this WIP checkpoint must not land alone.
+
+D29 parent additionally assigns `src/tests/gui_provider_root.py` for the single
+private `ControlEventQueue` test export. The copied fixture manifest alone may
+expose that owner; production package exports remain unchanged. This supports
+shared white-box receipt tests and both provider fixtures without promoting the
+private queue to the portable API.
