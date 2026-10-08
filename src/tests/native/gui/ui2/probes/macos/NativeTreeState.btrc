@@ -87,6 +87,12 @@ int main() {
 	assert(defaultRoot.interactionOwner().events() == defaultLeaf.interactionOwner().events());
 	defaultRoot.attach(defaultLeaf);
 	assert(defaultRoot.close() == CALLBACK_CANCELLATION_COMPLETE && !defaultLeaf.isOpen());
+	var previousDefault = MacOSControlContext.defaultContext();
+	assert(previousDefault.isOpen());
+	previousDefault.close();
+	var nextDefault = MacOSControlContext.defaultContext();
+	assert(nextDefault != previousDefault && nextDefault.isOpen());
+	nextDefault.close();
 	events.close(); context.close(); signal.close();
 	print("UI2 native subtree state preserves disabled preference across hide and reattachment");
 	return 0;
