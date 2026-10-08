@@ -395,9 +395,18 @@ frontends, plain and ASan/UBSan. Its event fixture initially exposed nullable
 probe owners and then a genuine manifest-order parity defect: the reference
 compiler accepts callback metadata after a native source table, while the
 self-host parser rejects it. Moving the source table preserves the exact parsed
-TOML object and allows qualification to continue; the compiler parity defect
-remains open. Evidence is retained in `macos-range-current-f75-r4/METADATA-ORDER.md`
-under the local audit preparation directory.
+TOML object and allows qualification to continue. Repair `6b83cf1b` now retains
+the latest native-binding owner across unrelated tables and checks duplicate
+property tables per binding. The original 20-row proof has 13 failures and seven
+passes; the fresh candidate has 20 passes and zero skips/errors, including all
+16 manifest cases and four actual callback rows across both compilers and
+plain/sanitized native execution. Independent review is clear. The source is
+not yet published or integrated and still needs combined qualification.
+The original failure remains in `macos-range-current-f75-r4/METADATA-ORDER.md`;
+candidate receipt is `native-binding-metadata-order/candidate-1/result.json`,
+SHA-256 `cbc648afd4e5ebf9f8bbaacc089c3438e4363fe55df8ba05b54ca62e6078f33c`.
+Its retained provenance records post-run association of Apple Clang identity,
+not an invented before/after pin for that tool.
 
 The corrected range event fixture passes both projections and strict compilation.
 Its first native run passes key/repeat/accessibility/assistive assertions, then
@@ -592,25 +601,55 @@ step passes: logs record operation-channel, standalone CLI/MCP and live GUI
 journeys through both frontends. The subsequent audio step passes setup,
 terminal-disposal and session-shutdown checks through both frontends, then
 `ApplicationShutdown.reference.clang` aborts on generated condition 50.
-The exact source assertion and cause are under investigation; the self-hosted
-application-shutdown row and Linux product derivation/install do not complete.
-The private artifact is `11554081040`, SHA-256
-`9c9ed38209251a14a5ccc639dd5e3b58b0d42053118b60afa54af554e01594ee`;
-artifact provenance review remains pending. Workflow revision `b383f9f2` changes
+The failing assertion requires one audio session before the first close, but
+the fixture never steps the GUI host to start its intentionally deferred audio.
+The self-hosted application-shutdown row and Linux product derivation/install
+do not complete in that failed run. The private artifact is `11554081040`,
+SHA-256 `9c9ed38209251a14a5ccc639dd5e3b58b0d42053118b60afa54af554e01594ee`;
+its download digest and selected source/log evidence have been verified. Workflow revision `b383f9f2` changes
 only compiler pins, artifact label and historical wording. Final combined gates
 remain pending. App descendants are checked and cleaned on ordinary test failure
 as well as timeout. No full MVP claim.
+
+Fixture-only product repair `37bbb680` starts audio through the actual native
+work queue and host step, preserving the original retryable-close, retained
+session, terminal-close and idempotence assertions. With compiler `f75c737b`,
+the original macOS `native-shutdown-failure-check` now passes through reference
+and self-hosted frontends, including original link-plan parity. Independent
+review verifies all five commands exited zero, their process groups are absent,
+and source, tools, binaries and logs match the retained receipt. Original
+60-second native limits and the 2640-second outer bound remain unchanged.
+Result SHA-256 is `694388f117fbe94e211f69a4fb511bbe789fea7cd393dcbb7a93ef9eb85b8b6b`
+in `btrsmith-native-shutdown-37bbb680-f75-attempt-1/result.json`. This is a macOS
+source-override component result, not installed-product or dependency-pin
+acceptance. Existing-owner nullable warnings remain in the logs. The matching
+Linux replay is pending. A separate production defect remains: GUIApplication
+must propagate every non-complete window-close state before releasing dependent
+view/session ownership; its actual native failure regression and repair are
+being prepared separately.
 
 ### Integration status in service of the goals
 
 **Current checkpoint, October 8:** main is `cbd3ddcdb25b9c7519f2babc3dce38647b3a0212`,
 which merged the consolidated plan and qualified Mac test-coordination repair
-through PR69. The final PR head passed 36 selected checks; post-merge workflows
-are still running. This does not merge the remaining compiler/UI2/product work.
-The locally assembled candidate combines the reviewed token/reply lifetime,
-GCC pointer-temporary and Linux test-coordination repairs. Its 172 affected
-checks, generated-source validation, lint and formatting pass; its full matrix
-and applicable native qualification remain required.
+through PR69. The final PR head passed 36 selected checks; all four post-merge
+Linux, macOS, Windows and Windows ARM64 workflows now pass. This does not merge
+the remaining compiler/UI2/product work. Published PR68 head `00e45379` combines
+the reviewed token/reply lifetime, GCC pointer-temporary and Linux
+test-coordination repairs. Its 172 affected checks, generated-source validation,
+lint and formatting pass; the full combined matrix remains in progress.
+Its hosted merge `d38f344f` has exactly the candidate's tree. The combined
+benchmark gate now passes unchanged: heavy stdlib reports 42,213,376 bytes and
+dispatch 18,432,000 bytes. Artifact `11555372802` has SHA-256
+`da11918dd305041d1783e006c7e4d7ee5b1b0e63993415713251f8406c9573de`.
+This closes that combined regression gate, not the product memory/speed targets.
+Android API 36 first failed when adb reported its device offline; its one
+unchanged failed-job retry passes. The failed artifact `11554383604`, digest
+`668e13b8ec74d5f4b216d6df74530029fdd01b02f6ea006936f6486321e49ea2`,
+remains retained. API 29 and Windows bootstrap also pass at the new head.
+The required explicit macOS native-GUI dispatch is
+[37791840625](https://github.com/schiffy91/btrc/actions/runs/37791840625).
+Remaining full-matrix, skip and native results must be verified before merge.
 
 Windows PR53 previously merged on main at
 `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Its source tree is exactly the
@@ -622,8 +661,9 @@ generated checks, lint, formatting, extension and release hygiene passed;
 skipped standalone jobs are not counted as evidence. This independent slice did
 not wait for UI2 or the remaining compiler work.
 
-Current broader candidate `3974d47b` is published in
-[draft PR68](https://github.com/schiffy91/btrc/pull/68). Its original hosted matrix has
+The preceding broader candidate `3974d47b` remains the historical PR68 baseline;
+the [current draft PR68](https://github.com/schiffy91/btrc/pull/68) head and its
+qualification are recorded above. The baseline's original hosted matrix has
 completed; Android tooling/API 29/API 36, Windows, Windows ARM64, the Linux
 ARM64 bundle, release/static ownership and the Linux Wayland lane pass. Linux
 and macOS bootstrap pass; all eight Linux C11 cells, all Linux test shards and
@@ -904,8 +944,8 @@ changes; historical test totals alone do not advance its status.
 | Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected platform skips, zero failures/errors | Provider repair owner; main integrator qualifies | Qualify the assembled tree with the reviewed X11 coordination repair. Keep genuine external focus-loss cancellation and original native assertions. |
 | UI2 events, executor and lifecycle on desktop | macOS foundation and ordered-container components have scoped native passes. Window and capture/run-loop replay each add eight native passes on compiler `f75c737b`. The public application baseline exposed 19 missing methods; their implementations now exist, with combined qualification open | Application, text-field and range/selection owners | Qualify the implemented methods with original native assertions and complete remaining application integration. Linux Window source is reviewed; its native baseline/candidate run awaits a hosted slot. Full UI2 and application quit remain open. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. With compiler `f75c737b`, Linux paired live-agent acceptance now passes; the following audio step fails reference application shutdown. | BTRSmith owner and integrator | Diagnose and repair the unchanged shutdown assertion, complete paired audio and installed-product qualification, then qualify the product pin and remaining MVP outcomes. The full MVP remains incomplete. |
-| One qualified implementation on main | PR69 consolidated plan and qualified Mac test coordination merged at `cbd3ddcd` after 36 passing selected checks. Prepared compiler/Linux repair integration passes 172 affected checks plus generated/lint/format | Main integrator | Complete final combined tests/bootstrap/C11/static/generated/extension/hygiene and applicable native evidence, then merge qualified repairs. Track UI2 and product changes separately until their acceptance passes. |
+| BTRSmith macOS/Linux MVP on the current stack | Both macOS library journeys and current-product CLI/MCP/live-agent acceptance pass against `3974d47b`. With compiler `f75c737b`, Linux paired live-agent acceptance passes. Fixture repair `37bbb680` now passes original macOS native shutdown and link-plan parity through both compilers. | BTRSmith owner and integrator | Replay the corrected real-startup fixture on Linux, repair non-complete window-close propagation, then complete paired audio, installed-product and dependency-pin qualification. The full MVP remains incomplete. |
+| One qualified implementation on main | PR69 is merged at `cbd3ddcd`; its post-merge Linux/macOS/Windows/Windows ARM64 workflows pass. Published PR68 `00e45379` passes 172 affected checks, generated/lint/format and the unchanged hosted benchmark gate; full qualification is active. | Main integrator | Complete final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip classification and applicable native evidence, then merge qualified repairs. UI2 and product changes retain separate acceptance requirements. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
