@@ -126,6 +126,8 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 	private WindowState _state = WindowState();
 	private long long _generation = 1LL;
 	private bool _requestedVisible = false;
+	private bool _hostActivity = false;
+	private ApplicationActivity _applicationActivity = APPLICATION_ACTIVITY_UNKNOWN;
 	private ControlEventChannel<IWindowStateHandler, WindowState>? _stateChanged;
 	private ControlEventChannel<MacOSWindowCloseReceiver, IWindowCloseTransaction>? _closeRequested;
 	private MacOSWindowCloseRegistration? _closeRegistration;
@@ -160,6 +162,7 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 		var application = NSApplication.sharedApplication();
 		state.applicationActivity = APPLICATION_ACTIVITY_INACTIVE;
 		if (application.isActive()) { state.applicationActivity = APPLICATION_ACTIVITY_ACTIVE; }
+		if (self._hostActivity) { state.applicationActivity = self._applicationActivity; }
 		if (window != null && !self._closing && !self._events.closed) {
 			var content = window.contentView();
 			if (content == null) { throw "Window has no native content view"; }
@@ -171,13 +174,24 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 				if ((window.occlusionState() & NSWindowOcclusionStateVisible) != 0UL) { state.exposure = WINDOW_EXPOSURE_EXPOSED; state.notExposedReason = WINDOW_EXPOSURE_REASON_NONE; }
 				else { state.notExposedReason = WINDOW_EXPOSURE_REASON_OCCLUDED; }
 			}
-			state.presentable = state.exposure == WINDOW_EXPOSURE_EXPOSED && state.width > 0.0 && state.height > 0.0 && Math.isFinite(state.backingScale) && state.backingScale > 0.0;
+			state.presentable = state.applicationActivity != APPLICATION_ACTIVITY_SUSPENDED && state.exposure == WINDOW_EXPOSURE_EXPOSED && state.width > 0.0 && state.height > 0.0 && Math.isFinite(state.backingScale) && state.backingScale > 0.0;
 		}
 		if (self._state.stateRevision != 0LL && self.stateEquals(self._state, state)) { return; }
 		if (self._state.stateRevision == 9223372036854775807LL) { throw "Window state revisions exhausted"; }
 		state.stateRevision = self._state.stateRevision + 1LL; self._state = state;
 		var channel = self._stateChanged;
 		if (channel != null && channel.isOpen() && !channel.publish(self.copyState(state), self._generation, 0LL, 1LL)) { throw "Window state semantic queue is unavailable"; }
+	}
+
+	/* Only an attached host supplies this override. Native standalone windows
+	 * continue to observe NSApplication activity without a synthetic value. */
+	public void setApplicationActivity(ApplicationActivity activity) {
+		self.requireMainThread();
+		if (activity < APPLICATION_ACTIVITY_ACTIVE || activity > APPLICATION_ACTIVITY_UNKNOWN) { throw "Invalid application activity"; }
+		self._context.requireMutationAllowed();
+		if (!self.isOpen()) { return; }
+		self._hostActivity = true; self._applicationActivity = activity;
+		self.captureCoherentState();
 	}
 
 	public WindowState state() { self.requireMainThread(); if (!self._context.mutating()) { self.captureCoherentState(); } return self.copyState(self._state); }
@@ -300,7 +314,7 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 		var root = self._root;
 		if (root == null) { return; }
 		var native = self.projection(root); var state = self._state;
-		bool eligible = !self._closing && state.requestedVisible && state.nativeVisible && !state.minimized;
+		bool eligible = !self._closing && state.applicationActivity != APPLICATION_ACTIVITY_SUSPENDED && state.requestedVisible && state.nativeVisible && !state.minimized;
 		var window = self._window;
 		if (window != null && window.attachedSheet() != null) { eligible = false; }
 		native.markInteraction(eligible, state.exposure, self._semanticEvents);
@@ -392,6 +406,13 @@ class MacOSWindow implements IWindow, IControlEventTarget {
 	}
 
 	public bool isOpen() { self.requireMainThread(); return self._window != null && !self._closing && !self._events.closed; }
+
+	/* Readiness only: the application owns turn budgets and never probes by
+	 * dequeuing a record or entering a receiver. */
+	public bool pendingEvents() {
+		self.requireMainThread();
+		return self._semanticEvents.pendingCount() > 0 || self._events.closeRequested || (self._window != null && (self._events.closed || self._closing));
+	}
 
 	public void dispatchPendingEvents() {
 		self.requireMainThread();

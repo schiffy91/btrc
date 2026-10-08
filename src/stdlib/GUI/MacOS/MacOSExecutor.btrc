@@ -16,19 +16,19 @@ class MacOSScheduledWork implements ICallbackRegistration {
 	public long long key;
 	public WorkSuspensionPolicy policy;
 	private CallbackContext<IApplicationWork, MacOSScheduledWork> _callback;
-	private MacOSRunLoopSignal _signal;
+	private IControlEventWake _wake;
 	private bool _cancelled = false;
 	private bool _executing = false;
 	private ControlEventDisposition _disposition = CONTROL_EVENT_CANCELLED;
 
-	public MacOSScheduledWork(IApplicationWork work, CallbackScope owner, MacOSRunLoopSignal signal, unsigned long long deadline, long long sequence, WorkSuspensionPolicy policy, long long key) {
-		self._signal = signal; self.deadline = deadline; self.sequence = sequence; self.policy = policy; self.key = key;
+	public MacOSScheduledWork(IApplicationWork work, CallbackScope owner, IControlEventWake wake, unsigned long long deadline, long long sequence, WorkSuspensionPolicy policy, long long key) {
+		self._wake = wake; self.deadline = deadline; self.sequence = sequence; self.policy = policy; self.key = key;
 		self._callback = new CallbackContext<IApplicationWork, MacOSScheduledWork>(work, MacOSScheduledWork.unregister);
 		self._callback.activate(owner);
 		self._callback.publish(self);
 	}
 
-	class bool unregister(MacOSScheduledWork work) { work._cancelled = true; work._signal.tryWake(); return true; }
+	class bool unregister(MacOSScheduledWork work) { work._cancelled = true; work._wake.requestTurn(); return true; }
 
 	public bool isOpen() { return !self._cancelled && self._callback.isOpen(); }
 
@@ -64,7 +64,7 @@ class MacOSScheduledWork implements ICallbackRegistration {
 /* Immediate work and future timers share one admission budget. A round takes
  * a sequence watermark; work posted from a handler is never part of that
  * round. The executor checks its time/count budgets before serviceOne. */
-class MacOSWorkQueue {
+class MacOSWorkQueue implements IControlEventWake {
 	private int _capacity;
 	private bool _open = true;
 	private bool _suspended = false;
@@ -73,13 +73,14 @@ class MacOSWorkQueue {
 	private long long _sequence = 0LL;
 	private CallbackScope _scope = CallbackScope();
 	private MacOSRunLoopSignal _signal;
+	private IControlEventWake? _wake;
 	private Vector<MacOSScheduledWork> _entries = [];
 	private Vector<long long> _retired = [];
 
-	public MacOSWorkQueue(int capacity, MacOSRunLoopSignal signal) {
+	public MacOSWorkQueue(int capacity, MacOSRunLoopSignal signal, IControlEventWake? wake = null) {
 		self.requireUI();
 		if (capacity <= 0 || capacity > 65536 || signal == null) { throw "Invalid application work queue capacity"; }
-		self._capacity = capacity; self._signal = signal;
+		self._capacity = capacity; self._signal = signal; self._wake = wake;
 		for (int index = 0; index < 7; index++) { self._retired.push(0LL); }
 	}
 
@@ -116,8 +117,21 @@ class MacOSWorkQueue {
 		return now + (unsigned long long)(delaySeconds * 1000000000.0);
 	}
 
+	public bool requestTurn() {
+		self.requireUI();
+		if (!self._open) { return !self._failed; }
+		bool accepted = false;
+		try {
+			var wake = self._wake;
+			if (wake != null) { accepted = wake.requestTurn(); }
+			else { accepted = self._signal.tryWake(); }
+		} catch (string error) { accepted = false; }
+		if (!accepted) { self._failed = true; self._open = false; }
+		return accepted;
+	}
+
 	private void wake() {
-		if (self._signal.tryWake()) { return; }
+		if (self.requestTurn()) { return; }
 		/* Admission already committed. Never turn this into a rejection that
 		 * invites duplicate resubmission; retain failed receipt accounting. */
 		self._failed = true; self._open = false;
@@ -144,7 +158,7 @@ class MacOSWorkQueue {
 		}
 		if (replacement < 0 && self._entries.len == self._capacity) { result.kind = SCHEDULE_FULL; return result; }
 		if (self._sequence == 9223372036854775807LL) { throw "Application work identities exhausted"; }
-		var entry = MacOSScheduledWork(work, self._scope, self._signal, due, self._sequence + 1LL, policy, replacementKey);
+		var entry = MacOSScheduledWork(work, self._scope, self, due, self._sequence + 1LL, policy, replacementKey);
 		self._sequence++;
 		if (replacement >= 0) {
 			var previous = self._entries.get(replacement);
