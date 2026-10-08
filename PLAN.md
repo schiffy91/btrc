@@ -87,9 +87,11 @@ candidate `71352c50` and exact baseline `3974d47b` both build with the same
 Nix Clang 21.1.8. Their 292 focused diagnostic, managed-literal and scope
 checks pass with zero skips; candidate self-emission and literal C-byte parity
 also pass. Archived source bytes/modes and actual tool identities are verified.
-The immutable 851-file D9 workload is reverified. The current quiet admission
-is in progress, with no current paired samples yet; this diagnostic does not
-replace Stage 5 or the full final matrix.
+The immutable 851-file D9 workload is reverified. The current-source attempt
+also stops at its unchanged 180-second quiet deadline: actual `mds`/`mdworker`
+CPU exceeds 5%, while guests are stopped and all other probes pass. It records
+zero compiler samples (`token-current-3974/quiet-diagnostic-1`), supplies no
+performance result, and does not replace Stage 5 or the full final matrix.
 
 ### Goal 2: usable standard library and native GUI on five platforms
 
