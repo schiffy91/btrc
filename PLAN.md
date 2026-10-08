@@ -204,7 +204,18 @@ module-emission samples among 7,091 main-thread observations. These overlapping
 owner counts are attribution, not a savings estimate. A reviewed design reuses
 an emitter-owned immutable body within one finish operation while preserving
 complete-draft identifier scanning, final IR validation, prologue policy and
-separate debug-line finalization. Implementation and benefit remain unproven. The first attempt's recording-only circular-reference failure is
+separate debug-line finalization. Paired implementation `72357bac` now provides
+that reuse in the existing four emitter/pipeline owners. Independent source and
+regression-test review is clear; Python lint/format and BTRC format pass.
+The unchanged source/binary first passed all 18 affected checks, with no skips
+or errors and all 17 groups closed (baseline result SHA-256
+`486f06e71d7f3b53144825cc5148e467e6801b4b048262fd9c3662eedff55f78`).
+Two host-environment preflight failures before testing remain retained.
+The candidate's six new cases, fresh self-hosted build, original paired checks,
+current-product C parity and measurements remain pending. The snapshot adds an
+extra tuple/vector copy to ordinary emission, so net speed and memory benefit
+remain unproved. The branch is unpublished; it does not alter PR68's current
+qualification head. The first attempt's recording-only circular-reference failure is
 retained separately with zero completed samples and explicit unknown sampler
 numeric PID; fresh external checks found no surviving owned process. A direct
 identity-serialization regression reproduces that bug and verifies the corrected
@@ -727,7 +738,14 @@ unchanged retry passes. The failed artifact `11554383604`, digest
 remains retained. API 29 and Windows bootstrap also pass at the new head.
 The required explicit macOS native-GUI dispatch is
 [37791840625](https://github.com/schiffy91/btrc/actions/runs/37791840625).
-It is now running. Linux run `37786709187` is complete and independently audited:
+Its first job reached the unchanged 90-minute limit: setup consumed 62m45s,
+leaving 27m36s for tests. The last visible progress was 72 passing dots (13%),
+with no logged failure; no JUnit/skip artifact survived. This is incomplete
+qualification, not a green suite or proof against a native hang. The retained
+job log has SHA-256 `3391f8e260da6509c7ac863ca77ab360bebcef45c62c5c5d8ac7d018b3bfacdd`
+in `pr68-00e45379-macos-gui-timeout/job.log`. One unchanged failed-job retry is
+accepted as attempt 2, job `113422566478`; preserve source, 90-minute job limit,
+600/60-second test bounds and three workers. Linux run `37786709187` is complete and independently audited:
 all 13 expected shard reports are present, tied to exact merge `d38f344f` and
 candidate tree `53a05e9f`, with fatal skip classification enforced. Unit tests
 report 7,230 passes/3,128 expected skips; self-host tests 5,857/34; both corpora
