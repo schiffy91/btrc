@@ -3,6 +3,7 @@ import Library.GUI.IApplication;
 import Library.GUI.IView;
 import Library.GUI.IWindow;
 import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSContainer;
 
 import ./ApplicationHostProbe.btrc;
 #include <assert.h>
@@ -64,6 +65,7 @@ class PublicClosingWork implements IApplicationWork {
 
 int main() {
 	ui2InstallHostDelegate();
+	var independent = MacOSContainer();
 	IApplication application = MacOSApplication(2);
 	assert(ui2HostDelegateUnchanged() && !application.isRunning());
 	var host = PublicTestHost();
@@ -122,6 +124,9 @@ int main() {
 	/* The real public factory must share the application's semantic context.
 	 * No fixture reaches into a queue or invokes the observer itself. */
 	var view = application.createContainer();
+	bool foreignRejected = false;
+	try { view.attach(independent); } catch (string error) { foreignRejected = true; }
+	assert(foreignRejected && view.childCount() == 0 && independent.isOpen());
 	var stateReceiver = PublicStateReceiver();
 	view.onInteractionStateChanged(stateReceiver, scope);
 	view.setVisible(false);
@@ -137,6 +142,7 @@ int main() {
 	assert(!view.isOpen() && ui2HostDelegateUnchanged());
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(application.attachHost(host, scope).kind == APPLICATION_HOST_APPLICATION_CLOSED);
+	assert(independent.isOpen() && independent.close() == CALLBACK_CANCELLATION_COMPLETE);
 	ui2RestoreHostDelegate();
 	print("UI2 public application host shares bounded work, worker ingress and native view delivery");
 	return 0;
