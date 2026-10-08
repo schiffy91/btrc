@@ -67,7 +67,14 @@ attempt has likewise not sampled: all 851 D9 workload files match immutable Git
 blobs, but the quiet check flags idle simulator/transport helpers despite all
 simulators being shut down. Process classification is under review; the CPU,
 active-build, guest and full quiet-window requirements remain unchanged. Do not refresh a benchmark
-baseline or relax a target to hide the outstanding regression.
+baseline or relax a target to hide the outstanding regression. The reviewed
+quiet-service classifier (`bc685ed7`, 92 focused passes) preserves the complete
+60-second/5-second/5-percent rules and distinguishes idle trusted transports from
+active jobs. The second attempt still takes no samples: the retained build shell
+sets DEVELOPER_DIR to its SDK-only Nix package, preventing even the absolute
+Apple xcrun from locating simctl. The probe must query the selected installed
+Xcode without changing compiler SDK inputs; this is an environment repair, not
+a measured compiler improvement.
 
 ### Goal 2: usable standard library and native GUI on five platforms
 
@@ -171,9 +178,14 @@ successful cycles. Sanitized self-host completes 100 cycles, 100 GPU frames and
 100 restores with zero provider/registration survivors, but its private-class
 comparison fails: its window becomes active/key, while the native control remains
 inactive/nonkey throughout and never creates the insertion-indicator helper.
-Equivalent active/key control coverage and the separate activation failure remain
-under investigation. Neither bounded observation nor an isolated pass excuses
-these failed gates.
+The independent sanitized AppKit control now completes 100 cycles with all
+300 Tab observations active/key, zero provider survivors and one insertion
+indicator per cycle. Its bounded public activation/key retry preserves the
+original 15-second journey deadline. The source correction requires this actual
+context in the comparison; private-class and growth checks remain unchanged.
+Two standalone traced self-host runs pass, so the intermittent activation failure
+still needs tracing in the actual suite order after the reference restoration
+workload. Neither the control result nor isolated passes qualify the full suite.
 The Darwin Python/libffi repair `2e8e3711` now passes the actual callback smoke,
 46 build-safety checks and upstream CFFI's 1,888 checks (161 skips, four deselected,
 four expected failures). Its four-platform package evaluation also passed;
@@ -192,8 +204,14 @@ The artifact records an access violation but no stack; it does not establish an
 LLD child crash. Reviewed local diagnostic `75c00a96` bypasses the driver with the
 pinned direct COFF linker under existing process limits; 37 portable tests pass,
 with one native-only skip. It is published at `75c00a96`; native run
-`37707241092` and general CI `37707240934` are the current qualification wave. The underlying
-GNU ARM64 compiler crash remains unresolved. These repairs
+`37707241092` is terminal: cross-build passes, native qualification fails before
+BTRC executes, and the separate MSVC/wgpu smoke passes. The direct `zig lld-link`
+ARM64 DLL probe succeeds with exit zero and no captured exception, while
+`zig cc -target aarch64-windows-gnu` still exits with an access violation when
+linking an executable. This narrows the investigation to the driver/CRT path;
+the no-CRT DLL probe does not qualify executable linking. This run’s driver
+crash-location probe times out without an exception record. General CI
+`37707240934` is separate. The GNU ARM64 compiler crash remains unresolved. These repairs
 restore verification capability; they do not demonstrate compiler speed gains.
 The plan-reader modules passed 155 checks at `27417a89`.
 
@@ -954,7 +972,7 @@ failed runs and their evidence rather than replacing them with later passes.
 | PR60, `codex/harmonize-plan` | `50bf1c8c` | Predecessor `b5e3f81a` completed with 17,664 passes, nine structural-audit failures and 168 skips. All nine are resolved by the expanded 155-check target-conditioned audit; Linux-target reference transpilation passes after the arithmetic repair. The combined run completed 17,803 passed, zero failed and 168 skipped in 1,863.14 seconds; the skip audit then failed on two Linux-only hard-limit cases, stopping before bootstrap/C11. Local `8c71dda6` adds narrow macOS classifications: 61 ledger checks pass and the retained report reclassifies with zero unexpected skips. Local `e497ac98` repairs quiet measurement orchestration; 106 combined focused checks pass. The combined local tree `a8d92cb8` has passed lint, formatting, generated-source and extension checks, and passed bootstrap in 594.69 seconds with zero skips. All eight strict-C11 configurations (GCC and Clang, -O0 through -O3) passed 2,036 checks each without skips. The serialized remaining-gate run finished successfully, including the plan and diff checks. This resumes the remaining gates; it is not a fresh full make test result. Neither repair is published yet; full final qualification remains pending. |
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge is now included in `06c3923a`; full qualification/main landing remain pending. |
-| PR53, Windows ARM64 host | Published `483e5bab`; local `75c00a96` | Native run 37701082806 passes preflight but fails minimal linking before compiler/bootstrap. ARM64 object compilation passes; the root Zig process records an access violation without a stack. A direct bundled-LLD probe is reviewed locally (37 passed, one native-only skip), awaiting a CI slot. Neither portable tests nor separate MSVC/wgpu evidence closes native BTRC qualification. |
+| PR53, Windows ARM64 host | Published `75c00a96` | Native run 37707241092 passes cross-build, object compilation and direct bundled-LLD no-CRT DLL linking. GNU executable linking through the Zig driver still exits with an access violation before BTRC/bootstrap; this run’s crash-location probe times out. Separate MSVC/wgpu smoke passes. Neither that smoke nor DLL linking closes native BTRC qualification. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 At `50bf1c8c`, the [native Linux ARM64 release job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636879)
