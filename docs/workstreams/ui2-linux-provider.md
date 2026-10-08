@@ -165,3 +165,20 @@ private `ControlEventQueue` test export. The copied fixture manifest alone may
 expose that owner; production package exports remain unchanged. This supports
 shared white-box receipt tests and both provider fixtures without promoting the
 private queue to the portable API.
+
+Source wiring now services per-window and detached semantic queues in a rotating
+64-record/2 ms slice after native capture. Window show/hide/minimize/restore,
+application suspension, attachment and ancestor visibility update inherited
+eligibility; input and focus admission consult that state. Existing enabled
+preferences remain in the controls and are queried virtually, with no second
+IView enabled store. State observers use live-generation admission separately
+from domain eligibility, so hidden/disabled observations can be delivered.
+Snapshots are copied for callers and queued notifications, revisions advance
+only when facts change, and unchanged refreshes emit no replay. The entire
+subtree is marked before settlement and notification.
+
+This remains incomplete UI2 source: semantic control terminals, composition
+settlement, button action migration, container transactions, full WindowState
+and reversible/grouped close still require wiring and genuine fixtures. The
+minimize/restore source path is not native evidence and does not close the old
+01 qualification gap. Formatter/diff checks passed; no compiler/native tests.

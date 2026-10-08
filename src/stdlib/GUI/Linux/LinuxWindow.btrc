@@ -129,6 +129,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	private string _title;
 	private bool _visible = false;
 	private bool _focused = false;
+	private bool _suspended = false;
 	private bool _closeRequested = false;
 	private bool _closing = false;
 	private bool _closed = false;
@@ -178,6 +179,21 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 
 	public SDL_Window* nativeWindow() { self.requireOpen(); return self._window; }
 
+	public int semanticPending() { return self._host.events.pendingCount(); }
+
+	public bool dispatchSemantic() { return self._host.events.dispatchOne(); }
+
+	public void suspendInput(bool suspended) { self._suspended = suspended; self.refreshInteraction(); }
+
+	private void refreshInteraction() {
+		bool visible = self.isVisible();
+		bool minimized = self._window != null && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_MINIMIZED) != 0ULL;
+		self._host.eligible = self.isOpen() && visible && !minimized && !self._suspended;
+		self._host.exposure = !visible || minimized ? WINDOW_EXPOSURE_NOT_EXPOSED : WINDOW_EXPOSURE_UNKNOWN;
+		if (self._root != null) { self._root.node().refreshInteraction(self._host.eligible); }
+		if (!self._host.eligible) { self.cancelCapture(); if (self._host.focusedId != 0) { self.moveFocus(0); } }
+	}
+
 	public bool owns(int viewId) { return self.locate(viewId) != null; }
 
 	private void requireOpen() { if (self._window == null || self._closing || self._closed) { throw "Window shutdown has started"; } }
@@ -208,10 +224,10 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	/* Hidden windows present nothing, so they never keep the loop awake. */
-	public bool needsFrame() { return self.isVisible() && (self._host.invalidation.revision() != self._paintedRevision || (self._wakeAt != 0ULL && SDL_GetTicksNS() >= self._wakeAt)); }
+	public bool needsFrame() { return !self._suspended && self.isVisible() && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_MINIMIZED) == 0ULL && (self._host.invalidation.revision() != self._paintedRevision || (self._wakeAt != 0ULL && SDL_GetTicksNS() >= self._wakeAt)); }
 
 	/* When a painted view asked to be redrawn (a caret blink, a spinner); zero for none. */
-	public unsigned long long wakeAt() { return self.isVisible() ? self._wakeAt : 0ULL; }
+	public unsigned long long wakeAt() { return !self._suspended && self.isVisible() && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_MINIMIZED) == 0ULL ? self._wakeAt : 0ULL; }
 
 	private RGBA background() { var theme = self._dark ? self._context.darkTheme : self._context.lightTheme; return theme.dark ? RGBA(30, 30, 33, 255) : RGBA(238, 238, 240, 255); }
 
@@ -303,7 +319,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		var root = self._root;
 		if (root == null) { return path; }
 		var node = root.node();
-		if (!node.visible || x < node.x || y < node.y || x >= node.x + node.width || y >= node.y + node.height) { return path; }
+		if (!node.effectiveEligible() || x < node.x || y < node.y || x >= node.x + node.width || y >= node.y + node.height) { return path; }
 		ILinuxView current = root;
 		double originX = node.x;
 		double originY = node.y;
@@ -514,7 +530,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		}
 		if (self._host.focusedId != 0) {
 			var focused = self.locate(self._host.focusedId);
-			if (focused != null) { focused.view.key(event); }
+			if (focused != null && focused.view.node().effectiveEligible()) { focused.view.key(event); }
 		}
 	}
 
@@ -526,6 +542,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	private void moveFocus(int id) {
+		if (id != 0) { var candidate = self.locate(id); if (candidate == null || !candidate.view.node().effectiveEligible()) { id = 0; } }
 		int previous = self._host.focusedId;
 		self._host.focusedId = id;
 		if (previous != 0) {
@@ -573,9 +590,10 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_LOST) { self._focused = false; self.cancelCapture(); self._host.invalidation.mark(); return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_LEAVE) { self._pointerInside = false; if (self._captureButton == APP_POINTER_BUTTON_NONE) { self.clearHover(); } return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_ENTER) { self._pointerInside = true; return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_SHOWN) { self._visible = true; self.layoutRoot(); self._host.invalidation.mark(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_HIDDEN) { self._visible = false; return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_MINIMIZED) { return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_SHOWN) { self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_HIDDEN) { self._visible = false; self.refreshInteraction(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_MINIMIZED || type == (unsigned int)SDL_EVENT_WINDOW_RESTORED) { self.refreshInteraction(); self._host.invalidation.mark(); return; }
+		if (!self._host.eligible) { return; }
 		if (type == (unsigned int)SDL_EVENT_MOUSE_MOTION) {
 			self._pointerX = (double)event->x;
 			self._pointerY = (double)event->y;
@@ -612,7 +630,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		if (type == (unsigned int)SDL_EVENT_TEXT_INPUT) {
 			if (event->text != null && self._host.focusedId != 0) {
 				var focused = self.locate(self._host.focusedId);
-				if (focused != null) { focused.view.textInput(Strings.copy((char*)event->text)); }
+				if (focused != null && focused.view.node().effectiveEligible()) { focused.view.textInput(Strings.copy((char*)event->text)); }
 			}
 			return;
 		}
@@ -621,7 +639,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	/* Called by the application after dispatch so focus moves settle. */
 	public void settle() {
 		self.applyFocus();
-		if (self._host.focusedId != 0 && self.locate(self._host.focusedId) == null) { self.moveFocus(0); }
+		if (self._host.focusedId != 0) { var focused = self.locate(self._host.focusedId); if (focused == null || !focused.view.node().effectiveEligible()) { self.moveFocus(0); } }
 		if (self._host.overlayId != 0 && self.locate(self._host.overlayId) == null) { self._host.overlayId = 0; }
 	}
 
@@ -676,6 +694,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		node.attached = true;
 		self._root = native;
 		native.attachTo(self._host);
+		self.refreshInteraction();
 		self.layoutRoot();
 		self._host.invalidation.mark();
 	}
@@ -690,15 +709,15 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		if (self._host.focusedId != 0) { self.moveFocus(0); }
 		self._host.overlayId = 0;
 		detaching.node().attached = false;
-		detaching.attachTo(null);
+		detaching.attachTo(null); detaching.node().refreshInteraction(false);
 		self._root = null;
 		self._host.invalidation.mark();
 		return root;
 	}
 
-	public void show() { self.requireOpen(); SDL_ShowWindow(self._window); self._visible = true; self.layoutRoot(); self._host.invalidation.mark(); }
+	public void show() { self.requireOpen(); SDL_ShowWindow(self._window); self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); }
 
-	public void hide() { self.requireOpen(); SDL_HideWindow(self._window); self._visible = false; }
+	public void hide() { self.requireOpen(); SDL_HideWindow(self._window); self._visible = false; self.refreshInteraction(); }
 
 	public bool isVisible() { return self.isOpen() && self._visible && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_HIDDEN) == 0ULL; }
 
@@ -721,12 +740,12 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	public CallbackCancellation close() {
 		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (!self._closing) { self._closing = true; self._host.invalidation.mark(); }
+		if (!self._closing) { self._closing = true; self.refreshInteraction(); self._host.invalidation.mark(); }
 		return self.pollClose();
 	}
 
 	private void destroyNative() {
-		self._host.poller = null;
+		self._host.poller = null; self._host.events.close();
 		self._painter = null;
 		self._captureRenderer = null;
 		self._captureTarget = null;

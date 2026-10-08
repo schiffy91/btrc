@@ -238,9 +238,13 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 
 	public void setPlaceholder(string text) { self.node().requireOpen(); self._placeholder = text == null ? "" : text; self.node().invalidate(); }
 
+	public bool locallyEnabled() { return self._enabled; }
+
+	public void eligibilityLost() { self.node().cancelOwnPointerCapture(); self.focus(false); self.node().invalidate(); }
+
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
-	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().invalidate(); } }
+	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); self.node().invalidate(); } }
 
 	public void setFont(double size) {
 		self.node().requireOpen();

@@ -208,7 +208,7 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 
 	public string selectedTitle() { self.node().requireOpen(); return self._selected >= 0 && self._selected < self._titles.len ? self._titles.get(self._selected) : ""; }
 
-	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; if (!enabled) { self.closeMenu(); } self.node().invalidate(); } }
+	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); if (!enabled) { self.closeMenu(); } self.node().invalidate(); } }
 
 	public void setFont(double size) {
 		self.node().requireOpen();
@@ -217,6 +217,10 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 		self._size = size;
 		self.node().invalidate();
 	}
+
+	public bool locallyEnabled() { return self._enabled; }
+
+	public void eligibilityLost() { self.node().cancelOwnPointerCapture(); self.closeMenu(); self.node().invalidate(); }
 
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 

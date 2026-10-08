@@ -115,6 +115,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private int _publisherCapacity = 65536;
 	private int _publisherUsed = 0;
 	private int _publisherCursor = 0;
+	private int _semanticCursor = 0;
 	private IApplicationHost? _host = null;
 	private LinuxHostAttachment? _attachment = null;
 	private ApplicationActivity _activity = APPLICATION_ACTIVITY_UNKNOWN;
@@ -259,7 +260,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			for (int index = 0; index < locked; index++) { self._publishers.get(index).endHostChange(); }
 			result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = error; return result;
 		}
-		self._host = host; self._attachment = attachment;
+		self._host = host; self._context.semanticWake.host = host; self._attachment = attachment;
 		for publisher in self._publishers { publisher.setHostLocked(host); publisher.endHostChange(); }
 		result.kind = APPLICATION_HOST_ATTACHED; result.attachment = attachment;
 		self.updateHostDeadline(); self.signalTurn(); return result;
@@ -272,6 +273,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		bool suspended = activity == APPLICATION_ACTIVITY_SUSPENDED;
 		if (suspended) { for delayed in self._delayed { if (delayed.policy == WORK_SUSPENSION_CANCEL) { delayed.cancel(); } } self.pruneDelayed(); }
 		for publisher in self._publishers { publisher.suspend(suspended); }
+		for window in self._windows { window.suspendInput(suspended); }
 		self.signalTurn(); self.updateHostDeadline();
 	}
 
@@ -294,6 +296,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	public IWindow createWindow(string title, double width, double height) {
 		self.requireCreation();
 		var window = LinuxWindow(self._context, title, width, height);
+		window.suspendInput(self._activity == APPLICATION_ACTIVITY_SUSPENDED);
 		self._windows.push(window);
 		return window;
 	}
@@ -383,6 +386,18 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		}
 	}
 
+	private void dispatchSemantic() {
+		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
+		int empty = 0;
+		for (int delivered = 0; delivered < 64 && !self._quitRequested && SDL_GetTicksNS() < deadline; delivered++) {
+			int count = self._windows.len + 1;
+			if (self._semanticCursor >= count) { self._semanticCursor = 0; }
+			int source = self._semanticCursor++;
+			bool progress = source == 0 ? self._context.detachedEvents.dispatchOne() : self._windows.get(source - 1).dispatchSemantic();
+			if (progress) { empty = 0; } else { empty++; if (empty >= count) { break; } }
+		}
+	}
+
 	private void dispatchActions() {
 		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
 		int count = self._context.actions.pendingCount();
@@ -412,9 +427,9 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	}
 
 	private bool runnable() {
-		if (self._quitRequested || self._context.actions.pendingCount() > 0) { return true; }
+		if (self._quitRequested || self._context.actions.pendingCount() > 0 || self._context.detachedEvents.pendingCount() > 0) { return true; }
 		for publisher in self._publishers { if (publisher.pending()) { return true; } }
-		for window in self._windows { if (window.isOpen() && window.needsFrame()) { return true; } }
+		for window in self._windows { if (window.semanticPending() > 0 || (window.isOpen() && window.needsFrame())) { return true; } }
 		return false;
 	}
 
@@ -465,14 +480,15 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			 * gets its own count/time slice and cleanup always gets a turn. */
 			self._dispatching = true;
 			try { self.pumpEvents(timeoutMilliseconds); } finally { self._dispatching = false; }
-			for (int offset = 0; offset < 4; offset++) {
-				int phase = (self._rotation + offset) % 4;
+			for (int offset = 0; offset < 5; offset++) {
+				int phase = (self._rotation + offset) % 5;
 				if (phase == 0) { self.runDelayed(); }
 				else if (phase == 1) { self.runPublishers(); }
 				else if (phase == 2) { self.dispatchActions(); }
+				else if (phase == 3) { self.dispatchSemantic(); }
 				else { self.renderWindows(); }
 			}
-			self._rotation = (self._rotation + 1) % 4;
+			self._rotation = (self._rotation + 1) % 5;
 		} finally { self._turnActive = false; }
 		self.updateHostDeadline();
 	}
@@ -560,7 +576,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			self._pendingWork = 0;
 			for delayed in self._delayed { delayed.cancel(); }
 			self._delayed.clear();
-			self._context.actions.close();
+			self._context.actions.close(); self._context.detachedEvents.close(); self._context.semanticWake.host = null;
 		} catch (string error) { self._closeFailure = error; throw error; }
 		self._closed = true;
 		return CALLBACK_CANCELLATION_COMPLETE;

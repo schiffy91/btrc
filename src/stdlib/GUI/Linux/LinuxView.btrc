@@ -250,6 +250,8 @@ class LinuxViewNode implements IControlEventTarget {
 		return status == CONTROL_EVENT_DELIVERED && (self._state == null || !self._state.effectiveEligible) ? CONTROL_EVENT_INELIGIBLE : status;
 	}
 
+	public bool effectiveEligible() { return self.isOpen() && self._state != null && self._state.effectiveEligible; }
+
 	public ViewInteractionState interactionState() { self.requireOpen(); return self.snapshot(); }
 
 	private ViewInteractionState snapshot() {
@@ -406,8 +408,10 @@ class LinuxViewNode implements IControlEventTarget {
 
 	public Vector<LinuxViewInput> inputs() { return self._inputs; }
 
+	public void cancelOwnPointerCapture() { for input in self._inputs { if (input.isOpen()) { input.cancelCapture(0.0, 0.0); } } }
+
 	public void cancelPointerCapture() {
-		for input in self._inputs { if (input.isOpen()) { input.cancelCapture(0.0, 0.0); } }
+		self.cancelOwnPointerCapture();
 		for child in self.children { child.node().cancelPointerCapture(); }
 	}
 
@@ -469,7 +473,7 @@ class LinuxNodeView implements ILinuxView {
 
 	public bool locallyEnabled() { return true; }
 
-	public void eligibilityLost() { self._node.cancelPointerCapture(); }
+	public void eligibilityLost() { self._node.cancelOwnPointerCapture(); }
 
 	public ViewInteractionState interactionState() { return self._node.interactionState(); }
 

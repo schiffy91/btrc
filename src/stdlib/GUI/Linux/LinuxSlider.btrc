@@ -91,7 +91,11 @@ class LinuxSlider extends LinuxNodeView implements ISlider {
 		self.node().invalidate();
 	}
 
-	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self._dragging = false; self.node().invalidate(); } }
+	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); self._dragging = false; self.node().invalidate(); } }
+
+	public bool locallyEnabled() { return self._enabled; }
+
+	public void eligibilityLost() { self.node().cancelOwnPointerCapture(); self._dragging = false; self.node().invalidate(); }
 
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
