@@ -75,7 +75,12 @@ int main() {
 	assert(late.events.len == 0); NativeTextAssertions.drain(context);
 	assert(late.events.len == 1 && late.events.get(0).text == "late");
 	assert(lateScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
-	field.detachFrom(parent); assert(field.close() == CALLBACK_CANCELLATION_COMPLETE);
+	field.detachFrom(parent);
+	field.interactionOwner().update(true, true, false, false, WINDOW_EXPOSURE_UNKNOWN, true);
+	bool quarantined = false;
+	try { field.setText("must not replace"); } catch (string error) { quarantined = error == "Native view is quarantined"; }
+	assert(quarantined && field.text() == "late");
+	assert(field.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(context.terminalPool.available() == 16384); context.close(); UI2TextProbe.close();
 	printf("UI2 native text preserves draft ownership and ordered terminal eligibility\n"); return 0;
 }
