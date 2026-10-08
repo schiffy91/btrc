@@ -214,3 +214,52 @@ All 40 owned command leaders were reaped and their groups were absent; all
 were unchanged. An independent read-only audit confirmed that classification
 and closure. No candidate implementation or selfhost/sanitized native result
 is claimed by this baseline.
+
+
+## Qualified native quit and lifecycle packet
+
+Source `73f636e8864db44b2b3012c6a319808b76c9fb7f` completed all 88 native
+children through both f75 compiler frontends, plain and ASan/UBSan, on
+Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0. The original SDK 27 / arm64 macOS 14
+target, strict flags and 120/60/120/30-second stage bounds were retained.
+The immutable bundle is `ui2-macos-native-quit-73f636e8-compiler-f75c737b`.
+Its independent full audit SHA-256 is
+`b29066f543f43f92aa03c8aa6c47f999d4fc4390663d9977f413c4360a74f4d1`.
+
+The result comprises 22 projections, 194 strict translation-unit checks,
+44 links and 88 native passes. All 1,206 recorded process leaders were reaped
+and their groups were absent. The 358 provider files, 131 compiler files,
+mode inventories, auxiliary native bindings, tools, emitted outputs and
+archives passed closure checks. The original baseline remains a real failure.
+
+Twenty native cases cover cancellation, early peer cancellation, held-save
+revision and membership revalidation, same-callback pending-save promotion,
+all-authorized commit, ingress sealing before finalizers, retryable native
+publisher cleanup and native-only modal unwind. Twenty unchanged regressions
+cover WorkQueue, Publisher, attached ApplicationHost and Window state/close.
+The remaining 48 children exercise all twelve original standalone lifecycle
+scenarios in all four frontend/mode combinations, including final-owner
+scope exit and the original ten-second stuck-subtree failure/retry oracle.
+The cleanup fault seam proves the actual retryable return-code path; it does
+not establish execution of a thrown-cancellation branch.
+
+Actual qualification found and retained three provider failures after the
+first forty focused passes: publication of a fresh member vector from a
+DESTROYING application, generic pending failure hiding the recorded subtree
+error, and retained internal host state falsely reporting a stopped standalone
+loop as running. Separate commits `21ccce41`, `4232652b` and `73f636e8` repair
+those existing owners. The original scope-exit and compound subtree assertions
+were not weakened or replaced with explicit cleanup. Prior failing receipts
+and the no-build stuck-subtree baseline remain authenticated in the final
+bundle. An earlier duplicate timer-interface setup failure was corrected by
+using the interface synthesized by its native binding; the twelve scenario
+oracles and native probe bytes remain unchanged.
+
+This is the qualified macOS application/window quit and affected lifecycle
+slice, not complete two-provider UI2. The tested composition also uses exact
+Text donor `88db78e5` and Range/Select donor `209fe7f7`, recorded per file in
+`source-composition.json`; the private qualification manifest exposes internal
+test owners. Integration must deliberately carry the required native fragments
+without silently publishing all private exports. Foreground-dependent
+Scroll/Range/Select interaction qualification, Linux native group quit and
+final integrated platform gates remain separate obligations.
