@@ -20,6 +20,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 	private string _acceptedText;
 	private string _preedit = "";
 	private bool _composing = false;
+	private bool _compositionCommitRequested = false;
 	private int _compositionStart = 0;
 	private int _compositionEnd = 0;
 	private int _preeditCaret = 0;
@@ -97,7 +98,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); if (self._commitTicket == null) { throw "Text commit reservation unavailable"; } }
 			if (self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Text cancel reservation unavailable"; } }
 		} catch (string error) { self.releaseTickets(); throw error; }
-		self._interaction++; self._interacting = true;
+		self._interaction++; self._interacting = true; self._compositionCommitRequested = false;
 	}
 
 	private string draftText() {
@@ -125,12 +126,12 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		if (!self._composing) { return; }
 		var host = self._compositionHost;
 		if (host != null && host.window != null && !SDL_ClearComposition(host.window)) { throw "Cannot cancel native text composition"; }
-		self._composing = false; self._preedit = ""; self._compositionHost = null; self.changed();
+		self._composing = false; self._preedit = ""; self._compositionHost = null; self._compositionCommitRequested = false; self.changed();
 	}
 
 	private void commitInteraction() {
 		if (!self._interacting || self._composing) { return; }
-		bool dirty = !self._text.equals(self._acceptedText);
+		bool dirty = !self._text.equals(self._acceptedText); self._compositionCommitRequested = false;
 		self._interacting = false;
 		try {
 			if (dirty) {
@@ -146,7 +147,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		if (!self._interacting && !self._composing) { return; }
 		self.clearComposition();
 		if (restore) { self._text = self._acceptedText; self._caret = self._text.len(); self._anchor = self._caret; }
-		self._interacting = false; self._dragging = false; self.changed();
+		self._interacting = false; self._compositionCommitRequested = false; self._dragging = false; self.changed();
 		try {
 			var channel = self._cancel; var ticket = self._cancelTicket;
 			if (channel != null && channel.isOpen() && ticket != null) {
@@ -324,7 +325,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 			else { self.cancelInteraction(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE, true); }
 			return true;
 		}
-		if (event.key == APP_KEY_ENTER) { self.commitInteraction(); return true; }
+		if (event.key == APP_KEY_ENTER) { if (self._composing) { self._compositionCommitRequested = true; } else { self.commitInteraction(); } return true; }
 		if (self._composing) { return true; }
 		bool shift = event.modifiers.shift;
 		bool control = event.modifiers.control || event.modifiers.command;
@@ -364,6 +365,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		if (composed) { self._anchor = self._compositionStart; self._caret = self._compositionEnd; self._composing = false; self._preedit = ""; self._compositionHost = null; }
 		self.replaceSelection(value);
 		if (composed && self._text.equals(previous)) { self.changed(); self.publishDraft(); }
+		if (self._compositionCommitRequested) { self.commitInteraction(); }
 	}
 
 	public void focus(bool focused) {

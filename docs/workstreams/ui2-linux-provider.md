@@ -331,3 +331,10 @@ qualification lane runs. Ordinary focus departure while SDL still reports
 composition needs native-ordering review; the draft treats that as a SYSTEM
 platform interruption, whereas finalized dirty text commits on ordinary blur.
 This source checkpoint is not a platform adaptation approval or UI2 acceptance.
+
+Fixture-only `9f956148` also stages Return-before-final-TEXT_INPUT ordering.
+The implementation retains that one pending commit intent while marked text
+is active, consumes it only after finalized text arrives, and clears it on
+cancellation/new interaction. A repeated Return after completion emits no
+second commit. As with the other text assertions, no native execution or
+semantic compilation has occurred yet.
