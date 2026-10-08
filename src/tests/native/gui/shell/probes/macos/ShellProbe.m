@@ -113,13 +113,22 @@ int shellProbeFocus(void) {
     }
 }
 void shellProbeDrain(void) {
-    /* Ten bounded turns let window/CA teardown and delayed scroller work run.
-     * The deadline is diagnostic, not permission to forgive provider survivors. */
-    for (int turn = 0; turn < 10; turn++) {
+    /* AppKit can defer hosted text-field teardown beyond ten run-loop turns.
+     * Keep the original ten turns, then await weak-owner convergence within a
+     * two-second deadline. The caller still requires zero owned survivors. */
+    NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+    const NSTimeInterval deadline = 2.0;
+    NSUInteger remaining = 0;
+    int turns = 0;
+    do {
         @autoreleasepool {
             [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+            remaining = owned.allObjects.count;
         }
-    }
+        turns++;
+    } while (turns < 10 || (remaining && NSProcessInfo.processInfo.systemUptime - started < deadline));
+    fprintf(stderr, "SHELL drain turns=%d seconds=%.6f deadline=%.1f provider=%lu\n",
+        turns, NSProcessInfo.processInfo.systemUptime - started, deadline, (unsigned long)remaining);
 }
 static int survivors(NSHashTable *objects, const char *scope) {
     @autoreleasepool {
