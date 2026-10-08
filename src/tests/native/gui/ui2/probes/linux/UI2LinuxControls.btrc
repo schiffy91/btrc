@@ -2,6 +2,7 @@ import Library.Callback;
 import Library.Vector;
 import Library.GUI.IScrollView;
 import Library.GUI.ITextField;
+import Library.GUI.ISelect;
 import Library.GUI.ControlEvents;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.LinuxWindow;
@@ -18,6 +19,51 @@ class UI2LinuxScrollReceiver implements IScrollControlEventHandler {
 class UI2LinuxTextReceiver implements ITextControlEventHandler {
 	public Vector<TextControlEvent> events = [];
 	public void textEvent(TextControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
+}
+
+class UI2LinuxSelectionReceiver implements ISelectionControlEventHandler {
+	public Vector<SelectionControlEvent> events = [];
+	public void selectionEvent(SelectionControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
+}
+
+class UI2LinuxSelectionChecks {
+	class SelectOption option(string key, string title, bool enabled) { var option = SelectOption(); option.key = key; option.title = title; option.enabled = enabled; return option; }
+	class SelectModel model(Vector<SelectOption> options, string? key, SelectAvailability availability) { var model = SelectModel(); model.options = options; model.selectedKey = key; model.availability = availability; model.statusText = "status"; return model; }
+	class void selected(ISelect select, string expected) { var key = select.selectedKey(); if (key == null) { throw "Missing selected key"; } assert(key.equals(expected)); }
+
+	class void keyedSelection() {
+		var application = LinuxApplication(64); var window = application.createWindow("UI2 keyed selection", 240.0, 160.0);
+		var select = application.createSelect(); window.attachRoot(select); window.show();
+		var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var a = UI2LinuxSelectionChecks.option("a", "duplicate", true); var b = UI2LinuxSelectionChecks.option("b", "duplicate", true);
+		Vector<SelectOption> options = [a, b]; select.setOptions(UI2LinuxSelectionChecks.model(options, "a", SELECT_AVAILABILITY_READY));
+		a.title = "caller mutation"; options.clear(); assert(select.itemCount() == 2 && select.selectedTitle().equals("duplicate"));
+		var copy = select.optionsState(); copy.options.get(0).title = "returned mutation"; assert(select.selectedTitle().equals("duplicate"));
+		var changed = UI2LinuxSelectionReceiver(); var commits = UI2LinuxSelectionReceiver(); var cancels = UI2LinuxSelectionReceiver(); var scope = CallbackScope();
+		select.onChanged(changed, scope); select.onCommit(commits, scope); select.onCancel(cancels, scope); UI2LinuxTextChecks.pump(application);
+		assert(changed.events.len == 0 && commits.events.len == 0 && cancels.events.len == 0);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_DOWN); UI2LinuxTextChecks.pump(application);
+		assert(changed.events.len == 1); long long interaction = changed.events.get(0).context.interaction;
+		Vector<SelectOption> reordered = [UI2LinuxSelectionChecks.option("b", "renamed", true), UI2LinuxSelectionChecks.option("a", "duplicate", true)];
+		select.setOptions(UI2LinuxSelectionChecks.model(reordered, "a", SELECT_AVAILABILITY_READY));
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		UI2LinuxSelectionChecks.selected(select, "b"); assert(select.selectedIndex() == 0 && commits.events.len == 1 && commits.events.get(0).context.interaction == interaction && cancels.events.len == 0);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application); assert(commits.events.len == 1);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_DOWN); UI2LinuxTextChecks.pump(application);
+		select.setItemEnabled(1, false); UI2LinuxTextChecks.pump(application);
+		assert(cancels.events.len == 1 && cancels.events.get(0).context.origin == CONTROL_ORIGIN_MODEL && cancels.events.get(0).cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT && commits.events.len == 1);
+		UI2LinuxSelectionChecks.selected(select, "b");
+		bool rejected = false; Vector<SelectOption> duplicate = [UI2LinuxSelectionChecks.option("x", "one", true), UI2LinuxSelectionChecks.option("x", "two", true)];
+		try { select.setOptions(UI2LinuxSelectionChecks.model(duplicate, "x", SELECT_AVAILABILITY_READY)); } catch (string error) { rejected = true; }
+		assert(rejected && select.itemCount() == 2); UI2LinuxSelectionChecks.selected(select, "b");
+		select.setSelectedKey("a"); UI2LinuxSelectionChecks.selected(select, "a"); assert(!select.isItemEnabled(1));
+		select.setSelectedKey(null); assert(select.selectedIndex() == -1 && select.selectedKey() == null);
+		Vector<SelectOption> none = []; select.setOptions(UI2LinuxSelectionChecks.model(none, null, SELECT_AVAILABILITY_EMPTY)); assert(select.itemCount() == 0 && select.selectedIndex() == -1);
+		Vector<string> legacy = ["same", "same"]; select.setItems(legacy, 1); var firstLegacyKey = select.selectedKey(); select.setItems(legacy, 1); var secondLegacyKey = select.selectedKey();
+		if (firstLegacyKey == null || secondLegacyKey == null) { throw "Missing legacy key"; } assert(!firstLegacyKey.equals(secondLegacyKey));
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
 }
 
 class UI2LinuxTextChecks {
@@ -131,6 +177,7 @@ class UI2LinuxTextChecks {
 
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	UI2LinuxSelectionChecks.keyedSelection();
 	UI2LinuxTextChecks.textLifecycle(); UI2LinuxTextChecks.compositionCommitOrdering();
 	UI2LinuxTextChecks.refocusAfterEligibilityLoss();
 	UI2LinuxTextChecks.detachEditing(false, false); UI2LinuxTextChecks.detachEditing(true, false);
