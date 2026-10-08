@@ -59,9 +59,7 @@ def test_native_selection_state(native_project, native_compile, gui_provider_roo
     manifest.write_text(
         manifest.read_text().replace("exports = [", 'exports = ["ControlEventQueue", ', 1) + SELECTION_PROVIDER_BINDINGS
     )
-    (root / "btrc.toml").write_text(
-        'manifest-version = 1\n[package]\nname = "ui2MacOSSelection"\n[[native.frameworks]]\nname = "AppKit"\n'
-    )
+    (root / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "ui2MacOSSelection"\n')
     plan = root / "Selection.link.json"
     compiled = native_compile(source, data_root=data_root, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)

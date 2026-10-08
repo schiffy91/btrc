@@ -12,7 +12,7 @@
 /* Only native tracking and capture live here. The checked generated callback
  * registration owns the weak sink; the BTRC provider owns model semantics. */
 @interface BTRCMacOSSelect : NSPopUpButton <NSMenuDelegate>
-+ (instancetype _Nonnull)selection;
++ (instancetype _Nullable)selection;
 - (void)setSemanticEvents:(id<BTRCMacOSSelectEvents> _Nullable)events;
 - (id<BTRCMacOSSelectEvents> _Nullable)semanticEvents;
 - (void)cancelMenu;

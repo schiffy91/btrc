@@ -1,22 +1,43 @@
 #import "Select.h"
 
 @implementation BTRCMacOSSelect {
-    __weak id<BTRCMacOSSelectEvents> _semanticEvents;
+    NSHashTable<id<BTRCMacOSSelectEvents>> *_semanticEvents;
     NSUInteger _trackingDepth;
     BOOL _escape;
 }
 
 + (instancetype)selection {
-    BTRCMacOSSelect *control = [[self alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    control.autoenablesItems = NO;
-    control.target = control;
-    control.action = @selector(semanticAction:);
-    control.menu.delegate = control;
-    return control;
+    return [[[self alloc] initWithFrame:NSZeroRect pullsDown:NO] autorelease];
 }
 
-- (void)setSemanticEvents:(id<BTRCMacOSSelectEvents>)events { _semanticEvents = events; }
-- (id<BTRCMacOSSelectEvents>)semanticEvents { return _semanticEvents; }
+- (instancetype)initWithFrame:(NSRect)frame pullsDown:(BOOL)pullsDown {
+    self = [super initWithFrame:frame pullsDown:pullsDown];
+    if (self) {
+        /* Native sources use MRC. Foundation owns this zeroing weak slot;
+         * CallbackScope remains the sole owner of the generated receiver. */
+        _semanticEvents = [[NSHashTable alloc]
+            initWithOptions:NSPointerFunctionsWeakMemory | NSPointerFunctionsObjectPointerPersonality capacity:1];
+        if (!_semanticEvents) { [self release]; return nil; }
+        self.autoenablesItems = NO;
+        self.target = self;
+        self.action = @selector(semanticAction:);
+        self.menu.delegate = self;
+    }
+    return self;
+}
+
+- (void)dealloc {
+    if (self.menu.delegate == self) { self.menu.delegate = nil; }
+    if (self.target == self) { self.target = nil; self.action = NULL; }
+    [_semanticEvents release];
+    [super dealloc];
+}
+
+- (void)setSemanticEvents:(id<BTRCMacOSSelectEvents>)events {
+    [_semanticEvents removeAllObjects];
+    if (events) { [_semanticEvents addObject:events]; }
+}
+- (id<BTRCMacOSSelectEvents>)semanticEvents { return [[[_semanticEvents anyObject] retain] autorelease]; }
 
 - (void)setMenu:(NSMenu *)menu {
     NSMenu *previous = self.menu;
@@ -27,7 +48,7 @@
 
 - (BOOL)beginTracking {
     if (_trackingDepth != 0) { _trackingDepth++; return YES; }
-    id<BTRCMacOSSelectEvents> sink = _semanticEvents;
+    id<BTRCMacOSSelectEvents> sink = self.semanticEvents;
     if (!sink || ![sink shouldBegin]) { return NO; }
     _trackingDepth = 1;
     _escape = NO;
@@ -35,7 +56,7 @@
 }
 
 - (void)endTracking {
-    if (--_trackingDepth == 0) { [_semanticEvents ended:_escape]; }
+    if (--_trackingDepth == 0) { [self.semanticEvents ended:_escape]; }
 }
 
 - (void)mouseDown:(NSEvent *)event {
@@ -73,17 +94,17 @@
 }
 
 - (void)menuWillOpen:(NSMenu *)menu {
-    if (menu == self.menu && _trackingDepth != 0) { [_semanticEvents opened]; }
+    if (menu == self.menu && _trackingDepth != 0) { [self.semanticEvents opened]; }
 }
 
 - (void)menu:(NSMenu *)menu willHighlightItem:(NSMenuItem *)item {
     if (menu != self.menu || _trackingDepth == 0 || !item || !item.enabled) { return; }
-    if (![_semanticEvents candidate:[menu indexOfItem:item]]) { [menu cancelTrackingWithoutAnimation]; }
+    if (![self.semanticEvents candidate:[menu indexOfItem:item]]) { [menu cancelTrackingWithoutAnimation]; }
 }
 
 - (void)semanticAction:(id)sender {
     (void)sender;
-    if (_trackingDepth != 0) { [_semanticEvents accepted:self.indexOfSelectedItem]; }
+    if (_trackingDepth != 0) { [self.semanticEvents accepted:self.indexOfSelectedItem]; }
 }
 
 - (void)cancelMenu { [self.menu cancelTrackingWithoutAnimation]; }
