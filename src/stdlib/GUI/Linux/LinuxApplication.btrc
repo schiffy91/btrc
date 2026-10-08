@@ -393,7 +393,9 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			int count = self._windows.len + 1;
 			if (self._semanticCursor >= count) { self._semanticCursor = 0; }
 			int source = self._semanticCursor++;
-			bool progress = source == 0 ? self._context.detachedEvents.dispatchOne() : self._windows.get(source - 1).dispatchSemantic();
+			bool progress;
+			if (source == 0) { progress = self._context.detachedEvents.dispatchOne(); }
+			else { progress = self._windows.get(source - 1).dispatchSemantic(); }
 			if (progress) { empty = 0; } else { empty++; if (empty >= count) { break; } }
 		}
 	}
