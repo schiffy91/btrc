@@ -47,3 +47,17 @@ Inspection/recovery began 2026-10-08 at approximately 01:44 UTC. Source/static
 work proceeds while Linux owns the native lane; no compiler/native/GUI execution
 has run for this packet. Execution and wait intervals will be recorded when the
 integrator allocates qualification. Implementation and all new evidence pending.
+
+## Fixture-only worker wake checkpoint
+
+`RunLoopWake.btrc` uses the existing MacOSRunLoopSignal API from a real spawned
+worker, then enters the real default or tracking CF run-loop mode with no polling
+timer. It requires one UI-thread callback in each mode and no callback after
+scope cancellation. The probe installs no source or common-mode membership on
+the provider's behalf. The dedicated native driver selects both frontends and
+plain/sanitized builds through existing fixtures, records stdout/stderr and uses
+the common AppKit execution marker. Ruff and canonical BTRC formatting passed.
+This checkpoint is deliberately before provider edits. Native red has **not**
+run: the Linux qualification owns the lane. The expected baseline failure is
+current wake() rejecting the worker thread; execution must confirm it when the
+integrator grants a slot. No native or E04 pass is claimed.
