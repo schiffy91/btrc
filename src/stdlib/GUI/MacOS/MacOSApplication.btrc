@@ -155,7 +155,7 @@ class MacOSApplication implements IApplication, IAppKitNotificationObserver, IAp
 
 	public bool acceptingHost() { self.requireMainThread(); return !self._closing && !self._closed && self._attachment != null; }
 
-	public bool isRunning() { self.requireMainThread(); return !self._closed && (self._running || self._attachment != null); }
+	public bool isRunning() { self.requireMainThread(); return !self._closed && (self._running || (!self._standalone && self._attachment != null)); }
 
 	public ApplicationHostAttachOutcome attachHost(IApplicationHost host, CallbackScope owner) {
 		self.requireMainThread();
