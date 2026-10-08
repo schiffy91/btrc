@@ -640,3 +640,21 @@ native order/count, editor identity/selection/composition, zero-mutation
 rejection, rollback, and ownership assertion is preserved. It changes no
 provider/compiler implementation or diagnostic policy. A fresh source-pinned
 reference replay remains pending; the previous failed attempt is immutable.
+
+
+The `ac165e5c` reference attempt (session 67678, terminal exit 1) passed
+NativeTreeState and NativeContainerOrder with zero diagnostics in 9.794 and
+9.389 seconds. NativeContainerBarrier also transpiled, but its seven fixture
+nullability warnings stopped the unchanged zero-diagnostics policy after
+9.075 seconds. No native C compilation, linking or execution occurred. Gate
+and gui-capture were released after 28.367 seconds. Exact evidence remains at
+`ui2-macos-container-projection-ac165e5c/results/projection1/reference/project-plain.json`
+(SHA256 `b2aaec57e9759a2790d3e70062c4241533fdb7aac5a6c59374a47bf5fc7aa752`).
+
+Barrier fixture repair uses explicit checked locals for the SDK's nullable
+native view, host and pointer-event results, and checks the nullable registration
+before cancellation. It retains the original registration assertion and every
+pressed/cancelled/exited count, semantic barrier, typed batch ownership,
+revision and balanced-credit predicate. These are fixture precondition checks;
+provider behavior, compiler acceptance and diagnostic policy are unchanged.
+The corrected fixture has not yet been projected or executed.
