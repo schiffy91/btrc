@@ -747,7 +747,7 @@ records previously used native-reader and Python store paths disappearing during
 the run, with secondary Python-module and child-start failures. No removal/GC
 cause is established and no blanket infrastructure classification or retry is
 claimed. Job `113343316411` log SHA-256 is
-`2cb00dd3`; artifact `11561484842` retains the main failing unit report separately
+`2cb00dd368165e68e2038d6fb5c94742be882d3631ffa2774f541554755fd0be`; artifact `11561484842` retains the main failing unit report separately
 from a nested one-pass child report. Root-cause analysis and the complete Mac
 matrix remain open. Do not merge until the failure is resolved and required
 skip/native evidence is qualified.
