@@ -293,3 +293,34 @@ worker-call ARC audit, paired native/sanitized fixtures and host/application
 integration remain open. No native build or GUI execution ran in this agent's
 source lane. The final MacOSControlEvents binding requires NSThread; the
 integrator owns that row and all catalog/skip/generated integration.
+
+## Native leaf state wiring
+
+The next fixture-only sequence 2c3a6d7d / 9d282155 / f008e264 exercises an
+actual NSView and NSButton: native hidden/enabled flags agree with revisioned
+snapshots, observations are deferred, no-op setters do not enqueue, hide/show
+preserves a disabled preference, and closing inside an entered observation
+returns PENDING until that callback drains. It is a seventh fixture choice
+(28 planned rows), not yet projected or executed.
+
+MacOSView now owns a state registration scope alongside its existing native
+input scope. Application composition can provide a context; legacy direct
+constructors retain a standalone context with no automatic native dispatcher.
+The base view marks hidden state before synchronous capture cancellation,
+records native failure as observable quarantine, and retains its NSView until
+both callback scopes drain. MacOSButton forwards the full IView state surface
+and reads its actual native enabled flag after mutation; its prior alignment
+logic is unchanged. State snapshots do not become a second enabled preference.
+
+This is a leaf-level source slice. Containers must use distinct whole-subtree
+mark, settle and publish traversals rather than recursively invoke the combined
+leaf refresh. Application factories/context servicing, all other IView owners,
+control domain delivery rechecks, editing, transactions and fair turns remain
+unfinished. No complete provider/interface landing is claimed.
+
+Parent evidence now additionally records zero-diagnostic reference SDK
+transpilation for all six frozen foundation fixture types at 2b6f37fb, direct
+borrowed signal/host calls in generated producer code (no managed ARC transfer),
+and 20 strict C/Objective-C syntax checks across programs and native adapters.
+Those checks did not produce objects, link executables, or execute native code.
+The new native-view slice is not covered by that frozen proof.

@@ -3,6 +3,8 @@ import Library.Vector;
 import Library.Math;
 import Library.GUI.IView;
 import Library.GUI.MacOS.MacOSViewInput;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.ControlEventQueue;
 
 /* Provider-only projection for composition. Querying it aliases the existing
  * receiver, without exposing native handles on the portable IView contract. */
@@ -21,16 +23,58 @@ class MacOSView implements IMacOSView {
 	private bool _closing = false;
 	private CallbackScope _input = CallbackScope();
 	private Vector<MacOSViewInput> _inputs = [];
+	private MacOSViewState? _interaction;
+	private bool _inherited = false;
+	private WindowExposure _exposure = WINDOW_EXPOSURE_UNKNOWN;
 
-	public MacOSView(NSView? view = null) {
+	public MacOSView(NSView? view = null, MacOSControlContext? context = null) {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		self._view = view == null ? NSView.new() : view;
 		if (self._view == null) { throw "Cannot create native view"; }
+		var semanticContext = context;
+		if (semanticContext == null) { semanticContext = MacOSControlContext(); }
+		self._interaction = MacOSViewState(semanticContext);
+		self.refreshInteraction(false, WINDOW_EXPOSURE_UNKNOWN);
+	}
+
+	public MacOSViewState interactionOwner() {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		var state = self._interaction;
+		if (state == null) { throw "Native view interaction state is unavailable"; }
+		return state;
+	}
+
+	public ViewInteractionState interactionState() {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		if (self._view == null || self._closing) { throw "Native view is closed"; }
+		return self.interactionOwner().interactionState();
+	}
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { self.nativeView(); return self.interactionOwner().onInteractionStateChanged(handler, owner); }
+
+	/* Containers/windows provide copied inherited facts. This does not retain
+	 * their native or BTRC owners; same-window route changes are no-ops. */
+	public void refreshInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events = null) {
+		var view = self.nativeView(); var state = self.interactionOwner();
+		self._inherited = inherited; self._exposure = exposure;
+		if (state.update(!view.isHidden(), state.interactionState().localEnabled, inherited, self._attached, exposure, false)) { self.cancelPointerCapture(); }
+		if (events != null) { state.rebind(events); }
+		state.publish();
+	}
+
+	/* A control calls this after changing its actual native enabled flag. The
+	 * snapshot is observation data; the control's getter remains authoritative. */
+	public void localEnabledChanged(bool enabled) {
+		var view = self.nativeView(); var state = self.interactionOwner();
+		if (state.update(!view.isHidden(), enabled, self._inherited, self._attached, self._exposure, false)) { self.cancelPointerCapture(); }
+		state.publish();
 	}
 
 	public NSView nativeView() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		if (self._view == null || self._closing) { throw "Native view is closed"; }
+		var interaction = self._interaction;
+		if (interaction != null && (!interaction.isOpen() || interaction.faulted())) { throw "Native view is quarantined"; }
 		return self._view;
 	}
 
@@ -76,6 +120,7 @@ class MacOSView implements IMacOSView {
 			self._attached = view.superview() == parent;
 			throw error;
 		}
+		self.refreshInteraction(self._inherited, self._exposure);
 	}
 
 	public void detachFrom(NSView parent) {
@@ -84,6 +129,8 @@ class MacOSView implements IMacOSView {
 		self.cancelPointerCapture();
 		MacOSView.detachNative(view, parent);
 		self._attached = false;
+		self.interactionOwner().rebindDetached();
+		self.refreshInteraction(false, WINDOW_EXPOSURE_UNKNOWN);
 	}
 
 	public double fittingWidth() { return self.nativeView().fittingSize().width; }
@@ -125,7 +172,23 @@ class MacOSView implements IMacOSView {
 		view.setFrame(frame);
 	}
 
-	public void setHidden(bool hidden) { self.nativeView().setHidden(hidden); }
+	public void setHidden(bool hidden) {
+		var view = self.nativeView();
+		if (view.isHidden() == hidden) { return; }
+		var state = self.interactionOwner();
+		bool enabled = state.interactionState().localEnabled;
+		state.update(!hidden, enabled, self._inherited, self._attached, self._exposure, false);
+		try {
+			/* A synchronous cancellation observer must already see input sealed. */
+			if (hidden) { self.cancelPointerCapture(); }
+			if (self._closing) { return; }
+			view.setHidden(hidden);
+		} catch (string error) {
+			if (!self._closing) { state.update(!view.isHidden(), enabled, false, self._attached, self._exposure, true); state.publish(); }
+			throw error;
+		}
+		state.publish();
+	}
 
 	public CallbackCancellation pollClose() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
@@ -134,6 +197,8 @@ class MacOSView implements IMacOSView {
 		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		var state = self._input.pollCompletion();
 		if (state != CALLBACK_CANCELLATION_COMPLETE) { return state; }
+		var semantic = self.interactionOwner().pollClose();
+		if (semantic != CALLBACK_CANCELLATION_COMPLETE) { return semantic; }
 		view.removeFromSuperview();
 		self._view = null;
 		return CALLBACK_CANCELLATION_COMPLETE;
@@ -143,7 +208,7 @@ class MacOSView implements IMacOSView {
 		self.requireDetached();
 		var view = self._view;
 		if (view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
-		if (!self._closing) { self._closing = true; self._input.cancel(); }
+		if (!self._closing) { self._closing = true; self.interactionOwner().close(); self._input.cancel(); }
 		return self.pollClose();
 	}
 }

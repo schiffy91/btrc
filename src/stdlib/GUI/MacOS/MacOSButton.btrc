@@ -1,8 +1,10 @@
 import Library.Math;
 import Library.Callback;
 import Library.GUI.IButton;
+import Library.GUI.IView;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.MacOS.MacOSActionQueue;
 
 class MacOSButton implements IButton, IMacOSView {
@@ -17,12 +19,12 @@ class MacOSButton implements IButton, IMacOSView {
 	private bool _centered = false;
 	private double _fontSize = 13.0;
 
-	public MacOSButton(string title, MacOSActionQueue? actions = null) {
+	public MacOSButton(string title, MacOSActionQueue? actions = null, MacOSControlContext? context = null) {
 		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
 		var button = NSButton.new();
 		if (button == null) { throw "Cannot create native button"; }
 		self._button = button;
-		self._view = MacOSView(button);
+		self._view = MacOSView(button, context);
 		self._actions = actions;
 		button.setTitle(AppKitText.nativeValue(title));
 		button.setButtonType(NSButtonTypeMomentaryPushIn);
@@ -51,6 +53,10 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
 
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { self.control(); return self._view.onInteractionStateChanged(handler, owner); }
+
 	public bool isVisible() { return self._view.isVisible(); }
 
 	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
@@ -65,7 +71,7 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public void setTitle(string title) { self.control().setTitle(AppKitText.nativeValue(title)); self.placeSymbol(); }
 
-	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
+	public void setEnabled(bool enabled) { var control = self.control(); control.setEnabled(enabled); self._view.localEnabledChanged(control.isEnabled()); }
 
 	/* AppKit still tracks and dispatches a transparent button. Its parent owns
 	 * custom content, such as an artwork card, rather than a second painted bezel. */

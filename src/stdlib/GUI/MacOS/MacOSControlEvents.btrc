@@ -83,6 +83,10 @@ class MacOSViewState implements IControlEventTarget {
 
 	private void requireOpen() { self._context.requireUI(); if (self._closing || !self._context.isOpen()) { throw "Native view state is closed"; } }
 
+	public bool isOpen() { self._context.requireUI(); return !self._closing && self._context.isOpen(); }
+
+	public bool faulted() { self._context.requireUI(); return self._state.faulted; }
+
 	public long long generation() { self._context.requireUI(); return self._generation; }
 
 	public ControlEventQueue events() { self._context.requireUI(); return self._events; }
@@ -148,13 +152,19 @@ class MacOSViewState implements IControlEventTarget {
 		self._changed = false;
 	}
 
+	public void rebindDetached() { self.rebind(self._context.detachedEvents); }
+
 	public void rebind(ControlEventQueue events) {
 		self.requireOpen();
 		if (events == self._events) { return; }
 		if (events == null || events.terminalPool() != self._context.terminalPool) { throw "Native views cannot cross application contexts"; }
 		if (self._generation == 9223372036854775807LL) { throw "Native interaction generations exhausted"; }
 		try { for channel in self._channels { if (channel.isOpen()) { channel.rebind(events); } } }
-		catch (string error) { self.close(); throw error; }
+		catch (string error) {
+			var state = self.interactionState(); state.faulted = true; state.effectiveEligible = false;
+			if (state.stateRevision < 9223372036854775807LL) { state.stateRevision++; }
+			self._state = state; self.close(); throw error;
+		}
 		self._events = events; self._generation++;
 	}
 
