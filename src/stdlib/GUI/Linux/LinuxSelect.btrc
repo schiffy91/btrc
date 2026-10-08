@@ -1,9 +1,11 @@
 import Library.Callback;
 import Library.Math;
 import Library.Vector;
+import Library.Set;
 import Library.App;
 import Library.Image;
 import Library.GUI.ISelect;
+import Library.GUI.ControlEventQueue;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
@@ -13,6 +15,19 @@ import Library.GUI.Linux.LinuxPainter;
  * is native state the consumer reads after dispatch. */
 class LinuxSelect extends LinuxNodeView implements ISelect {
 	private Vector<string> _titles = [];
+	private Vector<string> _keys = [];
+	private SelectAvailability _availability = SELECT_AVAILABILITY_EMPTY;
+	private string _statusText = "";
+	private long long _modelRevision = 1LL;
+	private long long _legacyRevision = 0LL;
+	private long long _interaction = 0LL;
+	private long long _sequence = 0LL;
+	private string? _previousKey = null;
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _changed;
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _commit;
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _cancel;
+	private ControlEventTicket? _commitTicket;
+	private ControlEventTicket? _cancelTicket;
 	private Vector<bool> _enabledItems = [];
 	private int _selected = -1;
 	private bool _enabled = true;
@@ -24,7 +39,7 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 
 	public LinuxSelect(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); self.node().focusable = true; }
 
-	public void attachTo(LinuxViewHost? host) { if (host == null && self.node().context.mutationDepth == 0) { self.closeMenu(); } self.node().setHost(host); }
+	public void attachTo(LinuxViewHost? host) { self.node().setHost(host); }
 
 	private void validateSelection(int count, int index) {
 		if (count == 0 ? index != -1 : index < 0 || index >= count) { throw "Native selection index is out of range"; }
@@ -34,28 +49,94 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 
 	private double menuHeight() { return self.itemHeight() * (double)self._titles.len + 8.0; }
 
-	private void openMenu() {
-		var host = self.node().host;
-		if (host == null || self._titles.isEmpty()) { return; }
-		self._open = true;
-		self._highlight = self._selected;
-		self._menuOffsetY = self.node().height + 2.0;
-		host.overlayId = self.node().id;
-		self.node().requestFocus();
-		self.node().invalidate();
+	class void deliverSelection(ISelectionControlEventHandler receiver, SelectionControlEvent event) { receiver.selectionEvent(event); }
+
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent> subscribe(ISelectionControlEventHandler receiver, CallbackScope owner) {
+		self.node().requireOpen();
+		var channel = new ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>(self.node().events(), self.node(), receiver, LinuxSelect.deliverSelection, owner);
+		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
 	}
 
-	private void closeMenu() {
-		if (!self._open) { return; }
+	public ICallbackRegistration onChanged(ISelectionControlEventHandler receiver, CallbackScope owner) {
+		if (self._changed != null && self._changed.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection change handler first"; }
+		self._changed = self.subscribe(receiver, owner); return self._changed;
+	}
+
+	public ICallbackRegistration onCommit(ISelectionControlEventHandler receiver, CallbackScope owner) {
+		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection commit handler first"; }
+		var channel = self.subscribe(receiver, owner);
+		try { if (self._open) { self._commitTicket = channel.beginInteraction(); if (self._commitTicket == null) { throw "Selection commit reservation unavailable"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._commit = channel; return channel;
+	}
+
+	public ICallbackRegistration onCancel(ISelectionControlEventHandler receiver, CallbackScope owner) {
+		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection cancel handler first"; }
+		var channel = self.subscribe(receiver, owner);
+		try { if (self._open) { self._cancelTicket = channel.beginInteraction(); if (self._cancelTicket == null) { throw "Selection cancel reservation unavailable"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._cancel = channel; return channel;
+	}
+
+	private void releaseTickets() {
+		if (self._commitTicket != null && !self._commitTicket.queued()) { self._commitTicket.retire(); }
+		if (self._cancelTicket != null && !self._cancelTicket.queued()) { self._cancelTicket.retire(); }
+		self._commitTicket = null; self._cancelTicket = null;
+	}
+
+	private string? keyAt(int index) { return index < 0 || index >= self._keys.len ? null : self._keys.get(index); }
+
+	class bool sameKey(string? left, string? right) { if (left == null || right == null) { return left == null && right == null; } return left.equals(right); }
+
+	private SelectionControlEvent snapshot(ControlPhase phase, ControlOrigin origin, ControlCancelReason reason) {
+		if (self._sequence == 9223372036854775807LL) { throw "Selection event sequences exhausted"; }
+		var context = ControlEventContext(); context.generation = self.node().generation(); context.interaction = self._interaction;
+		context.sequence = ++self._sequence; context.modelRevision = self._modelRevision; context.origin = origin;
+		var event = SelectionControlEvent(); event.context = context; event.phase = phase; event.cancelReason = reason;
+		event.previousKey = self._previousKey; event.candidateKey = self.keyAt(self._highlight); event.acceptedKey = self.keyAt(self._selected); return event;
+	}
+
+	private void candidate(int index) {
+		if (!self._open || index == self._highlight || index < 0 || index >= self._keys.len || !self._enabledItems.get(index)) { return; }
+		self._highlight = index; self.node().invalidate();
+		var channel = self._changed;
+		if (channel != null && channel.isOpen()) { var event = self.snapshot(CONTROL_PHASE_CHANGE, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE); if (!channel.publish(event, event.context.generation, self._interaction, self._modelRevision)) { throw "Selection change queue cannot admit native input"; } }
+	}
+
+	private void openMenu() {
+		var host = self.node().host;
+		if (host == null || self._open || self._availability != SELECT_AVAILABILITY_READY || self._titles.isEmpty() || !self.node().effectiveEligible()) { return; }
+		if (self._interaction == 9223372036854775807LL) { throw "Selection interaction identities exhausted"; }
+		try {
+			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); if (self._commitTicket == null) { throw "Selection commit reservation unavailable"; } }
+			if (self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Selection cancel reservation unavailable"; } }
+		} catch (string error) { self.releaseTickets(); throw error; }
+		self._interaction++; self._previousKey = self.keyAt(self._selected); self._open = true; self._highlight = self._selected;
+		self._menuOffsetY = self.node().height + 2.0; host.overlayId = self.node().id; self.node().requestFocus(); self.node().invalidate();
+	}
+
+	private void finishMenu() {
 		self._open = false;
 		var host = self.node().host;
 		if (host != null && host.overlayId == self.node().id) { host.overlayId = 0; }
-		self.node().invalidate();
+		self.releaseTickets(); self.node().invalidate();
+	}
+
+	private void cancelMenu(ControlOrigin origin, ControlCancelReason reason) {
+		if (!self._open) { return; }
+		try { var channel = self._cancel; var ticket = self._cancelTicket;
+			if (channel != null && channel.isOpen() && ticket != null) { var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason); channel.publishTerminal(event, event.context.generation, self._interaction, ticket); }
+		} finally { self.finishMenu(); }
 	}
 
 	private void commit(int index) {
-		if (index >= 0 && index < self._titles.len && self._enabledItems.get(index)) { self._selected = index; }
-		self.closeMenu();
+		if (!self._open || self._availability != SELECT_AVAILABILITY_READY || index < 0 || index >= self._titles.len || !self._enabledItems.get(index)) { return; }
+		self._highlight = index;
+		try {
+			if (index != self._selected) { self._selected = index; var channel = self._commit; var ticket = self._commitTicket;
+				if (channel != null && channel.isOpen() && ticket != null) { var event = self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE); channel.publishTerminal(event, event.context.generation, self._interaction, ticket); }
+			}
+		} finally { self.finishMenu(); }
 	}
 
 	public void paint(LinuxPainter painter, double x, double y) {
@@ -66,7 +147,7 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 		painter.fillRect(x, y, width, height, self._open ? theme.controlPressed : (self._hovered && self._enabled ? theme.controlHover : theme.controlFill), radius);
 		painter.strokeRect(x, y, width, height, self._open ? theme.accent : theme.controlBorder, radius, 1.0);
 		RGBA color = self._enabled ? theme.text : theme.disabledText;
-		string title = self._selected >= 0 && self._selected < self._titles.len ? self._titles.get(self._selected) : "";
+		string title = self._selected >= 0 && self._selected < self._titles.len ? self._titles.get(self._selected) : self._statusText;
 		painter.textInBox(title, x + 10.0, y, Math.maxDouble(0.0, width - 34.0), height, self._size, false, color, 0);
 		double cx = x + width - 14.0;
 		double cy = y + height * 0.5;
@@ -125,15 +206,15 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 		if (self._open) {
 			if (event.action == APP_POINTER_MOVED || event.action == APP_POINTER_DRAGGED) {
 				int item = self.itemAt(event.logicalX, event.logicalY);
-				if (item != self._highlight) { self._highlight = item; self.node().invalidate(); }
+				self.candidate(item);
 				return true;
 			}
 			if (event.action == APP_POINTER_PRESSED) {
 				int item = self.itemAt(event.logicalX, event.logicalY);
 				bool onControl = event.logicalX >= 0.0 && event.logicalY >= 0.0 && event.logicalX < self.node().width && event.logicalY < self.node().height;
 				if (item >= 0) { self.commit(item); }
-				else if (onControl) { self.closeMenu(); }
-				else { self.closeMenu(); return false; }
+				else if (onControl) { self.cancelMenu(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); }
+				else { self.cancelMenu(CONTROL_ORIGIN_USER, CONTROL_CANCEL_CAPTURE_LOSS); return false; }
 				return true;
 			}
 			if (event.action == APP_POINTER_RELEASED) { return true; }
@@ -149,8 +230,9 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 	public bool scroll(AppScrollEvent event) { return self._open; }
 
 	public bool key(AppKeyboardEvent event) {
-		if (!self._open || event.action == APP_KEY_RELEASED) { return false; }
-		if (event.key == APP_KEY_ESCAPE) { self.closeMenu(); return true; }
+		if (event.action == APP_KEY_RELEASED || !self._enabled || !self.node().effectiveEligible()) { return false; }
+		if (!self._open) { if (event.key == APP_KEY_ENTER || event.key == APP_KEY_SPACE) { self.openMenu(); return self._open; } return false; }
+		if (event.key == APP_KEY_ESCAPE) { self.cancelMenu(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); return true; }
 		if (event.key == APP_KEY_ENTER || event.key == APP_KEY_SPACE) { self.commit(self._highlight); return true; }
 		if (event.key == APP_KEY_UP || event.key == APP_KEY_DOWN) {
 			int step = event.key == APP_KEY_UP ? -1 : 1;
@@ -161,31 +243,67 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 				if (index >= self._titles.len) { index = 0; }
 				if (self._enabledItems.get(index)) { break; }
 			}
-			self._highlight = index;
-			self.node().invalidate();
+			self.candidate(index);
 			return true;
 		}
 		return true;
 	}
 
-	public void focus(bool focused) { if (!focused) { self.closeMenu(); } }
+	public void focus(bool focused) { if (!focused) { self.cancelMenu(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION); } }
 
 	public double fittingWidth() { self.node().requireOpen(); return Math.ceilDouble(self.widestTitle()) + 40.0; }
 
 	public double fittingHeight() { self.node().requireOpen(); return LinuxMetrics.controlHeight(self._size); }
 
-	public void setVisible(bool visible) { self.node().setVisible(visible); if (!visible) { self.closeMenu(); } }
+	public void setVisible(bool visible) { self.node().setVisible(visible); }
 
-	public void setItems(Vector<string> titles, int selectedIndex) {
+	public SelectModel optionsState() {
+		self.node().requireOpen(); var model = SelectModel(); model.options = []; model.selectedKey = self.keyAt(self._selected); model.availability = self._availability; model.statusText = self._statusText;
+		for (int index = 0; index < self._keys.len; index++) { var option = SelectOption(); option.key = self._keys.get(index); option.title = self._titles.get(index); option.enabled = self._enabledItems.get(index); model.options.push(option); }
+		return model;
+	}
+
+	public string? selectedKey() { self.node().requireOpen(); return self.keyAt(self._selected); }
+
+	public void setOptions(SelectModel model) {
 		self.node().requireOpen();
-		if (titles == null) { throw "Native selection items are missing"; }
-		self.validateSelection(titles.len, selectedIndex);
-		self.closeMenu();
-		self._titles = titles.copy();
-		self._enabledItems.clear();
-		for title in titles { self._enabledItems.push(true); }
-		self._selected = selectedIndex;
+		if (model == null || model.options == null || model.statusText == null) { throw "Selection model has missing required data"; }
+		if (model.availability != SELECT_AVAILABILITY_READY && model.availability != SELECT_AVAILABILITY_EMPTY && model.availability != SELECT_AVAILABILITY_LOADING && model.availability != SELECT_AVAILABILITY_ERROR) { throw "Unknown selection availability"; }
+		if ((model.availability == SELECT_AVAILABILITY_EMPTY && (model.options.len != 0 || model.selectedKey != null)) || (model.availability == SELECT_AVAILABILITY_READY && model.options.len == 0)) { throw "Selection availability conflicts with its options"; }
+		Vector<string> keys = []; Vector<string> titles = []; Vector<bool> enabled = []; var seen = new Set<string>(); int selected = -1; int candidate = -1;
+		var previousCandidate = self.keyAt(self._highlight); int index = 0;
+		bool identical = model.availability == self._availability && model.statusText.equals(self._statusText) && LinuxSelect.sameKey(model.selectedKey, self.keyAt(self._selected)) && model.options.len == self._keys.len;
+		for option in model.options {
+			if (option == null || option.key == null || option.key.isEmpty() || option.title == null || seen.contains(option.key)) { throw "Selection option has an invalid or duplicate key or title"; }
+			seen.add(option.key); keys.push(option.key); titles.push(option.title); enabled.push(option.enabled);
+			if (LinuxSelect.sameKey(option.key, model.selectedKey)) { selected = index; }
+			if (LinuxSelect.sameKey(option.key, previousCandidate) && option.enabled) { candidate = index; }
+			if (identical && (!self._keys.get(index).equals(option.key) || !self._titles.get(index).equals(option.title) || self._enabledItems.get(index) != option.enabled)) { identical = false; }
+			index++;
+		}
+		if (model.selectedKey != null && selected < 0) { throw "Selection key is missing from options"; }
+		if (identical) { return; }
+		if (self._modelRevision == 9223372036854775807LL) { throw "Selection model revisions exhausted"; }
+		bool preservesPopup = self._availability == SELECT_AVAILABILITY_READY && model.availability == SELECT_AVAILABILITY_READY && LinuxSelect.sameKey(model.selectedKey, self.keyAt(self._selected)) && (previousCandidate == null || candidate >= 0);
+		if (self._open && !preservesPopup) { self.cancelMenu(CONTROL_ORIGIN_MODEL, CONTROL_CANCEL_MODEL_REPLACEMENT); }
+		self._keys = keys; self._titles = titles; self._enabledItems = enabled; self._selected = selected; self._availability = model.availability; self._statusText = model.statusText; self._modelRevision++;
+		if (self._open) { self._highlight = candidate; } else { self._highlight = selected; }
 		self.node().invalidate();
+	}
+
+	public void setSelectedKey(string? key) {
+		self.node().requireOpen(); if (LinuxSelect.sameKey(key, self.keyAt(self._selected))) { return; }
+		var model = self.optionsState(); model.selectedKey = key; self.setOptions(model);
+	}
+
+	/* Each index replacement starts a fresh reserved-key session. Titles never
+	 * define identity, even when two rows display exactly the same text. */
+	public void setItems(Vector<string> titles, int selectedIndex) {
+		self.node().requireOpen(); if (titles == null) { throw "Native selection items are missing"; } self.validateSelection(titles.len, selectedIndex);
+		if (self._legacyRevision == 9223372036854775807LL) { throw "Legacy selection replacements exhausted"; }
+		long long revision = self._legacyRevision + 1LL; var model = SelectModel(); model.options = []; model.selectedKey = null; model.availability = titles.len == 0 ? SELECT_AVAILABILITY_EMPTY : SELECT_AVAILABILITY_READY; model.statusText = "";
+		for (int index = 0; index < titles.len; index++) { var option = SelectOption(); option.key = f"btrc:legacy:{revision}:{index}"; option.title = titles.get(index); option.enabled = true; model.options.push(option); if (index == selectedIndex) { model.selectedKey = option.key; } }
+		self.setOptions(model); self._legacyRevision = revision;
 	}
 
 	public int itemCount() { self.node().requireOpen(); return self._titles.len; }
@@ -194,21 +312,18 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 
 	private void requireItem(int index) { if (index < 0 || index >= self._titles.len) { throw "Native selection item is out of range"; } }
 
-	public void setItemEnabled(int index, bool enabled) { self.node().requireOpen(); self.requireItem(index); self._enabledItems.set(index, enabled); self.node().invalidate(); }
+	public void setItemEnabled(int index, bool enabled) { self.node().requireOpen(); self.requireItem(index); if (self._enabledItems.get(index) == enabled) { return; } var model = self.optionsState(); model.options.get(index).enabled = enabled; self.setOptions(model); }
 
 	public bool isItemEnabled(int index) { self.node().requireOpen(); self.requireItem(index); return self._enabledItems.get(index); }
 
 	public void setSelectedIndex(int index) {
-		self.node().requireOpen();
-		self.validateSelection(self._titles.len, index);
-		if (index == self._selected) { return; }
-		self._selected = index;
-		self.node().invalidate();
+		self.node().requireOpen(); if (index < -1 || index >= self._keys.len) { throw "Native selection index is out of range"; }
+		self.setSelectedKey(self.keyAt(index));
 	}
 
 	public string selectedTitle() { self.node().requireOpen(); return self._selected >= 0 && self._selected < self._titles.len ? self._titles.get(self._selected) : ""; }
 
-	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); if (!enabled) { self.closeMenu(); } self.node().invalidate(); } }
+	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); self.node().invalidate(); } }
 
 	public void setFont(double size) {
 		self.node().requireOpen();
@@ -220,9 +335,9 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 
 	public bool locallyEnabled() { return self._enabled; }
 
-	public void eligibilityLost() { self.node().cancelOwnPointerCapture(); self.closeMenu(); self.node().invalidate(); }
+	public void eligibilityLost() { self.cancelMenu(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); self.node().cancelOwnPointerCapture(); self.node().invalidate(); }
 
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
-	public CallbackCancellation close() { self.closeMenu(); return self.node().close(); }
+	public CallbackCancellation close() { return self.node().close(); }
 }

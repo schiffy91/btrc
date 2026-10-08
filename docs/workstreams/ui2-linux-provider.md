@@ -374,3 +374,17 @@ retaining a host focus ID after its editor has already lost focus. The accidenta
 view-owner binding in the observation adapter was moved to the actual node-view
 adoption path. All of this remains source-only: no formatting, semantic compile,
 C build or native execution ran during controlled Linux negative qualification.
+
+### Keyed selection source slice
+
+Fixture-only `d43e260f` stages duplicate-label keyed options, deep-copy ownership,
+reordering and relabeling of a live candidate, a single accepted commit, no
+changed-value command for reselecting the same key, MODEL cancellation when the
+candidate is disabled, atomic rejection of duplicate keys, disabled model
+selection, null/empty projection, and fresh identities across legacy replacements.
+The source preserves candidate/interaction identity by key across compatible
+refreshes. Changed revisions use distinct replacement keys, so an old preview
+cannot absorb a newer model revision. Commit/cancel tickets precede popup opening;
+subscription replacement waits for complete cancellation. Legacy titles never
+serve as keys. Source checks and native execution remain pending; this does not
+close the separately outstanding native dequeue/backpressure integration.
