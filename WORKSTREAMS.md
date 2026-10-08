@@ -211,6 +211,19 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-08 D29 generic-substitution allocation claim:** the performance
+agent owns `src/compiler/btrc/ir/lowering/Generics.btrc`,
+`src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`docs/workstreams/generic-substitutions-3974.md` and this claim on
+`codex/generic-substitutions-3974`, based on exact `3974d47b`.
+The integrator reviewed the isolated two-file source draft and authorized this
+follow-up to completed canonical-order work. Materialize fresh substitution maps
+only for the existing tuple scanner; preserve instance/dependency order and all
+cache keys. Token and finish-reply candidates remain separate. Initial source
+and formatting checks only; fresh compiler, allocation attribution, paired
+correctness, boundary and numeric qualification remain pending. No publication
+or benchmark baseline/allowance edits are part of this reservation.
+
 **2026-10-08 integration claim:** this authorized session owns the bounded
 `codex/integrate-qualified-linux` assembly from compiler `56d548c4` and qualified
 Windows main `49f136ec`. Exact Linux source/test paths, retained native evidence,
