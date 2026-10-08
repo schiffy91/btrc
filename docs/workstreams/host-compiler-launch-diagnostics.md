@@ -34,13 +34,29 @@ a native binary's dynamic loader is not inspected. Interpreter arguments such as
 
 ## Verification scope
 
-Source and tests are prepared; execution is pending. Existing harness-selection
-checks will establish the unchanged baseline. New controlled cases exercise
-real missing-wrapper/parent launches, POSIX missing-interpreter launches, intact
-path ambiguity, unrelated failures, bounded malformed headers, special files,
-symlink loops and parent-link traversal. Windows tests retain filesystem facts
-for the POSIX-only shebang case without claiming a native shebang execution.
-No additional skip is introduced. A real child pytest session must retain the
-original failing test identity and result through the actual report hook and
-SkipLedger. Existing scheduling/report serialization regressions are required
-as a composition check. No hosted replay has been dispatched for this packet.
+The unchanged ef65e208 harness-selection baseline passed all 15 cases. Exact
+candidate66047414 passed 109 cases: 25 harness-selection, 23 coordination and
+61 existing skip-ledger checks. Actual collection and JUnit identities agree;
+there were zero failures, errors or skips in either outer suite. This includes
+real POSIX missing-wrapper/interpreter/parent launch failures, intact-path and
+unrelated-error controls, malformed headers, FIFO/loop and symlink-parent facts,
+and a real child pytest failure whose identity/outcome survives the reporting
+hook and SkipLedger. Windows retains filesystem facts for the POSIX shebang
+case; no Windows execution is claimed by this local proof and no new skip exists.
+
+Evidence: `host-compiler-launch-66047414-attempt-1/result.json`, SHA256
+`74dfdf9306a63b439d99d0d49749754fba8aa80b9eb56427cfb7d41ae8fa0372`.
+Baseline JUnit SHA256
+`97cdc64bebdab9a1d8dda03b4ee2d5d1ad81ac66719b0de94a04101630c37664`;
+candidate JUnit SHA256
+`20aab459f5411323552a4bd49f89fd8c0f5f68baf87733f60e2e474e2ce53d20`.
+All eight recorded process-group leaders reaped with exit0, their groups were
+absent, logs rehashed, and complete source/mode/tool/archive inputs closed
+unchanged. Ruff and diff checks passed. This is focused diagnostic/reporting
+qualification, not the final compiler matrix or a hosted macOS unit pass.
+
+The hosted ENOENT cause remains unresolved. These diagnostics neither repair
+that failure nor authorize treating it as a skip; the next source-changed hosted
+qualification must preserve the original GCC coverage and report any repeated
+failure with the new filesystem facts. No hosted replay was dispatched by this
+packet's writer.

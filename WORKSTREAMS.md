@@ -1526,5 +1526,7 @@ execution_review, branch `codex/host-compiler-launch-diagnostics`, base
 Use an isolated index; preserve the ordinary checkout/index. Record bounded
 selection/failure filesystem facts for an actual selected compiler ENOENT,
 without replacing the exception, retrying, skipping or changing the matrix.
-Focused process/reporting qualification is pending; no compiler repair or
-Nix garbage-collection cause is claimed.
+Focused qualification passed: original15 baseline and candidate109 checks,
+zero failures/errors/skips, exact collection/JUnit, all8 owned groups closed and
+source/tools unchanged. See the owned report. No compiler repair, hosted unit
+pass or Nix garbage-collection cause is claimed.
