@@ -381,3 +381,24 @@ unfinished. No complete provider or atomic UI2 landing is claimed. This slice
 adds no native selectors beyond the previously reported ui2InitializeAppKit
 probe declaration; the parent still owns every binding/export/generated and
 known-AppKit admission fragment.
+
+## First frozen qualification attempt
+
+The parent supplied a fresh Mac compiler from reference source 56d548c4,
+binary SHA-256
+`41fde50cf256b3ef5a322648d0f5dd735f03ea28677d5bfb4c6f9423d90c13a1`.
+The reviewed private recipe ran under gate and gui-capture with over 80 GB free.
+Session 87921 ended with exit 1 and released both locks. All seven reference
+fixtures transpiled; the six foundations emitted zero diagnostics. NativeViewState
+emitted two nullability warnings in MacOSView, so the stage stopped before any
+C syntax, object compilation, linking or native execution. This is not a green
+qualification, and the selfhost fixture stage did not run.
+
+Evidence remains at
+`~/.cache/btrc/plan-consolidation-2026-10-07/ui2-macos-qualification-4dc8d9d3/results/qualification1/reference/`
+with the immutable source archives, actual compiler/reader/tool pins, all seven
+generated programs/plans, diagnostics and stage failure. The warnings point to
+field access after intervening state-owner calls: nativeView's nullable return
+and quarantineInteraction's isHidden call. Both now hold a checked local NSView
+reference across those calls. The compiler guard and fixture assertions are
+unchanged. Reprojection of this bounded source correction remains pending.

@@ -99,10 +99,11 @@ class MacOSView implements IMacOSView {
 
 	public NSView nativeView() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
-		if (self._view == null || self._closing) { throw "Native view is closed"; }
+		var view = self._view;
+		if (view == null || self._closing) { throw "Native view is closed"; }
 		var interaction = self._interaction;
 		if (interaction != null && (!interaction.isOpen() || interaction.faulted())) { throw "Native view is quarantined"; }
-		return self._view;
+		return view;
 	}
 
 	public bool isOpen() {
@@ -204,10 +205,11 @@ class MacOSView implements IMacOSView {
 	}
 
 	private void quarantineInteraction(string failure) {
-		if (self._closing || self._view == null) { return; }
+		var view = self._view;
+		if (self._closing || view == null) { return; }
 		var state = self.interactionOwner();
 		if (!state.isOpen()) { self._input.cancel(); return; }
-		state.update(!self._view.isHidden(), state.interactionState().localEnabled, false, self._attached, self._exposure, true);
+		state.update(!view.isHidden(), state.interactionState().localEnabled, false, self._attached, self._exposure, true);
 		try { self._input.cancel(); state.publish(); }
 		catch (string cleanup) { throw f"Native interaction failed: {failure}; quarantine failed: {cleanup}"; }
 	}
