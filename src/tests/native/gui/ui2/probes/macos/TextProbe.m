@@ -40,9 +40,11 @@ static BOOL rememberedUndo;
 + (void)blur { [host makeFirstResponder:host.contentView]; }
 + (BOOL)marked:(NSTextField *)field { return [self editor:field].hasMarkedText; }
 + (void)rememberEditor:(NSTextField *)field {
-    rememberedEditor = [self editor:field];
+    [rememberedEditor release];
+    rememberedEditor = [[self editor:field] retain];
     rememberedSelection = rememberedEditor.selectedRange;
     rememberedMarked = rememberedEditor.markedRange;
+    [rememberedText release];
     rememberedText = [rememberedEditor.string copy];
     rememberedUndo = rememberedEditor.undoManager.canUndo;
 }
@@ -53,10 +55,13 @@ static BOOL rememberedUndo;
         && editor.undoManager.canUndo == rememberedUndo;
 }
 + (void)close {
+    [rememberedEditor release];
     rememberedEditor = nil;
+    [rememberedText release];
     rememberedText = nil;
     [host orderOut:nil];
     [host close];
+    [host release];
     host = nil;
 }
 @end

@@ -1,15 +1,36 @@
 #import "Text.h"
 
 @implementation BTRCMacOSTextField {
-    __weak id<BTRCMacOSTextEvents> _semanticEvents;
+    /* Handwritten native units use MRC. This container owns no sink: the
+     * generated CallbackScope registration remains its sole lifetime owner. */
+    NSHashTable<id<BTRCMacOSTextEvents>> *_semanticEvents;
 }
 + (BTRCMacOSTextField *)fieldWithText:(NSString *)text {
     BTRCMacOSTextField *field = [self textFieldWithString:text];
     field.delegate = field;
     return field;
 }
-- (void)setSemanticEvents:(id<BTRCMacOSTextEvents>)events { _semanticEvents = events; }
-- (id<BTRCMacOSTextEvents>)semanticEvents { return _semanticEvents; }
+- (void)setSemanticEvents:(id<BTRCMacOSTextEvents>)events {
+    if (events && !_semanticEvents) {
+        _semanticEvents = [[NSHashTable alloc]
+            initWithOptions:NSPointerFunctionsWeakMemory | NSPointerFunctionsObjectPointerPersonality
+                   capacity:1];
+        if (!_semanticEvents) {
+            [NSException raise:NSMallocException format:@"Cannot allocate native text event slot"];
+        }
+    }
+    [_semanticEvents removeAllObjects];
+    if (events) { [_semanticEvents addObject:events]; }
+}
+- (id<BTRCMacOSTextEvents>)semanticEvents {
+    /* Retain the selected weak object through its synchronous callback and the
+     * surrounding generated adapter's autorelease pool. */
+    return [[[_semanticEvents anyObject] retain] autorelease];
+}
+- (void)dealloc {
+    [_semanticEvents release];
+    [super dealloc];
+}
 - (NSString *)liveText { NSText *editor = self.currentEditor; return editor ? editor.string : self.stringValue; }
 - (BOOL)composing {
     NSText *editor = self.currentEditor;
@@ -32,20 +53,20 @@
 }
 - (BOOL)control:(NSControl *)control textShouldBeginEditing:(NSText *)fieldEditor {
     (void)control; (void)fieldEditor;
-    id<BTRCMacOSTextEvents> sink = _semanticEvents;
+    id<BTRCMacOSTextEvents> sink = [self semanticEvents];
     return sink && [sink shouldBegin];
 }
 - (void)controlTextDidChange:(NSNotification *)notification {
-    (void)notification; [_semanticEvents changed];
+    (void)notification; [[self semanticEvents] changed];
 }
 - (void)controlTextDidEndEditing:(NSNotification *)notification {
-    (void)notification; [_semanticEvents ended];
+    (void)notification; [[self semanticEvents] ended];
 }
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)selector {
     (void)control; (void)textView;
     int kind = 0;
     if (selector == @selector(insertNewline:)) kind = 1;
     else if (selector == @selector(cancelOperation:)) kind = 2;
-    return kind != 0 && [_semanticEvents command:kind];
+    return kind != 0 && [[self semanticEvents] command:kind];
 }
 @end

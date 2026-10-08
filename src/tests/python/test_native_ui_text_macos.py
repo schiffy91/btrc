@@ -81,7 +81,6 @@ def test_native_text_state(native_project, native_compile, gui_provider_root, sa
         '[[native.bindings]]\nmodule = "TextProbe"\nheader = "TextProbe.h"\n'
         'language = "objective-c"\nstandard = "c11"\n'
         f"symbols = {json.dumps(TEXT_PROBE_SYMBOLS)}\n"
-        '[[native.frameworks]]\nname = "AppKit"\n'
         '[[native.sources]]\npath = "TextProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
     plan = root / "Text.link.json"

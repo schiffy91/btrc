@@ -121,3 +121,21 @@ their process groups were absent afterward, and final source/tool inputs were
 unchanged. This is semantic and SDK projection proof only; no C compilation,
 link, native execution or physical IME acceptance is claimed. The original failed
 d456 projection remains preserved.
+
+The first paired native attempt on c472 passed both compiler projections without
+diagnostics (reference 8.899s, selfhost 3.540s). Original strict C checks passed
+the emitted program and RunLoop.m, then rejected Text.m's `__weak` ivar because
+handwritten native sources use MRC. Receipt
+`caba365a0c08994fc8fc16f13a3327b27d768b2e4b9f183bcc60ba073a8512d0`
+is retained in `ui2-macos-text-c4720eab-native-compiler-f75c737b`; no link/native
+stage ran. All stage inputs remained unchanged and owned groups were absent.
+
+The source remedy stores the same generated scoped sink in an owned NSHashTable
+using public NSPointerFunctionsWeakMemory plus pointer identity. The table does
+not own the sink; captures pin the selected weak object through the surrounding
+autorelease pool. Native deallocation releases the table. The existing AppKit
+autoreleased field factory remains unchanged. The test probe now balances its
+MRC-owned host/editor/text snapshots, and the fixture relies on the provider's
+AppKit framework row instead of declaring it twice. No compiler flags, callback
+API, semantic assertions or production native manifest changed. These repairs
+require a fresh paired native attempt before any runtime claim.
