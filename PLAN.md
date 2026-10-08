@@ -147,8 +147,11 @@ because inherited interface types are pruned. Paired repair `808592c9` follows
 fixture-only `72be5947`; the fresh Linux compiler passes all 11 relevant
 regressions, and all four plain/sanitized Grid cases now pass. All four genuine
 Grid negative controls also reach the intended child-identity assertion after
-successful strict-C compilation/linking. The other 96 provider cases are running
-after a separately proved fixture typing correction; they are not yet qualified. This repair is kept
+successful strict-C compilation/linking. The other 96 provider cases also pass,
+with zero failures/errors/skips, after a separately proved fixture typing
+correction. E40's intended negative tree fails exactly its 32 over-budget cases
+and passes all 32 controls. Other negative controls and final combined-tree
+qualification remain in progress. This repair is kept
 separate from frozen PR68. See [the repair evidence](docs/workstreams/interface-parent-reachability.md).
 
 
@@ -1346,10 +1349,18 @@ Fixture-only `2e82334d` replaces that one expression with equivalent lazy if/els
 branches. Thresholds and assertions are unchanged. Both frontends reject the
 original expression; both repaired strict-C executables pass 96 truth and lazy
 evaluation combinations. That proof is `frame-progress-proof-808592c9/result.json`.
-The corrected native 96-case suite is now running; its original setup failure is
-retained and no complete result is claimed yet. The E40 counterfactual uses the
+The corrected native 96-case suite passes **96 cases, zero failures, errors or
+skips** (783.61 seconds); its original setup failure remains retained. Together
+with Grid04 this supplies 100 actual Linux ARM64 provider passes through both
+frontends, plain and ASan/UBSan. The E40 counterfactual uses the
 same corrected fixture/observer ABI with original `5299b7a8` production behavior,
-whose only relevant green delta is the 4096-event dequeue boundary.
+whose only relevant green delta is the 4096-event dequeue boundary. It produces
+exactly **32 intended native failures and 32 control passes** (136.47 seconds):
+4097/8193-event inputs expose loss at boundary 4097 while work and frame progress
+remain live. All at/below-4096 controls pass; no setup error, skip or sanitizer
+diagnostic is accepted as an intended failure. Remaining input/layout/scroll
+negative controls are running. Receipts are in `rows/green96-fixed/` and
+`rows/event-fixed-red/native-red-classification.json`.
 The original build took 470.21 seconds and its required target-row comparison
 241.46 seconds; these are preparation elapsed times, not benchmark measurements.
 The source repair requires a fresh build/comparison, while the image and SDK
