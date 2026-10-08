@@ -34,6 +34,7 @@ class MacOSControlContext {
 	private bool _unexpectedInput = false;
 	private bool _dispatchingInput = false;
 	private bool _mutationWakeFailed = false;
+	private string _nativeFailure = "";
 	private Vector<IMacOSDeferredInput> _deferredInput = [];
 
 	/* Legacy native constructors participate in the same application even
@@ -113,9 +114,21 @@ class MacOSControlContext {
 			try { input.drainDeferredInput(); } finally { self._dispatchingInput = false; }
 			return true;
 		}
+		if (self._nativeFailure != "") { throw self._nativeFailure; }
 		if (self._mutationWakeFailed) { throw "Native transaction terminal wake failed"; }
 		if (self._closed) { return false; }
 		return queue.dispatchOne();
+	}
+
+	/* Native notification capture cannot throw through AppKit. Preserve the
+	 * first diagnostic and request one coalesced service opportunity; neither
+	 * a rejected nor a throwing wake may escape the foreign callback. */
+	public void recordNativeFailure(string error) {
+		self.requireUI();
+		if (self._closed || self._nativeFailure != "") { return; }
+		self._nativeFailure = error == "" ? "Native semantic capture failed" : error;
+		try { if (!self.wake.requestTurn()) { self._mutationWakeFailed = true; } }
+		catch (string wakeError) { self._mutationWakeFailed = true; }
 	}
 
 	public int pendingInput() { self.requireUI(); return self._deferredInput.len; }

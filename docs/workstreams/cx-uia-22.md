@@ -755,3 +755,14 @@ new fixture, including explicit context constructor injection. The macOS agent
 retains Application/Executor/ControlEvents and other named claimed owners.
 Production binding manifests, generated files and final AppKit execution
 inventory remain integrator-owned. No new native execution has begun.
+
+`MacOSControlContext.recordNativeFailure` now provides the UI-native capture
+seam used by the disjoint scroll observation work. It stores the first error
+before requesting a wake, contains a false/throwing wake, and does not repeat
+that wake for later diagnostics. Context dispatch surfaces it outside mutation
+and entered-input barriers, after already-reserved terminal cleanup and before
+another semantic dequeue. Cleanup remains independent. The method requires the
+UI thread; it does not promise arbitrary-thread exception containment.
+The integrator and independent reviewer cleared this bounded source change.
+NativeCaptureFailure remains unexecuted; it is not yet a real AppKit-notification
+or pending-terminal reentry qualification.
