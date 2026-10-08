@@ -556,15 +556,19 @@ def test_macos_gui_grouped_reports_keep_source_identity_and_capability_coverage(
     from tools.qualification.skips import SkipCoverage
 
     monkeypatch.setenv("BTRC_TEST_RUNNER", "macos-hosted")
+    # A nested controller inherits the outer worker environment in hosted -n runs.
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "outer-worker")
     processes = GuiProcesses(tmp_path)
     with (tmp_path / "conftest.py").open("a") as stream:
         stream.write(
-            "\ndef pytest_runtest_logreport(report):\n"
-            "    if os.environ.get('PYTEST_XDIST_WORKER'):\n"
-            "        key = hashlib.sha256((report.nodeid + report.when).encode()).hexdigest()\n"
-            "        Path('raw-' + key + '.json').write_text(json.dumps({\n"
-            "            'nodeid': report.nodeid, 'phase': report.when,\n"
-            "            'properties': report.user_properties}))\n"
+            "\ndef pytest_sessionstart(session):\n"
+            "    global report_role\n"
+            "    report_role = 'raw' if hasattr(session.config, 'workerinput') else 'controller'\n"
+            "def pytest_runtest_logreport(report):\n"
+            "    key = hashlib.sha256((report.nodeid + report.when).encode()).hexdigest()\n"
+            "    Path(report_role + '-' + key + '.json').write_text(json.dumps({\n"
+            "        'nodeid': report.nodeid, 'phase': report.when,\n"
+            "        'properties': report.user_properties}))\n"
         )
     source = tmp_path / "src/tests/python/test_native_ui_shell_linux.py"
     source.parent.mkdir(parents=True)
@@ -660,6 +664,11 @@ def test_linux_native_shell(action, lifecycle):
                 assert mapping["scheduled"] == mapping["original"] + "@macos_gui"
         raw = [json.loads(path.read_text()) for path in tmp_path.glob("raw-*.json")]
         assert {row["nodeid"] for row in raw} == {node + "@macos_gui" for node in expected}
+        controller = [json.loads(path.read_text()) for path in tmp_path.glob("controller-*.json")]
+        assert {row["nodeid"] for row in controller} == set(expected)
+        assert {(row["nodeid"] + "@macos_gui", row["phase"]) for row in controller} == {
+            (row["nodeid"], row["phase"]) for row in raw
+        }
         for row in raw:
             for name, value in row["properties"]:
                 assert name != "btrc.gui-report-identity", "Serializer mutated the live worker report"
