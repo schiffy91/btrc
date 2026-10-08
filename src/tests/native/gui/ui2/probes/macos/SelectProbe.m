@@ -132,17 +132,24 @@
     if (mode >= 2) {
         BOOL focused = [_window makeFirstResponder:view];
         /* SDK27 permits activation to complete later or be refused. Observe
-         * the actual host state under a bounded normal run loop; do not force it. */
+         * the actual host state while dispatching AppKit events; do not force it. */
         [NSApp activate];
         NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
         NSTimeInterval deadline = started + 3.0;
+        NSUInteger dispatched = 0;
         while (focused && (!NSApp.active || !_window.keyWindow || _window.firstResponder != view) &&
                 NSProcessInfo.processInfo.systemUptime < deadline) {
-            [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            NSTimeInterval remaining = deadline - NSProcessInfo.processInfo.systemUptime;
+            if (remaining <= 0) { break; }
+            NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                untilDate:[NSDate dateWithTimeIntervalSinceNow:MIN(0.01, remaining)]
+                inMode:NSDefaultRunLoopMode dequeue:YES];
+            if (event) { [NSApp sendEvent:event]; dispatched++; }
+            [NSApp updateWindows];
         }
-        fprintf(stderr, "select-host keyboardReady=%d policy=%ld waited=%.6f\n",
+        fprintf(stderr, "select-host keyboardReady=%d policy=%ld waited=%.6f dispatched=%lu\n",
             focused && NSApp.active && _window.keyWindow && _window.firstResponder == view,
-            (long)NSApp.activationPolicy, NSProcessInfo.processInfo.systemUptime - started);
+            (long)NSApp.activationPolicy, NSProcessInfo.processInfo.systemUptime - started, (unsigned long)dispatched);
         fprintf(stderr, "select-keyboard class=%s focusAccepted=%d firstResponder=%d accepts=%d keyWindow=%d active=%d keyCode=%u\n",
             class_getName(view.class), focused, _window.firstResponder == view, view.acceptsFirstResponder,
             _window.keyWindow, NSApp.active, (unsigned int)[self key:mode == 3 ? 'b' : ' '].keyCode);
