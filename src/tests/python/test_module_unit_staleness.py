@@ -579,7 +579,7 @@ def test_a_genuinely_new_tuple_shape_preserves_conservative_invalidation(
         request,
         tmp_path,
         _TUPLE_PROGRAM,
-        {"Lib.btrc": ("return pair._0;", "(int, int) flag = (value, 7); return pair._0 + flag._1;")},
+        {"Lib.btrc": ("return pair._0;", "(int, int) left = (value, 7); return pair._0 + left._1;")},
         *(["--debug"] if debug else []),
     )
     shape = "struct btrc_Tuple_int_int {"
