@@ -12,8 +12,8 @@ non-null fields. Its dictionary getter also exposes a null or incomplete
 result before successful preparation. The existing create caller checks
 prepare, so no observed application null dereference is claimed.
 
-Preparation only: source regression and fix are next. No transpile, native
-build, test, or measurement is authorized during the active BTRSmith lane.
+Source preparation is complete; qualification remains pending. No transpile,
+native build, test, or measurement ran during the active BTRSmith lane.
 
 ## Source checkpoints and behavior
 
@@ -21,6 +21,7 @@ build, test, or measurement is authorized during the active BTRSmith lane.
 - Fixture-only checkpoint: `91c45d4b`. This is an unexecuted counterfactual,
   not a claimed red runtime result. The old getter returns before preparation;
   the new fixture requires its specific unavailable error.
+- Production correction: `3ed29368`.
 - Twelve owned CF slots now explicitly allow null. Checked local managed CF
   values keep their owners stable through calls and field writes; the existing
   fields still retain every partial allocation. No manual retain/release,
