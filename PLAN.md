@@ -176,7 +176,14 @@ All 423 emitted C/header outputs preserve exact normalized parity, source/tools
 are unchanged, and all six build/count groups are closed. Result SHA-256:
 `17c10a6305ec92ab6e5a94ff480b4c157487d9f12e89a7d02d3da5e988d3ff70`
 in `declaration-preflight-attribution-3974-count-1/result.json`. No optimization
-or performance acceptance follows from these instrumented counts.
+or performance acceptance follows from these instrumented counts. The next adjacent-call
+resolution diagnostic has not produced a measurement: its first build correctly
+rejects diagnostic-only persistence of a managed AST node as a raw pointer.
+All five build command groups are closed and inputs unchanged. The failed
+receipt is retained under `adjacent-call-target-attribution-3974-build`; a
+nonretaining identity correction requires review before a new attempt. This is
+a diagnostic implementation failure, not a compiler regression or performance
+result.
 
 The independent generic-plan allocation candidate `4d930d95` also builds through
 the original Linux Make recipe. Its first comparison stopped before correctness
@@ -644,7 +651,7 @@ dispatch 18,432,000 bytes. Artifact `11555372802` has SHA-256
 `da11918dd305041d1783e006c7e4d7ee5b1b0e63993415713251f8406c9573de`.
 This closes that combined regression gate, not the product memory/speed targets.
 Android API 36 first failed when adb reported its device offline; its one
-unchanged failed-job retry passes. The failed artifact `11554383604`, digest
+unchanged retry passes. The failed artifact `11554383604`, digest
 `668e13b8ec74d5f4b216d6df74530029fdd01b02f6ea006936f6486321e49ea2`,
 remains retained. API 29 and Windows bootstrap also pass at the new head.
 The required explicit macOS native-GUI dispatch is
