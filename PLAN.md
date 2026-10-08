@@ -349,9 +349,16 @@ native execution are running. Linux release and five C11 configurations now
 pass, but its unit job `113504242493` fails at 20:34 UTC with 7,245 passed,
 3,128 skipped and two failures. One workflow assertion still expects the old
 command without loadgroup; the nested-report observer identifies the controller
-as a worker using an inherited environment variable. Repairs are being prepared
-without relaxing worker-affinity or report-identity checks. The complete skip
-ledger still requires its own audit. macOS reference corpus passes; remaining
+as a worker using an inherited environment variable. Test-only repair `69e0b5d8` now reproduces both original failures and passes
+all 110 focused candidate checks, with zero skips/errors. It identifies the
+nested controller by actual pytest runtime role while preserving worker IDs,
+canonical report identities and phase correspondence. Independent audit
+`7eece4a55decb8cc3940e38f89f04196a6305faefa5300dbfa6aed5a0a611f4e`
+closes all eight groups and exact source/tool/archive/log/JUnit inputs in
+`linux-unit-gui-regressions-69e0-attempt-1`. This repair is locally integrated;
+published PR68 remains at 6f during its active qualifications. The original outer
+ledger's 10,375 identities reconcile exactly; its 3,128 skips are expected. The
+standalone skip gate did not run after pytest failed. macOS reference corpus passes; remaining
 checks run or queue. Its x64 bundle job `113504238329` hits the 45-minute limit
 while building Nix dependencies, before compiler-bundle output. Retained log
 SHA-256 is `a0864785d72863263063e9d790d9a9b639f77765605e46ae23aa2b187886711a`.
@@ -798,10 +805,19 @@ Generated C connects destruction through close/sealQuit to replacing the
 application's member vector while its owner is destroying. Reviewed production
 repair `21ccce41` clears that existing vector in both guarded shutdown paths;
 all original lifecycle assertions remain unchanged. Native acceptance is pending.
-A separate source finding suggests run() masks an already recorded subtree
-failure with a generic pending-shutdown error; direct native confirmation is
-next. The final changed production needs all 48 lifecycle and 40 focused native
-runs. The earlier 40 passes remain scoped to their original source. Full UI2 and
+The original stuck-subtree binary independently reproduces error masking
+after 10.5019 seconds, under the unchanged 30-second bound; receipt `c4c95b89`
+closes all four groups. Separate repair `4232652b` preserves the cleanup attempt
+and prioritizes the actual failure before a generic pending result. Its native
+replay passes eleven reference/plain scenarios, including scope-exit, and the
+original subtree-error assertion. The next stopped-loop/state assertion then
+fails. Independent audit `b97954384392ea9b637d849faffe23e38ee07b72b39574c4e5b2b4f48cf6abbe`
+closes all 67 groups and exact inputs; 36 legacy and all 40 focused cases are
+unrun on this source. isRunning counts an internally retained standalone-host
+attachment after the actual loop stops. Reviewed one-line correction excludes
+that internal cleanup attachment while preserving external-host semantics and
+pending ownership. Native replay is required; all original assertions remain.
+The final changed production needs all 48 lifecycle and 40 focused native runs. The earlier 40 passes remain scoped to their original source. Full UI2 and
 final integration gates remain open.
 
 The missing method implementations now exist; qualification remains scoped to the results below.
