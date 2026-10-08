@@ -22,11 +22,10 @@ PROBES = ROOT / "src/tests/native/gui/ui2/probes/macos"
     [
         ("RunLoopWake", "UI2 worker wakes idle default and tracking run-loop modes without polling"),
         ("RunLoopDeadline", "UI2 monotonic deadlines wake default and tracking modes once"),
+        ("RunLoopLifetime", "UI2 wake cancellation, worker close, native allocation failure and slot reuse drain"),
     ],
 )
-def test_ui2_worker_wake_services_default_and_tracking_modes(
-    native_project, native_compile, gui_provider_root, sanitize, fixture, expected
-):
+def test_ui2_native_run_loop_modes(native_project, native_compile, gui_provider_root, sanitize, fixture, expected):
     source, _sdk, _triple = native_project
     root = source.parent.parent
     source.write_text((PROBES / f"{fixture}.btrc").read_text())
@@ -55,9 +54,37 @@ def test_ui2_worker_wake_services_default_and_tracking_modes(
     NativePlanBuilder(runner=runner).build(
         plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
     )
-    completed = subprocess.run(
-        [str(executable)], cwd=root, env=apple_environment(), capture_output=True, text=True, timeout=15
-    )
+    environment = apple_environment()
+    if fixture == "RunLoopLifetime":
+        faults = root / "RunLoopFaults.dylib"
+        built = runner(
+            [
+                "/usr/bin/clang",
+                "-std=c11",
+                "-dynamiclib",
+                "-framework",
+                "CoreFoundation",
+                str(PROBES / "RunLoopFaults.c"),
+                "-o",
+                str(faults),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        (root / "fault-build.stdout").write_text(built.stdout)
+        (root / "fault-build.stderr").write_text(built.stderr)
+        assert built.returncode == 0, (built.returncode, built.stdout, built.stderr)
+        previous = environment.get("DYLD_INSERT_LIBRARIES")
+        environment["DYLD_INSERT_LIBRARIES"] = f"{previous}:{faults}" if previous else str(faults)
+    try:
+        completed = subprocess.run(
+            [str(executable)], cwd=root, env=environment, capture_output=True, text=True, timeout=30
+        )
+    except subprocess.TimeoutExpired as error:
+        for suffix, output in (("stdout", error.stdout), ("stderr", error.stderr)):
+            (root / f"run.{suffix}").write_bytes(output if isinstance(output, bytes) else (output or "").encode())
+        raise
     (root / "run.stdout").write_text(completed.stdout)
     (root / "run.stderr").write_text(completed.stderr)
     assert completed.returncode == 0, (completed.returncode, completed.stdout, completed.stderr)

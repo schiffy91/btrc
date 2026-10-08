@@ -85,3 +85,13 @@ and channel migration between a detached queue and window queues. The macOS
 provider owns native capture, wake, budgets and lifecycle admission only. This
 dependency has source/static review only; generic instantiation and behavior
 remain unqualified until the shared fixtures execute.
+
+`RunLoopLifetime.btrc` adds a fixture-only checkpoint for scope cancellation and
+source close initiated inside delivery (both must remain PENDING until return),
+300 slot-reuse cycles, 100 worker-wake/close races and 300 real CF source-factory
+failures. A test-only dyld interposer fails one native acquisition after the
+provider has acquired registry/POD storage; the fixture verifies the fault was
+consumed and that subsequent sources still work. The provider is not replaced
+by a model or copied helper. The driver retains native fault-build diagnostics.
+These fixtures are source/static checked only; no native result is claimed.
+The final marked execution function is `test_ui2_native_run_loop_modes`.
