@@ -9,7 +9,11 @@ import Library.GUI.MacOS.MacOSRunLoop;
 class NativeStateReceiver implements IViewInteractionStateHandler {
 	public int calls = 0;
 	public bool visible = true;
-	public void interactionChanged(ViewInteractionState state) { self.calls++; self.visible = state.localVisible; }
+	public MacOSView? closing;
+	public void interactionChanged(ViewInteractionState state) {
+		self.calls++; self.visible = state.localVisible;
+		if (self.closing != null) { assert(self.closing.close() == CALLBACK_CANCELLATION_PENDING); }
+	}
 }
 
 int main() {
@@ -34,7 +38,11 @@ int main() {
 	assert(!view.nativeView().isHidden());
 	assert(context.detachedEvents.dispatchOne());
 	assert(receiver.calls == 2 && receiver.visible);
-	assert(view.close() == CALLBACK_CANCELLATION_COMPLETE);
+	receiver.closing = view;
+	view.setVisible(false);
+	assert(context.detachedEvents.dispatchOne());
+	assert(view.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	receiver.closing = null;
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	context.close(); signal.close();
 	print("UI2 native view visibility updates revisioned state without inline delivery");
