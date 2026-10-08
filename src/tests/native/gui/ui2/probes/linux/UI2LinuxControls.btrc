@@ -50,11 +50,18 @@ class UI2LinuxTextChecks {
 		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "committed"); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
 		assert(commits.events.len == 1 && commits.events.get(0).text.equals("committed") && !commits.events.get(0).composing);
 		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application); assert(commits.events.len == 1);
+		assert(btrcSdlPushEditing(native.nativeId(), "IME", 1, 1) == 1); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("committedIME") && draft.events.get(draft.events.len - 1).composing);
+		field.setText("committed"); assert(field.text().equals("committedIME"));
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_ESCAPE); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("committed") && !draft.events.get(draft.events.len - 1).composing && cancels.events.len == 1 && commits.events.len == 1);
 		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "abandoned"); UI2LinuxTextChecks.pump(application);
 		field.setText("model"); UI2LinuxTextChecks.pump(application);
 		assert(field.text().equals("model") && cancels.events.len == 2 && commits.events.len == 1);
 		assert(cancels.events.get(1).context.origin == CONTROL_ORIGIN_MODEL && cancels.events.get(1).cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT);
 		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "retained"); UI2LinuxTextChecks.pump(application);
+		assert(btrcSdlPushEditing(native.nativeId(), "候", 1, 0) == 1); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("retained候") && draft.events.get(draft.events.len - 1).composing);
 		field.setEnabled(false); UI2LinuxTextChecks.pump(application);
 		assert(field.text().equals("retained") && cancels.events.len == 2 && commits.events.len == 1);
 		/* SYSTEM cancellation was settled but its queued receipt is ineligible;
