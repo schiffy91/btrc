@@ -718,8 +718,8 @@ standard = "c11"
 modules = ["MacOS.MacOSScrollView"]
 os = ["macos"]
 
-# Final integration fragment; not applied. Existing Window AppKit row/callback
-# owner stays unchanged. MacOSRunLoop imports the existing notification adapter.
+# Typed Window notification identities reuse the existing AppKit callback owner.
+# MacOSRunLoop imports the existing notification adapter.
 [[native.bindings]]
 module = "MacOS.MacOSWindow"
 header = "MacOS/Window.h"
