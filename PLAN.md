@@ -373,8 +373,9 @@ successful. Linux is terminal with every selected job except unit passing,
 including all eight C11 configurations, both corpora, bootstrap, release/ARM64
 bundles, X11, Wayland and benchmark regression. The unit failure and locally
 qualified test-only repair remain recorded above. Mac both corpora and Clang
-O0/O2 pass; unit, self-host tests, bootstrap, ARM64 bundle and the separate native
-GUI test job remain live. Its x64 job exhausted the unchanged 45-minute bound
+O0/O2 pass. At 21:28 UTC its bootstrap and ARM64 bundle also complete
+successfully; unit, self-host tests and the separate native GUI test job remain
+live. Its x64 job exhausted the unchanged 45-minute bound
 realizing the full development shell before compiler-bundle output. A source-only
 release-shell repair `3b64240e` preserves the original Python/compiler/SDK tools,
 checks and deadline while omitting test/LSP dependencies; it is not yet evaluated
@@ -440,8 +441,23 @@ the outer stage process group; exact child-PID ownership, ECHILD handling and
 bounded termination/reaping precede parent assertions. Independent source review
 is clear. This addresses unsafe managed work after fork and missing child cleanup;
 it does not establish which descendant held the failed wrapper alive. Original
-compiler pins and workflows remain unchanged. Generated-C post-fork inspection
-and native qualification are pending; no unchanged Linux rerun is dispatched.
+compiler pins and workflows remain unchanged. Both original Clang Make targets
+now compile/link with compiler `f75c737b`; independent review of the actual
+26 emitted C units confirms both child-zero branches perform only descriptor
+closure, execve and _exit before any managed cleanup. The unchanged full
+three-client fixture passes through both frontends on macOS, with zero exit,
+one original PASS marker per frontend and empty stderr. The explicit native
+owner uses a 60-second outer bound per fixture; this is not an invented original
+Make timeout. All five native and six build process groups are reaped and absent;
+846 product files, 4,499 compiler files, tools, archives, recipes, plans and
+binaries retain their exact identities. Native result SHA-256 is
+`6870be3b7d790d9e211de49801476008ca5346f4564da01bda99623824301023`;
+independent audit is
+`b3ae7519c443937429b1e9e9d65f44a16b81e350ac498e39f6c37e49d05f9b8b`
+in `btrsmith-agent-channel-dbe8-f75-native-attempt-1`. This is the original
+product shell/SDK14.4 source-override Mac component proof. Linux replay, audio,
+installed-product, dependency-pin and full MVP acceptance remain open; no
+Linux rerun is dispatched yet.
 
 Before that attempt, a verified payload-only archive preserved 924 completed
 pre-October-8 emitted-C cache parts from 306 default-cache entries. It retained
@@ -1520,7 +1536,7 @@ changes; historical test totals alone do not advance its status.
 | Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish Mac integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
 | UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Earlier current-product CLI/MCP/live-agent evidence remains scoped to its recorded source. Product8f73b7d5 with compilerf75c737b passes eight macOS window-close cases and plan parity; its Linux replay fails the original AgentOperationChannel iteration guard | BTRSmith owner and integrator | Qualify reviewed process-source repair dbe8df0e, then audio, installed-product and compiler-pin acceptance. Full MVP remains incomplete. |
+| BTRSmith macOS/Linux MVP on the current stack | Product8f73b7d5/f75c737b passes eight Mac window-close cases and plan parity. Repaired dbe8df0e now passes the original full three-client agent-channel fixture through both compilers on macOS, with actual generated child-path and native-result review clear | BTRSmith owner and integrator | Replay dbe8 on Linux to resolve the earlier iteration-guard failure, then complete audio, installed-product and compiler-pin acceptance. Mac source-override component passes do not close the full MVP. |
 | One qualified implementation on main | Main remains cbd3ddcd. PR68 head6f1b81d9 passes Windows, Windows ARM64 and Android workflows; every selected Linux job except unit passes. The two Linux test defects are repaired and locally integrated with 110 passing focused checks. Mac x64 dependency preparation timed out; remaining Mac and explicit native-GUI gates are active | Main integrator | Qualify the release-shell repair, publish the proven Linux test repair after active qualification, complete final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip audit and native evidence, then merge. |
 
 For usable-library status, use the existing native catalog and platform inventory
