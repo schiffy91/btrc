@@ -219,7 +219,17 @@ evidence; no candidate tests or build followed it. Fixture-only repair `8c7a8124
 now uses the real CoreFoundation native binding through the public compiler API
 at one worker, checks actual retained/pruned headers and source-function visits,
 and strictly compiles/runs the native result. Independent source review is clear;
-production bytes remain identical to `72357bac`. The six new cases, genuine
+production bytes remain identical to `72357bac`. The second attempt compiles
+successfully but fails the fixture's bare-header assertion before checking traversal
+counts: the native reader correctly preserves the resolved absolute header path.
+Receipt `module-emission-once-r2/counterfactual/result.json`, SHA-256
+`e0d26c7fe3a8a0be94ce22d661869d6f043142c9187075eb110e0d305d017e60`,
+retains that fixture failure; no candidate tests/build followed it. Fixture-only
+`660ac18d` now checks the exact resolved native header identity. Independent
+source and recipe reviews are clear; fresh R3 preparation preserves all original
+bounds, source/tool pins and the requirement for an actual repeated-body Counter
+failure on baseline `3974d47b`. No performance saving is claimed.
+The six new cases, genuine
 counterfactual failure, fresh self-hosted build, original paired checks,
 current-product C parity and measurements remain pending. The snapshot adds an
 extra tuple/vector copy to ordinary emission, so net speed and memory benefit
@@ -728,6 +738,11 @@ reachability requirement without changing the current dependency pin.
 
 ### Integration status in service of the goals
 
+Latest live check on October 8: macOS unit retry `113416271573` and explicit
+native-GUI retry `113422566478` both reached their test steps on actual hosted
+runners. Both hosted capacity slots remain occupied; no third wave is dispatched.
+
+
 **Current checkpoint, October 8:** main is `cbd3ddcdb25b9c7519f2babc3dce38647b3a0212`,
 which merged the consolidated plan and qualified Mac test-coordination repair
 through PR69. The final PR head passed 36 selected checks; all four post-merge
@@ -791,7 +806,7 @@ cause is established; do not classify all failures as infrastructure. Job `11334
 `2cb00dd368165e68e2038d6fb5c94742be882d3631ffa2774f541554755fd0be`; artifact `11561484842` retains the main failing unit report separately
 from a nested one-pass child report. On October 8, the one unchanged
 failed-job replay was accepted as attempt 2. The x64 release bundle now passes
-(job `113416270707`); unit tests remain queued, with other successful jobs
+(job `113416270707`); unit retry `113416271573` is now executing its test step, with other successful jobs
 retained. The original terminal snapshot has SHA-256
 `4f4515b61e8e280b0588ba6f727aa67016d757afb45e33c92de8488898e9ff24`
 in `pr68-00e45379-macos-retry-2/attempt-1-terminal.json`. Root-cause analysis and
