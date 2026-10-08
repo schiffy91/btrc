@@ -51,6 +51,25 @@ class QueueWake implements IControlEventWake {
 }
 
 class QueueFailureChecks {
+	class void ineligibleTerminal() {
+		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(1, pool);
+		var target = QueueTarget(); var receiver = QueueReceiver(); var scope = CallbackScope();
+		var channel = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(queue, target, receiver, QueueReceiver.deliver, scope);
+		var ticket = channel.beginInteraction(); if (ticket == null) { throw "Missing terminal reservation"; }
+		/* Lifecycle settlement emits its terminal exactly once. Invocation still
+		 * observes the approved eligibility barrier; it never bypasses it. */
+		target.eligible = false;
+		channel.publishTerminal(QueueSnapshot(95), 1LL, 1LL, ticket);
+		assert(queue.pendingCount() == 1 && pool.available() == 0);
+		assert(queue.dispatchOne() && !queue.dispatchOne());
+		assert(receiver.values.len == 0 && !ticket.isOpen());
+		assert(queue.retired(CONTROL_EVENT_INELIGIBLE) == 1LL && pool.available() == 0);
+		target.eligible = true;
+		assert(!queue.dispatchOne() && receiver.values.len == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && pool.available() == 1);
+		queue.close();
+	}
+
 	class void wakeFailure(bool raises, bool replacement) {
 		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(2, pool);
 		var wake = QueueWake(); queue.setWake(wake);
@@ -125,6 +144,7 @@ class QueueFailureChecks {
 }
 
 int main() {
+	QueueFailureChecks.ineligibleTerminal();
 	QueueFailureChecks.foreignQueueTicket(false); QueueFailureChecks.foreignQueueTicket(true);
 	QueueFailureChecks.cancelledOwner(); QueueFailureChecks.enteredTerminalCredit();
 	QueueFailureChecks.wakeFailure(false, false); QueueFailureChecks.wakeFailure(true, false);

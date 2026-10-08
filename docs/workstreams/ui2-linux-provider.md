@@ -267,3 +267,11 @@ the failed attempt and 2.25 seconds for the corrected attempt. Linux SDK source
 projection needs the existing qualified Linux image: its ARM ELF reader and
 SDK paths cannot be reused directly on this Mac. No ABI declarations were
 invented to bypass that requirement.
+
+The shared queue fixture additionally covers the reconciled terminal eligibility
+rule (`ui2-approved.md:514–520`): a lifecycle cancel receipt is admitted once,
+then retires as INELIGIBLE if the target is ineligible at invocation; restoring
+eligibility neither delivers nor replays it, and scope drain returns the base
+credit. This does not add a terminal bypass or a second public contract. The
+expanded fixture reference-transpiles (exit 0, 2.24 seconds); all behavioral
+assertions remain unexecuted. Evidence: `ui2-linux-source-projection/terminal-eligibility/`.
