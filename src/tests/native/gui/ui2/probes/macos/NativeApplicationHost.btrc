@@ -64,6 +64,19 @@ class PublicStateReceiver implements IViewInteractionStateHandler {
 	public void interactionChanged(ViewInteractionState state) { self.calls++; self.visible = state.localVisible; }
 }
 
+class PublicWindowStateReceiver implements IWindowStateHandler {
+	public int calls = 0;
+	public void stateChanged(WindowState state) { self.calls++; }
+}
+
+class PublicWindowCloseReceiver implements IWindowCloseRequestHandler {
+	public int calls = 0;
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		self.calls++;
+		assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 0LL).kind == WINDOW_CLOSE_OUTCOME_APPLIED);
+	}
+}
+
 class PublicClosingWork implements IApplicationWork {
 	private IApplication _application;
 	public bool returned = false;
@@ -185,6 +198,17 @@ int main() {
 	attachment.transition(APPLICATION_ACTIVITY_ACTIVE);
 	assert(window.state().applicationActivity == APPLICATION_ACTIVITY_ACTIVE);
 	assert(view.interactionState().effectiveEligible);
+
+	/* One state observation precedes one terminal record in the real window
+	 * queue. A bounded turn must wake the host for the residual terminal. */
+	var windowStates = PublicWindowStateReceiver(); var windowClose = PublicWindowCloseReceiver();
+	window.onStateChanged(windowStates, scope); window.onCloseRequested(windowClose, scope);
+	window.setContentSize(170.0, 110.0);
+	assert(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_PENDING);
+	int beforeResidual = host.requests();
+	attachment.serviceTurn();
+	assert(windowStates.calls == 1 && windowClose.calls == 0 && host.requests() > beforeResidual);
+	attachment.serviceTurn(); assert(windowClose.calls == 1 && window.isOpen());
 
 	var closing = PublicClosingWork(application);
 	application.post(closing); attachment.serviceTurn();
