@@ -2,9 +2,8 @@
 
 D29 integrator-authorized continuation from Application report commit
 `683571b2bdd04ca6a286dc7a94a7a9a9403684f4`, on preserved packet branch
-`codex/ui2-macos-native-quit`. This checkpoint records contract and test design
-only. No executable provider, fixture, compiler or native source changes have
-been made, and no new native result is claimed.
+`codex/ui2-macos-native-quit`. The packet now includes the first fixture-only native baseline below.
+Executable provider behavior and compiler inputs remain unchanged.
 
 ## Baseline and intended behavior
 
@@ -17,8 +16,8 @@ run and native group quit were explicitly excluded from that proof.
 Current `MacOSApplication.applicationShouldTerminate` calls irreversible
 `requestQuit` immediately. `MacOSWindow.requestClose` always creates an
 uncoordinated transaction, although the existing transaction already supports
-holding AUTHORIZED when coordinated. These are source findings, not a newly
-executed native baseline. The new baseline must reach actual `[NSApp terminate:]`
+holding AUTHORIZED when coordinated. These source findings are now supported by the retained baseline below.
+The baseline must reach actual `[NSApp terminate:]`
 with two live dirty windows and classify the resulting missing-decision/early
 shutdown predicate; projection/setup failure is not that native RED.
 
@@ -175,8 +174,43 @@ single decision delivery, repeated pending transaction identity, held DISCARD
 before peer CANCEL, both retained drafts and normal queued work/publication
 survival. Direct irreversible quit occurs only after those observations.
 
-This source checkpoint has independent review and syntax/format checks only.
-Native baseline execution is pending. Saving/staleness, membership changes,
+The fixture-only checkpoint has independent source review and syntax/format
+checks. Its actual native baseline is retained below. Saving/staleness, membership changes,
 all-authorized commit, the preexisting pending-save terminate-to-completeSave
 same-callback overlap, the 12 legacy scenarios and attached-host regression
 remain final acceptance obligations; this first fixture does not replace them.
+
+## Actual first native baseline
+
+Fixture commit `f573f8dd3d2e4c446b03d1fd1b42ae67774d2706` was projected
+through exact current reference compiler `f75c737b`, with retained selfhost
+binary `60639d60` authenticated but not used for this first cell. On Apple M1
+Max, 8P+2E, 64 GiB, macOS 27.0, original SDK 27 / arm64 macOS 14 target,
+the reference projection, 11 strict source checks and plain native link passed.
+The original 30-second native command then exited SIGABRT (-6), not timeout.
+
+The actual stderr is:
+
+```text
+Native quit result: requests=1 returned=1 firstDecisions=0 secondDecisions=0 cancelled=0
+Assertion failed: (__btrc_assert_condition_33), function main, file Program.c, line 78990.
+```
+
+Authenticated generated C line 78985 checks `nativeReturned` and positive native
+request count; line 78988 assigns condition 33 from `journey->cancellationObserved`.
+Thus this is the intended missing cancellable-native-quit predicate after an
+actual returned AppKit termination request. It is not a setup/import/link error
+or evidence that later save/revalidation scenarios executed. The unchanged
+qualifier reports failure; no expected-failure waiver was installed.
+
+The immutable bundle is `ui2-macos-native-quit-f573f8dd-baseline-compiler-f75c737b`
+under the local `plan-consolidation-2026-10-07` evidence root. Aggregate
+`baseline-result.json` SHA-256 is
+`d3912db46a1be0dd7bb7ea3805c090cc8a39f5893ab5a453f38ed27f51ee6943`;
+run receipt SHA-256 is
+`cdfb0064904a6673e5d412f0cccbfe86f04edbc3691f8e9e5a864f40af472c96`.
+All 40 owned command leaders were reaped and their groups were absent; all
+347 provider and 131 compiler files, auxiliary metadata and tool identities
+were unchanged. An independent read-only audit confirmed that classification
+and closure. No candidate implementation or selfhost/sanitized native result
+is claimed by this baseline.
