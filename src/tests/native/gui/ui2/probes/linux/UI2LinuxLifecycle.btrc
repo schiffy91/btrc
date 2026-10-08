@@ -1,0 +1,50 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+
+class UI2LinuxStateReceiver implements IViewInteractionStateHandler {
+	public Vector<ViewInteractionState> states = [];
+	public void interactionChanged(ViewInteractionState state) { assert(SDL_IsMainThread()); self.states.push(state); }
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	var application = LinuxApplication(16); var window = application.createWindow("UI2 eligibility", 240.0, 120.0);
+	var root = application.createContainer(); var button = application.createButton("retained preference");
+	var receiver = UI2LinuxStateReceiver(); var scope = CallbackScope();
+	var initial = button.interactionState();
+	assert(initial.localVisible && initial.localEnabled && !initial.effectiveEligible && initial.layoutParticipating);
+	button.onInteractionStateChanged(receiver, scope);
+	assert(receiver.states.len == 0);
+	root.attach(button); window.attachRoot(root); window.show();
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(button.interactionState().effectiveEligible && button.interactionState().stateRevision > initial.stateRevision);
+	root.setVisible(false);
+	var hidden = button.interactionState();
+	assert(hidden.localVisible && hidden.localEnabled && !hidden.inheritedEligible && !hidden.effectiveEligible && hidden.layoutParticipating);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(receiver.states.len > 0 && !receiver.states.get(receiver.states.len - 1).effectiveEligible);
+	button.setEnabled(false); root.setVisible(true);
+	var disabled = button.interactionState();
+	assert(disabled.localVisible && !disabled.localEnabled && disabled.inheritedEligible && !disabled.effectiveEligible);
+	button.setEnabled(true); assert(button.interactionState().effectiveEligible);
+	var detached = root.detach(button);
+	assert(detached == button && !button.interactionState().effectiveEligible);
+	root.attach(button); assert(button.interactionState().effectiveEligible);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(receiver.states.get(receiver.states.len - 1).effectiveEligible);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	int delivered = receiver.states.len; root.setVisible(false);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(receiver.states.len == delivered);
+	window.close();
+	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
+	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	printf("PASS: UI2 Linux inherited eligibility and scoped observations\n"); SDL_Quit(); return 0;
+}

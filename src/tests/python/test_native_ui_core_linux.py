@@ -11,13 +11,20 @@ from src.tests.runner_capabilities import linux_display_error
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
-def test_linux_ui2_worker_wake_and_host(tmp_path, request, frontend, sanitized):
+@pytest.mark.parametrize(
+    ("fixture", "marker"),
+    [
+        ("UI2LinuxExecutor.btrc", "PASS: UI2 Linux worker native wake and hosted suspension"),
+        ("UI2LinuxLifecycle.btrc", "PASS: UI2 Linux inherited eligibility and scoped observations"),
+    ],
+)
+def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized, fixture, marker):
     require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
     root = Path(__file__).resolve().parents[3]
     executable = build_provider_program(
-        root / "src/tests/native/gui/ui2/probes/linux/UI2LinuxExecutor.btrc",
+        root / "src/tests/native/gui/ui2/probes/linux" / fixture,
         tmp_path,
         frontend,
         sanitized,
@@ -34,4 +41,4 @@ def test_linux_ui2_worker_wake_and_host(tmp_path, request, frontend, sanitized):
     (tmp_path / "stdout.txt").write_text(result.stdout)
     (tmp_path / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "PASS: UI2 Linux worker native wake and hosted suspension" in result.stdout
+    assert marker in result.stdout
