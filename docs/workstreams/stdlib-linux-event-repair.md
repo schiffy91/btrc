@@ -61,3 +61,28 @@ separate observed frame assertion before the full E40 outcome can be accepted.
 Checks so far: Ruff lint/format and BTRC syntax/format checks; no native builds,
 pytest suite or guest execution. Shared expected-skip and catalog fragments are
 not yet applied; do not publish the branch as a qualified normal gate.
+
+### Bounded dequeue correction
+
+Fixture-only commit: `5299b7a8`. Production now stops after dispatching event
+4096 **before** polling for another event. The next loop turn obtains event
+4097 from SDL; no private event cache or lifetime is introduced. Window
+settlement, delayed work, posted work, actions, frames and close processing
+remain after the bounded batch, in their existing order.
+
+The fixture-only and corrected revisions must be run on the same qualified
+Linux environment. Expected old-source failures are genuine E40 queue/cardinality
+assertions at 4097 and 8193, not compiler/setup errors. All 64 corrected rows
+must pass without skips. Use the existing parent-scheduled Linux native lane:
+
+```sh
+PYTEST_WORKERS=1 tools/linux-ci.sh test-native-gui \
+  'BTRC_TEST_RUNNER=linux-devcontainer' \
+  'PYTEST_ARGS=-q -rs -k linux_event_boundary --basetemp=build/linux-event-proof/pytest --junitxml=build/linux-event-proof/junit.xml'
+```
+
+Preserve each run's outputs before reusing `--basetemp`. Neither this command
+nor the original native reproduction has been executed in this reconstruction.
+Static format checks and `git diff --check` pass. Full E40 rendering progress,
+remaining input outcomes, catalog/skip admission, native qualification and
+normal final gates remain open.

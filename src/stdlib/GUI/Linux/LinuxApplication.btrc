@@ -213,7 +213,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 
 	private LinuxWindow? windowFor(unsigned int id) { for window in self._windows { if (window.isOpen() && window.nativeId() == id) { return window; } } return null; }
 
-	/* Pump every queued native event into its window. */
+	/* Leave input beyond this turn's budget queued while work and frames progress. */
 	private void pumpEvents(int timeoutMilliseconds) {
 		BtrcSdlEvent event;
 		bool received = (timeoutMilliseconds > 0 ? btrcSdlWaitEvent(&event, timeoutMilliseconds) : btrcSdlPollEvent(&event)) != 0;
@@ -225,6 +225,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 				var target = self.windowFor(event.window);
 				if (target != null) { target.dispatch(&event); }
 			}
+			if (dispatched == 4096) { break; }
 			received = btrcSdlPollEvent(&event) != 0;
 		}
 		for window in self._windows { if (window.isOpen()) { window.settle(); } }
