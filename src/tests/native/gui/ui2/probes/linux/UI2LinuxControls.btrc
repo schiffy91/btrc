@@ -49,6 +49,21 @@ class UI2LinuxTextChecks {
 		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	}
 
+	class void refocusAfterEligibilityLoss() {
+		var application = LinuxApplication(32); var window = application.createWindow("UI2 immediate refocus", 240.0, 60.0);
+		var field = application.createTextField("accepted", ""); window.attachRoot(field); window.show();
+		var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var commits = UI2LinuxTextReceiver(); var scope = CallbackScope(); field.onCommit(commits, scope);
+		UI2LinuxTextChecks.pump(application); UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.replaceDraft(native.nativeId(), "retained"); UI2LinuxTextChecks.pump(application);
+		/* No pump may repair focus between these two model changes. */
+		field.setEnabled(false); field.setEnabled(true);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.replaceDraft(native.nativeId(), "resumed"); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN);
+		UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("resumed") && commits.events.len == 1 && commits.events.get(0).text.equals("resumed"));
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
 	class void detachEditing(bool composing, bool containerChild) {
 		var application = LinuxApplication(32); var window = application.createWindow("UI2 editor route migration", 240.0, 60.0);
 		var field = application.createTextField("accepted", ""); var container = application.createContainer();
@@ -117,6 +132,7 @@ class UI2LinuxTextChecks {
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
 	UI2LinuxTextChecks.textLifecycle(); UI2LinuxTextChecks.compositionCommitOrdering();
+	UI2LinuxTextChecks.refocusAfterEligibilityLoss();
 	UI2LinuxTextChecks.detachEditing(false, false); UI2LinuxTextChecks.detachEditing(true, false);
 	UI2LinuxTextChecks.detachEditing(false, true); UI2LinuxTextChecks.detachEditing(true, true);
 	var application = LinuxApplication(32); var window = application.createWindow("UI2 scroll geometry", 200.0, 150.0);
