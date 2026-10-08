@@ -65,6 +65,39 @@ class BarrierContainerLayout implements IMacOSContainerLayout {
 }
 
 class ContainerBarrierCases {
+	class void queuedCancellation(bool duringMutation) {
+		var context = MacOSControlContext();
+		int available = context.terminalPool.available();
+		UI2ContainerProbe.openHost();
+		var view = UI2ContainerProbe.newInputView();
+		if (view == null) { throw "Barrier fixture could not create its native input view"; }
+		var firstReceiver = BarrierInputReceiver(context, false);
+		var secondReceiver = BarrierInputReceiver(context, false);
+		var first = MacOSViewInput(view, firstReceiver, null, context); firstReceiver.registration = first;
+		var second = MacOSViewInput(view, secondReceiver, null, context); secondReceiver.registration = second;
+		first.start(); second.start();
+		var pressed = UI2ContainerProbe.primaryDown(view);
+		if (pressed == null) { throw "Barrier fixture could not create its native pointer event"; }
+		assert(first.invoke(pressed) == null && second.invoke(pressed) == null);
+		assert(firstReceiver.pressed == 1 && secondReceiver.pressed == 1);
+		assert(context.terminalPool.available() == available - 2);
+		context.beginMutation(); first.detach(); second.detach();
+		assert(context.pendingInput() == 2 && firstReceiver.cancelled == 0 && secondReceiver.cancelled == 0);
+		if (!duringMutation) { context.endMutation(); }
+		assert(first.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(context.pendingInput() == 1 && context.terminalPool.available() == available - 1);
+		assert(firstReceiver.cancelled == 0 && firstReceiver.exited == 0 && secondReceiver.cancelled == 0);
+		assert(first.cancel() == CALLBACK_CANCELLATION_COMPLETE && context.pendingInput() == 1);
+		if (duringMutation) { context.endMutation(); }
+		assert(context.dispatchOne(context.detachedEvents));
+		assert(secondReceiver.cancelled == 1 && secondReceiver.exited == 0 && context.pendingInput() == 0);
+		assert(firstReceiver.cancelled == 0 && firstReceiver.exited == 0);
+		assert(second.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(context.terminalPool.available() == available && !context.dispatchOne(context.detachedEvents));
+		firstReceiver.registration = null; secondReceiver.registration = null;
+		UI2ContainerProbe.closeHost(); context.close();
+	}
+
 	class void input(bool closeContext) {
 		var context = MacOSControlContext();
 		int available = context.terminalPool.available();
@@ -141,6 +174,8 @@ class ContainerBarrierCases {
 
 int main() {
 	ui2InitializeAppKit();
+	ContainerBarrierCases.queuedCancellation(true);
+	ContainerBarrierCases.queuedCancellation(false);
 	ContainerBarrierCases.semantic();
 	ContainerBarrierCases.throwingTerminal();
 	ContainerBarrierCases.input(true);
