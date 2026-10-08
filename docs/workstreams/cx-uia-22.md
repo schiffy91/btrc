@@ -859,3 +859,30 @@ assertion, provider admission check and native input operation remains intact.
 The integrator and independent reviewer cleared the exact reorder; fresh native
 qualification remains required. The failed source/archive and outputs above
 are preserved.
+
+Frozen 8e21f235 (host-order correction) again passed all six projections, 30
+strict translation-unit checks, three reference plain links, and the first two
+native components. NativeScrollState then reached its wheel notification oracle
+and aborted at generated Program.c:26709: `liveNotifications() > 0 &&
+boundsBeforeLive() > 0`. The earlier geometry, MODEL/no-op/invalid-input, clamp
+and retained-snapshot assertions passed before that point. Later rows remain
+unrun. Aggregate `ui2-macos-components-8e21f235/results/projection1/components/
+attempt-result.json` has SHA-256
+`f5a7f6eb2c9182e6d380d3e5ad6f7a66903cadf77e6dbb8a16002c93aba49651`.
+
+A separate stderr-only observer retained the exact generated C and provider
+inputs. Two private plan-admission attempts failed before C compilation/native
+execution (canonical encoding, then diagnostic TU package ownership); both are
+retained. The corrected observer3 used an explicit diagnostic-only package and
+passed strict probe compilation/linking. Its actual native run reproduced the
+original assertion: phase/momentum were zero, line deltas were -1/-1, the event
+had no window association, and clip origin stayed 300/620 immediately after
+`scrollWheel:`. AppKit emitted one WillStart notification and no bounds/DidLive/
+DidEnd notification before the assertion. The window was visible but inactive
+and not key. This disproves the fixture's synchronous/no-start assumption for
+that stimulus; it does not establish a provider notification defect. Source and
+tool inputs were unchanged after execution. Exact evidence is
+`ui2-macos-components-8e21f235/results/scrollObserver3/components/reference/
+observer-plain.json`. A separate matched native-only control and bounded normal
+run-loop observation are prepared but have not run; assertions and provider
+behavior remain unchanged pending that evidence.
