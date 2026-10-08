@@ -1,3 +1,34 @@
+# Main-based AppKit coordination qualification
+
+Base: `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Reviewed source donor: `ade99447cedef6cdbb5bccdf64180fc710627f56`.
+
+This packet transplants only the ten Python test/harness deltas below onto main;
+unrelated compiler-cache flags from the donor parent are excluded. No compiler,
+stdlib/provider, native fixture, assertion, timeout or expected-skip change is included.
+Current-source process and hosted native qualification are **pending**.
+
+PR69 (`f01ec0ff9c025b56feacf28a304659f286d57f9c`) failed hosted native GUI
+run 37738227455 / job 113182639729: 326 passed, 67 skipped and one selfhost
+Portable sanitized WebGPU failure, SIGABRT in PortableGPUJourney_run. The old
+artifacts retained JUnit but not Program.c. The generated assertion ordinal does
+not identify its source predicate. The coordination defect is independently
+reproduced below; it is not yet the demonstrated cause of that GPU failure.
+
+Owned source paths:
+
+- `src/tests/conftest.py`
+- `src/tests/python/test_macos_gui_coordination.py`
+- `src/tests/python/test_native_app_runtime.py`
+- `src/tests/python/test_native_control_sizing_runtime.py`
+- `src/tests/python/test_native_gui_appkit.py`
+- `src/tests/python/test_native_objective_c_delegates.py`
+- `src/tests/python/test_native_pointer_runtime.py`
+- `src/tests/python/test_native_tray_runtime.py`
+- `src/tests/python/test_native_ui_shell_macos.py`
+- `src/tests/python/test_native_webgpu_imports.py`
+
+## Historical evidence (not current qualification)
+
 # macOS GUI worker coordination
 
 Packet: macos-gui-coordination. Owner: Codex, integrator-assigned under D29.
@@ -29,7 +60,7 @@ Independent pytest processes will exercise exclusion, unmarked progress,
 exception and process-death release. A separate contender exercises bounded
 waiting and holder diagnostics. These are coordination tests, not GUI evidence.
 
-## Status
+## Historical local validation
 
 Claim `2ec3774d` preceded source edits, at 2026-10-08 01:34:43 UTC.
 The process baseline on unchanged conftest/driver owners failed because the
@@ -68,15 +99,59 @@ Existing harness-selection checks also passed: **15 passed in 0.06 s**
 qualified Python 3.14.6 environment; before execution, available space was
 81.70 GB. Source/validation work completed at approximately 01:40 UTC; native
 work waited for the G12 lane throughout, and none ran in this packet.
-Native GUI remains blocked by the observed loginwindow context. This proof is
+At that local checkpoint, native GUI was blocked by the observed loginwindow context. That proof was
 coordination evidence only: it does not resolve the original activation-policy
 exception or qualify the lifecycle changes on an unlocked/hosted desktop.
 No GUI launch, compiler build, guest, hosted dispatch or assertion/skip change
-was made. The existing focused hosted native-GUI lane can qualify the eventual
-reviewed tree when the integrator's two-wave CI cap allows it.
+was made during that initial local packet.
 
-Independent read-only review of source `ade99447` by the performance-review
-agent found no actionable blocker in the lock lifecycle, existing compiler-lock
-behavior, marked execution inventory, collection audit or process regressions.
-The reviewer ran no tests/builds. Native GUI and full-matrix qualification remain
-pending; this review does not upgrade the pure coordination proof to GUI evidence.
+
+## Main-based hosted qualification, 2026-10-08
+
+Source `13e147edf4ec2dc921ee1a6bb5f3baff5f1a9520` isolates the AppKit
+coordination changes on main `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`.
+Diagnostic child `6b845c2991eaf1559de97575691705150632e1d4` adds only
+its immutable qualification recipe. [Run 37745915293](https://github.com/schiffy91/btrc/actions/runs/37745915293)
+completed successfully.
+
+- The unchanged main baseline with the new tests has the two required
+  coordination/inventory assertion failures, with no errors or skips. The
+  repaired owner passes all seven coordination cases.
+- Original `make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600
+  BTRC_TEST_RUN_TIMEOUT=60 test-native-gui` passes: 327 passed, 67 expected
+  skips, zero failures/errors. The exact 394 collected identities executed.
+- All eight native GPU pixel cases pass, including the self-hosted portable
+  sanitized case that failed in the earlier plan-only run. This is not proof
+  of the historical failure's cause.
+- The original enforced skip gate passes. It records 65 skipped rows covered
+  by another runner and two explicitly uncovered Linux-native-reader rows;
+  none is presented as macOS execution.
+- Two independent reviews verify all 4,374 production-source files against
+  their Git blob IDs, bytes and modes, unchanged source/tool inventories,
+  original commands, and the three diagnostic input hashes.
+
+Artifact `11538891327` is 174,524,129 bytes with SHA-256
+`07e0cabe6f83b4b854b1391dd578b26b4a1b1493a87858b097a97a9d55e365f9`.
+The complete ZIP and bounded receipts remain in
+`~/.cache/btrc/plan-consolidation-2026-10-07/macos-gui-lease-main49-hosted/`.
+The 31 retained generated Program.c units are diagnostic evidence, not tracked
+build outputs. This result qualifies the affected AppKit gate; final combined
+PR gates, main integration and the full product roadmap remain separate.
+
+
+## Follow-up fixture isolation
+
+The later Linux baseline diagnostic exposed pytest configuration discovery in
+nested archived trees: child pytest loaded the ancestor candidate's pythonpath
+and imported its fixture owner while the outer test belonged to the baseline.
+A real process reproduction records both imported paths and reproduces the
+incorrect baseline pass. The shared test pattern now pins the intended pytest
+configuration and cache and verifies the imported owner's absolute path and
+SHA-256. Exclusion waits for actual contention on the intended kernel lock or
+body entry, so process setup is not treated as proof of lock acquisition.
+The seven Mac coordination cases retain their original assertions; safe process
+group cleanup also reaps a completed leader before checking its descendants.
+The production AppKit lease and native test bodies remain exactly those from
+`13e147ed`. This fixture follow-up does not relabel the earlier native run as
+execution of new test source. Its focused result and combined PR CI are recorded
+with the new candidate.

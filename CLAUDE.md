@@ -1,6 +1,8 @@
 @AGENTS.md
 @PLAN.md
 
+<a id="claude-claudes-roadmap-for-the-remaining-btrc-and-btrsmith-work"></a>
+
 # CLAUDE: entry point to the unified plan
 
 Read [AGENTS.md](AGENTS.md), then [PLAN.md](PLAN.md). The owner consolidated

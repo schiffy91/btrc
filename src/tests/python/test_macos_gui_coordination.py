@@ -116,7 +116,7 @@ class GuiProcesses:
             "def test_orchestrator(journey_fixture):\n"
             "    journey()\n"
             "    subprocess.run([sys.executable, '-m', 'pytest', '-q', '-c', os.environ['LEASE_CONFIG'],\n"
-            "                    '--confcutdir=' + str(Path.cwd()), '-o', 'cache_dir=' + os.environ['LEASE_CACHE'], 'test_process.py::test_gui'],\n"
+            "                    '--rootdir=' + str(Path.cwd()), '--confcutdir=' + str(Path.cwd()), '-o', 'cache_dir=' + os.environ['LEASE_CACHE'], 'test_process.py::test_gui'],\n"
             "                   env=os.environ | {'LEASE_ROLE': 'nested'}, check=True, timeout=15)\n"
         )
 
@@ -143,6 +143,7 @@ class GuiProcesses:
                 "-q",
                 "-c",
                 environment["LEASE_CONFIG"],
+                "--rootdir=" + str(self.root),
                 "--confcutdir=" + str(self.root),
                 "-o",
                 "cache_dir=" + environment["LEASE_CACHE"],

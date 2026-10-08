@@ -1,3 +1,5 @@
+<a id="codex-platform-stdlib-implementation-lane"></a>
+
 # CODEX: entry point to the unified plan
 
 Read [AGENTS.md](AGENTS.md), then [PLAN.md](PLAN.md). The owner consolidated
