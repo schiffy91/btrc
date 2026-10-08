@@ -55,13 +55,13 @@ int main() {
     ),
     "CanonicalNestedDependencies": (
         """int main() {
-    (int, (short, char)) outer = (7, ((short)2, 'q'));
+    (int, (int, (short, char))) outer = (7, (3, ((short)2, 'q')));
     (char, int) earlier = ('a', 4);
-    print(f"{outer._0 + outer._1._0 + earlier._1} {outer._1._1}");
+    print(f"{outer._0 + outer._1._0 + outer._1._1._0 + earlier._1} {outer._1._1._1}");
     return 0;
 }
 """,
-        "13 q\n",
+        "16 q\n",
     ),
     "GenericMethodSizeof": (
         """class Box {
