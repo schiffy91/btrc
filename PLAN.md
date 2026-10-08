@@ -176,14 +176,18 @@ All 423 emitted C/header outputs preserve exact normalized parity, source/tools
 are unchanged, and all six build/count groups are closed. Result SHA-256:
 `17c10a6305ec92ab6e5a94ff480b4c157487d9f12e89a7d02d3da5e988d3ff70`
 in `declaration-preflight-attribution-3974-count-1/result.json`. No optimization
-or performance acceptance follows from these instrumented counts. The next adjacent-call
-resolution diagnostic has not produced a measurement: its first build correctly
-rejects diagnostic-only persistence of a managed AST node as a raw pointer.
-All five build command groups are closed and inputs unchanged. The failed
-receipt is retained under `adjacent-call-target-attribution-3974-build`; a
-nonretaining identity correction requires review before a new attempt. This is
-a diagnostic implementation failure, not a compiler regression or performance
-result.
+or performance acceptance follows from these instrumented counts. The adjacent-call
+resolution diagnostic also rejects its hypothesis as the next high-payoff
+optimization: across 62,135 pairs, the second-query envelopes total only
+0.410560 seconds (identifier 0.060842; field 0.349718). All 926 group/path notes
+conserve first/second/validation counts, with zero kind/environment mismatches.
+All 423 C/header outputs preserve the recorded normalized parity; independent
+review verifies input/tool/log hashes and closed process groups. The retained
+result is `adjacent-call-target-attribution-3974-count-2/result.json`, SHA-256
+`e774d8e2ee12c168f900e154e4d37fae4f30c49344228467252454e1a02570e1`. This is instrumented,
+nonquiet attribution, not a speedup or product memory acceptance result. The
+first build's diagnostic-only managed-to-raw pointer rejection remains retained;
+the successful correction uses the existing nonretaining AST identity string.
 
 The independent generic-plan allocation candidate `4d930d95` also builds through
 the original Linux Make recipe. Its first comparison stopped before correctness
@@ -632,8 +636,17 @@ source-override component result, not installed-product or dependency-pin
 acceptance. Existing-owner nullable warnings remain in the logs. The matching
 Linux replay is pending. A separate production defect remains: GUIApplication
 must propagate every non-complete window-close state before releasing dependent
-view/session ownership; its actual native failure regression and repair are
-being prepared separately.
+view/session ownership. Source candidate `ce40e360` now calls the existing
+idempotent window close operation unconditionally and preserves all non-complete
+results. This also handles a native-closed window whose managed cleanup has not
+started. Native qualification remains pending. Independent review additionally
+confirms that the host destructor can release fields after unfinished or thrown
+cleanup; the packet must guard both paths with the existing fatal-error
+convention. Its genuine native failure, native-close and final-owner destruction
+controls are being prepared; an explicit-close pass alone will not qualify
+safe destruction. Product fixture `37bbb680` is now published privately on
+`codex/native-shutdown-lifecycle`, satisfying the Linux replay's source
+reachability requirement without changing the current dependency pin.
 
 ### Integration status in service of the goals
 
@@ -656,7 +669,16 @@ unchanged retry passes. The failed artifact `11554383604`, digest
 remains retained. API 29 and Windows bootstrap also pass at the new head.
 The required explicit macOS native-GUI dispatch is
 [37791840625](https://github.com/schiffy91/btrc/actions/runs/37791840625).
-Remaining full-matrix, skip and native results must be verified before merge.
+All eight Linux strict-C11 cells, release/generated/lint/format/extension and
+final release-source hygiene now pass. The exact-head Wayland log reports 322
+passes and 199 expected skips, with enforced classification. The macOS x64
+bundle attempt reached its unchanged 45-minute job limit during Nix dependency
+realization, before compiler/bundle tests. Its retained log digest is
+`1cd1b8ca7ce8466b4e9498fbba383a74a2442d8543d889dc327428cd29b40588`;
+cache HTTP 429 is observed but not established as the sole cause. GitHub refused
+the immediate single-job rerun request; no retry started. Reconsider one
+unchanged retry after the original workflow is terminal. Remaining full-matrix,
+skip and native results must be verified before merge.
 
 Windows PR53 previously merged on main at
 `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Its source tree is exactly the
