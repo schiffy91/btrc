@@ -245,3 +245,25 @@ across native mutation and committed only at the coherent result; native pump
 reentry is barred. This draft still needs independent source review (including
 post-result notification failure handling), paired transpilation and real native
 red/green qualification. It must not be described as a completed outcome.
+
+### Reference-only source projection (2026-10-08)
+
+The first bounded reference transpilation of the exact shared queue fixture at
+`3d81dcea` failed with four semantic diagnostics: three unconstrained generic
+comparisons with bare null, and the nullable generic receiver passed directly
+to the non-null `CFunction` parameter. The correction uses the existing
+`CallbackContext` typed-null idiom and projects the receiver to `Receiver` only
+after its explicit null rejection. No compiler or nullability rule changed.
+The unchanged fixture now transpiles to C in 2.25 seconds (exit 0); its nullable
+fixture-access warnings are retained. This is source acceptance only: no C
+compilation, self-host parity, sanitizer or native runtime assertion ran.
+
+Evidence is outside Drive under
+`~/.cache/btrc/plan-consolidation-2026-10-07/ui2-linux-source-projection/`:
+`3d81dcea/` retains the failed diagnostics and original data root;
+`generic-fix-1/` retains the corrected data root, generated C, exact source diff,
+SHA-256, command, result and full warnings. Reference time is 0.92 seconds for
+the failed attempt and 2.25 seconds for the corrected attempt. Linux SDK source
+projection needs the existing qualified Linux image: its ARM ELF reader and
+SDK paths cannot be reused directly on this Mac. No ABI declarations were
+invented to bypass that requirement.

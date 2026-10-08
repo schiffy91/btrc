@@ -223,7 +223,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	private CallbackCancellation _cancellation = CALLBACK_CANCELLATION_NOT_REQUESTED;
 
 	public ControlEventChannel(ControlEventQueue queue, IControlEventTarget target, Receiver receiver, CFunction<void, Receiver, Snapshot> deliver, CallbackScope owner) {
-		if (queue == null || target == null || receiver == null || deliver == null || owner == null) { throw "Semantic subscription requires queue, target, receiver and owner"; }
+		if (queue == null || target == null || receiver == (Receiver)null || deliver == null || owner == null) { throw "Semantic subscription requires queue, target, receiver and owner"; }
 		self._queue = queue; self._target = target; self._deliver = deliver; self._identity = queue.registrationIdentity();
 		if (!queue.terminalPool().reserve()) { throw "Control terminal reservation capacity exceeded"; }
 		self._reserved = true;
@@ -266,7 +266,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	 * after successful admission. A false return transfers no receipt. */
 	public bool publish(Snapshot snapshot, long long generation, long long interaction, long long replacementKey) {
 		if (!self.isOpen()) { return false; }
-		if (snapshot == null || generation <= 0LL || interaction < 0LL || replacementKey < 0LL) { throw "Invalid semantic snapshot identity"; }
+		if (snapshot == (Snapshot)null || generation <= 0LL || interaction < 0LL || replacementKey < 0LL) { throw "Invalid semantic snapshot identity"; }
 		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
 		return self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, replacementKey, invocation, null));
 	}
@@ -274,7 +274,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	public void publishTerminal(Snapshot snapshot, long long generation, long long interaction, ControlEventTicket ticket) {
 		if (ticket != null) { ticket.requireOwner(self._queue.terminalPool(), self._identity); }
 		if (!self.isOpen()) { if (ticket != null) { ticket.retire(); } return; }
-		if (snapshot == null || ticket == null || generation <= 0LL || interaction <= 0LL) { throw "Invalid semantic terminal snapshot"; }
+		if (snapshot == (Snapshot)null || ticket == null || generation <= 0LL || interaction <= 0LL) { throw "Invalid semantic terminal snapshot"; }
 		ticket.validate(self._identity);
 		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
 		if (!self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, 0LL, invocation, ticket))) {
@@ -291,7 +291,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 		if (disposition != CONTROL_EVENT_DELIVERED) { return disposition; }
 		var receiver = handler.enter();
 		if (receiver == null) { return CONTROL_EVENT_CANCELLED; }
-		try { self._deliver(receiver, snapshot); }
+		try { self._deliver((Receiver)receiver, snapshot); }
 		finally { handler.leave(); handler.pollCompletion(); }
 		return CONTROL_EVENT_DELIVERED;
 	}
