@@ -12,18 +12,24 @@ import ./ContainerProbe.btrc;
 #include <assert.h>
 
 class ContainerOrderCases {
+	class IMacOSView projection(IView view) {
+		IMacOSView? native = (IMacOSView?)view;
+		if (native == null) { throw "Container fixture requires a macOS view"; }
+		return native;
+	}
+
 	class ContainerEdit edit(ContainerEditKind kind, IView child, int index = 0) {
 		var edit = ContainerEdit(); edit.kind = kind; edit.child = child; edit.index = index; return edit;
 	}
 
 	class void order(IContainer parent, Vector<IView> expected, bool stack) {
 		assert(parent.childCount() == expected.len);
-		var native = (IMacOSView)parent;
+		var native = ContainerOrderCases.projection(parent);
 		if (stack) { assert(UI2ContainerProbe.arrangedCount(native.nativeView()) == expected.len); }
 		else { assert(UI2ContainerProbe.childCount(native.nativeView()) == expected.len); }
 		for (int index = 0; index < expected.len; index++) {
 			assert(parent.childAt(index) == expected.get(index));
-			var child = (IMacOSView)expected.get(index);
+			var child = ContainerOrderCases.projection(expected.get(index));
 			assert(child.nativeView().superview() == native.nativeView());
 			if (stack) { assert(UI2ContainerProbe.arrangedIndexOf(child.nativeView(), native.nativeView()) == index); }
 			else { assert(UI2ContainerProbe.indexOf(child.nativeView(), native.nativeView()) == index); }
@@ -34,8 +40,9 @@ class ContainerOrderCases {
 		var context = MacOSControlContext();
 		IContainer parent = MacOSContainer(null, context);
 		if (stack) { assert(parent.close() == CALLBACK_CANCELLATION_COMPLETE); parent = MacOSStack(true, 0.0, context); }
-		var projection = (IMacOSView)parent;
+		var projection = ContainerOrderCases.projection(parent);
 		var host = UI2ContainerProbe.openHost();
+		if (host == null) { throw "Container fixture could not open its native host"; }
 		projection.attachTo(host);
 		var first = MacOSView(null, context);
 		var editor = MacOSView(UI2ContainerProbe.newField(), context);
