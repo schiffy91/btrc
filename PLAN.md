@@ -464,10 +464,15 @@ boolean payload ternaries in the setjmp safety owner and C emitter infer integer
 inside `&&`, while repeated nullable projections in the optimizer and emitter
 produce warnings. No C compiler build or any of the 37 selected paired checks
 runs. The attempt finishes in 46.51 seconds, with source/tool inputs unchanged
-and all owned process groups closed. A targeted production correction is under
-implementation and independent review; diagnostics and acceptance checks remain
-unchanged. This failure does not invalidate the narrower four Model passes and
-does not establish a usable compact compiler or a performance improvement. Independent retention
+and all owned process groups closed. Four-consumer correction `61d60799`
+preserves the Model and tests and fixes boolean selections and nullable narrowing.
+Its fresh MacOSMain compiler now builds with the original strict Clang 21 O2
+settings and passes all 37 focused cases: eight paired Model executions,
+17 structured-IR cases, eight runtime-provider cases and four lazy-list cases.
+No failures, errors or skips occur. Independent audit verifies source/tool and
+binary identity, the inherited Model proof and all six closed process groups.
+The failed attempt remains retained. Current BTRSmith output parity and paired
+memory/instruction measurements are next; no product performance gain is claimed. Independent retention
 candidate `266cadd7` keeps per-node setjmp facts only for fixed safety roots while
 solving and exporting every function summary. The original `6f1b81d9` baseline edit passes;
 the candidate passes the same production incremental edit and six added cases,
@@ -526,15 +531,22 @@ pending semantic record and neither callback delivered. The five-second native
 settlement bound fits inside the unchanged 30-second case bound. Baseline
 `dc73ce96` and candidate `fbb9e27a` carry the identical fixture change; classifier
 changes only move six expected source coordinates. Reviewed diagnostic
-`d6242d3e` starts automatic run `37874567498`; native acceptance remains open.
+`d6242d3e` starts automatic run `37874567498`, which now reports success.
+Artifact authentication and independent native-result review are in progress;
+complete Linux GUI qualification remains open.
 
 The qualified CI repair assembly is now published as PR68 head `5aa232ad`:
 Windows ARM64 `37873882639`, Android `37873882709`, Windows `37873882883`,
-macOS `37873882641` and Linux `37873882738`. Android passes; the remaining
-workflows are running or queued at this checkpoint. The memory candidates and
-new UI2 provider work remain separate. Main stays `cbd3ddcd`; full combined
-qualification, the dedicated native-GUI lane and actual release bundles remain
-required before integration. These runs and Window R4 occupy the two hosted waves.
+macOS `37873882641` and Linux `37873882738`. Windows and Android pass.
+Linux bootstrap, both compiler corpora and all four Clang C11 levels have passed;
+remaining Linux, macOS and native Windows ARM64 jobs are active or queued.
+Window R4 has finished and its hosted slot now runs the dedicated macOS native
+GUI gate `37877458498`, dispatched once against exact `5aa232ad` with
+`focus=native-gui`. The memory candidates and new UI2 provider work remain
+separate. Main stays `cbd3ddcd`; the complete combined matrix, native-GUI gate
+and actual release bundles remain required before integration. BTRSmith's
+reviewed `2c9e5b43` live revision fixture and `db9bc814` qualification workflow
+remain prepared for the next free hosted slot.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -1321,12 +1333,15 @@ reachability requirement without changing the current dependency pin.
 
 ### Integration status in service of the goals
 
-Latest live check on October 8: macOS unit retry `113416271573` and explicit
-native-GUI retry `113422566478` both reached their test steps on actual hosted
-runners. Both hosted capacity slots remain occupied; no third wave is dispatched.
+**Current checkpoint, October 9:** main remains `cbd3ddcd`; broader integration
+PR68 is on exact head `5aa232ad`. Windows and Android workflows pass. Linux
+bootstrap, both corpora and the Clang C11 matrix pass, with the remaining Linux,
+macOS and Windows ARM64 jobs still active or queued. Dedicated native GUI run
+`37877458498` is the second hosted wave. No final combined-tree merge is claimed.
+The latest compiler and native component outcomes are recorded under the goals
+above; test passes do not close the outstanding product performance or MVP targets.
 
-
-**Current checkpoint, October 8:** main is `cbd3ddcdb25b9c7519f2babc3dce38647b3a0212`,
+**Historical checkpoint, October 8:** main is `cbd3ddcdb25b9c7519f2babc3dce38647b3a0212`,
 which merged the consolidated plan and qualified Mac test-coordination repair
 through PR69. The final PR head passed 36 selected checks; all four post-merge
 Linux, macOS, Windows and Windows ARM64 workflows now pass. This does not merge
