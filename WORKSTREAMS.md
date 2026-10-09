@@ -1652,3 +1652,16 @@ explicit Windows compiler working directory, preserving all projected C,
 headers, strict flags, native assertions and original bounds. A bounded actual
 Windows negative/positive header lookup must precede the original native matrix.
 No compiler, SDK, manifest or provider edits; no publication until root allocates.
+
+### Windows quoted-include VFS follow-up on `61ffac92`
+
+Root assigns performance_review the existing
+`src/tests/python/test_background_jobs_runtime.py`, this claim and
+`docs/workstreams/windows-process-threads.md` on
+`codex/windows-process-threads-vfs-includer`. Preserve all provider, native
+fixture, header, manifest and generated projection bytes. The actual failed
+Windows lookup is diagnosed against exact LLVM21.1.0/22.1.8 header-search
+semantics before changing only the test adapter's authenticated virtual keys.
+Retain both failed native attempts and require actual old/new header lookup
+before the original four native runtime cells. No publication without root
+allocation. No compiler/SDK/provider edits or local native builds.

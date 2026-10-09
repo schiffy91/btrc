@@ -4,17 +4,17 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
+from tools.windows_toolchain.process_runner import Result
+from tools.windows_toolchain.process_runner import run as run_process
 
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.native_bindings import NativeBindingPackage
 from tools.native_plan import NativePlanBuilder
 from tools.target_hosts.windows.bundle import TARGETS, pe_machine
 from tools.target_hosts.windows.executor import ExecutionRequest, WindowsNativeExecutor
-from tools.windows_toolchain.process_runner import Result
-from tools.windows_toolchain.process_runner import run as run_process
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "src" / "stdlib" / "BackgroundJobs"
@@ -569,12 +569,23 @@ class WindowsProcessThreadsFixture:
             path = directory / name
             assert path.resolve().is_relative_to(directory.resolve()) and cls.digest(path) == digest
         output.mkdir(parents=True, exist_ok=False)
+        program = directory / "Program.c"
+        assert program.is_absolute(), "native caller path must be absolute"
+        generated = program.read_text()
+        for original, relative in proof["header_mappings"].items():
+            path = PurePosixPath(original)
+            assert original.startswith("/") and not original.startswith("//")
+            assert "\\" not in original and ":" not in original and ".." not in path.parts
+            assert path.as_posix() == original and relative in proof["files"]
+            assert generated.count(f'#include "{original}"') == 1
+        # Windows Clang treats a drive-less /Users/... include as relative:
+        # HeaderSearch appends it to the actual includer's directory.
         overlay = {
             "version": 0,
             "roots": [
                 {
                     "type": "file",
-                    "name": (ROOT / original).as_posix(),
+                    "name": (program.parent / original[1:]).as_posix(),
                     "external-contents": str((directory / relative).resolve()),
                 }
                 for original, relative in proof["header_mappings"].items()

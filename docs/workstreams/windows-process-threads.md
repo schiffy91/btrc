@@ -121,3 +121,29 @@ C bytes remain unchanged. This is a source-level path-resolution repair; actual
 Clang lookup and native behavior still require qualification on both architectures.
 The next bounded packet must retain the old-overlay missing-header failure and
 require corrected-overlay preprocessing before the original strict native cells.
+
+## Drive-qualified retry failed before native execution
+
+Run `37901183833` at diagnostic `7ebd1044` / source `61ffac92` reproduced the
+original missing-header rejection on actual x64 and ARM64. Its drive-qualified
+overlay also rejected the identical `ProcessThreads.h` include. No native cell
+ran. Independent audit `c26be74c0ca61d8a2ff93ac501b11864fb1c03acab0da86b182506eb07cc93c9`
+rehashes both complete artifact ZIPs, all 4514 source blobs, sealed inputs and
+outputs; all recorded commands returned without timeout and final closure was
+unchanged. This supersedes the preceding working-drive assumption.
+
+Exact LLVM 21.1.0 and 22.1.8 `HeaderSearch::LookupFile` use native-style
+`is_absolute`; on Windows that requires both a root directory and drive/root
+name. A quoted `/Users/...` include lacks the latter, so the includer search
+concatenates it to `Program.c`'s parent directory using `sys::path::append`.
+The requested virtual name is therefore `.../inputs/windows-.../Users/...`,
+not `/Users/...` or `D:/Users/...`. Both exact Zig versions recognize and
+forward `-ivfsoverlay` to Clang.
+
+The adapter now maps only authenticated, canonical POSIX-rooted header names
+that occur exactly once in the unchanged generated C, under that actual C
+file's parent. It preserves copied header contents, strict compiler flags,
+native assertions, 180s compilation and 90s runtime owners. Both prior failed
+lookup forms remain negative controls; actual includer-relative lookup and
+all four original native cells remain unqualified until the hosted gate.
+No filesystem junction, ABI substitute, C rewrite or production change is used.
