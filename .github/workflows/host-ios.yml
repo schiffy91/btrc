@@ -202,7 +202,7 @@ jobs:
                                 'xcode': version, 'deployment_target_preserved': '17.0',
                                 'guest_boots_requested': 0, 'fixture_executions': 0})
               save('tools-before.json', tools())
-              free('initial', 110_000_000_000)
+              free('initial', 100_000_000_000)
               before = snapshot('before')
               require(not any(r.get('buildversion') == '21A328' for r in before['runtimes']),
                       'Exact runtime was already installed; this fresh-acquisition packet is inapplicable')
@@ -232,7 +232,7 @@ jobs:
               require('\n' not in str(path), 'Invalid component path')
               with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
                   output.write('path=' + str(path) + '\n')
-              free('before-import', 100_000_000_000)
+              free('before-import', 80_000_000_000)
           
           
           def final():
@@ -312,7 +312,7 @@ jobs:
             },
             "helpers": {
               "run-stage.py": "35fcb2e666b51026c33ddd1c07ed0a1ad718088d9ab35017fdd7cceb5db0029d",
-              "admit.py": "2283b1933f7943d1c88e7b619ebb0481f91553ed4d90947744bed5219b6b8e49"
+              "admit.py": "feaaa2bd22935ad9ec5855ae3bb0142c9bb45bc0c8e7c52a59555a8df712a000"
             }
           }
           IOS17_COMPONENT_2
