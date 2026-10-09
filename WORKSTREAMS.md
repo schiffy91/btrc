@@ -211,6 +211,14 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-09 D29 unit GUI scheduling claim:** the parent integrator owns
+`.github/workflows/macos.yml`, its existing workflow-contract assertions and
+`docs/workstreams/macos-unit-gui-scheduling.md` on
+`codex/macos-unit-gui-grouping-2f` from `2fce3ee0`. The unit shard reuses the
+already-qualified GUI worker grouping after its actual 1800-second lease
+failure. Worker count, test roster, per-row selection flags, leases and all
+deadlines remain unchanged. The parent retains PLAN and final integration.
+
 **2026-10-08 integration claim:** this authorized session owns the bounded
 `codex/integrate-qualified-linux` assembly from compiler `56d548c4` and qualified
 Windows main `49f136ec`. Exact Linux source/test paths, retained native evidence,

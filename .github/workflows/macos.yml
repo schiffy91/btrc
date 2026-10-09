@@ -289,9 +289,11 @@ jobs:
           fi
           /usr/sbin/DevToolsSecurity -status | grep -q "currently enabled"
 
+      # The unit shard also owns native GUI cases. Keep those on one worker,
+      # retaining the row's selection flags and parallel execution elsewhere.
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
-          PYTEST_ADDOPTS: ${{ matrix.pytest_addopts }}
+          PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
 
       # The bootstrap shard's boundary-check writes build/boundary-report.json;
       # the release bundle ingests it.
