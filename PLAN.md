@@ -64,16 +64,18 @@ must prove that a body edit analyzes and lowers exactly one changed source group
 and does not lower unchanged groups; passing intermediate timing budgets does
 not close that requirement.
 
-**Current measurement status (October 9, 07:50 UTC):** Linux comparison
+**Current measurement status (October 9, 07:55 UTC):** Linux comparison
 37898910559 passed authenticated compiler reuse, the original 45 correctness
 checks and native flow driver, and both discarded product warmups. It then
 rejected receipt label `1_B` before the first measured compilation: the process
 owner requires an identifier. Both warmups preserve all 422 Linux C/header files
 and the ordered link plan; neither is an accepted measurement. The two-line
 label/lookup correction has passed actual bounded-process controls for all eight
-original labels and independent review; prepared commit5f3103a2 is unpublished.
-The run ended in failure after cache upload; no cancellation was needed. Final
-paired samples, Mac quiet admission and the full workload matrix remain open.
+original labels and independent review. Commit5f3103a2 is now running once in
+[37901757750](https://github.com/schiffy91/btrsmith/actions/runs/37901757750),
+with the complete original sequence and limits. The preceding run ended in
+failure after cache upload; no cancellation was needed. Final paired samples,
+Mac quiet admission and the full workload matrix remain open.
 
 **Earlier measurement preparation and retained evidence:** qualify the current compiler/BTRSmith pin, capture
 the quiet workload matrix, isolate the repeated Linux peak-memory regression,
@@ -2012,13 +2014,13 @@ changes; historical test totals alone do not advance its status.
 
 | Outcome | Current state / evidence | Responsible role | Next acceptance and actual blocker |
 |---|---|---|---|
-| Current compiler speed and memory matrix | Linux run37898910559 passed45+native driver and both discarded warmups with422 Linux output/ordered-plan parity, then refused an invalid receipt label before measured samples; auditeaac438c | Performance owner; main session runs quiet measurements | Run reviewed5f3103a2 label repair once capacity frees, retaining original eight compilations and all bounds/targets. Original-owner controls for all eight corrected labels and actual summary lookup pass. No repeated measurement or Mac footprint acceptance yet. |
+| Current compiler speed and memory matrix | Preceding run37898910559 has45+driver and two discarded warmups with422Linux-output/plan parity, but zero measured samples. Actual-owner label controls and independent repair review pass. Corrected5f3103a2 is now live in37901757750 | Performance owner; main session runs quiet measurements | Finish the original eight compilations and closure, then assess measured RSS/wall/counters; no further unchanged retry. Full product targets and Mac footprint remain unqualified. |
 | Faster incremental edits | Current tuple/instance repair proves one changed group for inventory-preserving edits and three for genuinely new shared tuple shapes, across both frontends/release/debug with strict native outputs and clean-versus-incremental equality | Incremental compiler owner | Finish current combined gates, then measure edit median/p95 and memory. Full consulted-fact/analysis reuse and Stage 9 counters remain open. Work counts are not speed results. |
 | Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish dedicated native-GUI integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
 | UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
-| Windows and mobile application-facing services | Windows17contracts/fourSDKprojections pass; minimal VFS correction61ffac92 is now in actual native run37901183833 onx64/ARM64. Android56emulator fixtures and iOS50local26.4cases remain scoped evidence; iOS17 catalog availability is verified but installation is unqualified | Platform slice owners | Finish actual Windows header lookup and original native cells. For iOS, apply D8 exactly: acquire17 if supported, otherwise prove uninstallability before oldest-installable fallback plus17.0deployment compile. Mobile widgets/lifecycle/persistence and complete device/runtime acceptance remain open. |
+| Windows and mobile application-facing services | Windows17contracts/fourSDKprojections pass, but both37901183833 native jobs fail header lookup even with drive-qualified overlays; original negative controls pass, zero native cells. Auditc26be74c preserves all source/tools. Android56emulator and iOS50local26.4cases remain scoped | Platform slice owners | Determine why LLVM/Zig overlay lookup is ineffective before another candidate. Qualify real Windows execution; mobile widgets/lifecycle/persistence remain open. iOS17 offered-component acquisition is held separately under exact D8 policy; no unavailable-runtime claim or new SDK installation. |
 | BTRSmith macOS/Linux MVP on the current stack | Settings Back repairf077985b passes both compilers at480/540/1100 and original plan equality; all18captures visually pass, source/tool closure and16ownedgroups audited0fa3206d. Report3608cb65. Album38native/nineplans and scoped Linux24native/fourplans remain qualified | BTRSmith owner and integrator | Qualify new album/Settings source on Linux and launch the installed current application through the original smoke owner. Complete broader screen/audio journeys, timing budgets and locked pin. Native Mac synthetic event routing is proved; physical input and full MVP are not. |
-| One qualified implementation on main | Maincbd3ddcd; PR68a29 standard matrices all pass. Final Mac unit10150PASS/227expected skips and Linux selfhost5857PASS/34expected skips audited09672b51. Eight Apple oracle rows pass on owner Xcode; both tray selectors pass in same-tree X11/Wayland with declared stand-in watcher (110f6cc9). Final native-GUI runs37896628801/37896651788 live | Main integrator | Finish dedicated GUI gates and audits, then integrate exact qualified tree. Physical desktop/device evidence and separate new product/provider candidates remain open. |
+| One qualified implementation on main | Maincbd3ddcd; PR68a29 standard matrices all pass. Final dedicated Linux native-GUI andX11 now pass (37896628801); Wayland andMac native-GUI remain live. Apple oracle and headless tray residual rows have source-matched coverage | Main integrator | Audit new terminal GUI evidence, finish remaining native gates, then integrate exact qualified tree. Physical desktop/device evidence and separate new product/provider candidates remain open. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
