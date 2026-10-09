@@ -1,0 +1,116 @@
+import Library.Map;
+import Library.Vector;
+
+import ../../../compiler/btrc/ir/Model.btrc;
+import ../../../compiler/btrc/analyzer/HostedAbi.btrc;
+import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
+import ../../../compiler/btrc/pipeline/ModuleUnits.btrc;
+import ../../../compiler/btrc/pipeline/Models.btrc;
+import ../../../compiler/btrc/analyzer/Analyzer.btrc;
+import ../../../compiler/btrc/generated/ast/Node.btrc;
+import ../../../compiler/btrc/generated/runtime/Catalog.btrc;
+import ../../../compiler/btrc/ir/runtime/Catalog.btrc;
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/parser/SourceMacros.btrc;
+import ../../../compiler/btrc/syntax/Tokens.btrc;
+#include <assert.h>
+
+/* Exercise the real solver, including effects transmitted through a recursive
+ * pair whose per-node flows the safety-root policy does not retain. */
+class FlowFixture {
+
+	/* Use a real initialized module owner, not a duplicate traversal. The
+	 * array-only function disappears from roots if declaration bounds are lost. */
+	class void checkSafetyRoots() {
+		var tables = GeneratedHostedAbiData();
+		var abi = HostedAbiRepository(tables);
+		var runtime = GeneratedRuntimeCatalogData();
+		Map<string, bool> noNames = {};
+		var rules = SourceMacroRules(TokenVocabulary(), noNames, noNames, noNames);
+		var analyzer = SemanticAnalyzer(SourceRuntimeSymbols(runtime.rows, runtime.intrinsicEffects), rules, tables.targetRows().get(0));
+		var program = Node();
+		program.kind = NK_PROGRAM;
+		var analyzed = analyzer.analyze(program, abi);
+		Map<string, Vector<FeDependencyEdge>> outgoing = {};
+		Map<string, Vector<string>> parents = {};
+		var resolved = FeResolvedSource("", "", "", [], FeDependencyGraph(outgoing, parents), true, 0, "FlowRoots.btrc", FeStdlibRootSnapshot([], []));
+		var input = ModuleUnitProgram(program, analyzed, analyzer, abi, RuntimeHelperCatalog(runtime.rows, runtime.intrinsicEffects), resolved, "FlowRoots.btrc", null);
+		var options = BtrccOptions();
+		options.moduleJobs = 1;
+		var compiler = ModuleUnitCompiler(input, options, null, null);
+		var unit = IRModule();
+		var direct = FlowFixture.makeFunction("direct", ["setjmp"]);
+		var argument = FlowFixture.makeFunction("argument", []);
+		argument.body = IRNode.block([IRNode.expressionStatement(IRNode.call("consume", [IRNode.call("setjmp", [])]))]);
+		var arrayOnly = FlowFixture.makeFunction("arrayOnly", []);
+		arrayOnly.body = IRNode.block([IRNode.arrayDeclaration("int", "values", IRNode.call("setjmp", []), null)]);
+		unit.functions = [direct, argument, arrayOnly, FlowFixture.makeFunction("ordinary", [])];
+		Map<string, bool> roots = compiler.setjmpFlowFunctions(unit);
+		assert(roots.len == 3 && roots.has("direct") && roots.has("argument") && roots.has("arrayOnly"));
+		assert(!roots.has("ordinary"));
+	}
+
+	class IRFunction makeFunction(string name, Vector<string> callees) {
+		var definition = IRFunction();
+		definition.name = name;
+		definition.params = [IRParam("int*", "value")];
+		Vector<IRNode> statements = [];
+		for callee in callees {
+			statements.push(IRNode.expressionStatement(IRNode.call(callee, [IRNode.variable("value")])));
+		}
+		definition.body = IRNode.block(statements);
+		return definition;
+	}
+
+	class IRModule module() {
+		var unit = IRModule();
+		unit.functions = [FlowFixture.makeFunction("entry", ["middle"]), FlowFixture.makeFunction("middle", ["recursive"]), FlowFixture.makeFunction("recursive", ["middle", "foreignWrite"])];
+		var foreign = IRFunctionDecl("foreignWrite", "void", false);
+		foreign.params = [IRParam("int*", "value")];
+		unit.functionDecls.push(foreign);
+		return unit;
+	}
+}
+
+int main() {
+	FlowFixture.checkSafetyRoots();
+	var unit = FlowFixture.module();
+	var abi = HostedAbiRepository(GeneratedHostedAbiData());
+	Map<string, bool> roots = {"entry": true};
+	Map<string, bool> empty = {};
+	var reference = SetjmpEffectAnalysis(abi);
+	var candidate = SetjmpEffectAnalysis(abi, roots);
+	var summariesOnly = SetjmpEffectAnalysis(abi, empty);
+	roots.clear();
+	empty.put("middle", true);
+	Map<string, SetjmpFunctionEffect> solved = {};
+	solved.put("foreignWrite", SetjmpFunctionEffect());
+	for (int round = 0; round < 2; round++) {
+		if (round == 1) {
+			var writes = SetjmpFunctionEffect();
+			writes.writes.push(SetjmpParameterEffect(0, 1));
+			solved.put("foreignWrite", writes);
+		}
+		Map<string, SetjmpCallEffects> all = reference.analyzeIncrementally(unit, solved);
+		Map<string, SetjmpCallEffects> retained = candidate.analyzeIncrementally(unit, solved);
+		Map<string, SetjmpCallEffects> none = summariesOnly.analyzeIncrementally(unit, solved);
+		assert(all.len == 3);
+		assert(retained.len == 1 && retained.has("entry"));
+		assert(none.len == 0);
+		assert(candidate.consultedSolvedNames().has("foreignWrite"));
+		assert(summariesOnly.consultedSolvedNames().has("foreignWrite"));
+		Map<string, SetjmpFunctionEffect> expected = reference.definitionSummaries();
+		Map<string, SetjmpFunctionEffect> actual = candidate.definitionSummaries();
+		Map<string, SetjmpFunctionEffect> onlySummaries = summariesOnly.definitionSummaries();
+		assert(expected.len == 3 && actual.len == 3 && onlySummaries.len == 3);
+		for name in expected.keys() {
+			assert(actual.get(name).same(expected.get(name)));
+			assert(onlySummaries.get(name).same(expected.get(name)));
+			assert(actual.get(name).writes.len == round);
+		}
+		assert(retained.get("entry").flow.writes.len == all.get("entry").flow.writes.len);
+	}
+	printf("ok\n");
+	return 0;
+}

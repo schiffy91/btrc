@@ -187,7 +187,7 @@ class OwnershipBoundary {
 		/* Without suffix cleanup the stored value is consumed immediately;
          * operands run before the assignment. Managed protection below owns
          * its volatile slot; the setjmp planner handles actual captures. */
-		resultDeclaration.isVolatile = self.context.exceptionsAreEnabled() && self.suffix.len > 0;
+		((IRDeclarationPayload)resultDeclaration.payload).isVolatile = self.context.exceptionsAreEnabled() && self.suffix.len > 0;
 		self.declarations.push(resultDeclaration);
 		self.context.recordLocal(resultDeclaration);
 		IRNode result = IRNode.variable(resultName);

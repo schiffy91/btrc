@@ -1563,3 +1563,97 @@ outer GUI grouping, all ledger assertions, explicit child argv and deadlines.
 Original hosted unit evidence is retained; focused qualification passed with
 exact two baseline failures and candidate84 PASS, zero skips/errors. See report.
 Ordinary checkout/index, PLAN and workflow source remain untouched.
+## 2026-10-09 D29 compact tagged IR payloads
+
+Packet: CX-HARMONIZE-COMPACT-IR-PAYLOADS. Integrator-assigned writer:
+performance_review, branch `codex/compact-ir-payloads-6f`, exact base
+`6f1b81d937745ee3a3fbc1be803ffcf1b7e52ba9`. Own the following model and
+necessary IR consumers, focused semantic tests and report; existing checkout/index
+and central PLAN remain unchanged. The retained current-product census is the
+allocation baseline; the proposed layout is not a measured improvement.
+
+- `src/compiler/btrc/ir/Emitter.btrc`
+- `src/compiler/btrc/ir/Model.btrc`
+- `src/compiler/btrc/ir/gpu/Pipeline.btrc`
+- `src/compiler/btrc/ir/lowering/Aggregates.btrc`
+- `src/compiler/btrc/ir/lowering/Assignments.btrc`
+- `src/compiler/btrc/ir/lowering/Callables.btrc`
+- `src/compiler/btrc/ir/lowering/Calls.btrc`
+- `src/compiler/btrc/ir/lowering/Concurrency.btrc`
+- `src/compiler/btrc/ir/lowering/Context.btrc`
+- `src/compiler/btrc/ir/lowering/ControlFlow.btrc`
+- `src/compiler/btrc/ir/lowering/Declarations.btrc`
+- `src/compiler/btrc/ir/lowering/Expressions.btrc`
+- `src/compiler/btrc/ir/lowering/Functions.btrc`
+- `src/compiler/btrc/ir/lowering/Statements.btrc`
+- `src/compiler/btrc/ir/lowering/Strings.btrc`
+- `src/compiler/btrc/ir/lowering/Types.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/Calls.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/CycleBoundaries.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/ManagedTypes.btrc`
+- `src/compiler/btrc/ir/optimization/Cleanup.btrc`
+- `src/compiler/btrc/ir/optimization/Optimizer.btrc`
+- `src/compiler/btrc/ir/optimization/Realtime.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Safety.btrc`
+- `src/compiler/btrc/ir/runtime/References.btrc`
+- `src/compiler/btrc/pipeline/ModuleUnits.btrc`
+- `src/tests/btrc/test_structured_ir_contract.py`
+- `src/tests/btrc/test_ir_payload_semantics.py`
+- `docs/workstreams/compact-ir-payloads.md`
+
+The parent explicitly transfers the overlapping frozen compiler packet paths
+for this unpublished follow-up. Preserve tagged IR identity, all semantic
+fields/defaults, structured traversal order and managed ownership; no rich-enum
+owner, raw managed union, generated-file edits or retained-graph pruning.
+Full product parity, actual allocator sizes and paired measurements remain
+required. Root owns execution allocation and publication.
+
+Parent-approved compact-IR claim extension (2026-10-09):
+- `src/tests/btrc/fixtures/LazyIrListDriver.btrc`
+- `src/tests/btrc/test_runtime_type_providers.py`
+- `src/tests/btrc/test_lazy_node_lists.py`
+Preserve all existing lazy/default/shared-empty and runtime-provider oracles;
+use valid structural writer kinds and retain payload-free NONE readers.
+
+## 2026-10-09 D29 setjmp flow retention
+
+Packet: CX-HARMONIZE-SETJMP-FLOW-ROOTS. Writer: root, branch
+`codex/setjmp-flow-roots-6f`, exact base `6f1b81d937745ee3a3fbc1be803ffcf1b7e52ba9`.
+Owned paths:
+- `src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Safety.btrc`
+- `src/compiler/btrc/pipeline/ModuleUnits.btrc`
+- `src/compiler/python/ir/lowering/exceptions.py`
+- `src/compiler/python/application/modules.py`
+- `src/tests/python/test_module_units.py`
+- `src/tests/btrc/test_setjmp_qualifier_state_contract.py`
+- `src/tests/btrc/fixtures/SetjmpFlowRootsDriver.btrc`
+- `docs/workstreams/setjmp-flow-roots.md`
+and this claim only. Prepared through an isolated index; preserve the ordinary
+checkout/index and other packet refs. Compact IR overlaps the compiler files
+on a separate branch; reconcile the disjoint behavioral change after both
+components qualify. Solve and export every function summary and dependency as
+before; retain per-node flow only for functions whose final safety pass uses
+it. Do not replace absent flows with fabricated empty facts. Root policy must
+be fixed for the solver lifetime and reset on invalidation/new generations.
+Python summary access must remain independent of retained flow contexts.
+Current exact-tree hosted baseline has 131 related checks passing, with eight
+explicit native-adapter environment skips. Focused lifetime, incremental and
+continuation behavior, source parity, current-product memory/instruction cost
+and combined-tree gates remain required. No performance saving claimed.
+
+## 2026-10-09 D29 combined compact IR and flow roots
+
+Packet: CX-HARMONIZE-COMPACT-IR-FLOW-ROOTS. Integrator-assigned writer:
+performance_review, isolated ref `codex/compact-ir-flow-roots-6f`.
+Compose the exact compact61 and flow266 parents while preserving both claims
+above and their standalone evidence. Own the two source resolutions in
+`src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc` and
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`, the
+existing `src/tests/btrc/fixtures/SetjmpFlowRootsDriver.btrc` array-bound
+behavioral proof, and `docs/workstreams/compact-ir-flow-roots.md`. Other
+merged files retain their reviewed parent bytes. Keep the compact guarded
+payload traversal and the flow policy's declaration arraySize reachability.
+No performance improvement or combined qualification is claimed by this merge.

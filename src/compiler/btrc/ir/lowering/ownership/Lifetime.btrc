@@ -183,19 +183,19 @@ class CleanupSlotRegistry {
 	}
 
 	public IRNode registerSlot(LoweringContext context, IRNode declaration, IRNode cleanupFunction, IRNode? visitor, bool direct) {
-		if (declaration.kind != IRK_VAR_DECL || declaration.isStatic || declaration.isExtern || declaration.isArrayDecl) {
+		if (declaration.kind != IRK_VAR_DECL || ((IRDeclarationPayload)declaration.payload).isStatic || ((IRDeclarationPayload)declaration.payload).isExtern || ((IRDeclarationPayload)declaration.payload).isArrayDecl) {
 			self.fail("cleanup registration requires an automatic pointer object");
 		}
-		string adapter = self.ensureTakeAdapter(declaration.cType);
-		IRCleanupSlot metadata = declaration.cleanupSlot;
+		string adapter = self.ensureTakeAdapter(((IRDeclarationPayload)declaration.payload).cType);
+		IRCleanupSlot metadata = ((IRDeclarationPayload)declaration.payload).cleanupSlot;
 		if (metadata == null) {
 			self.nextSite = self.nextSite + 1;
-			metadata = IRCleanupSlot(self.nextSite, declaration.name, declaration.cType, adapter);
-			declaration.cleanupSlot = metadata;
-		} else if (metadata.name != declaration.name || metadata.cType != declaration.cType || metadata.takeFunction != adapter) {
+			metadata = IRCleanupSlot(self.nextSite, declaration.name, ((IRDeclarationPayload)declaration.payload).cType, adapter);
+			((IRDeclarationPayload)declaration.payload).cleanupSlot = metadata;
+		} else if (metadata.name != declaration.name || metadata.cType != ((IRDeclarationPayload)declaration.payload).cType || metadata.takeFunction != adapter) {
 			self.fail("conflicting cleanup metadata for " + declaration.name);
 		}
-		declaration.isVolatile = true;
+		((IRDeclarationPayload)declaration.payload).isVolatile = true;
 
 		string helper = "__btrc_register_cleanup";
 		if (direct) { helper = "__btrc_register_direct_cleanup"; }
@@ -211,8 +211,8 @@ class CleanupSlotRegistry {
 			arguments.push(visitor);
 		}
 		IRNode call = IRNode.call(helper, arguments);
-		call.helperRef = helper;
-		call.cleanupSlot = metadata;
+		((IRCallPayload)call.payload).helperRef = helper;
+		((IRCallPayload)call.payload).cleanupSlot = metadata;
 		return call;
 	}
 
