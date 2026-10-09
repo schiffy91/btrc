@@ -422,7 +422,15 @@ target, provider compilers and hardening. The ARM64 derivation graph falls from
 build-time or release-bundle acceptance. Result SHA-256 is
 `e94b5034776610c082e3c68454fadefd35a98936617977ba6fa99b5a19abdd0a`;
 independent review is clear. Original bundle builds and relocated strict-C11
-smokes remain pending. No gate threshold is reduced. The reviewed current-compiler IR allocation census
+smokes remain pending. No gate threshold is reduced. The first combined workflow check
+finds a new assertion comparing YAML text "45" with integer 45. Source `e893e174`
+corrects only that assertion, preserving the 45-minute workflow limit. Combined
+source `3a3304dd` passes all 102 workflow/coordination checks and the release source
+passes its affected contract: 103 total, zero failures/errors/skips, independent
+source/tool/process audit clear. Actual ARM64/x64 bundles and full hosted unit
+qualification remain pending. Read-only Nix admission advertises only the shell
+derivation to build; all selected release tools already exist.
+The reviewed current-compiler IR allocation census
 uses exact 6f compiler and dbe8 product sources. It now passes both actual
 cold, single-worker product compiles and equality of all 423 emitted C/header
 files; all 461 source groups are lowered with zero reuse. Three conserved
@@ -433,8 +441,16 @@ source/tool inputs unchanged. This is allocation attribution, not quiet timing
 or final memory acceptance. The [current IR census](docs/workstreams/current-ir-node-census.md)
 records exact evidence and the next implementation: a compact fat-tagged core
 with optional typed payloads, modeled at roughly 510 MiB reduction including new
-allocation/edge costs. That estimate is unimplemented and unmeasured at this
-checkpoint; other retained-state reductions are still needed for 1.5 GiB.
+allocation/edge costs. The compact representation and every production consumer are now drafted;
+parser/receiver audits find no old field accesses, but semantic/native tests
+and the estimated memory saving remain unqualified. Independent retention
+candidate `266cadd7` keeps per-node setjmp facts only for fixed safety roots while
+solving and exporting every function summary. The original `6f1b81d9` baseline edit passes;
+the candidate passes the same production incremental edit and six added cases,
+without skips/errors. Weak references prove non-root flow objects are collected,
+and the ordinary Lib unit still exports changed effects. Independent audit is
+clear. Fresh self-host/native/worker tests, current-product parity and original
+performance gates remain. See [flow retention](docs/workstreams/setjmp-flow-roots.md).
 Product speed and memory targets stay open.
 
 Both October 9 diagnostic runs are now terminal failures, with narrower
@@ -456,9 +472,17 @@ expected missing-owner errors. No candidate native case runs. R2 adds only
 SDL_WINDOW_MINIMIZED and SDL_EVENT_WINDOW_RESTORED identically to both role
 manifests and recognizes only source-location-bound missing-owner cascades;
 18 classifier controls reject unrelated errors. Exact source fe9e0c00 and
-diagnostic f1428db0 start automatic run `37869472960`, now live with the original
-fixture, four candidate native cells and deadlines unchanged. The prior failed
-artifact is retained. There are no duplicate manual dispatches or relaxed gates.
+diagnostic f1428db0 start automatic run `37869472960`. R2 accepts all four exact
+semantic baseline failures, then all four candidate C compilations reject an
+undeclared fixture helper. No native case runs. The manifest lacks
+`manifest-version = 1`, selecting legacy dependency-only metadata and excluding
+the helper's native header/source. R3 adds that one line identically to baseline
+`b9055d37` and candidate `bd2235f2`; actual f75 package resolution proves both
+native entries are selected while an unimported helper stays excluded.
+Diagnostic `e2b3619f` starts automatic run `37871496188`, now in original paired
+qualification. Provider, assertions, four native cells, classifier and deadlines
+are unchanged. Both failed artifacts remain retained; no duplicate dispatches
+or relaxed gates.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed

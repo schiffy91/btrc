@@ -51,6 +51,12 @@ and closes every owned process group with unchanged inputs. Result SHA-256:
 `e94b5034776610c082e3c68454fadefd35a98936617977ba6fa99b5a19abdd0a`.
 
 Local composition `69773d38` preserves this change alongside the separately
-focused-qualified unit scheduler. The affected release contract, combined checks,
-and both original bundle/relocation/strict-C11 journeys remain pending. No bundle
+focused-qualified unit scheduler. The affected release contract and combined checks now pass on `e893e174` and
+`3a3304dd`: 103 total, zero failures/errors/skips. The initial string/integer
+assertion error is corrected with the 45-minute workflow deadline unchanged.
+Result SHA-256 is `70d488bae984fa1e547655ed9289854705ce10eba0dfaa100810ca9a0b40c45b`;
+independent audit confirms exact source/tool/log closure and all eight groups
+reaped and absent. Both original bundle/relocation/strict-C11 journeys remain
+pending. Read-only Nix admission advertises only the release shell derivation;
+all selected tool outputs already exist. No bundle
 qualification, elapsed-time improvement or main integration is claimed.
