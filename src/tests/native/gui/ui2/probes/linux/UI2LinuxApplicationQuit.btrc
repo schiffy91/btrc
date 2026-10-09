@@ -1,0 +1,84 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.SDL;
+
+import ./ApplicationQuitProbe.btrc;
+#include <assert.h>
+
+class LinuxQuitRequests implements IWindowCloseRequestHandler {
+	public Vector<IWindowCloseTransaction> requests = [];
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		assert(SDL_IsMainThread());
+		self.requests.push(transaction);
+	}
+}
+
+class LinuxQuitWork implements IApplicationWork {
+	public int calls = 0;
+	public void run() { assert(SDL_IsMainThread()); self.calls++; }
+}
+
+class LinuxQuitPublications implements IApplicationPublicationHandler {
+	public int calls = 0;
+	public void deliver(ApplicationPublication publication) {
+		assert(SDL_IsMainThread() && publication.payload == 73LL); self.calls++;
+	}
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	var application = LinuxApplication(8);
+	var scope = CallbackScope();
+	var first = application.createWindow("Linux dirty first", 240.0, 160.0);
+	var second = application.createWindow("Linux dirty second", 240.0, 160.0);
+	var clean = application.createWindow("Linux clean peer", 240.0, 160.0);
+	var firstDraft = application.createTextField("first retained draft", "");
+	var secondDraft = application.createTextField("second retained draft", "");
+	first.attachRoot(firstDraft); second.attachRoot(secondDraft);
+	var a = LinuxQuitRequests(); var b = LinuxQuitRequests();
+	first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	var publications = LinuxQuitPublications();
+	var publisherResult = application.createPublisher(2, publications, scope);
+	assert(publisherResult.kind == APPLICATION_PUBLISHER_CREATED);
+	var publisher = publisherResult.publisher;
+	if (publisher == null) { throw "Missing application publisher"; }
+	assert(ui2PushApplicationQuit() == 1);
+	assert(a.requests.len == 0 && b.requests.len == 0 && first.isOpen() && second.isOpen() && clean.isOpen());
+	unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+	while ((a.requests.len != 1 || b.requests.len != 1) && SDL_GetTicksNS() < deadline) { application.pumpOnce(0); }
+	assert(a.requests.len == 1 && b.requests.len == 1);
+	var firstTransaction = a.requests.get(0); var secondTransaction = b.requests.get(0);
+	assert(firstTransaction != secondTransaction);
+	assert(ui2PushApplicationQuit() == 1); application.pumpOnce(0);
+	assert(a.requests.len == 1 && b.requests.len == 1);
+	assert(first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).transaction == firstTransaction);
+	assert(second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).transaction == secondTransaction);
+	var authorized = firstTransaction.decide(WINDOW_CLOSE_DECISION_DISCARD, 4LL);
+	/* Exact old-source regression: independent native requests consume the
+	 * first authorization before the other document can cancel the group. */
+	assert(authorized.state == WINDOW_CLOSE_AUTHORIZED && first.isOpen() && second.isOpen() && clean.isOpen());
+	assert(first.root() == firstDraft && second.root() == secondDraft);
+	assert(firstDraft.text() == "first retained draft" && secondDraft.text() == "second retained draft");
+	var work = LinuxQuitWork(); application.post(work);
+	assert(publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 73LL) == PUBLISH_ACCEPTED);
+	assert(secondTransaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 7LL).state == WINDOW_CLOSE_CANCELLED);
+	while ((firstTransaction.state() != WINDOW_CLOSE_CANCELLED || work.calls != 1 || publications.calls != 1) && SDL_GetTicksNS() < deadline) { application.pumpOnce(0); }
+	assert(firstTransaction.state() == WINDOW_CLOSE_CANCELLED && secondTransaction.state() == WINDOW_CLOSE_CANCELLED);
+	assert(!application.quitRequested() && first.isOpen() && second.isOpen() && clean.isOpen());
+	assert(work.calls == 1 && publications.calls == 1 && a.requests.len == 1 && b.requests.len == 1);
+	assert(first.root() == firstDraft && second.root() == secondDraft);
+	assert(firstDraft.text() == "first retained draft" && secondDraft.text() == "second retained draft");
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	application.requestQuit();
+	var closed = application.close();
+	while (closed == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { application.pumpOnce(0); closed = application.pollClose(); }
+	assert(closed == CALLBACK_CANCELLATION_COMPLETE);
+	assert(!first.isOpen() && !second.isOpen() && !clean.isOpen());
+	SDL_Quit();
+	print("PASS: UI2 Linux native quit cancellation retains every window and queued work");
+	return 0;
+}
