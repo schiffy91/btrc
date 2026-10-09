@@ -1641,3 +1641,14 @@ Preserve the provider, manifest, native fixture/probe/header bytes and original
 remains immutable; later native qualification authenticates its successful
 receipt and unchanged C/plan/header artifacts independently of this driver-only
 follow-up. No generation, tests, builds or dispatch under this source assignment.
+
+### Native VFS path follow-up on `80414b46`
+
+Root assigns execution_review the existing test driver, this claim and the
+Windows process-thread workstream report on `codex/windows-process-threads-vfs`.
+Actual native x64 and ARM64 attempts both stop at the first unchanged generated
+C include before native execution. Qualify relocated VFS keys against the
+explicit Windows compiler working directory, preserving all projected C,
+headers, strict flags, native assertions and original bounds. A bounded actual
+Windows negative/positive header lookup must precede the original native matrix.
+No compiler, SDK, manifest or provider edits; no publication until root allocates.

@@ -572,7 +572,11 @@ class WindowsProcessThreadsFixture:
         overlay = {
             "version": 0,
             "roots": [
-                {"type": "file", "name": original, "external-contents": str((directory / relative).resolve())}
+                {
+                    "type": "file",
+                    "name": (ROOT / original).as_posix(),
+                    "external-contents": str((directory / relative).resolve()),
+                }
                 for original, relative in proof["header_mappings"].items()
             ],
         }

@@ -103,3 +103,21 @@ or libraries. Emitted `WINBOOL` and other SDK declarations retain the GNU Window
 ABI. The native matrix must record its actual Zig/Clang and GNU SDK versions;
 x64 Server-host evidence must not be described as Windows 11 x64 evidence.
 All four native cells, VFS resolution and strict C11 compilation remain pending.
+
+## Actual native header-resolution failure and driver follow-up
+
+Run `37897622571` at workflow `74a72f28` and source `80414b46` failed in both
+Windows x64 and ARM64 jobs during their first strict reference C compilation.
+Both diagnostics name the same original absolute `ProcessThreads.h` include.
+Neither job produced the generated object or executed a native fixture. The
+retained overlays used POSIX-rooted `/Users/...` keys while the actual Windows
+compiler working directories are on D: and C:, respectively. Artifact/source/
+tool closure is recorded by independent audit `5ac8f8f5d848971fe32579496cb4b07854ca0aa82b11f9e34e784394e3616bbe`.
+
+The test adapter now constructs each virtual path against its explicit compiler
+working directory before rendering it with forward slashes. Windows rooted paths
+therefore inherit that directory's drive. Header destinations and all generated
+C bytes remain unchanged. This is a source-level path-resolution repair; actual
+Clang lookup and native behavior still require qualification on both architectures.
+The next bounded packet must retain the old-overlay missing-header failure and
+require corrected-overlay preprocessing before the original strict native cells.
