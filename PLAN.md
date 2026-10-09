@@ -448,8 +448,17 @@ warning, retained as attempt one. After a test-only replacement correction, all
 three authentic old-layout native drivers pass. Candidate `5d092d0f` then fails
 all four reference model cases before C emission: boolean payload selections
 are inferred as integers and repeated nullable list projections do not narrow.
-Targeted production corrections are in progress with the tests unchanged.
-Actual compact-layout ownership, output parity and memory savings remain unqualified. Independent retention
+Model-only correction `043cfdaf` keeps the tests unchanged and uses checked
+nullable locals plus typed short-circuit boolean selections. It now passes all
+four reference-fronted native Model cases with zero failures/errors/skips,
+authenticating the three existing baseline passes without rerunning them.
+The cases prove defaults, shared metadata/statement-vector identity, child
+replacement, derived destruction, a payload ownership cycle and exact canonical
+ordering. Independent audit verifies all inputs, generated outputs and process
+closure. Generated C uses the concrete payload ARC metadata and payload receiver
+for cast-store ownership. This qualifies the model through the reference frontend;
+the complete compact compiler, paired self-host tests, actual allocator sizes,
+current-product output parity and memory/instruction savings remain open. Independent retention
 candidate `266cadd7` keeps per-node setjmp facts only for fixed safety roots while
 solving and exporting every function summary. The original `6f1b81d9` baseline edit passes;
 the candidate passes the same production incremental edit and six added cases,
