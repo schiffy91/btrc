@@ -674,10 +674,18 @@ now matches current head `a29ab3e3` and its actual qualification scope. This PR6
 wave and memory comparison `37893971479` now occupy both hosted slots. BTRSmith
 replay `37883596677` completed successfully, including its original paired live-agent
 and audio-failure journeys, installed-product check and final source closure/upload;
-the retained artifact still needs independent review before broad acceptance is
-claimed. It covers product `2c9e5b43` with compiler `5aa232ad`, whose production
-compiler inputs match `a29ab3e3`; the newer album repair is separately qualified
-below. Native Linux quit `e6f076e5` remains queued.
+independent scoped audit
+`3a9c9028479681a60b949698da6868e0f3ebf4788674c384e4df7711905035dd`
+confirms 24 native executions: 12 agent scenarios across both frontends/Clang/GCC,
+and 12 audio/scanner scenarios including four intentional terminal aborts. Four
+audio plan comparisons and the current-compiler derivation/install-layout check
+pass. It authenticates 847 product and 4,506 compiler Git blobs and four successful
+stage leader receipts. The installed app was not launched in this run. Artifact
+review extracts 31 small members with CRC/SHA checks, not the full ZIP or all
+binaries; the remote owner records group cleanup but no final empty-group
+assertion. These limits remain explicit. It covers product `2c9e5b43` with compiler
+`5aa232ad`, whose production compiler inputs match `a29ab3e3`; the newer album
+repair is separately qualified below. Native Linux quit `e6f076e5` remains queued.
 Main integration and any measured compiler improvement remain unclaimed.
 
 The current product review also found a concrete Library source defect against
