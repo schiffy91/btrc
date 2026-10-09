@@ -458,7 +458,16 @@ ordering. Independent audit verifies all inputs, generated outputs and process
 closure. Generated C uses the concrete payload ARC metadata and payload receiver
 for cast-store ownership. This qualifies the model through the reference frontend;
 the complete compact compiler, paired self-host tests, actual allocator sizes,
-current-product output parity and memory/instruction savings remain open. Independent retention
+current-product output parity and memory/instruction savings remain open. The
+first full MacOSMain build of `043cfdaf` fails during reference compilation:
+boolean payload ternaries in the setjmp safety owner and C emitter infer integers
+inside `&&`, while repeated nullable projections in the optimizer and emitter
+produce warnings. No C compiler build or any of the 37 selected paired checks
+runs. The attempt finishes in 46.51 seconds, with source/tool inputs unchanged
+and all owned process groups closed. A targeted production correction is under
+implementation and independent review; diagnostics and acceptance checks remain
+unchanged. This failure does not invalidate the narrower four Model passes and
+does not establish a usable compact compiler or a performance improvement. Independent retention
 candidate `266cadd7` keeps per-node setjmp facts only for fixed safety roots while
 solving and exporting every function summary. The original `6f1b81d9` baseline edit passes;
 the candidate passes the same production incremental edit and six added cases,
