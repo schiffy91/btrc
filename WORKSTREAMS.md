@@ -1657,3 +1657,131 @@ behavioral proof, and `docs/workstreams/compact-ir-flow-roots.md`. Other
 merged files retain their reviewed parent bytes. Keep the compact guarded
 payload traversal and the flow policy's declaration arraySize reachability.
 No performance improvement or combined qualification is claimed by this merge.
+## 2026-10-09 D29 typed native pointer constants
+
+Packet: CX-HARMONIZE-NATIVE-POINTER-CONSTANTS. Base
+`5aa232ad27854b7f45a2a42f75cbf0cbab589578`, branch
+`codex/native-pointer-constants`. Integrator-assigned owners:
+platform_review owns `src/language/native_abi.asdl`,
+`tools/NativeHeaderReader.cpp`, generator-produced
+`src/compiler/python/abi/native_generated.py`,
+`src/compiler/btrc/generated/native_abi/Models.btrc`, this claim and
+`docs/workstreams/native-pointer-constants.md`; performance_review owns
+`src/compiler/python/frontend/native_imports.py`,
+`src/compiler/btrc/frontend/NativeImports.btrc`,
+`src/compiler/btrc/frontend/Models.btrc`,
+`src/compiler/python/analyzer/expressions.py` and
+`src/compiler/btrc/analyzer/Models.btrc` and malformed-codec coverage in
+`src/tests/python/test_native_header_reader.py` and
+`src/tests/btrc/fixtures/NativeHeaderCodec.btrc`; execution_review owns
+`src/tests/python/test_native_macro_constants.py`.
+Use an isolated index and owned source mirrors; preserve ordinary checkout/index.
+The fresh current-equivalent Toolhelp baseline rejects INVALID_HANDLE_VALUE in
+both frontends for Windows x64 and ARM64 before C emission. Add an explicit
+native pointer constant, preserving SDK type, qualifiers, target-width value
+identity and SDK symbol spelling; reject storage mutation/addressing and
+nonconstant/effectful/non-sentinel expressions. No provider, public API,
+worker-pool, runtime or emitter changes. Generated data changes only through
+the existing generator in a separate derived commit after allocation.
+Reader/reference focused qualification precedes a fresh selfhost build; all
+paired native macro tests and unchanged four genuine Toolhelp projections
+remain required. No native Windows provider or historical codec repair is claimed.
+
+Follow-up on the same packet after `de4009d9`: root assigns platform_review the
+existing reader's generic neutral type-sugar normalization and performance_review
+the existing `test_native_header_reader.py` regression owner. Actual reference
+qualification passed99 macro/codec cases, then Toolhelp x64 rejected a function
+signature wrapper. Authenticated raw SDK documents for x64/ARM64 show all six
+functions have neutral qualified wrappers, matching parameter counts and C
+calling convention. Preserve meaningful qualifiers, typedef identity and the
+existing strict bare-function codec contract; no SDK special case or convention
+relaxation. A fresh reader build and reference/paired qualification remain required.
+
+Follow-up on `b04309d8`: root assigns performance_review the existing
+`src/tests/python/test_native_macro_constants.py` owner, this claim handoff and
+`docs/workstreams/native-pointer-constants.md` for a test-only diagnostic contract
+repair. Fresh paired qualification passed154 cases and rejected the remaining
+const-pointer program in both frontends, but the test incorrectly demanded
+identical wording across their existing qualifier validators. Preserve all six
+invalid programs and absent outputs, require exact frontend-specific const-loss
+messages and an ordinary same-type const-pointer control in that existing row,
+and retain exact cross-frontend equality for the other five rows. No production
+source or reader changes. Execution_review owns the same-binary reuse qualifier
+with full155 cases and all four actual Toolhelp projections; no new build or
+execution is authorized by this source checkpoint. Ordinary checkout/index stay
+unchanged through an isolated index and `codex/` packet ref.
+
+## 2026-10-09 D29 Windows process thread count
+
+Packet CX-HARMONIZE-WINDOWS-PROCESS-THREADS, base `3e02deba`, isolated branch
+`codex/windows-process-threads`. Root assigns performance_review the new
+`src/stdlib/BackgroundJobs/Windows/ProcessThreadsProvider.btrc`,
+`src/stdlib/BackgroundJobs/Windows/ProcessThreads.h`, the public comment in
+`src/stdlib/BackgroundJobs/ProcessThreads.btrc`, this claim and
+`docs/workstreams/windows-process-threads.md`. Behavioral follow-up owns
+`src/tests/python/test_background_jobs_runtime.py` and WindowsProcessThreads
+fixture/probe/fault-control files under `src/tests/native/background_jobs/`.
+The provider/native bindings in `src/stdlib/BackgroundJobs/btrc.toml` are reserved
+for a final fragment commit; no manifest edit is in this initial source draft.
+
+Preserve public count()/-1 and all Windows worker-pool bytes. Use genuine Toolhelp
+SDK types and declarations: validate dwSize before reading owner PID, reset size
+for every enumeration call, filter this PID, capture enumeration error before
+closing, and attempt exactly one CloseHandle for every acquired snapshot. Fail
+on overflow, malformed records, enumeration errors or close failure. Qualification
+requires real Windows x64/ARM64 programs through both frontends, held-thread and
+foreign-PID behavior, and targeted native failure/cleanup controls. WindowsMain
+SDK process composition is explicitly outside this packet. No build, tests or
+publication until root allocates; pointer importer acceptance remains prerequisite.
+
+
+### Native execution-owner follow-up on `25b5b572`
+
+Root assigns performance_review only the existing
+`src/tests/python/test_background_jobs_runtime.py` execution adapter, this claim
+and `docs/workstreams/windows-process-threads.md` on the isolated
+`codex/windows-process-threads-native-owner` ref. Reuse the shared toolchain
+process runner and Windows native executor instead of adding a process wrapper.
+Preserve the provider, manifest, native fixture/probe/header bytes and original
+180-second compile / 90-second native bounds. The frozen 25b5 projection packet
+remains immutable; later native qualification authenticates its successful
+receipt and unchanged C/plan/header artifacts independently of this driver-only
+follow-up. No generation, tests, builds or dispatch under this source assignment.
+
+### Native VFS path follow-up on `80414b46`
+
+Root assigns execution_review the existing test driver, this claim and the
+Windows process-thread workstream report on `codex/windows-process-threads-vfs`.
+Actual native x64 and ARM64 attempts both stop at the first unchanged generated
+C include before native execution. Qualify relocated VFS keys against the
+explicit Windows compiler working directory, preserving all projected C,
+headers, strict flags, native assertions and original bounds. A bounded actual
+Windows negative/positive header lookup must precede the original native matrix.
+No compiler, SDK, manifest or provider edits; no publication until root allocates.
+
+### Windows quoted-include VFS follow-up on `61ffac92`
+
+Root assigns performance_review the existing
+`src/tests/python/test_background_jobs_runtime.py`, this claim and
+`docs/workstreams/windows-process-threads.md` on
+`codex/windows-process-threads-vfs-includer`. Preserve all provider, native
+fixture, header, manifest and generated projection bytes. The actual failed
+Windows lookup is diagnosed against exact LLVM21.1.0/22.1.8 header-search
+semantics before changing only the test adapter's authenticated virtual keys.
+Retain both failed native attempts and require actual old/new header lookup
+before the original four native runtime cells. No publication without root
+allocation. No compiler/SDK/provider edits or local native builds.
+
+
+## 2026-10-09 D29 measured memory and Windows integration
+
+Root owns private `codex/integrate-memory-windows-36b` from qualified main
+`36b647f0`. Compose measured compact IR/safety-rooted flow source `c8221ae4`
+(report `0b309bb9`) with Windows provider/native-pointer prerequisites
+`3e480fcd`. Independent Linux product RSS/parity and real Windows x64/ARM64
+ProcessThreads results qualify the components only. Production paths merge
+without conflicts; claim history and reports retain both parents' evidence.
+Root owns PLAN and the combined qualification/publication. Fresh combined
+compiler, affected paired behavior, regenerated-source checks and the required
+final gate matrix remain outstanding. No new main landing is authorized by
+this source composition alone.

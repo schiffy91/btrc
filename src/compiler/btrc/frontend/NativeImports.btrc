@@ -134,7 +134,7 @@ class FeNativeDeclarationImporter {
 		return "";
 	}
 
-	private void add(string name, Node declaration, string identity, string typeSpelling = "", bool readOnly = false, FeNativeCallContract? callContract = null, FeNativeResourceBinding? resource = null) {
+	private void add(string name, Node declaration, string identity, string typeSpelling = "", bool readOnly = false, FeNativeCallContract? callContract = null, FeNativeResourceBinding? resource = null, bool valueOnly = false) {
 		string key = self.module + "\x1f" + name;
 		if (self.typeIdentities.has(key)) {
 			if (identity.isEmpty() || !self.typeIdentities.get(key).equals(identity)) { self.fail(f"conflicting native declaration '{name}'"); }
@@ -142,7 +142,7 @@ class FeNativeDeclarationImporter {
 				Node prior = previous.declaration;
 				string priorName = prior.kind == NK_TYPEDEF_DECL ? prior.alias : prior.name;
 				if (previous.module == self.module && priorName == name && !self.sameResource(previous.resource, resource)) { self.fail(f"conflicting native resource '{name}'"); }
-				if (previous.module.equals(self.module) && priorName.equals(name) && (prior.kind != declaration.kind || !previous.typeSpelling.equals(typeSpelling) || previous.readOnly != readOnly || !self.sameCallContract(previous.callContract, callContract))) { self.fail(f"conflicting native declaration '{name}'"); }
+				if (previous.module.equals(self.module) && priorName.equals(name) && (prior.kind != declaration.kind || !previous.typeSpelling.equals(typeSpelling) || previous.readOnly != readOnly || previous.valueOnly != valueOnly || !self.sameCallContract(previous.callContract, callContract))) { self.fail(f"conflicting native declaration '{name}'"); }
 			}
 			return;
 		}
@@ -151,6 +151,7 @@ class FeNativeDeclarationImporter {
 		var imported = FeNativeImportedDeclaration(declaration, self.module, self.header, typeSpelling, readOnly, callContract);
 		imported.language = self.language;
 		imported.resource = resource;
+		imported.valueOnly = valueOnly;
 		self.declarations.push(imported);
 	}
 
@@ -2058,6 +2059,14 @@ class FeNativeDeclarationImporter {
 			NativeNode native = declaration.valueType;
 			while (native.kind == NNK_NATIVE_ALIAS || native.kind == NNK_NATIVE_QUALIFIED_TYPE || native.kind == NNK_NATIVE_ENUM_TYPE) { native = native.underlying; }
 			imported.initializer = self.integer(declaration.decimalValue, native.kind == NNK_NATIVE_BUILTIN && native.signedness == "unsigned" ? "U" : "");
+		} else if (declaration.kind == NNK_NATIVE_POINTER_CONSTANT) {
+			if (self.language != "c") { self.fail("native pointer constants require C header visibility"); }
+			// The SDK owns the value expression; the decimal address is identity,
+			// never an initializer or a synthesized storage declaration.
+			imported = self.node(NK_VAR_DECL_STMT);
+			imported.name = declaration.name;
+			imported.type = self.type(declaration.valueType);
+			imported.type.isExtern = true;
 		} else if (declaration.kind == NNK_NATIVE_STRING_CONSTANT) {
 			// The C use names the macro, whose literal decays to `const char*`: the
 			// same projection, and the same read-only protection, as an SDK
@@ -2079,7 +2088,7 @@ class FeNativeDeclarationImporter {
 			return;
 		} else if (declaration.kind == NNK_NATIVE_OBJECTIVE_C_METHOD) { self.importObjectiveCMethod(declaration); return; }
 		else { self.fail("selected native records require native-type lowering"); }
-		self.add(declaration.name, imported, self.declarationIdentity(declaration), "", declaration.kind == NNK_NATIVE_STRING_CONSTANT || (declaration.kind == NNK_NATIVE_GLOBAL && (declaration.readOnly || contract != null)), contract);
+		self.add(declaration.name, imported, self.declarationIdentity(declaration), "", declaration.kind == NNK_NATIVE_STRING_CONSTANT || declaration.kind == NNK_NATIVE_POINTER_CONSTANT || (declaration.kind == NNK_NATIVE_GLOBAL && (declaration.readOnly || contract != null)), contract, null, declaration.kind == NNK_NATIVE_POINTER_CONSTANT);
 		if (declaration.kind == NNK_NATIVE_FUNCTION) {
 			if (contract == null) { self.fail("internal compiler error: native function import has no call contract"); }
 			self.importResourceOutput(declaration, imported, contract);
@@ -2094,6 +2103,7 @@ class FeNativeDeclarationImporter {
 			return identity;
 		}
 		identity = identity + self.typeIdentity(declaration.valueType);
+		if (declaration.kind == NNK_NATIVE_POINTER_CONSTANT) { return identity + f":{declaration.pointerBits}:" + declaration.decimalValue; }
 		if (declaration.kind == NNK_NATIVE_STRING_CONSTANT) { return identity + ":" + declaration.stringValue; }
 		return identity + (declaration.kind == NNK_NATIVE_GLOBAL ? f":{declaration.readOnly}" : ":" + declaration.decimalValue);
 	}
@@ -2460,7 +2470,7 @@ class FeNativeDeclarationImporter {
 			string identity = self.typeIdentities.get(imported.module + "\x1f" + name);
 			string priorIdentity = self.typeIdentities.get(previous.module + "\x1f" + name);
 			bool sharedCRecord = prior.kind == NK_STRUCT_DECL && declaration.kind == NK_STRUCT_DECL && prior.fields().len > 0 && declaration.fields().len > 0 && ((previous.language == "c" && imported.language == "objective-c") || (previous.language == "objective-c" && imported.language == "c"));
-			if (prior.kind != declaration.kind || (previous.language != imported.language && !sharedCRecord) || !identity.equals(priorIdentity) || !previous.typeSpelling.equals(imported.typeSpelling) || previous.readOnly != imported.readOnly || !self.sameCallContract(previous.callContract, imported.callContract) || (declaration.kind == NK_STRUCT_DECL && prior.fields().len > 0 && declaration.fields().len > 0 && !self.sameFieldContracts(previous, imported))) { self.fail(f"conflicting native declaration '{name}' imported by {previous.module} and {imported.module}"); }
+			if (prior.kind != declaration.kind || (previous.language != imported.language && !sharedCRecord) || !identity.equals(priorIdentity) || !previous.typeSpelling.equals(imported.typeSpelling) || previous.readOnly != imported.readOnly || previous.valueOnly != imported.valueOnly || !self.sameCallContract(previous.callContract, imported.callContract) || (declaration.kind == NK_STRUCT_DECL && prior.fields().len > 0 && declaration.fields().len > 0 && !self.sameFieldContracts(previous, imported))) { self.fail(f"conflicting native declaration '{name}' imported by {previous.module} and {imported.module}"); }
 			if (sharedCRecord) {
 				/* Matching complete SDK layouts share C storage, not an ObjC-only projection. */
 				if (imported.language == "c") { previous.coalesced = true; selected.put(name, imported); }
@@ -3453,6 +3463,7 @@ class FeNativeHeaderCodec {
 		else if (kind.equals("cxx_class")) { required = required + ",default_constructor,public_destructor,trivially_copyable,trivially_destructible"; }
 		else if (kind.equals("cxx_method")) { required = required + ",identity,owner,receiver,method_name,parameter_semantics,const_method"; }
 		else if (kind.equals("objc_method")) { required = required + ",identity,owner,receiver,selector,class_method,returned_ownership,parameter_semantics,method_family,consumes_self,related_result,returns_inner_pointer"; }
+		else if (kind.equals("pointer_constant")) { required = required + ",pointer_bits,value"; }
 		else if (kind.equals("enum_constant") || kind.equals("string_constant")) { required = required + ",value"; }
 		else if (kind.equals("global")) { required = required + ",read_only"; }
 		else if (!kind.equals("typedef") && !kind.equals("record")) { self.fail(f"unsupported native declaration '{kind}'"); }
@@ -3523,6 +3534,20 @@ class FeNativeHeaderCodec {
 			result.kind = NNK_NATIVE_GLOBAL;
 			result.valueType = nativeType;
 			result.readOnly = self.boolean(value.get("read_only"));
+		} else if (kind.equals("pointer_constant")) {
+			NativeNode pointer = nativeType;
+			while (pointer.kind == NNK_NATIVE_ALIAS || pointer.kind == NNK_NATIVE_QUALIFIED_TYPE) { pointer = pointer.underlying; }
+			if (pointer.kind != NNK_NATIVE_POINTER) { self.fail("native pointer constant requires an object or void pointer"); }
+			NativeNode pointee = pointer.pointee;
+			while (pointee.kind == NNK_NATIVE_ALIAS || pointee.kind == NNK_NATIVE_QUALIFIED_TYPE) { pointee = pointee.underlying; }
+			if (pointee.kind == NNK_NATIVE_FUNCTION_TYPE || pointee.kind == NNK_NATIVE_OBJECTIVE_C_OBJECT || pointee.kind == NNK_NATIVE_OBJECTIVE_C_BLOCK) { self.fail("native pointer constant requires an object or void pointer"); }
+			result.kind = NNK_NATIVE_POINTER_CONSTANT;
+			result.valueType = nativeType;
+			result.pointerBits = self.integer(value.get("pointer_bits"));
+			result.decimalValue = self.decimal(value.get("value"));
+			if (result.pointerBits != 32 && result.pointerBits != 64) { self.fail("native pointer constant value exceeds its supported target width"); }
+			string maximum = result.pointerBits == 32 ? "4294967295" : "18446744073709551615";
+			if (result.decimalValue.length() > maximum.length() || (result.decimalValue.length() == maximum.length() && Strings.lessThan(maximum, result.decimalValue))) { self.fail("native pointer constant value exceeds its supported target width"); }
 		} else if (kind.equals("string_constant")) {
 			result.kind = NNK_NATIVE_STRING_CONSTANT;
 			result.valueType = nativeType;
@@ -3693,7 +3718,7 @@ class FeNativeHeaderCodec {
 		for entry in result.exports {
 			if (entry.kind == NNK_NATIVE_FUNCTION || entry.kind == NNK_NATIVE_OBJECTIVE_C_METHOD || entry.kind == NNK_NATIVE_CXX_METHOD) { self.verifyLayoutReferences(entry.signature, layouts); }
 			else if (entry.kind == NNK_NATIVE_TYPEDEF) { self.verifyLayoutReferences(entry.underlying, layouts); }
-			else if (entry.kind == NNK_NATIVE_CONSTANT || entry.kind == NNK_NATIVE_STRING_CONSTANT || entry.kind == NNK_NATIVE_GLOBAL) { self.verifyLayoutReferences(entry.valueType, layouts); }
+			else if (entry.kind == NNK_NATIVE_CONSTANT || entry.kind == NNK_NATIVE_STRING_CONSTANT || entry.kind == NNK_NATIVE_POINTER_CONSTANT || entry.kind == NNK_NATIVE_GLOBAL) { self.verifyLayoutReferences(entry.valueType, layouts); }
 			else { self.verifyLayoutReferences(entry.recordType, layouts); }
 		}
 		for record in result.records {

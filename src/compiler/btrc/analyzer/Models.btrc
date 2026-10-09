@@ -298,8 +298,8 @@ class Analyzed {
 
 	public bool isObjectiveCGlobal(string name) { return self.objectiveCGlobals.has(name); }
 
-	/* An imported enumerator or integer macro is a compile-time value, not storage. */
-	public bool isNativeConstant(string name) { return self.nativeGlobalAnyIndex.has(name) && self.nativeGlobalAnyIndex.get(name).declaration.initializer != null; }
+	/* An imported constant is a value, not addressable storage. */
+	public bool isNativeConstant(string name) { return self.nativeGlobalAnyIndex.has(name) && (self.nativeGlobalAnyIndex.get(name).declaration.initializer != null || self.nativeGlobalAnyIndex.get(name).valueOnly); }
 
 	/* An Objective-C or C++ binding's C11 unit never sees the SDK header, and the
 	 * macros it does see through other SDK headers may share a constant's name. A

@@ -1,0 +1,37 @@
+/* A Toolhelp thread snapshot covers all processes. Count only this process,
+ * and keep one owner for the acquired snapshot until enumeration is finished. */
+class ProcessThreadsProvider {
+	class int count() {
+		var snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+		if (snapshot == INVALID_HANDLE_VALUE) { return -1; }
+		var process = GetCurrentProcessId();
+		THREADENTRY32 entry;
+		entry.dwSize = sizeof(THREADENTRY32);
+		var present = Thread32First(snapshot, &entry);
+		int count = 0;
+		bool valid = true;
+		while (present != 0) {
+			/* The SDK may return an older, shorter record. Do not inspect a
+			 * field outside the returned byte extent. */
+			if (entry.dwSize < BTRC_THREAD_OWNER_END) {
+				valid = false;
+				break;
+			}
+			if (entry.th32OwnerProcessID == process) {
+				if (count == INT_MAX) {
+					valid = false;
+					break;
+				}
+				count = count + 1;
+			}
+			/* Thread32First/Next can reduce dwSize. Each call requires the
+			 * caller's full structure size again. */
+			entry.dwSize = sizeof(THREADENTRY32);
+			present = Thread32Next(snapshot, &entry);
+		}
+		var error = GetLastError();
+		var closed = CloseHandle(snapshot);
+		if (!valid || error != ERROR_NO_MORE_FILES || closed == 0 || count == 0) { return -1; }
+		return count;
+	}
+}

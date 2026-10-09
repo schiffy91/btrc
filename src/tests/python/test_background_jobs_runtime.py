@@ -1,15 +1,20 @@
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
+from tools.windows_toolchain.process_runner import Result
+from tools.windows_toolchain.process_runner import run as run_process
 
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.native_bindings import NativeBindingPackage
 from tools.native_plan import NativePlanBuilder
+from tools.target_hosts.windows.bundle import TARGETS, pe_machine
+from tools.target_hosts.windows.executor import ExecutionRequest, WindowsNativeExecutor
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "src" / "stdlib" / "BackgroundJobs"
@@ -415,3 +420,251 @@ def test_import_emits_and_links_sdk_declarations_without_native_executor(
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == "PASS: planned background jobs runtime\n"
     assert ran.stderr == ""
+
+
+class WindowsProcessThreadsFixture:
+    """Two-stage native proof: SDK projection on a reader-capable host, then
+    strict C11 execution on the corresponding real Windows architecture.
+
+    The allocated Windows qualifier calls these methods explicitly. This does
+    not add platform-skipped default-suite rows or pretend WindowsMain owns a
+    native SDK reader. A Clang VFS maps authenticated relocated headers without
+    changing the emitted C or any SDK declarations.
+    """
+
+    SYMBOLS = (
+        "PROCESS_THREADS_REAL",
+        "PROCESS_THREADS_SNAPSHOT_FAILURE",
+        "PROCESS_THREADS_FIRST_FAILURE",
+        "PROCESS_THREADS_NEXT_FAILURE",
+        "PROCESS_THREADS_SHORT_FIRST",
+        "PROCESS_THREADS_SHORT_NEXT",
+        "PROCESS_THREADS_SHORT_VALID",
+        "PROCESS_THREADS_CLOSE_FAILURE",
+        "PROCESS_THREADS_EMPTY",
+        "PROCESS_THREADS_FOREIGN_ONLY",
+        "process_threads_child_mode",
+        "process_threads_start_held",
+        "process_threads_stop_held",
+        "process_threads_start_foreign",
+        "process_threads_stop_foreign",
+        "process_threads_reset",
+        "process_threads_snapshots",
+        "process_threads_closes",
+        "process_threads_next_calls",
+        "process_threads_bad_sizes",
+        "process_threads_live_snapshots",
+        "process_threads_foreign_seen",
+    )
+
+    @staticmethod
+    def digest(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    @staticmethod
+    def command(argv: list[str], directory: Path, label: str, timeout: int, *, env=None) -> Result:
+        result = run_process(argv, cwd=ROOT, env=env, timeout=timeout)
+        (directory / f"{label}.stdout").write_bytes(result.stdout)
+        (directory / f"{label}.stderr").write_bytes(result.stderr)
+        (directory / f"{label}.result.json").write_text(
+            json.dumps(
+                {"argv": argv, "returncode": result.returncode, "timed_out": result.timed_out, "error": result.error},
+                indent=2,
+            )
+            + "\n"
+        )
+        assert not result.timed_out and result.error is None, result
+        assert result.returncode == 0, (argv, result.stderr)
+        assert not result.stderr, result.stderr
+        return result
+
+    @classmethod
+    def project(cls, frontend: str, target: str, directory: Path, *, btrcc: Path | None = None) -> Path:
+        assert frontend in {"python", "btrc"}
+        assert target in {"windows-x64", "windows-arm64"}
+        assert os.environ.get("BTRC_NATIVE_HEADER_READER"), "explicit SDK reader required"
+        assert directory.is_absolute(), "projection paths must be absolute"
+        directory.mkdir(parents=True, exist_ok=False)
+        source = NativeBindingPackage.write(
+            FIXTURE / "WindowsProcessThreads.btrc",
+            directory / "project",
+            FIXTURE / "WindowsProcessThreadsProbe.h",
+            cls.SYMBOLS,
+        )
+        generated, plan = directory / "Program.c", directory / "plan.json"
+        if frontend == "python":
+            compiler = [sys.executable, "-B", "-m", "src.compiler.python.main"]
+        else:
+            assert btrcc is not None and btrcc.is_file(), "allocated immutable compiler required"
+            compiler = [str(btrcc)]
+        flags = [
+            "--strict-imports",
+            "--no-cache",
+            "--target",
+            target,
+            "--emit-link-plan",
+            str(plan),
+            str(source),
+            "-o",
+            str(generated),
+        ]
+        environment = {**os.environ, "BTRC_HOME": str(ROOT / "src"), "BTRC_CACHE_DIR": str(directory / "cache")}
+        cls.command([*compiler, *flags], directory, "project", 120, env=environment)
+        text = generated.read_text()
+        includes = [RUNTIME / "Windows/ProcessThreads.h", directory / "project/WindowsProcessThreadsProbe.h"]
+        mappings = {}
+        for header in includes:
+            assert f'#include "{header}"' in text, header
+            destination = directory / "headers" / header.name
+            destination.parent.mkdir(exist_ok=True)
+            shutil.copyfile(header, destination)
+            mappings[str(header)] = str(destination.relative_to(directory))
+        for name in ("WindowsProcessThreadsProbe.c", "WindowsProcessThreadsFaults.h"):
+            shutil.copyfile(FIXTURE / name, directory / name)
+        files = [
+            "Program.c",
+            "plan.json",
+            "WindowsProcessThreadsProbe.c",
+            "WindowsProcessThreadsFaults.h",
+            *mappings.values(),
+        ]
+        proof = {
+            "frontend": frontend,
+            "target": target,
+            "compiler": compiler,
+            "compiler_sha256": cls.digest(btrcc) if btrcc is not None and frontend == "btrc" else None,
+            "files": {name: cls.digest(directory / name) for name in files},
+            "header_mappings": mappings,
+            "source": {
+                str(path.relative_to(ROOT)): cls.digest(path)
+                for path in (
+                    RUNTIME / "ProcessThreads.btrc",
+                    RUNTIME / "Windows/ProcessThreadsProvider.btrc",
+                    RUNTIME / "btrc.toml",
+                    FIXTURE / "WindowsProcessThreads.btrc",
+                )
+            },
+        }
+        receipt = directory / "projection.json"
+        receipt.write_text(json.dumps(proof, indent=2) + "\n")
+        return receipt
+
+    @classmethod
+    def run_native(
+        cls,
+        projection: Path,
+        output: Path,
+        *,
+        projection_sha256: str,
+        cc: tuple[str, ...],
+        toolchain: dict,
+        label: str,
+    ) -> None:
+        assert sys.platform == "win32", "requires actual Windows native execution"
+        assert cls.digest(projection) == projection_sha256, "projection receipt differs from allocated proof"
+        proof = json.loads(projection.read_text())
+        target = {"windows-x64": "windows-x86_64", "windows-arm64": "windows-aarch64"}[proof["target"]]
+        directory = projection.parent
+        for name, digest in proof["files"].items():
+            path = directory / name
+            assert path.resolve().is_relative_to(directory.resolve()) and cls.digest(path) == digest
+        output.mkdir(parents=True, exist_ok=False)
+        program = directory / "Program.c"
+        assert program.is_absolute(), "native caller path must be absolute"
+        generated = program.read_text()
+        for original, relative in proof["header_mappings"].items():
+            path = PurePosixPath(original)
+            assert original.startswith("/") and not original.startswith("//")
+            assert "\\" not in original and ":" not in original and ".." not in path.parts
+            assert path.as_posix() == original and relative in proof["files"]
+            assert generated.count(f'#include "{original}"') == 1
+        # Windows Clang treats a drive-less /Users/... include as relative:
+        # HeaderSearch appends it to the actual includer's directory.
+        overlay = {
+            "version": 0,
+            "roots": [
+                {
+                    "type": "file",
+                    "name": (program.parent / original[1:]).as_posix(),
+                    "external-contents": str((directory / relative).resolve()),
+                }
+                for original, relative in proof["header_mappings"].items()
+            ],
+        }
+        overlay_path = output / "headers.json"
+        overlay_path.write_text(json.dumps(overlay, indent=2) + "\n")
+        flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic-errors", "-O2", "-I", str(directory / "headers")]
+        generated_object, probe_object = output / "Program.o", output / "Probe.o"
+        cls.command(
+            [
+                *cc,
+                *flags,
+                "-ivfsoverlay",
+                str(overlay_path),
+                "-include",
+                str(directory / "WindowsProcessThreadsFaults.h"),
+                "-c",
+                str(directory / "Program.c"),
+                "-o",
+                str(generated_object),
+            ],
+            output,
+            "generated-build",
+            COMPILE_TIMEOUT,
+        )
+        cls.command(
+            [*cc, *flags, "-c", str(directory / "WindowsProcessThreadsProbe.c"), "-o", str(probe_object)],
+            output,
+            "probe-build",
+            COMPILE_TIMEOUT,
+        )
+        executable = output / "WindowsProcessThreads.exe"
+        cls.command(
+            [*cc, str(generated_object), str(probe_object), "-o", str(executable)], output, "link", COMPILE_TIMEOUT
+        )
+        manifest = {
+            "schema": "btrc.windows-host-bundle/1",
+            "target": target,
+            "pe_machine": TARGETS[target][1],
+            "toolchain": {"command": list(cc), "facts": toolchain},
+            "projection_sha256": projection_sha256,
+            "programs": {
+                "WindowsProcessThreads": {
+                    "executable": executable.name,
+                    "sha256": cls.digest(executable),
+                    "pe_machine": pe_machine(executable),
+                }
+            },
+        }
+        (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        executor = WindowsNativeExecutor()
+        try:
+            executor.prepare(output, label)
+            ran = executor.run(ExecutionRequest("WindowsProcessThreads", timeout_s=RUN_TIMEOUT))
+            (output / "native.stdout").write_bytes(ran.stdout)
+            (output / "native.stderr").write_bytes(ran.stderr)
+            (output / "native.result.json").write_text(
+                json.dumps(
+                    {
+                        "exit_status": ran.exit_status,
+                        "signal": ran.signal,
+                        "timed_out": ran.timed_out,
+                        "duration_s": ran.duration_s,
+                        "provenance": ran.provenance,
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
+            assert not ran.timed_out and ran.signal is None and ran.exit_status == 0, ran
+            assert not ran.provenance["cleanup_warnings"], ran.provenance
+            assert not ran.stderr, ran.stderr
+            # Preserve the prior text=True universal-newline comparison; raw
+            # captured bytes above remain the native evidence.
+            with (output / "native.stdout").open(encoding="utf-8", newline=None) as stdout:
+                assert stdout.read() == "PASS: Windows process thread count\n", ran.stdout
+        finally:
+            executor.close()
+        for name, digest in proof["files"].items():
+            assert cls.digest(directory / name) == digest, name
+        assert cls.digest(projection) == projection_sha256, "projection receipt changed during native proof"
