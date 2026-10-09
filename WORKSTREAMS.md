@@ -1578,3 +1578,10 @@ fields/defaults, structured traversal order and managed ownership; no rich-enum
 owner, raw managed union, generated-file edits or retained-graph pruning.
 Full product parity, actual allocator sizes and paired measurements remain
 required. Root owns execution allocation and publication.
+
+Parent-approved compact-IR claim extension (2026-10-09):
+- `src/tests/btrc/fixtures/LazyIrListDriver.btrc`
+- `src/tests/btrc/test_runtime_type_providers.py`
+- `src/tests/btrc/test_lazy_node_lists.py`
+Preserve all existing lazy/default/shared-empty and runtime-provider oracles;
+use valid structural writer kinds and retain payload-free NONE readers.
