@@ -50,5 +50,5 @@ module = "Windows.ProcessThreadsProvider"
 header = "Windows/ProcessThreads.h"
 language = "c"
 standard = "c11"
-symbols = ["THREADENTRY32", "CreateToolhelp32Snapshot", "Thread32First", "Thread32Next", "GetCurrentProcessId", "GetLastError", "CloseHandle", "TH32CS_SNAPTHREAD", "INVALID_HANDLE_VALUE", "ERROR_NO_MORE_FILES", "INT_MAX", "BtrcThreadEntryExtent", "BTRC_THREAD_OWNER_END"]
+symbols = ["THREADENTRY32", "CreateToolhelp32Snapshot", "Thread32First", "Thread32Next", "GetCurrentProcessId", "GetLastError", "CloseHandle", "TH32CS_SNAPTHREAD", "INVALID_HANDLE_VALUE", "ERROR_NO_MORE_FILES", "INT_MAX", "BTRC_THREAD_OWNER_END"]
 os = ["windows"]
