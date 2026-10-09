@@ -651,8 +651,11 @@ was published once by normal fast-forward to PR68 at 05:32 UTC, preserving the
 84-pass test bytes and ordinary checkout. Automatic workflows are Linux
 `37889064844`, macOS `37889064858`, Windows `37889064843`, Windows ARM64
 `37889064907` and Android `37889064913`; no manual duplicate dispatch occurred.
-At the 05:45 UTC job-level check, Android has passed, Windows lanes are running,
-and macOS/Linux are executing tests and release jobs with remaining shards queued.
+At the 06:16 UTC job-level check, Windows and Android jobs have passed. Linux
+release bundles, X11 GUI, bootstrap, benchmark guards and five C11 cells have
+passed; Wayland and the remaining test shards are running. macOS ARM64 release,
+selfhost checks and Clang O2 have passed; its remaining jobs and Windows ARM64
+native qualification are still running. Final artifacts remain to be audited.
 The top-level queued labels do not imply that all jobs are idle. PR68's description
 now matches current head `a29ab3e3` and its actual qualification scope. This PR68
 wave and BTRSmith replay `37883596677` occupy both hosted slots. The replay's original paired live-agent acceptance stage has now passed
@@ -704,10 +707,21 @@ still requires the surrounding catalog/format regressions and application journe
 The next regression selection preserves nine original programs and their compiler
 matrix: Clang/GCC through both frontends for eight programs, and PSARC's native/
 Clang/GCC through both, for 38 native executions plus nine plan comparisons.
-PSARC retains its actual fixture setup/cleanup owner. Preparation is in progress;
-these broader checks have not run. Completed task-owned derived output may be
-archived with verified recovery inventories to provide headroom before this stage;
-current binaries, sources, logs, audits and qualification inputs remain protected.
+PSARC retains its actual fixture setup/cleanup owner. The bounded recipe passed
+independent review and is now running locally as
+`btrsmith-album-regressions-2a15e4c-attempt-1`; no complete regression result is
+claimed yet. Before launch, exactly ten historical generated C files were archived
+with verified bytes, modes, timestamps and recovery instructions, reclaiming
+644,300,800 allocated bytes and leaving about 80.75 GB free. Current sources,
+binaries, readers, logs, audits and qualification inputs remain unchanged. Archive
+audit: `01511ab42812e61da63228d67e27bacc536ee0000a3542af3d617b642442fa41`.
+
+A separate source review found that `SettingsScreen` attaches its only Back button
+to the sidebar, then hides that sidebar below 900 pixels. The existing compact
+Settings test calls `activate()` and does not establish user reachability. The next
+product slice will preserve the existing navigation/draft owners while making Back
+reachable in compact layouts and checking native ancestor visibility and hit testing.
+This is a source-confirmed defect; runtime baseline and repair remain pending.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -2970,7 +2984,7 @@ an unwired fixture. Old passing counts do not validate a newly ported tree.
 
 | Platform | Next concrete checkpoint | Actual dependency and evidence |
 |---|---|---|
-| Windows | Wire and qualify the actual Toolhelp/process thread-count provider | Candidate `3e02deba` passes all 155 paired checks and all four genuine SDK imports through reference/selfhost for x64/ARM64, with exact paired C/plan equality. The original pointer and function-signature defects are repaired. Provider draft `8ef29047` is source-reviewed; manifest wiring, native fixtures, strict Windows C build and real x64/ARM64 execution remain unqualified. |
+| Windows | Wire and qualify the actual Toolhelp/process thread-count provider | Candidate `3e02deba` passes all 155 paired checks and all four genuine SDK imports through reference/selfhost for x64/ARM64, with exact paired C/plan equality. The original pointer and function-signature defects are repaired. Provider/fixture candidate `25b5b572` includes manifest wiring and passes independent source review. Both-frontend fixture projection, strict Windows C build and real x64/ARM64 execution remain unqualified. |
 | iOS/iPadOS | App-private file create/write/read and relaunch persistence through both frontends | Actual iOS target/provider/cache selection, required nongeneric Foundation ownership/calls, filesystem seam and a real Xcode simulator host. Full UIKit widgets are not prerequisites for this service. |
 | Android | NativeActivity host execution, then app-private file create/write/read and relaunch persistence | NDK/SDK, correct target/provider selection, trusted host-derived roots, filesystem seam and emulator execution. Initial private roots need not wait for the complete Java UI/JNI stack. |
 | Each mobile GUI | Lifecycle, one native button and one editable field with events and safe teardown | Checked UIKit/main-executor adapters on iOS; checked JNI/Looper/callback ownership on Android. GPU embedding and richer collection controls are subsequent milestones. |
@@ -3059,12 +3073,17 @@ verifies 79 static pins, nine tools, 183 dynamic inputs, exact three-file test/r
 delta, SDK/resource inventories, 22 logs and 11 closed groups. This establishes
 paired Windows SDK projection, not native Windows link/runtime behavior.
 
-The actual ProcessThreads provider is drafted in `8ef29047` and independently
-source-reviewed. It uses genuine SDK declarations, checks returned record extent
+The actual ProcessThreads provider and native fixtures are committed through
+`25b5b572` and independently source-reviewed. It uses genuine SDK declarations, checks returned record extent
 before owner-PID access, resets dwSize per call, filters the current PID, guards
 count overflow and attempts exactly one handle close while preserving enumeration
 errors. Public count()/minus-one behavior and Windows worker pools are unchanged.
-Manifest wiring and real-thread/fault fixtures are being implemented. The original
+The final manifest fragment and real-thread/fault fixtures are present. They check
+three held threads and restoration, real foreign-process records, snapshot errors,
+short records and cleanup. Overflow remains structurally checked. The explicit
+driver preserves emitted C through two authenticated project-header VFS mappings;
+actual SDK projection, VFS lookup, strict native build and Windows execution have
+not run. The original
 WindowsMain SDK-scanning process-composition gap remains explicit; supported-host
 projection followed by actual Windows x64/ARM64 execution must be distinguished
 from claiming SDK scanning on a Windows-hosted compiler.
