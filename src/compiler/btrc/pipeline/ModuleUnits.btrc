@@ -1032,7 +1032,7 @@ class ModuleUnitCompiler {
 	private bool containsSetjmp(IRNode? node) {
 		if (node == null) { return false; }
 		if (node.kind == IRK_CALL && node.callee == "setjmp") { return true; }
-		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp(node.operand) || self.containsSetjmp(node.expr) || self.containsSetjmp(node.obj) || self.containsSetjmp(node.index) || self.containsSetjmp(node.condition) || self.containsSetjmp(node.trueExpr) || self.containsSetjmp(node.falseExpr) || self.containsSetjmp(node.init) || self.containsSetjmp(node.value) || self.containsSetjmp(node.target) || self.containsSetjmp(node.thenBlock) || self.containsSetjmp(node.elseBlock) || self.containsSetjmp(node.body) || self.containsSetjmp(node.update) || self.containsSetjmp(node.result)) { return true; }
+		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp(node.operand) || self.containsSetjmp(node.expr) || self.containsSetjmp(node.obj) || self.containsSetjmp(node.index) || self.containsSetjmp(node.condition) || self.containsSetjmp(node.trueExpr) || self.containsSetjmp(node.falseExpr) || self.containsSetjmp(node.init) || self.containsSetjmp(node.value) || self.containsSetjmp(node.target) || self.containsSetjmp(node.thenBlock) || self.containsSetjmp(node.elseBlock) || self.containsSetjmp(node.body) || self.containsSetjmp(node.update) || self.containsSetjmp(node.result) || self.containsSetjmp(node.arraySize)) { return true; }
 		for argument in node.args() { if (self.containsSetjmp(argument)) { return true; } }
 		for statement in node.stmts() { if (self.containsSetjmp(statement)) { return true; } }
 		return false;
@@ -1041,6 +1041,14 @@ class ModuleUnitCompiler {
 	public bool unitHasSetjmp(IRModule unit) {
 		for definition in unit.functions { if (self.containsSetjmp(definition.body)) { return true; } }
 		return false;
+	}
+
+	/* Match every body that the final safety pass can inspect, including a
+	 * nested call or array bound. Other functions still export full summaries. */
+	public Map<string, bool> setjmpFlowFunctions(IRModule unit) {
+		Map<string, bool> roots = {};
+		for definition in unit.functions { if (self.containsSetjmp(definition.body)) { roots.put(definition.name, true); } }
+		return roots;
 	}
 
 	/* The context, the group's resolved lines with their original positions,
@@ -1529,7 +1537,7 @@ class ModuleUnitCompiler {
 		for (int worker = 0; worker < workers.size(); worker++) { synced.push(-2); }
 		Map<string, SetjmpCallEffects> programEffects = {};
 		Map<string, bool> programConsulted = {};
-		SetjmpEffectAnalysis programAnalysis = SetjmpEffectAnalysis(self.input.hostedAbi);
+		SetjmpEffectAnalysis programAnalysis = SetjmpEffectAnalysis(self.input.hostedAbi, self.setjmpFlowFunctions(programUnit));
 		keep programAnalysis;
 		int programWave = -1;
 		int analyses = 0;
@@ -2293,7 +2301,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		}
 		for name in updates.keys() { self.solved.put(name, updates.get(name)); }
 		IRModule unit = self.units.get(group);
-		if (!self.analyses.has(group)) { self.analyses.put(group, SetjmpEffectAnalysis(self.compiler.hostedAbi())); }
+		if (!self.analyses.has(group)) { self.analyses.put(group, SetjmpEffectAnalysis(self.compiler.hostedAbi(), self.compiler.setjmpFlowFunctions(unit))); }
 		SetjmpEffectAnalysis analysis = self.analyses.get(group);
 		self.effects.put(group, analysis.analyzeIncrementally(unit, self.solved));
 		Map<string, SetjmpFunctionEffect> summaries = analysis.definitionSummaries();

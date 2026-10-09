@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,7 +25,24 @@ from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceDependencyGraph
-from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
+from src.compiler.python.ir.lowering.exceptions import (
+    ExceptionLowerer,
+    FunctionEffect,
+    ParameterEffect,
+    SetjmpUnitSolver,
+)
+from src.compiler.python.ir.nodes import (
+    CType,
+    IRBlock,
+    IRCall,
+    IRExprStmt,
+    IRFunctionDecl,
+    IRFunctionDef,
+    IRModule,
+    IRParam,
+    IRVar,
+    IRVarDecl,
+)
 from src.tests import runner
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
 from src.tests.process_limits import TOOL_TIMEOUT
@@ -1879,3 +1897,74 @@ def test_module_unit_corpus_regressions_build_and_run(compiler: str, program: st
     assert len(units) > 1
     assert warnings == runner.expected_warnings(path)
     runner._compile_run_check(units, path, program)
+
+
+@pytest.mark.parametrize("flow_roots", [None, {"entry"}, set()], ids=["all", "safety-root", "no-safety-roots"])
+def test_unit_flow_roots_release_unused_facts_without_losing_recursive_summaries(flow_roots, monkeypatch):
+    """A retained caller must observe changed effects through unretained recursion.
+
+    Weak references prove that non-root per-node results become collectible;
+    checking just the returned contexts would miss an internal retained cache.
+    """
+    module = IRModule()
+    for name, callees in {
+        "entry": ["middle"],
+        "middle": ["recursive"],
+        "recursive": ["middle", "foreignWrite"],
+    }.items():
+        module.function_defs.append(
+            IRFunctionDef(
+                name,
+                CType("void"),
+                [IRParam(CType("int*"), "value")],
+                IRBlock([IRExprStmt(IRCall(callee, [IRVar("value")])) for callee in callees]),
+            )
+        )
+    module.function_decls.append(IRFunctionDecl("foreignWrite", CType("void"), [IRParam(CType("int*"), "value")]))
+    expected_roots = {"entry", "middle", "recursive"} if flow_roots is None else set(flow_roots)
+    reference = SetjmpUnitSolver(module)
+    candidate = SetjmpUnitSolver(module, flow_roots=flow_roots)
+    if flow_roots is not None:
+        flow_roots.clear()  # The caller cannot change an existing solver's policy.
+    original = ExceptionLowerer.analyze_pointer_flow
+    observations = {}
+
+    def observe(function, globals_by_name, type_facts, catalog):
+        flow = original(function, globals_by_name, type_facts, catalog)
+        observations.setdefault(function.name, []).append(weakref.ref(flow))
+        return flow
+
+    for external in [FunctionEffect(), FunctionEffect(writes=frozenset({ParameterEffect(0)}))]:
+        solved = {"foreignWrite": external}
+        reference_effects, reference_consulted = reference.solve(solved)
+        observations.clear()
+        with monkeypatch.context() as context:
+            context.setattr(ExceptionLowerer, "analyze_pointer_flow", staticmethod(observe))
+            effects, consulted = candidate.solve(solved)
+        assert set(effects) == expected_roots
+        assert consulted == reference_consulted == {"foreignWrite"}
+        assert candidate.summaries() == reference.summaries()
+        assert all(summary.writes == external.writes for summary in candidate.summaries().values())
+        for name, observed in observations.items():
+            assert bool(observed[-1]()) == (name in expected_roots)
+            if name not in expected_roots:
+                assert all(result() is None for result in observed)
+        for name, effects_for_name in effects.items():
+            assert effects_for_name.flow.writes == reference_effects[name].flow.writes
+
+
+@pytest.mark.parametrize("location", ["direct", "call-argument", "array-bound"])
+def test_unit_flow_roots_cover_every_setjmp_safety_location(location):
+    call = IRCall("setjmp", [IRVar("environment")])
+    if location == "direct":
+        statement = IRExprStmt(call)
+    elif location == "call-argument":
+        statement = IRExprStmt(IRCall("consume", [call]))
+    else:
+        statement = IRVarDecl(CType("int"), "values", array_size=call)
+    module = IRModule()
+    module.function_defs = [
+        IRFunctionDef("protected", CType("void"), body=IRBlock([statement])),
+        IRFunctionDef("ordinary", CType("void"), body=IRBlock([])),
+    ]
+    assert ModuleUnitCompiler.setjmp_flow_functions(module) == {"protected"}

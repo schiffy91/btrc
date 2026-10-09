@@ -1,0 +1,74 @@
+import Library.Map;
+import Library.Vector;
+
+import ../../../compiler/btrc/ir/Model.btrc;
+import ../../../compiler/btrc/analyzer/HostedAbi.btrc;
+import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
+#include <assert.h>
+
+/* Exercise the real solver, including effects transmitted through a recursive
+ * pair whose per-node flows the safety-root policy does not retain. */
+class FlowFixture {
+	class IRFunction function(string name, Vector<string> callees) {
+		var definition = IRFunction();
+		definition.name = name;
+		definition.params = [IRParam("int*", "value")];
+		Vector<IRNode> statements = [];
+		for callee in callees {
+			statements.push(IRNode.expressionStatement(IRNode.call(callee, [IRNode.variable("value")])));
+		}
+		definition.body = IRNode.block(statements);
+		return definition;
+	}
+
+	class IRModule module() {
+		var unit = IRModule();
+		unit.functions = [FlowFixture.function("entry", ["middle"]), FlowFixture.function("middle", ["recursive"]), FlowFixture.function("recursive", ["middle", "foreignWrite"])];
+		var foreign = IRFunctionDecl("foreignWrite", "void", false);
+		foreign.params = [IRParam("int*", "value")];
+		unit.functionDecls.push(foreign);
+		return unit;
+	}
+}
+
+int main() {
+	var unit = FlowFixture.module();
+	var abi = HostedAbiRepository(GeneratedHostedAbiData());
+	Map<string, bool> roots = {"entry": true};
+	Map<string, bool> empty = {};
+	var reference = SetjmpEffectAnalysis(abi);
+	var candidate = SetjmpEffectAnalysis(abi, roots);
+	var summariesOnly = SetjmpEffectAnalysis(abi, empty);
+	roots.clear();
+	empty.put("middle", true);
+	Map<string, SetjmpFunctionEffect> solved = {};
+	solved.put("foreignWrite", SetjmpFunctionEffect());
+	for (int round = 0; round < 2; round++) {
+		if (round == 1) {
+			var writes = SetjmpFunctionEffect();
+			writes.writes.push(SetjmpParameterEffect(0, 1));
+			solved.put("foreignWrite", writes);
+		}
+		Map<string, SetjmpCallEffects> all = reference.analyzeIncrementally(unit, solved);
+		Map<string, SetjmpCallEffects> retained = candidate.analyzeIncrementally(unit, solved);
+		Map<string, SetjmpCallEffects> none = summariesOnly.analyzeIncrementally(unit, solved);
+		assert(all.len == 3);
+		assert(retained.len == 1 && retained.has("entry"));
+		assert(none.len == 0);
+		assert(candidate.consultedSolvedNames().has("foreignWrite"));
+		assert(summariesOnly.consultedSolvedNames().has("foreignWrite"));
+		Map<string, SetjmpFunctionEffect> expected = reference.definitionSummaries();
+		Map<string, SetjmpFunctionEffect> actual = candidate.definitionSummaries();
+		Map<string, SetjmpFunctionEffect> onlySummaries = summariesOnly.definitionSummaries();
+		assert(expected.len == 3 && actual.len == 3 && onlySummaries.len == 3);
+		for name in expected.keys() {
+			assert(actual.get(name).same(expected.get(name)));
+			assert(onlySummaries.get(name).same(expected.get(name)));
+			assert(actual.get(name).writes.len == round);
+		}
+		assert(retained.get("entry").flow.writes.len == all.get("entry").flow.writes.len);
+	}
+	printf("ok\n");
+	return 0;
+}
