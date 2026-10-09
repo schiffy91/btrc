@@ -449,8 +449,14 @@ solving and exporting every function summary. The original `6f1b81d9` baseline e
 the candidate passes the same production incremental edit and six added cases,
 without skips/errors. Weak references prove non-root flow objects are collected,
 and the ordinary Lib unit still exports changed effects. Independent audit is
-clear. Fresh self-host/native/worker tests, current-product parity and original
-performance gates remain. See [flow retention](docs/workstreams/setjmp-flow-roots.md).
+clear. The fresh MacOSMain compiler now builds with strict Clang 21 at O2 and
+passes all five focused self-host checks with zero skips/errors, including the
+production incremental edit. The new driver also projects through that fresh
+self-hosted compiler and compiles/runs as strict C11 O2 with the expected output.
+Independent audit verifies exact inputs and all nine closed process groups.
+Current-product output parity, remaining worker coverage, generated ownership
+inspection and original performance gates remain. See
+[flow retention](docs/workstreams/setjmp-flow-roots.md).
 Product speed and memory targets stay open.
 
 Both October 9 diagnostic runs are now terminal failures, with narrower
@@ -461,9 +467,9 @@ returns code 1 for revision 5. Captured stdout is absent from the fixture's
 failure message, so the actual protocol error is not established. Diagnostic-only
 source `8e58bd76` now retains a bounded response in that same failure path;
 reviewed replay `cd705952` starts automatic run `37869903754` with original full
-stage bodies and bounds. It is live, not an accepted fix for the unknown cause.
-Self-host/GCC live,
-audio and installed-product stages remain unrun. Artifact SHA-256 is
+stage bodies and bounds. That replay is now terminal failure; its newly retained
+protocol response is being inspected before a cause or repair is claimed.
+Self-host/GCC live, audio and installed-product acceptance remain open. Artifact SHA-256 is
 `738a0ab195497ba76f4c69bc7309735818b16bb6415960136c5777bebb52e862`.
 
 Linux Window `37865587336` builds its image/compiler but refuses its semantic
@@ -479,10 +485,15 @@ undeclared fixture helper. No native case runs. The manifest lacks
 the helper's native header/source. R3 adds that one line identically to baseline
 `b9055d37` and candidate `bd2235f2`; actual f75 package resolution proves both
 native entries are selected while an unimported helper stays excluded.
-Diagnostic `e2b3619f` starts automatic run `37871496188`, now in original paired
-qualification. Provider, assertions, four native cells, classifier and deadlines
-are unchanged. Both failed artifacts remain retained; no duplicate dispatches
-or relaxed gates.
+Diagnostic `e2b3619f` starts automatic run `37871496188`. R3 is now terminal:
+all four exact baseline failures are accepted, and all four candidate projections,
+strict C builds and links pass. Real native execution then reaches the same
+queue-pressure assertion in both frontends, plain and sanitized, after the
+earlier close/save/cancel checks pass. The failed predicate requires one state
+callback and no close request after one semantic dispatch; the actual counters
+are not captured, so a resize-settlement explanation is still a hypothesis.
+Source/tool/binary closure passes. All three artifacts remain retained; provider,
+assertions, four native cells, classifier and deadlines are unchanged.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed

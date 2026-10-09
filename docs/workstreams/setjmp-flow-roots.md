@@ -1,6 +1,7 @@
 # Retain setjmp flow only for safety consumers
 
-Status: reference behavior qualified; self-host and performance acceptance open.
+Status: focused reference and self-host behavior qualified; product parity and
+performance acceptance open.
 Candidate `266cadd7` is based on `6f1b81d9`.
 
 Module-unit solving previously retained each function's complete per-node flow
@@ -37,7 +38,18 @@ is not a behavioral RED. Independent audit confirms all eight groups reaped and
 absent with exact source/tool/log closure. Result SHA-256:
 `6dea8c023904bb7e0269b9f24318b7675d84652b92439039c5b89a048b49d02e`.
 
-Fresh self-host compilation, both-frontend native driver execution, generated
-ownership inspection, worker/continuation coverage, current-product output
-parity and the final combined gate matrix remain required. Per-function flow construction remains; the change removes retention,
+A fresh exact-source MacOSMain build with Nix Clang 21.1.8 at strict C11 O2
+now succeeds. Binary `6e80af89` passes all five collected focused checks with
+zero failures/errors/skips, including the effect-changing edit through btrcc.
+The flow driver first passes via the reference projection used by the fixture,
+then also projects with the fresh self-hosted compiler and builds/runs as strict
+C11 O2, returning `ok`. Independent review verifies source/tool/output closure
+and all nine process groups reaped and absent. Evidence:
+`setjmp-flow-roots-selfhost-266-attempt-1/result.json`, SHA-256
+`2a5e6bfd6779e26cff3c87967175e7e2b6cf71f1afd560a79a441dd022dec3fc`;
+audit SHA-256
+`fc780562e8911244ba789b77f3e7b224ede96b16a88b13a810f00f2d96ad01c0`.
+
+Generated ownership inspection, remaining worker/continuation coverage,
+current-product output parity and the final combined gate matrix remain required. Per-function flow construction remains; the change removes retention,
 not analysis work. No measured memory or instruction saving is claimed.
