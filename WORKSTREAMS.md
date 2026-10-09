@@ -1530,3 +1530,31 @@ Focused qualification passed: original15 baseline and candidate109 checks,
 zero failures/errors/skips, exact collection/JUnit, all8 owned groups closed and
 source/tools unchanged. See the owned report. No compiler repair, hosted unit
 pass or Nix garbage-collection cause is claimed.
+
+
+## 2026-10-09 D29 setjmp flow retention
+
+Packet: CX-HARMONIZE-SETJMP-FLOW-ROOTS. Writer: root, branch
+`codex/setjmp-flow-roots-6f`, exact base `6f1b81d937745ee3a3fbc1be803ffcf1b7e52ba9`.
+Owned paths:
+- `src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Safety.btrc`
+- `src/compiler/btrc/pipeline/ModuleUnits.btrc`
+- `src/compiler/python/ir/lowering/exceptions.py`
+- `src/compiler/python/application/modules.py`
+- `src/tests/python/test_module_units.py`
+- `src/tests/btrc/test_setjmp_qualifier_state_contract.py`
+- `src/tests/btrc/fixtures/SetjmpFlowRootsDriver.btrc`
+- `docs/workstreams/setjmp-flow-roots.md`
+and this claim only. Prepared through an isolated index; preserve the ordinary
+checkout/index and other packet refs. Compact IR overlaps the compiler files
+on a separate branch; reconcile the disjoint behavioral change after both
+components qualify. Solve and export every function summary and dependency as
+before; retain per-node flow only for functions whose final safety pass uses
+it. Do not replace absent flows with fabricated empty facts. Root policy must
+be fixed for the solver lifetime and reset on invalidation/new generations.
+Python summary access must remain independent of retained flow contexts.
+Current exact-tree hosted baseline has 131 related checks passing, with eight
+explicit native-adapter environment skips. Focused lifetime, incremental and
+continuation behavior, source parity, current-product memory/instruction cost
+and combined-tree gates remain required. No performance saving claimed.
