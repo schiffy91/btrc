@@ -528,7 +528,9 @@ comparison is prepared and independently reviewed as private BTRSmith workflow
 `4f7e7c17`, with matched Linux-built baseline/candidate compilers, original
 eight-run order and exact Linux output/plan parity. It requires the same 45
 focused cases and native driver on Linux before sampling. It is not published
-or dispatched. It will report Linux RSS/instructions where available, not
+or dispatched. The exact compiler source `c8221ae4` is now published on
+`codex/compact-ir-flow-roots-6f`; source publication triggers no additional CI.
+The private workflow will report Linux RSS/instructions where available, not
 replace Mac footprint acceptance. The same VS Code app-server still blocks Mac quiet admission; no
 unchanged retry was launched. Product speed and memory targets stay open.
 
@@ -622,8 +624,10 @@ are still required before integration. BTRSmith's
 reviewed `2c9e5b43` live revision fixture now has a peer-cleared current-compiler
 qualification workflow `16d69500`, pinned to exact `5aa232ad`. All original
 acceptance commands and limits remain unchanged. The earlier `db9bc814`/`f75`
-recipe remains retained; neither is published or dispatched. The current recipe
-waits for the next free hosted slot.
+recipe remains retained; neither workflow is published or dispatched. Exact
+product source `2c9e5b43` is now published privately on
+`codex/live-agent-revision-recovery`, whose tree contains no workflows. The current
+qualification recipe waits for the next free hosted slot.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -1413,8 +1417,16 @@ reachability requirement without changing the current dependency pin.
 **Current checkpoint, October 9:** main remains `cbd3ddcd`; broader integration
 PR68 is on exact head `5aa232ad`. Linux, Windows, Windows ARM64 and Android
 workflows pass. Both Mac release bundles, self-host tests, bootstrap, corpora and
-Clang O0/O2 pass. Mac unit and dedicated native-GUI run `37877458498` remain
-active, with final skip/evidence audit pending. No final combined-tree merge is
+Clang O0/O2 pass. Independent audit of those eight completed Mac jobs is clear:
+self-host reports 5,845 passes/46 expected platform skips, each corpus 1,019 passes,
+each Clang cell 2,038 passes and bootstrap one pass. All nine artifact ZIP digests,
+both 255-file bundle manifests and 253 source payloads per bundle match; actual
+Mach-O architectures and hosted relocation/strict-C11 execution are verified.
+Boundary coverage stays 287/311 with 24 explicit exclusions. Audit
+`pr68-5aa-macos-completed-audit/audit.json` has SHA-256
+`8e4ab2ae3e75e7c5b430f2079321e538990a225a1e15bf16477c735569a2ed3f`.
+Mac unit and dedicated native-GUI run `37877458498` remain active, with their
+terminal skip/evidence audits pending. No final combined-tree merge is
 claimed. The separate compact/flow candidate has passed its fresh build,
 45 focused checks, native flow driver and exact current-product 423-file/ordered
 plan parity. Paired performance measurement and its full integration matrix
@@ -2856,10 +2868,24 @@ an unwired fixture. Old passing counts do not validate a newly ported tree.
 
 | Platform | Next concrete checkpoint | Actual dependency and evidence |
 |---|---|---|
-| Windows | Recheck the smallest real SDK import, then Toolhelp/process thread count | Historical SDK reads succeeded but both compilers rejected a qualified function type in eight architecture/frontend cases. Recheck with current compilers; request the narrow paired codec repair if still failing. Preserve ABI qualifiers. Use real x64/ARM64 execution. |
+| Windows | Support genuine SDK pointer constants, then qualify Toolhelp/process thread count | Fresh current-source-equivalent imports fail in all four reference/selfhost × x64/ARM64 cells at SDK `INVALID_HANDLE_VALUE`: the reader currently accepts only integer/string macro constants. No C or plan is emitted. Preserve the SDK type, sentinel and qualifiers; do not substitute a hardcoded ABI/value. Later function imports and real x64/ARM64 execution remain unproven. |
 | iOS/iPadOS | App-private file create/write/read and relaunch persistence through both frontends | Actual iOS target/provider/cache selection, required nongeneric Foundation ownership/calls, filesystem seam and a real Xcode simulator host. Full UIKit widgets are not prerequisites for this service. |
 | Android | NativeActivity host execution, then app-private file create/write/read and relaunch persistence | NDK/SDK, correct target/provider selection, trusted host-derived roots, filesystem seam and emulator execution. Initial private roots need not wait for the complete Java UI/JNI stack. |
 | Each mobile GUI | Lifecycle, one native button and one editable field with events and safe teardown | Checked UIKit/main-executor adapters on iOS; checked JNI/Looper/callback ownership on Android. GPU embedding and richer collection controls are subsequent milestones. |
+
+The October 9 Toolhelp prerequisite uses the installed genuine Zig 0.16.0
+MinGW-w64 SDK (1,610 pinned headers), the selected reader and 273 Clang resource
+headers. The uninstrumented `6f1b81d9` compiler is authenticated to its successful
+build and exactly matches `5aa232ad` compiler/spec/runtime/stdlib/codegen inputs.
+All four imports terminate at the same pointer-macro rejection in 3.66 seconds;
+all six command groups close, source/tools stay unchanged, and no C compile, link
+or Windows process runs. Independent audit is clear for that limited finding:
+`windows-toolhelp-current-5aa/results/baseline1/independent-audit.json`, SHA-256
+`4192c100734175f01f17becdabd818606c48fd4855b65bb4927d68af7e66fde2`.
+The historical eight-case qualified-function rejection remains a separate record
+whose artifact locator has not been recovered; this fresh earlier rejection does
+not reproduce it. The next repair must preserve typed native semantics rather
+than skipping the sentinel check or inventing another provider ownership model.
 
 Reuse the existing stdlib shell fixture as a small conformance app: window,
 button, editable field, scrolling, clipboard, visibility and teardown. Attach
