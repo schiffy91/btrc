@@ -643,7 +643,13 @@ def test_a_pr_tier_corpus_row_reaches_pytest_through_pytest_addopts() -> None:
         suite = next(
             step for step in _parsed(workflow)["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", "")
         )
-        assert suite["env"] == {"PYTEST_ADDOPTS": "${{ matrix.pytest_addopts }}"}, workflow
+        options = "${{ matrix.pytest_addopts }}"
+        if workflow == "macos.yml":
+            options = (
+                "${{ matrix.shard == 'unit' && format('--dist=loadgroup {0}', matrix.pytest_addopts) "
+                "|| matrix.pytest_addopts }}"
+            )
+        assert suite["env"] == {"PYTEST_ADDOPTS": options}, workflow
     linux = next(step for step in _parsed("ci.yml")["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", ""))
     assert '-v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest' in linux["run"]
 
@@ -1163,7 +1169,8 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
         "- run: nix develop --command make NIX= PYTEST_WORKERS=3 "
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}\n"
         "        env:\n"
-        "          PYTEST_ADDOPTS: ${{ matrix.pytest_addopts }}"
+        "          PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && "
+        "format('--dist=loadgroup {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}"
     )
     assert "podman" not in job
 
