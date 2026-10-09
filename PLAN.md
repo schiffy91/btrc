@@ -471,16 +471,23 @@ settings and passes all 37 focused cases: eight paired Model executions,
 17 structured-IR cases, eight runtime-provider cases and four lazy-list cases.
 No failures, errors or skips occur. Independent audit verifies source/tool and
 binary identity, the inherited Model proof and all six closed process groups.
-The failed attempt remains retained. Current BTRSmith output parity and paired
-memory/instruction measurements remain open. The first current-product paired
+The failed attempt remains retained. Current BTRSmith output parity now passes;
+paired memory/instruction measurements remain open. The first current-product paired
 attempt stops at the original 180-second quiet deadline before either compiler
 executes. Background CPU, guests, simulators, backup and workspace probes all
 pass; a VS Code Codex app-server matches the unchanged agent-process refusal.
 Its observed low CPU and absent descendants do not prove that it has no active
 work. The process and quiet rules are unchanged. Independent audit verifies all
-101 inputs and zero compiler samples. A separate correctness-only compile will
-verify the current application's 423 emitted files and ordered plan without
-collecting benchmark counters. No product performance gain is claimed. Independent retention
+101 inputs and zero compiler samples. A separate correctness-only compile now
+passes for exact compiler `61d60799` and product `dbe8df0e`: all 461 groups are
+lowered with zero reuse, and all 423 C/header names and contents plus the complete
+ordered link plan match the authenticated original `6f1b81d9` output. It uses
+only the existing output-root and authenticated unit-digest normalization. No
+measurement wrapper runs. Independent audit verifies 108 recipe pins, 115 inputs,
+unchanged source/tools/outputs and three closed process groups. Result SHA-256:
+`3035088ec253993273c09fe63b1b96756dfdd2cfbe253a02b1f8ad737d6dafc1`.
+This proves emitted-output compatibility, not native application execution or a
+speed/memory gain. Independent retention
 candidate `266cadd7` keeps per-node setjmp facts only for fixed safety roots while
 solving and exporting every function summary. The original `6f1b81d9` baseline edit passes;
 the candidate passes the same production incremental edit and six added cases,
@@ -494,7 +501,13 @@ Independent audit verifies exact inputs and all nine closed process groups.
 Current-product output parity, remaining worker coverage, generated ownership
 inspection and original performance gates remain. See
 [flow retention](docs/workstreams/setjmp-flow-roots.md).
-Product speed and memory targets stay open.
+Combined source `c8221ae4` preserves the compact domain-guarded array-bound
+traversal, immutable safety roots and complete summary/dependency computation.
+Independent source review is clear. Its native flow driver exercises actual
+module-unit root selection for direct, call-argument and array-bound-only setjmp
+nodes, plus exclusion of an ordinary function. Fresh combined compiler build,
+focused behavior checks and current-product parity remain required; component
+passes are not a combined pass. Product speed and memory targets stay open.
 
 Both October 9 diagnostic runs are now terminal failures, with narrower
 progress retained. BTRSmith `37864640752`, exact dbe8/f75, passes all four
@@ -551,14 +564,19 @@ combined-tree qualification remain open.
 
 The qualified CI repair assembly is now published as PR68 head `5aa232ad`:
 Windows ARM64 `37873882639`, Android `37873882709`, Windows `37873882883`,
-macOS `37873882641` and Linux `37873882738`. Windows and Android pass.
-Linux bootstrap, both compiler corpora and all four Clang C11 levels have passed;
-remaining Linux, macOS and native Windows ARM64 jobs are active or queued.
+macOS `37873882641` and Linux `37873882738`. Windows, Windows ARM64 and Android
+workflows pass. Linux now completes successfully, including unit/self-host tests,
+both corpora, bootstrap, all eight GCC/Clang C11 configurations, X11, Wayland,
+benchmark guards and x64/ARM64 release bundles. Release also supplies the selected
+lint, formatting, generated-source and extension checks; its scoped static-job
+skip does not omit those gates. The skip-ledger audit is in progress. Both Mac
+release bundles, self-host tests, bootstrap, both corpora and Clang O0/O2 pass;
+Mac unit and the dedicated native-GUI run remain active.
 Window R4 has finished and its hosted slot now runs the dedicated macOS native
 GUI gate `37877458498`, dispatched once against exact `5aa232ad` with
 `focus=native-gui`. The memory candidates and new UI2 provider work remain
-separate. Main stays `cbd3ddcd`; the complete combined matrix, native-GUI gate
-and actual release bundles remain required before integration. BTRSmith's
+separate. Main stays `cbd3ddcd`; the remaining Mac gates and final evidence audit
+are still required before integration. BTRSmith's
 reviewed `2c9e5b43` live revision fixture now has a peer-cleared current-compiler
 qualification workflow `16d69500`, pinned to exact `5aa232ad`. All original
 acceptance commands and limits remain unchanged. The earlier `db9bc814`/`f75`
@@ -1351,10 +1369,12 @@ reachability requirement without changing the current dependency pin.
 ### Integration status in service of the goals
 
 **Current checkpoint, October 9:** main remains `cbd3ddcd`; broader integration
-PR68 is on exact head `5aa232ad`. Windows and Android workflows pass. Linux
-bootstrap, both corpora and the Clang C11 matrix pass, with the remaining Linux,
-macOS and Windows ARM64 jobs still active or queued. Dedicated native GUI run
-`37877458498` is the second hosted wave. No final combined-tree merge is claimed.
+PR68 is on exact head `5aa232ad`. Linux, Windows, Windows ARM64 and Android
+workflows pass. Both Mac release bundles, self-host tests, bootstrap, corpora and
+Clang O0/O2 pass. Mac unit and dedicated native-GUI run `37877458498` remain
+active, with final skip/evidence audit pending. No final combined-tree merge is
+claimed. The separately implemented compact/flow candidate is source-reviewed
+but still needs fresh combined qualification and measurement.
 The latest compiler and native component outcomes are recorded under the goals
 above; test passes do not close the outstanding product performance or MVP targets.
 
