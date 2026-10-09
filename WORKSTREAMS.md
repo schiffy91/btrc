@@ -1590,3 +1590,17 @@ functions have neutral qualified wrappers, matching parameter counts and C
 calling convention. Preserve meaningful qualifiers, typedef identity and the
 existing strict bare-function codec contract; no SDK special case or convention
 relaxation. A fresh reader build and reference/paired qualification remain required.
+
+Follow-up on `b04309d8`: root assigns performance_review the existing
+`src/tests/python/test_native_macro_constants.py` owner, this claim handoff and
+`docs/workstreams/native-pointer-constants.md` for a test-only diagnostic contract
+repair. Fresh paired qualification passed154 cases and rejected the remaining
+const-pointer program in both frontends, but the test incorrectly demanded
+identical wording across their existing qualifier validators. Preserve all six
+invalid programs and absent outputs, require exact frontend-specific const-loss
+messages and an ordinary same-type const-pointer control in that existing row,
+and retain exact cross-frontend equality for the other five rows. No production
+source or reader changes. Execution_review owns the same-binary reuse qualifier
+with full155 cases and all four actual Toolhelp projections; no new build or
+execution is authorized by this source checkpoint. Ordinary checkout/index stay
+unchanged through an isolated index and `codex/` packet ref.

@@ -17,3 +17,29 @@ The catalogs were generated through the existing renderer and canonical generate
 Raw-reader diagnostic result `3c6f400b6fee4e5b27a4b13b302bb8559668671a8262bf2bd3a3752591be522c` retained genuine SDK documents for both targets. All six selected functions have a neutral `qualified` wrapper around a function, matching semantic/signature parameter counts and C calling convention. This establishes a reader/type representation mismatch with the existing codec contract, not a parameter mismatch or historical eight-case reproduction.
 
 The follow-up changes only the existing reader's generic single-step desugaring fallback: a layer with no Clang qualifiers or nullability returns its underlying typed representation directly. Meaningful qualifier wrappers, typedef identity, function calling-convention checks and nested return/parameter qualifiers remain unchanged. The codec remains strict. Focused reader regressions and unchanged Toolhelp projections must run against a freshly built reader before any acceptance claim.
+
+## Follow-up: const-pointer diagnostic contract
+
+Reference qualification of `b04309d8` retained the two intended old-reader failures,
+then passed103 macro/codec cases and both genuine Windows x64/ARM64 Toolhelp
+projections (result `fa626924`, independent audit `bb63f5bd`). The fresh selfhost
+build succeeded. Its paired gate passed92 codec and62 macro cases, then failed
+one macro diagnostic assertion; the four paired Toolhelp projections were not
+run. Failed result `2516f6ed` and independent failure audit `6fab672a` remain
+immutable in `windows-pointer-selfhost-b04309d8-attempt-1`. All source/tool inputs
+closed unchanged and all eight owned groups closed.
+
+Both compilers reject `unsigned char* bytes = PTR_CONST;` without publishing C or
+a link plan. The Python analyzer uses its established generic assignment error
+(`test_analyzer_qualifier_contracts.py` already requires that wording); the
+selfhost storage validator reports const loss at pointer depth1 before generic
+assignment compatibility. This is a mistaken new test expectation, not an
+accepted invalid conversion or evidence requiring a production change.
+
+The repair preserves all six invalid scenarios. The const-loss row now requires
+the exact existing message from each frontend and compiles an ordinary
+`const unsigned char*` to `unsigned char*` control with the same variable name,
+requiring that frontend's identical rejection and no outputs. The other five
+rows retain exact cross-frontend diagnostic equality. The control is inside the
+existing case: the paired selection remains155 tests. Source review and focused
+qualification remain required; no new pass or native Windows behavior is claimed.

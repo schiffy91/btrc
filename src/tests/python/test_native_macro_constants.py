@@ -668,17 +668,24 @@ def test_pointer_macro_values_match_actual_c_and_keep_sdk_names(reader, tmp_path
 
 
 @pytest.mark.parametrize(
-    ("statement", "diagnostic"),
+    ("statement", "diagnostic", "selfhost_diagnostic", "ordinary_control"),
     [
-        ("PTR_ALL = null;", "error: Cannot modify read-only native global"),
-        ("PTR_ALL++;", "error: Cannot modify read-only native global"),
-        ("++PTR_ALL;", "error: Cannot modify read-only native global"),
-        ("var slot = &PTR_ALL;", "error: Native constant 'PTR_ALL' is a value and has no address"),
-        ("int number = PTR_ALL;", "error: Cannot assign"),
-        ("unsigned char* bytes = PTR_CONST;", "error: Cannot assign"),
+        ("PTR_ALL = null;", "error: Cannot modify read-only native global", None, None),
+        ("PTR_ALL++;", "error: Cannot modify read-only native global", None, None),
+        ("++PTR_ALL;", "error: Cannot modify read-only native global", None, None),
+        ("var slot = &PTR_ALL;", "error: Native constant 'PTR_ALL' is a value and has no address", None, None),
+        ("int number = PTR_ALL;", "error: Cannot assign", None, None),
+        (
+            "unsigned char* bytes = PTR_CONST;",
+            "error: Cannot assign 'const unsigned char*' to variable 'bytes' of type 'unsigned char*'",
+            "error: Initializer for 'bytes' would discard const storage qualification at pointer depth 1",
+            "const unsigned char* original = null;\n\tunsigned char* bytes = original;",
+        ),
     ],
 )
-def test_pointer_macro_value_only_and_type_diagnostics_match(reader, tmp_path, request, statement, diagnostic):
+def test_pointer_macro_value_only_and_type_diagnostics_match(
+    reader, tmp_path, request, statement, diagnostic, selfhost_diagnostic, ordinary_control
+):
     del reader
     program = f"int main() {{\n\t{statement}\n\treturn 0;\n}}\n"
     reports = []
@@ -688,7 +695,28 @@ def test_pointer_macro_value_only_and_type_diagnostics_match(reader, tmp_path, r
         compiled, generated, plan = _compile_pointer_constants(directory, request, frontend, program)
         assert compiled.returncode != 0, frontend
         assert not generated.exists() and not plan.exists(), "rejected use must not publish native outputs"
-        lines = [line for line in compiled.stderr.splitlines() if diagnostic in line]
+        expected = selfhost_diagnostic if frontend == "selfhost" and selfhost_diagnostic is not None else diagnostic
+        lines = [line for line in compiled.stderr.splitlines() if expected in line]
         assert lines, (frontend, compiled.stderr)
-        reports.append(re.sub(r" at \d+:\d+$", "", lines[0][lines[0].index(diagnostic) :]))
-    assert reports[0] == reports[1]
+        report = re.sub(r" at \d+:\d+$", "", lines[0][lines[0].index(expected) :])
+        reports.append(report)
+        if ordinary_control is not None:
+            # Const-loss diagnostics already differ between the two analyzers.
+            # The imported macro must follow each one's ordinary pointer contract.
+            assert report == expected, (frontend, compiled.stderr)
+            control_directory = directory / "ordinary-control"
+            control_directory.mkdir()
+            control_program = f"int main() {{\n\t{ordinary_control}\n\treturn 0;\n}}\n"
+            control, control_c, control_plan = _compile_pointer_constants(
+                control_directory, request, frontend, control_program
+            )
+            assert control.returncode != 0, frontend
+            assert not control_c.exists() and not control_plan.exists(), (
+                "rejected control must not publish native outputs"
+            )
+            control_lines = [line for line in control.stderr.splitlines() if expected in line]
+            assert control_lines, (frontend, control.stderr)
+            control_report = re.sub(r" at \d+:\d+$", "", control_lines[0][control_lines[0].index(expected) :])
+            assert control_report == report, (frontend, control.stderr)
+    if selfhost_diagnostic is None:
+        assert reports[0] == reports[1]
