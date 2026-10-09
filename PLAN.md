@@ -423,16 +423,39 @@ build-time or release-bundle acceptance. Result SHA-256 is
 `e94b5034776610c082e3c68454fadefd35a98936617977ba6fa99b5a19abdd0a`;
 independent review is clear. Original bundle builds and relocated strict-C11
 smokes remain pending. No gate threshold is reduced. The reviewed current-compiler IR allocation census
-uses exact 6f compiler and dbe8 product sources and remains unexecuted until its
-build/output headroom is available. Product speed and memory targets stay open.
+uses exact 6f compiler and dbe8 product sources. It now passes both actual
+cold, single-worker product compiles and equality of all 423 emitted C/header
+files; all 461 source groups are lowered with zero reuse. Three conserved
+snapshots show 3,219,828 unique live IR nodes occupying 1,236,413,952 allocator
+bytes after lowering and final demand. The separate 64 MiB observer is excluded.
+Independent audit is clear, with all ten process groups reaped and absent and
+source/tool inputs unchanged. This is allocation attribution, not quiet timing
+or final memory acceptance. The [current IR census](docs/workstreams/current-ir-node-census.md)
+records exact evidence and the next implementation: a compact fat-tagged core
+with optional typed payloads, modeled at roughly 510 MiB reduction including new
+allocation/edge costs. That estimate is unimplemented and unmeasured at this
+checkpoint; other retained-state reductions are still needed for 1.5 GiB.
+Product speed and memory targets stay open.
 
-Both previous hosted waves are terminal. Two new reviewed diagnostic pushes
-now occupy the slots: BTRSmith `37864640752` at diagnostic `8622b122`, exact
-product `dbe8df0e`/compiler `f75c737b`, runs the unchanged paired live-agent,
-audio and installed-product stages; Linux Window `37865587336` at `8599478b`
-qualifies existing candidate `6d65b35b` against its original missing-API baseline
-and four frontend/sanitizer native cells. Both runs are active, not accepted.
-There were no duplicate manual dispatches or changes to their original bounds.
+Both October 9 diagnostic runs are now terminal failures, with narrower
+progress retained. BTRSmith `37864640752`, exact dbe8/f75, passes all four
+channel and all four standalone CLI/MCP cells, plus both reference live-app
+journeys. The first self-host/Clang live-app run fails when navigation.show-settings
+returns code 1 for revision 5. Captured stdout is absent from the fixture's
+failure message, so the actual protocol error is not established; a diagnostic-only
+repair will preserve it before another cause is claimed. Self-host/GCC live,
+audio and installed-product stages remain unrun. Artifact SHA-256 is
+`738a0ab195497ba76f4c69bc7309735818b16bb6415960136c5777bebb52e862`.
+
+Linux Window `37865587336` builds its image/compiler but refuses its semantic
+baseline: two missing SDK bindings cause five unrelated SDL diagnostics alongside
+expected missing-owner errors. No candidate native case runs. R2 adds only
+SDL_WINDOW_MINIMIZED and SDL_EVENT_WINDOW_RESTORED identically to both role
+manifests and recognizes only source-location-bound missing-owner cascades;
+18 classifier controls reject unrelated errors. Exact source fe9e0c00 and
+diagnostic f1428db0 start automatic run `37869472960`, now live with the original
+fixture, four candidate native cells and deadlines unchanged. The prior failed
+artifact is retained. There are no duplicate manual dispatches or relaxed gates.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -1587,7 +1610,7 @@ changes; historical test totals alone do not advance its status.
 | Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish Mac integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
 | UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Product8f73b7d5/f75c737b passes eight Mac window-close cases and plan parity. Repaired dbe8df0e now passes the original full three-client agent-channel fixture through both compilers on macOS, with actual generated child-path and native-result review clear | BTRSmith owner and integrator | Replay dbe8 on Linux to resolve the earlier iteration-guard failure, then complete audio, installed-product and compiler-pin acceptance. Mac source-override component passes do not close the full MVP. |
+| BTRSmith macOS/Linux MVP on the current stack | Product8f73b7d5/f75c737b passes eight Mac window-close cases and plan parity. Repaired dbe8df0e now passes the original full three-client agent-channel fixture through both compilers on macOS, with actual generated child-path and native-result review clear | BTRSmith owner and integrator | Linux dbe8 now passes all four channel and standalone cells and both reference live-app journeys; first self-host/Clang live settings command returns code 1 with its protocol stdout missing from the failure log. Preserve that response and fix the demonstrated cause, then complete remaining self-host live, audio, installed-product and compiler-pin acceptance. Component passes do not close the full MVP. |
 | One qualified implementation on main | Main stays cbd3ddcd. PR68 6f passes Windows/ARM64/Android and every selected Linux job except unit. Dedicated Mac GUI now passes 353 cases with 169 classified skips; Mac bootstrap/ARM64 bundle/self-host tests pass. The two unit assertions have qualified local repairs; Mac unit additionally needs the prepared grouping opt-in, and x64 release preparation timed out | Main integrator | Qualify unit grouping and release-shell changes, integrate their exact reviewed sources, then finish final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip audit and native evidence before merging. Two independent product/provider diagnostic waves are active. |
 
 For usable-library status, use the existing native catalog and platform inventory
