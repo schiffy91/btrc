@@ -64,18 +64,18 @@ must prove that a body edit analyzes and lowers exactly one changed source group
 and does not lower unchanged groups; passing intermediate timing budgets does
 not close that requirement.
 
-**Current measurement status (October 9, 07:55 UTC):** Linux comparison
-37898910559 passed authenticated compiler reuse, the original 45 correctness
-checks and native flow driver, and both discarded product warmups. It then
-rejected receipt label `1_B` before the first measured compilation: the process
-owner requires an identifier. Both warmups preserve all 422 Linux C/header files
-and the ordered link plan; neither is an accepted measurement. The two-line
-label/lookup correction has passed actual bounded-process controls for all eight
-original labels and independent review. Commit5f3103a2 is now running once in
-[37901757750](https://github.com/schiffy91/btrsmith/actions/runs/37901757750),
-with the complete original sequence and limits. The preceding run ended in
-failure after cache upload; no cancellation was needed. Final paired samples,
-Mac quiet admission and the full workload matrix remain open.
+**Current measurement status (October 9, 08:10 UTC):** Corrected comparison
+[37901757750](https://github.com/schiffy91/btrsmith/actions/runs/37901757750)
+at commit `5f3103a2` has passed authenticated GCC compiler reuse, all original
+45 correctness checks and the native incremental-flow driver. Its original
+eight product compilations are running; final paired samples are not yet
+accepted. The previous comparison `37898910559` completed both discarded
+warmups but rejected receipt label `1_B` before the first measured compilation.
+The two-line label/lookup repair passed the actual bounded process owner for
+all eight labels and independent review. The original sample order, limits,
+422 C/header output comparison and ordered plan remain unchanged. The prior
+run ended in failure after cache upload; no cancellation was performed.
+Mac quiet admission and the full final workload matrix remain open.
 
 **Earlier measurement preparation and retained evidence:** qualify the current compiler/BTRSmith pin, capture
 the quiet workload matrix, isolate the repeated Linux peak-memory regression,
@@ -2018,9 +2018,28 @@ changes; historical test totals alone do not advance its status.
 | Faster incremental edits | Current tuple/instance repair proves one changed group for inventory-preserving edits and three for genuinely new shared tuple shapes, across both frontends/release/debug with strict native outputs and clean-versus-incremental equality | Incremental compiler owner | Finish current combined gates, then measure edit median/p95 and memory. Full consulted-fact/analysis reuse and Stage 9 counters remain open. Work counts are not speed results. |
 | Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish dedicated native-GUI integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
 | UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
-| Windows and mobile application-facing services | Windows17contracts/fourSDKprojections pass, but both37901183833 native jobs fail header lookup even with drive-qualified overlays; original negative controls pass, zero native cells. Auditc26be74c preserves all source/tools. Android56emulator and iOS50local26.4cases remain scoped | Platform slice owners | Determine why LLVM/Zig overlay lookup is ineffective before another candidate. Qualify real Windows execution; mobile widgets/lifecycle/persistence remain open. iOS17 offered-component acquisition is held separately under exact D8 policy; no unavailable-runtime claim or new SDK installation. |
-| BTRSmith macOS/Linux MVP on the current stack | Settings Back repairf077985b passes both compilers at480/540/1100 and original plan equality; all18captures visually pass, source/tool closure and16ownedgroups audited0fa3206d. Report3608cb65. Album38native/nineplans and scoped Linux24native/fourplans remain qualified | BTRSmith owner and integrator | Qualify new album/Settings source on Linux and launch the installed current application through the original smoke owner. Complete broader screen/audio journeys, timing budgets and locked pin. Native Mac synthetic event routing is proved; physical input and full MVP are not. |
-| One qualified implementation on main | Maincbd3ddcd; PR68a29 standard matrices all pass. Final dedicated Linux native-GUI andX11 now pass (37896628801); Wayland andMac native-GUI remain live. Apple oracle and headless tray residual rows have source-matched coverage | Main integrator | Audit new terminal GUI evidence, finish remaining native gates, then integrate exact qualified tree. Physical desktop/device evidence and separate new product/provider candidates remain open. |
+| Windows and mobile application-facing services | Windows17contracts/fourSDKprojections pass, but both37901183833 native jobs fail header lookup even with drive-qualified overlays; original negative controls pass, zero native cells. Auditc26be74c preserves all source/tools. Android56emulator and iOS50local26.4cases remain scoped | Platform slice owners | Exact LLVM header-search source identifies the includer-relative virtual path. Reviewed source `3e480fcd` and diagnostic `4cab4cab` preserve both failed mappings as controls; actual native qualification is still pending. Mobile widgets/lifecycle/persistence remain open. Reviewed iOS17 component acquisition `5efb6a9d` is held under D8; no runtime has been downloaded or installed. |
+| BTRSmith macOS/Linux MVP on the current stack | Settings Back repairf077985b passes both compilers at480/540/1100 and original plan equality; all18captures visually pass, source/tool closure and16ownedgroups audited0fa3206d. Report3608cb65. Album38native/nineplans and scoped Linux24native/fourplans remain qualified | BTRSmith owner and integrator | Qualify new album/Settings source on Linux and launch the installed current application through the original smoke owner; the reviewed workflow is prepared and unpublished. The Player speaker button is currently unconnected to the existing mute command; its native regression and adapter repair are next. Complete broader screen/audio journeys, timing budgets and locked pin. Native Mac synthetic event routing is proved; physical input and full MVP are not. |
+| One qualified implementation on main | Main `cbd3ddcd`; PR68 `a29` standard matrices all pass. Dedicated Linux native-GUI, X11 and Wayland now pass in `37896628801`; their exact-case ledgers are independently audited. Mac native-GUI remains live. Apple oracle and headless tray residual rows have source-matched coverage | Main integrator | Finish and audit the remaining Mac native gate, then integrate the exact qualified tree. Physical desktop/device evidence and separate new product/provider candidates remain open. |
+
+**October 9, 08:10 UTC qualification update:** Dedicated Linux run
+`37896628801` is terminal success. Native-GUI has 321 passes/201 expected
+skips, X11 has 324/199 and Wayland has 322/199; there are no failures,
+errors or unexpected skips. All JUnit identities match their ledgers. Both
+tray cases pass in the declared headless sessions; physical desktop evidence
+is not implied. Independent audit hashes are `83d02f71` and `6c367770`.
+Mac job `113709469332` remains live in its original native-GUI step.
+
+The current remote branch review finds PR35 and PR60–66 are exact ancestors
+of candidate `a29ab3e3`, with zero unique commits; reconcile these eight older
+PRs after integration. PR67 has one unique claim-only documentation commit.
+PR51/52 retain separate HTTP/Windows-services design changes, and PR34 retains
+its iOS host tooling. These remaining branches are not qualified by the PR68
+matrix. The two live hosted waves remain PR68 and the memory comparison;
+Windows native lookup and the Linux current-product replay are reviewed and
+held. The iOS component-admission packet records 100 GB initial Stage23
+admission, 80 GB operation/final floor, the known 7,559,529,352-byte image and
+unmeasured extraction space separately; it has not acquired a runtime.
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
@@ -4400,8 +4419,8 @@ Lane parallelism in this bucket depends on D6(c). Without it, one bounded contra
   - `qualification-signing-accounts`
   - `tooling-ios-physical-devices`
   - `tooling-android-physical-devices`
-- **Prerequisites (D8).**
-  - ≥150 GB free or an external SSD.
+- **Prerequisites (D2/D8).**
+  - ≥100 GB free before this stage, with no local Windows VM, as the current D2/D8 decisions require. The former 150 GB estimate included local VM provisioning and is superseded.
   - Android SDK licences accepted by you.
   - Re-check free disk before each download.
 - **Exit.**
