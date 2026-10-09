@@ -14,6 +14,7 @@ enum NativeNodeKind {
 	NNK_NATIVE_TYPEDEF,
 	NNK_NATIVE_CONSTANT,
 	NNK_NATIVE_STRING_CONSTANT,
+	NNK_NATIVE_POINTER_CONSTANT,
 	NNK_NATIVE_GLOBAL,
 	NNK_NATIVE_RECORD_DECLARATION,
 	NNK_NATIVE_BUILTIN,
@@ -73,6 +74,7 @@ class NativeNode {
 	public string decimalValue;
 	public string enumIdentity;
 	public string stringValue;
+	public int pointerBits;
 	public bool readOnly;
 	public int bits;
 	public int alignmentBitsInt;
@@ -146,6 +148,7 @@ class NativeNode {
 		self.decimalValue = "";
 		self.enumIdentity = "";
 		self.stringValue = "";
+		self.pointerBits = 0;
 		self.readOnly = false;
 		self.bits = 0;
 		self.alignmentBitsInt = 0;
