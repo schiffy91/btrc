@@ -1035,7 +1035,7 @@ class ModuleUnitCompiler {
 		if (node == null) { return false; }
 		int domain = node.payloadDomain();
 		if (node.kind == IRK_CALL && (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") == "setjmp") { return true; }
-		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null)) || self.containsSetjmp(node.expr) || self.containsSetjmp((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null)) || self.containsSetjmp((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null)) || self.containsSetjmp((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null)) || self.containsSetjmp((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null))) { return true; }
+		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null)) || self.containsSetjmp(node.expr) || self.containsSetjmp((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null)) || self.containsSetjmp((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null)) || self.containsSetjmp((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null)) || self.containsSetjmp((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null)) || self.containsSetjmp((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null))) { return true; }
 		for argument in node.args() { if (self.containsSetjmp(argument)) { return true; } }
 		for statement in node.stmts() { if (self.containsSetjmp(statement)) { return true; } }
 		return false;
@@ -1044,6 +1044,14 @@ class ModuleUnitCompiler {
 	public bool unitHasSetjmp(IRModule unit) {
 		for definition in unit.functions { if (self.containsSetjmp(definition.body)) { return true; } }
 		return false;
+	}
+
+	/* Match every body that the final safety pass can inspect, including a
+	 * nested call or array bound. Other functions still export full summaries. */
+	public Map<string, bool> setjmpFlowFunctions(IRModule unit) {
+		Map<string, bool> roots = {};
+		for definition in unit.functions { if (self.containsSetjmp(definition.body)) { roots.put(definition.name, true); } }
+		return roots;
 	}
 
 	/* The context, the group's resolved lines with their original positions,
@@ -1532,7 +1540,7 @@ class ModuleUnitCompiler {
 		for (int worker = 0; worker < workers.size(); worker++) { synced.push(-2); }
 		Map<string, SetjmpCallEffects> programEffects = {};
 		Map<string, bool> programConsulted = {};
-		SetjmpEffectAnalysis programAnalysis = SetjmpEffectAnalysis(self.input.hostedAbi);
+		SetjmpEffectAnalysis programAnalysis = SetjmpEffectAnalysis(self.input.hostedAbi, self.setjmpFlowFunctions(programUnit));
 		keep programAnalysis;
 		int programWave = -1;
 		int analyses = 0;
@@ -2296,7 +2304,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		}
 		for name in updates.keys() { self.solved.put(name, updates.get(name)); }
 		IRModule unit = self.units.get(group);
-		if (!self.analyses.has(group)) { self.analyses.put(group, SetjmpEffectAnalysis(self.compiler.hostedAbi())); }
+		if (!self.analyses.has(group)) { self.analyses.put(group, SetjmpEffectAnalysis(self.compiler.hostedAbi(), self.compiler.setjmpFlowFunctions(unit))); }
 		SetjmpEffectAnalysis analysis = self.analyses.get(group);
 		self.effects.put(group, analysis.analyzeIncrementally(unit, self.solved));
 		Map<string, SetjmpFunctionEffect> summaries = analysis.definitionSummaries();

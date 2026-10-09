@@ -722,12 +722,27 @@ class SetjmpEffectAnalysis {
 	 * and solved summaries it consulted, and which functions consulted each
 	 * solved summary. */
 	private bool incrementalReady = false;
+	/* Null retains every flow; a fixed root set retains only safety consumers.
+	 * Summaries and consulted dependencies are still solved for every function. */
+	private Map<string, bool>? flowRoots = null;
 	private Map<string, SetjmpPointerFlowResult> unitFlows = {};
 	private Map<string, Map<string, bool>> unitConsultedBy = {};
 	private Map<string, Map<string, bool>> solvedConsultedBy = {};
 	private Map<string, Map<string, bool>> solvedUsers = {};
 
-	public SetjmpEffectAnalysis(HostedAbiRepository hostedAbi) { self.hostedAbi = hostedAbi; }
+	public SetjmpEffectAnalysis(HostedAbiRepository hostedAbi, Map<string, bool>? flowRoots = null) {
+		self.hostedAbi = hostedAbi;
+		if (flowRoots != null) {
+			Map<string, bool> roots = {};
+			for name in flowRoots.keys() { roots.put(name, true); }
+			self.flowRoots = roots;
+		}
+	}
+
+	private bool retainsFlow(string name) {
+		Map<string, bool>? roots = self.flowRoots;
+		return roots == null || roots.has(name);
+	}
 
 	private void initialize(IRModule module) {
 		self.module = module;
@@ -1459,7 +1474,7 @@ class SetjmpEffectAnalysis {
 					}
 					self.solvedUsers.get(name).put(definition.name, true);
 				}
-				self.unitFlows.put(definition.name, flow);
+				if (self.retainsFlow(definition.name)) { self.unitFlows.put(definition.name, flow); }
 				SetjmpFunctionEffect summary = self.flowSummary(flow, self.flowParameters(flow, definition));
 				if (self.summaries.get(definition.name).merge(summary)) { moved.put(definition.name, true); }
 			}
@@ -1478,7 +1493,7 @@ class SetjmpEffectAnalysis {
 		self.consultedSolved = consulted;
 		Map<string, SetjmpCallEffects> contexts = {};
 		for definition in self.module.functions {
-			if (definition.body != null) { contexts.put(definition.name, SetjmpCallEffects(self.summaries, self.externalEffects, self.unitFlows.get(definition.name))); }
+			if (definition.body != null && self.retainsFlow(definition.name)) { contexts.put(definition.name, SetjmpCallEffects(self.summaries, self.externalEffects, self.unitFlows.get(definition.name))); }
 		}
 		return contexts;
 	}

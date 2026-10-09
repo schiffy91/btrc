@@ -1995,9 +1995,12 @@ class SetjmpUnitSolver:
     point for the new external summaries.
     """
 
-    def __init__(self, module: IRModule) -> None:
+    def __init__(self, module: IRModule, *, flow_roots: Collection[str] | None = None) -> None:
         self._type_facts = ExceptionLowerer.pointer_type_facts(module)
         self._definitions = {function.name: function for function in module.function_defs}
+        # Snapshot the safety consumers once. An empty set retains no flows;
+        # None keeps the full-flow API for callers that inspect every body.
+        self._flow_roots = frozenset(self._definitions if flow_roots is None else flow_roots)
         self._globals = ExceptionLowerer._global_storages(module, self._type_facts)
         self._declared = {
             declaration.name: declaration
@@ -2011,7 +2014,7 @@ class SetjmpUnitSolver:
         self._users: dict[str, set[str]] = {}
 
     def solve(self, solved: Mapping[str, FunctionEffect]) -> tuple[dict[str, SetjmpCallEffects], set[str]]:
-        """Call effects for every function, and the solved summaries consulted."""
+        """Solve every summary; return root flows and all consulted summaries."""
         if self._catalog is None:
             external = {
                 name: solved[name]
@@ -2044,11 +2047,16 @@ class SetjmpUnitSolver:
                     self._users.setdefault(external_name, set()).add(name)
                 catalog.consulted = None
                 catalog.consulted_external = None
-                self._flows[name] = flow
+                if name in self._flow_roots:
+                    self._flows[name] = flow
                 parameters = [flow.storages[id(parameter)] for parameter in function.params]
                 if catalog.merge(name, ExceptionLowerer._flow_effect(flow, parameters)):
                     moved.add(name)
             pending = {name for name, consulted in self._consulted_by.items() if consulted & moved}
         consulted_external = set().union(*self._externals_of.values()) if self._externals_of else set()
-        effects = {name: SetjmpCallEffects(catalog=catalog, flow=self._flows[name]) for name in self._definitions}
+        effects = {name: SetjmpCallEffects(catalog=catalog, flow=flow) for name, flow in self._flows.items()}
         return effects, consulted_external
+
+    def summaries(self) -> dict[str, FunctionEffect]:
+        """Every definition's summary, including functions with no retained flow."""
+        return self._catalog.summaries() if self._catalog is not None else {}

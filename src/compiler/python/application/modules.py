@@ -1264,7 +1264,7 @@ class ModuleUnitCompiler:
         synced: dict[int, int] = {}
         program_effects: dict = {}
         program_consulted: set[str] = set()
-        program_solver = SetjmpUnitSolver(program_unit)
+        program_solver = SetjmpUnitSolver(program_unit, flow_roots=self.setjmp_flow_functions(program_unit))
         program_wave = -1
         wave = 0
         changed = True
@@ -1279,11 +1279,10 @@ class ModuleUnitCompiler:
                 if levels[""] == level and (program_wave < 0 or moved_since(program_consulted, program_wave)):
                     program_effects, program_consulted = program_solver.solve(solved)
                     program_wave = wave
-                    if program_effects:
-                        summaries = next(iter(program_effects.values())).catalog.summaries()
-                        for function in program_unit.function_defs:
-                            if not function.is_static and summaries[function.name] != solved[function.name]:
-                                moves[function.name] = summaries[function.name]
+                    summaries = program_solver.summaries()
+                    for function in program_unit.function_defs:
+                        if not function.is_static and summaries[function.name] != solved[function.name]:
+                            moves[function.name] = summaries[function.name]
                 requests = []
                 analyzed = []
                 primed: set[int] = set()
@@ -1460,6 +1459,13 @@ class ModuleUnitCompiler:
     def setjmp_functions(unit: IRModule) -> frozenset[str]:
         return frozenset(
             function.name for function in unit.function_defs if ExceptionLowerer.contains_setjmp(function.body)
+        )
+
+    @staticmethod
+    def setjmp_flow_functions(unit: IRModule) -> frozenset[str]:
+        """Bodies the safety pass may inspect, including setjmp inside a call."""
+        return frozenset(
+            function.name for function in unit.function_defs if ExceptionLowerer.mentions_setjmp(function.body)
         )
 
     @staticmethod
@@ -1654,10 +1660,12 @@ class ModuleUnitWorker:
         self._solved.update(moved)
         solver = self._solvers.get(group)
         if solver is None:
-            solver = self._solvers[group] = SetjmpUnitSolver(unit)
+            solver = self._solvers[group] = SetjmpUnitSolver(
+                unit, flow_roots=self._compiler.setjmp_flow_functions(unit)
+            )
         effects, consulted = solver.solve(self._solved)
         self._effects[group] = effects
-        summaries = next(iter(effects.values())).catalog.summaries() if effects else {}
+        summaries = solver.summaries()
         changed = {}
         for function in unit.function_defs:
             summary = summaries.get(function.name)

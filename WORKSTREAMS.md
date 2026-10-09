@@ -1585,3 +1585,44 @@ Parent-approved compact-IR claim extension (2026-10-09):
 - `src/tests/btrc/test_lazy_node_lists.py`
 Preserve all existing lazy/default/shared-empty and runtime-provider oracles;
 use valid structural writer kinds and retain payload-free NONE readers.
+
+## 2026-10-09 D29 setjmp flow retention
+
+Packet: CX-HARMONIZE-SETJMP-FLOW-ROOTS. Writer: root, branch
+`codex/setjmp-flow-roots-6f`, exact base `6f1b81d937745ee3a3fbc1be803ffcf1b7e52ba9`.
+Owned paths:
+- `src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Safety.btrc`
+- `src/compiler/btrc/pipeline/ModuleUnits.btrc`
+- `src/compiler/python/ir/lowering/exceptions.py`
+- `src/compiler/python/application/modules.py`
+- `src/tests/python/test_module_units.py`
+- `src/tests/btrc/test_setjmp_qualifier_state_contract.py`
+- `src/tests/btrc/fixtures/SetjmpFlowRootsDriver.btrc`
+- `docs/workstreams/setjmp-flow-roots.md`
+and this claim only. Prepared through an isolated index; preserve the ordinary
+checkout/index and other packet refs. Compact IR overlaps the compiler files
+on a separate branch; reconcile the disjoint behavioral change after both
+components qualify. Solve and export every function summary and dependency as
+before; retain per-node flow only for functions whose final safety pass uses
+it. Do not replace absent flows with fabricated empty facts. Root policy must
+be fixed for the solver lifetime and reset on invalidation/new generations.
+Python summary access must remain independent of retained flow contexts.
+Current exact-tree hosted baseline has 131 related checks passing, with eight
+explicit native-adapter environment skips. Focused lifetime, incremental and
+continuation behavior, source parity, current-product memory/instruction cost
+and combined-tree gates remain required. No performance saving claimed.
+
+## 2026-10-09 D29 combined compact IR and flow roots
+
+Packet: CX-HARMONIZE-COMPACT-IR-FLOW-ROOTS. Integrator-assigned writer:
+performance_review, isolated ref `codex/compact-ir-flow-roots-6f`.
+Compose the exact compact61 and flow266 parents while preserving both claims
+above and their standalone evidence. Own the two source resolutions in
+`src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc` and
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`, the
+existing `src/tests/btrc/fixtures/SetjmpFlowRootsDriver.btrc` array-bound
+behavioral proof, and `docs/workstreams/compact-ir-flow-roots.md`. Other
+merged files retain their reviewed parent bytes. Keep the compact guarded
+payload traversal and the flow policy's declaration arraySize reachability.
+No performance improvement or combined qualification is claimed by this merge.
