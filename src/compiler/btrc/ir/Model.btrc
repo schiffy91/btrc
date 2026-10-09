@@ -302,9 +302,8 @@ class IRNode {
 	 * result without adding a payload or a node-to-shared-empty edge. */
 	public Vector<IRNode> stmts() {
 		if (self.payloadDomain() == IR_PAYLOAD_CONTROL_SEQUENCE) {
-			if (((IRControlPayload)self.payload).stmtsStorage != null) {
-				return ((IRControlPayload)self.payload).stmtsStorage;
-			}
+			var storage = ((IRControlPayload)self.payload).stmtsStorage;
+			if (storage != null) { return storage; }
 		}
 		if (IRNode.sharedEmptyNodes == null) { Vector<IRNode> fresh = []; IRNode.sharedEmptyNodes = fresh; return fresh; }
 		if ((IRNode.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: IRNode.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
@@ -313,7 +312,8 @@ class IRNode {
 
 	public Vector<IRNode> stmtsMut() {
 		self.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
-		if (((IRControlPayload)self.payload).stmtsStorage != null) { return ((IRControlPayload)self.payload).stmtsStorage; }
+		var storage = ((IRControlPayload)self.payload).stmtsStorage;
+		if (storage != null) { return storage; }
 		Vector<IRNode> fresh = [];
 		((IRControlPayload)self.payload).stmtsStorage = fresh;
 		return fresh;
@@ -321,9 +321,8 @@ class IRNode {
 
 	public Vector<string> fieldNames() {
 		if (self.payloadDomain() == IR_PAYLOAD_CONVERSION_AGGREGATE) {
-			if (((IRConversionPayload)self.payload).fieldNamesStorage != null) {
-				return ((IRConversionPayload)self.payload).fieldNamesStorage;
-			}
+			var storage = ((IRConversionPayload)self.payload).fieldNamesStorage;
+			if (storage != null) { return storage; }
 		}
 		if (IRNode.sharedEmptyStrings == null) { Vector<string> fresh = []; IRNode.sharedEmptyStrings = fresh; return fresh; }
 		if ((IRNode.sharedEmptyStrings?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: IRNode.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
@@ -1248,7 +1247,7 @@ class IRCanonicalRenderer {
 		if (node == null) { return; }
 		IRKind kind = (IRKind)node.kind;
 		int domain = node.payloadDomain();
-		string scalars = f"{self.flag("prefix", (domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).prefix : false))}{self.flag("arrow", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).arrow : false))}{self.flag("storageRootKnown", node.storageRootKnown)}{self.flag("sourceAddress", node.sourceAddress)}{self.flag("arrayStorageKnown", node.arrayStorageKnown)}{self.flag("arrayDecl", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isArrayDecl : false))}{self.flag("volatile", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isVolatile : false))}{self.flag("effectiveVolatile", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).effectiveIsVolatile : false))}{self.flag("setjmpInferredVolatile", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).setjmpInferredVolatile : false))}{self.flag("static", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isStatic : false))}{self.flag("extern", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isExtern : false))}{self.flag("cycleReturnTemp", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isCycleReturnTemp : false))}{self.flag("fallsThrough", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).fallsThrough : false))}{self.flag("noFallThrough", !node.canFallThrough)}{self.flag("neverReturns", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).neverReturns : false))}{self.flag("realtimeBounded", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).realtimeBounded : false))}{self.flag("bitField", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).bitField : false))}";
+		string scalars = f"{self.flag("prefix", (domain == IR_PAYLOAD_UNARY && ((IRUnaryPayload)node.payload).prefix))}{self.flag("arrow", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION && ((IRProjectionPayload)node.payload).arrow))}{self.flag("storageRootKnown", node.storageRootKnown)}{self.flag("sourceAddress", node.sourceAddress)}{self.flag("arrayStorageKnown", node.arrayStorageKnown)}{self.flag("arrayDecl", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isArrayDecl))}{self.flag("volatile", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isVolatile))}{self.flag("effectiveVolatile", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).effectiveIsVolatile))}{self.flag("setjmpInferredVolatile", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).setjmpInferredVolatile))}{self.flag("static", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isStatic))}{self.flag("extern", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isExtern))}{self.flag("cycleReturnTemp", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isCycleReturnTemp))}{self.flag("fallsThrough", (domain == IR_PAYLOAD_CONTROL_SEQUENCE && ((IRControlPayload)node.payload).fallsThrough))}{self.flag("noFallThrough", !node.canFallThrough)}{self.flag("neverReturns", (domain == IR_PAYLOAD_CALL && ((IRCallPayload)node.payload).neverReturns))}{self.flag("realtimeBounded", (domain == IR_PAYLOAD_CONTROL_SEQUENCE && ((IRControlPayload)node.payload).realtimeBounded))}{self.flag("bitField", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION && ((IRProjectionPayload)node.payload).bitField))}";
 		string texts = f"{self.text("text", node.text)}{self.text("name", node.name)}{self.text("callee", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""))}{self.text("op", node.op)}{self.text("targetType", (domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : ""))}{self.text("bridge", (domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).bridge : ""))}{self.text("field", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).field : ""))}{self.text("storageRoot", node.storageRoot)}{self.text("arrayStorageRoot", node.arrayStorageRoot)}{self.text("cType", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : ""))}{self.text("sourceFile", (domain == IR_PAYLOAD_SOURCE ? ((IRSourcePayload)node.payload).sourceFile : ""))}{self.text("helperRef", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).helperRef : ""))}{self.text("realtimeProvenance", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).realtimeProvenance : ""))}";
 		string line = (domain == IR_PAYLOAD_SOURCE ? ((IRSourcePayload)node.payload).sourceLine : 0) == 0 ? "" : f" line={(domain == IR_PAYLOAD_SOURCE ? ((IRSourcePayload)node.payload).sourceLine : 0)}";
 		self.line(depth, f"{role}: {kind.toString()}{texts}{scalars}{line}");
