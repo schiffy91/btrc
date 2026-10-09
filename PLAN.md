@@ -524,10 +524,12 @@ audit SHA-256: `f36ce4f988d7d3b2e456f574b661dea79187d953ef114f49172c2490432d896a
 The combined candidate has 45 focused passes plus the native flow driver and
 current-product emitted-output parity. Full compiler/platform qualification and
 native product execution remain separate. A paired Linux current-product
-comparison is being prepared with matched Linux-built baseline/candidate
-compilers, original eight-run order and exact Linux output/plan parity. It will
-report Linux RSS/instructions where available, not replace Mac footprint
-acceptance. The same VS Code app-server still blocks Mac quiet admission; no
+comparison is prepared and independently reviewed as private BTRSmith workflow
+`4f7e7c17`, with matched Linux-built baseline/candidate compilers, original
+eight-run order and exact Linux output/plan parity. It requires the same 45
+focused cases and native driver on Linux before sampling. It is not published
+or dispatched. It will report Linux RSS/instructions where available, not
+replace Mac footprint acceptance. The same VS Code app-server still blocks Mac quiet admission; no
 unchanged retry was launched. Product speed and memory targets stay open.
 
 Both October 9 diagnostic runs are now terminal failures, with narrower
@@ -590,8 +592,11 @@ The late-reply and already-authorized CANCEL branches are explicit. The planned
 qualification compares fixture-only baseline `647363f9` with the candidate using
 current compiler `5aa232ad`: one exact native failing predicate on the baseline,
 then 28 candidate cells across both frontends/plain/sanitized, including existing
-Window/Executor/Lifecycle regressions. This recipe is being prepared; no compiler
-or native execution has qualified the new group-quit source. Complete Linux GUI
+Window/Executor/Lifecycle regressions. The independently reviewed hosted recipe
+is committed as `e6f076e5`; 23 synthetic classifier controls pass, and retained
+real reference output supports its generated-expression matching. These are
+preparation checks only. The workflow is not published or dispatched, and no
+compiler or native execution has qualified the new group-quit source. Complete Linux GUI
 and final combined-tree qualification remain open.
 
 The qualified CI repair assembly is now published as PR68 head `5aa232ad`:
