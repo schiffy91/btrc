@@ -269,8 +269,11 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		return handler == null ? CALLBACK_CANCELLATION_COMPLETE : handler.cancel();
 	}
 
+	/* Admission only: no native lock, receipt retirement or receiver release. */
+	public void seal() { self._sealed.store(true, MemoryOrder.RELEASE); }
+
 	public CallbackCancellation cancel() {
-		self._sealed.store(true, MemoryOrder.RELEASE);
+		self.seal();
 		if (self._cancellation == CALLBACK_CANCELLATION_COMPLETE || self._cancellation == CALLBACK_CANCELLATION_FAILED) { return self._cancellation; }
 		self._cancellation = self.finishCancellation(); return self._cancellation;
 	}

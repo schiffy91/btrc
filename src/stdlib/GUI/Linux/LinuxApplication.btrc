@@ -127,6 +127,9 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private int _workCapacity;
 	private int _pendingWork = 0;
 	private bool _quitRequested = false;
+	private bool _nativeQuitPending = false;
+	private Vector<LinuxWindowQuitAuthorization> _nativeQuitMembers = [];
+	private bool _closeAdvancing = false;
 	private bool _running = false;
 	private bool _dispatching = false;
 	private bool _closing = false;
@@ -167,11 +170,80 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	/* How long run() drains a closing subtree before reporting it stalled. */
 	class double shutdownSeconds() { return 10.0; }
 
+	/* SDL ingress holds existing transactions before any receiver can run.
+	 * Merely pushing a native event has not yet entered this capture point. */
+	private void captureNativeQuit() {
+		if (self._quitRequested || self._closing || self._closed) { return; }
+		self._nativeQuitPending = true;
+		for window in self._windows { window.holdNativeQuit(); }
+	}
+
+	private void cancelNativeQuit() {
+		self._nativeQuitPending = false;
+		for window in self._windows { window.cancelNativeQuit(); }
+		for member in self._nativeQuitMembers { member.window.cancelNativeQuit(); }
+		self._nativeQuitMembers.clear();
+	}
+
+	private void admitNativeQuit() {
+		Vector<LinuxWindowQuitAuthorization> members = [];
+		for window in self._windows {
+			if (!window.isOpen()) { continue; }
+			LinuxWindowQuitAuthorization? previous = null;
+			for member in self._nativeQuitMembers { if (member.window == window) { previous = member; break; } }
+			if (previous != null && window.matchesNativeQuit(previous)) { members.push(previous); }
+			else { members.push(window.prepareNativeQuit()); }
+		}
+		self._nativeQuitMembers = members;
+	}
+
+	/* Only ordinary executor boundaries call this, after native dispatch and
+	 * after each entered callback has unwound. It never pumps another event. */
+	private void advanceNativeQuit() {
+		if (!self._nativeQuitPending || self._quitRequested || self._context.mutationDepth > 0) { return; }
+		for member in self._nativeQuitMembers {
+			if (member.window.nativeQuitCancelled() || !member.window.isOpen()) { self.cancelNativeQuit(); return; }
+		}
+		for window in self._windows { if (window.nativeQuitCancelled()) { self.cancelNativeQuit(); return; } }
+		try { self.admitNativeQuit(); }
+		catch (string error) { self.cancelNativeQuit(); throw error; }
+		for member in self._nativeQuitMembers {
+			if (member.transaction.state() != WINDOW_CLOSE_AUTHORIZED) { return; }
+			member.revision = member.transaction.reportedRevision();
+		}
+		Vector<LinuxPublisher> publishers = [];
+		for publisher in self._publishers { publishers.push(publisher); }
+		int index = 0;
+		for window in self._windows {
+			if (!window.isOpen()) { continue; }
+			if (index >= self._nativeQuitMembers.len) { throw "Native quit membership changed during validation"; }
+			var member = self._nativeQuitMembers.get(index++);
+			if (member.window != window || !window.matchesNativeQuit(member) || member.transaction.state() != WINDOW_CLOSE_AUTHORIZED || member.transaction.reportedRevision() != member.revision) { throw "Native quit authority changed during validation"; }
+		}
+		if (index != self._nativeQuitMembers.len) { throw "Native quit membership changed during validation"; }
+		/* Retained snapshots survive scalar consumption and every ingress seal.
+		 * No receiver, host wake, reference release or native teardown intervenes. */
+		for member in self._nativeQuitMembers { member.transaction.consumeHeldAuthorization(); }
+		self.sealQuit(publishers);
+	}
+
+	private void sealQuit(Vector<LinuxPublisher> publishers) {
+		self._quitRequested = true; self._nativeQuitPending = false;
+		for publisher in publishers { publisher.seal(); }
+		bool advancing = self._closeAdvancing; self._closeAdvancing = true;
+		try {
+			for window in self._windows { window.sealNativeQuit(); }
+			self._nativeQuitMembers.clear();
+			btrcSdlPushWake();
+		} finally { self._closeAdvancing = advancing; }
+	}
+
 	public void requestQuit() {
 		self.requireUIThread();
 		if (self._closed || self._quitRequested) { return; }
-		self._quitRequested = true;
-		btrcSdlPushWake();
+		Vector<LinuxPublisher> publishers = [];
+		for publisher in self._publishers { publishers.push(publisher); }
+		self.sealQuit(publishers);
 	}
 
 	private void failWork(string error) {
@@ -297,6 +369,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		self.requireCreation();
 		var window = LinuxWindow(self._context, title, width, height);
 		window.applicationActivity(self._activity);
+		if (self._nativeQuitPending) { window.holdNativeQuit(); }
 		self._windows.push(window);
 		return window;
 	}
@@ -357,7 +430,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
 		while (received && dispatched < 4096) {
 			dispatched++;
-			if (event.type == (unsigned int)SDL_EVENT_QUIT) { for window in self._windows { if (window.isOpen()) { window.requestNativeClose(); } } }
+			if (event.type == (unsigned int)SDL_EVENT_QUIT) { self.captureNativeQuit(); }
 			else if (event.window != 0u) {
 				var target = self.windowFor(event.window);
 				if (target != null) { target.dispatch(&event); }
@@ -383,6 +456,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			self._pendingWork++;
 			try { work.run(); } catch (string error) { self.failWork(error); }
 			finally { self._pendingWork--; }
+			self.advanceNativeQuit();
 		}
 	}
 
@@ -396,6 +470,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			bool progress;
 			if (source == 0) { progress = self._context.detachedEvents.dispatchOne(); }
 			else { progress = self._windows.get(source - 1).dispatchSemantic(); }
+			self.advanceNativeQuit();
 			if (progress) { empty = 0; } else { empty++; if (empty >= count) { break; } }
 		}
 	}
@@ -403,7 +478,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private void dispatchActions() {
 		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
 		int count = self._context.actions.pendingCount();
-		for (int index = 0; index < count && index < 64 && !self._quitRequested && SDL_GetTicksNS() < deadline; index++) { self._context.actions.dispatchOne(); }
+		for (int index = 0; index < count && index < 64 && !self._quitRequested && SDL_GetTicksNS() < deadline; index++) { self._context.actions.dispatchOne(); self.advanceNativeQuit(); }
 	}
 
 	private void runPublishers() {
@@ -413,6 +488,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			if (self._publisherCursor >= self._publishers.len) { self._publisherCursor = 0; }
 			var publisher = self._publishers.get(self._publisherCursor++);
 			try { publisher.deliverOne(); } catch (string error) { self.failWork(error); }
+			self.advanceNativeQuit();
 		}
 		self.prunePublishers();
 	}
@@ -482,7 +558,8 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			 * gets its own count/time slice and cleanup always gets a turn. */
 			self._dispatching = true;
 			try { self.pumpEvents(timeoutMilliseconds); } finally { self._dispatching = false; }
-			for (int offset = 0; offset < 5; offset++) {
+			self.advanceNativeQuit();
+			for (int offset = 0; offset < 5 && !self._quitRequested; offset++) {
 				int phase = (self._rotation + offset) % 5;
 				if (phase == 0) { self.runDelayed(); }
 				else if (phase == 1) { self.runPublishers(); }
@@ -559,17 +636,14 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 
 	public CallbackCancellation pollClose() { return self._closed ? CALLBACK_CANCELLATION_COMPLETE : (self._closing ? self.close() : CALLBACK_CANCELLATION_NOT_REQUESTED); }
 
-	public CallbackCancellation close() {
-		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
-		self.requireUIThread();
-		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (self._dispatching) { throw "Native event dispatch is already active"; }
-		if (self._running) { throw "Request application quit before closing a running application"; }
-		if (self._turnActive) { return CALLBACK_CANCELLATION_PENDING; }
-		self._quitRequested = true;
-		self._closing = true;
+	private CallbackCancellation drainClose() {
 		CallbackCancellation publishers = CALLBACK_CANCELLATION_COMPLETE;
-		for publisher in self._publishers { publishers = self.combine(publishers, publisher.cancel()); }
+		bool failed = false; string failure = "";
+		for publisher in self._publishers {
+			try { publishers = self.combine(publishers, publisher.cancel()); }
+			catch (string error) { if (!failed) { failed = true; failure = error; } }
+		}
+		if (failed) { throw failure; }
 		if (publishers != CALLBACK_CANCELLATION_COMPLETE) { return publishers; }
 		self.prunePublishers();
 		var views = self.closeViews();
@@ -582,6 +656,23 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		} catch (string error) { self._closeFailure = error; throw error; }
 		self._closed = true;
 		return CALLBACK_CANCELLATION_COMPLETE;
+	}
+
+	public CallbackCancellation close() {
+		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		self.requireUIThread();
+		if (self._closeAdvancing || self._turnActive) { return CALLBACK_CANCELLATION_PENDING; }
+		if (self._closeFailure != "") { throw self._closeFailure; }
+		if (self._dispatching) { throw "Native event dispatch is already active"; }
+		if (self._running) { throw "Request application quit before closing a running application"; }
+		self._closeAdvancing = true;
+		CallbackCancellation result = CALLBACK_CANCELLATION_PENDING;
+		bool failed = false; string failure = "";
+		try { self.requestQuit(); self._closing = true; result = self.drainClose(); }
+		catch (string error) { failed = true; failure = error; }
+		finally { self._closeAdvancing = false; }
+		if (failed) { throw failure; }
+		return result;
 	}
 
 	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native application destroyed before subtree cleanup completed"); } }
