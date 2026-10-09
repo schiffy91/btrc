@@ -631,13 +631,15 @@ published privately on `codex/live-agent-revision-recovery`, whose tree contains
 no workflows. Workflow `16d69500` was published once by fast-forward to
 `codex/linux-current-compiler-3974`; automatic push run `37883596677` started at
 04:22 UTC October 9. Source/environment preparation passed; the original paired
-live agent acceptance is running at the latest 04:39 UTC check. Audio failure
+live agent acceptance is running at the latest 05:19 UTC check. Audio failure
 journeys and installed-product checks remain pending. No duplicate dispatch was
 made. After Mac unit finished, private paired Linux memory workflow `4f7e7c17`
 was published once; automatic run `37885703276` began at 04:49 UTC. It compares
 baseline `6f1b81d9` with compact/flow candidate `c8221ae4` against exact product
 `dbe8df0e`, with unchanged qualification and measurement bounds. Source and
-workflow publication are verified; no measured improvement is claimed. This
+workflow publication are verified. Environment preparation passed at 05:05 UTC;
+both canonical Linux compiler builds are running at the 05:19 UTC check. No
+measured improvement is claimed. This
 comparison and BTRSmith's replay occupy both hosted waves. Mac test-helper
 qualification `a29ab3e3` and native Linux quit `e6f076e5` remain queued.
 
@@ -2911,7 +2913,7 @@ an unwired fixture. Old passing counts do not validate a newly ported tree.
 
 | Platform | Next concrete checkpoint | Actual dependency and evidence |
 |---|---|---|
-| Windows | Support genuine SDK pointer constants, then qualify Toolhelp/process thread count | Fresh current-source-equivalent imports fail in all four reference/selfhost × x64/ARM64 cells at SDK `INVALID_HANDLE_VALUE`: the reader currently accepts only integer/string macro constants. No C or plan is emitted. Preserve the SDK type, sentinel and qualifiers; do not substitute a hardcoded ABI/value. Later function imports and real x64/ARM64 execution remain unproven. |
+| Windows | Qualify the fresh self-hosted importer, then implement and run Toolhelp/process thread count | Candidate `b04309d8` passes 103 reference checks and genuine SDK Toolhelp imports for x64 and ARM64, preserving typed pointer constants and SDK spelling. Both old-reader signature failures reproduce. Fresh self-hosted parity, the actual ProcessThreads provider and Windows runtime execution remain unqualified. |
 | iOS/iPadOS | App-private file create/write/read and relaunch persistence through both frontends | Actual iOS target/provider/cache selection, required nongeneric Foundation ownership/calls, filesystem seam and a real Xcode simulator host. Full UIKit widgets are not prerequisites for this service. |
 | Android | NativeActivity host execution, then app-private file create/write/read and relaunch persistence | NDK/SDK, correct target/provider selection, trusted host-derived roots, filesystem seam and emulator execution. Initial private roots need not wait for the complete Java UI/JNI stack. |
 | Each mobile GUI | Lifecycle, one native button and one editable field with events and safe teardown | Checked UIKit/main-executor adapters on iOS; checked JNI/Looper/callback ownership on Android. GPU embedding and richer collection controls are subsequent milestones. |
@@ -2953,13 +2955,35 @@ of the other 4,506 files as identical to the reader build. It passes all 99
 reference checks (56 macro and 43 codec), with no skips/errors/xfails/xpasses.
 The genuine x64 Toolhelp import now advances beyond the original pointer-macro
 rejection and fails at `native function semantics do not match its signature`.
-ARM64 was not reached. The actual reader document must identify the mismatch
-before changing the reader or paired codecs; the historical eight-case failure
-is still not reproduced by this single current x64 result. Seven owned groups
-closed, all inputs and outputs matched. Independent attempt-three audit:
+ARM64 was not reached in that attempt. Seven owned groups closed, all inputs
+and outputs matched. Independent attempt-three audit:
 `57720140e26c7323bc30b0c88783eef6d93eb79f61128b6e18e87ccc7dbc3375`.
-Fresh self-host build, paired mutation/addressability diagnostics, successful
-Toolhelp imports and actual Windows execution remain required.
+
+Actual SDK documents captured for both targets subsequently identify the defect:
+all six selected functions on each target have a neutral qualified wrapper over
+a function, with matching parameter counts and the default calling convention.
+This is current raw-document evidence, not a claim to recover the historical
+eight-case artifact. Raw-document audit:
+`69b7942b6462b1c3914a44cef89da3953d1188623295a012445d9a123028390d`.
+Candidate `b04309d8` removes only neutral Clang sugar in the reader; meaningful
+qualifiers, nullability, typedef identity and calling-convention rejection remain.
+The original Clang 21 recipe builds it successfully. Five exact restored inputs
+are protected by temporary task-local GC roots through qualification; no system
+settings or toolchain version change. Reader build audit:
+`4c8f1a259f5ebc6af8a007f8c23974797ea8e81d8b775d21ede4dd83cbb221a4`.
+
+The completed reference qualification reproduces both old-reader failures at the
+exact bare-function assertion, then passes all 103 candidate cases (58 reader/
+macro and 45 codec), with zero skips, errors, xfails or xpasses. Genuine x64 and
+ARM64 Toolhelp imports both produce C and correct target plans without diagnostics;
+the C preserves actual SDK types and sentinel names. All ten owned process groups
+close, with exact source, tools, SDK, readers and retained outputs. Result SHA-256:
+`fa626924fe4b313dc15585e2b19a84fd492160f3cb3edfb7dac2e65b523458a4`.
+Independent audit SHA-256: `bb63f5bd14688616daf520344941029e753e80e1f50dc0dacf20f77350c6f809`.
+Fresh self-hosted compilation and paired mutation/addressability/codec diagnostics
+are the next qualification. This proves reference import/projection only: the
+ProcessThreads provider, strict Windows C build and actual x64/ARM64 execution
+remain required.
 
 
 Reuse the existing stdlib shell fixture as a small conformance app: window,
