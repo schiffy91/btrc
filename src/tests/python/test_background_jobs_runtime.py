@@ -7,14 +7,14 @@ import sys
 from pathlib import Path
 
 import pytest
-from tools.windows_toolchain.process_runner import Result
-from tools.windows_toolchain.process_runner import run as run_process
 
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.native_bindings import NativeBindingPackage
 from tools.native_plan import NativePlanBuilder
 from tools.target_hosts.windows.bundle import TARGETS, pe_machine
 from tools.target_hosts.windows.executor import ExecutionRequest, WindowsNativeExecutor
+from tools.windows_toolchain.process_runner import Result
+from tools.windows_toolchain.process_runner import run as run_process
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "src" / "stdlib" / "BackgroundJobs"
