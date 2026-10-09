@@ -1560,5 +1560,6 @@ execution_review, branch `codex/skip-ledger-child-env-5aa`, exact base
 `docs/workstreams/skip-ledger-child-environment.md`, and this claim.
 Isolate nested test options from inherited workflow PYTEST_ADDOPTS; preserve
 outer GUI grouping, all ledger assertions, explicit child argv and deadlines.
-Original hosted unit evidence is retained; focused qualification pending.
+Original hosted unit evidence is retained; focused qualification passed with
+exact two baseline failures and candidate84 PASS, zero skips/errors. See report.
 Ordinary checkout/index, PLAN and workflow source remain untouched.
