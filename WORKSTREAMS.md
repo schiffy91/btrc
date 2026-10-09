@@ -1563,3 +1563,18 @@ outer GUI grouping, all ledger assertions, explicit child argv and deadlines.
 Original hosted unit evidence is retained; focused qualification passed with
 exact two baseline failures and candidate84 PASS, zero skips/errors. See report.
 Ordinary checkout/index, PLAN and workflow source remain untouched.
+
+
+## 2026-10-09 D29 hosted iOS 17 component admission
+
+Packet: CX-HARMONIZE-IOS17-COMPONENT-ADMISSION. Integrator-assigned writer:
+execution_review; isolated branch `codex/diagnostic-ios17-component-admission`,
+base a29ab3e3704b4b1300e21d9dc89256f50ed0c6f4. Owned paths:
+`.github/workflows/host-ios.yml` (diagnostic branch only, embedded packet helpers)
+and this claim. Preserve ordinary checkout/index and the separate ten-file iOS
+host source port. Qualify only the bounded hosted acquisition/import of Apple's
+iOS 17.0 build 21A328 under exact Xcode 27A266a on an eligible ARM64 runner;
+no simulator boot, fixture build, account/signing change or paid runner. D8
+fallback requires concrete installability evidence; authentication/transport
+failure does not establish runtime incompatibility. Original fifty cases,
+deployment target and deadlines remain a later independently allocated gate.
