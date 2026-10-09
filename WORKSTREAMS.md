@@ -219,6 +219,17 @@ already-qualified GUI worker grouping after its actual 1800-second lease
 failure. Worker count, test roster, per-row selection flags, leases and all
 deadlines remain unchanged. The parent retains PLAN and final integration.
 
+**2026-10-08 D29 release-shell claim:** execution_review owns `flake.nix`,
+`.github/workflows/macos.yml`,
+`src/tests/python/test_ci_workflow_contracts.py` and
+`docs/workstreams/macos-release-shell.md` on `codex/macos-release-shell-6f`
+from exact `6f1b81d9`. The packet removes unrelated development dependencies
+from the macOS bundle environment after the observed preparation timeout;
+compiler sources, lock file, Make recipes, architecture rows, smoke checks and
+45-minute deadline remain unchanged. Actual closure/tool equivalence and
+bundle qualification are required before publication. WORKSTREAMS is changed
+only for this claim; the parent owns PLAN and integration.
+
 **2026-10-08 integration claim:** this authorized session owns the bounded
 `codex/integrate-qualified-linux` assembly from compiler `56d548c4` and qualified
 Windows main `49f136ec`. Exact Linux source/test paths, retained native evidence,

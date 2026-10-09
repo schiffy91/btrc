@@ -188,13 +188,13 @@ jobs:
         run: |
           test "$(uname -s)" = Darwin
           test "$(uname -m)" = arm64
-          nix develop --command make NIX= "btrcc-${{ matrix.target }}"
+          nix develop .#macos-release --command make NIX= "btrcc-${{ matrix.target }}"
 
       - name: Run the relocated archive and its strictly compiled output
         run: |
           # GitHub resolves matrix expressions before nested Bash evaluates the script.
           # shellcheck disable=SC2016
-          nix develop --command bash -euo pipefail -c '
+          nix develop .#macos-release --command bash -euo pipefail -c '
             test "$(uname -m)" = arm64
             unset BTRC_HOME
             (cd dist && shasum -a 256 -c "btrcc-${{ matrix.target }}.tar.gz.sha256")
