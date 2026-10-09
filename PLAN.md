@@ -615,7 +615,9 @@ behavior exclusions; GUI skips include one real-desktop hardware case. Audit
 SHA-256: `414810d8b7af251dba590c0ec6eb95be6196eefe351d53439f8a6df03422c1e1`.
 Both Mac
 release bundles, self-host tests, bootstrap, both corpora and Clang O0/O2 pass;
-Mac unit remains active. Dedicated macOS native GUI run `37877458498` has
+Mac unit finished with two nested-test configuration failures; the focused
+repair now reproduces both failures and passes all 84 affected ledger/coordination
+checks. Hosted qualification is pending. Dedicated macOS native GUI run `37877458498` has
 completed successfully on exact `5aa232ad`: 353 passes, 169 expected platform
 skips and no failures/errors. Its independent source, artifact and skip audit is
 clear; two Linux tray rows remain explicitly uncovered. The memory candidates
@@ -631,8 +633,25 @@ no workflows. Workflow `16d69500` was published once by fast-forward to
 04:22 UTC October 9. Source/environment preparation passed; the original paired
 live agent acceptance is running at the latest 04:39 UTC check. Audio failure
 journeys and installed-product checks remain pending. No duplicate dispatch was
-made. This and the remaining PR68 Mac unit gate occupy both hosted waves; paired
-Linux memory measurement `4f7e7c17` is next, then native Linux quit `e6f076e5`.
+made. After Mac unit finished, private paired Linux memory workflow `4f7e7c17`
+was published once; automatic run `37885703276` began at 04:49 UTC. It compares
+baseline `6f1b81d9` with compact/flow candidate `c8221ae4` against exact product
+`dbe8df0e`, with unchanged qualification and measurement bounds. Source and
+workflow publication are verified; no measured improvement is claimed. This
+comparison and BTRSmith's replay occupy both hosted waves. Mac test-helper
+qualification `a29ab3e3` and native Linux quit `e6f076e5` remain queued.
+
+The current product review also found a concrete Library source defect against
+PRD lines 53–55: `CatalogAlbumMerge.related` permits unknown years, two-year
+release differences and small edit distances, while `AlbumName.mergeKey` folds
+accents. These can silently combine distinct releases. The next product
+implementation must use the existing conservative identity rules (same artist,
+same known year, approved formatting only), preserve recordings/arrangements,
+and refresh old derived memberships from authoritative sources. Existing songs
+do not retain their original per-song year, so a migration must not invent it
+from a merged survivor; failed or unavailable roots must preserve current data
+and expose unresolved state. Source review is complete; implementation and real
+SQLite publication/reopen/recovery tests remain pending.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -1438,11 +1457,23 @@ labels do not independently re-prove another runner. Hosted ARM64 Darwin evidenc
 does not supply physical Mac input evidence. Audit
 `pr68-5aa-macos-native-gui-audit/audit.json` has SHA-256
 `365ed15d7bfe78b7aae41458cdd0c34e0a6642e5b2437366df8f26cb962eff0f`.
-Mac unit is the remaining active platform gate at 04:39 UTC October 9. No final
-combined-tree merge is claimed. The separate compact/flow candidate has passed its fresh build,
-45 focused checks, native flow driver and exact current-product 423-file/ordered
-plan parity. Paired performance measurement and its full integration matrix
-remain pending.
+Mac unit completed at 04:46 UTC with 10,148 passes, 227 expected skips and two
+failures. Both nested serial tests disable xdist but inherit the workflow's
+`PYTEST_ADDOPTS=--dist=loadgroup`, causing pytest usage errors before their ledger
+exists. The final log/skip audit authenticates exact `5aa232ad` and these two
+failures; no unit JUnit was advertised. Audit SHA-256:
+`fdd04b1a0fd71dfdcf2195653d6a1eef81249dc4e8f666ed4f85442df7a03d36`.
+Repair `5594563d` removes inherited child options while retaining explicit child
+arguments and the outer GUI grouping. Its focused gate reproduces the exact two
+baseline failures and passes all 84 candidate ledger/coordination cases without
+skips. Eight owned groups close; inputs and logs match. Independent audit:
+`2c837e02ed890b32a0771e3366f7422eba967ef1098a24c9ea87298a908177a3`.
+Report-only follow-up `a29ab3e3` preserves those test bytes and is ready for a
+normal PR68 fast-forward from `5aa232ad`; publication waits for a hosted slot.
+No final combined-tree merge is claimed. The separate compact/flow candidate
+has passed its fresh build, 45 focused checks, native flow driver and exact
+current-product 423-file/ordered-plan parity. Paired Linux measurement is now
+running as `37885703276`; its results and full integration matrix remain pending.
 The latest compiler and native component outcomes are recorded under the goals
 above; test passes do not close the outstanding product performance or MVP targets.
 
@@ -2901,22 +2932,35 @@ than skipping the sentinel check or inventing another provider ownership model.
 
 The typed pointer-constant repair is implemented in isolated candidate
 `414db329` on `codex/native-pointer-constants`, based on exact `5aa232ad`.
-The shared ASDL, SDK reader, paired import codecs and analyzers preserve the
-pointer type, target-width address identity, SDK spelling and value-only
-provenance; constants cannot become assignable or addressable storage. Forty-one
-new reader/semantic macro cases plus codec cases are prepared, but behavior and
-the updated reader build remain unrun. Generation attempt one exposed a catalog
-bootstrap import cycle; its failure is retained. Attempt two used the existing
-ASDL generator API to bootstrap the Python catalog and then passed unchanged
-unified generation and generated-source checks. Independent audit verifies only
-the two intended native ABI catalogs changed; all other 4,505 files remained
-exact and all six command groups closed. Audit SHA-256:
+Its shared ASDL, SDK reader and paired importers/analyzers preserve pointer type,
+target-width value identity, SDK spelling and value-only provenance. Unified
+catalog generation and checks pass with exactly two derived catalogs changed;
+all other 4,505 files remain exact. Generation audit SHA-256:
 `46c2b0b2c268340fb7e376df2741e74f8016b7b394adc1100f8b611c7c57711e`.
-This establishes generated-source integrity only. Next is rebuilding the reader
-with the locked Clang 21 dependencies and replaying reference Toolhelp x64/ARM64
-before a fresh self-host build and all four cells. The installed runtime lacks
-some locked development inputs; their bounded restoration and reader build are
-being prepared. Windows native execution remains unproven.
+
+The original locked Clang 21 build inputs were restored (71.8 MB); the updated
+reader builds, installs and passes unchanged fixup checks. Initial build attempt
+one compiled but failed because output was nested in its temporary build root;
+R2 separates the directories without disabling fixup. All six groups closed,
+source/tools remained exact, and the successful reader audit is
+`33cc979a9fbbf72bbaf4cbecda2153bb4da82b6999ba6e64aba7159ac0dcb681`.
+
+Reference attempt two passed 35 macro checks but 21 new direct-header checks
+stopped on the fixture's `#pragma once` warning, before their metadata assertions.
+Fixture-only commit `de4009d9` replaces that pragma with an include guard, retaining
+all declarations and strict diagnostics. Attempt three authenticates every one
+of the other 4,506 files as identical to the reader build. It passes all 99
+reference checks (56 macro and 43 codec), with no skips/errors/xfails/xpasses.
+The genuine x64 Toolhelp import now advances beyond the original pointer-macro
+rejection and fails at `native function semantics do not match its signature`.
+ARM64 was not reached. The actual reader document must identify the mismatch
+before changing the reader or paired codecs; the historical eight-case failure
+is still not reproduced by this single current x64 result. Seven owned groups
+closed, all inputs and outputs matched. Independent attempt-three audit:
+`57720140e26c7323bc30b0c88783eef6d93eb79f61128b6e18e87ccc7dbc3375`.
+Fresh self-host build, paired mutation/addressability diagnostics, successful
+Toolhelp imports and actual Windows execution remain required.
+
 
 Reuse the existing stdlib shell fixture as a small conformance app: window,
 button, editable field, scrolling, clipboard, visibility and teardown. Attach
