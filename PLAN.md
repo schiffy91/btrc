@@ -1395,14 +1395,23 @@ frontend and library smoke checks through both compilers, followed by completed
 screen journeys as their library providers land. Hardware, listening and release
 account requirements remain explicit where automated tests cannot prove them.
 
-**Current product evidence (October 9):** album identity repair 2a15e4c1 passes
-38 actual Mac native regressions and nine original compiler-plan comparisons.
-Linux product 2c9e5b43 on compiler 5aa232ad passes the independently audited
-agent/audio/scanner replay (24 native executions and four plan comparisons), plus
-its derivation/install-layout check. The current installed app was not launched
-in that run. Settings compact Back remains a source-confirmed product defect; its
-new native test first failed on fixture setup and is being corrected before a
-production fix. These scoped passes do not close the complete MVP or timing goals.
+**Current product evidence (October 9, 08:15 UTC):** album identity repair
+`2a15e4c1` passes 38 actual Mac native regressions and nine original compiler-plan
+comparisons. Settings Back repair `f077985b`, recorded in `3608cb65`, passes both
+compilers at widths 480, 540 and 1100, original plan equality and visual review
+of all 18 captures. The baseline really failed on the hidden compact button;
+the repair places the same button in the persistent header. Linux product
+`2c9e5b43` on compiler `5aa232ad` passes the independently audited agent/audio/
+scanner replay (24 native executions and four plan comparisons), plus its
+product derivation/install-layout check. The current installed app was not
+launched in that run. The reviewed next Linux replay includes the latest album
+and Settings code and the original installed-application smoke. It is prepared
+and unpublished. The native Player speaker button has a separate source-proven
+missing connection to the existing mute/restore command; a real ready-playback
+regression is being prepared. Remote BTRSmith main remains `adb3276f`; the
+current working product still locks compiler `cdf9d952` and uses explicit
+current-compiler overrides for these checks. A qualified lock update, complete
+MVP journeys and final timing acceptance remain open.
 
 **Earlier macOS library evidence:** product `5bb466b7` with immutable compiler
 `3974d47b` passes the original macOS library journey through both frontends:
