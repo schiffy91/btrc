@@ -1530,3 +1530,51 @@ Focused qualification passed: original15 baseline and candidate109 checks,
 zero failures/errors/skips, exact collection/JUnit, all8 owned groups closed and
 source/tools unchanged. See the owned report. No compiler repair, hosted unit
 pass or Nix garbage-collection cause is claimed.
+
+
+## 2026-10-09 D29 compact tagged IR payloads
+
+Packet: CX-HARMONIZE-COMPACT-IR-PAYLOADS. Integrator-assigned writer:
+performance_review, branch `codex/compact-ir-payloads-6f`, exact base
+`6f1b81d937745ee3a3fbc1be803ffcf1b7e52ba9`. Own the following model and
+necessary IR consumers, focused semantic tests and report; existing checkout/index
+and central PLAN remain unchanged. The retained current-product census is the
+allocation baseline; the proposed layout is not a measured improvement.
+
+- `src/compiler/btrc/ir/Emitter.btrc`
+- `src/compiler/btrc/ir/Model.btrc`
+- `src/compiler/btrc/ir/gpu/Pipeline.btrc`
+- `src/compiler/btrc/ir/lowering/Aggregates.btrc`
+- `src/compiler/btrc/ir/lowering/Assignments.btrc`
+- `src/compiler/btrc/ir/lowering/Callables.btrc`
+- `src/compiler/btrc/ir/lowering/Calls.btrc`
+- `src/compiler/btrc/ir/lowering/Concurrency.btrc`
+- `src/compiler/btrc/ir/lowering/Context.btrc`
+- `src/compiler/btrc/ir/lowering/ControlFlow.btrc`
+- `src/compiler/btrc/ir/lowering/Declarations.btrc`
+- `src/compiler/btrc/ir/lowering/Expressions.btrc`
+- `src/compiler/btrc/ir/lowering/Functions.btrc`
+- `src/compiler/btrc/ir/lowering/Statements.btrc`
+- `src/compiler/btrc/ir/lowering/Strings.btrc`
+- `src/compiler/btrc/ir/lowering/Types.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/Calls.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/CycleBoundaries.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/ManagedTypes.btrc`
+- `src/compiler/btrc/ir/optimization/Cleanup.btrc`
+- `src/compiler/btrc/ir/optimization/Optimizer.btrc`
+- `src/compiler/btrc/ir/optimization/Realtime.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Safety.btrc`
+- `src/compiler/btrc/ir/runtime/References.btrc`
+- `src/compiler/btrc/pipeline/ModuleUnits.btrc`
+- `src/tests/btrc/test_structured_ir_contract.py`
+- `src/tests/btrc/test_ir_payload_semantics.py`
+- `docs/workstreams/compact-ir-payloads.md`
+
+The parent explicitly transfers the overlapping frozen compiler packet paths
+for this unpublished follow-up. Preserve tagged IR identity, all semantic
+fields/defaults, structured traversal order and managed ownership; no rich-enum
+owner, raw managed union, generated-file edits or retained-graph pruning.
+Full product parity, actual allocator sizes and paired measurements remain
+required. Root owns execution allocation and publication.
