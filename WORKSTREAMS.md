@@ -1566,7 +1566,8 @@ platform_review owns `src/language/native_abi.asdl`,
 `src/compiler/btrc/frontend/Models.btrc`,
 `src/compiler/python/analyzer/expressions.py` and
 `src/compiler/btrc/analyzer/Models.btrc` and malformed-codec coverage in
-`src/tests/python/test_native_header_reader.py`; execution_review owns
+`src/tests/python/test_native_header_reader.py` and
+`src/tests/btrc/fixtures/NativeHeaderCodec.btrc`; execution_review owns
 `src/tests/python/test_native_macro_constants.py`.
 Use an isolated index and owned source mirrors; preserve ordinary checkout/index.
 The fresh current-equivalent Toolhelp baseline rejects INVALID_HANDLE_VALUE in
