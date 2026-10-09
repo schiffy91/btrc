@@ -648,7 +648,8 @@ repair passes eight shell checks and is committed as `59108aad`, with the other
 15 embedded helpers unchanged. It was published once by normal fast-forward at
 06:31 UTC after the Linux product replay finished. Automatic push run
 [37893971479](https://github.com/schiffy91/btrsmith/actions/runs/37893971479),
-job `113700966212`, is resolving the same compiler/product environments. No manual
+job `113700966212`, is building both canonical Linux compilers serially at the
+06:49 UTC check. No manual
 duplicate dispatch occurred; actual measurements remain pending.
 
 That terminal run released a hosted slot. Qualified Mac test-helper `a29ab3e3`
@@ -656,11 +657,12 @@ was published once by normal fast-forward to PR68 at 05:32 UTC, preserving the
 84-pass test bytes and ordinary checkout. Automatic workflows are Linux
 `37889064844`, macOS `37889064858`, Windows `37889064843`, Windows ARM64
 `37889064907` and Android `37889064913`; no manual duplicate dispatch occurred.
-At the 06:16 UTC job-level check, Windows and Android jobs have passed. Linux
-release bundles, X11 GUI, bootstrap, benchmark guards and five C11 cells have
-passed; Wayland and the remaining test shards are running. macOS ARM64 release,
-selfhost checks and Clang O2 have passed; its remaining jobs and Windows ARM64
-native qualification are still running. Windows/Android exact-tree logs are independently audited: Windows has 39
+At the 06:49 UTC job-level check, all Windows x64/ARM64 and Android jobs have
+passed. Linux release bundles, X11/Wayland GUI, bootstrap, benchmark guards, all
+eight C11 cells and both corpora have passed; selfhost/unit test shards remain
+running. macOS both release bundles, selfhost checks, bootstrap, both corpora and
+Clang O0/O2 have passed; its unit shard remains running. Dedicated final-head
+native-GUI qualification remains required. Windows/Android exact-tree logs are independently audited: Windows has 39
 pytest passes and three expected POSIX skips, extension 79 passes/six explicit
 Windows skips, and a successful native bootstrap. Android has 56 actual emulator
 fixture executions across API 29/36; ARM64 remains compile-only. Audit:
@@ -743,18 +745,31 @@ with verified bytes, modes, timestamps and recovery instructions, reclaiming
 644,300,800 allocated bytes and leaving about 80.75 GB free. Current sources,
 binaries, readers, logs, audits and qualification inputs remain unchanged. Archive
 audit: `01511ab42812e61da63228d67e27bacc536ee0000a3542af3d617b642442fa41`.
+A second verified, reversible archive preserves 3,574 historical generated C files
+and 19 old executable copies, reclaiming another 442,339,328 bytes. Its full
+roundtrip and protected-input audit is
+`148c91d26c01390ce5e12271a7ed6ee851ae00edd64e881933bebd8612e3e709`;
+18,146 protected entries and nine original receipts are unchanged. Sources, current
+binaries and evidence remain retained. Local free space is still only about 80.37 GB
+after the next checks, so disk margin remains a throughput constraint.
 
 A separate source review found that `SettingsScreen` attaches its only Back button
 to the sidebar, then hides that sidebar below 900 pixels. The existing compact
 Settings test calls `activate()` and does not establish user reachability. The next
 product slice will preserve the existing navigation/draft owners while making Back
 reachable in compact layouts and checking native ancestor visibility and hit testing.
-This is a source-confirmed defect. A five-file typed AppKit baseline-fixture draft
-now checks native ancestor visibility, converted bounds and hit testing before
-routing mouse events through NSWindow, while preserving existing Settings session
-assertions. Production SettingsScreen is unchanged; independent fixture review,
-actual baseline execution and the stable-header repair remain pending. This will
-prove synthetic AppKit reachability and compositor capture, not physical input.
+This is a source-confirmed defect. Typed AppKit baseline fixture `bb91b409` and
+final binding/Make fragment `1b577467` preserve the original Settings assertions
+and check native ancestor visibility, converted bounds and hit testing. Independent
+source review passed, but the first actual reference build failed on a private
+`GUI/MacOS/MacOSView` import before any native execution. Its final inventory audit
+also reports product-source drift; both causes are under review rather than treated
+as an accepted baseline. Result:
+`f7c2ebb37f4c2adfddc59b2655e06ddc2b90156f8349127a192879162e5b003c`.
+Production SettingsScreen remains unchanged. Correct fixture admission and an
+actual failing baseline precede the stable-header repair and paired qualification.
+The fixture scope is synthetic AppKit reachability and compositor capture, not
+physical input.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -3017,7 +3032,7 @@ an unwired fixture. Old passing counts do not validate a newly ported tree.
 
 | Platform | Next concrete checkpoint | Actual dependency and evidence |
 |---|---|---|
-| Windows | Wire and qualify the actual Toolhelp/process thread-count provider | Candidate `3e02deba` passes all 155 paired checks and all four genuine SDK imports through reference/selfhost for x64/ARM64, with exact paired C/plan equality. The original pointer and function-signature defects are repaired. Provider/fixture candidate `25b5b572` includes manifest wiring and passes independent source review. Both-frontend fixture projection, strict Windows C build and real x64/ARM64 execution remain unqualified. |
+| Windows | Wire and qualify the actual Toolhelp/process thread-count provider | Candidate `3e02deba` passes all 155 paired checks and all four genuine SDK imports through reference/selfhost for x64/ARM64, with exact paired C/plan equality. The original pointer and function-signature defects are repaired. Provider/fixture candidate `25b5b572` includes manifest wiring; actual checks pass generated-source validation and 17 contracts but expose unused enum-tag selections in native bindings. The provider selection is corrected in `e5ec3cf5`; the fixture selection remains under repair. Both-frontend fixture projection, strict Windows C build and real x64/ARM64 execution remain unqualified. |
 | iOS/iPadOS | App-private file create/write/read and relaunch persistence through both frontends | Actual iOS target/provider/cache selection, required nongeneric Foundation ownership/calls, filesystem seam and a real Xcode simulator host. Full UIKit widgets are not prerequisites for this service. |
 | Android | NativeActivity host execution, then app-private file create/write/read and relaunch persistence | NDK/SDK, correct target/provider selection, trusted host-derived roots, filesystem seam and emulator execution. Initial private roots need not wait for the complete Java UI/JNI stack. |
 | Each mobile GUI | Lifecycle, one native button and one editable field with events and safe teardown | Checked UIKit/main-executor adapters on iOS; checked JNI/Looper/callback ownership on Android. GPU embedding and richer collection controls are subsequent milestones. |
@@ -3115,14 +3130,24 @@ The final manifest fragment and real-thread/fault fixtures are present. They che
 three held threads and restoration, real foreign-process records, snapshot errors,
 short records and cleanup. Overflow remains structurally checked. The explicit
 driver preserves emitted C through two authenticated project-header VFS mappings;
-actual SDK projection, VFS lookup, strict native build and Windows execution have
-not run. The reviewed local projection recipe preserves the existing 17 provider/
-manifest/index checks and four actual SDK projections from a shared package root.
+actual projection now runs, while VFS lookup, strict native build and Windows
+execution remain pending. Both bounded attempts pass generated-source validation
+and all 17 provider/manifest/index contracts. The first x64 reference projection
+rejects an unused `BtrcThreadEntryExtent` enum tag; source `e5ec3cf5` removes only
+that selected name while retaining the exact SDK offsetof/sizeof expression and
+constant. The fresh attempt reaches the fixture and rejects its unused
+`ProcessThreadFault` tag. Neither run reaches C/plan output; the other three
+projections remain unrun. The second attempt closes all eight process groups and
+leaves source/tools unchanged. First audit:
+`7ec99e4ff1a74750ec8d2d98deeedc5f7ca6009801526061310886a31945386b`.
+The remaining fixture selection is being repaired without changing headers,
+enumerators, error cases or native assertions. The original 17+4 denominator and
+command bounds remain unchanged.
 A separate driver-only follow-up `bd50f377` reuses the established Job Object
 process runner and native executor for process cleanup, PE/hardware validation
 and retained raw results, preserving provider/fixture/header bytes and 180/90-second
-limits. Repository-config formatting passed; independent review and native
-execution remain pending. The original
+limits. Repository-config formatting and independent source review passed; actual
+native execution remains pending. The original
 WindowsMain SDK-scanning process-composition gap remains explicit; supported-host
 projection followed by actual Windows x64/ARM64 execution must be distinguished
 from claiming SDK scanning on a Windows-hosted compiler.
