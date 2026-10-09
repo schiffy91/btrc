@@ -1545,3 +1545,63 @@ def test_pointer_constant_codec_identity(reader, codec_probe, tmp_path, target, 
             NativeHeaderCodec().decode(encoded)
         rejected = probe_document(codec_probe, tmp_path, encoded)
         assert rejected.returncode != 0 and "native header:" in rejected.stderr
+
+
+@pytest.mark.parametrize("target", ["x86_64-w64-windows-gnu", "aarch64-w64-windows-gnu"])
+def test_native_function_signature_sugar_preserves_abi(reader, codec_probe, tmp_path, target):
+    source = """typedef const unsigned char* ReadOnlyBytes;
+ReadOnlyBytes _Nullable __stdcall inspectBytes(const __typeof__(unsigned char)* bytes,
+                                    volatile unsigned char* restrict scratch);
+"""
+    result = read_batch(
+        reader,
+        tmp_path,
+        source,
+        [{"id": "signature", "symbols": ["inspectBytes"]}],
+        f"--target={target}",
+    )
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    selected = json.loads(result.stdout)["results"][0]
+    assert selected["id"] == "signature" and selected["errors"] == []
+    document = selected["document"]
+    assert document["target"] == target
+    assert len(document["declarations"]) == 1
+    function = document["declarations"][0]
+    assert function["kind"] == "function" and function["name"] == "inspectBytes"
+    signature = function["type"]
+    # The SDK's ignored Windows64 spelling is sugar, not an extra semantic layer.
+    # The original reader fails here with a neutral qualified wrapper.
+    assert signature["kind"] == "function"
+    assert signature["calling_convention"] == "c" and signature["variadic"] is False
+    assert len(signature["parameters"]) == len(function["parameter_semantics"]) == 2
+    assert [p["name"] for p in function["parameter_semantics"]] == ["bytes", "scratch"]
+    returned = signature["return_type"]
+    assert returned["kind"] == "qualified" and returned["nullability"] == "nullable"
+    returned = returned["underlying"]
+    assert returned["kind"] == "typedef" and returned["name"] == "ReadOnlyBytes"
+    assert returned["underlying"]["kind"] == "pointer"
+    assert returned["underlying"]["pointee"]["const"] is True
+    first, second = signature["parameters"]
+    assert first["kind"] == "pointer"
+    qualified = first["pointee"]
+    # Non-neutral typeof sugar must keep its qualifier wrapper; don't erase all sugar.
+    assert qualified["kind"] == "qualified" and qualified["const"] is True
+    assert underlying(qualified)["name"] == "unsigned char"
+    assert second["kind"] == "pointer" and second["restrict"] is True
+    assert underlying(second["pointee"])["volatile"] is True
+    assert_codec_parity(codec_probe, tmp_path, json.dumps(document))
+
+
+@pytest.mark.parametrize("convention", ["__stdcall", "__fastcall"])
+def test_native_function_nondefault_calling_convention_is_rejected(reader, tmp_path, convention):
+    result = read(
+        reader,
+        tmp_path,
+        f"int {convention} transform(int value);",
+        ["transform"],
+        "--target=i686-w64-windows-gnu",
+    )
+    assert result.returncode == 1
+    assert "Unsupported calling convention:" in result.stderr
+    assert not result.stdout
