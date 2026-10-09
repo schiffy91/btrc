@@ -472,7 +472,15 @@ settings and passes all 37 focused cases: eight paired Model executions,
 No failures, errors or skips occur. Independent audit verifies source/tool and
 binary identity, the inherited Model proof and all six closed process groups.
 The failed attempt remains retained. Current BTRSmith output parity and paired
-memory/instruction measurements are next; no product performance gain is claimed. Independent retention
+memory/instruction measurements remain open. The first current-product paired
+attempt stops at the original 180-second quiet deadline before either compiler
+executes. Background CPU, guests, simulators, backup and workspace probes all
+pass; a VS Code Codex app-server matches the unchanged agent-process refusal.
+Its observed low CPU and absent descendants do not prove that it has no active
+work. The process and quiet rules are unchanged. Independent audit verifies all
+101 inputs and zero compiler samples. A separate correctness-only compile will
+verify the current application's 423 emitted files and ordered plan without
+collecting benchmark counters. No product performance gain is claimed. Independent retention
 candidate `266cadd7` keeps per-node setjmp facts only for fixed safety roots while
 solving and exporting every function summary. The original `6f1b81d9` baseline edit passes;
 the candidate passes the same production incremental edit and six added cases,
@@ -531,9 +539,15 @@ pending semantic record and neither callback delivered. The five-second native
 settlement bound fits inside the unchanged 30-second case bound. Baseline
 `dc73ce96` and candidate `fbb9e27a` carry the identical fixture change; classifier
 changes only move six expected source coordinates. Reviewed diagnostic
-`d6242d3e` starts automatic run `37874567498`, which now reports success.
-Artifact authentication and independent native-result review are in progress;
-complete Linux GUI qualification remains open.
+`d6242d3e` starts automatic run `37874567498`, which passes. Independent review
+authenticates the complete artifact, all four exact semantic baseline failures
+and all four candidate native passes, with zero skips. Source, tool and binary
+identities are unchanged; all eight process leaders are reaped and the container
+is absent. This qualifies the Window component against compiler `f75c737b`.
+Coordinated quit across multiple dirty Linux windows is the next provider change:
+one cancelled member must preserve every window, draft and live work ingress.
+Capture occurs when SDL's event pump dequeues QUIT. Complete Linux GUI and final
+combined-tree qualification remain open.
 
 The qualified CI repair assembly is now published as PR68 head `5aa232ad`:
 Windows ARM64 `37873882639`, Android `37873882709`, Windows `37873882883`,
@@ -545,8 +559,11 @@ GUI gate `37877458498`, dispatched once against exact `5aa232ad` with
 `focus=native-gui`. The memory candidates and new UI2 provider work remain
 separate. Main stays `cbd3ddcd`; the complete combined matrix, native-GUI gate
 and actual release bundles remain required before integration. BTRSmith's
-reviewed `2c9e5b43` live revision fixture and `db9bc814` qualification workflow
-remain prepared for the next free hosted slot.
+reviewed `2c9e5b43` live revision fixture now has a peer-cleared current-compiler
+qualification workflow `16d69500`, pinned to exact `5aa232ad`. All original
+acceptance commands and limits remain unchanged. The earlier `db9bc814`/`f75`
+recipe remains retained; neither is published or dispatched. The current recipe
+waits for the next free hosted slot.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
