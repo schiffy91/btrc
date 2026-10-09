@@ -10,7 +10,7 @@ import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
 /* Exercise the real solver, including effects transmitted through a recursive
  * pair whose per-node flows the safety-root policy does not retain. */
 class FlowFixture {
-	class IRFunction function(string name, Vector<string> callees) {
+	class IRFunction makeFunction(string name, Vector<string> callees) {
 		var definition = IRFunction();
 		definition.name = name;
 		definition.params = [IRParam("int*", "value")];
@@ -24,7 +24,7 @@ class FlowFixture {
 
 	class IRModule module() {
 		var unit = IRModule();
-		unit.functions = [FlowFixture.function("entry", ["middle"]), FlowFixture.function("middle", ["recursive"]), FlowFixture.function("recursive", ["middle", "foreignWrite"])];
+		unit.functions = [FlowFixture.makeFunction("entry", ["middle"]), FlowFixture.makeFunction("middle", ["recursive"]), FlowFixture.makeFunction("recursive", ["middle", "foreignWrite"])];
 		var foreign = IRFunctionDecl("foreignWrite", "void", false);
 		foreign.params = [IRParam("int*", "value")];
 		unit.functionDecls.push(foreign);
