@@ -663,6 +663,10 @@ class NativeHeaderReader {
 		} else {
 			auto desugared = value.getSingleStepDesugaredType(*context);
 			if (desugared != value) {
+				// Clang type sugar is not itself a semantic qualifier. Preserve
+				// the underlying type, including function calling convention and
+				// nested return/parameter qualifiers, when this layer adds none.
+				if (!value.hasQualifiers() && !value->getNullability()) { return type(desugared, indirect); }
 				result["kind"] = "qualified";
 				result["underlying"] = type(desugared, indirect);
 			} else {

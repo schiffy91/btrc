@@ -1580,3 +1580,13 @@ the existing generator in a separate derived commit after allocation.
 Reader/reference focused qualification precedes a fresh selfhost build; all
 paired native macro tests and unchanged four genuine Toolhelp projections
 remain required. No native Windows provider or historical codec repair is claimed.
+
+Follow-up on the same packet after `de4009d9`: root assigns platform_review the
+existing reader's generic neutral type-sugar normalization and performance_review
+the existing `test_native_header_reader.py` regression owner. Actual reference
+qualification passed99 macro/codec cases, then Toolhelp x64 rejected a function
+signature wrapper. Authenticated raw SDK documents for x64/ARM64 show all six
+functions have neutral qualified wrappers, matching parameter counts and C
+calling convention. Preserve meaningful qualifiers, typedef identity and the
+existing strict bare-function codec contract; no SDK special case or convention
+relaxation. A fresh reader build and reference/paired qualification remain required.
