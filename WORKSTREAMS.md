@@ -1627,3 +1627,17 @@ requires real Windows x64/ARM64 programs through both frontends, held-thread and
 foreign-PID behavior, and targeted native failure/cleanup controls. WindowsMain
 SDK process composition is explicitly outside this packet. No build, tests or
 publication until root allocates; pointer importer acceptance remains prerequisite.
+
+
+### Native execution-owner follow-up on `25b5b572`
+
+Root assigns performance_review only the existing
+`src/tests/python/test_background_jobs_runtime.py` execution adapter, this claim
+and `docs/workstreams/windows-process-threads.md` on the isolated
+`codex/windows-process-threads-native-owner` ref. Reuse the shared toolchain
+process runner and Windows native executor instead of adding a process wrapper.
+Preserve the provider, manifest, native fixture/probe/header bytes and original
+180-second compile / 90-second native bounds. The frozen 25b5 projection packet
+remains immutable; later native qualification authenticates its successful
+receipt and unchanged C/plan/header artifacts independently of this driver-only
+follow-up. No generation, tests, builds or dispatch under this source assignment.

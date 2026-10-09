@@ -1,7 +1,6 @@
 import hashlib
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -12,6 +11,10 @@ import pytest
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.native_bindings import NativeBindingPackage
 from tools.native_plan import NativePlanBuilder
+from tools.target_hosts.windows.bundle import TARGETS, pe_machine
+from tools.target_hosts.windows.executor import ExecutionRequest, WindowsNativeExecutor
+from tools.windows_toolchain.process_runner import Result
+from tools.windows_toolchain.process_runner import run as run_process
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "src" / "stdlib" / "BackgroundJobs"
@@ -459,10 +462,18 @@ class WindowsProcessThreadsFixture:
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
     @staticmethod
-    def command(argv: list[str], directory: Path, label: str, timeout: int, *, env=None) -> subprocess.CompletedProcess:
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env, cwd=ROOT)
-        (directory / f"{label}.stdout").write_text(result.stdout)
-        (directory / f"{label}.stderr").write_text(result.stderr)
+    def command(argv: list[str], directory: Path, label: str, timeout: int, *, env=None) -> Result:
+        result = run_process(argv, cwd=ROOT, env=env, timeout=timeout)
+        (directory / f"{label}.stdout").write_bytes(result.stdout)
+        (directory / f"{label}.stderr").write_bytes(result.stderr)
+        (directory / f"{label}.result.json").write_text(
+            json.dumps(
+                {"argv": argv, "returncode": result.returncode, "timed_out": result.timed_out, "error": result.error},
+                indent=2,
+            )
+            + "\n"
+        )
+        assert not result.timed_out and result.error is None, result
         assert result.returncode == 0, (argv, result.stderr)
         assert not result.stderr, result.stderr
         return result
@@ -539,18 +550,20 @@ class WindowsProcessThreadsFixture:
         return receipt
 
     @classmethod
-    def run_native(cls, projection: Path, output: Path, *, cc: tuple[str, ...]) -> None:
+    def run_native(
+        cls,
+        projection: Path,
+        output: Path,
+        *,
+        projection_sha256: str,
+        cc: tuple[str, ...],
+        toolchain: dict,
+        label: str,
+    ) -> None:
         assert sys.platform == "win32", "requires actual Windows native execution"
+        assert cls.digest(projection) == projection_sha256, "projection receipt differs from allocated proof"
         proof = json.loads(projection.read_text())
-        architectures = {
-            "arm64": "windows-arm64",
-            "aarch64": "windows-arm64",
-            "amd64": "windows-x64",
-            "x86_64": "windows-x64",
-        }
-        assert platform.machine().lower() in architectures, platform.machine()
-        expected = architectures[platform.machine().lower()]
-        assert proof["target"] == expected, (proof["target"], platform.machine())
+        target = {"windows-x64": "windows-x86_64", "windows-arm64": "windows-aarch64"}[proof["target"]]
         directory = projection.parent
         for name, digest in proof["files"].items():
             path = directory / name
@@ -594,7 +607,49 @@ class WindowsProcessThreadsFixture:
         cls.command(
             [*cc, str(generated_object), str(probe_object), "-o", str(executable)], output, "link", COMPILE_TIMEOUT
         )
-        ran = cls.command([str(executable)], output, "native", RUN_TIMEOUT)
-        assert ran.stdout == "PASS: Windows process thread count\n", ran.stdout
+        manifest = {
+            "schema": "btrc.windows-host-bundle/1",
+            "target": target,
+            "pe_machine": TARGETS[target][1],
+            "toolchain": {"command": list(cc), "facts": toolchain},
+            "projection_sha256": projection_sha256,
+            "programs": {
+                "WindowsProcessThreads": {
+                    "executable": executable.name,
+                    "sha256": cls.digest(executable),
+                    "pe_machine": pe_machine(executable),
+                }
+            },
+        }
+        (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        executor = WindowsNativeExecutor()
+        try:
+            executor.prepare(output, label)
+            ran = executor.run(ExecutionRequest("WindowsProcessThreads", timeout_s=RUN_TIMEOUT))
+            (output / "native.stdout").write_bytes(ran.stdout)
+            (output / "native.stderr").write_bytes(ran.stderr)
+            (output / "native.result.json").write_text(
+                json.dumps(
+                    {
+                        "exit_status": ran.exit_status,
+                        "signal": ran.signal,
+                        "timed_out": ran.timed_out,
+                        "duration_s": ran.duration_s,
+                        "provenance": ran.provenance,
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
+            assert not ran.timed_out and ran.signal is None and ran.exit_status == 0, ran
+            assert not ran.provenance["cleanup_warnings"], ran.provenance
+            assert not ran.stderr, ran.stderr
+            # Preserve the prior text=True universal-newline comparison; raw
+            # captured bytes above remain the native evidence.
+            with (output / "native.stdout").open(encoding="utf-8", newline=None) as stdout:
+                assert stdout.read() == "PASS: Windows process thread count\n", ran.stdout
+        finally:
+            executor.close()
         for name, digest in proof["files"].items():
             assert cls.digest(directory / name) == digest, name
+        assert cls.digest(projection) == projection_sha256, "projection receipt changed during native proof"
