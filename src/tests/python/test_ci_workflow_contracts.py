@@ -1096,7 +1096,7 @@ def test_macos_ci_matrix_runs_and_uploads_both_archived_bundles() -> None:
 
     parsed = _parsed("macos.yml")["jobs"]["native-bundle"]
     assert parsed["runs-on"] == "macos-15"
-    assert parsed["timeout-minutes"] == 45
+    assert parsed["timeout-minutes"] == "45"
     assert job.count("nix develop .#macos-release --command") == 2
     assert "nix develop --command" not in job
     assert "macos-15-intel" not in job
