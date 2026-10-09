@@ -694,6 +694,9 @@ def _run_inner(tmp_path: Path, *extra: str) -> tuple[subprocess.CompletedProcess
         "PYTHONDONTWRITEBYTECODE": "1",
     }
     environment.pop("BTRC_TEST_CAPABILITIES", None)
+    # The child suite owns its options; workflow options may require plugins
+    # this invocation explicitly disables. Caller-supplied argv remains intact.
+    environment.pop("PYTEST_ADDOPTS", None)
     completed = subprocess.run(
         # One token: pytest would otherwise take an existing report path for a
         # test path while it determines the rootdir.
@@ -709,14 +712,15 @@ def _run_inner(tmp_path: Path, *extra: str) -> tuple[subprocess.CompletedProcess
 
 
 @pytest.mark.parametrize("workers", [None, "2"])
-def test_the_collector_records_outcomes_skips_and_capability_gates(tmp_path, workers):
+def test_the_collector_records_outcomes_skips_and_capability_gates(tmp_path, workers, monkeypatch):
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--dist=loadgroup")
     suite = tmp_path / "suite"
     suite.mkdir()
     (suite / "conftest.py").write_text(_INNER_CONFTEST)
     (suite / "test_cases.py").write_text(_INNER_TESTS)
     (suite / "test_module_skip.py").write_text('import pytest\npytest.skip("whole module", allow_module_level=True)\n')
 
-    _, report = _run_inner(tmp_path, *(("-n", workers) if workers else ("-p", "no:xdist")))
+    _, report = _run_inner(tmp_path, *(("-n", workers, "--dist=loadgroup") if workers else ("-p", "no:xdist")))
 
     assert report["schema"] == "btrc.skip-report/1"
     assert report["runner"] == "macos"
@@ -753,7 +757,8 @@ def test_the_collector_records_outcomes_skips_and_capability_gates(tmp_path, wor
     assert set(report["tools"]) >= {"naga", "lldb", "pkg-config"}
 
 
-def test_an_injected_unexpected_skip_fails_the_gate(tmp_path):
+def test_an_injected_unexpected_skip_fails_the_gate(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--dist=loadgroup")
     suite = tmp_path / "suite"
     suite.mkdir()
     (suite / "conftest.py").write_text(_INNER_CONFTEST)
