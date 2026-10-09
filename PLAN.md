@@ -442,8 +442,11 @@ progress retained. BTRSmith `37864640752`, exact dbe8/f75, passes all four
 channel and all four standalone CLI/MCP cells, plus both reference live-app
 journeys. The first self-host/Clang live-app run fails when navigation.show-settings
 returns code 1 for revision 5. Captured stdout is absent from the fixture's
-failure message, so the actual protocol error is not established; a diagnostic-only
-repair will preserve it before another cause is claimed. Self-host/GCC live,
+failure message, so the actual protocol error is not established. Diagnostic-only
+source `8e58bd76` now retains a bounded response in that same failure path;
+reviewed replay `cd705952` starts automatic run `37869903754` with original full
+stage bodies and bounds. It is live, not an accepted fix for the unknown cause.
+Self-host/GCC live,
 audio and installed-product stages remain unrun. Artifact SHA-256 is
 `738a0ab195497ba76f4c69bc7309735818b16bb6415960136c5777bebb52e862`.
 

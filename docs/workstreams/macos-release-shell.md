@@ -37,6 +37,20 @@ The default and platform shell behavior and flake lock are unchanged.
 
 ## Qualification
 
-Source preparation only. Independent source review, actual Nix evaluation and
-closure/tool/SDK equivalence, affected workflow contracts and both original
-bundle journeys remain required. No elapsed-time improvement is claimed yet.
+Independent source review and October 9 evaluation are clear. Both Darwin
+architectures retain byte-identical evaluated default/platform descriptions and
+derivation paths. The release shell selects the original SDK, reader, target,
+provider compilers, hardening, five tool outputs and Python interpreter derivation.
+The ARM64 dependency graph contains 1,097 derivations versus 1,977 for default;
+this proves a dependency reduction, not realized bytes or elapsed-time savings.
+
+The first evaluation's expression-substitution failure and the second attempt's
+pre-command disk refusal remain retained. The corrected third attempt runs all
+six commands successfully, authenticates the reused source archives and trees,
+and closes every owned process group with unchanged inputs. Result SHA-256:
+`e94b5034776610c082e3c68454fadefd35a98936617977ba6fa99b5a19abdd0a`.
+
+Local composition `69773d38` preserves this change alongside the separately
+focused-qualified unit scheduler. The affected release contract, combined checks,
+and both original bundle/relocation/strict-C11 journeys remain pending. No bundle
+qualification, elapsed-time improvement or main integration is claimed.
