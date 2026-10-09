@@ -505,9 +505,15 @@ Combined source `c8221ae4` preserves the compact domain-guarded array-bound
 traversal, immutable safety roots and complete summary/dependency computation.
 Independent source review is clear. Its native flow driver exercises actual
 module-unit root selection for direct, call-argument and array-bound-only setjmp
-nodes, plus exclusion of an ordinary function. Fresh combined compiler build,
-focused behavior checks and current-product parity remain required; component
-passes are not a combined pass. Product speed and memory targets stay open.
+nodes, plus exclusion of an ordinary function. The fresh combined MacOSMain
+compiler now passes strict Clang 21 O2 construction, all 37 compact checks,
+all seven reference flow checks and the actual self-hosted native flow driver.
+There are no failures, errors or skips. Independent audit verifies 78 inputs,
+4,507 source files, 4,860 workspace artifacts and all 11 closed process groups.
+Result SHA-256: `5914461928bb9fd595f77b088fc4578220398345f6c2da7427cb720108549ce9`;
+audit SHA-256: `457ae6be1e60b5c7c44c7d7bffb2b7c544222754bc72d2db5a4b4cd78249ffc2`.
+The production incremental-edit case through btrcc and current-product output
+parity are the next combined checks. Product speed and memory targets stay open.
 
 Both October 9 diagnostic runs are now terminal failures, with narrower
 progress retained. BTRSmith `37864640752`, exact dbe8/f75, passes all four
@@ -559,8 +565,19 @@ identities are unchanged; all eight process leaders are reaped and the container
 is absent. This qualifies the Window component against compiler `f75c737b`.
 Coordinated quit across multiple dirty Linux windows is the next provider change:
 one cancelled member must preserve every window, draft and live work ingress.
-Capture occurs when SDL's event pump dequeues QUIT. Complete Linux GUI and final
-combined-tree qualification remain open.
+Capture occurs when SDL's event pump dequeues QUIT. Reviewed Linux source
+`32b361b2` now coordinates group authorization across dirty and clean windows,
+keeps every window alive when a peer cancels, seals publication/work ingress
+before releasing retained identities and supports retryable/reentrant cleanup.
+Four native fixtures cover initial cancellation, revised/saving/stale decisions,
+registration and membership changes, cleanup reentry and a real trylock failure.
+The late-reply and already-authorized CANCEL branches are explicit. The planned
+qualification compares fixture-only baseline `647363f9` with the candidate using
+current compiler `5aa232ad`: one exact native failing predicate on the baseline,
+then 28 candidate cells across both frontends/plain/sanitized, including existing
+Window/Executor/Lifecycle regressions. This recipe is being prepared; no compiler
+or native execution has qualified the new group-quit source. Complete Linux GUI
+and final combined-tree qualification remain open.
 
 The qualified CI repair assembly is now published as PR68 head `5aa232ad`:
 Windows ARM64 `37873882639`, Android `37873882709`, Windows `37873882883`,
@@ -569,7 +586,12 @@ workflows pass. Linux now completes successfully, including unit/self-host tests
 both corpora, bootstrap, all eight GCC/Clang C11 configurations, X11, Wayland,
 benchmark guards and x64/ARM64 release bundles. Release also supplies the selected
 lint, formatting, generated-source and extension checks; its scoped static-job
-skip does not omit those gates. The skip-ledger audit is in progress. Both Mac
+skip does not omit those gates. Independent final Linux audit is clear: all 18
+artifact ZIP digests match, every skip is expected and enforced, and GUI JUnit
+identities agree. Boundary coverage is 287/311, with the established 24 managed
+behavior exclusions; GUI skips include one real-desktop hardware case. Audit
+SHA-256: `414810d8b7af251dba590c0ec6eb95be6196eefe351d53439f8a6df03422c1e1`.
+Both Mac
 release bundles, self-host tests, bootstrap, both corpora and Clang O0/O2 pass;
 Mac unit and the dedicated native-GUI run remain active.
 Window R4 has finished and its hosted slot now runs the dedicated macOS native
@@ -1373,8 +1395,9 @@ PR68 is on exact head `5aa232ad`. Linux, Windows, Windows ARM64 and Android
 workflows pass. Both Mac release bundles, self-host tests, bootstrap, corpora and
 Clang O0/O2 pass. Mac unit and dedicated native-GUI run `37877458498` remain
 active, with final skip/evidence audit pending. No final combined-tree merge is
-claimed. The separately implemented compact/flow candidate is source-reviewed
-but still needs fresh combined qualification and measurement.
+claimed. The separate compact/flow candidate has passed its fresh build,
+44 focused checks and native flow driver; the self-hosted incremental edit,
+product output parity and measurements remain pending.
 The latest compiler and native component outcomes are recorded under the goals
 above; test passes do not close the outstanding product performance or MVP targets.
 
