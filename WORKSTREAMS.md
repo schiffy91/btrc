@@ -1785,3 +1785,21 @@ Root owns PLAN and the combined qualification/publication. Fresh combined
 compiler, affected paired behavior, regenerated-source checks and the required
 final gate matrix remain outstanding. No new main landing is authorized by
 this source composition alone.
+
+
+## 2026-10-09 D29 preserved iOS host port
+
+Packet: CX-HARMONIZE-IOS-HOST-PORT. Integrator-assigned writer:
+performance_review; branch `codex/ios-host-port-36b647f0`, exact base
+`36b647f079ed7338e51b119a11046eb222dd4877`. Claim before implementation: the ten files in
+`tools/target_hosts/ios/` from preserved `1844837b2ca9f9e4bcea9decc26a9eed51eba42d`,
+`.github/workflows/host-ios.yml`, `docs/workstreams/ios-host-port.md`, and this claim.
+Port the original standalone handwritten C11 test host without changing its
+fixtures, launch/cleanup bounds, 28 local test methods or 50 native executions.
+Historical iOS 26.4 results remain historical. D8 requires iOS 17 if installable,
+otherwise the oldest installable runtime plus the unchanged iOS 17 deployment
+target check; installed-runtime selection alone does not establish that policy.
+The held acquisition packet `5efb6a9d` remains separate and untouched. No runtime
+download/import/boot, current-tree native acceptance or compiler-generated
+program acceptance is claimed. Prepare through an isolated index; preserve
+the ordinary checkout/index and root-owned PLAN.
