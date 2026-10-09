@@ -709,7 +709,7 @@ class SetjmpSafetyPlanner {
 			self.prepareSimple((caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)caseNode.payload).value : null), null, caseVisible, params, effects);
 			IRNode caseBlock = IRNode(IRK_BLOCK);
 			((IRControlPayload)caseBlock.payload).stmtsStorage = caseNode.stmts();
-			if (self.containsSetjmp(caseBlock) && (caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)caseNode.payload).fallsThrough : false)) {
+			if (self.containsSetjmp(caseBlock) && (caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE && ((IRControlPayload)caseNode.payload).fallsThrough)) {
 				Map<string, bool> continuation = {};
 				int next = index;
 				while (next + 1 < statement.args().len) {

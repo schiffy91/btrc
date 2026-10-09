@@ -1346,7 +1346,7 @@ class SetjmpEffectAnalysis {
 			IRNode caseBlock = IRNode(IRK_BLOCK);
 			((IRControlPayload)caseBlock.payload).stmtsStorage = caseNode.stmts();
 			self.flowBlock(flow, caseBlock, true);
-			if ((caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)caseNode.payload).fallsThrough : false)) {
+			if ((caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE && ((IRControlPayload)caseNode.payload).fallsThrough)) {
 				fallthrough = flow.copyState(flow.state);
 				hasFallthrough = true;
 			} else {

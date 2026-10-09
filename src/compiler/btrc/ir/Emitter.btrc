@@ -940,8 +940,9 @@ class CEmitter {
 			while (ci < s.args().len) {
 				IRNode c = s.args().get(ci);
 				int caseDomain = c.payloadDomain();
-				if ((caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)c.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)c.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)c.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)c.payload).value : null) != null) {
-					self.line(f"case {self.expr((caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)c.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)c.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)c.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)c.payload).value : null))}:");
+				var caseValue = (caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)c.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)c.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)c.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)c.payload).value : null);
+				if (caseValue != null) {
+					self.line(f"case {self.expr(caseValue)}:");
 				} else {
 					self.line("default:");
 				}
@@ -951,7 +952,7 @@ class CEmitter {
 				while (j < c.stmts().len) { self.emitStmt(c.stmts().get(j)); j = j + 1; }
 				self.indent = self.indent - 1;
 				self.line("}");
-				if ((caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)c.payload).fallsThrough : false) && ci + 1 < s.args().len) {
+				if ((caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE && ((IRControlPayload)c.payload).fallsThrough) && ci + 1 < s.args().len) {
 					self.line("/* fall through */");
 				}
 				ci = ci + 1;

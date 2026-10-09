@@ -636,8 +636,9 @@ class IROptimizer {
 		if ((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : "") != "") {
 			self.scanTextForKnownNames((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : ""), names, out);
 		}
-		if ((domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null) != null) {
-			for (int index = 0; index < (domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null).len; index++) { self.scanTextForKnownNames((domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null).get(index).cType, names, out); }
+		var parameters = (domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null);
+		if (parameters != null) {
+			for (int index = 0; index < parameters.len; index++) { self.scanTextForKnownNames(parameters.get(index).cType, names, out); }
 		}
 		self.collectStructRefsNode(node.left, names, out);
 		self.collectStructRefsNode(node.right, names, out);
@@ -1399,8 +1400,10 @@ class IRTypeDeclarationPlanner {
 		int domain = node.payloadDomain();
 		if (!(domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : "").isEmpty()) { out.push((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : "")); }
 		if (!(domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : "").isEmpty()) { out.push((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : "")); }
-		if ((domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null) != null) { for parameter in(domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null) { out.push(parameter.cType); } }
-		if ((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null) != null) { out.push((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null).cType); }
+		var parameters = (domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null);
+		if (parameters != null) { for parameter in parameters { out.push(parameter.cType); } }
+		var cleanup = (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null);
+		if (cleanup != null) { out.push(cleanup.cType); }
 		IRTypeDeclarationPlanner.expressionTypes(node.left, out);
 		IRTypeDeclarationPlanner.expressionTypes(node.right, out);
 		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), out);
