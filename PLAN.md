@@ -644,15 +644,21 @@ target and sysroot exported by the compiler environment. No product compilation,
 warmup or measurement ran. The authenticated failure audit is `84366846d2d3497ad286db8dac3e397a419ee472e9806037c255b9524953ffe3`;
 its binary addendum `f44cea16441bcf308aabc060209604fd52ff268db429c3f995bea632b9be5d84`
 verifies both actual binaries and generated C. A minimal environment-composition
-repair passes eight shell checks; it remains unpublished and unmeasured.
+repair passes eight shell checks and is committed as `59108aad`, with the other 15 embedded helpers unchanged; it remains unpublished and unmeasured.
 
 That terminal run released a hosted slot. Qualified Mac test-helper `a29ab3e3`
 was published once by normal fast-forward to PR68 at 05:32 UTC, preserving the
 84-pass test bytes and ordinary checkout. Automatic workflows are Linux
 `37889064844`, macOS `37889064858`, Windows `37889064843`, Windows ARM64
 `37889064907` and Android `37889064913`; no manual duplicate dispatch occurred.
-This PR68 wave and BTRSmith replay `37883596677` occupy both hosted slots.
-Native Linux quit `e6f076e5` and the repaired memory comparison remain queued.
+At the 05:45 UTC job-level check, Android has passed, Windows lanes are running,
+and macOS/Linux are executing tests and release jobs with remaining shards queued.
+The top-level queued labels do not imply that all jobs are idle. PR68's description
+now matches current head `a29ab3e3` and its actual qualification scope. This PR68
+wave and BTRSmith replay `37883596677` occupy both hosted slots. The replay remains
+in its original paired live-agent acceptance stage; audio and installed-product
+checks are pending. Native Linux quit `e6f076e5` and the repaired memory comparison
+remain queued.
 Main integration and any measured compiler improvement remain unclaimed.
 
 The current product review also found a concrete Library source defect against
@@ -680,7 +686,12 @@ canonical identities and refresh source memberships atomically. Offline and
 failed sources retain their records with unknown/stale metadata. The incomplete
 local draft `f8d5a24b` includes migration/recovery tests but is not qualified.
 Unknown-year casing/spacing normalization in the format-reader call sites also
-requires correction; no new implementation or migration acceptance is claimed.
+requires correction. Review additionally found that obsolete schema9 rekeying and
+schema10 display cleanup could modify original rows before schema12 preservation;
+they must be retired while retaining schema-version transitions and the earlier
+migration/rollback and pagination oracles. Candidate tests must use exact original
+schema inventories. These source/test corrections are in progress; no new
+implementation or migration acceptance is claimed.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -2943,7 +2954,7 @@ an unwired fixture. Old passing counts do not validate a newly ported tree.
 
 | Platform | Next concrete checkpoint | Actual dependency and evidence |
 |---|---|---|
-| Windows | Qualify the fresh self-hosted importer, then implement and run Toolhelp/process thread count | Candidate `b04309d8` passes 103 reference checks and genuine SDK Toolhelp imports for x64 and ARM64, preserving typed pointer constants and SDK spelling. Both old-reader signature failures reproduce. Fresh self-hosted parity, the actual ProcessThreads provider and Windows runtime execution remain unqualified. |
+| Windows | Qualify the fresh self-hosted importer, then implement and run Toolhelp/process thread count | Candidate `b04309d8` passes 103 reference checks and genuine SDK Toolhelp imports for x64 and ARM64, preserving typed pointer constants and SDK spelling. Both old-reader signature failures reproduce. Fresh self-hosted build passes; 154 paired checks pass and one existing-diagnostic fixture mismatch is under repair. Four paired SDK imports, the actual ProcessThreads provider and Windows runtime execution remain unqualified. |
 | iOS/iPadOS | App-private file create/write/read and relaunch persistence through both frontends | Actual iOS target/provider/cache selection, required nongeneric Foundation ownership/calls, filesystem seam and a real Xcode simulator host. Full UIKit widgets are not prerequisites for this service. |
 | Android | NativeActivity host execution, then app-private file create/write/read and relaunch persistence | NDK/SDK, correct target/provider selection, trusted host-derived roots, filesystem seam and emulator execution. Initial private roots need not wait for the complete Java UI/JNI stack. |
 | Each mobile GUI | Lifecycle, one native button and one editable field with events and safe teardown | Checked UIKit/main-executor adapters on iOS; checked JNI/Looper/callback ownership on Android. GPU embedding and richer collection controls are subsequent milestones. |
@@ -3010,10 +3021,23 @@ the C preserves actual SDK types and sentinel names. All ten owned process group
 close, with exact source, tools, SDK, readers and retained outputs. Result SHA-256:
 `fa626924fe4b313dc15585e2b19a84fd492160f3cb3edfb7dac2e65b523458a4`.
 Independent audit SHA-256: `bb63f5bd14688616daf520344941029e753e80e1f50dc0dacf20f77350c6f809`.
-Fresh self-hosted compilation and paired mutation/addressability/codec diagnostics
-are the next qualification. This proves reference import/projection only: the
-ProcessThreads provider, strict Windows C build and actual x64/ARM64 execution
-remain required.
+The fresh MacOSMain self-hosted compiler now builds with the original Clang 21
+strict-C11/O2 recipe. Paired qualification executes all 155 selected cases:
+92 codec and 62 macro cases pass, while one const-discard diagnostic comparison
+fails. Both frontends reject the invalid conversion and publish no output;
+the reference compiler uses its established generic assignment diagnostic and
+the self-hosted compiler its established const-depth diagnostic. The four genuine
+SDK projections are not reached. Result SHA-256:
+`2516f6ed5cf6b8d9c518bcb90c71d8703ae5aee460665e3bc9f2f97b647be3b6`;
+independent audit `6fab672a4567a1a0b12f8572e431ec618d88e9e02b524be14f9005b603d46f7a`
+verifies exact inputs, all 155 identities, retained outputs and eight closed groups.
+A narrow fixture correction is being reviewed against existing qualifier tests:
+require each frontend's exact established diagnostic and compare imported
+constants with ordinary same-type const pointers, retaining all six rejection
+and no-output checks. Production compiler bytes are unchanged, so the retained
+fresh binary can be authenticated for the corrected paired run. No completed
+self-hosted SDK or Windows runtime acceptance is claimed. The ProcessThreads
+provider, strict Windows C build and actual x64/ARM64 execution remain required.
 
 
 Reuse the existing stdlib shell fixture as a small conformance app: window,
