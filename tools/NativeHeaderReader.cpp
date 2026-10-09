@@ -147,15 +147,18 @@ public:
 // An object-like macro selected as a symbol is an SDK constant with no
 // declaration. Clang's preprocessor expands it, the expansion is parsed here
 // and every operand and operator is built through Clang's Sema, so the
-// constant's type and value are exactly what the SDK's own C gives it. Integer constant expressions and ordinary string literals (with
-// adjacent literals concatenated) are accepted, however many object-like or
-// function-like macros the expansion invokes; anything else (a macro that is
-// itself function-like, wide strings, non-constant operands) refuses.
+// constant's type and value are exactly what the SDK's own C gives it. Integer
+// constant expressions, ordinary string literals (with adjacent literals
+// concatenated), and object-pointer sentinels are accepted, however many
+// object-like or function-like macros the expansion invokes. Sentinels carry
+// target-width value identity but keep the SDK macro spelling at emission;
+// no object address or pointer arithmetic is projected into a fabricated slot.
 struct NativeMacroValue {
 	clang::QualType type;
 	llvm::APSInt integer;
 	std::string text;
 	bool string = false;
+	unsigned pointerBits = 0;
 };
 
 class NativeMacroConstant {
@@ -210,6 +213,7 @@ class NativeMacroConstant {
 		switch (token->getKind()) {
 		case clang::tok::kw_unsigned: case clang::tok::kw_signed: case clang::tok::kw_char: case clang::tok::kw_short:
 		case clang::tok::kw_int: case clang::tok::kw_long: case clang::tok::kw__Bool: case clang::tok::kw_bool:
+		case clang::tok::kw_void: case clang::tok::kw_const: case clang::tok::kw_volatile: case clang::tok::kw_restrict:
 			return true;
 		case clang::tok::identifier:
 			return llvm::isa_and_nonnull<clang::TypedefNameDecl>(lookup(token->getIdentifierInfo()));
@@ -218,7 +222,8 @@ class NativeMacroConstant {
 		}
 	}
 
-	clang::QualType typeName() {
+	clang::QualType unqualifiedTypeName() {
+		if (at(clang::tok::kw_void)) { ++position; return context.VoidTy; }
 		if (at(clang::tok::identifier)) {
 			const auto* alias = llvm::cast<clang::TypedefNameDecl>(lookup(peek()->getIdentifierInfo()));
 			++position;
@@ -242,6 +247,36 @@ class NativeMacroConstant {
 		if (longs >= 2) { return isUnsigned ? context.UnsignedLongLongTy : context.LongLongTy; }
 		if (longs == 1) { return isUnsigned ? context.UnsignedLongTy : context.LongTy; }
 		return isUnsigned ? context.UnsignedIntTy : context.IntTy;
+	}
+
+	unsigned typeQualifiers() {
+		unsigned result = 0;
+		while (peek()) {
+			if (at(clang::tok::kw_const)) { result |= clang::Qualifiers::Const; }
+			else if (at(clang::tok::kw_volatile)) { result |= clang::Qualifiers::Volatile; }
+			else if (at(clang::tok::kw_restrict)) { result |= clang::Qualifiers::Restrict; }
+			else { break; }
+			++position;
+		}
+		return result;
+	}
+
+	clang::QualType typeName() {
+		auto start = location();
+		auto qualifiers = typeQualifiers();
+		if (!startsTypeName()) { refuse("has an unsupported cast type"); return {}; }
+		auto result = unqualifiedTypeName();
+		qualifiers |= typeQualifiers();
+		result = sema.BuildQualifiedType(result, start, qualifiers);
+		while (!result.isNull() && at(clang::tok::star)) {
+			auto pointer = location();
+			++position;
+			result = sema.BuildPointerType(result, pointer, clang::DeclarationName());
+			if (result.isNull()) { break; }
+			result = sema.BuildQualifiedType(result, pointer, typeQualifiers());
+		}
+		if (result.isNull()) { refuse("has an invalid cast type"); }
+		return result;
 	}
 
 	clang::Expr* checked(clang::ExprResult result, const char* what) {
@@ -273,6 +308,7 @@ class NativeMacroConstant {
 			++position;
 			if (startsTypeName()) {
 				auto target = typeName();
+				if (target.isNull()) { return nullptr; }
 				if (!at(clang::tok::r_paren)) { refuse("has an unsupported cast type"); return nullptr; }
 				auto close = location();
 				++position;
@@ -338,10 +374,56 @@ class NativeMacroConstant {
 		return other ? checked(sema.ActOnConditionalOp(question, colon, condition, chosen, other), "conditional expression") : nullptr;
 	}
 
+	bool containsPointerArithmetic(const clang::Expr* expression) const {
+		if (const auto* operation = llvm::dyn_cast<clang::BinaryOperator>(expression)) {
+			if (operation->isAdditiveOp() && (operation->getLHS()->getType()->isPointerType()
+				|| operation->getRHS()->getType()->isPointerType())) { return true; }
+		}
+		for (const auto* child : expression->children()) {
+			if (const auto* operand = llvm::dyn_cast_or_null<clang::Expr>(child)) {
+				if (containsPointerArithmetic(operand)) { return true; }
+			}
+		}
+		return false;
+	}
+
+	std::optional<NativeMacroValue> pointerConstant(clang::Expr* expression) {
+		clang::Expr::EvalResult evaluated;
+		if (containsPointerArithmetic(expression)) {
+			refuse("is not an integer or string constant");
+			return std::nullopt;
+		}
+		if (expression->getType()->isFunctionPointerType() || expression->isGLValue()
+			|| expression->HasSideEffects(context)
+			|| !expression->isConstantInitializer(context, false)
+			|| !expression->EvaluateAsRValue(evaluated, context)
+			|| evaluated.HasSideEffects || evaluated.HasUndefinedBehavior
+			|| !evaluated.Val.isLValue()) {
+			refuse("is not a side-effect-free constant pointer sentinel");
+			return std::nullopt;
+		}
+		// SDK sentinel casts have no object identity. In particular, preserve
+		// rejection of string arithmetic rather than giving its result storage.
+		if (!evaluated.Val.getLValueBase().isNull()
+			|| (evaluated.Val.hasLValuePath() && !evaluated.Val.getLValuePath().empty())) {
+			refuse("is not an integer or string constant");
+			return std::nullopt;
+		}
+		auto bits = context.getTypeSize(expression->getType());
+		if (bits != 32 && bits != 64) {
+			refuse("has an unsupported pointer constant width");
+			return std::nullopt;
+		}
+		// APValue stores an absolute pointer as a signed byte offset from a
+		// null base. Normalize its bits at the target width, never the host's.
+		llvm::APInt address(static_cast<unsigned>(bits), static_cast<uint64_t>(evaluated.Val.getLValueOffset().getQuantity()));
+		return NativeMacroValue{expression->getType(), llvm::APSInt(std::move(address), true), "", false, static_cast<unsigned>(bits)};
+	}
+
 public:
 	NativeMacroConstant(clang::Sema& value, clang::Preprocessor& macros) : sema(value), preprocessor(macros), context(value.getASTContext()) {}
 
-	// The macro's integer or string value and type, or an explanation in `failure`.
+	// The macro's checked value and type, or an explanation in `failure`.
 	std::optional<NativeMacroValue> evaluate(const clang::IdentifierInfo& name, const clang::MacroInfo& info, std::string& reason) {
 		auto& diagnostics = sema.getDiagnostics();
 		bool suppressed = diagnostics.getSuppressAllDiagnostics();
@@ -361,6 +443,9 @@ public:
 			else if (literal && literal->getString().contains('\0')) { refuse("is a string literal with an embedded NUL"); }
 			else if (literal && !llvm::json::isUTF8(literal->getString())) { refuse("is a string literal that is not UTF-8"); }
 			else if (literal) { return NativeMacroValue{context.getPointerType(context.CharTy.withConst()), llvm::APSInt(), literal->getString().str(), true}; }
+			else if (expression && expression->getType()->isPointerType()) {
+				if (auto value = pointerConstant(expression)) { return value; }
+			}
 			else if (expression && !expression->getType()->isIntegralOrEnumerationType()) { refuse("is not an integer or string constant"); }
 			else if (expression && !expression->EvaluateAsInt(evaluated, context)) { refuse("is not an integer constant expression"); }
 			else if (expression) { return NativeMacroValue{expression->getType(), evaluated.Val.getInt(), "", false}; }
@@ -791,6 +876,15 @@ class NativeHeaderReader {
 			result["kind"] = "string_constant";
 			result["type"] = type(value->type);
 			result["value"] = value->text;
+			return result;
+		}
+		if (value->pointerBits) {
+			result["kind"] = "pointer_constant";
+			result["type"] = type(value->type);
+			result["pointer_bits"] = static_cast<int64_t>(value->pointerBits);
+			llvm::SmallString<32> decimal;
+			value->integer.toString(decimal);
+			result["value"] = decimal.str().str();
 			return result;
 		}
 		result["kind"] = "enum_constant";

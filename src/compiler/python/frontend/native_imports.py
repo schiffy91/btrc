@@ -36,6 +36,7 @@ from ..abi.native_generated import (
     NativeObjectiveCObject,
     NativeParameterSemantics,
     NativePointer,
+    NativePointerConstant,
     NativeQualifiedType,
     NativeQualifiers,
     NativeRecordDeclaration,
@@ -653,6 +654,7 @@ class NativeHeaderSource(str):
         resource_query_type="",
         private_fields=False,
         invocation="",
+        value_only=False,
     ):
         value = super().__new__(cls, module)
         value.header = header
@@ -669,6 +671,7 @@ class NativeHeaderSource(str):
         value.resource_query_type = resource_query_type
         value.private_fields = private_fields
         value.invocation = invocation
+        value.value_only = value_only
         return value
 
     def __getnewargs__(self):
@@ -688,6 +691,7 @@ class NativeHeaderSource(str):
             self.resource_query_type,
             self.private_fields,
             self.invocation,
+            self.value_only,
         )
 
 
@@ -3232,6 +3236,7 @@ class NativeDeclarationImporter:
                 or self._native_types[previous_key] != self._native_types[key]
                 or previous_origin.type_spelling != origin.type_spelling
                 or previous_origin.read_only != origin.read_only
+                or previous_origin.value_only != origin.value_only
                 or previous_origin.call_contract != origin.call_contract
                 or previous_origin.resource != origin.resource
                 or (previous_origin.language != origin.language and not shared_c_record)
@@ -3287,7 +3292,15 @@ class NativeDeclarationImporter:
         selected.headers = tuple(dict.fromkeys((*selected.headers, *origin.headers)))
 
     def _add(
-        self, name, declaration, native_type=None, type_spelling="", read_only=False, call_contract=None, resource=None
+        self,
+        name,
+        declaration,
+        native_type=None,
+        type_spelling="",
+        read_only=False,
+        call_contract=None,
+        resource=None,
+        value_only=False,
     ):
         key = (str(self._origin), name)
         if key in self._declarations:
@@ -3297,6 +3310,7 @@ class NativeDeclarationImporter:
                 or type(previous) is not type(declaration)
                 or previous.source_file.type_spelling != type_spelling
                 or previous.source_file.read_only != read_only
+                or previous.source_file.value_only != value_only
                 or previous.source_file.call_contract != call_contract
                 or previous.source_file.resource != resource
             ):
@@ -3310,6 +3324,7 @@ class NativeDeclarationImporter:
             call_contract,
             language=self._origin.language,
             resource=resource,
+            value_only=value_only,
         )
         self._declarations[key] = declaration
         self._native_types[key] = native_type
@@ -4439,6 +4454,16 @@ class NativeDeclarationImporter:
                 name=declaration.name,
                 initializer=ast.IntLiteral(value=int(declaration.decimal_value), raw=raw),
             )
+        elif isinstance(declaration, NativePointerConstant):
+            if self._origin.language != "c":
+                raise NativeImportError("native pointer constants require C header visibility")
+            # The included SDK owns the value expression. Keep its typed name;
+            # the decimal address is semantic identity, never an initializer.
+            imported = ast.VarDeclStmt(
+                type=replace(self._type(declaration.value_type), is_extern=True),
+                name=declaration.name,
+                initializer=None,
+            )
         elif isinstance(declaration, NativeStringConstant):
             # The C use names the macro, whose literal decays to `const char*`:
             # the same projection, and the same read-only protection, as an SDK
@@ -4483,9 +4508,10 @@ class NativeDeclarationImporter:
             declaration.name,
             imported,
             self._declaration_identity(declaration),
-            read_only=isinstance(declaration, NativeStringConstant)
+            read_only=isinstance(declaration, (NativeStringConstant, NativePointerConstant))
             or (isinstance(declaration, NativeGlobal) and (declaration.read_only or contract is not None)),
             call_contract=contract,
+            value_only=isinstance(declaration, NativePointerConstant),
         )
         if isinstance(declaration, NativeFunction):
             self._import_resource_output(declaration, imported)
@@ -4688,6 +4714,13 @@ class NativeDeclarationImporter:
             )
         if isinstance(declaration, NativeGlobal):
             return type(declaration), self._type_identity(declaration.value_type), declaration.read_only
+        if isinstance(declaration, NativePointerConstant):
+            return (
+                type(declaration),
+                self._type_identity(declaration.value_type),
+                declaration.pointer_bits,
+                declaration.decimal_value,
+            )
         if isinstance(declaration, NativeStringConstant):
             return type(declaration), self._type_identity(declaration.value_type), declaration.string_value
         return type(declaration), self._type_identity(declaration.value_type), declaration.decimal_value
@@ -4897,7 +4930,7 @@ class NativeHeaderCodec:
                     else entry.underlying
                     if isinstance(entry, NativeTypedef)
                     else entry.value_type
-                    if isinstance(entry, (NativeConstant, NativeStringConstant, NativeGlobal))
+                    if isinstance(entry, (NativeConstant, NativeStringConstant, NativePointerConstant, NativeGlobal))
                     else entry.record_type
                 )
                 self._verify_layout_references(native_type, layouts)
@@ -5074,6 +5107,8 @@ class NativeHeaderCodec:
                 "related_result",
                 "returns_inner_pointer",
             }
+        elif kind == "pointer_constant":
+            required |= {"value", "pointer_bits"}
         elif kind in {"enum_constant", "string_constant"}:
             required |= {"value"}
         elif kind == "global":
@@ -5201,6 +5236,23 @@ class NativeHeaderCodec:
             return NativeTypedef(**position, underlying=native_type)
         if kind == "global":
             return NativeGlobal(**position, value_type=native_type, read_only=self._boolean(value["read_only"]))
+        if kind == "pointer_constant":
+            pointer = native_type
+            while isinstance(pointer, (NativeAlias, NativeQualifiedType)):
+                pointer = pointer.underlying
+            if not isinstance(pointer, NativePointer):
+                raise NativeImportError("native pointer constant requires an object or void pointer")
+            pointee = pointer.pointee
+            while isinstance(pointee, (NativeAlias, NativeQualifiedType)):
+                pointee = pointee.underlying
+            if isinstance(pointee, (NativeFunctionType, NativeObjectiveCObject, NativeObjectiveCBlock)):
+                raise NativeImportError("native pointer constant requires an object or void pointer")
+            bits = self._integer(value["pointer_bits"])
+            decimal = self._decimal(value["value"])
+            maximum = {32: "4294967295", 64: "18446744073709551615"}.get(bits)
+            if maximum is None or len(decimal) > len(maximum) or (len(decimal) == len(maximum) and decimal > maximum):
+                raise NativeImportError("native pointer constant value exceeds its supported target width")
+            return NativePointerConstant(**position, value_type=native_type, pointer_bits=bits, decimal_value=decimal)
         if kind == "string_constant":
             return NativeStringConstant(
                 **position, value_type=native_type, string_value=self._text(value["value"], empty=True)

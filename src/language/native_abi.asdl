@@ -24,6 +24,7 @@ module NativeAbi {
                        | NativeTypedef(identifier name, native_type underlying)
                        | NativeConstant(identifier name, native_type value_type, string decimal_value, string enum_identity)
                        | NativeStringConstant(identifier name, native_type value_type, string string_value)
+                       | NativePointerConstant(identifier name, native_type value_type, int pointer_bits, string decimal_value)
                        | NativeGlobal(identifier name, native_type value_type, bool read_only)
                        | NativeRecordDeclaration(identifier name, native_type record_type)
                        attributes(string source_file, int line, int column)

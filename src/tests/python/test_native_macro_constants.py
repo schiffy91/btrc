@@ -6,7 +6,9 @@ gives it, and btrc code names it directly instead of through a handwritten
 re-spelling in a wrapper header (FreeType's FT_LOAD_* flags, WebGPU's
 WGPU_DEPTH_SLICE_UNDEFINED and CoreAudio's string keys, for example). Integer
 macros import as `enum_constant` records, ordinary string-literal macros as
-`string_constant` records typed `const char*`.
+`string_constant` records typed `const char*`, and numeric pointer sentinels as
+`pointer_constant` records with their target type and width. Pointer uses retain
+the SDK macro name; they never acquire addressable storage.
 """
 
 from __future__ import annotations
@@ -21,7 +23,10 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.abi.native_generated import NativePointerConstant
+from src.compiler.python.artifacts.archive import TargetCatalog
 from src.compiler.python.frontend.native_imports import NativeHeaderCodec
+from src.tests.c_toolchains import default_c_compiler, default_cxx_compiler
 from src.tests.process_limits import RUN_TIMEOUT, TOOL_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
@@ -467,6 +472,213 @@ def test_native_constant_address_is_refused_identically(reader, tmp_path, reques
             else _compile_cxx_constants(directory, request, frontend, program)
         )
         assert compiled.returncode != 0, frontend
+        lines = [line for line in compiled.stderr.splitlines() if diagnostic in line]
+        assert lines, (frontend, compiled.stderr)
+        reports.append(re.sub(r" at \d+:\d+$", "", lines[0][lines[0].index(diagnostic) :]))
+    assert reports[0] == reports[1]
+
+
+POINTER_MACROS = """#pragma once
+typedef void* SentinelHandle;
+typedef const unsigned char* ReadOnlyBytes;
+#define PTR_NULL ((void*)0)
+#define PTR_ALL ((SentinelHandle)(__INTPTR_TYPE__)-1)
+#define PTR_CAST ((int*)(__UINTPTR_TYPE__)16)
+#define PTR_CONST ((ReadOnlyBytes)(__UINTPTR_TYPE__)32)
+#define PTR_ALIAS PTR_ALL
+#define PTR_TRUNCATED ((void*)(__UINTPTR_TYPE__)0x100000001ULL)
+#define PTR_SIGNED ((void*)(__INTPTR_TYPE__)-2)
+extern int pointerObject;
+extern int pointerCounter;
+extern void* pointerRuntime;
+extern void* pointerFactory(void);
+extern void pointerFunction(void);
+#define PTR_OBJECT ((void*)&pointerObject)
+#define PTR_OBJECT_OFFSET ((void*)(&pointerObject + 1))
+#define PTR_NULL_ARITH ((char*)0 + 1)
+#define PTR_RUNTIME pointerRuntime
+#define PTR_CALL pointerFactory()
+#define PTR_EFFECT ((++pointerCounter), (void*)0)
+#define PTR_FUNCTION (&pointerFunction)
+#define PTR_STRING ((const char*)"sentinel")
+#define PTR_STRING_OFFSET ((const char*)"sentinel" + 1)
+#define PTR_ADDRESS_SPACE ((void __attribute__((address_space(1)))*)0)
+static inline int pointerMatchesSdk(void* zero, SentinelHandle all, int* castValue,
+                                   ReadOnlyBytes readOnly, void* alias, void* truncated) {
+    return zero == PTR_NULL && all == PTR_ALL && castValue == PTR_CAST &&
+           readOnly == PTR_CONST && alias == PTR_ALIAS && truncated == PTR_TRUNCATED;
+}
+"""
+POINTER_SYMBOLS = ["PTR_NULL", "PTR_ALL", "PTR_CAST", "PTR_CONST", "PTR_ALIAS", "PTR_TRUNCATED"]
+
+
+def _read_pointer(reader: str, tmp_path: Path, symbol: str, triple: str) -> subprocess.CompletedProcess[str]:
+    header = tmp_path / "Pointers.h"
+    header.write_text(POINTER_MACROS, encoding="utf-8")
+    return subprocess.run(
+        [reader, f"--symbol={symbol}", str(header), "--", "-x", "c", "-std=c11", "-target", triple],
+        capture_output=True,
+        text=True,
+        timeout=TOOL_TIMEOUT,
+    )
+
+
+@pytest.mark.parametrize(
+    ("triple", "bits"),
+    [("i686-w64-windows-gnu", 32), ("x86_64-w64-windows-gnu", 64), ("aarch64-w64-windows-gnu", 64)],
+)
+@pytest.mark.parametrize("symbol", [*POINTER_SYMBOLS, "PTR_SIGNED"])
+def test_pointer_macro_reader_preserves_target_type_and_bits(reader, tmp_path, triple, bits, symbol):
+    result = _read_pointer(reader, tmp_path, symbol, triple)
+
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    header = NativeHeaderCodec().decode(result.stdout)
+    declaration = next(item for item in json.loads(result.stdout)["declarations"] if item["name"] == symbol)
+    projected = next(item for item in header.exports if item.name == symbol)
+    expected = {
+        "PTR_NULL": 0,
+        "PTR_ALL": (1 << bits) - 1,
+        "PTR_ALIAS": (1 << bits) - 1,
+        "PTR_CAST": 16,
+        "PTR_CONST": 32,
+        "PTR_TRUNCATED": 0x100000001 & ((1 << bits) - 1),
+        "PTR_SIGNED": (1 << bits) - 2,
+    }
+    assert declaration["kind"] == "pointer_constant"
+    assert declaration["pointer_bits"] == bits
+    assert declaration["value"] == str(expected[symbol])
+    assert declaration["source"].endswith("Pointers.h")
+    assert isinstance(projected, NativePointerConstant)
+    assert projected.pointer_bits == bits and projected.decimal_value == str(expected[symbol])
+    native_type = declaration["type"]
+    if symbol in {"PTR_ALL", "PTR_ALIAS", "PTR_CONST"}:
+        assert native_type["kind"] == "typedef"
+        assert native_type["name"] == ("ReadOnlyBytes" if symbol == "PTR_CONST" else "SentinelHandle")
+    while native_type["kind"] in {"typedef", "qualified"}:
+        native_type = native_type["underlying"]
+    assert native_type["kind"] == "pointer"
+    pointee = native_type["pointee"]
+    assert pointee["name"] == ("int" if symbol == "PTR_CAST" else "unsigned char" if symbol == "PTR_CONST" else "void")
+    assert pointee["const"] == (symbol == "PTR_CONST")
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "PTR_OBJECT",
+        "PTR_OBJECT_OFFSET",
+        "PTR_NULL_ARITH",
+        "PTR_RUNTIME",
+        "PTR_CALL",
+        "PTR_EFFECT",
+        "PTR_FUNCTION",
+        "PTR_STRING",
+        "PTR_STRING_OFFSET",
+        "PTR_ADDRESS_SPACE",
+    ],
+)
+def test_pointer_macro_reader_rejects_nonrepresentable_values(reader, tmp_path, symbol):
+    result = _read_pointer(reader, tmp_path, symbol, "x86_64-w64-windows-gnu")
+
+    assert result.returncode != 0
+    if symbol == "PTR_ADDRESS_SPACE":
+        assert symbol in result.stderr or "Native address spaces are not implemented" in result.stderr
+    else:
+        assert f"Native macro {symbol}" in result.stderr
+    assert not result.stdout, "a rejected macro must not publish a partial native document"
+
+
+def _compile_pointer_constants(tmp_path: Path, request, frontend: str, program: str) -> tuple:
+    (tmp_path / "Pointers.h").write_text(POINTER_MACROS, encoding="utf-8")
+    (tmp_path / "btrc.toml").write_text(
+        STRING_MANIFEST.replace('header = "Macros.h"', 'header = "Pointers.h"').format(
+            symbols=", ".join(json.dumps(symbol) for symbol in [*POINTER_SYMBOLS, "pointerMatchesSdk"])
+        ),
+        encoding="utf-8",
+    )
+    source = tmp_path / "Main.btrc"
+    source.write_text(program, encoding="utf-8")
+    generated = tmp_path / "Program.c"
+    plan = tmp_path / "plan.json"
+    flags = [
+        "--no-cache",
+        "--strict-imports",
+        "--target",
+        TargetCatalog().host_target(),
+        "--emit-link-plan",
+        str(plan),
+        str(source),
+        "-o",
+        str(generated),
+    ]
+    command = (
+        [sys.executable, "-B", "-m", "src.compiler.python.main", *flags]
+        if frontend == "python"
+        else [str(request.getfixturevalue("btrcc_bin")), *flags]
+    )
+    compiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=TRANSPILE_TIMEOUT)
+    return compiled, generated, plan
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_pointer_macro_values_match_actual_c_and_keep_sdk_names(reader, tmp_path, request, frontend):
+    del reader
+    program = """int main() {
+    void* zero = PTR_NULL;
+    void* all = PTR_ALL;
+    int* castValue = PTR_CAST;
+    const unsigned char* readOnly = PTR_CONST;
+    void* alias = PTR_ALIAS;
+    void* truncated = PTR_TRUNCATED;
+    assert(pointerMatchesSdk(zero, all, castValue, readOnly, alias, truncated) != 0);
+    assert(zero == null && alias == all);
+    printf("PASS: native pointer macro constants\\n");
+    return 0;
+}
+"""
+    compiled, generated, plan = _compile_pointer_constants(tmp_path, request, frontend, program)
+    assert compiled.returncode == 0, compiled.stderr
+    assert not compiled.stderr
+    text = generated.read_text(encoding="utf-8")
+    for symbol in POINTER_SYMBOLS:
+        assert re.search(rf"=\s*{symbol}\s*;", text), symbol
+        assert not re.search(rf"\b{symbol}\s*=", text), "a macro value must not acquire fabricated storage"
+    executable = tmp_path / "Program"
+    NativePlanBuilder().build(
+        plan_path=plan,
+        generated_c=generated,
+        output=executable,
+        cc=default_c_compiler(),
+        cxx=default_cxx_compiler(),
+    )
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert ran.returncode == 0, ran.stderr
+    assert ran.stdout == "PASS: native pointer macro constants\n"
+    assert not ran.stderr
+
+
+@pytest.mark.parametrize(
+    ("statement", "diagnostic"),
+    [
+        ("PTR_ALL = null;", "error: Cannot modify read-only native global"),
+        ("PTR_ALL++;", "error: Cannot modify read-only native global"),
+        ("++PTR_ALL;", "error: Cannot modify read-only native global"),
+        ("var slot = &PTR_ALL;", "error: Native constant 'PTR_ALL' is a value and has no address"),
+        ("int number = PTR_ALL;", "error: Cannot assign"),
+        ("unsigned char* bytes = PTR_CONST;", "error: Cannot assign"),
+    ],
+)
+def test_pointer_macro_value_only_and_type_diagnostics_match(reader, tmp_path, request, statement, diagnostic):
+    del reader
+    program = f"int main() {{\n\t{statement}\n\treturn 0;\n}}\n"
+    reports = []
+    for frontend in ("python", "selfhost"):
+        directory = tmp_path / frontend
+        directory.mkdir()
+        compiled, generated, plan = _compile_pointer_constants(directory, request, frontend, program)
+        assert compiled.returncode != 0, frontend
+        assert not generated.exists() and not plan.exists(), "rejected use must not publish native outputs"
         lines = [line for line in compiled.stderr.splitlines() if diagnostic in line]
         assert lines, (frontend, compiled.stderr)
         reports.append(re.sub(r" at \d+:\d+$", "", lines[0][lines[0].index(diagnostic) :]))

@@ -767,6 +767,7 @@ class FeNativeImportedDeclaration {
 	public Vector<string> headers;
 	public string typeSpelling;
 	public bool readOnly;
+	public bool valueOnly = false;
 	public FeNativeCallContract? callContract;
 	public Map<string, FeNativeCallContract> fieldContracts;
 	public bool coalesced;
