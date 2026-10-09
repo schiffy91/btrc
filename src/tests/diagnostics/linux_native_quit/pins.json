@@ -1,0 +1,41 @@
+{
+  "baseline": "647363f9d3aefcd19232c6af5921034f95b52a63",
+  "candidate": "32b361b21b50b354f2e547a99b05745794989720",
+  "candidate_fixtures": [
+    "UI2LinuxApplicationQuit.btrc",
+    "UI2LinuxApplicationQuitTransactions.btrc",
+    "UI2LinuxApplicationQuitCleanup.btrc",
+    "UI2LinuxApplicationQuitRetry.btrc",
+    "UI2LinuxWindowClose.btrc",
+    "UI2LinuxExecutor.btrc",
+    "UI2LinuxLifecycle.btrc"
+  ],
+  "compiler": "5aa232ad27854b7f45a2a42f75cbf0cbab589578",
+  "driver_sha256": "12fd4f5e4b71da0e1a3b999d53f5135af9683f3d96cf583184266fa761eb1cab",
+  "fixtures": {
+    "ApplicationQuitFaults.btrc": "b1f5303e8bfee5ad7858f9ab7836303ae1498db04f01832c70c81552204bddb8",
+    "ApplicationQuitFaults.c": "6d7bbb2634b469f02bdfe995bae8c5d9e6baee03dedcf0ba0a80afbd90dcba73",
+    "ApplicationQuitFaults.h": "e7c572c709f1f2c2848a4b3570f5fbae1e20c6bb61ef658c37461ea9cc4c5ff4",
+    "ApplicationQuitProbe.btrc": "6b56801d85f37b3b11f9c15361a1d7856e1a6c401759a8b9f4e3486005dc978c",
+    "ApplicationQuitProbe.c": "b8d4458038403259f177701c53fe2b8620a662fadcd7a67ba1ac45c4e51cfd80",
+    "ApplicationQuitProbe.h": "d8115b09990617de39ef903518bfea6c53b3800a7190a8c21add828dd394c79a",
+    "UI2LinuxApplicationQuit.btrc": "ddd9f80de6a071fba5dbdca228f1adc442d8af3170964fdd95c6e71a71516351",
+    "UI2LinuxApplicationQuitCleanup.btrc": "87626c6653ac16ce7fdba7722d3543dda3f0561f51c8539a419c395e5b43fced",
+    "UI2LinuxApplicationQuitRetry.btrc": "7f10db109bc5847c35d6730f96e1befe94b92f05bdddc265fc58a912e381c731",
+    "UI2LinuxApplicationQuitTransactions.btrc": "9ed3eefe589cc654c5f8ccc3149bf5dde3d7279539b1affbabeb980bec9dbdfb",
+    "UI2LinuxExecutor.btrc": "a563118910a1f75b28bf8e7a74d7706f6ff1f8a017a84dbda32329e486fb8e12",
+    "UI2LinuxLifecycle.btrc": "f78add3fc39150db614964ded56dfc14427fe9cc3d9f4c8116d797ec18290af8",
+    "UI2LinuxWindowClose.btrc": "c7432a977676f2f553f8eefbac0bc68ae4ff5b3dc342bb8081d65c9a7e499c94",
+    "WindowCloseProbe.btrc": "49239845b6bd313dcca7be7deeb29d21232f0317c59835a7212d5f04b5dc32f1",
+    "WindowCloseProbe.c": "1f6f6fd46082f6228f99f01ffda529198d24d1838feadd8e4992abbce784ac6c",
+    "WindowCloseProbe.h": "3490a5db55907043c7594a41bfaa2be7080e17bc6038a4945e557e7aa761d0fe"
+  },
+  "fragment": [],
+  "helpers": {
+    "inside.sh": "c660d6b303378d3815fcc77a46af6986bfde76afae0c1f93bf52c893fd1d0989",
+    "qualify.py": "cfaa636050c343ed4ec03c7fa0723940cbe43957727a83b911f421885e23fac6",
+    "run-stage.py": "35fcb2e666b51026c33ddd1c07ed0a1ad718088d9ab35017fdd7cceb5db0029d"
+  },
+  "production": "32b361b21b50b354f2e547a99b05745794989720",
+  "qualified_window_base": "fbb9e27a2badafb50f2379a0395cde11e0028ada"
+}
