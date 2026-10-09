@@ -441,9 +441,15 @@ source/tool inputs unchanged. This is allocation attribution, not quiet timing
 or final memory acceptance. The [current IR census](docs/workstreams/current-ir-node-census.md)
 records exact evidence and the next implementation: a compact fat-tagged core
 with optional typed payloads, modeled at roughly 510 MiB reduction including new
-allocation/edge costs. The compact representation and every production consumer are now drafted;
-parser/receiver audits find no old field accesses, but semantic/native tests
-and the estimated memory saving remain unqualified. Independent retention
+allocation/edge costs. The compact representation and every production consumer
+are implemented on a separate candidate; parser/receiver audits find no old
+field accesses. Executable qualification first exposed a fixture nullability
+warning, retained as attempt one. After a test-only replacement correction, all
+three authentic old-layout native drivers pass. Candidate `5d092d0f` then fails
+all four reference model cases before C emission: boolean payload selections
+are inferred as integers and repeated nullable list projections do not narrow.
+Targeted production corrections are in progress with the tests unchanged.
+Actual compact-layout ownership, output parity and memory savings remain unqualified. Independent retention
 candidate `266cadd7` keeps per-node setjmp facts only for fixed safety roots while
 solving and exporting every function summary. The original `6f1b81d9` baseline edit passes;
 the candidate passes the same production incremental edit and six added cases,
@@ -496,6 +502,21 @@ callback and no close request after one semantic dispatch; the actual counters
 are not captured, so a resize-settlement explanation is still a hypothesis.
 Source/tool/binary closure passes. All three artifacts remain retained; provider,
 assertions, four native cells, classifier and deadlines are unchanged.
+R4 retains the original resize request and all pressure assertions, adding a
+bounded real SDL event-pump prerequisite: actual size 180 by 110, exactly one
+pending semantic record and neither callback delivered. The five-second native
+settlement bound fits inside the unchanged 30-second case bound. Baseline
+`dc73ce96` and candidate `fbb9e27a` carry the identical fixture change; classifier
+changes only move six expected source coordinates. Reviewed diagnostic
+`d6242d3e` starts automatic run `37874567498`; native acceptance remains open.
+
+The qualified CI repair assembly is now published as PR68 head `5aa232ad`:
+Windows ARM64 `37873882639`, Android `37873882709`, Windows `37873882883`,
+macOS `37873882641` and Linux `37873882738`. Android passes; the remaining
+workflows are running or queued at this checkpoint. The memory candidates and
+new UI2 provider work remain separate. Main stays `cbd3ddcd`; full combined
+qualification, the dedicated native-GUI lane and actual release bundles remain
+required before integration. These runs and Window R4 occupy the two hosted waves.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
