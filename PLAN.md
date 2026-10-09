@@ -644,7 +644,12 @@ target and sysroot exported by the compiler environment. No product compilation,
 warmup or measurement ran. The authenticated failure audit is `84366846d2d3497ad286db8dac3e397a419ee472e9806037c255b9524953ffe3`;
 its binary addendum `f44cea16441bcf308aabc060209604fd52ff268db429c3f995bea632b9be5d84`
 verifies both actual binaries and generated C. A minimal environment-composition
-repair passes eight shell checks and is committed as `59108aad`, with the other 15 embedded helpers unchanged; it remains unpublished and unmeasured.
+repair passes eight shell checks and is committed as `59108aad`, with the other
+15 embedded helpers unchanged. It was published once by normal fast-forward at
+06:31 UTC after the Linux product replay finished. Automatic push run
+[37893971479](https://github.com/schiffy91/btrsmith/actions/runs/37893971479),
+job `113700966212`, is resolving the same compiler/product environments. No manual
+duplicate dispatch occurred; actual measurements remain pending.
 
 That terminal run released a hosted slot. Qualified Mac test-helper `a29ab3e3`
 was published once by normal fast-forward to PR68 at 05:32 UTC, preserving the
@@ -664,10 +669,13 @@ The Windows release ZIP payload has not been downloaded locally; its in-job
 checksum/smoke and upload digest are retained. This does not close other lanes.
 The top-level queued labels do not imply that all jobs are idle. PR68's description
 now matches current head `a29ab3e3` and its actual qualification scope. This PR68
-wave and BTRSmith replay `37883596677` occupy both hosted slots. The replay's original paired live-agent acceptance stage has now passed
-(observed 05:52 UTC); its original audio-failure journeys are running, with
-installed-product checks and the final artifact audit pending. Native Linux quit `e6f076e5` and the repaired memory comparison
-remain queued.
+wave and memory comparison `37893971479` now occupy both hosted slots. BTRSmith
+replay `37883596677` completed successfully, including its original paired live-agent
+and audio-failure journeys, installed-product check and final source closure/upload;
+the retained artifact still needs independent review before broad acceptance is
+claimed. It covers product `2c9e5b43` with compiler `5aa232ad`, whose production
+compiler inputs match `a29ab3e3`; the newer album repair is separately qualified
+below. Native Linux quit `e6f076e5` remains queued.
 Main integration and any measured compiler improvement remain unclaimed.
 
 The current product review also found a concrete Library source defect against
@@ -721,8 +729,16 @@ fixture nullability warnings are retained. Audit:
 `22ed3c5f14ebdb548f87d7bc87655365592afb300379185938ec8f82a353655d`.
 The reviewed one-line recipe correction names those generated files as explicit
 Make goals, preserving the original rules, flags, time limits and full matrix.
-Fresh `btrsmith-album-regressions-2a15e4c-attempt-2` is now running; no complete
-regression result is claimed yet. Before launch, exactly ten historical generated C files were archived
+Fresh `btrsmith-album-regressions-2a15e4c-attempt-2` passed all 38 native
+executions and all nine original LinkPlanParity comparisons at 06:33 UTC. Result
+`01fbf18a9393cf5462689bfcb9a9f382980c2ea7dd1fea2bf69829f85ad4c430`
+and independent audit
+`b725a253d24b1f2a9316100ad8ed37c1b51b843c3ea8779a52183bf32b3a44e0`
+authenticate 18 frontend builds, 84 closed commands, 168 logs, source/tool identity
+and 9,137 generated files. PSARC retains its original three-binary fail-fast loop;
+its inner programs do not have separate process receipts. Existing nullable fixture
+warnings remain recorded. This proves the scoped macOS regressions, not full
+product/GUI acceptance or raw generated-C equality. Before launch, exactly ten historical generated C files were archived
 with verified bytes, modes, timestamps and recovery instructions, reclaiming
 644,300,800 allocated bytes and leaving about 80.75 GB free. Current sources,
 binaries, readers, logs, audits and qualification inputs remain unchanged. Archive
@@ -733,7 +749,12 @@ to the sidebar, then hides that sidebar below 900 pixels. The existing compact
 Settings test calls `activate()` and does not establish user reachability. The next
 product slice will preserve the existing navigation/draft owners while making Back
 reachable in compact layouts and checking native ancestor visibility and hit testing.
-This is a source-confirmed defect; runtime baseline and repair remain pending.
+This is a source-confirmed defect. A five-file typed AppKit baseline-fixture draft
+now checks native ancestor visibility, converted bounds and hit testing before
+routing mouse events through NSWindow, while preserving existing Settings session
+assertions. Production SettingsScreen is unchanged; independent fixture review,
+actual baseline execution and the stable-header repair remain pending. This will
+prove synthetic AppKit reachability and compositor capture, not physical input.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -3095,7 +3116,13 @@ three held threads and restoration, real foreign-process records, snapshot error
 short records and cleanup. Overflow remains structurally checked. The explicit
 driver preserves emitted C through two authenticated project-header VFS mappings;
 actual SDK projection, VFS lookup, strict native build and Windows execution have
-not run. The original
+not run. The reviewed local projection recipe preserves the existing 17 provider/
+manifest/index checks and four actual SDK projections from a shared package root.
+A separate driver-only follow-up `bd50f377` reuses the established Job Object
+process runner and native executor for process cleanup, PE/hardware validation
+and retained raw results, preserving provider/fixture/header bytes and 180/90-second
+limits. Repository-config formatting passed; independent review and native
+execution remain pending. The original
 WindowsMain SDK-scanning process-composition gap remains explicit; supported-host
 projection followed by actual Windows x64/ARM64 execution must be distinguished
 from claiming SDK scanning on a Windows-hosted compiler.
