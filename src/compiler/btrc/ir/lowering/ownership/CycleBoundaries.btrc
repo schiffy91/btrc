@@ -30,25 +30,26 @@ class CycleReturnBoundaryLowerer {
 
 	private void collectDeclaredNames(IRNode? node) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_VAR_DECL) { self.localNames.put(node.name, true); }
 		self.collectDeclaredNames(node.left);
 		self.collectDeclaredNames(node.right);
-		self.collectDeclaredNames(node.operand);
+		self.collectDeclaredNames((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null));
 		self.collectDeclaredNames(node.expr);
-		self.collectDeclaredNames(node.obj);
-		self.collectDeclaredNames(node.index);
-		self.collectDeclaredNames(node.condition);
-		self.collectDeclaredNames(node.trueExpr);
-		self.collectDeclaredNames(node.falseExpr);
-		self.collectDeclaredNames(node.arraySize);
-		self.collectDeclaredNames(node.init);
-		self.collectDeclaredNames(node.value);
-		self.collectDeclaredNames(node.target);
-		self.collectDeclaredNames(node.thenBlock);
-		self.collectDeclaredNames(node.elseBlock);
-		self.collectDeclaredNames(node.body);
-		self.collectDeclaredNames(node.update);
-		self.collectDeclaredNames(node.result);
+		self.collectDeclaredNames((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null));
+		self.collectDeclaredNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null));
 		for argument in node.args() { self.collectDeclaredNames(argument); }
 		for statement in node.stmts() { self.collectDeclaredNames(statement); }
 	}
@@ -67,10 +68,11 @@ class CycleReturnBoundaryLowerer {
 
 	private bool containsCyclableRelease(IRNode? node) {
 		if (node == null) { return false; }
-		if (node.kind == IRK_CALL && (node.callee == "__btrc_arc_release" || node.callee == "__btrc_arc_release_edge" || node.callee == "__btrc_arc_replace_edge")) {
+		int domain = node.payloadDomain();
+		if (node.kind == IRK_CALL && ((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") == "__btrc_arc_release" || (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") == "__btrc_arc_release_edge" || (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") == "__btrc_arc_replace_edge")) {
 			return true;
 		}
-		if (self.containsCyclableRelease(node.left) || self.containsCyclableRelease(node.right) || self.containsCyclableRelease(node.operand) || self.containsCyclableRelease(node.expr) || self.containsCyclableRelease(node.obj) || self.containsCyclableRelease(node.index) || self.containsCyclableRelease(node.condition) || self.containsCyclableRelease(node.trueExpr) || self.containsCyclableRelease(node.falseExpr) || self.containsCyclableRelease(node.arraySize) || self.containsCyclableRelease(node.init) || self.containsCyclableRelease(node.value) || self.containsCyclableRelease(node.target) || self.containsCyclableRelease(node.thenBlock) || self.containsCyclableRelease(node.elseBlock) || self.containsCyclableRelease(node.body) || self.containsCyclableRelease(node.update) || self.containsCyclableRelease(node.result)) {
+		if (self.containsCyclableRelease(node.left) || self.containsCyclableRelease(node.right) || self.containsCyclableRelease((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null)) || self.containsCyclableRelease(node.expr) || self.containsCyclableRelease((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null)) || self.containsCyclableRelease((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null))) {
 			return true;
 		}
 		int index = 0;
@@ -95,28 +97,28 @@ class CycleReturnBoundaryLowerer {
 		return IRNode.expressionStatement(IRNode.call("__btrc_flush_cycles", arguments));
 	}
 
-	private bool isForcedFlush(IRNode node) { return node.kind == IRK_EXPR_STMT && node.expr != null && node.expr.kind == IRK_CALL && node.expr.callee == "__btrc_flush_cycles"; }
+	private bool isForcedFlush(IRNode node) { return node.kind == IRK_EXPR_STMT && node.expr != null && node.expr.kind == IRK_CALL && ((IRCallPayload)node.expr.payload).callee == "__btrc_flush_cycles"; }
 
 	private bool endsWithFlush(Vector<IRNode> statements) { return statements.len > 0 && self.isForcedFlush(statements.get(statements.len - 1)); }
 
 	private bool isMaterializedReturn(Vector<IRNode> statements, IRNode statement) {
-		if (statements.len < 2 || !self.endsWithFlush(statements) || statement.value == null || statement.value.kind != IRK_VAR) {
+		if (statements.len < 2 || !self.endsWithFlush(statements) || ((IRValuePayload)statement.payload).value == null || ((IRValuePayload)statement.payload).value.kind != IRK_VAR) {
 			return false;
 		}
 		IRNode declaration = statements.get(statements.len - 2);
-		return declaration.kind == IRK_VAR_DECL && declaration.isCycleReturnTemp && declaration.name == statement.value.name;
+		return declaration.kind == IRK_VAR_DECL && ((IRDeclarationPayload)declaration.payload).isCycleReturnTemp && declaration.name == ((IRValuePayload)statement.payload).value.name;
 	}
 
 	private void rewriteNestedReturns(IRFunction definition, IRNode node) {
 		if (node.kind == IRK_BLOCK) {
 			self.rewriteReturns(definition, node);
 		} else if (node.kind == IRK_IF) {
-			self.rewriteReturns(definition, node.thenBlock);
-			if (node.elseBlock != null) {
-				self.rewriteReturns(definition, node.elseBlock);
+			self.rewriteReturns(definition, ((IRControlPayload)node.payload).thenBlock);
+			if (((IRControlPayload)node.payload).elseBlock != null) {
+				self.rewriteReturns(definition, ((IRControlPayload)node.payload).elseBlock);
 			}
 		} else if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE || node.kind == IRK_FOR) {
-			self.rewriteReturns(definition, node.body);
+			self.rewriteReturns(definition, ((IRControlPayload)node.payload).body);
 		} else if (node.kind == IRK_SWITCH) {
 			int index = 0;
 			while (index < node.args().len) {
@@ -129,6 +131,7 @@ class CycleReturnBoundaryLowerer {
 	}
 
 	private void rewriteReturns(IRFunction definition, IRNode block) {
+		block.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
 		Vector<IRNode> rewritten = [];
 		int index = 0;
 		while (index < block.stmts().len) {
@@ -136,12 +139,12 @@ class CycleReturnBoundaryLowerer {
 			self.rewriteNestedReturns(definition, statement);
 			if (statement.kind == IRK_RETURN) {
 				bool materialized = self.isMaterializedReturn(rewritten, statement);
-				if (statement.value != null && !materialized) {
+				if (((IRValuePayload)statement.payload).value != null && !materialized) {
 					string result = self.nextReturnName();
-					IRNode declaration = IRNode.variableDeclaration(definition.returnType, result, statement.value);
-					declaration.isCycleReturnTemp = true;
+					IRNode declaration = IRNode.variableDeclaration(definition.returnType, result, ((IRValuePayload)statement.payload).value);
+					((IRDeclarationPayload)declaration.payload).isCycleReturnTemp = true;
 					rewritten.push(declaration);
-					statement.value = IRNode.variable(result);
+					((IRValuePayload)statement.payload).value = IRNode.variable(result);
 				}
 				if (!self.endsWithFlush(rewritten)) {
 					rewritten.push(self.forcedFlush());
@@ -150,7 +153,7 @@ class CycleReturnBoundaryLowerer {
 			rewritten.push(statement);
 			index = index + 1;
 		}
-		block.stmtsStorage = rewritten;
+		((IRControlPayload)block.payload).stmtsStorage = rewritten;
 	}
 
 	private void forceBoundary(IRFunction definition) {
@@ -379,13 +382,13 @@ class CycleBoundaryLowerer {
 			return node.name == "self" || aliases.has(node.name);
 		}
 		if (node.kind == IRK_FIELD_ACCESS || node.kind == IRK_INDEX) {
-			return self.topologyRootedInSelf(node.obj, aliases);
+			return self.topologyRootedInSelf(((IRProjectionPayload)node.payload).obj, aliases);
 		}
 		if (node.kind == IRK_ADDRESS_OF || node.kind == IRK_CAST || node.kind == IRK_DEREF) {
 			return self.topologyRootedInSelf(node.expr, aliases);
 		}
 		if (node.kind == IRK_UNARYOP) {
-			return self.topologyRootedInSelf(node.operand, aliases);
+			return self.topologyRootedInSelf(((IRUnaryPayload)node.payload).operand, aliases);
 		}
 		if (node.kind == IRK_BINOP && (node.op == "+" || node.op == "-")) {
 			return self.topologyRootedInSelf(node.left, aliases) || self.topologyRootedInSelf(node.right, aliases);
@@ -396,13 +399,13 @@ class CycleBoundaryLowerer {
 	private bool selfTopologyStorage(IRNode? node, Map<string, bool> aliases) {
 		if (node == null) { return false; }
 		if (node.kind == IRK_FIELD_ACCESS || node.kind == IRK_INDEX) {
-			return self.topologyRootedInSelf(node.obj, aliases);
+			return self.topologyRootedInSelf(((IRProjectionPayload)node.payload).obj, aliases);
 		}
 		if (node.kind == IRK_DEREF) {
 			return self.topologyRootedInSelf(node.expr, aliases);
 		}
 		if (node.kind == IRK_UNARYOP && node.op == "*") {
-			return self.topologyRootedInSelf(node.operand, aliases);
+			return self.topologyRootedInSelf(((IRUnaryPayload)node.payload).operand, aliases);
 		}
 		return false;
 	}
@@ -417,13 +420,14 @@ class CycleBoundaryLowerer {
 
 	private bool collectTopologyAliases(IRNode? node, Map<string, bool> aliases) {
 		if (node == null) { return false; }
+		int domain = node.payloadDomain();
 		bool changed = false;
-		if (node.kind == IRK_VAR_DECL && node.init != null) {
-			if (self.addTopologyAlias(node.name, node.init, aliases)) {
+		if (node.kind == IRK_VAR_DECL && ((IRDeclarationPayload)node.payload).init != null) {
+			if (self.addTopologyAlias(node.name, ((IRDeclarationPayload)node.payload).init, aliases)) {
 				changed = true;
 			}
-		} else if (node.kind == IRK_ASSIGN && node.target != null && node.target.kind == IRK_VAR) {
-			if (self.addTopologyAlias(node.target.name, node.value, aliases)) {
+		} else if (node.kind == IRK_ASSIGN && ((IRValuePayload)node.payload).target != null && ((IRValuePayload)node.payload).target.kind == IRK_VAR) {
+			if (self.addTopologyAlias(((IRValuePayload)node.payload).target.name, ((IRValuePayload)node.payload).value, aliases)) {
 				changed = true;
 			}
 		} else if (node.kind == IRK_BINOP && node.op == "=" && node.left != null && node.left.kind == IRK_VAR) {
@@ -437,52 +441,52 @@ class CycleBoundaryLowerer {
 		if (self.collectTopologyAliases(node.right, aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.operand, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), aliases)) {
 			changed = true;
 		}
 		if (self.collectTopologyAliases(node.expr, aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.obj, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.index, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.condition, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.trueExpr, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.falseExpr, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.arraySize, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.init, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.value, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.target, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.thenBlock, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.elseBlock, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.body, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.update, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.result, aliases)) {
+		if (self.collectTopologyAliases((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), aliases)) {
 			changed = true;
 		}
 		int index = 0;
@@ -511,22 +515,23 @@ class CycleBoundaryLowerer {
 
 	private bool containsTopologyMutation(IRNode? node, Map<string, bool> aliases) {
 		if (node == null) { return false; }
-		if (node.kind == IRK_ASSIGN && self.selfTopologyStorage(node.target, aliases)) {
+		int domain = node.payloadDomain();
+		if (node.kind == IRK_ASSIGN && self.selfTopologyStorage(((IRValuePayload)node.payload).target, aliases)) {
 			return true;
 		}
 		if (node.kind == IRK_BINOP && self.topologyAssignmentOperator(node.op) && self.selfTopologyStorage(node.left, aliases)) {
 			return true;
 		}
-		if (node.kind == IRK_UNARYOP && (node.op == "++" || node.op == "--") && self.selfTopologyStorage(node.operand, aliases)) {
+		if (node.kind == IRK_UNARYOP && (node.op == "++" || node.op == "--") && self.selfTopologyStorage(((IRUnaryPayload)node.payload).operand, aliases)) {
 			return true;
 		}
 		if (node.kind == IRK_CALL) {
-			int slot = self.topologyMutatingCallSlot(node.callee);
+			int slot = self.topologyMutatingCallSlot(((IRCallPayload)node.payload).callee);
 			if (slot >= 0 && slot < node.args().len && self.topologyRootedInSelf(node.args().get(slot), aliases)) {
 				return true;
 			}
 		}
-		if (self.containsTopologyMutation(node.left, aliases) || self.containsTopologyMutation(node.right, aliases) || self.containsTopologyMutation(node.operand, aliases) || self.containsTopologyMutation(node.expr, aliases) || self.containsTopologyMutation(node.obj, aliases) || self.containsTopologyMutation(node.index, aliases) || self.containsTopologyMutation(node.condition, aliases) || self.containsTopologyMutation(node.trueExpr, aliases) || self.containsTopologyMutation(node.falseExpr, aliases) || self.containsTopologyMutation(node.arraySize, aliases) || self.containsTopologyMutation(node.init, aliases) || self.containsTopologyMutation(node.value, aliases) || self.containsTopologyMutation(node.target, aliases) || self.containsTopologyMutation(node.thenBlock, aliases) || self.containsTopologyMutation(node.elseBlock, aliases) || self.containsTopologyMutation(node.body, aliases) || self.containsTopologyMutation(node.update, aliases) || self.containsTopologyMutation(node.result, aliases)) {
+		if (self.containsTopologyMutation(node.left, aliases) || self.containsTopologyMutation(node.right, aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), aliases) || self.containsTopologyMutation(node.expr, aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), aliases) || self.containsTopologyMutation((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), aliases)) {
 			return true;
 		}
 		int index = 0;
@@ -581,12 +586,12 @@ class CycleBoundaryLowerer {
 		if (node.kind == IRK_BLOCK) {
 			self.rewriteTopologyReturns(definition, node, token, marker);
 		} else if (node.kind == IRK_IF) {
-			self.rewriteTopologyReturns(definition, node.thenBlock, token, marker);
-			if (node.elseBlock != null) {
-				self.rewriteTopologyReturns(definition, node.elseBlock, token, marker);
+			self.rewriteTopologyReturns(definition, ((IRControlPayload)node.payload).thenBlock, token, marker);
+			if (((IRControlPayload)node.payload).elseBlock != null) {
+				self.rewriteTopologyReturns(definition, ((IRControlPayload)node.payload).elseBlock, token, marker);
 			}
 		} else if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE || node.kind == IRK_FOR) {
-			self.rewriteTopologyReturns(definition, node.body, token, marker);
+			self.rewriteTopologyReturns(definition, ((IRControlPayload)node.payload).body, token, marker);
 		} else if (node.kind == IRK_SWITCH) {
 			int index = 0;
 			while (index < node.args().len) {
@@ -599,23 +604,24 @@ class CycleBoundaryLowerer {
 	}
 
 	private void rewriteTopologyReturns(IRFunction definition, IRNode block, string token, string marker) {
+		block.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
 		Vector<IRNode> rewritten = [];
 		int index = 0;
 		while (index < block.stmts().len) {
 			IRNode statement = block.stmts().get(index);
 			self.rewriteNestedTopologyReturns(definition, statement, token, marker);
 			if (statement.kind == IRK_RETURN) {
-				if (statement.value != null) {
+				if (((IRValuePayload)statement.payload).value != null) {
 					string result = self.context.freshTemporary("__btrc_topology_return");
-					rewritten.push(IRNode.variableDeclaration(definition.returnType, result, statement.value));
-					statement.value = IRNode.variable(result);
+					rewritten.push(IRNode.variableDeclaration(definition.returnType, result, ((IRValuePayload)statement.payload).value));
+					((IRValuePayload)statement.payload).value = IRNode.variable(result);
 				}
 				self.appendTopologyEpilogue(rewritten, token, marker);
 			}
 			rewritten.push(statement);
 			index = index + 1;
 		}
-		block.stmtsStorage = rewritten;
+		((IRControlPayload)block.payload).stmtsStorage = rewritten;
 	}
 
 	private Vector<IRNode> topologyPrologue(string token, string marker, bool cleanupEnabled) {
@@ -661,7 +667,8 @@ class CycleBoundaryLowerer {
 			body.push(definition.body.stmts().get(index));
 			index = index + 1;
 		}
-		definition.body.stmtsStorage = body;
+		definition.body.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
+		((IRControlPayload)definition.body.payload).stmtsStorage = body;
 		return true;
 	}
 }

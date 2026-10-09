@@ -189,11 +189,11 @@ class DeclarationLowerer {
 		Vector<IRNode> noArguments = [];
 		if (realtime) {
 			IRNode trap = IRNode.call("__builtin_trap", noArguments);
-			trap.neverReturns = true;
+			((IRCallPayload)trap.payload).neverReturns = true;
 			return IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(trap)]), null);
 		}
 		IRNode abortCall = IRNode.call("abort", noArguments);
-		abortCall.neverReturns = true;
+		((IRCallPayload)abortCall.payload).neverReturns = true;
 		Vector<IRNode> failure = [IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"" + message + "\\n\""), IRNode.variable("stderr")])), IRNode.expressionStatement(abortCall)];
 		return IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block(failure), null);
 	}
@@ -347,7 +347,7 @@ class DeclarationLowerer {
 		}
 		for field in output.nullFields {
 			IRNode guard = self.nativeNullGuard(IRNode.literal("NULL"), f"Native call {declaration.name}: nonnull output {field}");
-			guard.condition = IRNode.binary(IRNode.fieldAccess(IRNode.variable(nativeName), field, false), "!=", IRNode.literal("NULL"));
+			((IRControlPayload)guard.payload).condition = IRNode.binary(IRNode.fieldAccess(IRNode.variable(nativeName), field, false), "!=", IRNode.literal("NULL"));
 			statements.push(guard);
 		}
 		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
@@ -454,7 +454,7 @@ class DeclarationLowerer {
 		body.push(IRNode.returnStatement(adapter.returnType == "void" ? null : IRNode.variable("__btrc_callback_result")));
 		Vector<IRNode> noArguments = [];
 		IRNode abortCall = IRNode.call("abort", noArguments);
-		abortCall.neverReturns = true;
+		((IRCallPayload)abortCall.payload).neverReturns = true;
 		IRNode wrongThread = IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(context, "thread", true), "!=", IRNode.addressOf(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false))), IRNode.block([
 			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"BTRC native callback delivered on the wrong thread\\n\""), IRNode.variable("stderr")])),
 			IRNode.expressionStatement(abortCall)
@@ -474,7 +474,7 @@ class DeclarationLowerer {
 		IRNode condition = IRNode.binary(IRNode.call("setjmp", [IRNode.fieldAccess(frame, "env", true)]), "==", IRNode.literal("0"));
 		Vector<IRNode> noArguments = [];
 		IRNode abortCall = IRNode.call("abort", noArguments);
-		abortCall.neverReturns = true;
+		((IRCallPayload)abortCall.payload).neverReturns = true;
 		Vector<IRNode> failure = [
 			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"BTRC native callback failed: \""), IRNode.variable("stderr")])),
 			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "error_msg", false), IRNode.variable("stderr")])),
@@ -558,9 +558,9 @@ class DeclarationLowerer {
 		IRNode loadContext = IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.variable("raw")));
 		self.nativeUniqueFunction(module, prefix + "_destroy", "void", [IRParam("void*", "raw")], [loadContext, IRNode.expressionStatement(IRNode.call(uniquePrefix + "_end_borrow", [owner])), IRNode.expressionStatement(self.managedLifetime.releaseValue(receiver, receiverType)), IRNode.expressionStatement(IRNode.call("free", [context]))]);
 		self.nativeUniqueFunction(module, prefix + "_unregister", "bool", [IRParam("void*", "raw")], [loadContext, IRNode.returnStatement(IRNode.binary(IRNode.call(unregister.name, [unit]), "==", IRNode.literal("0")))]);
-		IRNode denied = IRNode.indirectCall(IRNode.fieldAccess(context, "denied", true), payloadValues); denied.realtimeProvenance = "typed-realtime-function";
+		IRNode denied = IRNode.indirectCall(IRNode.fieldAccess(context, "denied", true), payloadValues); ((IRCallPayload)denied.payload).realtimeProvenance = "typed-realtime-function";
 		Vector<IRNode> invocationArguments = [receiver, IRNode.addressOf(IRNode.variable("invocation"))]; invocationArguments.extend(payloadValues);
-		IRNode invoke = IRNode.indirectCall(IRNode.fieldAccess(context, "invoke", true), invocationArguments); invoke.realtimeProvenance = "typed-realtime-function";
+		IRNode invoke = IRNode.indirectCall(IRNode.fieldAccess(context, "invoke", true), invocationArguments); ((IRCallPayload)invoke.payload).realtimeProvenance = "typed-realtime-function";
 		Vector<IRNode> body = [
 			IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.variable(parameters.get(callback.callbackContextIndex).name))),
 			IRNode.ifStatement(IRNode.binary(IRNode.call("callbackGateTryEnter", [gate]), "==", IRNode.literal("false")), IRNode.block([IRNode.returnStatement(denied)]), null),
@@ -604,7 +604,7 @@ class DeclarationLowerer {
 			else { nativeArguments.push(IRNode.variable(adapterParameters.get(visible.indexOf(index)).name)); }
 		}
 		statements.push(IRNode.variableDeclaration(self.cTypes.lower(shape.statusType), "status", IRNode.call(shape.nativeFunction, nativeArguments)));
-		IRNode failure = self.nativeNullGuard(IRNode.literal("NULL"), "Realtime callback activation failed with indeterminate publication"); failure.condition = IRNode.binary(IRNode.variable("status"), "!=", IRNode.literal("0")); statements.push(failure);
+		IRNode failure = self.nativeNullGuard(IRNode.literal("NULL"), "Realtime callback activation failed with indeterminate publication"); ((IRControlPayload)failure.payload).condition = IRNode.binary(IRNode.variable("status"), "!=", IRNode.literal("0")); statements.push(failure);
 		statements.push(IRNode.expressionStatement(IRNode.call("CallbackState_finishActivation", [IRNode.variable("registration"), IRNode.literal("true")]))); statements.push(IRNode.returnStatement(IRNode.variable("registration")));
 		self.nativeUniqueFunction(module, prefix, self.cTypes.lower(declaration.returnType), adapterParameters, statements);
 	}
@@ -614,7 +614,7 @@ class DeclarationLowerer {
 	private IRNode tableThreadGuard(IRNode holder) {
 		Vector<IRNode> noArguments = [];
 		IRNode abortCall = IRNode.call("abort", noArguments);
-		abortCall.neverReturns = true;
+		((IRCallPayload)abortCall.payload).neverReturns = true;
 		return IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(holder, "thread", true), "!=", IRNode.addressOf(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false))), IRNode.block([
 			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"BTRC native callback delivered on the wrong thread\\n\""), IRNode.variable("stderr")])),
 			IRNode.expressionStatement(abortCall)
@@ -763,7 +763,7 @@ class DeclarationLowerer {
 		string sdk = resource.name;
 		Vector<IRNode> noArguments = [];
 		IRNode abortCall = IRNode.call("abort", noArguments);
-		abortCall.neverReturns = true;
+		((IRCallPayload)abortCall.payload).neverReturns = true;
 		IRNode abortBlock = IRNode.block([IRNode.expressionStatement(abortCall)]);
 		string deleteAdapter = "__btrc_cxx_" + alias + "_delete";
 		self.cxxExtern(native, module, deleteAdapter, "void", [IRParam("void*", "value")], [
@@ -919,7 +919,7 @@ class DeclarationLowerer {
 		statements.push(IRNode.variableDeclaration("int", "status", IRNode.call(adapter, callArguments)));
 		if (!factory) { statements.push(IRNode.expressionStatement(IRNode.call("__btrc_unique_" + root + "_end_borrow", [owner]))); }
 		IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"C++ exception in " + sdkMethod.name + "\"")]);
-		failure.neverReturns = true;
+		((IRCallPayload)failure.payload).neverReturns = true;
 		statements.push(IRNode.ifStatement(IRNode.binary(IRNode.variable("status"), "!=", IRNode.literal("0")), IRNode.block([IRNode.expressionStatement(failure)]), null));
 		if (factory) {
 			Node statusFieldType = self.cxxTypeReference(record.name);
@@ -974,7 +974,7 @@ class DeclarationLowerer {
 
 	private IRNode nativeUniqueChecked(string name, Vector<IRNode> arguments) {
 		IRNode guard = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource synchronization: {name} failed");
-		guard.condition = IRNode.binary(IRNode.call(name, arguments), "!=", IRNode.literal("0"));
+		((IRControlPayload)guard.payload).condition = IRNode.binary(IRNode.call(name, arguments), "!=", IRNode.literal("0"));
 		return guard;
 	}
 
@@ -1019,10 +1019,10 @@ class DeclarationLowerer {
 		IRNode lock = self.nativeUniqueChecked("pthread_mutex_lock", [mutex]);
 		IRNode unlock = self.nativeUniqueChecked("pthread_mutex_unlock", [mutex]);
 		IRNode reentrant = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: reentrant close");
-		reentrant.condition = IRNode.call("pthread_equal", [closingThread, IRNode.call("pthread_self", noArguments)]);
+		((IRControlPayload)reentrant.payload).condition = IRNode.call("pthread_equal", [closingThread, IRNode.call("pthread_self", noArguments)]);
 		IRNode wait = IRNode.whileStatement(closing, IRNode.block([reentrant, self.nativeUniqueChecked("pthread_cond_wait", [completed, mutex])]));
 		IRNode borrowed = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: close during borrow");
-		borrowed.condition = IRNode.binary(borrows, "!=", IRNode.literal("0"));
+		((IRControlPayload)borrowed.payload).condition = IRNode.binary(borrows, "!=", IRNode.literal("0"));
 		Vector<IRNode> close = [
 			IRNode.ifStatement(IRNode.binary(owner, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(statusRelease ? IRNode.literal("0") : null)]), null),
 			lock, wait
@@ -1055,7 +1055,7 @@ class DeclarationLowerer {
 		]);
 		IRNode destroyClose = IRNode.call(prefix + "_close", [owner]);
 		IRNode destroyCheck = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: destruction outcome is indeterminate");
-		destroyCheck.condition = IRNode.binary(destroyClose, "!=", IRNode.literal("0"));
+		((IRControlPayload)destroyCheck.payload).condition = IRNode.binary(destroyClose, "!=", IRNode.literal("0"));
 		Vector<IRNode> destroy = [
 			IRNode.variableDeclaration(pointerType, "self", IRNode.cast(pointerType, IRNode.variable("raw"))),
 			resource.cleanupStatus == "abort" ? destroyCheck : IRNode.expressionStatement(destroyClose)
@@ -1085,8 +1085,8 @@ class DeclarationLowerer {
 		if (statusRelease) { publicClose.push(IRNode.returnStatement(IRNode.variable("result"))); }
 		self.nativeUniqueFunction(module, prefix + "_close_public", closeType, parameters, publicClose);
 		IRNode overflow = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: borrow overflow");
-		overflow.condition = IRNode.binary(borrows, "==", IRNode.variable("UINT_MAX"));
-		IRNode exclusive = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: exclusive operation in progress"); exclusive.condition = closing;
+		((IRControlPayload)overflow.payload).condition = IRNode.binary(borrows, "==", IRNode.variable("UINT_MAX"));
+		IRNode exclusive = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: exclusive operation in progress"); ((IRControlPayload)exclusive.payload).condition = closing;
 		self.nativeUniqueFunction(module, prefix + "_begin_borrow", "void", parameters, [
 			IRNode.ifStatement(IRNode.binary(owner, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(null)]), null), lock,
 			self.nativeNullGuard(value, f"Native resource {resource.name}: use after close"), exclusive, overflow,
@@ -1099,8 +1099,8 @@ class DeclarationLowerer {
 			IRNode.expressionStatement(IRNode.call(nativePrefix + "_release", [owner]))
 		]);
 		if (!resource.storage.isEmpty()) {
-			IRNode attachmentBorrowed = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: attachment during borrow"); attachmentBorrowed.condition = IRNode.binary(borrows, "!=", IRNode.literal("0"));
-			IRNode attached = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: input already attached"); attached.condition = IRNode.fieldAccess(owner, "inputAttached", true);
+			IRNode attachmentBorrowed = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: attachment during borrow"); ((IRControlPayload)attachmentBorrowed.payload).condition = IRNode.binary(borrows, "!=", IRNode.literal("0"));
+			IRNode attached = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: input already attached"); ((IRControlPayload)attached.payload).condition = IRNode.fieldAccess(owner, "inputAttached", true);
 			self.nativeUniqueFunction(module, prefix + "_begin_attachment", "void", parameters, [
 				self.nativeNullGuard(owner, f"Native resource {resource.name}: attachment on null owner"), lock, exclusive,
 				self.nativeNullGuard(value, f"Native resource {resource.name}: use after close"), attachmentBorrowed, attached,
@@ -1303,7 +1303,7 @@ class DeclarationLowerer {
 			callArguments = nativeArguments;
 			statements.push(IRNode.variableDeclaration("const char*", offsetNames.get(0), IRNode.literal("NULL")));
 			IRNode guard = self.nativeNullGuard(IRNode.literal("NULL"), f"Native call {declaration.name}: negative bounded input length");
-			guard.condition = IRNode.binary(length, "<", IRNode.literal("0")); statements.push(guard);
+			((IRControlPayload)guard.payload).condition = IRNode.binary(length, "<", IRNode.literal("0")); statements.push(guard);
 		} else { callArguments.insert(output.parameterIndex, IRNode.addressOf(native)); }
 		statements.push(IRNode.assignment(IRNode.fieldAccess(owner, "status", true), IRNode.call(declaration.name, callArguments)));
 		if (offset != null) {
@@ -1331,7 +1331,7 @@ class DeclarationLowerer {
 		string calledName = "__btrc_native_input_called"; while (parameterNames.has(calledName)) { calledName = calledName + "_"; }
 		IRNode called = IRNode.variable(calledName);
 		IRNode invalid = self.nativeNullGuard(IRNode.literal("NULL"), f"Native call {declaration.name}: invalid copied input span");
-		invalid.condition = IRNode.binary(IRNode.binary(IRNode.cast("uintmax_t", length), ">", IRNode.cast("uintmax_t", IRNode.variable("SIZE_MAX"))), "||", IRNode.binary(IRNode.binary(length, "!=", IRNode.literal("0")), "&&", IRNode.binary(source, "==", IRNode.literal("NULL"))));
+		((IRControlPayload)invalid.payload).condition = IRNode.binary(IRNode.binary(IRNode.cast("uintmax_t", length), ">", IRNode.cast("uintmax_t", IRNode.variable("SIZE_MAX"))), "||", IRNode.binary(IRNode.binary(length, "!=", IRNode.literal("0")), "&&", IRNode.binary(source, "==", IRNode.literal("NULL"))));
 		Vector<IRNode> nativeArguments = [];
 		for index in range(arguments.len) { nativeArguments.push(index == shape.ownerIndex ? IRNode.fieldAccess(owner, "value", true) : index == shape.inputIndex ? backing : arguments.get(index)); }
 		statements.extend([
@@ -1373,7 +1373,7 @@ class DeclarationLowerer {
 		if (shape.copiedInput >= 0) {
 			IRNode source = nativeArguments.get(shape.copiedInput); IRNode length = nativeArguments.get(shape.length);
 			IRNode invalid = self.nativeNullGuard(IRNode.literal("NULL"), f"Native call {declaration.name}: invalid copied input span");
-			invalid.condition = IRNode.binary(IRNode.binary(IRNode.cast("uintmax_t", length), ">", IRNode.cast("uintmax_t", IRNode.variable("SIZE_MAX"))), "||", IRNode.binary(IRNode.binary(length, "!=", IRNode.literal("0")), "&&", IRNode.binary(source, "==", IRNode.literal("NULL"))));
+			((IRControlPayload)invalid.payload).condition = IRNode.binary(IRNode.binary(IRNode.cast("uintmax_t", length), ">", IRNode.cast("uintmax_t", IRNode.variable("SIZE_MAX"))), "||", IRNode.binary(IRNode.binary(length, "!=", IRNode.literal("0")), "&&", IRNode.binary(source, "==", IRNode.literal("NULL"))));
 			statements.push(invalid);
 			statements.push(IRNode.ifStatement(ready, IRNode.block([
 				IRNode.assignment(backing, IRNode.call("calloc", [IRNode.literal("1"), IRNode.ternary(IRNode.binary(length, "==", IRNode.literal("0")), IRNode.literal("1"), length)])),
@@ -1404,8 +1404,8 @@ class DeclarationLowerer {
 		var valueType = Node(); valueType.kind = NK_TYPE_EXPR; valueType.base = output.resource; valueType.isNullable = true; valueType.pointerDepth = 1;
 		Vector<IRNode> noArguments = [];
 		IRNode ownerSlot = IRNode.variableDeclaration(self.cTypes.lower(declaration.returnType), names.get(0), IRNode.call(output.resultName + "_new", noArguments));
-		IRNode valueSlot = IRNode.variableDeclaration(output.resource, names.get(1), IRNode.literal("NULL")); valueSlot.isVolatile = true;
-		IRNode sizeSlot = IRNode.variableDeclaration(self.cTypes.lower(sized.sizeType), names.get(2), IRNode.sizeofType(output.resource)); sizeSlot.isVolatile = true;
+		IRNode valueSlot = IRNode.variableDeclaration(output.resource, names.get(1), IRNode.literal("NULL")); ((IRDeclarationPayload)valueSlot.payload).isVolatile = true;
+		IRNode sizeSlot = IRNode.variableDeclaration(self.cTypes.lower(sized.sizeType), names.get(2), IRNode.sizeofType(output.resource)); ((IRDeclarationPayload)sizeSlot.payload).isVolatile = true;
 		IRNode owner = IRNode.variable(names.get(0)); IRNode value = IRNode.variable(names.get(1)); IRNode size = IRNode.variable(names.get(2));
 		statements.extend([
 			ownerSlot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(ownerSlot, self.managedValues.runtimeType(declaration.returnType))),
@@ -1575,7 +1575,7 @@ class DeclarationLowerer {
 		module.functionDecls.push(external);
 		self.context.referenceHelper("__btrc_throw");
 		IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"Objective-C exception reading " + declaration.name + "\"")]);
-		failure.neverReturns = true;
+		((IRCallPayload)failure.payload).neverReturns = true;
 		Vector<IRNode> statements = [
 			IRNode.variableDeclaration(wrapper.returnType, "nativeResult", IRNode.literal("0")),
 			IRNode.ifStatement(IRNode.call(adapter.name, [IRNode.addressOf(result)]), IRNode.block([IRNode.expressionStatement(failure)]), null)
@@ -1657,14 +1657,13 @@ class DeclarationLowerer {
 					native.functionPointerTypedefs.push(signature);
 					adapter.params.push(IRParam(signature.name, parameter.name));
 					adapter.params.push(IRParam("void*", parameter.name + "Context"));
-					var block = IRNode();
-					block.kind = IRK_OBJECTIVE_C_BLOCK;
-					block.targetType = callback.nativeReturn;
-					block.params = [];
+					IRNode block = IRNode(IRK_OBJECTIVE_C_BLOCK);
+					((IRNativePayload)block.payload).targetType = callback.nativeReturn;
+					((IRNativePayload)block.payload).params = [];
 					Vector<IRNode> forwarded = [];
 					for position in range(callback.nativeParameters.len) {
 						string localName = f"__btrc_block_value{position}";
-						block.params.push(IRParam(callback.nativeParameters.get(position), localName));
+						((IRNativePayload)block.payload).params.push(IRParam(callback.nativeParameters.get(position), localName));
 						Node valueType = valueTypes.get(position);
 						IRNode value = IRNode.variable(localName);
 						if (self.managedValues.isNative(valueType)) { value = IRNode.cast(self.cTypes.lower(valueType), value, "borrow"); }
@@ -1672,7 +1671,7 @@ class DeclarationLowerer {
 					}
 					forwarded.push(IRNode.variable(parameter.name + "Context"));
 					IRNode call = IRNode.indirectCall(IRNode.variable(parameter.name), forwarded);
-					block.body = signature.returnType == "void" ? IRNode.block([IRNode.expressionStatement(call), IRNode.returnStatement(null)]) : IRNode.block([IRNode.returnStatement(IRNode.cast(callback.nativeReturn, call))]);
+					((IRNativePayload)block.payload).body = signature.returnType == "void" ? IRNode.block([IRNode.expressionStatement(call), IRNode.returnStatement(null)]) : IRNode.block([IRNode.returnStatement(IRNode.cast(callback.nativeReturn, call))]);
 					nativeArguments.push(block);
 					continue;
 				}
@@ -1744,7 +1743,7 @@ class DeclarationLowerer {
 			}
 			if (returnsValue) { expanded.push(IRNode.addressOf(result)); }
 			IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"Objective-C exception in " + descriptor.name + "\"")]);
-			failure.neverReturns = true;
+			((IRCallPayload)failure.payload).neverReturns = true;
 			statements.push(IRNode.ifStatement(IRNode.call(adapter.name, expanded), IRNode.block([IRNode.expressionStatement(failure)]), null));
 			if (releases.len > 0 && self.managedValues.isNative(method.returnType)) { statements.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(statements.get(0), self.managedValues.runtimeType(method.returnType)))); }
 			for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
@@ -1819,7 +1818,7 @@ class DeclarationLowerer {
 		Vector<IRNode> body = [];
 		for position in range(conditions.len) {
 			IRNode guard = self.nativeNullGuard(data, "Native string view: " + messages.get(position));
-			guard.condition = conditions.get(position);
+			((IRControlPayload)guard.payload).condition = conditions.get(position);
 			body.push(guard);
 		}
 		body.push(IRNode.assignment(value, IRNode.ternary(nonempty, IRNode.call("__btrc_string_alloc", [IRNode.cast("int", length)]), IRNode.literal("\"\""))));
@@ -1852,7 +1851,7 @@ class DeclarationLowerer {
 			if (index == callback.callbackContextIndex) { continue; }
 			IRNode value = IRNode.variable(thunk.params.get(index).name);
 			IRNode guard = self.nativeNullGuard(value, f"Native callback {prefix}: inconsistent context slots");
-			guard.condition = IRNode.binary(value, "!=", IRNode.variable(thunk.params.get(callback.callbackContextIndex).name));
+			((IRControlPayload)guard.payload).condition = IRNode.binary(value, "!=", IRNode.variable(thunk.params.get(callback.callbackContextIndex).name));
 			body.push(guard);
 		}
 		body.push(receiverSlot);
@@ -2034,21 +2033,20 @@ class DeclarationLowerer {
 			IRParam parameter = wrapper.params.get(index + offset);
 			if (index == callback.parameterIndex) {
 				adapter.params.extend([IRParam(invocation.name, "invoke"), IRParam("void*", "context"), IRParam(lifetime.name, "retainContext"), IRParam(lifetime.name, "releaseContext")]);
-				var block = IRNode();
-				block.kind = IRK_OBJECTIVE_C_BLOCK;
-				block.targetType = "void";
-				block.params = [];
+				IRNode block = IRNode(IRK_OBJECTIVE_C_BLOCK);
+				((IRNativePayload)block.payload).targetType = "void";
+				((IRNativePayload)block.payload).params = [];
 				Vector<IRNode> arguments = [];
 				for position in range(callback.nativeParameters.len) {
 					string localName = f"value{position}";
-					block.params.push(IRParam(callback.nativeParameters.get(position), localName));
+					((IRNativePayload)block.payload).params.push(IRParam(callback.nativeParameters.get(position), localName));
 					Node valueType = values.get(position);
 					IRNode value = IRNode.variable(localName);
 					if (self.managedValues.isNative(valueType)) { value = IRNode.cast(self.cTypes.lower(valueType), value, "borrow"); }
 					arguments.push(value);
 				}
 				arguments.push(IRNode.objectiveCMessage(IRNode.variable("holder"), "context", noArguments));
-				block.body = IRNode.block([IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("invoke"), arguments))]);
+				((IRNativePayload)block.payload).body = IRNode.block([IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("invoke"), arguments))]);
 				nativeArguments.push(block);
 			} else {
 				adapter.params.push(parameter);
@@ -2154,7 +2152,7 @@ class DeclarationLowerer {
 		]);
 		Vector<IRNode> noArguments = [];
 		IRNode abortCall = IRNode.call("abort", noArguments);
-		abortCall.neverReturns = true;
+		((IRCallPayload)abortCall.payload).neverReturns = true;
 		holder.methods.push(IRObjectiveCMethod("btrcInvoke:", "void", [IRParam("id", "sender")], IRNode.block([
 			IRNode.ifStatement(IRNode.binary(IRNode.variable("sender"), "!=", IRNode.variable("_source")), IRNode.block([IRNode.expressionStatement(abortCall)]), null),
 			IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_invoke"), [IRNode.variable("_context")]))
@@ -2239,7 +2237,7 @@ class DeclarationLowerer {
 			unregisterReceiver = IRNode.cast(self.objectiveCObjectType(sourceType.base), IRNode.variable("source"), "borrow");
 		}
 		IRNode abortCall = IRNode.call("abort", noArguments);
-		abortCall.neverReturns = true;
+		((IRCallPayload)abortCall.payload).neverReturns = true;
 		Vector<IRNode> nativeUnregister = [];
 		if (objectCallback) {
 			IRNode current = IRNode.objectiveCMessage(unregisterReceiver, slotSelector, noArguments);
@@ -2320,14 +2318,13 @@ class DeclarationLowerer {
 				if (objectCallback) { nativeArguments.push(IRNode.variable("holder")); continue; }
 				var invocation = invocations.get(0);
 				var valueTypes = callbackTypes.get(0);
-				var block = IRNode();
-				block.kind = IRK_OBJECTIVE_C_BLOCK;
-				block.targetType = callback.nativeReturn;
-				block.params = [];
+				IRNode block = IRNode(IRK_OBJECTIVE_C_BLOCK);
+				((IRNativePayload)block.payload).targetType = callback.nativeReturn;
+				((IRNativePayload)block.payload).params = [];
 				Vector<IRNode> arguments = [];
 				for position in range(callback.nativeParameters.len) {
 					string localName = f"value{position}";
-					block.params.push(IRParam(callback.nativeParameters.get(position), localName));
+					((IRNativePayload)block.payload).params.push(IRParam(callback.nativeParameters.get(position), localName));
 					Node valueType = valueTypes.get(position);
 					IRNode value = IRNode.variable(localName);
 					if (self.managedValues.isNative(valueType)) { value = IRNode.cast(self.cTypes.lower(valueType), value, "borrow"); }
@@ -2335,7 +2332,7 @@ class DeclarationLowerer {
 				}
 				arguments.push(IRNode.objectiveCMessage(IRNode.variable("holder"), "context", noArguments));
 				IRNode call = IRNode.indirectCall(IRNode.variable("invoke0"), arguments);
-				block.body = IRNode.block([invocation.returnType == "void" ? IRNode.expressionStatement(call) : IRNode.returnStatement(IRNode.cast(callback.nativeReturn, call, self.managedValues.isNative(callback.returnType) ? "transfer" : ""))]);
+				((IRNativePayload)block.payload).body = IRNode.block([invocation.returnType == "void" ? IRNode.expressionStatement(call) : IRNode.returnStatement(IRNode.cast(callback.nativeReturn, call, self.managedValues.isNative(callback.returnType) ? "transfer" : ""))]);
 				nativeArguments.push(block);
 			} else {
 				adapter.params.push(parameter);
@@ -2441,7 +2438,7 @@ class DeclarationLowerer {
 		if (callback.activationFailure == "abort") {
 			Vector<IRNode> noArguments = [];
 			IRNode abortCall = IRNode.call("abort", noArguments);
-			abortCall.neverReturns = true;
+			((IRCallPayload)abortCall.payload).neverReturns = true;
 			return IRNode.block([
 				IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"BTRC stored callback activation failed: publication state is unknown\\n\""), IRNode.variable("stderr")])),
 				IRNode.expressionStatement(abortCall)
@@ -2456,7 +2453,7 @@ class DeclarationLowerer {
 	private IRNode objectiveCNullGuard(IRNode value, string message) {
 		self.context.referenceHelper("__btrc_throw");
 		IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"" + message + "\"")]);
-		failure.neverReturns = true;
+		((IRCallPayload)failure.payload).neverReturns = true;
 		return IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(failure)]), null);
 	}
 
@@ -2481,7 +2478,7 @@ class DeclarationLowerer {
 			}
 			Vector<IRNode> noArguments = [];
 			IRNode failure = IRNode.call("abort", noArguments);
-			failure.neverReturns = true;
+			((IRCallPayload)failure.payload).neverReturns = true;
 			IRNode boundary = IRNode.objectiveCExceptionBoundary(IRNode.block(body), IRNode.block([IRNode.expressionStatement(failure)]));
 			adapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([boundary]))]);
 			native.functions.push(adapter);
@@ -3204,26 +3201,27 @@ class DeclarationLowerer {
 
 	private void collectCallees(IRNode? node, Map<string, bool> out) {
 		if (node == null) { return; }
-		if (node.kind == IRK_CALL && !node.callee.isEmpty()) { out.put(node.callee, true); }
+		int domain = node.payloadDomain();
+		if (node.kind == IRK_CALL && !((IRCallPayload)node.payload).callee.isEmpty()) { out.put(((IRCallPayload)node.payload).callee, true); }
 		if (node.kind == IRK_FUNCTION_REF && !node.name.isEmpty()) { out.put(node.name, true); }
 		self.collectCallees(node.left, out);
 		self.collectCallees(node.right, out);
-		self.collectCallees(node.operand, out);
+		self.collectCallees((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), out);
 		self.collectCallees(node.expr, out);
-		self.collectCallees(node.obj, out);
-		self.collectCallees(node.index, out);
-		self.collectCallees(node.condition, out);
-		self.collectCallees(node.trueExpr, out);
-		self.collectCallees(node.falseExpr, out);
-		self.collectCallees(node.init, out);
-		self.collectCallees(node.value, out);
-		self.collectCallees(node.target, out);
-		self.collectCallees(node.thenBlock, out);
-		self.collectCallees(node.elseBlock, out);
-		self.collectCallees(node.body, out);
-		self.collectCallees(node.update, out);
-		self.collectCallees(node.result, out);
-		self.collectCallees(node.arraySize, out);
+		self.collectCallees((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), out);
+		self.collectCallees((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), out);
 		for argument in node.args() { self.collectCallees(argument, out); }
 		for statement in node.stmts() { self.collectCallees(statement, out); }
 	}

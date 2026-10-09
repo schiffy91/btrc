@@ -17,7 +17,7 @@ class IRStatementSequence {
 		Vector<IRNode> current = [];
 		IRNode block = IRNode.block(current);
 		for statement in self.statements {
-			if (statement.kind == IRK_VAR_DECL && statement.isArrayDecl && statement.arraySize != null && statement.arraySize.kind != IRK_LITERAL) {
+			if (statement.kind == IRK_VAR_DECL && ((IRDeclarationPayload)statement.payload).isArrayDecl && ((IRDeclarationPayload)statement.payload).arraySize != null && ((IRDeclarationPayload)statement.payload).arraySize.kind != IRK_LITERAL) {
 				Vector<IRNode> nested = [];
 				current.push(IRNode.block(nested));
 				current = nested;
@@ -29,11 +29,11 @@ class IRStatementSequence {
 
 	private bool expressionMayComplete(IRNode? expression) {
 		if (expression == null) { return true; }
-		if (expression.kind == IRK_CALL && expression.neverReturns) {
+		if (expression.kind == IRK_CALL && ((IRCallPayload)expression.payload).neverReturns) {
 			return false;
 		}
 		if (expression.kind == IRK_STMT_EXPR) {
-			return IRStatementSequence(expression.stmts()).mayFallThrough() && self.expressionMayComplete(expression.result);
+			return IRStatementSequence(expression.stmts()).mayFallThrough() && self.expressionMayComplete(((IRControlPayload)expression.payload).result);
 		}
 		if (expression.kind == IRK_COMMA_EXPR) {
 			int index = 0;
@@ -59,15 +59,15 @@ class IRStatementSequence {
 			return self.expressionMayComplete(statement.expr);
 		}
 		if (statement.kind == IRK_VAR_DECL) {
-			return self.expressionMayComplete(statement.init);
+			return self.expressionMayComplete(((IRDeclarationPayload)statement.payload).init);
 		}
 		if (statement.kind == IRK_BLOCK || statement.kind == IRK_CASE) {
 			return IRStatementSequence(statement.stmts()).mayFallThrough();
 		}
-		if (statement.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL) { return self.statementMayFallThrough(statement.body); }
-		if (statement.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY) { return self.statementMayFallThrough(statement.body) || self.statementMayFallThrough(statement.elseBlock); }
-		if (statement.kind == IRK_IF && statement.elseBlock != null) {
-			return self.statementMayFallThrough(statement.thenBlock) || self.statementMayFallThrough(statement.elseBlock);
+		if (statement.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL) { return self.statementMayFallThrough(((IRNativePayload)statement.payload).body); }
+		if (statement.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY) { return self.statementMayFallThrough(((IRNativePayload)statement.payload).body) || self.statementMayFallThrough(((IRNativePayload)statement.payload).elseBlock); }
+		if (statement.kind == IRK_IF && ((IRControlPayload)statement.payload).elseBlock != null) {
+			return self.statementMayFallThrough(((IRControlPayload)statement.payload).thenBlock) || self.statementMayFallThrough(((IRControlPayload)statement.payload).elseBlock);
 		}
 		if (statement.kind == IRK_SWITCH) {
 			return self.switchMayFallThrough(statement);
@@ -88,10 +88,11 @@ class IRStatementSequence {
 
 	private bool nodeReferencesVariable(IRNode? node, string name) {
 		if (node == null) { return false; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_VAR && node.name == name) {
 			return true;
 		}
-		if (self.nodeReferencesVariable(node.left, name) || self.nodeReferencesVariable(node.right, name) || self.nodeReferencesVariable(node.operand, name) || self.nodeReferencesVariable(node.expr, name) || self.nodeReferencesVariable(node.obj, name) || self.nodeReferencesVariable(node.index, name) || self.nodeReferencesVariable(node.condition, name) || self.nodeReferencesVariable(node.trueExpr, name) || self.nodeReferencesVariable(node.falseExpr, name) || self.nodeReferencesVariable(node.init, name) || self.nodeReferencesVariable(node.value, name) || self.nodeReferencesVariable(node.target, name) || self.nodeReferencesVariable(node.thenBlock, name) || self.nodeReferencesVariable(node.elseBlock, name) || self.nodeReferencesVariable(node.body, name) || self.nodeReferencesVariable(node.update, name) || self.nodeReferencesVariable(node.result, name) || self.nodeReferencesVariable(node.arraySize, name)) {
+		if (self.nodeReferencesVariable(node.left, name) || self.nodeReferencesVariable(node.right, name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), name) || self.nodeReferencesVariable(node.expr, name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), name) || self.nodeReferencesVariable((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), name)) {
 			return true;
 		}
 		int argument = 0;

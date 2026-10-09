@@ -54,6 +54,7 @@ class SetjmpSafetyPlanner {
 
 	private void validateExpression(IRNode? node, Vector<IRNode> visible, Vector<IRParam> params, int parentKind, string parentField) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_STMT_EXPR) {
 			Vector<IRNode> local = self.copyVisible(visible);
 			int statementIndex = 0;
@@ -61,14 +62,14 @@ class SetjmpSafetyPlanner {
 				self.validateStatement(node.stmts().get(statementIndex), local, params);
 				statementIndex = statementIndex + 1;
 			}
-			self.validateExpression(node.result, local, params, node.kind, "result");
+			self.validateExpression((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), local, params, node.kind, "result");
 			return;
 		}
 		if (node.kind == IRK_ADDRESS_OF && node.sourceAddress && parentKind != IRK_SIZEOF) {
 			string root = IRNode.directStorageRoot(node.expr);
 			if (root != "" && !self.compilerOwnedStorage(root)) {
 				IRNode? declaration = self.visibleAutomatic(root, visible);
-				if (declaration != null && declaration.isVolatile && declaration.setjmpInferredVolatile) {
+				if (declaration != null && ((IRDeclarationPayload)declaration.payload).isVolatile && ((IRDeclarationPayload)declaration.payload).setjmpInferredVolatile) {
 					self.rejectAlias(root, true);
 				}
 				if (declaration == null) {
@@ -82,14 +83,14 @@ class SetjmpSafetyPlanner {
 		if (node.kind == IRK_VAR && !self.compilerOwnedStorage(node.name)) {
 			IRNode? declaration = self.visibleAutomatic(node.name, visible);
 			bool safeIndex = parentKind == IRK_INDEX && parentField == "obj";
-			if (declaration != null && declaration.isVolatile && declaration.setjmpInferredVolatile && declaration.isArrayDecl && parentKind != IRK_SIZEOF && !safeIndex) {
+			if (declaration != null && ((IRDeclarationPayload)declaration.payload).isVolatile && ((IRDeclarationPayload)declaration.payload).setjmpInferredVolatile && ((IRDeclarationPayload)declaration.payload).isArrayDecl && parentKind != IRK_SIZEOF && !safeIndex) {
 				self.rejectAlias(node.name, true);
 			}
 			return;
 		}
 		if (node.kind == IRK_FIELD_ACCESS && node.arrayStorageKnown && node.arrayStorageRoot != "" && !self.compilerOwnedStorage(node.arrayStorageRoot) && parentKind != IRK_SIZEOF && !(parentKind == IRK_INDEX && parentField == "obj")) {
 			IRNode? declaration = self.visibleAutomatic(node.arrayStorageRoot, visible);
-			if (declaration != null && declaration.isVolatile && declaration.setjmpInferredVolatile) {
+			if (declaration != null && ((IRDeclarationPayload)declaration.payload).isVolatile && ((IRDeclarationPayload)declaration.payload).setjmpInferredVolatile) {
 				self.rejectAlias(node.arrayStorageRoot, true);
 			}
 			if (declaration == null) {
@@ -101,19 +102,19 @@ class SetjmpSafetyPlanner {
 		}
 		self.validateExpression(node.left, visible, params, node.kind, "left");
 		self.validateExpression(node.right, visible, params, node.kind, "right");
-		self.validateExpression(node.operand, visible, params, node.kind, "operand");
+		self.validateExpression((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), visible, params, node.kind, "operand");
 		self.validateExpression(node.expr, visible, params, node.kind, "expr");
-		self.validateExpression(node.obj, visible, params, node.kind, "obj");
-		self.validateExpression(node.index, visible, params, node.kind, "index");
-		self.validateExpression(node.condition, visible, params, node.kind, "condition");
-		self.validateExpression(node.trueExpr, visible, params, node.kind, "true_expr");
-		self.validateExpression(node.falseExpr, visible, params, node.kind, "false_expr");
-		self.validateExpression(node.arraySize, visible, params, node.kind, "array_size");
-		self.validateExpression(node.init, visible, params, node.kind, "init");
-		self.validateExpression(node.value, visible, params, node.kind, "value");
-		self.validateExpression(node.target, visible, params, node.kind, "target");
-		self.validateExpression(node.update, visible, params, node.kind, "update");
-		self.validateExpression(node.result, visible, params, node.kind, "result");
+		self.validateExpression((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), visible, params, node.kind, "obj");
+		self.validateExpression((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), visible, params, node.kind, "index");
+		self.validateExpression((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), visible, params, node.kind, "condition");
+		self.validateExpression((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), visible, params, node.kind, "true_expr");
+		self.validateExpression((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), visible, params, node.kind, "false_expr");
+		self.validateExpression((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), visible, params, node.kind, "array_size");
+		self.validateExpression((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), visible, params, node.kind, "init");
+		self.validateExpression((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), visible, params, node.kind, "value");
+		self.validateExpression((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), visible, params, node.kind, "target");
+		self.validateExpression((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), visible, params, node.kind, "update");
+		self.validateExpression((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), visible, params, node.kind, "result");
 		int index = 0;
 		while (index < node.args().len) {
 			self.validateExpression(node.args().get(index), visible, params, node.kind, "args");
@@ -133,39 +134,40 @@ class SetjmpSafetyPlanner {
 
 	private void validateStatement(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params) {
 		if (statement.kind == IRK_VAR_DECL) {
-			self.validateExpression(statement.arraySize, visible, params, statement.kind, "array_size");
+			self.validateExpression(((IRDeclarationPayload)statement.payload).arraySize, visible, params, statement.kind, "array_size");
 			self.addVisible(visible, statement);
-			self.validateExpression(statement.init, visible, params, statement.kind, "init");
+			self.validateExpression(((IRDeclarationPayload)statement.payload).init, visible, params, statement.kind, "init");
 			return;
 		}
 		if (statement.kind == IRK_IF) {
-			self.validateExpression(statement.condition, visible, params, statement.kind, "condition");
-			self.validateBlock(statement.thenBlock, visible, params);
-			self.validateBlock(statement.elseBlock, visible, params);
+			self.validateExpression(((IRControlPayload)statement.payload).condition, visible, params, statement.kind, "condition");
+			self.validateBlock(((IRControlPayload)statement.payload).thenBlock, visible, params);
+			self.validateBlock(((IRControlPayload)statement.payload).elseBlock, visible, params);
 			return;
 		}
 		if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
-			self.validateExpression(statement.condition, visible, params, statement.kind, "condition");
-			self.validateBlock(statement.body, visible, params);
+			self.validateExpression(((IRControlPayload)statement.payload).condition, visible, params, statement.kind, "condition");
+			self.validateBlock(((IRControlPayload)statement.payload).body, visible, params);
 			return;
 		}
 		if (statement.kind == IRK_FOR) {
 			Vector<IRNode> local = self.copyVisible(visible);
-			if (statement.init != null) {
-				self.validateStatement(statement.init, local, params);
+			if (((IRControlPayload)statement.payload).init != null) {
+				self.validateStatement(((IRControlPayload)statement.payload).init, local, params);
 			}
-			self.validateExpression(statement.condition, local, params, statement.kind, "condition");
-			self.validateExpression(statement.update, local, params, statement.kind, "update");
-			self.validateBlock(statement.body, local, params);
+			self.validateExpression(((IRControlPayload)statement.payload).condition, local, params, statement.kind, "condition");
+			self.validateExpression(((IRControlPayload)statement.payload).update, local, params, statement.kind, "update");
+			self.validateBlock(((IRControlPayload)statement.payload).body, local, params);
 			return;
 		}
 		if (statement.kind == IRK_SWITCH) {
-			self.validateExpression(statement.value, visible, params, statement.kind, "value");
+			self.validateExpression(((IRControlPayload)statement.payload).value, visible, params, statement.kind, "value");
 			int caseIndex = 0;
 			while (caseIndex < statement.args().len) {
 				IRNode caseNode = statement.args().get(caseIndex);
+				int caseDomain = caseNode.payloadDomain();
 				Vector<IRNode> local = self.copyVisible(visible);
-				self.validateExpression(caseNode.value, local, params, caseNode.kind, "value");
+				self.validateExpression((caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)caseNode.payload).value : null), local, params, caseNode.kind, "value");
 				int childIndex = 0;
 				while (childIndex < caseNode.stmts().len) {
 					self.validateStatement(caseNode.stmts().get(childIndex), local, params);
@@ -229,29 +231,30 @@ class SetjmpSafetyPlanner {
 
 	private void collectExpressionMutations(IRNode? node, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		self.recordNodeWrites(node, bound, modified, effects);
 		if (node.kind == IRK_SIZEOF) { return; }
 		if (node.kind == IRK_STMT_EXPR) {
 			Map<string, bool> local = self.copyNameSet(bound);
 			self.collectMutationSequence(node.stmts(), local, modified, effects);
-			self.collectExpressionMutations(node.result, local, modified, effects);
+			self.collectExpressionMutations((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), local, modified, effects);
 			return;
 		}
 		self.collectExpressionMutations(node.left, bound, modified, effects);
 		self.collectExpressionMutations(node.right, bound, modified, effects);
-		self.collectExpressionMutations(node.operand, bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), bound, modified, effects);
 		self.collectExpressionMutations(node.expr, bound, modified, effects);
-		self.collectExpressionMutations(node.obj, bound, modified, effects);
-		self.collectExpressionMutations(node.index, bound, modified, effects);
-		self.collectExpressionMutations(node.condition, bound, modified, effects);
-		self.collectExpressionMutations(node.trueExpr, bound, modified, effects);
-		self.collectExpressionMutations(node.falseExpr, bound, modified, effects);
-		self.collectExpressionMutations(node.init, bound, modified, effects);
-		self.collectExpressionMutations(node.value, bound, modified, effects);
-		self.collectExpressionMutations(node.target, bound, modified, effects);
-		self.collectExpressionMutations(node.update, bound, modified, effects);
-		self.collectExpressionMutations(node.result, bound, modified, effects);
-		self.collectExpressionMutations(node.arraySize, bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), bound, modified, effects);
+		self.collectExpressionMutations((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), bound, modified, effects);
 		int index = 0;
 		while (index < node.args().len) {
 			self.collectExpressionMutations(node.args().get(index), bound, modified, effects);
@@ -276,42 +279,43 @@ class SetjmpSafetyPlanner {
 	private void collectStatementMutations(IRNode statement, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
 		self.recordNodeWrites(statement, bound, modified, effects);
 		if (statement.kind == IRK_VAR_DECL) {
-			self.collectExpressionMutations(statement.arraySize, bound, modified, effects);
+			self.collectExpressionMutations(((IRDeclarationPayload)statement.payload).arraySize, bound, modified, effects);
 			SetjmpStorage? storage = effects.flow.declarationStorage(statement);
 			if (storage != null) { bound.put(self.storageKey(storage), true); }
-			self.collectExpressionMutations(statement.init, bound, modified, effects);
+			self.collectExpressionMutations(((IRDeclarationPayload)statement.payload).init, bound, modified, effects);
 			return;
 		}
 		if (statement.kind == IRK_IF) {
-			self.collectExpressionMutations(statement.condition, bound, modified, effects);
-			self.collectMutationBlock(statement.thenBlock, bound, modified, effects);
-			self.collectMutationBlock(statement.elseBlock, bound, modified, effects);
+			self.collectExpressionMutations(((IRControlPayload)statement.payload).condition, bound, modified, effects);
+			self.collectMutationBlock(((IRControlPayload)statement.payload).thenBlock, bound, modified, effects);
+			self.collectMutationBlock(((IRControlPayload)statement.payload).elseBlock, bound, modified, effects);
 			return;
 		}
 		if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
-			self.collectExpressionMutations(statement.condition, bound, modified, effects);
-			self.collectMutationBlock(statement.body, bound, modified, effects);
+			self.collectExpressionMutations(((IRControlPayload)statement.payload).condition, bound, modified, effects);
+			self.collectMutationBlock(((IRControlPayload)statement.payload).body, bound, modified, effects);
 			return;
 		}
 		if (statement.kind == IRK_FOR) {
 			Map<string, bool> local = self.copyNameSet(bound);
-			if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
-				self.collectStatementMutations(statement.init, local, modified, effects);
+			if (((IRControlPayload)statement.payload).init != null && ((IRControlPayload)statement.payload).init.kind == IRK_VAR_DECL) {
+				self.collectStatementMutations(((IRControlPayload)statement.payload).init, local, modified, effects);
 			} else {
-				self.collectExpressionMutations(statement.init, local, modified, effects);
+				self.collectExpressionMutations(((IRControlPayload)statement.payload).init, local, modified, effects);
 			}
-			self.collectExpressionMutations(statement.condition, local, modified, effects);
-			self.collectExpressionMutations(statement.update, local, modified, effects);
-			self.collectMutationBlock(statement.body, local, modified, effects);
+			self.collectExpressionMutations(((IRControlPayload)statement.payload).condition, local, modified, effects);
+			self.collectExpressionMutations(((IRControlPayload)statement.payload).update, local, modified, effects);
+			self.collectMutationBlock(((IRControlPayload)statement.payload).body, local, modified, effects);
 			return;
 		}
 		if (statement.kind == IRK_SWITCH) {
-			self.collectExpressionMutations(statement.value, bound, modified, effects);
+			self.collectExpressionMutations(((IRControlPayload)statement.payload).value, bound, modified, effects);
 			int index = 0;
 			while (index < statement.args().len) {
 				IRNode caseNode = statement.args().get(index);
+				int caseDomain = caseNode.payloadDomain();
 				Map<string, bool> local = self.copyNameSet(bound);
-				self.collectExpressionMutations(caseNode.value, local, modified, effects);
+				self.collectExpressionMutations((caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)caseNode.payload).value : null), local, modified, effects);
 				self.collectMutationSequence(caseNode.stmts(), local, modified, effects);
 				index = index + 1;
 			}
@@ -343,20 +347,20 @@ class SetjmpSafetyPlanner {
 	}
 
 	private Map<string, bool> loopMutatedNames(IRNode loop, SetjmpCallEffects effects) {
-		IRNode block = IRNode();
-		block.kind = IRK_BLOCK;
-		if (loop.condition != null) {
-			block.stmtsMut().push(IRNode.expressionStatement(loop.condition));
+		IRNode block = IRNode(IRK_BLOCK);
+		if (((IRControlPayload)loop.payload).condition != null) {
+			block.stmtsMut().push(IRNode.expressionStatement(((IRControlPayload)loop.payload).condition));
 		}
-		if (loop.update != null) { block.stmtsMut().push(IRNode.expressionStatement(loop.update)); }
-		if (loop.body != null) { block.stmtsMut().push(loop.body); }
+		if (((IRControlPayload)loop.payload).update != null) { block.stmtsMut().push(IRNode.expressionStatement(((IRControlPayload)loop.payload).update)); }
+		if (((IRControlPayload)loop.payload).body != null) { block.stmtsMut().push(((IRControlPayload)loop.payload).body); }
 		return self.mutatedNames(block, effects);
 	}
 
 	private bool containsSetjmp(IRNode? node) {
 		if (node == null) { return false; }
-		if (node.kind == IRK_CALL && node.callee == "setjmp") { return true; }
-		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp(node.operand) || self.containsSetjmp(node.expr) || self.containsSetjmp(node.obj) || self.containsSetjmp(node.index) || self.containsSetjmp(node.condition) || self.containsSetjmp(node.trueExpr) || self.containsSetjmp(node.falseExpr) || self.containsSetjmp(node.init) || self.containsSetjmp(node.value) || self.containsSetjmp(node.target) || self.containsSetjmp(node.update) || self.containsSetjmp(node.result) || self.containsSetjmp(node.arraySize) || self.containsSetjmp(node.thenBlock) || self.containsSetjmp(node.elseBlock) || self.containsSetjmp(node.body)) { return true; }
+		int domain = node.payloadDomain();
+		if (node.kind == IRK_CALL && (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") == "setjmp") { return true; }
+		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null)) || self.containsSetjmp(node.expr) || self.containsSetjmp((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null)) || self.containsSetjmp((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null)) || self.containsSetjmp((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null)) || self.containsSetjmp((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null)) || self.containsSetjmp((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null))) { return true; }
 		int index = 0;
 		while (index < node.args().len) {
 			if (self.containsSetjmp(node.args().get(index))) { return true; }
@@ -388,65 +392,67 @@ class SetjmpSafetyPlanner {
 
 	private void collectAddressed(IRNode? node, Map<string, bool> addressed) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_ADDRESS_OF) {
 			string root = IRNode.directStorageRoot(node.expr);
 			if (root != "") { addressed.put(root, true); }
 		}
 		self.collectAddressed(node.left, addressed);
 		self.collectAddressed(node.right, addressed);
-		self.collectAddressed(node.operand, addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), addressed);
 		self.collectAddressed(node.expr, addressed);
-		self.collectAddressed(node.obj, addressed);
-		self.collectAddressed(node.index, addressed);
-		self.collectAddressed(node.condition, addressed);
-		self.collectAddressed(node.trueExpr, addressed);
-		self.collectAddressed(node.falseExpr, addressed);
-		self.collectAddressed(node.init, addressed);
-		self.collectAddressed(node.value, addressed);
-		self.collectAddressed(node.target, addressed);
-		self.collectAddressed(node.update, addressed);
-		self.collectAddressed(node.result, addressed);
-		self.collectAddressed(node.arraySize, addressed);
-		self.collectAddressed(node.thenBlock, addressed);
-		self.collectAddressed(node.elseBlock, addressed);
-		self.collectAddressed(node.body, addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), addressed);
+		self.collectAddressed((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), addressed);
 		for argument in node.args() { self.collectAddressed(argument, addressed); }
 		for statement in node.stmts() { self.collectAddressed(statement, addressed); }
 	}
 
 	private void qualifyGenerated(IRNode? node, Map<string, bool> addressed, SetjmpCallEffects effects, bool nested, bool protectedRegion) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		bool pointerInRegion = false;
 		if (protectedRegion && node.kind == IRK_VAR_DECL && self.compilerOwnedStorage(node.name)) {
 			SetjmpStorage? storage = effects.flow.declarationStorage(node);
 			pointerInRegion = storage != null && storage.isPointer;
 		}
-		if (node.kind == IRK_VAR_DECL && self.compilerOwnedStorage(node.name) && (nested || pointerInRegion || node.name.startsWith("__btrc_ret_")) && !node.isStatic && !node.isExtern && !node.isArrayDecl && !addressed.has(node.name)) {
-			if (!node.isVolatile) { node.setjmpInferredVolatile = true; }
-			node.isVolatile = true;
-			node.effectiveIsVolatile = true;
+		if (node.kind == IRK_VAR_DECL && self.compilerOwnedStorage(node.name) && (nested || pointerInRegion || node.name.startsWith("__btrc_ret_")) && !((IRDeclarationPayload)node.payload).isStatic && !((IRDeclarationPayload)node.payload).isExtern && !((IRDeclarationPayload)node.payload).isArrayDecl && !addressed.has(node.name)) {
+			if (!((IRDeclarationPayload)node.payload).isVolatile) { ((IRDeclarationPayload)node.payload).setjmpInferredVolatile = true; }
+			((IRDeclarationPayload)node.payload).isVolatile = true;
+			((IRDeclarationPayload)node.payload).effectiveIsVolatile = true;
 		}
 		/* A try whose protected or handler region holds another try. */
-		bool region = protectedRegion || (node.kind == IRK_IF && self.containsSetjmp(node.condition));
-		bool inner = nested || (node.kind == IRK_IF && self.containsSetjmp(node.condition) && (self.containsSetjmp(node.thenBlock) || self.containsSetjmp(node.elseBlock)));
+		bool region = protectedRegion || (node.kind == IRK_IF && self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null)));
+		bool inner = nested || (node.kind == IRK_IF && self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null)) && (self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null)) || self.containsSetjmp((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null))));
 		self.qualifyGenerated(node.left, addressed, effects, inner, region);
 		self.qualifyGenerated(node.right, addressed, effects, inner, region);
-		self.qualifyGenerated(node.operand, addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), addressed, effects, inner, region);
 		self.qualifyGenerated(node.expr, addressed, effects, inner, region);
-		self.qualifyGenerated(node.obj, addressed, effects, inner, region);
-		self.qualifyGenerated(node.index, addressed, effects, inner, region);
-		self.qualifyGenerated(node.condition, addressed, effects, inner, region);
-		self.qualifyGenerated(node.trueExpr, addressed, effects, inner, region);
-		self.qualifyGenerated(node.falseExpr, addressed, effects, inner, region);
-		self.qualifyGenerated(node.init, addressed, effects, inner, region);
-		self.qualifyGenerated(node.value, addressed, effects, inner, region);
-		self.qualifyGenerated(node.target, addressed, effects, inner, region);
-		self.qualifyGenerated(node.update, addressed, effects, inner, region);
-		self.qualifyGenerated(node.result, addressed, effects, inner, region);
-		self.qualifyGenerated(node.arraySize, addressed, effects, inner, region);
-		self.qualifyGenerated(node.thenBlock, addressed, effects, inner, region);
-		self.qualifyGenerated(node.elseBlock, addressed, effects, inner, region);
-		self.qualifyGenerated(node.body, addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), addressed, effects, inner, region);
+		self.qualifyGenerated((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), addressed, effects, inner, region);
 		for argument in node.args() { self.qualifyGenerated(argument, addressed, effects, inner, region); }
 		for statement in node.stmts() { self.qualifyGenerated(statement, addressed, effects, inner, region); }
 	}
@@ -536,12 +542,12 @@ class SetjmpSafetyPlanner {
 			IRNode declaration = visible.get(index);
 			string key = self.visibleDeclarationKey(declaration, effects);
 			if (key != "" && remaining.has(key)) {
-				if (!declaration.isStatic && !declaration.isExtern) {
-					if (!declaration.isVolatile) {
-						declaration.setjmpInferredVolatile = true;
+				if (!((IRDeclarationPayload)declaration.payload).isStatic && !((IRDeclarationPayload)declaration.payload).isExtern) {
+					if (!((IRDeclarationPayload)declaration.payload).isVolatile) {
+						((IRDeclarationPayload)declaration.payload).setjmpInferredVolatile = true;
 					}
-					declaration.isVolatile = true;
-					declaration.effectiveIsVolatile = true;
+					((IRDeclarationPayload)declaration.payload).isVolatile = true;
+					((IRDeclarationPayload)declaration.payload).effectiveIsVolatile = true;
 				}
 				remaining.remove(key);
 			}
@@ -564,29 +570,30 @@ class SetjmpSafetyPlanner {
 
 	private void scanResidual(IRNode? node, Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
 		if (node == null) { return; }
-		if (node.kind == IRK_CALL && node.callee == "setjmp") {
+		int domain = node.payloadDomain();
+		if (node.kind == IRK_CALL && (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") == "setjmp") {
 			self.markVisible(visible, params, modified, filterModified, effects);
 			return;
 		}
 		if (node.kind == IRK_STMT_EXPR) {
-			self.scanResidual(node.result, visible, params, modified, filterModified, effects);
+			self.scanResidual((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), visible, params, modified, filterModified, effects);
 			return;
 		}
 		self.scanResidual(node.left, visible, params, modified, filterModified, effects);
 		self.scanResidual(node.right, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.operand, visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), visible, params, modified, filterModified, effects);
 		self.scanResidual(node.expr, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.obj, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.index, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.condition, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.trueExpr, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.falseExpr, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.arraySize, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.init, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.value, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.target, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.update, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.result, visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), visible, params, modified, filterModified, effects);
+		self.scanResidual((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), visible, params, modified, filterModified, effects);
 		int index = 0;
 		while (index < node.args().len) {
 			self.scanResidual(node.args().get(index), visible, params, modified, filterModified, effects);
@@ -595,15 +602,16 @@ class SetjmpSafetyPlanner {
 	}
 
 	private void prepareDeclaration(IRNode declaration, Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
-		self.prepareHoists(declaration.arraySize, visible, params, modified, filterModified, effects);
-		self.prepareHoists(declaration.init, visible, params, modified, filterModified, effects);
-		self.scanResidual(declaration.arraySize, visible, params, modified, filterModified, effects);
+		self.prepareHoists(((IRDeclarationPayload)declaration.payload).arraySize, visible, params, modified, filterModified, effects);
+		self.prepareHoists(((IRDeclarationPayload)declaration.payload).init, visible, params, modified, filterModified, effects);
+		self.scanResidual(((IRDeclarationPayload)declaration.payload).arraySize, visible, params, modified, filterModified, effects);
 		self.addVisible(visible, declaration);
-		self.scanResidual(declaration.init, visible, params, modified, filterModified, effects);
+		self.scanResidual(((IRDeclarationPayload)declaration.payload).init, visible, params, modified, filterModified, effects);
 	}
 
 	private void prepareHoists(IRNode? node, Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_STMT_EXPR) {
 			int index = 0;
 			while (index < node.stmts().len) {
@@ -613,24 +621,24 @@ class SetjmpSafetyPlanner {
 				}
 				index = index + 1;
 			}
-			self.prepareHoists(node.result, visible, params, modified, filterModified, effects);
+			self.prepareHoists((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), visible, params, modified, filterModified, effects);
 			return;
 		}
 		self.prepareHoists(node.left, visible, params, modified, filterModified, effects);
 		self.prepareHoists(node.right, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.operand, visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), visible, params, modified, filterModified, effects);
 		self.prepareHoists(node.expr, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.obj, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.index, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.condition, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.trueExpr, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.falseExpr, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.arraySize, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.init, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.value, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.target, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.update, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.result, visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), visible, params, modified, filterModified, effects);
+		self.prepareHoists((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), visible, params, modified, filterModified, effects);
 		int index = 0;
 		while (index < node.args().len) {
 			self.prepareHoists(node.args().get(index), visible, params, modified, filterModified, effects);
@@ -674,42 +682,43 @@ class SetjmpSafetyPlanner {
 
 	private void scanIf(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
 		Map<string, bool> all = {};
-		if (self.containsSetjmp(statement.condition)) {
-			Map<string, bool> modified = self.mutatedNames(statement.thenBlock, effects);
-			Map<string, bool> catchModified = self.mutatedNames(statement.elseBlock, effects);
+		if (self.containsSetjmp(((IRControlPayload)statement.payload).condition)) {
+			Map<string, bool> modified = self.mutatedNames(((IRControlPayload)statement.payload).thenBlock, effects);
+			Map<string, bool> catchModified = self.mutatedNames(((IRControlPayload)statement.payload).elseBlock, effects);
 			Vector<string> catchNames = catchModified.keys();
 			int index = 0;
 			while (index < catchNames.len) {
 				modified.put(catchNames.get(index), true);
 				index = index + 1;
 			}
-			self.processExpression(statement.condition, visible, params, modified, true, effects);
+			self.processExpression(((IRControlPayload)statement.payload).condition, visible, params, modified, true, effects);
 		} else {
-			self.processExpression(statement.condition, visible, params, all, false, effects);
+			self.processExpression(((IRControlPayload)statement.payload).condition, visible, params, all, false, effects);
 		}
-		self.scanBlock(statement.thenBlock, visible, params, effects);
-		self.scanBlock(statement.elseBlock, visible, params, effects);
+		self.scanBlock(((IRControlPayload)statement.payload).thenBlock, visible, params, effects);
+		self.scanBlock(((IRControlPayload)statement.payload).elseBlock, visible, params, effects);
 	}
 
 	private void scanSwitch(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
-		self.prepareSimple(statement.value, null, visible, params, effects);
+		self.prepareSimple(((IRControlPayload)statement.payload).value, null, visible, params, effects);
 		int index = 0;
 		while (index < statement.args().len) {
 			IRNode caseNode = statement.args().get(index);
+			int caseDomain = caseNode.payloadDomain();
 			Vector<IRNode> caseVisible = self.copyVisible(visible);
-			self.prepareSimple(caseNode.value, null, caseVisible, params, effects);
-			IRNode caseBlock = IRNode();
-			caseBlock.kind = IRK_BLOCK;
-			caseBlock.stmtsStorage = caseNode.stmts();
-			if (self.containsSetjmp(caseBlock) && caseNode.fallsThrough) {
+			self.prepareSimple((caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)caseNode.payload).value : null), null, caseVisible, params, effects);
+			IRNode caseBlock = IRNode(IRK_BLOCK);
+			((IRControlPayload)caseBlock.payload).stmtsStorage = caseNode.stmts();
+			if (self.containsSetjmp(caseBlock) && (caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)caseNode.payload).fallsThrough : false)) {
 				Map<string, bool> continuation = {};
 				int next = index;
-				while (next + 1 < statement.args().len && statement.args().get(next).fallsThrough) {
+				while (next + 1 < statement.args().len) {
+					IRNode previousCase = statement.args().get(next);
+					if (previousCase.payloadDomain() != IR_PAYLOAD_CONTROL_SEQUENCE || !((IRControlPayload)previousCase.payload).fallsThrough) { break; }
 					next = next + 1;
 					IRNode nextCase = statement.args().get(next);
-					IRNode nextBlock = IRNode();
-					nextBlock.kind = IRK_BLOCK;
-					nextBlock.stmtsStorage = nextCase.stmts();
+					IRNode nextBlock = IRNode(IRK_BLOCK);
+					((IRControlPayload)nextBlock.payload).stmtsStorage = nextCase.stmts();
 					Map<string, bool> nextMutations = self.mutatedNames(nextBlock, effects);
 					Vector<string> names = nextMutations.keys();
 					int nameIndex = 0;
@@ -730,21 +739,21 @@ class SetjmpSafetyPlanner {
 		if (statement.kind == IRK_VAR_DECL) {
 			self.prepareDeclaration(statement, visible, params, all, false, effects);
 		} else if (statement.kind == IRK_ASSIGN) {
-			self.prepareSimple(statement.target, statement.value, visible, params, effects);
+			self.prepareSimple(((IRValuePayload)statement.payload).target, ((IRValuePayload)statement.payload).value, visible, params, effects);
 		} else if (statement.kind == IRK_RETURN) {
-			self.prepareSimple(statement.value, null, visible, params, effects);
+			self.prepareSimple(((IRValuePayload)statement.payload).value, null, visible, params, effects);
 		} else if (statement.kind == IRK_EXPR_STMT) {
 			self.prepareSimple(statement.expr, null, visible, params, effects);
 		} else if (statement.kind == IRK_IF) {
 			self.scanIf(statement, visible, params, effects);
 		} else if (statement.kind == IRK_WHILE) {
 			self.markLoopVisible(statement, visible, params, effects);
-			self.prepareSimple(statement.condition, null, visible, params, effects);
-			self.scanBlock(statement.body, visible, params, effects);
+			self.prepareSimple(((IRControlPayload)statement.payload).condition, null, visible, params, effects);
+			self.scanBlock(((IRControlPayload)statement.payload).body, visible, params, effects);
 		} else if (statement.kind == IRK_DO_WHILE) {
 			self.markLoopVisible(statement, visible, params, effects);
-			self.processExpression(statement.condition, visible, params, all, false, effects);
-			self.scanBlock(statement.body, visible, params, effects);
+			self.processExpression(((IRControlPayload)statement.payload).condition, visible, params, all, false, effects);
+			self.scanBlock(((IRControlPayload)statement.payload).body, visible, params, effects);
 		} else if (statement.kind == IRK_FOR) {
 			self.scanFor(statement, visible, params, effects);
 		} else if (statement.kind == IRK_SWITCH) {
@@ -758,8 +767,8 @@ class SetjmpSafetyPlanner {
 		if (init == null) { return; }
 		Map<string, bool> all = {};
 		if (init.kind == IRK_ASSIGN) {
-			self.prepareHoists(init.target, visible, params, all, false, effects);
-			self.prepareHoists(init.value, visible, params, all, false, effects);
+			self.prepareHoists(((IRValuePayload)init.payload).target, visible, params, all, false, effects);
+			self.prepareHoists(((IRValuePayload)init.payload).value, visible, params, all, false, effects);
 		} else if (init.kind == IRK_EXPR_STMT) {
 			self.prepareHoists(init.expr, visible, params, all, false, effects);
 		}
@@ -769,8 +778,8 @@ class SetjmpSafetyPlanner {
 		if (init == null) { return; }
 		Map<string, bool> all = {};
 		if (init.kind == IRK_ASSIGN) {
-			self.scanResidual(init.target, visible, params, all, false, effects);
-			self.scanResidual(init.value, visible, params, all, false, effects);
+			self.scanResidual(((IRValuePayload)init.payload).target, visible, params, all, false, effects);
+			self.scanResidual(((IRValuePayload)init.payload).value, visible, params, all, false, effects);
 		} else if (init.kind == IRK_EXPR_STMT) {
 			self.scanResidual(init.expr, visible, params, all, false, effects);
 		}
@@ -778,27 +787,27 @@ class SetjmpSafetyPlanner {
 
 	private void scanFor(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
 		Map<string, bool> all = {};
-		if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
-			self.prepareHoists(statement.init.arraySize, visible, params, all, false, effects);
-			self.prepareHoists(statement.init.init, visible, params, all, false, effects);
+		if (((IRControlPayload)statement.payload).init != null && ((IRControlPayload)statement.payload).init.kind == IRK_VAR_DECL) {
+			self.prepareHoists(((IRDeclarationPayload)((IRControlPayload)statement.payload).init.payload).arraySize, visible, params, all, false, effects);
+			self.prepareHoists(((IRDeclarationPayload)((IRControlPayload)statement.payload).init.payload).init, visible, params, all, false, effects);
 		} else {
-			self.prepareForInit(statement.init, visible, params, effects);
+			self.prepareForInit(((IRControlPayload)statement.payload).init, visible, params, effects);
 		}
-		self.prepareHoists(statement.condition, visible, params, all, false, effects);
-		self.prepareHoists(statement.update, visible, params, all, false, effects);
+		self.prepareHoists(((IRControlPayload)statement.payload).condition, visible, params, all, false, effects);
+		self.prepareHoists(((IRControlPayload)statement.payload).update, visible, params, all, false, effects);
 
 		Vector<IRNode> loopVisible = self.copyVisible(visible);
-		if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
-			self.scanResidual(statement.init.arraySize, visible, params, all, false, effects);
-			self.addVisible(loopVisible, statement.init);
-			self.scanResidual(statement.init.init, loopVisible, params, all, false, effects);
+		if (((IRControlPayload)statement.payload).init != null && ((IRControlPayload)statement.payload).init.kind == IRK_VAR_DECL) {
+			self.scanResidual(((IRDeclarationPayload)((IRControlPayload)statement.payload).init.payload).arraySize, visible, params, all, false, effects);
+			self.addVisible(loopVisible, ((IRControlPayload)statement.payload).init);
+			self.scanResidual(((IRDeclarationPayload)((IRControlPayload)statement.payload).init.payload).init, loopVisible, params, all, false, effects);
 		} else {
-			self.scanForInit(statement.init, loopVisible, params, effects);
+			self.scanForInit(((IRControlPayload)statement.payload).init, loopVisible, params, effects);
 		}
 		self.markLoopVisible(statement, loopVisible, params, effects);
-		self.scanResidual(statement.condition, loopVisible, params, all, false, effects);
-		self.scanResidual(statement.update, loopVisible, params, all, false, effects);
-		self.scanBlock(statement.body, loopVisible, params, effects);
+		self.scanResidual(((IRControlPayload)statement.payload).condition, loopVisible, params, all, false, effects);
+		self.scanResidual(((IRControlPayload)statement.payload).update, loopVisible, params, all, false, effects);
+		self.scanBlock(((IRControlPayload)statement.payload).body, loopVisible, params, effects);
 	}
 
 	public void apply(IRModule module) {

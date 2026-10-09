@@ -28,27 +28,28 @@ class IROptimizer {
 
 	private string invalidDiagnostic(IRNode? node) {
 		if (node == null) { return ""; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_INVALID_EXPR) { return node.text; }
 		/* Field by field: a child list per node would allocate for every node
 		 * of every exported body. */
 		string found = self.invalidDiagnostic(node.left);
 		if (found.isEmpty()) { found = self.invalidDiagnostic(node.right); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.operand); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null)); }
 		if (found.isEmpty()) { found = self.invalidDiagnostic(node.expr); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.obj); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.index); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.condition); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.trueExpr); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.falseExpr); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.init); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.value); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.target); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.thenBlock); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.elseBlock); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.body); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.update); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.result); }
-		if (found.isEmpty()) { found = self.invalidDiagnostic(node.arraySize); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null)); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null)); }
 		if (!found.isEmpty()) { return found; }
 		for argument in node.args() {
 			string found = self.invalidDiagnostic(argument);
@@ -176,13 +177,14 @@ class IROptimizer {
 
 	private bool globalInitializerHasEffects(IRNode? node) {
 		if (node == null) { return false; }
-		if (node.kind == IRK_CALL || node.kind == IRK_CXX_NEW || node.kind == IRK_OBJECTIVE_C_MESSAGE || node.kind == IRK_OBJECTIVE_C_BLOCK || (node.kind == IRK_CAST && (node.bridge == "retain" || node.bridge == "transfer")) || node.kind == IRK_STMT_EXPR || node.kind == IRK_INVALID_EXPR || node.kind >= IRK_VAR_DECL) {
+		int domain = node.payloadDomain();
+		if (node.kind == IRK_CALL || node.kind == IRK_CXX_NEW || node.kind == IRK_OBJECTIVE_C_MESSAGE || node.kind == IRK_OBJECTIVE_C_BLOCK || (node.kind == IRK_CAST && ((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).bridge : "") == "retain" || (domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).bridge : "") == "transfer")) || node.kind == IRK_STMT_EXPR || node.kind == IRK_INVALID_EXPR || node.kind >= IRK_VAR_DECL) {
 			return true;
 		}
 		if (node.kind == IRK_UNARYOP && (node.op == "++" || node.op == "--")) {
 			return true;
 		}
-		if (self.globalInitializerHasEffects(node.left) || self.globalInitializerHasEffects(node.right) || self.globalInitializerHasEffects(node.operand) || self.globalInitializerHasEffects(node.expr) || self.globalInitializerHasEffects(node.obj) || self.globalInitializerHasEffects(node.index) || self.globalInitializerHasEffects(node.condition) || self.globalInitializerHasEffects(node.trueExpr) || self.globalInitializerHasEffects(node.falseExpr) || self.globalInitializerHasEffects(node.init) || self.globalInitializerHasEffects(node.value) || self.globalInitializerHasEffects(node.target) || self.globalInitializerHasEffects(node.thenBlock) || self.globalInitializerHasEffects(node.elseBlock) || self.globalInitializerHasEffects(node.body) || self.globalInitializerHasEffects(node.update) || self.globalInitializerHasEffects(node.result) || self.globalInitializerHasEffects(node.arraySize)) {
+		if (self.globalInitializerHasEffects(node.left) || self.globalInitializerHasEffects(node.right) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null)) || self.globalInitializerHasEffects(node.expr) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null)) || self.globalInitializerHasEffects((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null))) {
 			return true;
 		}
 		int argument = 0;
@@ -197,30 +199,31 @@ class IROptimizer {
 
 	private void collectGlobalRefs(IRNode? node, Map<string, bool> names, Map<string, bool> out) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_VAR && names.has(node.name)) {
 			out.put(node.name, true);
 		}
-		if (node.kind == IRK_CALL && names.has(node.callee)) {
-			out.put(node.callee, true);
+		if (node.kind == IRK_CALL && names.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""))) {
+			out.put((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""), true);
 		}
 		self.collectGlobalRefs(node.left, names, out);
 		self.collectGlobalRefs(node.right, names, out);
-		self.collectGlobalRefs(node.operand, names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), names, out);
 		self.collectGlobalRefs(node.expr, names, out);
-		self.collectGlobalRefs(node.obj, names, out);
-		self.collectGlobalRefs(node.index, names, out);
-		self.collectGlobalRefs(node.condition, names, out);
-		self.collectGlobalRefs(node.trueExpr, names, out);
-		self.collectGlobalRefs(node.falseExpr, names, out);
-		self.collectGlobalRefs(node.init, names, out);
-		self.collectGlobalRefs(node.value, names, out);
-		self.collectGlobalRefs(node.target, names, out);
-		self.collectGlobalRefs(node.thenBlock, names, out);
-		self.collectGlobalRefs(node.elseBlock, names, out);
-		self.collectGlobalRefs(node.body, names, out);
-		self.collectGlobalRefs(node.update, names, out);
-		self.collectGlobalRefs(node.result, names, out);
-		self.collectGlobalRefs(node.arraySize, names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), names, out);
+		self.collectGlobalRefs((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), names, out);
 		int argument = 0;
 		while (argument < node.args().len) {
 			self.collectGlobalRefs(node.args().get(argument), names, out);
@@ -421,8 +424,9 @@ class IROptimizer {
      * is data and must never root a same-named dead function. */
 	private void collectFuncRefs(IRNode? node, Map<string, bool> names, Map<string, bool> out) {
 		if (node == null) { return; }
-		if (node.kind == IRK_CALL && names.has(node.callee)) {
-			out.put(node.callee, true);
+		int domain = node.payloadDomain();
+		if (node.kind == IRK_CALL && names.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""))) {
+			out.put((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""), true);
 		}
 		if (node.kind == IRK_FUNCTION_REF && names.has(node.name)) {
 			out.put(node.name, true);
@@ -430,22 +434,22 @@ class IROptimizer {
 		/* Recurse into every sub-node field. */
 		self.collectFuncRefs(node.left, names, out);
 		self.collectFuncRefs(node.right, names, out);
-		self.collectFuncRefs(node.operand, names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), names, out);
 		self.collectFuncRefs(node.expr, names, out);
-		self.collectFuncRefs(node.obj, names, out);
-		self.collectFuncRefs(node.index, names, out);
-		self.collectFuncRefs(node.condition, names, out);
-		self.collectFuncRefs(node.trueExpr, names, out);
-		self.collectFuncRefs(node.falseExpr, names, out);
-		self.collectFuncRefs(node.init, names, out);
-		self.collectFuncRefs(node.value, names, out);
-		self.collectFuncRefs(node.target, names, out);
-		self.collectFuncRefs(node.thenBlock, names, out);
-		self.collectFuncRefs(node.elseBlock, names, out);
-		self.collectFuncRefs(node.body, names, out);
-		self.collectFuncRefs(node.update, names, out);
-		self.collectFuncRefs(node.result, names, out);
-		self.collectFuncRefs(node.arraySize, names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), names, out);
+		self.collectFuncRefs((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), names, out);
 		int i = 0;
 		while (i < node.args().len) { self.collectFuncRefs(node.args().get(i), names, out); i = i + 1; }
 		int j = 0;
@@ -625,33 +629,34 @@ class IROptimizer {
      * declarations and repeatedly scans large generated-runtime string data. */
 	private void collectStructRefsNode(IRNode? node, Map<string, bool> names, Map<string, bool> out) {
 		if (node == null) { return; }
-		if (node.cType != "") {
-			self.scanTextForKnownNames(node.cType, names, out);
+		int domain = node.payloadDomain();
+		if ((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : "") != "") {
+			self.scanTextForKnownNames((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : ""), names, out);
 		}
-		if (node.targetType != "") {
-			self.scanTextForKnownNames(node.targetType, names, out);
+		if ((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : "") != "") {
+			self.scanTextForKnownNames((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : ""), names, out);
 		}
-		if (node.params != null) {
-			for (int index = 0; index < node.params.len; index++) { self.scanTextForKnownNames(node.params.get(index).cType, names, out); }
+		if ((domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null) != null) {
+			for (int index = 0; index < (domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null).len; index++) { self.scanTextForKnownNames((domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null).get(index).cType, names, out); }
 		}
 		self.collectStructRefsNode(node.left, names, out);
 		self.collectStructRefsNode(node.right, names, out);
-		self.collectStructRefsNode(node.operand, names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), names, out);
 		self.collectStructRefsNode(node.expr, names, out);
-		self.collectStructRefsNode(node.obj, names, out);
-		self.collectStructRefsNode(node.index, names, out);
-		self.collectStructRefsNode(node.condition, names, out);
-		self.collectStructRefsNode(node.trueExpr, names, out);
-		self.collectStructRefsNode(node.falseExpr, names, out);
-		self.collectStructRefsNode(node.init, names, out);
-		self.collectStructRefsNode(node.value, names, out);
-		self.collectStructRefsNode(node.target, names, out);
-		self.collectStructRefsNode(node.thenBlock, names, out);
-		self.collectStructRefsNode(node.elseBlock, names, out);
-		self.collectStructRefsNode(node.body, names, out);
-		self.collectStructRefsNode(node.update, names, out);
-		self.collectStructRefsNode(node.result, names, out);
-		self.collectStructRefsNode(node.arraySize, names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), names, out);
+		self.collectStructRefsNode((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), names, out);
 		int i = 0;
 		while (i < node.args().len) { self.collectStructRefsNode(node.args().get(i), names, out); i = i + 1; }
 		int j = 0;
@@ -666,25 +671,26 @@ class IROptimizer {
 	 * kept declaration keeps whatever its own fields, targets and values name. */
 	private void collectEnumValueRefs(IRNode? node, Map<string, bool> names, Map<string, bool> out) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_VAR && names.has(node.name)) { out.put(node.name, true); }
 		self.collectEnumValueRefs(node.left, names, out);
 		self.collectEnumValueRefs(node.right, names, out);
-		self.collectEnumValueRefs(node.operand, names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), names, out);
 		self.collectEnumValueRefs(node.expr, names, out);
-		self.collectEnumValueRefs(node.obj, names, out);
-		self.collectEnumValueRefs(node.index, names, out);
-		self.collectEnumValueRefs(node.condition, names, out);
-		self.collectEnumValueRefs(node.trueExpr, names, out);
-		self.collectEnumValueRefs(node.falseExpr, names, out);
-		self.collectEnumValueRefs(node.init, names, out);
-		self.collectEnumValueRefs(node.value, names, out);
-		self.collectEnumValueRefs(node.target, names, out);
-		self.collectEnumValueRefs(node.thenBlock, names, out);
-		self.collectEnumValueRefs(node.elseBlock, names, out);
-		self.collectEnumValueRefs(node.body, names, out);
-		self.collectEnumValueRefs(node.update, names, out);
-		self.collectEnumValueRefs(node.result, names, out);
-		self.collectEnumValueRefs(node.arraySize, names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), names, out);
+		self.collectEnumValueRefs((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), names, out);
 		for argument in node.args() { self.collectEnumValueRefs(argument, names, out); }
 		for statement in node.stmts() { self.collectEnumValueRefs(statement, names, out); }
 	}
@@ -889,29 +895,30 @@ class IROptimizer {
 
 	private void renameSymbols(IRNode? node, Map<string, string> renamed) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_FUNCTION_REF && renamed.has(node.name)) { node.name = renamed.get(node.name); }
-		if (node.callee != "" && renamed.has(node.callee)) { node.callee = renamed.get(node.callee); }
-		if (node.helperRef != "" && renamed.has(node.helperRef)) { node.helperRef = renamed.get(node.helperRef); }
-		IRCleanupSlot? slot = node.cleanupSlot;
+		if ((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") != "" && renamed.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""))) { ((IRCallPayload)node.payload).callee = renamed.get((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "")); }
+		if ((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).helperRef : "") != "" && renamed.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).helperRef : ""))) { ((IRCallPayload)node.payload).helperRef = renamed.get((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).helperRef : "")); }
+		IRCleanupSlot? slot = (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null);
 		if (slot != null && renamed.has(slot.takeFunction)) { slot.takeFunction = renamed.get(slot.takeFunction); }
 		self.renameSymbols(node.left, renamed);
 		self.renameSymbols(node.right, renamed);
-		self.renameSymbols(node.operand, renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), renamed);
 		self.renameSymbols(node.expr, renamed);
-		self.renameSymbols(node.obj, renamed);
-		self.renameSymbols(node.index, renamed);
-		self.renameSymbols(node.condition, renamed);
-		self.renameSymbols(node.trueExpr, renamed);
-		self.renameSymbols(node.falseExpr, renamed);
-		self.renameSymbols(node.arraySize, renamed);
-		self.renameSymbols(node.init, renamed);
-		self.renameSymbols(node.value, renamed);
-		self.renameSymbols(node.target, renamed);
-		self.renameSymbols(node.thenBlock, renamed);
-		self.renameSymbols(node.elseBlock, renamed);
-		self.renameSymbols(node.body, renamed);
-		self.renameSymbols(node.update, renamed);
-		self.renameSymbols(node.result, renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), renamed);
+		self.renameSymbols((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), renamed);
 		for argument in node.args() { self.renameSymbols(argument, renamed); }
 		for statement in node.stmts() { self.renameSymbols(statement, renamed); }
 	}
@@ -1008,28 +1015,29 @@ class IROptimizer {
 
 	private void collectAdapterUses(IRNode? node, Map<string, bool> members, int position, Map<string, int> firstUse) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_FUNCTION_REF && members.has(node.name) && !firstUse.has(node.name)) { firstUse.put(node.name, position); }
-		if (node.callee != "" && members.has(node.callee) && !firstUse.has(node.callee)) { firstUse.put(node.callee, position); }
-		IRCleanupSlot? slot = node.cleanupSlot;
+		if ((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") != "" && members.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "")) && !firstUse.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""))) { firstUse.put((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""), position); }
+		IRCleanupSlot? slot = (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null);
 		if (slot != null && members.has(slot.takeFunction) && !firstUse.has(slot.takeFunction)) { firstUse.put(slot.takeFunction, position); }
 		self.collectAdapterUses(node.left, members, position, firstUse);
 		self.collectAdapterUses(node.right, members, position, firstUse);
-		self.collectAdapterUses(node.operand, members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), members, position, firstUse);
 		self.collectAdapterUses(node.expr, members, position, firstUse);
-		self.collectAdapterUses(node.obj, members, position, firstUse);
-		self.collectAdapterUses(node.index, members, position, firstUse);
-		self.collectAdapterUses(node.condition, members, position, firstUse);
-		self.collectAdapterUses(node.trueExpr, members, position, firstUse);
-		self.collectAdapterUses(node.falseExpr, members, position, firstUse);
-		self.collectAdapterUses(node.arraySize, members, position, firstUse);
-		self.collectAdapterUses(node.init, members, position, firstUse);
-		self.collectAdapterUses(node.value, members, position, firstUse);
-		self.collectAdapterUses(node.target, members, position, firstUse);
-		self.collectAdapterUses(node.thenBlock, members, position, firstUse);
-		self.collectAdapterUses(node.elseBlock, members, position, firstUse);
-		self.collectAdapterUses(node.body, members, position, firstUse);
-		self.collectAdapterUses(node.update, members, position, firstUse);
-		self.collectAdapterUses(node.result, members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), members, position, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), members, position, firstUse);
 		for argument in node.args() { self.collectAdapterUses(argument, members, position, firstUse); }
 		for statement in node.stmts() { self.collectAdapterUses(statement, members, position, firstUse); }
 	}
@@ -1049,6 +1057,7 @@ class IROptimizer {
 
 	private void collectTemporaryNames(IRNode? node, Map<string, bool> generated, Map<string, int> temporaries, Vector<string> order, Map<string, bool> occupied) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_VAR || node.kind == IRK_VAR_DECL) {
 			if (generated.has(node.name)) {
 				if (!temporaries.has(node.name)) {
@@ -1061,51 +1070,52 @@ class IROptimizer {
 		}
 		self.collectTemporaryNames(node.left, generated, temporaries, order, occupied);
 		self.collectTemporaryNames(node.right, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.operand, generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), generated, temporaries, order, occupied);
 		self.collectTemporaryNames(node.expr, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.obj, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.index, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.condition, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.trueExpr, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.falseExpr, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.arraySize, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.init, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.value, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.target, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.thenBlock, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.elseBlock, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.body, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.update, generated, temporaries, order, occupied);
-		self.collectTemporaryNames(node.result, generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), generated, temporaries, order, occupied);
+		self.collectTemporaryNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), generated, temporaries, order, occupied);
 		for argument in node.args() { self.collectTemporaryNames(argument, generated, temporaries, order, occupied); }
 		for statement in node.stmts() { self.collectTemporaryNames(statement, generated, temporaries, order, occupied); }
 	}
 
 	private void renameTemporaries(IRNode? node, Map<string, string> renamed) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if ((node.kind == IRK_VAR || node.kind == IRK_VAR_DECL) && renamed.has(node.name)) { node.name = renamed.get(node.name); }
 		if (renamed.has(node.storageRoot)) { node.storageRoot = renamed.get(node.storageRoot); }
 		if (renamed.has(node.arrayStorageRoot)) { node.arrayStorageRoot = renamed.get(node.arrayStorageRoot); }
-		IRCleanupSlot? slot = node.cleanupSlot;
+		IRCleanupSlot? slot = (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null);
 		if (slot != null && renamed.has(slot.name)) { slot.name = renamed.get(slot.name); }
 		self.renameTemporaries(node.left, renamed);
 		self.renameTemporaries(node.right, renamed);
-		self.renameTemporaries(node.operand, renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), renamed);
 		self.renameTemporaries(node.expr, renamed);
-		self.renameTemporaries(node.obj, renamed);
-		self.renameTemporaries(node.index, renamed);
-		self.renameTemporaries(node.condition, renamed);
-		self.renameTemporaries(node.trueExpr, renamed);
-		self.renameTemporaries(node.falseExpr, renamed);
-		self.renameTemporaries(node.arraySize, renamed);
-		self.renameTemporaries(node.init, renamed);
-		self.renameTemporaries(node.value, renamed);
-		self.renameTemporaries(node.target, renamed);
-		self.renameTemporaries(node.thenBlock, renamed);
-		self.renameTemporaries(node.elseBlock, renamed);
-		self.renameTemporaries(node.body, renamed);
-		self.renameTemporaries(node.update, renamed);
-		self.renameTemporaries(node.result, renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), renamed);
+		self.renameTemporaries((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), renamed);
 		for argument in node.args() { self.renameTemporaries(argument, renamed); }
 		for statement in node.stmts() { self.renameTemporaries(statement, renamed); }
 	}
@@ -1186,8 +1196,9 @@ class IROptimizer {
 	/* Normalize unused C parameters into explicit structured discards.
      * Mirrors IROptimizer._normalize_unused_parameters in the Python owner. */
 
-	private void collectParameterUses(IRNode node, Map<string, bool> names, Map<string, bool> references, Map<string, bool> declarations) {
+	private void collectParameterUses(IRNode? node, Map<string, bool> names, Map<string, bool> references, Map<string, bool> declarations) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_VAR && names.has(node.name)) {
 			references.put(node.name, true);
 		} else if (node.kind == IRK_VAR_DECL && names.has(node.name)) {
@@ -1196,22 +1207,22 @@ class IROptimizer {
 
 		self.collectParameterUses(node.left, names, references, declarations);
 		self.collectParameterUses(node.right, names, references, declarations);
-		self.collectParameterUses(node.operand, names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), names, references, declarations);
 		self.collectParameterUses(node.expr, names, references, declarations);
-		self.collectParameterUses(node.obj, names, references, declarations);
-		self.collectParameterUses(node.index, names, references, declarations);
-		self.collectParameterUses(node.condition, names, references, declarations);
-		self.collectParameterUses(node.trueExpr, names, references, declarations);
-		self.collectParameterUses(node.falseExpr, names, references, declarations);
-		self.collectParameterUses(node.init, names, references, declarations);
-		self.collectParameterUses(node.value, names, references, declarations);
-		self.collectParameterUses(node.target, names, references, declarations);
-		self.collectParameterUses(node.thenBlock, names, references, declarations);
-		self.collectParameterUses(node.elseBlock, names, references, declarations);
-		self.collectParameterUses(node.body, names, references, declarations);
-		self.collectParameterUses(node.update, names, references, declarations);
-		self.collectParameterUses(node.result, names, references, declarations);
-		self.collectParameterUses(node.arraySize, names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), names, references, declarations);
+		self.collectParameterUses((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), names, references, declarations);
 		int i = 0;
 		while (i < node.args().len) {
 			self.collectParameterUses(node.args().get(i), names, references, declarations);
@@ -1265,7 +1276,8 @@ class IROptimizer {
 					prefix.push(fn.body.stmts().get(s));
 					s = s + 1;
 				}
-				fn.body.stmtsStorage = prefix;
+				fn.body.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
+				((IRControlPayload)fn.body.payload).stmtsStorage = prefix;
 			}
 			f = f + 1;
 		}
@@ -1384,28 +1396,29 @@ class IRTypeDeclarationPlanner {
 	 * CType node of a declaration. */
 	class void expressionTypes(IRNode? node, Vector<string> out) {
 		if (node == null) { return; }
-		if (!node.cType.isEmpty()) { out.push(node.cType); }
-		if (!node.targetType.isEmpty()) { out.push(node.targetType); }
-		if (node.params != null) { for parameter in node.params { out.push(parameter.cType); } }
-		if (node.cleanupSlot != null) { out.push(node.cleanupSlot.cType); }
+		int domain = node.payloadDomain();
+		if (!(domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : "").isEmpty()) { out.push((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : "")); }
+		if (!(domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : "").isEmpty()) { out.push((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : "")); }
+		if ((domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null) != null) { for parameter in(domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null) { out.push(parameter.cType); } }
+		if ((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null) != null) { out.push((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null).cType); }
 		IRTypeDeclarationPlanner.expressionTypes(node.left, out);
 		IRTypeDeclarationPlanner.expressionTypes(node.right, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.operand, out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), out);
 		IRTypeDeclarationPlanner.expressionTypes(node.expr, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.obj, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.index, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.condition, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.trueExpr, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.falseExpr, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.init, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.value, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.target, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.thenBlock, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.elseBlock, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.body, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.update, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.result, out);
-		IRTypeDeclarationPlanner.expressionTypes(node.arraySize, out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), out);
+		IRTypeDeclarationPlanner.expressionTypes((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), out);
 		for argument in node.args() { IRTypeDeclarationPlanner.expressionTypes(argument, out); }
 		for statement in node.stmts() { IRTypeDeclarationPlanner.expressionTypes(statement, out); }
 	}
@@ -1484,25 +1497,26 @@ class IRTypeDeclarationPlanner {
 
 	class void enumValueReferences(IRNode? node, Map<string, int> valueProviders, Vector<string> out) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_VAR && valueProviders.has(node.name)) { out.push(node.name); }
 		IRTypeDeclarationPlanner.enumValueReferences(node.left, valueProviders, out);
 		IRTypeDeclarationPlanner.enumValueReferences(node.right, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.operand, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), valueProviders, out);
 		IRTypeDeclarationPlanner.enumValueReferences(node.expr, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.obj, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.index, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.condition, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.trueExpr, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.falseExpr, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.init, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.value, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.target, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.thenBlock, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.elseBlock, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.body, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.update, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.result, valueProviders, out);
-		IRTypeDeclarationPlanner.enumValueReferences(node.arraySize, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), valueProviders, out);
 		for argument in node.args() { IRTypeDeclarationPlanner.enumValueReferences(argument, valueProviders, out); }
 		for statement in node.stmts() { IRTypeDeclarationPlanner.enumValueReferences(statement, valueProviders, out); }
 	}

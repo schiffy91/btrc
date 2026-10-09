@@ -596,9 +596,9 @@ class SetjmpPointerFlow {
 			return existing;
 		}
 		string kind = "automatic";
-		if (declaration.isStatic) { kind = "static"; }
-		if (declaration.isExtern) { kind = "extern"; }
-		SetjmpStorage storage = self.newStorage(declaration.name, kind, self.typeFacts.renderedPointerDepth(declaration.cType), declaration.isArrayDecl || declaration.arraySize != null);
+		if (((IRDeclarationPayload)declaration.payload).isStatic) { kind = "static"; }
+		if (((IRDeclarationPayload)declaration.payload).isExtern) { kind = "extern"; }
+		SetjmpStorage storage = self.newStorage(declaration.name, kind, self.typeFacts.renderedPointerDepth(((IRDeclarationPayload)declaration.payload).cType), ((IRDeclarationPayload)declaration.payload).isArrayDecl || ((IRDeclarationPayload)declaration.payload).arraySize != null);
 		self.bind(declaration.name, storage);
 		self.result.recordDeclaration(declaration, storage);
 		return storage;
@@ -932,7 +932,7 @@ class SetjmpEffectAnalysis {
 			self.flowExpression(flow, call.args().get(index));
 			index = index + 1;
 		}
-		SetjmpFunctionEffect effect = self.effectFor(call.callee, call.args().len);
+		SetjmpFunctionEffect effect = self.effectFor(((IRCallPayload)call.payload).callee, call.args().len);
 		Vector<SetjmpOrigin> writes = [];
 		index = 0;
 		while (index < effect.writes.len) {
@@ -1018,8 +1018,8 @@ class SetjmpEffectAnalysis {
 			}
 			return locations;
 		}
-		if (value.kind == IRK_FIELD_ACCESS && value.arrow) {
-			return flow.result.copyOrigins(flow.result.originsFor(value.obj));
+		if (value.kind == IRK_FIELD_ACCESS && ((IRProjectionPayload)value.payload).arrow) {
+			return flow.result.copyOrigins(flow.result.originsFor(((IRProjectionPayload)value.payload).obj));
 		}
 		if (value.kind == IRK_INDEX || value.kind == IRK_DEREF) {
 			if (value.storageRootKnown && value.storageRoot != "") {
@@ -1030,7 +1030,7 @@ class SetjmpEffectAnalysis {
 				return locations;
 			}
 			if (value.storageRootKnown || value.kind == IRK_DEREF) {
-				IRNode? child = value.obj;
+				IRNode? child = (value.kind == IRK_INDEX ? ((IRProjectionPayload)value.payload).obj : null);
 				if (value.kind == IRK_DEREF) { child = value.expr; }
 				return flow.result.copyOrigins(flow.result.originsFor(child));
 			}
@@ -1136,7 +1136,7 @@ class SetjmpEffectAnalysis {
 		} else if (value.kind == IRK_DEREF) {
 			origins = self.flowLoad(flow, self.flowExpression(flow, value.expr));
 		} else if (value.kind == IRK_CAST) {
-			origins = self.flowCastOrigins(flow, value.targetType, self.flowExpression(flow, value.expr));
+			origins = self.flowCastOrigins(flow, ((IRConversionPayload)value.payload).targetType, self.flowExpression(flow, value.expr));
 		} else if (value.kind == IRK_COMMA_EXPR) {
 			int index = 0;
 			while (index < value.args().len) {
@@ -1150,15 +1150,15 @@ class SetjmpEffectAnalysis {
 				self.flowStatement(flow, value.stmts().get(index));
 				index = index + 1;
 			}
-			origins = self.flowExpression(flow, value.result);
+			origins = self.flowExpression(flow, ((IRControlPayload)value.payload).result);
 			flow.leaveScope(bindingCount);
 		} else if (value.kind == IRK_TERNARY) {
-			self.flowExpression(flow, value.condition);
+			self.flowExpression(flow, ((IRControlPayload)value.payload).condition);
 			SetjmpAliasState entry = flow.copyState(flow.state);
-			origins = self.flowExpression(flow, value.trueExpr);
+			origins = self.flowExpression(flow, ((IRControlPayload)value.payload).trueExpr);
 			SetjmpAliasState leftState = flow.copyState(flow.state);
 			flow.state = flow.copyState(entry);
-			Vector<SetjmpOrigin> right = self.flowExpression(flow, value.falseExpr);
+			Vector<SetjmpOrigin> right = self.flowExpression(flow, ((IRControlPayload)value.payload).falseExpr);
 			flow.result.addOrigins(origins, right);
 			flow.state = flow.joinStates(leftState, flow.state);
 		} else if (value.kind == IRK_CALL) {
@@ -1188,16 +1188,16 @@ class SetjmpEffectAnalysis {
 				}
 			}
 		} else if (value.kind == IRK_UNARYOP) {
-			origins = self.flowExpression(flow, value.operand);
+			origins = self.flowExpression(flow, ((IRUnaryPayload)value.payload).operand);
 			if (value.op == "++" || value.op == "--") {
-				flow.result.recordWrite(value, self.flowLocations(flow, value.operand));
+				flow.result.recordWrite(value, self.flowLocations(flow, ((IRUnaryPayload)value.payload).operand));
 			}
 			if (value.op == "!") { origins = []; }
 		} else if (value.kind == IRK_SIZEOF) {
 			flow.result.recordOrigins(value, origins);
 			return origins;
 		} else if (value.kind == IRK_FIELD_ACCESS) {
-			self.flowExpression(flow, value.obj);
+			self.flowExpression(flow, ((IRProjectionPayload)value.payload).obj);
 			if (value.arrayStorageKnown && value.arrayStorageRoot != "") {
 				SetjmpStorage? storage = flow.resolve(value.arrayStorageRoot);
 				if (storage != null) {
@@ -1205,12 +1205,12 @@ class SetjmpEffectAnalysis {
 				}
 			}
 		} else if (value.kind == IRK_INDEX) {
-			self.flowExpression(flow, value.obj);
-			self.flowExpression(flow, value.index);
+			self.flowExpression(flow, ((IRProjectionPayload)value.payload).obj);
+			self.flowExpression(flow, ((IRProjectionPayload)value.payload).index);
 		} else if (value.kind == IRK_DESIGNATION) {
 			/* The index is a folded literal; the designated value carries the origins. */
-			self.flowExpression(flow, value.index);
-			flow.result.addOrigins(origins, self.flowExpression(flow, value.value));
+			self.flowExpression(flow, ((IRProjectionPayload)value.payload).index);
+			flow.result.addOrigins(origins, self.flowExpression(flow, ((IRProjectionPayload)value.payload).value));
 		} else if (value.kind == IRK_INITIALIZER_LIST || value.kind == IRK_COMPOUND_LITERAL) {
 			int index = 0;
 			while (index < value.args().len) {
@@ -1218,21 +1218,22 @@ class SetjmpEffectAnalysis {
 				index = index + 1;
 			}
 		} else {
+			int domain = value.payloadDomain();
 			self.flowExpression(flow, value.left);
 			self.flowExpression(flow, value.right);
-			self.flowExpression(flow, value.operand);
+			self.flowExpression(flow, (domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)value.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)value.payload).operand : null));
 			self.flowExpression(flow, value.expr);
-			self.flowExpression(flow, value.obj);
-			self.flowExpression(flow, value.index);
-			self.flowExpression(flow, value.condition);
-			self.flowExpression(flow, value.trueExpr);
-			self.flowExpression(flow, value.falseExpr);
-			self.flowExpression(flow, value.init);
-			self.flowExpression(flow, value.value);
-			self.flowExpression(flow, value.target);
-			self.flowExpression(flow, value.update);
-			self.flowExpression(flow, value.result);
-			self.flowExpression(flow, value.arraySize);
+			self.flowExpression(flow, (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)value.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)value.payload).obj : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)value.payload).index : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)value.payload).condition : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)value.payload).trueExpr : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)value.payload).falseExpr : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)value.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)value.payload).init : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)value.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)value.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)value.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)value.payload).value : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)value.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)value.payload).target : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)value.payload).update : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)value.payload).result : null));
+			self.flowExpression(flow, (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)value.payload).arraySize : null));
 			int index = 0;
 			while (index < value.args().len) {
 				self.flowExpression(flow, value.args().get(index));
@@ -1292,8 +1293,8 @@ class SetjmpEffectAnalysis {
 		bool converged = false;
 		while (!converged) {
 			flow.state = flow.copyState(header);
-			self.flowExpression(flow, statement.condition);
-			self.flowBlock(flow, statement.body, true);
+			self.flowExpression(flow, ((IRControlPayload)statement.payload).condition);
+			self.flowBlock(flow, ((IRControlPayload)statement.payload).body, true);
 			SetjmpAliasState updated = flow.joinStates(entry, flow.state);
 			converged = self.flowSameState(header, updated);
 			header = updated;
@@ -1303,11 +1304,11 @@ class SetjmpEffectAnalysis {
 
 	private void flowFor(SetjmpPointerFlow flow, IRNode statement) {
 		int bindingCount = flow.bindings.len;
-		if (statement.init != null) {
-			if (statement.init.kind == IRK_VAR_DECL || statement.init.kind == IRK_ASSIGN || statement.init.kind == IRK_EXPR_STMT) {
-				self.flowStatement(flow, statement.init);
+		if (((IRControlPayload)statement.payload).init != null) {
+			if (((IRControlPayload)statement.payload).init.kind == IRK_VAR_DECL || ((IRControlPayload)statement.payload).init.kind == IRK_ASSIGN || ((IRControlPayload)statement.payload).init.kind == IRK_EXPR_STMT) {
+				self.flowStatement(flow, ((IRControlPayload)statement.payload).init);
 			} else {
-				self.flowExpression(flow, statement.init);
+				self.flowExpression(flow, ((IRControlPayload)statement.payload).init);
 			}
 		}
 		SetjmpAliasState entry = flow.copyState(flow.state);
@@ -1315,9 +1316,9 @@ class SetjmpEffectAnalysis {
 		bool converged = false;
 		while (!converged) {
 			flow.state = flow.copyState(header);
-			self.flowExpression(flow, statement.condition);
-			self.flowBlock(flow, statement.body, true);
-			self.flowExpression(flow, statement.update);
+			self.flowExpression(flow, ((IRControlPayload)statement.payload).condition);
+			self.flowBlock(flow, ((IRControlPayload)statement.payload).body, true);
+			self.flowExpression(flow, ((IRControlPayload)statement.payload).update);
 			SetjmpAliasState updated = flow.joinStates(entry, flow.state);
 			converged = self.flowSameState(header, updated);
 			header = updated;
@@ -1327,7 +1328,7 @@ class SetjmpEffectAnalysis {
 	}
 
 	private void flowSwitch(SetjmpPointerFlow flow, IRNode statement) {
-		self.flowExpression(flow, statement.value);
+		self.flowExpression(flow, ((IRControlPayload)statement.payload).value);
 		SetjmpAliasState entry = flow.copyState(flow.state);
 		SetjmpAliasState exits = flow.copyState(entry);
 		SetjmpAliasState fallthrough = SetjmpAliasState();
@@ -1335,17 +1336,17 @@ class SetjmpEffectAnalysis {
 		int index = 0;
 		while (index < statement.args().len) {
 			IRNode caseNode = statement.args().get(index);
+			int caseDomain = caseNode.payloadDomain();
 			SetjmpAliasState start = flow.copyState(entry);
 			if (hasFallthrough) {
 				start = flow.joinStates(start, fallthrough);
 			}
 			flow.state = start;
-			self.flowExpression(flow, caseNode.value);
-			IRNode caseBlock = IRNode();
-			caseBlock.kind = IRK_BLOCK;
-			caseBlock.stmtsStorage = caseNode.stmts();
+			self.flowExpression(flow, (caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)caseNode.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)caseNode.payload).value : null));
+			IRNode caseBlock = IRNode(IRK_BLOCK);
+			((IRControlPayload)caseBlock.payload).stmtsStorage = caseNode.stmts();
 			self.flowBlock(flow, caseBlock, true);
-			if (caseNode.fallsThrough) {
+			if ((caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)caseNode.payload).fallsThrough : false)) {
 				fallthrough = flow.copyState(flow.state);
 				hasFallthrough = true;
 			} else {
@@ -1360,9 +1361,9 @@ class SetjmpEffectAnalysis {
 
 	private void flowStatement(SetjmpPointerFlow flow, IRNode statement) {
 		if (statement.kind == IRK_VAR_DECL) {
-			self.flowExpression(flow, statement.arraySize);
+			self.flowExpression(flow, ((IRDeclarationPayload)statement.payload).arraySize);
 			SetjmpStorage storage = flow.declare(statement);
-			Vector<SetjmpOrigin> origins = self.flowExpression(flow, statement.init);
+			Vector<SetjmpOrigin> origins = self.flowExpression(flow, ((IRDeclarationPayload)statement.payload).init);
 			if (storage.isPointer && !storage.isArray) {
 				flow.replaceAliases(storage, origins);
 				if (origins.len > 0 && !storage.automatic()) {
@@ -1374,11 +1375,11 @@ class SetjmpEffectAnalysis {
 			return;
 		}
 		if (statement.kind == IRK_ASSIGN) {
-			self.flowAssignment(flow, statement, statement.target, statement.value, "=");
+			self.flowAssignment(flow, statement, ((IRValuePayload)statement.payload).target, ((IRValuePayload)statement.payload).value, "=");
 			return;
 		}
 		if (statement.kind == IRK_RETURN) {
-			flow.result.addOrigins(flow.result.returns, self.flowExpression(flow, statement.value));
+			flow.result.addOrigins(flow.result.returns, self.flowExpression(flow, ((IRValuePayload)statement.payload).value));
 			return;
 		}
 		if (statement.kind == IRK_EXPR_STMT) {
@@ -1386,13 +1387,13 @@ class SetjmpEffectAnalysis {
 			return;
 		}
 		if (statement.kind == IRK_IF) {
-			self.flowExpression(flow, statement.condition);
+			self.flowExpression(flow, ((IRControlPayload)statement.payload).condition);
 			SetjmpAliasState entry = flow.copyState(flow.state);
 			flow.state = flow.copyState(entry);
-			self.flowBlock(flow, statement.thenBlock, true);
+			self.flowBlock(flow, ((IRControlPayload)statement.payload).thenBlock, true);
 			SetjmpAliasState left = flow.copyState(flow.state);
 			flow.state = flow.copyState(entry);
-			self.flowBlock(flow, statement.elseBlock, true);
+			self.flowBlock(flow, ((IRControlPayload)statement.payload).elseBlock, true);
 			flow.state = flow.joinStates(left, flow.state);
 			return;
 		}

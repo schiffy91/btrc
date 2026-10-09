@@ -905,8 +905,8 @@ class CallableValueLowerer {
 				Node captureType = self.concreteType(variableTypes.get(capture));
 				IRNode field = IRNode.fieldAccess(IRNode.variable("__env"), self.hostedAbi.lexicalBindingCName(capture, false), true);
 				IRNode declaration = IRNode.variableDeclaration(self.concreteCType(variableTypes.get(capture)), self.lexicalBindingCName(capture), field);
-				declaration.isVolatile = captureType.isVolatile;
-				declaration.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(captureType, self.analyzed.typedefTable);
+				((IRDeclarationPayload)declaration.payload).isVolatile = captureType.isVolatile;
+				((IRDeclarationPayload)declaration.payload).effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(captureType, self.analyzed.typedefTable);
 				plan.bodyPrefix.push(declaration);
 				captureIndex = captureIndex + 1;
 			}
@@ -1017,8 +1017,8 @@ class CallableValueLowerer {
 				Node captureType = self.concreteType(variableTypes.get(capture));
 				IRNode field = IRNode.fieldAccess(IRNode.variable("__env"), self.hostedAbi.lexicalBindingCName(capture, false), true);
 				IRNode declaration = IRNode.variableDeclaration(self.concreteCType(variableTypes.get(capture)), self.lexicalBindingCName(capture), field);
-				declaration.isVolatile = captureType.isVolatile;
-				declaration.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(captureType, self.analyzed.typedefTable);
+				((IRDeclarationPayload)declaration.payload).isVolatile = captureType.isVolatile;
+				((IRDeclarationPayload)declaration.payload).effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(captureType, self.analyzed.typedefTable);
 				plan.bodyPrefix.push(declaration);
 				captureIndex = captureIndex + 1;
 			}

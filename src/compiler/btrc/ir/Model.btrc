@@ -67,120 +67,211 @@ enum IRKind {
 	IRK_LINE_MARKER,
 };
 
-class IRNode {
+/* Payload ownership follows the tagged node, never a shared default.
+ * Keep the node identity stable for all analysis maps. A concrete payload
+ * is constructed once by IRNode and its inherited ARC metadata owns its
+ * children; static dispatch does not make payloads virtual IR nodes. */
+enum IRPayloadDomain {
+	IR_PAYLOAD_NONE = 0,
+	IR_PAYLOAD_UNARY,
+	IR_PAYLOAD_CONVERSION_AGGREGATE,
+	IR_PAYLOAD_PROJECTION_DESIGNATION,
+	IR_PAYLOAD_CALL,
+	IR_PAYLOAD_DECLARATION,
+	IR_PAYLOAD_CONTROL_SEQUENCE,
+	IR_PAYLOAD_NATIVE,
+	IR_PAYLOAD_SOURCE,
+	IR_PAYLOAD_VALUE_FLOW,
+};
 
-	/* IRLiteral: C literal text */
-	public string text;
+class IRNodePayload {
+	/* Constructor-owned tag; consumers validate through IRNode before casts. */
+	public int domain;
+}
 
-	/* IRVar/IRFunctionRef: name. IRCall: named callee. */
-	public string name;
-	public string callee;
-	public string op;
-
-	/* sub-expressions */
-	public IRNode left;
-	public IRNode right;
+class IRUnaryPayload extends IRNodePayload {
 	public IRNode operand;
-	public IRNode expr;          /* cast/address/deref/expr-stmt/call-callee operand */
+	public bool prefix;
+
+	public IRUnaryPayload() { self.domain = IR_PAYLOAD_UNARY; }
+}
+
+class IRConversionPayload extends IRNodePayload {
+	public string targetType;
+	public string bridge;
+	public IRNode operand;
+	public Vector<string>? fieldNamesStorage;
+
+	public IRConversionPayload() {
+		self.domain = IR_PAYLOAD_CONVERSION_AGGREGATE;
+		self.targetType = "";
+		self.bridge = "";
+	}
+}
+
+class IRProjectionPayload extends IRNodePayload {
 	public IRNode obj;
 	public IRNode index;
+	public string field;
+	public IRNode value;
+	public bool arrow;
+	public bool bitField;
+
+	public IRProjectionPayload() {
+		self.domain = IR_PAYLOAD_PROJECTION_DESIGNATION;
+		self.field = "";
+	}
+}
+
+class IRCallPayload extends IRNodePayload {
+	public string callee;
+	public IRCleanupSlot cleanupSlot;
+	public string helperRef;
+	public string realtimeProvenance;
+	public bool neverReturns;
+
+	public IRCallPayload() {
+		self.domain = IR_PAYLOAD_CALL;
+		self.callee = "";
+		self.helperRef = "";
+		self.realtimeProvenance = "";
+	}
+}
+
+class IRDeclarationPayload extends IRNodePayload {
+	public string cType;
+	public IRNode arraySize;
+	public IRCleanupSlot cleanupSlot;
+	public IRNode init;
+	public bool isArrayDecl;
+	public bool isVolatile;
+	public bool effectiveIsVolatile;
+	public bool setjmpInferredVolatile;
+	public bool isStatic;
+	public bool isExtern;
+	public bool isCycleReturnTemp;
+
+	public IRDeclarationPayload() {
+		self.domain = IR_PAYLOAD_DECLARATION;
+		self.cType = "";
+	}
+}
+
+class IRControlPayload extends IRNodePayload {
 	public IRNode condition;
 	public IRNode trueExpr;
 	public IRNode falseExpr;
-	/* Null until written: most nodes have no arguments or designators, and
-	 * each empty list was a vector and a managed edge on every IR node. Read
-	 * through args()/fieldNames(), write through argsMut(); designators are
-	 * only ever set whole, so fieldNames has no Mut(). */
-	public Vector<IRNode>? argsStorage;
-	public Vector<IRParam> params; /* IRObjectiveCBlock signature; body is separate. */
-	public Vector<string>? fieldNamesStorage; /* IRCompoundLiteral designators */
+	public IRNode init;
+	public IRNode value;
+	public IRNode target;
+	public IRNode thenBlock;
+	public IRNode elseBlock;
+	public IRNode body;
+	public IRNode update;
+	public Vector<IRNode>? stmtsStorage;
+	public IRNode result;
+	public bool fallsThrough;
+	public bool realtimeBounded;
 
-	/* IRCast / IRSizeof */
+	public IRControlPayload() { self.domain = IR_PAYLOAD_CONTROL_SEQUENCE; }
+}
+
+class IRNativePayload extends IRNodePayload {
+	public Vector<IRParam> params;
 	public string targetType;
-	public string bridge;
+	public IRNode obj;
+	public IRNode body;
+	public IRNode elseBlock;
+	public IRNode thenBlock;
+	public IRNode value;
 
-	/* IRFieldAccess */
-	public string field;
-	/* Resolved direct-storage identity for source indexes and lowered derefs.
-     * An empty known root means the lvalue changes a pointee, not the pointer
-     * automatic itself. */
+	public IRNativePayload() {
+		self.domain = IR_PAYLOAD_NATIVE;
+		self.targetType = "";
+	}
+}
+
+class IRSourcePayload extends IRNodePayload {
+	public string sourceFile;
+	public int sourceLine;
+
+	public IRSourcePayload() {
+		self.domain = IR_PAYLOAD_SOURCE;
+		self.sourceFile = "";
+	}
+}
+
+class IRValuePayload extends IRNodePayload {
+	public IRNode target;
+	public IRNode value;
+
+	public IRValuePayload() { self.domain = IR_PAYLOAD_VALUE_FLOW; }
+}
+
+class IRNode {
+	/* Stable tagged identity, hot expression fields and cross-kind provenance.
+	 * The constructor alone chooses the concrete payload layout. Consumers
+	 * must not replace payload or retag a constructed node. */
+	public string text;
+	public string name;
+	public string op;
+	public IRNode left;
+	public IRNode right;
+	public IRNode expr;
+	public Vector<IRNode>? argsStorage;
 	public string storageRoot;
 	public string arrayStorageRoot;
-
-	/* statements */
-	public string cType;        /* IRVarDecl type text */
-	public IRNode arraySize;    /* optional local array/VLA bound */
-	/* Typed unwind-slot identity shared by one declaration and its calls. */
-	public IRCleanupSlot cleanupSlot;
-	public string sourceFile;  /* IRLineMarker: the .btrc file the next lines came from */
-	public string helperRef;    /* Explicit runtime-helper edge on IRCall. */
-	public string realtimeProvenance; /* Exact typed-intrinsic or proof-carrying-call certificate. */
-	public IRNode init;          /* IRVarDecl initializer / IRFor init */
-	public IRNode value;         /* IRReturn / IRAssign value */
-	public IRNode target;        /* IRAssign target */
-	public IRNode thenBlock;    /* IRIf */
-	public IRNode elseBlock;    /* IRIf */
-	public IRNode body;          /* IRWhile/IRDoWhile/IRFor body */
-	public IRNode update;        /* IRFor update */
-	/* IRBlock / IRStmtExpr setup statements; null until written, like args. */
-	public Vector<IRNode>? stmtsStorage;
-	public IRNode result;        /* IRStmtExpr result expression */
-
-	/* Scalars last: interleaved with the pointers they padded every node by
-	 * 56 bytes, into the next allocation size class. */
+	public IRNodePayload payload;
 	public int kind;
-	public bool prefix;
-	public bool arrow;
-	public bool storageRootKnown;
 	public bool sourceAddress;
+	public bool storageRootKnown;
 	public bool arrayStorageKnown;
-	public bool isArrayDecl;   /* IRVarDecl declarator carries [] */
-	public bool isVolatile;     /* Physical qualifier emitted in this declarator. */
-	public bool effectiveIsVolatile; /* Semantic outer-object qualification. */
-	public bool setjmpInferredVolatile;
-	public bool isStatic;       /* IRVarDecl storage class */
-	public bool isExtern;       /* IRVarDecl storage class */
-	public bool isCycleReturnTemp; /* Boundary-pass provenance marker. */
-	public bool fallsThrough;   /* IRCase: intentionally reaches next case. */
-	public bool canFallThrough; /* Structured statement continuation metadata. */
-	public bool neverReturns;   /* IRCall: control cannot continue afterward. */
-	public int sourceLine;
-	public bool realtimeBounded; /* Semantic certificate for source C-for. */
-	public bool bitField;       /* IRFieldAccess of a bit-field: never addressable. */
+	public bool canFallThrough;
 
-	public IRNode() {
-		/* A new node's storage is zeroed, so its null fields need no store:
-		 * each was a managed-edge replacement on the hottest allocation path. */
-		self.kind = IRK_NONE;
+	public IRNode(int kind = IRK_NONE) {
+		self.kind = kind;
 		self.text = "";
 		self.name = "";
-		self.callee = "";
 		self.op = "";
-		self.prefix = false;
-		self.targetType = "";
-		self.bridge = "";
-		self.field = "";
-		self.arrow = false;
 		self.storageRoot = "";
-		self.storageRootKnown = false;
-		self.sourceAddress = false;
 		self.arrayStorageRoot = "";
-		self.arrayStorageKnown = false;
-		self.cType = "";
-		self.isArrayDecl = false;
-		self.isVolatile = false;
-		self.effectiveIsVolatile = false;
-		self.setjmpInferredVolatile = false;
-		self.isStatic = false;
-		self.isExtern = false;
-		self.isCycleReturnTemp = false;
-		self.fallsThrough = false;
 		self.canFallThrough = true;
-		self.neverReturns = false;
-		self.helperRef = "";
-		self.realtimeProvenance = "";
-		self.realtimeBounded = false;
-		self.bitField = false;
+		switch (IRNode.domainOfKind(kind)) {
+			case IR_PAYLOAD_UNARY: self.payload = IRUnaryPayload(); break;
+			case IR_PAYLOAD_CONVERSION_AGGREGATE: self.payload = IRConversionPayload(); break;
+			case IR_PAYLOAD_PROJECTION_DESIGNATION: self.payload = IRProjectionPayload(); break;
+			case IR_PAYLOAD_CALL: self.payload = IRCallPayload(); break;
+			case IR_PAYLOAD_DECLARATION: self.payload = IRDeclarationPayload(); break;
+			case IR_PAYLOAD_CONTROL_SEQUENCE: self.payload = IRControlPayload(); break;
+			case IR_PAYLOAD_NATIVE: self.payload = IRNativePayload(); break;
+			case IR_PAYLOAD_SOURCE: self.payload = IRSourcePayload(); break;
+			case IR_PAYLOAD_VALUE_FLOW: self.payload = IRValuePayload(); break;
+			default: break;
+		}
+	}
+
+	/* A scalar result avoids a managed accessor return on every IR access.
+	 * Validate before a family projection; absent fields are read as their
+	 * original default by the consumer, never by allocating a payload. */
+	public int payloadDomain() {
+		int expected = IRNode.domainOfKind(self.kind);
+		if (expected == IR_PAYLOAD_NONE) {
+			if (self.payload != null) {
+				fprintf(stderr, "internal compiler error: payload on an inline IR kind\n");
+				exit(1);
+			}
+		} else if (self.payload == null || self.payload.domain != expected) {
+			fprintf(stderr, "internal compiler error: IR kind/payload mismatch\n");
+			exit(1);
+		}
+		return expected;
+	}
+
+	public void requirePayload(int expected) {
+		if (self.payloadDomain() != expected) {
+			fprintf(stderr, "internal compiler error: wrong IR payload domain\n");
+			exit(1);
+		}
 	}
 
 	/* One empty list of each element type answered for every unwritten
@@ -207,25 +298,33 @@ class IRNode {
 		return fresh;
 	}
 
-	/* `stmts` for reading: the shared empty while unwritten. */
+	/* An absent statement or designator list retains the original empty read
+	 * result without adding a payload or a node-to-shared-empty edge. */
 	public Vector<IRNode> stmts() {
-		if (self.stmtsStorage != null) { return self.stmtsStorage; }
+		if (self.payloadDomain() == IR_PAYLOAD_CONTROL_SEQUENCE) {
+			if (((IRControlPayload)self.payload).stmtsStorage != null) {
+				return ((IRControlPayload)self.payload).stmtsStorage;
+			}
+		}
 		if (IRNode.sharedEmptyNodes == null) { Vector<IRNode> fresh = []; IRNode.sharedEmptyNodes = fresh; return fresh; }
 		if ((IRNode.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: IRNode.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
 		return IRNode.sharedEmptyNodes;
 	}
 
-	/* `stmts` for mutation: allocated on first write. */
 	public Vector<IRNode> stmtsMut() {
-		if (self.stmtsStorage != null) { return self.stmtsStorage; }
+		self.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
+		if (((IRControlPayload)self.payload).stmtsStorage != null) { return ((IRControlPayload)self.payload).stmtsStorage; }
 		Vector<IRNode> fresh = [];
-		self.stmtsStorage = fresh;
+		((IRControlPayload)self.payload).stmtsStorage = fresh;
 		return fresh;
 	}
 
-	/* `fieldNames` for reading: the shared empty while unwritten. */
 	public Vector<string> fieldNames() {
-		if (self.fieldNamesStorage != null) { return self.fieldNamesStorage; }
+		if (self.payloadDomain() == IR_PAYLOAD_CONVERSION_AGGREGATE) {
+			if (((IRConversionPayload)self.payload).fieldNamesStorage != null) {
+				return ((IRConversionPayload)self.payload).fieldNamesStorage;
+			}
+		}
 		if (IRNode.sharedEmptyStrings == null) { Vector<string> fresh = []; IRNode.sharedEmptyStrings = fresh; return fresh; }
 		if ((IRNode.sharedEmptyStrings?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: IRNode.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
 		return IRNode.sharedEmptyStrings;
@@ -235,14 +334,16 @@ class IRNode {
 		if (node == null) { return ""; }
 		if (node.kind == IRK_VAR) { return node.name; }
 		if (node.kind == IRK_FIELD_ACCESS) {
-			if (node.arrow) { return ""; }
-			return IRNode.directStorageRoot(node.obj);
+			node.requirePayload(IR_PAYLOAD_PROJECTION_DESIGNATION);
+			if (((IRProjectionPayload)node.payload).arrow) { return ""; }
+			return IRNode.directStorageRoot(((IRProjectionPayload)node.payload).obj);
 		}
 		if ((node.kind == IRK_INDEX || node.kind == IRK_DEREF) && node.storageRootKnown) {
 			return node.storageRoot;
 		}
 		if (node.kind == IRK_INDEX) {
-			return IRNode.directStorageRoot(node.obj);
+			node.requirePayload(IR_PAYLOAD_PROJECTION_DESIGNATION);
+			return IRNode.directStorageRoot(((IRProjectionPayload)node.payload).obj);
 		}
 		return "";
 	}
@@ -270,18 +371,36 @@ class IRNode {
 		return value;
 	}
 
+	/* The domain mapping is independent of field occupancy. Rare forms stay
+	 * supported even when absent from the current product census. */
+	class int domainOfKind(int kind) {
+		switch (kind) {
+			case IRK_UNARYOP: return IR_PAYLOAD_UNARY;
+			case IRK_CAST: case IRK_SIZEOF: case IRK_COMPOUND_LITERAL: return IR_PAYLOAD_CONVERSION_AGGREGATE;
+			case IRK_INDEX: case IRK_FIELD_ACCESS: case IRK_DESIGNATION: return IR_PAYLOAD_PROJECTION_DESIGNATION;
+			case IRK_CALL: return IR_PAYLOAD_CALL;
+			case IRK_VAR_DECL: return IR_PAYLOAD_DECLARATION;
+			case IRK_TERNARY: case IRK_IF: case IRK_WHILE: case IRK_DO_WHILE: case IRK_FOR: case IRK_BLOCK: case IRK_SWITCH: case IRK_CASE: case IRK_STMT_EXPR: return IR_PAYLOAD_CONTROL_SEQUENCE;
+			case IRK_OBJECTIVE_C_MESSAGE: case IRK_OBJECTIVE_C_BLOCK: case IRK_OBJECTIVE_C_AUTORELEASE_POOL: case IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY: case IRK_CXX_NEW: case IRK_CXX_DELETE: case IRK_CXX_EXCEPTION_BOUNDARY: return IR_PAYLOAD_NATIVE;
+			case IRK_LINE_MARKER: return IR_PAYLOAD_SOURCE;
+			case IRK_ASSIGN: case IRK_RETURN: return IR_PAYLOAD_VALUE_FLOW;
+			case IRK_NONE: case IRK_LITERAL: case IRK_VAR: case IRK_FUNCTION_REF: case IRK_BINOP: case IRK_COMMA_EXPR: case IRK_ADDRESS_OF: case IRK_DEREF: case IRK_EXPR_STMT: case IRK_INITIALIZER_LIST: case IRK_INVALID_EXPR: case IRK_OBJECTIVE_C_SELECTOR: case IRK_BREAK: case IRK_CONTINUE: return IR_PAYLOAD_NONE;
+			default: fprintf(stderr, "internal compiler error: unsupported IR kind for payload\n");
+			exit(1);
+		}
+		return IR_PAYLOAD_NONE;
+	}
+
 	/* --- Typed constructors return fresh nodes and never alias. --- */
 
 	class IRNode literal(string text) {
-		IRNode n = IRNode();
-		n.kind = IRK_LITERAL;
+		IRNode n = IRNode(IRK_LITERAL);
 		n.text = text;
 		return n;
 	}
 
 	class IRNode initializerList(Vector<IRNode> elements) {
-		IRNode n = IRNode();
-		n.kind = IRK_INITIALIZER_LIST;
+		IRNode n = IRNode(IRK_INITIALIZER_LIST);
 		n.argsStorage = elements;
 		return n;
 	}
@@ -292,10 +411,9 @@ class IRNode {
      * is positional (array and scalar literals); its value may be a
      * designation. */
 	class IRNode compoundLiteral(string cType, Vector<string> fieldNames, Vector<IRNode> values) {
-		IRNode n = IRNode();
-		n.kind = IRK_COMPOUND_LITERAL;
-		n.targetType = cType;
-		n.fieldNamesStorage = fieldNames;
+		IRNode n = IRNode(IRK_COMPOUND_LITERAL);
+		((IRConversionPayload)n.payload).targetType = cType;
+		((IRConversionPayload)n.payload).fieldNamesStorage = fieldNames;
 		n.argsStorage = values;
 		return n;
 	}
@@ -305,31 +423,27 @@ class IRNode {
 	 * literal) is set; it appears only as an initializer-list element or as a
 	 * positional compound-literal entry's value. */
 	class IRNode designation(string field, IRNode? index, IRNode value) {
-		IRNode n = IRNode();
-		n.kind = IRK_DESIGNATION;
-		n.field = field;
-		if (index != null) { n.index = index; }
-		n.value = value;
+		IRNode n = IRNode(IRK_DESIGNATION);
+		((IRProjectionPayload)n.payload).field = field;
+		if (index != null) { ((IRProjectionPayload)n.payload).index = index; }
+		((IRProjectionPayload)n.payload).value = value;
 		return n;
 	}
 
 	class IRNode variable(string name) {
-		IRNode n = IRNode();
-		n.kind = IRK_VAR;
+		IRNode n = IRNode(IRK_VAR);
 		n.name = name;
 		return n;
 	}
 
 	class IRNode functionReference(string name) {
-		IRNode n = IRNode();
-		n.kind = IRK_FUNCTION_REF;
+		IRNode n = IRNode(IRK_FUNCTION_REF);
 		n.name = name;
 		return n;
 	}
 
 	class IRNode binary(IRNode left, string op, IRNode right) {
-		IRNode n = IRNode();
-		n.kind = IRK_BINOP;
+		IRNode n = IRNode(IRK_BINOP);
 		n.left = left;
 		n.op = op;
 		n.right = right;
@@ -337,251 +451,223 @@ class IRNode {
 	}
 
 	class IRNode unary(string op, IRNode operand, bool prefix) {
-		IRNode n = IRNode();
-		n.kind = IRK_UNARYOP;
+		IRNode n = IRNode(IRK_UNARYOP);
 		n.op = op;
-		n.operand = operand;
-		n.prefix = prefix;
+		((IRUnaryPayload)n.payload).operand = operand;
+		((IRUnaryPayload)n.payload).prefix = prefix;
 		return n;
 	}
 
 	class IRNode call(string callee, Vector<IRNode> args) {
-		IRNode n = IRNode();
-		n.kind = IRK_CALL;
-		n.callee = callee;
+		IRNode n = IRNode(IRK_CALL);
+		((IRCallPayload)n.payload).callee = callee;
 		n.argsStorage = args;
 		return n;
 	}
 
 	class IRNode indirectCall(IRNode callee, Vector<IRNode> args) {
-		IRNode n = IRNode();
-		n.kind = IRK_CALL;
+		IRNode n = IRNode(IRK_CALL);
 		n.expr = callee;
 		n.argsStorage = args;
 		return n;
 	}
 
 	class IRNode objectiveCMessage(IRNode receiver, string selector, Vector<IRNode> args) {
-		var node = IRNode();
-		node.kind = IRK_OBJECTIVE_C_MESSAGE;
-		node.obj = receiver;
+		var node = IRNode(IRK_OBJECTIVE_C_MESSAGE);
+		((IRNativePayload)node.payload).obj = receiver;
 		node.name = selector;
 		node.argsStorage = args;
 		return node;
 	}
 
 	class IRNode objectiveCSelector(string selector) {
-		var node = IRNode();
-		node.kind = IRK_OBJECTIVE_C_SELECTOR;
+		var node = IRNode(IRK_OBJECTIVE_C_SELECTOR);
 		node.name = selector;
 		return node;
 	}
 
 	class IRNode objectiveCAutoreleasePool(IRNode body) {
-		var node = IRNode();
-		node.kind = IRK_OBJECTIVE_C_AUTORELEASE_POOL;
-		node.body = body;
+		var node = IRNode(IRK_OBJECTIVE_C_AUTORELEASE_POOL);
+		((IRNativePayload)node.payload).body = body;
 		return node;
 	}
 
 	class IRNode objectiveCExceptionBoundary(IRNode body, IRNode failure) {
-		var node = IRNode();
-		node.kind = IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY;
-		node.body = body;
-		node.elseBlock = failure;
+		var node = IRNode(IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY);
+		((IRNativePayload)node.payload).body = body;
+		((IRNativePayload)node.payload).elseBlock = failure;
 		return node;
 	}
 
 	class IRNode cxxNew(string valueType, Vector<IRNode> args) {
-		var node = IRNode(); node.kind = IRK_CXX_NEW;
-		node.targetType = valueType; node.argsStorage = args; return node;
+		var node = IRNode(IRK_CXX_NEW);
+		((IRNativePayload)node.payload).targetType = valueType; node.argsStorage = args; return node;
 	}
 
 	class IRNode cxxDelete(IRNode value) {
-		var node = IRNode(); node.kind = IRK_CXX_DELETE; node.value = value; return node;
+		var node = IRNode(IRK_CXX_DELETE); ((IRNativePayload)node.payload).value = value; return node;
 	}
 
 	class IRNode cxxExceptionBoundary(IRNode body, IRNode failure, IRNode? allocationFailure = null) {
-		var node = IRNode(); node.kind = IRK_CXX_EXCEPTION_BOUNDARY;
-		node.body = body; node.elseBlock = failure;
+		var node = IRNode(IRK_CXX_EXCEPTION_BOUNDARY);
+		((IRNativePayload)node.payload).body = body; ((IRNativePayload)node.payload).elseBlock = failure;
 		/* A fresh node's thenBlock is already null when no allocation-failure arm is given. */
-		if (allocationFailure != null) { node.thenBlock = allocationFailure; }
+		if (allocationFailure != null) { ((IRNativePayload)node.payload).thenBlock = allocationFailure; }
 		return node;
 	}
 
 	class IRNode cast(string targetType, IRNode expr, string bridge = "") {
-		IRNode n = IRNode();
-		n.kind = IRK_CAST;
-		n.bridge = bridge;
-		n.targetType = targetType;
+		IRNode n = IRNode(IRK_CAST);
+		((IRConversionPayload)n.payload).bridge = bridge;
+		((IRConversionPayload)n.payload).targetType = targetType;
 		n.expr = expr;
 		return n;
 	}
 
 	class IRNode ternary(IRNode condition, IRNode trueExpr, IRNode falseExpr) {
-		IRNode n = IRNode();
-		n.kind = IRK_TERNARY;
-		n.condition = condition;
-		n.trueExpr = trueExpr;
-		n.falseExpr = falseExpr;
+		IRNode n = IRNode(IRK_TERNARY);
+		((IRControlPayload)n.payload).condition = condition;
+		((IRControlPayload)n.payload).trueExpr = trueExpr;
+		((IRControlPayload)n.payload).falseExpr = falseExpr;
 		return n;
 	}
 
 	class IRNode indexAccess(IRNode obj, IRNode index) {
-		IRNode n = IRNode();
-		n.kind = IRK_INDEX;
-		n.obj = obj;
-		n.index = index;
+		IRNode n = IRNode(IRK_INDEX);
+		((IRProjectionPayload)n.payload).obj = obj;
+		((IRProjectionPayload)n.payload).index = index;
 		return n;
 	}
 
 	class IRNode fieldAccess(IRNode obj, string field, bool arrow) {
-		IRNode n = IRNode();
-		n.kind = IRK_FIELD_ACCESS;
-		n.obj = obj;
-		n.field = field;
-		n.arrow = arrow;
+		IRNode n = IRNode(IRK_FIELD_ACCESS);
+		((IRProjectionPayload)n.payload).obj = obj;
+		((IRProjectionPayload)n.payload).field = field;
+		((IRProjectionPayload)n.payload).arrow = arrow;
 		return n;
 	}
 
 	class IRNode addressOf(IRNode expr) {
-		IRNode n = IRNode();
-		n.kind = IRK_ADDRESS_OF;
+		IRNode n = IRNode(IRK_ADDRESS_OF);
 		n.expr = expr;
 		return n;
 	}
 
 	class IRNode dereference(IRNode expr) {
-		IRNode n = IRNode();
-		n.kind = IRK_DEREF;
+		IRNode n = IRNode(IRK_DEREF);
 		n.expr = expr;
 		return n;
 	}
 
 	class IRNode sizeofType(string operandType) {
-		IRNode n = IRNode();
-		n.kind = IRK_SIZEOF;
-		n.targetType = operandType;
+		IRNode n = IRNode(IRK_SIZEOF);
+		((IRConversionPayload)n.payload).targetType = operandType;
 		return n;
 	}
 
 	class IRNode sizeofExpression(IRNode operand) {
-		IRNode n = IRNode();
-		n.kind = IRK_SIZEOF;
-		n.operand = operand;
+		IRNode n = IRNode(IRK_SIZEOF);
+		((IRConversionPayload)n.payload).operand = operand;
 		return n;
 	}
 
 	class IRNode variableDeclaration(string cType, string name, IRNode? init) {
-		IRNode n = IRNode();
-		n.kind = IRK_VAR_DECL;
-		n.cType = cType;
+		IRNode n = IRNode(IRK_VAR_DECL);
+		((IRDeclarationPayload)n.payload).cType = cType;
 		n.name = name;
-		if (init != null) { n.init = init; }
+		if (init != null) { ((IRDeclarationPayload)n.payload).init = init; }
 		return n;
 	}
 
 	class IRNode arrayDeclaration(string cType, string name, IRNode? arraySize, IRNode? init) {
 		IRNode n = IRNode.variableDeclaration(cType, name, init);
-		n.isArrayDecl = true;
-		if (arraySize != null) { n.arraySize = arraySize; }
+		((IRDeclarationPayload)n.payload).isArrayDecl = true;
+		if (arraySize != null) { ((IRDeclarationPayload)n.payload).arraySize = arraySize; }
 		return n;
 	}
 
 	class IRNode assignment(IRNode target, IRNode value) {
-		IRNode n = IRNode();
-		n.kind = IRK_ASSIGN;
-		n.target = target;
-		n.value = value;
+		IRNode n = IRNode(IRK_ASSIGN);
+		((IRValuePayload)n.payload).target = target;
+		((IRValuePayload)n.payload).value = value;
 		return n;
 	}
 
 	class IRNode returnStatement(IRNode? value) {
-		IRNode n = IRNode();
-		n.kind = IRK_RETURN;
-		if (value != null) { n.value = value; }
+		IRNode n = IRNode(IRK_RETURN);
+		if (value != null) { ((IRValuePayload)n.payload).value = value; }
 		return n;
 	}
 
 	/* --debug: the statements that follow map back to file:line. */
 	class IRNode lineMarker(string file, int line) {
-		IRNode n = IRNode();
-		n.kind = IRK_LINE_MARKER;
-		n.sourceFile = file;
-		n.sourceLine = line;
+		IRNode n = IRNode(IRK_LINE_MARKER);
+		((IRSourcePayload)n.payload).sourceFile = file;
+		((IRSourcePayload)n.payload).sourceLine = line;
 		return n;
 	}
 
 	class IRNode expressionStatement(IRNode expr) {
-		IRNode n = IRNode();
-		n.kind = IRK_EXPR_STMT;
+		IRNode n = IRNode(IRK_EXPR_STMT);
 		n.expr = expr;
 		return n;
 	}
 
 	class IRNode ifStatement(IRNode condition, IRNode thenBlock, IRNode? elseBlock) {
-		IRNode n = IRNode();
-		n.kind = IRK_IF;
-		n.condition = condition;
-		n.thenBlock = thenBlock;
+		IRNode n = IRNode(IRK_IF);
+		((IRControlPayload)n.payload).condition = condition;
+		((IRControlPayload)n.payload).thenBlock = thenBlock;
 		/* Guard the field store: btrcpy's ARC emits `else_block->__rc++` on the
          * assignment, which null-derefs when no else exists. Leaving the field at
          * its constructor default (null) skips that, matching the parser's idiom. */
-		if (elseBlock != null) { n.elseBlock = elseBlock; }
+		if (elseBlock != null) { ((IRControlPayload)n.payload).elseBlock = elseBlock; }
 		return n;
 	}
 
 	class IRNode whileStatement(IRNode condition, IRNode body) {
-		IRNode n = IRNode();
-		n.kind = IRK_WHILE;
-		n.condition = condition;
-		n.body = body;
+		IRNode n = IRNode(IRK_WHILE);
+		((IRControlPayload)n.payload).condition = condition;
+		((IRControlPayload)n.payload).body = body;
 		return n;
 	}
 
 	class IRNode doWhileStatement(IRNode body, IRNode condition) {
-		IRNode n = IRNode();
-		n.kind = IRK_DO_WHILE;
-		n.body = body;
-		n.condition = condition;
+		IRNode n = IRNode(IRK_DO_WHILE);
+		((IRControlPayload)n.payload).body = body;
+		((IRControlPayload)n.payload).condition = condition;
 		return n;
 	}
 
 	class IRNode forStatement(IRNode? init, IRNode condition, IRNode? update, IRNode body) {
-		IRNode n = IRNode();
-		n.kind = IRK_FOR;
-		if (init != null) { n.init = init; }
-		n.condition = condition;
-		if (update != null) { n.update = update; }
-		n.body = body;
+		IRNode n = IRNode(IRK_FOR);
+		if (init != null) { ((IRControlPayload)n.payload).init = init; }
+		((IRControlPayload)n.payload).condition = condition;
+		if (update != null) { ((IRControlPayload)n.payload).update = update; }
+		((IRControlPayload)n.payload).body = body;
 		return n;
 	}
 
 	class IRNode breakStatement() {
-		IRNode n = IRNode();
-		n.kind = IRK_BREAK;
+		IRNode n = IRNode(IRK_BREAK);
 		return n;
 	}
 
 	class IRNode continueStatement() {
-		IRNode n = IRNode();
-		n.kind = IRK_CONTINUE;
+		IRNode n = IRNode(IRK_CONTINUE);
 		return n;
 	}
 
 	class IRNode block(Vector<IRNode> stmts) {
-		IRNode n = IRNode();
-		n.kind = IRK_BLOCK;
-		n.stmtsStorage = stmts;
+		IRNode n = IRNode(IRK_BLOCK);
+		((IRControlPayload)n.payload).stmtsStorage = stmts;
 		return n;
 	}
 
 	/* IRSwitch: `value` is the switch expression; `args` holds the IRCase nodes
      * (mirrors IRSwitch.value/cases). */
 	class IRNode switchStatement(IRNode value, Vector<IRNode> cases) {
-		IRNode n = IRNode();
-		n.kind = IRK_SWITCH;
-		n.value = value;
+		IRNode n = IRNode(IRK_SWITCH);
+		((IRControlPayload)n.payload).value = value;
 		n.argsStorage = cases;
 		return n;
 	}
@@ -589,14 +675,13 @@ class IRNode {
 	/* IRCase: one switch case. `value` is the case label expression (null = the
      * `default:` clause); `stmts` is the case body (mirrors IRCase.value/body). */
 	class IRNode caseClause(IRNode? value, Vector<IRNode> body, bool fallsThrough) {
-		IRNode n = IRNode();
-		n.kind = IRK_CASE;
+		IRNode n = IRNode(IRK_CASE);
 		/* Guard the field store: btrcpy's ARC emits `value->__rc++` on the
          * assignment, which null-derefs for a `default:` clause (value == null).
          * Leaving the field at its constructor default (null) skips that. */
-		if (value != null) { n.value = value; }
-		n.stmtsStorage = body;
-		n.fallsThrough = fallsThrough;
+		if (value != null) { ((IRControlPayload)n.payload).value = value; }
+		((IRControlPayload)n.payload).stmtsStorage = body;
+		((IRControlPayload)n.payload).fallsThrough = fallsThrough;
 		return n;
 	}
 
@@ -604,18 +689,16 @@ class IRNode {
      * `result` expression is used in place. Mirrors IRStmtExpr (standard C11; no GCC
      * statement expressions). */
 	class IRNode statementExpression(Vector<IRNode> stmts, IRNode result) {
-		IRNode n = IRNode();
-		n.kind = IRK_STMT_EXPR;
-		n.stmtsStorage = stmts;
-		n.result = result;
+		IRNode n = IRNode(IRK_STMT_EXPR);
+		((IRControlPayload)n.payload).stmtsStorage = stmts;
+		((IRControlPayload)n.payload).result = result;
 		return n;
 	}
 
 	/* A standard-C comma expression. Every child is evaluated left-to-right and
      * the final child is the value of the whole expression. */
 	class IRNode commaExpression(Vector<IRNode> expressions) {
-		IRNode n = IRNode();
-		n.kind = IRK_COMMA_EXPR;
+		IRNode n = IRNode(IRK_COMMA_EXPR);
 		n.argsStorage = expressions;
 		return n;
 	}
@@ -624,8 +707,7 @@ class IRNode {
      * every method; function DCE may remove an unreachable invalid specialization.
      * If the expression survives, the emitter reports its diagnostic and stops. */
 	class IRNode invalidExpression(string message) {
-		IRNode n = IRNode();
-		n.kind = IRK_INVALID_EXPR;
+		IRNode n = IRNode(IRK_INVALID_EXPR);
 		n.text = message;
 		return n;
 	}
@@ -1165,33 +1247,34 @@ class IRCanonicalRenderer {
 	private void child(int depth, string role, IRNode? node) {
 		if (node == null) { return; }
 		IRKind kind = (IRKind)node.kind;
-		string scalars = f"{self.flag("prefix", node.prefix)}{self.flag("arrow", node.arrow)}{self.flag("storageRootKnown", node.storageRootKnown)}{self.flag("sourceAddress", node.sourceAddress)}{self.flag("arrayStorageKnown", node.arrayStorageKnown)}{self.flag("arrayDecl", node.isArrayDecl)}{self.flag("volatile", node.isVolatile)}{self.flag("effectiveVolatile", node.effectiveIsVolatile)}{self.flag("setjmpInferredVolatile", node.setjmpInferredVolatile)}{self.flag("static", node.isStatic)}{self.flag("extern", node.isExtern)}{self.flag("cycleReturnTemp", node.isCycleReturnTemp)}{self.flag("fallsThrough", node.fallsThrough)}{self.flag("noFallThrough", !node.canFallThrough)}{self.flag("neverReturns", node.neverReturns)}{self.flag("realtimeBounded", node.realtimeBounded)}{self.flag("bitField", node.bitField)}";
-		string texts = f"{self.text("text", node.text)}{self.text("name", node.name)}{self.text("callee", node.callee)}{self.text("op", node.op)}{self.text("targetType", node.targetType)}{self.text("bridge", node.bridge)}{self.text("field", node.field)}{self.text("storageRoot", node.storageRoot)}{self.text("arrayStorageRoot", node.arrayStorageRoot)}{self.text("cType", node.cType)}{self.text("sourceFile", node.sourceFile)}{self.text("helperRef", node.helperRef)}{self.text("realtimeProvenance", node.realtimeProvenance)}";
-		string line = node.sourceLine == 0 ? "" : f" line={node.sourceLine}";
+		int domain = node.payloadDomain();
+		string scalars = f"{self.flag("prefix", (domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).prefix : false))}{self.flag("arrow", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).arrow : false))}{self.flag("storageRootKnown", node.storageRootKnown)}{self.flag("sourceAddress", node.sourceAddress)}{self.flag("arrayStorageKnown", node.arrayStorageKnown)}{self.flag("arrayDecl", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isArrayDecl : false))}{self.flag("volatile", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isVolatile : false))}{self.flag("effectiveVolatile", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).effectiveIsVolatile : false))}{self.flag("setjmpInferredVolatile", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).setjmpInferredVolatile : false))}{self.flag("static", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isStatic : false))}{self.flag("extern", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isExtern : false))}{self.flag("cycleReturnTemp", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).isCycleReturnTemp : false))}{self.flag("fallsThrough", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).fallsThrough : false))}{self.flag("noFallThrough", !node.canFallThrough)}{self.flag("neverReturns", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).neverReturns : false))}{self.flag("realtimeBounded", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).realtimeBounded : false))}{self.flag("bitField", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).bitField : false))}";
+		string texts = f"{self.text("text", node.text)}{self.text("name", node.name)}{self.text("callee", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""))}{self.text("op", node.op)}{self.text("targetType", (domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : ""))}{self.text("bridge", (domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).bridge : ""))}{self.text("field", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).field : ""))}{self.text("storageRoot", node.storageRoot)}{self.text("arrayStorageRoot", node.arrayStorageRoot)}{self.text("cType", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : ""))}{self.text("sourceFile", (domain == IR_PAYLOAD_SOURCE ? ((IRSourcePayload)node.payload).sourceFile : ""))}{self.text("helperRef", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).helperRef : ""))}{self.text("realtimeProvenance", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).realtimeProvenance : ""))}";
+		string line = (domain == IR_PAYLOAD_SOURCE ? ((IRSourcePayload)node.payload).sourceLine : 0) == 0 ? "" : f" line={(domain == IR_PAYLOAD_SOURCE ? ((IRSourcePayload)node.payload).sourceLine : 0)}";
 		self.line(depth, f"{role}: {kind.toString()}{texts}{scalars}{line}");
-		IRCleanupSlot? slot = node.cleanupSlot;
+		IRCleanupSlot? slot = (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null);
 		if (slot != null) { self.line(depth + 1, f"cleanupSlot site={slot.site} name={self.quoted(slot.name)} cType={self.quoted(slot.cType)} takeFunction={self.quoted(slot.takeFunction)}"); }
 		self.strings(depth + 1, "fieldName", node.fieldNames());
-		self.params(depth + 1, node.params);
+		self.params(depth + 1, (domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null));
 		self.child(depth + 1, "left", node.left);
 		self.child(depth + 1, "right", node.right);
-		self.child(depth + 1, "operand", node.operand);
+		self.child(depth + 1, "operand", (domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null));
 		self.child(depth + 1, "expr", node.expr);
-		self.child(depth + 1, "obj", node.obj);
-		self.child(depth + 1, "index", node.index);
-		self.child(depth + 1, "condition", node.condition);
-		self.child(depth + 1, "trueExpr", node.trueExpr);
-		self.child(depth + 1, "falseExpr", node.falseExpr);
-		self.child(depth + 1, "arraySize", node.arraySize);
-		self.child(depth + 1, "init", node.init);
-		self.child(depth + 1, "target", node.target);
-		self.child(depth + 1, "value", node.value);
-		self.child(depth + 1, "thenBlock", node.thenBlock);
-		self.child(depth + 1, "elseBlock", node.elseBlock);
-		self.child(depth + 1, "body", node.body);
-		self.child(depth + 1, "update", node.update);
+		self.child(depth + 1, "obj", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null));
+		self.child(depth + 1, "index", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null));
+		self.child(depth + 1, "condition", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null));
+		self.child(depth + 1, "trueExpr", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null));
+		self.child(depth + 1, "falseExpr", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null));
+		self.child(depth + 1, "arraySize", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null));
+		self.child(depth + 1, "init", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null));
+		self.child(depth + 1, "target", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null));
+		self.child(depth + 1, "value", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null));
+		self.child(depth + 1, "thenBlock", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null));
+		self.child(depth + 1, "elseBlock", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null));
+		self.child(depth + 1, "body", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null));
+		self.child(depth + 1, "update", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null));
 		for argument in node.args() { self.child(depth + 1, "arg", argument); }
 		for statement in node.stmts() { self.child(depth + 1, "stmt", statement); }
-		self.child(depth + 1, "result", node.result);
+		self.child(depth + 1, "result", (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null));
 	}
 }

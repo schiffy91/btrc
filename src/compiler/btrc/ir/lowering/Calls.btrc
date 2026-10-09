@@ -932,21 +932,21 @@ class CallLowerer {
 		if (node == null) { return true; }
 		if (node.kind == IRK_LITERAL || node.kind == IRK_VAR || node.kind == IRK_FUNCTION_REF || node.kind == IRK_SIZEOF) { return true; }
 		if (node.kind == IRK_FIELD_ACCESS || node.kind == IRK_DEREF || node.kind == IRK_ADDRESS_OF || node.kind == IRK_CAST) {
-			return self.effectFree(node.obj) && self.effectFree(node.expr) && self.effectFree(node.operand);
+			return self.effectFree((node.kind == IRK_FIELD_ACCESS ? ((IRProjectionPayload)node.payload).obj : null)) && self.effectFree(node.expr) && self.effectFree((node.kind == IRK_CAST ? ((IRConversionPayload)node.payload).operand : null));
 		}
-		if (node.kind == IRK_INDEX) { return self.effectFree(node.obj) && self.effectFree(node.index); }
+		if (node.kind == IRK_INDEX) { return self.effectFree(((IRProjectionPayload)node.payload).obj) && self.effectFree(((IRProjectionPayload)node.payload).index); }
 		if (node.kind == IRK_BINOP) {
 			if (node.op.endsWith("=") && node.op != "==" && node.op != "!=" && node.op != "<=" && node.op != ">=") { return false; }
 			return self.effectFree(node.left) && self.effectFree(node.right);
 		}
-		if (node.kind == IRK_UNARYOP) { return node.op != "++" && node.op != "--" && self.effectFree(node.operand); }
-		if (node.kind == IRK_TERNARY) { return self.effectFree(node.condition) && self.effectFree(node.trueExpr) && self.effectFree(node.falseExpr); }
+		if (node.kind == IRK_UNARYOP) { return node.op != "++" && node.op != "--" && self.effectFree(((IRUnaryPayload)node.payload).operand); }
+		if (node.kind == IRK_TERNARY) { return self.effectFree(((IRControlPayload)node.payload).condition) && self.effectFree(((IRControlPayload)node.payload).trueExpr) && self.effectFree(((IRControlPayload)node.payload).falseExpr); }
 		return false;
 	}
 
 	private IRNode indirectCallableCall(CallTarget target, IRNode callee, Vector<IRNode> arguments) {
 		IRNode call = IRNode.indirectCall(callee, arguments);
-		if (self.targets.realtimeCallable(target.callableType)) { call.realtimeProvenance = "typed-realtime-function"; }
+		if (self.targets.realtimeCallable(target.callableType)) { ((IRCallPayload)call.payload).realtimeProvenance = "typed-realtime-function"; }
 		return call;
 	}
 

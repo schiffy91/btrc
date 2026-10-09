@@ -34,12 +34,12 @@ class CleanupSlotValidator {
 
 	private void collect(IRNode? node, CleanupValidationState state) {
 		if (node == null) { return; }
-		if (node.kind == IRK_VAR_DECL && node.cleanupSlot != null) {
-			IRCleanupSlot metadata = node.cleanupSlot;
-			if (metadata.name != node.name || metadata.cType != node.cType) {
+		if (node.kind == IRK_VAR_DECL && ((IRDeclarationPayload)node.payload).cleanupSlot != null) {
+			IRCleanupSlot metadata = ((IRDeclarationPayload)node.payload).cleanupSlot;
+			if (metadata.name != node.name || metadata.cType != ((IRDeclarationPayload)node.payload).cType) {
 				self.fail("cleanup metadata does not describe slot " + node.name);
 			}
-			if (!node.isVolatile) {
+			if (!((IRDeclarationPayload)node.payload).isVolatile) {
 				self.fail("cleanup slot is not volatile: " + node.name);
 			}
 			if (self.attached.has(metadata.site)) {
@@ -49,32 +49,33 @@ class CleanupSlotValidator {
 			state.declarations.put(metadata.site, metadata);
 		}
 		if (node.kind == IRK_CALL) {
-			bool registration = node.callee == "__btrc_register_cleanup" || node.callee == "__btrc_register_direct_cleanup";
+			bool registration = ((IRCallPayload)node.payload).callee == "__btrc_register_cleanup" || ((IRCallPayload)node.payload).callee == "__btrc_register_direct_cleanup";
 			if (registration) {
 				state.registrations.push(node);
-			} else if (node.cleanupSlot != null) {
+			} else if (((IRCallPayload)node.payload).cleanupSlot != null) {
 				self.fail("cleanup metadata is attached to " + "a non-registration call");
 			}
 		}
 
+		int domain = node.payloadDomain();
 		self.collect(node.left, state);
 		self.collect(node.right, state);
-		self.collect(node.operand, state);
+		self.collect((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), state);
 		self.collect(node.expr, state);
-		self.collect(node.obj, state);
-		self.collect(node.index, state);
-		self.collect(node.condition, state);
-		self.collect(node.trueExpr, state);
-		self.collect(node.falseExpr, state);
-		self.collect(node.arraySize, state);
-		self.collect(node.init, state);
-		self.collect(node.value, state);
-		self.collect(node.target, state);
-		self.collect(node.thenBlock, state);
-		self.collect(node.elseBlock, state);
-		self.collect(node.body, state);
-		self.collect(node.update, state);
-		self.collect(node.result, state);
+		self.collect((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), state);
+		self.collect((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), state);
+		self.collect((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), state);
+		self.collect((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), state);
+		self.collect((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), state);
+		self.collect((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), state);
+		self.collect((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), state);
+		self.collect((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), state);
+		self.collect((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), state);
+		self.collect((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), state);
+		self.collect((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), state);
+		self.collect((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), state);
+		self.collect((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), state);
+		self.collect((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), state);
 		int index = 0;
 		while (index < node.args().len) {
 			self.collect(node.args().get(index), state);
@@ -103,15 +104,15 @@ class CleanupSlotValidator {
 
 	private IRCleanupSlot validateRegistration(IRNode call) {
 		int arity = 4;
-		if (call.callee == "__btrc_register_direct_cleanup") {
+		if (((IRCallPayload)call.payload).callee == "__btrc_register_direct_cleanup") {
 			arity = 3;
 		}
-		if (call.helperRef != call.callee || call.args().len != arity || call.cleanupSlot == null) {
+		if (((IRCallPayload)call.payload).helperRef != ((IRCallPayload)call.payload).callee || call.args().len != arity || ((IRCallPayload)call.payload).cleanupSlot == null) {
 			self.fail("malformed typed cleanup registration");
 		}
-		IRCleanupSlot metadata = call.cleanupSlot;
+		IRCleanupSlot metadata = ((IRCallPayload)call.payload).cleanupSlot;
 		IRNode address = call.args().get(0);
-		if (address.kind != IRK_CAST || address.targetType != "void*" || address.expr == null || address.expr.kind != IRK_ADDRESS_OF || address.expr.expr == null || address.expr.expr.kind != IRK_VAR || address.expr.expr.name != metadata.name) {
+		if (address.kind != IRK_CAST || ((IRConversionPayload)address.payload).targetType != "void*" || address.expr == null || address.expr.kind != IRK_ADDRESS_OF || address.expr.expr == null || address.expr.expr.kind != IRK_VAR || address.expr.expr.name != metadata.name) {
 			self.fail("cleanup slot must use an opaque address: " + metadata.name);
 		}
 		IRNode take = call.args().get(1);

@@ -1422,26 +1422,27 @@ class GpuPipeline {
 
 	class void collectGpuRefs(IRNode? node, Map<string, bool> shaderNames, Map<string, bool> used) {
 		if (node == null) { return; }
+		int domain = node.payloadDomain();
 		if (node.kind == IRK_VAR && shaderNames.has(node.name)) {
 			used.put(node.name, true);
 		}
 		GpuPipeline.collectGpuRefs(node.left, shaderNames, used);
 		GpuPipeline.collectGpuRefs(node.right, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.operand, shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), shaderNames, used);
 		GpuPipeline.collectGpuRefs(node.expr, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.obj, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.index, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.condition, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.trueExpr, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.falseExpr, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.init, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.value, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.target, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.thenBlock, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.elseBlock, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.body, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.update, shaderNames, used);
-		GpuPipeline.collectGpuRefs(node.result, shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), shaderNames, used);
+		GpuPipeline.collectGpuRefs((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), shaderNames, used);
 		int index = 0;
 		while (index < node.args().len) {
 			GpuPipeline.collectGpuRefs(node.args().get(index), shaderNames, used);

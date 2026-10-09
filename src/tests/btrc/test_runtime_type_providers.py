@@ -89,8 +89,9 @@ def test_runtime_catalog_owns_generated_provider_indexes() -> None:
 
     assert "self.catalog.helperProvidingType(identifier)" in references
     assert "self.catalog.helperProvidingObject(name)" in references
-    assert "node.cType" in references
-    assert "node.targetType" in references
+    assert "((IRDeclarationPayload)node.payload).cType" in references
+    assert "((IRConversionPayload)node.payload).targetType" in references
+    assert "((IRNativePayload)node.payload).targetType" in references
     assert "node.kind == IRK_VAR" in references
     assert "typeUsesArcCallbackAbi" not in references
     assert 'used.put("__btrc_arc_callback_types", true)' not in references

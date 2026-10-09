@@ -790,7 +790,7 @@ class ExpressionLowerer {
 			constructionIndex = constructionIndex + 1;
 		}
 		string handoffName = self.context.freshTemporary("__btrc_construction_handoff");
-		IRNode handoffDeclaration = IRNode.variableDeclaration(declaration.cType, handoffName, IRNode.literal("NULL"));
+		IRNode handoffDeclaration = IRNode.variableDeclaration(((IRDeclarationPayload)declaration.payload).cType, handoffName, IRNode.literal("NULL"));
 		declarations.push(handoffDeclaration);
 		self.context.recordLocal(handoffDeclaration);
 		IRNode handoff = IRNode.variable(handoffName);
@@ -1880,7 +1880,7 @@ class ExpressionLowerer {
 			return self.optionalResultVariable(node.right);
 		}
 		if (node.kind == IRK_STMT_EXPR) {
-			return self.optionalResultVariable(node.result);
+			return self.optionalResultVariable(((IRControlPayload)node.payload).result);
 		}
 		if (node.kind == IRK_COMMA_EXPR && node.args().len > 0) {
 			return self.optionalResultVariable(node.args().get(node.args().len - 1));
@@ -1900,7 +1900,7 @@ class ExpressionLowerer {
 			return self.optionalResultAssignment(node.expr, resultName);
 		}
 		if (node.kind == IRK_STMT_EXPR) {
-			return self.optionalResultAssignment(node.result, resultName);
+			return self.optionalResultAssignment(((IRControlPayload)node.payload).result, resultName);
 		}
 		if (node.kind == IRK_COMMA_EXPR && node.args().len > 0) {
 			return self.optionalResultAssignment(node.args().get(node.args().len - 1), resultName);
@@ -1917,15 +1917,15 @@ class ExpressionLowerer {
 			return self.replaceOptionalResultDefinition(node.expr, resultName, fallback);
 		}
 		if (node.kind == IRK_STMT_EXPR) {
-			return self.replaceOptionalResultDefinition(node.result, resultName, fallback);
+			return self.replaceOptionalResultDefinition(((IRControlPayload)node.payload).result, resultName, fallback);
 		}
 		if (node.kind == IRK_COMMA_EXPR && node.args().len > 0) {
 			return self.replaceOptionalResultDefinition(node.args().get(node.args().len - 1), resultName, fallback);
 		}
-		if (node.kind != IRK_TERNARY || !self.optionalPresenceCondition(node.condition) || self.optionalResultVariable(node.trueExpr) != resultName) {
+		if (node.kind != IRK_TERNARY || !self.optionalPresenceCondition(((IRControlPayload)node.payload).condition) || self.optionalResultVariable(((IRControlPayload)node.payload).trueExpr) != resultName) {
 			return false;
 		}
-		IRNode? absentAssignment = self.optionalResultAssignment(node.falseExpr, resultName);
+		IRNode? absentAssignment = self.optionalResultAssignment(((IRControlPayload)node.payload).falseExpr, resultName);
 		if (absentAssignment == null) { return false; }
 		absentAssignment.right = fallback;
 		return true;
@@ -1939,7 +1939,7 @@ class ExpressionLowerer {
 			return self.optionalNodeDefinesResult(node.expr, resultName);
 		}
 		if (node.kind == IRK_STMT_EXPR) {
-			return self.optionalNodeDefinesResult(node.result, resultName);
+			return self.optionalNodeDefinesResult(((IRControlPayload)node.payload).result, resultName);
 		}
 		if (node.kind == IRK_COMMA_EXPR) {
 			if (node.args().len == 0 || self.optionalResultVariable(node.args().get(node.args().len - 1)) != resultName) {
@@ -1955,7 +1955,7 @@ class ExpressionLowerer {
 			return false;
 		}
 		if (node.kind != IRK_TERNARY) { return false; }
-		return self.optionalNodeDefinesResult(node.trueExpr, resultName) || self.optionalNodeDefinesResult(node.falseExpr, resultName);
+		return self.optionalNodeDefinesResult(((IRControlPayload)node.payload).trueExpr, resultName) || self.optionalNodeDefinesResult(((IRControlPayload)node.payload).falseExpr, resultName);
 	}
 
 	/* Walk one comma sequence backward along its result's def-use path.  This
@@ -2003,16 +2003,16 @@ class ExpressionLowerer {
      * unrelated operands or cleanup suffixes. */
 	private bool replaceOptionalFallback(IRNode? node, IRNode fallback) {
 		if (node == null) { return false; }
-		if (node.kind == IRK_TERNARY && self.optionalPresenceCondition(node.condition)) {
-			string resultName = self.optionalResultVariable(node.trueExpr);
+		if (node.kind == IRK_TERNARY && self.optionalPresenceCondition(((IRControlPayload)node.payload).condition)) {
+			string resultName = self.optionalResultVariable(((IRControlPayload)node.payload).trueExpr);
 			if (resultName != "" && self.replaceOptionalResultDefinition(node, resultName, fallback)) {
 				return true;
 			}
-			node.falseExpr = fallback;
+			((IRControlPayload)node.payload).falseExpr = fallback;
 			return true;
 		}
 		if (node.kind == IRK_STMT_EXPR) {
-			return self.replaceOptionalFallback(node.result, fallback);
+			return self.replaceOptionalFallback(((IRControlPayload)node.payload).result, fallback);
 		}
 		if (node.kind == IRK_COMMA_EXPR) {
 			return self.replaceOptionalSequenceFallback(node, fallback);
@@ -2286,7 +2286,7 @@ class ExpressionLowerer {
 		 * it, so it is declared without an initializer, as Python's
 		 * CollectionLowerer._collection_storage declares it. */
 		IRNode declaration = IRNode.variableDeclaration(mangled + "*", tmp, null);
-		if (self.context.exceptionsAreEnabled()) { declaration.init = IRNode.literal("NULL"); }
+		if (self.context.exceptionsAreEnabled()) { ((IRDeclarationPayload)declaration.payload).init = IRNode.literal("NULL"); }
 		declarations.push(declaration);
 		self.context.recordLocal(declaration);
 		Vector<IRNode> sequence = [];
@@ -2470,7 +2470,7 @@ class ExpressionLowerer {
 		 * it, so it is declared without an initializer, as Python's
 		 * CollectionLowerer._collection_storage declares it. */
 		IRNode declaration = IRNode.variableDeclaration(mangled + "*", tmp, null);
-		if (self.context.exceptionsAreEnabled()) { declaration.init = IRNode.literal("NULL"); }
+		if (self.context.exceptionsAreEnabled()) { ((IRDeclarationPayload)declaration.payload).init = IRNode.literal("NULL"); }
 		declarations.push(declaration);
 		self.context.recordLocal(declaration);
 		Vector<IRNode> sequence = [];

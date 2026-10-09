@@ -616,11 +616,11 @@ class CEmitter {
 	 * the only places a designation may appear. */
 	private string initializerElement(IRNode element) {
 		if (element.kind != IRK_DESIGNATION) { return self.expr(element); }
-		if (element.field.isEmpty() == (element.index == null) || element.value == null || (element.index != null && element.index.kind != IRK_LITERAL)) {
+		if (((IRProjectionPayload)element.payload).field.isEmpty() == (((IRProjectionPayload)element.payload).index == null) || ((IRProjectionPayload)element.payload).value == null || (((IRProjectionPayload)element.payload).index != null && ((IRProjectionPayload)element.payload).index.kind != IRK_LITERAL)) {
 			self.shapeError("malformed IRDesignation");
 		}
-		string designator = element.field.isEmpty() ? "[" + self.expr(element.index) + "]" : "." + element.field;
-		Vector<string> value = [self.expr(element.value)];
+		string designator = ((IRProjectionPayload)element.payload).field.isEmpty() ? "[" + self.expr(((IRProjectionPayload)element.payload).index) + "]" : "." + ((IRProjectionPayload)element.payload).field;
+		Vector<string> value = [self.expr(((IRProjectionPayload)element.payload).value)];
 		return self.compound(designator + " = ", value, "", "", "\n");
 	}
 
@@ -628,8 +628,8 @@ class CEmitter {
 	class bool bitFieldRoot(IRNode? expression) {
 		IRNode? current = expression;
 		while (current != null && (current.kind == IRK_FIELD_ACCESS || current.kind == IRK_INDEX)) {
-			if (current.kind == IRK_FIELD_ACCESS && current.bitField) { return true; }
-			current = current.obj;
+			if (current.kind == IRK_FIELD_ACCESS && ((IRProjectionPayload)current.payload).bitField) { return true; }
+			current = ((IRProjectionPayload)current.payload).obj;
 		}
 		return false;
 	}
@@ -816,28 +816,28 @@ class CEmitter {
 	/* --- statement emission --- */
 
 	private void emitStmt(IRNode s) {
-		if (s.kind == IRK_LINE_MARKER) { self.dbgHasLocation = true; self.dbgFile = s.sourceFile; self.dbgLine = s.sourceLine; return; }
-		if (s.kind == IRK_CXX_DELETE) { self.requireCpp(); self.line("delete " + self.expr(s.value) + ";"); return; }
+		if (s.kind == IRK_LINE_MARKER) { self.dbgHasLocation = true; self.dbgFile = ((IRSourcePayload)s.payload).sourceFile; self.dbgLine = ((IRSourcePayload)s.payload).sourceLine; return; }
+		if (s.kind == IRK_CXX_DELETE) { self.requireCpp(); self.line("delete " + self.expr(((IRNativePayload)s.payload).value) + ";"); return; }
 		if (s.kind == IRK_CXX_EXCEPTION_BOUNDARY) {
 			self.requireCpp();
-			if (s.body == null || s.elseBlock == null || s.body.kind != IRK_BLOCK || s.elseBlock.kind != IRK_BLOCK || (s.thenBlock != null && s.thenBlock.kind != IRK_BLOCK)) { throw "C++ exception boundary requires structured body and failure blocks"; }
-			self.line("try {"); self.indent++; self.emitBlockContents(s.body); self.indent--;
-			if (s.thenBlock != null) { self.line("} catch (const std::bad_alloc&) {"); self.indent++; self.emitBlockContents(s.thenBlock); self.indent--; }
-			self.line("} catch (...) {"); self.indent++; self.emitBlockContents(s.elseBlock); self.indent--; self.line("}"); return;
+			if (((IRNativePayload)s.payload).body == null || ((IRNativePayload)s.payload).elseBlock == null || ((IRNativePayload)s.payload).body.kind != IRK_BLOCK || ((IRNativePayload)s.payload).elseBlock.kind != IRK_BLOCK || (((IRNativePayload)s.payload).thenBlock != null && ((IRNativePayload)s.payload).thenBlock.kind != IRK_BLOCK)) { throw "C++ exception boundary requires structured body and failure blocks"; }
+			self.line("try {"); self.indent++; self.emitBlockContents(((IRNativePayload)s.payload).body); self.indent--;
+			if (((IRNativePayload)s.payload).thenBlock != null) { self.line("} catch (const std::bad_alloc&) {"); self.indent++; self.emitBlockContents(((IRNativePayload)s.payload).thenBlock); self.indent--; }
+			self.line("} catch (...) {"); self.indent++; self.emitBlockContents(((IRNativePayload)s.payload).elseBlock); self.indent--; self.line("}"); return;
 		}
 		if (s.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL || s.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY) {
 			self.requireObjectiveC();
-			if (s.body == null || s.body.kind != IRK_BLOCK) { throw "Objective-C scope requires an IRBlock"; }
+			if (((IRNativePayload)s.payload).body == null || ((IRNativePayload)s.payload).body.kind != IRK_BLOCK) { throw "Objective-C scope requires an IRBlock"; }
 			if (s.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL) { self.line("@autoreleasepool {"); }
 			else { self.line("@try {"); }
 			self.indent = self.indent + 1;
-			self.emitBlockContents(s.body);
+			self.emitBlockContents(((IRNativePayload)s.payload).body);
 			self.indent = self.indent - 1;
 			if (s.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY) {
-				if (s.elseBlock == null || s.elseBlock.kind != IRK_BLOCK) { throw "Objective-C exception boundary requires an IRBlock failure path"; }
+				if (((IRNativePayload)s.payload).elseBlock == null || ((IRNativePayload)s.payload).elseBlock.kind != IRK_BLOCK) { throw "Objective-C exception boundary requires an IRBlock failure path"; }
 				self.line("} @catch (...) {");
 				self.indent = self.indent + 1;
-				self.emitBlockContents(s.elseBlock);
+				self.emitBlockContents(((IRNativePayload)s.payload).elseBlock);
 				self.indent = self.indent - 1;
 			}
 			self.line("}");
@@ -846,20 +846,20 @@ class CEmitter {
 		if (s.kind == IRK_VAR_DECL) {
 			string ctype = self.qualifiedDeclType(s);
 			string declarator = self.localDeclarator(s);
-			if (s.init != null) {
-				self.line(f"{ctype} {declarator} = {self.expr(s.init)};");
+			if (((IRDeclarationPayload)s.payload).init != null) {
+				self.line(f"{ctype} {declarator} = {self.expr(((IRDeclarationPayload)s.payload).init)};");
 			} else {
 				self.line(f"{ctype} {declarator};");
 			}
 			return;
 		}
 		if (s.kind == IRK_ASSIGN) {
-			self.line(f"{self.expr(s.target)} = {self.expr(s.value)};");
+			self.line(f"{self.expr(((IRValuePayload)s.payload).target)} = {self.expr(((IRValuePayload)s.payload).value)};");
 			return;
 		}
 		if (s.kind == IRK_RETURN) {
-			if (s.value != null) {
-				self.line(f"return {self.expr(s.value)};");
+			if (((IRValuePayload)s.payload).value != null) {
+				self.line(f"return {self.expr(((IRValuePayload)s.payload).value)};");
 			} else {
 				self.line("return;");
 			}
@@ -878,52 +878,52 @@ class CEmitter {
 			return;
 		}
 		if (s.kind == IRK_IF) {
-			self.line(f"if ({self.condExpr(s.condition)}) {{");
-			if (s.thenBlock != null) {
+			self.line(f"if ({self.condExpr(((IRControlPayload)s.payload).condition)}) {{");
+			if (((IRControlPayload)s.payload).thenBlock != null) {
 				self.indent = self.indent + 1;
-				self.emitBlockContents(s.thenBlock);
+				self.emitBlockContents(((IRControlPayload)s.payload).thenBlock);
 				self.indent = self.indent - 1;
 			}
 			self.emitElseTail(s);
 			return;
 		}
 		if (s.kind == IRK_WHILE) {
-			self.line(f"while ({self.condExpr(s.condition)}) {{");
-			if (s.body != null) {
+			self.line(f"while ({self.condExpr(((IRControlPayload)s.payload).condition)}) {{");
+			if (((IRControlPayload)s.payload).body != null) {
 				self.indent = self.indent + 1;
-				self.emitBlockContents(s.body);
+				self.emitBlockContents(((IRControlPayload)s.payload).body);
 				self.indent = self.indent - 1;
 			}
 			self.line("}");
 			return;
 		}
 		if (s.kind == IRK_DO_WHILE) {
-			string conditionText = self.condExpr(s.condition);
+			string conditionText = self.condExpr(((IRControlPayload)s.payload).condition);
 			self.line("do {");
-			if (s.body != null) {
+			if (((IRControlPayload)s.payload).body != null) {
 				self.indent = self.indent + 1;
-				self.emitBlockContents(s.body);
+				self.emitBlockContents(((IRControlPayload)s.payload).body);
 				self.indent = self.indent - 1;
 			}
 			self.line(f"}} while ({conditionText});");
 			return;
 		}
 		if (s.kind == IRK_FOR) {
-			string initText = self.forInitText(s.init);
+			string initText = self.forInitText(((IRControlPayload)s.payload).init);
 			string condText = "";
-			if (s.condition != null) { condText = self.expr(s.condition); }
+			if (((IRControlPayload)s.payload).condition != null) { condText = self.expr(((IRControlPayload)s.payload).condition); }
 			string updateText = "";
-			if (s.update != null) {
-				if (s.update.kind == IRK_ASSIGN) {
-					updateText = f"{self.expr(s.update.target)} = {self.expr(s.update.value)}";
+			if (((IRControlPayload)s.payload).update != null) {
+				if (((IRControlPayload)s.payload).update.kind == IRK_ASSIGN) {
+					updateText = f"{self.expr(((IRValuePayload)((IRControlPayload)s.payload).update.payload).target)} = {self.expr(((IRValuePayload)((IRControlPayload)s.payload).update.payload).value)}";
 				} else {
-					updateText = self.expr(s.update);
+					updateText = self.expr(((IRControlPayload)s.payload).update);
 				}
 			}
 			self.line(f"for ({initText}; {condText}; {updateText}) {{");
-			if (s.body != null) {
+			if (((IRControlPayload)s.payload).body != null) {
 				self.indent = self.indent + 1;
-				self.emitBlockContents(s.body);
+				self.emitBlockContents(((IRControlPayload)s.payload).body);
 				self.indent = self.indent - 1;
 			}
 			self.line("}");
@@ -934,13 +934,14 @@ class CEmitter {
 		if (s.kind == IRK_SWITCH) {
 			/* switch (val) { case V: <body> default: <body> } — mirrors the
              * IRSwitch branch of emitter._emit_stmt. */
-			self.line(f"switch ({self.expr(s.value)}) {{");
+			self.line(f"switch ({self.expr(((IRControlPayload)s.payload).value)}) {{");
 			self.indent = self.indent + 1;
 			int ci = 0;
 			while (ci < s.args().len) {
 				IRNode c = s.args().get(ci);
-				if (c.value != null) {
-					self.line(f"case {self.expr(c.value)}:");
+				int caseDomain = c.payloadDomain();
+				if ((caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)c.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)c.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)c.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)c.payload).value : null) != null) {
+					self.line(f"case {self.expr((caseDomain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)c.payload).value : caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)c.payload).value : caseDomain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)c.payload).value : caseDomain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)c.payload).value : null))}:");
 				} else {
 					self.line("default:");
 				}
@@ -950,7 +951,7 @@ class CEmitter {
 				while (j < c.stmts().len) { self.emitStmt(c.stmts().get(j)); j = j + 1; }
 				self.indent = self.indent - 1;
 				self.line("}");
-				if (c.fallsThrough && ci + 1 < s.args().len) {
+				if ((caseDomain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)c.payload).fallsThrough : false) && ci + 1 < s.args().len) {
 					self.line("/* fall through */");
 				}
 				ci = ci + 1;
@@ -968,13 +969,13 @@ class CEmitter {
 		if (init.kind == IRK_VAR_DECL) {
 			string ctype = self.qualifiedDeclType(init);
 			string declarator = self.localDeclarator(init);
-			if (init.init != null) {
-				return f"{ctype} {declarator} = {self.expr(init.init)}";
+			if (((IRDeclarationPayload)init.payload).init != null) {
+				return f"{ctype} {declarator} = {self.expr(((IRDeclarationPayload)init.payload).init)}";
 			}
 			return f"{ctype} {declarator}";
 		}
 		if (init.kind == IRK_ASSIGN) {
-			return f"{self.expr(init.target)} = {self.expr(init.value)}";
+			return f"{self.expr(((IRValuePayload)init.payload).target)} = {self.expr(((IRValuePayload)init.payload).value)}";
 		}
 		if (init.kind == IRK_EXPR_STMT) {
 			return self.discardedExpr(init.expr);
@@ -986,30 +987,30 @@ class CEmitter {
 
 	private string qualifiedDeclType(IRNode declaration) {
 		string storage = "";
-		if (declaration.isStatic) { storage = "static "; }
-		else if (declaration.isExtern) { storage = "extern "; }
-		string ctype = self.qualifyVolatileObjectType(declaration.cType, declaration.isVolatile);
+		if (((IRDeclarationPayload)declaration.payload).isStatic) { storage = "static "; }
+		else if (((IRDeclarationPayload)declaration.payload).isExtern) { storage = "extern "; }
+		string ctype = self.qualifyVolatileObjectType(((IRDeclarationPayload)declaration.payload).cType, ((IRDeclarationPayload)declaration.payload).isVolatile);
 		return storage + ctype;
 	}
 
 	private string localDeclarator(IRNode declaration) {
-		if (!declaration.isArrayDecl) { return declaration.name; }
+		if (!((IRDeclarationPayload)declaration.payload).isArrayDecl) { return declaration.name; }
 		string size = "";
-		if (declaration.arraySize != null) {
-			size = self.expr(declaration.arraySize);
+		if (((IRDeclarationPayload)declaration.payload).arraySize != null) {
+			size = self.expr(((IRDeclarationPayload)declaration.payload).arraySize);
 		}
 		return declaration.name + "[" + size + "]";
 	}
 
 	/* Emit the else / else-if tail of an IRIf, recursing for chains. */
 	private void emitElseTail(IRNode s) {
-		if (s.elseBlock == null || s.elseBlock.stmts().len == 0) {
+		if (((IRControlPayload)s.payload).elseBlock == null || ((IRControlPayload)s.payload).elseBlock.stmts().len == 0) {
 			self.line("}");
 			return;
 		}
 		self.line("} else {");
 		self.indent = self.indent + 1;
-		self.emitBlockContents(s.elseBlock);
+		self.emitBlockContents(((IRControlPayload)s.payload).elseBlock);
 		self.indent = self.indent - 1;
 		self.line("}");
 	}
@@ -1124,8 +1125,8 @@ class CEmitter {
 			return self.delimited("(", values, ")");
 		}
 		if (e.kind == IRK_UNARYOP) {
-			Vector<string> values = [self.expr(e.operand)];
-			if (e.prefix) {
+			Vector<string> values = [self.expr(((IRUnaryPayload)e.payload).operand)];
+			if (((IRUnaryPayload)e.payload).prefix) {
 				return self.compound("(" + e.op, values, ")", "", "\n");
 			}
 			return self.compound("(", values, e.op + ")", "", "\n");
@@ -1137,7 +1138,7 @@ class CEmitter {
 				args.push(self.expr(e.args().get(i)));
 				i = i + 1;
 			}
-			string callee = e.callee;
+			string callee = ((IRCallPayload)e.payload).callee;
 			/* A call through a struct member is parenthesized: a function-like macro of
 			 * the same name (the Windows POSIX layer defines open(...)) would otherwise
 			 * capture `obj->open(` while leaving the member declaration alone. */
@@ -1160,18 +1161,18 @@ class CEmitter {
 			self.requireCpp();
 			string arguments = "";
 			for index in range(e.args().len) { if (index > 0) { arguments += ", "; } arguments += self.expr(e.args().get(index)); }
-			return "new " + e.targetType + "(" + arguments + ")";
+			return "new " + ((IRNativePayload)e.payload).targetType + "(" + arguments + ")";
 		}
 		if (e.kind == IRK_OBJECTIVE_C_MESSAGE) {
 			self.requireObjectiveC();
-			if (e.obj == null) { throw "Objective-C message requires a receiver"; }
+			if (((IRNativePayload)e.payload).obj == null) { throw "Objective-C message requires a receiver"; }
 			Vector<string> pieces = Strings.split(e.name, ":");
 			int count = pieces.len;
 			if (e.args().len > 0) {
 				if (count != e.args().len + 1 || pieces.get(count - 1) != "") { throw "Objective-C selector does not match argument count"; }
 				count = count - 1;
 			} else if (count != 1) { throw "Objective-C selector does not match argument count"; }
-			Vector<string> parts = [self.expr(e.obj)];
+			Vector<string> parts = [self.expr(((IRNativePayload)e.payload).obj)];
 			int index = 0;
 			while (index < count) {
 				string piece = pieces.get(index);
@@ -1184,10 +1185,10 @@ class CEmitter {
 		}
 		if (e.kind == IRK_OBJECTIVE_C_BLOCK) {
 			self.requireObjectiveC();
-			if (e.body == null || e.body.kind != IRK_BLOCK || e.targetType.isEmpty() || e.params == null) { throw "Objective-C block requires a return type, parameters and IRBlock body"; }
+			if (((IRNativePayload)e.payload).body == null || ((IRNativePayload)e.payload).body.kind != IRK_BLOCK || ((IRNativePayload)e.payload).targetType.isEmpty() || ((IRNativePayload)e.payload).params == null) { throw "Objective-C block requires a return type, parameters and IRBlock body"; }
 			Map<string, bool> names = {};
-			for (int index = 0; index < e.params.len; index++) {
-				var param = e.params.get(index);
+			for (int index = 0; index < ((IRNativePayload)e.payload).params.len; index++) {
+				var param = ((IRNativePayload)e.payload).params.get(index);
 				self.validateSelectorIdentifier(param.name);
 				if (param.cType.isEmpty() || param.cType == "void") { throw "Objective-C block parameter requires a non-void type"; }
 				if (names.has(param.name)) { throw "Objective-C block parameters require distinct names"; }
@@ -1196,44 +1197,44 @@ class CEmitter {
 			var body = CEmitter();
 			body.language = self.language;
 			body.indent = 1;
-			body.emitBlockContents(e.body);
-			return "^" + e.targetType + "(" + self.paramList(e.params) + ") {\n" + Strings.join(body.lines, "\n") + "\n}";
+			body.emitBlockContents(((IRNativePayload)e.payload).body);
+			return "^" + ((IRNativePayload)e.payload).targetType + "(" + self.paramList(((IRNativePayload)e.payload).params) + ") {\n" + Strings.join(body.lines, "\n") + "\n}";
 		}
 		if (e.kind == IRK_FIELD_ACCESS) {
 			string op = ".";
-			if (e.arrow) { op = "->"; }
-			Vector<string> values = [self.expr(e.obj), op + e.field];
+			if (((IRProjectionPayload)e.payload).arrow) { op = "->"; }
+			Vector<string> values = [self.expr(((IRProjectionPayload)e.payload).obj), op + ((IRProjectionPayload)e.payload).field];
 			return self.compound("", values, "", "", "\n");
 		}
 		if (e.kind == IRK_CAST) {
 			string bridge = "";
-			if (e.bridge != "") {
+			if (((IRConversionPayload)e.payload).bridge != "") {
 				self.requireObjectiveC();
-				if (e.bridge == "borrow") { bridge = "__bridge "; }
-				else if (e.bridge == "retain") { bridge = "__bridge_retained "; }
-				else if (e.bridge == "transfer") { bridge = "__bridge_transfer "; }
+				if (((IRConversionPayload)e.payload).bridge == "borrow") { bridge = "__bridge "; }
+				else if (((IRConversionPayload)e.payload).bridge == "retain") { bridge = "__bridge_retained "; }
+				else if (((IRConversionPayload)e.payload).bridge == "transfer") { bridge = "__bridge_transfer "; }
 				else { throw "unsupported Objective-C bridge ownership"; }
 			}
 			Vector<string> values = [self.expr(e.expr)];
-			return self.compound("((" + bridge + e.targetType + ")", values, ")", "", "\n");
+			return self.compound("((" + bridge + ((IRConversionPayload)e.payload).targetType + ")", values, ")", "", "\n");
 		}
 		if (e.kind == IRK_TERNARY) {
 			Vector<string> values = [
-				self.expr(e.condition), "?", self.expr(e.trueExpr),
-				":", self.expr(e.falseExpr)
+				self.expr(((IRControlPayload)e.payload).condition), "?", self.expr(((IRControlPayload)e.payload).trueExpr),
+				":", self.expr(((IRControlPayload)e.payload).falseExpr)
 			];
 			return self.compound("(", values, ")", " ", "\n");
 		}
 		if (e.kind == IRK_SIZEOF) {
-			if (e.operand != null) {
-				Vector<string> operand = [self.expr(e.operand)];
+			if (((IRConversionPayload)e.payload).operand != null) {
+				Vector<string> operand = [self.expr(((IRConversionPayload)e.payload).operand)];
 				return self.compound("sizeof(", operand, ")", "", "\n");
 			}
-			if (e.targetType == "") {
+			if (((IRConversionPayload)e.payload).targetType == "") {
 				print("internal compiler error: IRSizeof has no operand");
 				exit(1);
 			}
-			Vector<string> values = [e.targetType];
+			Vector<string> values = [((IRConversionPayload)e.payload).targetType];
 			return self.compound("sizeof(", values, ")", "", "\n");
 		}
 		if (e.kind == IRK_INITIALIZER_LIST) {
@@ -1247,7 +1248,7 @@ class CEmitter {
 			return self.delimited("{", values, "}");
 		}
 		if (e.kind == IRK_COMPOUND_LITERAL) {
-			if (e.targetType == "" || e.fieldNames().len != e.args().len) {
+			if (((IRConversionPayload)e.payload).targetType == "" || e.fieldNames().len != e.args().len) {
 				print("internal compiler error: malformed IRCompoundLiteral");
 				exit(1);
 			}
@@ -1266,12 +1267,12 @@ class CEmitter {
 				i = i + 1;
 			}
 			Vector<string> literal = [self.delimited("{", fields, "}")];
-			return self.compound("(" + e.targetType + ")", literal, "", "", "\n");
+			return self.compound("(" + ((IRConversionPayload)e.payload).targetType + ")", literal, "", "", "\n");
 		}
 		if (e.kind == IRK_INDEX) {
-			Vector<string> indexValue = [self.expr(e.index)];
+			Vector<string> indexValue = [self.expr(((IRProjectionPayload)e.payload).index)];
 			string index = self.compound("[", indexValue, "]", "", "\n");
-			Vector<string> values = [self.expr(e.obj), index];
+			Vector<string> values = [self.expr(((IRProjectionPayload)e.payload).obj), index];
 			return self.compound("", values, "", "", "\n");
 		}
 		if (e.kind == IRK_DESIGNATION) { self.shapeError("IRDesignation is legal only as an initializer-list element or a positional compound-literal value"); }
@@ -1291,9 +1292,12 @@ class CEmitter {
 			int i = 0;
 			while (i < e.stmts().len) {
 				IRNode declaration = e.stmts().get(i);
-				bool safeInitializer = declaration.init == null;
-				if (declaration.init != null && declaration.init.kind == IRK_LITERAL && (declaration.init.text == "0" || declaration.init.text == "NULL" || declaration.init.text == "false")) {
-					safeInitializer = true;
+				bool safeInitializer = true;
+				if (declaration.kind == IRK_VAR_DECL) {
+					safeInitializer = ((IRDeclarationPayload)declaration.payload).init == null;
+					if (((IRDeclarationPayload)declaration.payload).init != null && ((IRDeclarationPayload)declaration.payload).init.kind == IRK_LITERAL && (((IRDeclarationPayload)declaration.payload).init.text == "0" || ((IRDeclarationPayload)declaration.payload).init.text == "NULL" || ((IRDeclarationPayload)declaration.payload).init.text == "false")) {
+						safeInitializer = true;
+					}
 				}
 				if (declaration.kind != IRK_VAR_DECL || !safeInitializer) {
 					print("internal compiler error: unsafe IRStmtExpr setup");
@@ -1302,7 +1306,7 @@ class CEmitter {
 				self.emitStmt(declaration);
 				i = i + 1;
 			}
-			return self.expr(e.result);
+			return self.expr(((IRControlPayload)e.payload).result);
 		}
 		if (e.kind == IRK_INVALID_EXPR) {
 			fprintf(stderr, "error: %s\n", e.text);
