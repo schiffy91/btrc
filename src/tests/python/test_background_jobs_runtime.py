@@ -430,7 +430,6 @@ class WindowsProcessThreadsFixture:
     """
 
     SYMBOLS = (
-        "ProcessThreadFault",
         "PROCESS_THREADS_REAL",
         "PROCESS_THREADS_SNAPSHOT_FAILURE",
         "PROCESS_THREADS_FIRST_FAILURE",
