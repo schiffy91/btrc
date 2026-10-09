@@ -1,0 +1,92 @@
+name: Linux Window close component
+on:
+  push:
+    branches: [codex/diagnostic-linux-window-close-f75-r4]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: linux-window-close-f75
+  cancel-in-progress: false
+jobs:
+  x11:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: provider
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: f75c737bbf4002553099ce2856b9bbc86494622a
+          path: compiler
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: false
+      - name: Admit exact inputs and build original Linux image
+        run: |
+          set -euo pipefail
+          test "$(uname -s)-$(uname -m)" = Linux-x86_64
+          test "$(git -C compiler rev-parse HEAD)" = f75c737bbf4002553099ce2856b9bbc86494622a
+          test -z "$(git -C compiler status --porcelain)"
+          test -z "$(git -C provider status --porcelain)"
+          printf '%s  %s\n' 01bac6a1ba3bc906780bcde67670467a33a57114f55ba7ed6ae76852ba3e82f4 provider/src/tests/diagnostics/linux_window_close/pins.json | sha256sum -c -
+          mkdir evidence
+          git -C provider rev-parse HEAD > evidence/publication-head.txt
+          git -C provider ls-tree -r HEAD > evidence/publication-tree.txt
+          git -C compiler ls-tree -r HEAD > evidence/compiler-tree.txt
+          (cd compiler && make devcontainer) > evidence/image.stdout 2> evidence/image.stderr
+          podman image inspect btrc-devcontainer:latest > evidence/image.json
+          podman image inspect btrc-devcontainer:latest --format '{{.Id}}' > evidence/image-id.txt
+          mkdir -p compiler/build compiler/bin compiler/dist
+          chmod a+rwx "$PWD" evidence compiler/build compiler/bin compiler/dist
+      - name: Original paired baseline and repaired native Window fixture
+        run: |
+          set -euo pipefail
+          image=$(cat evidence/image-id.txt)
+          test -n "$image"
+          podman run --name ui2-linux-window-close --init -v "$PWD:/workspace" -w /workspace "$image" \
+            bash -c 'exec bash provider/src/tests/diagnostics/linux_window_close/inside.sh'
+      - name: Close container and export only task evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          set +e
+          timeout --kill-after=10s 30s podman stop --time 5 ui2-linux-window-close > evidence/container-stop.stdout 2> evidence/container-stop.stderr
+          stopped=$?
+          timeout --kill-after=10s 30s podman rm -f ui2-linux-window-close > evidence/container-rm.stdout 2> evidence/container-rm.stderr
+          removed=$?
+          set -e
+          printf '%s\n' "$stopped" > evidence/container-stop.status
+          printf '%s\n' "$removed" > evidence/container-rm.status
+          timeout --kill-after=10s 30s podman ps -a --format json > evidence/containers-final.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rows=json.loads(Path('evidence/containers-final.json').read_text())
+          assert all('ui2-linux-window-close' not in row.get('Names',[]) for row in rows)
+          PY
+          for directory in evidence compiler/bin compiler/dist; do
+            test ! -L "$directory"
+            if [ -d "$directory" ]; then
+              podman unshare find -P "$directory" -type d -exec chmod a+rx {} + -o -type f -exec chmod a+r {} +
+            fi
+          done
+          git -C compiler diff --exit-code
+          git -C provider diff --exit-code
+      - name: Retain exact component evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: linux-window-close-f75-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            evidence/
+            compiler/bin/btrcc
+            compiler/dist/btrcc.c
+            provider/src/tests/diagnostics/linux_window_close/
