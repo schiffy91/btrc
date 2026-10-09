@@ -512,8 +512,23 @@ There are no failures, errors or skips. Independent audit verifies 78 inputs,
 4,507 source files, 4,860 workspace artifacts and all 11 closed process groups.
 Result SHA-256: `5914461928bb9fd595f77b088fc4578220398345f6c2da7427cb720108549ce9`;
 audit SHA-256: `457ae6be1e60b5c7c44c7d7bffb2b7c544222754bc72d2db5a4b4cd78249ffc2`.
-The production incremental-edit case through btrcc and current-product output
-parity are the next combined checks. Product speed and memory targets stay open.
+The production incremental-edit case through that same btrcc now also passes:
+only the changed source group and affected consumer are lowered, and incremental,
+clean and whole-program outputs agree. Its subsequent direct current-product
+compile lowers all 461 groups with zero reuse and preserves exact names/content
+for all 423 C/header files and the full ordered plan against the authenticated
+6f baseline. Independent audit verifies 133 recipe pins, 143 inputs, 235 edit
+artifacts and all five closed process groups. Result SHA-256:
+`51f67e69af607fc8bcc3962541a962f5d3016fa0965b560d11f14cde8818881a`;
+audit SHA-256: `f36ce4f988d7d3b2e456f574b661dea79187d953ef114f49172c2490432d896a`.
+The combined candidate has 45 focused passes plus the native flow driver and
+current-product emitted-output parity. Full compiler/platform qualification and
+native product execution remain separate. A paired Linux current-product
+comparison is being prepared with matched Linux-built baseline/candidate
+compilers, original eight-run order and exact Linux output/plan parity. It will
+report Linux RSS/instructions where available, not replace Mac footprint
+acceptance. The same VS Code app-server still blocks Mac quiet admission; no
+unchanged retry was launched. Product speed and memory targets stay open.
 
 Both October 9 diagnostic runs are now terminal failures, with narrower
 progress retained. BTRSmith `37864640752`, exact dbe8/f75, passes all four
@@ -1396,8 +1411,9 @@ workflows pass. Both Mac release bundles, self-host tests, bootstrap, corpora an
 Clang O0/O2 pass. Mac unit and dedicated native-GUI run `37877458498` remain
 active, with final skip/evidence audit pending. No final combined-tree merge is
 claimed. The separate compact/flow candidate has passed its fresh build,
-44 focused checks and native flow driver; the self-hosted incremental edit,
-product output parity and measurements remain pending.
+45 focused checks, native flow driver and exact current-product 423-file/ordered
+plan parity. Paired performance measurement and its full integration matrix
+remain pending.
 The latest compiler and native component outcomes are recorded under the goals
 above; test passes do not close the outstanding product performance or MVP targets.
 
