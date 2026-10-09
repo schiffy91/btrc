@@ -384,6 +384,44 @@ No unchanged third retry or combined hosted pass is claimed. Do not change the
 published head during qualification. PR68 remains unqualified until the combined
 final gates pass.
 
+October 9 final audit of that exact head: the explicit Mac native-GUI run
+`37835919865` succeeds with 353 passes and 169 expected platform skips. Its
+JUnit and skip ledger have exactly the same 522 canonical identities. The full
+Mac matrix also passes self-host tests, bootstrap and the ARM64 release bundle.
+Unit finishes with 10,147 passes, 227 expected skips, the two known test-contract
+failures repaired by `69e0b5d8`, and one additional setup error: tray lifecycle
+reference/plain exhausts the unchanged 1800-second GUI lease wait. The recorded
+sanitized self-hosted shell holder ultimately passes; the same tray row passes
+in the dedicated grouped GUI run. No missing GCC-executable failure recurs, but
+its earlier cause remains unproven. The unit workflow lacked the scheduler
+opt-in used by the dedicated GUI job. Source `dbdc50d2` now applies the existing
+loadgroup scheduler only to unit, retaining every row's selection flags and
+three workers. Its affected checks and actual hosted unit replay remain pending.
+Independent final Mac audit SHA-256 is
+`69334cb33bf0a027c9d02281083fbffff67497c68be928263bc041718244ade2`
+in `/private/tmp/btrc-audit-repair/pr68-6f-final-mac-oct9`.
+
+The first local release-shell evaluation fails in its diagnostic expression:
+a global ROOT substitution corrupted the BTRC_NATIVE_SYSROOT attribute into a
+path. Both existing default/platform derivations otherwise match exactly, but
+that attempt did not compare actual SDK values. Reviewed correction uses one
+unique complete flake-URI placeholder and retains strict equality. The second
+attempt is refused before any Nix command because actual free space falls below
+80 GB; no production or evaluation success follows. Immutable sources remain
+unchanged. Recoverable completed-source/object archival is restoring headroom;
+no gate threshold is reduced. The reviewed current-compiler IR allocation census
+uses exact 6f compiler and dbe8 product sources and remains unexecuted until its
+build/output headroom is available. Product speed and memory targets stay open.
+
+Both previous hosted waves are terminal. Two new reviewed diagnostic pushes
+now occupy the slots: BTRSmith `37864640752` at diagnostic `8622b122`, exact
+product `dbe8df0e`/compiler `f75c737b`, runs the unchanged paired live-agent,
+audio and installed-product stages; Linux Window `37865587336` at `8599478b`
+qualifies existing candidate `6d65b35b` against its original missing-API baseline
+and four frontend/sanitizer native cells. Both runs are active, not accepted.
+There were no duplicate manual dispatches or changes to their original bounds.
+
+
 A fresh compiler measurement preparation preserves the byte-identical reviewed
 R2 runner, source/tool inputs, eight-run order, 60-second quiet windows and
 180/240-second admission/compile bounds. The current preliminary observation
@@ -1537,7 +1575,7 @@ changes; historical test totals alone do not advance its status.
 | UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
 | Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
 | BTRSmith macOS/Linux MVP on the current stack | Product8f73b7d5/f75c737b passes eight Mac window-close cases and plan parity. Repaired dbe8df0e now passes the original full three-client agent-channel fixture through both compilers on macOS, with actual generated child-path and native-result review clear | BTRSmith owner and integrator | Replay dbe8 on Linux to resolve the earlier iteration-guard failure, then complete audio, installed-product and compiler-pin acceptance. Mac source-override component passes do not close the full MVP. |
-| One qualified implementation on main | Main remains cbd3ddcd. PR68 head6f1b81d9 passes Windows, Windows ARM64 and Android workflows; every selected Linux job except unit passes. The two Linux test defects are repaired and locally integrated with 110 passing focused checks. Mac x64 dependency preparation timed out; remaining Mac and explicit native-GUI gates are active | Main integrator | Qualify the release-shell repair, publish the proven Linux test repair after active qualification, complete final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip audit and native evidence, then merge. |
+| One qualified implementation on main | Main stays cbd3ddcd. PR68 6f passes Windows/ARM64/Android and every selected Linux job except unit. Dedicated Mac GUI now passes 353 cases with 169 classified skips; Mac bootstrap/ARM64 bundle/self-host tests pass. The two unit assertions have qualified local repairs; Mac unit additionally needs the prepared grouping opt-in, and x64 release preparation timed out | Main integrator | Qualify unit grouping and release-shell changes, integrate their exact reviewed sources, then finish final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip audit and native evidence before merging. Two independent product/provider diagnostic waves are active. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
