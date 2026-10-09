@@ -478,7 +478,8 @@ def test_native_constant_address_is_refused_identically(reader, tmp_path, reques
     assert reports[0] == reports[1]
 
 
-POINTER_MACROS = """#pragma once
+POINTER_MACROS = """#ifndef BTRC_TEST_POINTER_MACROS_H
+#define BTRC_TEST_POINTER_MACROS_H
 typedef void* SentinelHandle;
 typedef const unsigned char* ReadOnlyBytes;
 #define PTR_NULL ((void*)0)
@@ -508,6 +509,7 @@ static inline int pointerMatchesSdk(void* zero, SentinelHandle all, int* castVal
     return zero == PTR_NULL && all == PTR_ALL && castValue == PTR_CAST &&
            readOnly == PTR_CONST && alias == PTR_ALIAS && truncated == PTR_TRUNCATED;
 }
+#endif
 """
 POINTER_SYMBOLS = ["PTR_NULL", "PTR_ALL", "PTR_CAST", "PTR_CONST", "PTR_ALIAS", "PTR_TRUNCATED"]
 POINTER_REJECTED_TYPES = """typedef void (*PointerCallback)(void);
