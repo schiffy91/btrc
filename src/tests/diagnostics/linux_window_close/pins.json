@@ -1,0 +1,36 @@
+{
+  "baseline": "a058e53fff7e8ca39c3c1c6fba137d3d285ac34a",
+  "candidate": "fe9e0c00818d7d04f2507fe953dfa986211f7b24",
+  "compiler": "f75c737bbf4002553099ce2856b9bbc86494622a",
+  "driver_sha256": "fd7b8ea2eb121164114b37fb880ed3fe6217e71a9059bf730a044fc10ba4516e",
+  "fixtures": {
+    "UI2LinuxWindowClose.btrc": "b2af42b1fefb96c60efa3d498dc23c5e0d5d7d3956218bf95dcaa629a62f3c2c",
+    "WindowCloseProbe.btrc": "49239845b6bd313dcca7be7deeb29d21232f0317c59835a7212d5f04b5dc32f1",
+    "WindowCloseProbe.c": "1f6f6fd46082f6228f99f01ffda529198d24d1838feadd8e4992abbce784ac6c",
+    "WindowCloseProbe.h": "3490a5db55907043c7594a41bfaa2be7080e17bc6038a4945e557e7aa761d0fe"
+  },
+  "fragment": [
+    [
+      "\"SDL_TextInputActive\", \"SDL_SetTextInputArea\"",
+      "\"SDL_TextInputActive\", \"SDL_ClearComposition\", \"SDL_SetTextInputArea\""
+    ],
+    [
+      "\"SDL_EVENT_KEY_UP\", \"SDL_EVENT_MOUSE_BUTTON_DOWN\"",
+      "\"SDL_EVENT_KEY_UP\", \"SDL_EVENT_TEXT_EDITING\", \"SDL_EVENT_MOUSE_BUTTON_DOWN\""
+    ],
+    [
+      "\"SDL_EVENT_WINDOW_MINIMIZED\",",
+      "\"SDL_EVENT_WINDOW_MINIMIZED\", \"SDL_EVENT_WINDOW_RESTORED\","
+    ],
+    [
+      "\"SDL_WINDOW_HIGH_PIXEL_DENSITY\",",
+      "\"SDL_WINDOW_HIGH_PIXEL_DENSITY\", \"SDL_WINDOW_MINIMIZED\","
+    ]
+  ],
+  "helpers": {
+    "inside.sh": "83cf21e3f6e41ef0892bd591e3ed5905142800a9e47dd16c0873cf97687405c1",
+    "qualify.py": "c715d8a40ae781cb92d1c876a8697505224ef2922d47060aae48a37ca1307f75",
+    "run-stage.py": "35fcb2e666b51026c33ddd1c07ed0a1ad718088d9ab35017fdd7cceb5db0029d"
+  },
+  "production": "53e4bfaa09f1798cca5fd555658d958594a09881"
+}
