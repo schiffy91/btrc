@@ -1,0 +1,101 @@
+// A list or map literal passed as an argument fills the collection its
+// parameter names, as a declared initializer does: [1, 2] passed as
+// Vector<double> is a Vector<double>, and {"a": 1} passed as
+// Map<string, double> is a Map<string, double>.
+import Library.Map;
+import Library.Vector;
+
+typedef Vector<double> Doubles;
+typedef Map<string, double> Weights;
+
+interface IShape {
+	int area();
+}
+
+class Square implements IShape {
+	public int side;
+	public Square(int side) { self.side = side; }
+
+	public int area() { return self.side * self.side; }
+}
+
+class Point {
+	public int x;
+	public Point(int x) { self.x = x; }
+}
+
+class Totals {
+	public double sum;
+	public Totals(Map<string, double> weights) {
+		self.sum = 0.0;
+		for key in weights { self.sum = self.sum + weights.get(key); }
+	}
+
+	public double scaled(Vector<double> factors) {
+		double result = self.sum;
+		for factor in factors { result = result * factor; }
+		return result;
+	}
+}
+
+double total(Map<string, double> m) {
+	double sum = 0.0;
+	for key in m { sum = sum + m.get(key); }
+	return sum;
+}
+
+double listTotal(Vector<double> values) {
+	double sum = 0.0;
+	for value in values { sum = sum + value; }
+	return sum;
+}
+
+double aliased(Doubles values, Weights weights) {
+	double sum = 0.0;
+	for value in values { sum = sum + value; }
+	for key in weights { sum = sum + weights.get(key); }
+	return sum;
+}
+
+int areas(Map<string, IShape> shapes) {
+	int sum = 0;
+	for key in shapes { sum = sum + shapes.get(key).area(); }
+	return sum;
+}
+
+int present(Map<string, Point?> points) {
+	int count = 0;
+	for key in points {
+		if (points.get(key) != null) { count = count + 1; }
+	}
+	return count;
+}
+
+int main() {
+	print(total({"a": 1, "b": 2}));
+	print(listTotal([1, 2, 3]));
+	print(areas({"a": Square(2), "b": Square(3)}));
+	print(present({"a": Point(1)}));
+	print(aliased([1, 2], {"w": 3}));
+
+	Totals totals = Totals({"x": 2});
+	print(totals.scaled([3, 2]));
+
+	var half = (Vector<double> values) => {
+		double sum = 0.0;
+		for value in values { sum = sum + value; }
+		return sum / 2.0;
+	};
+	print(half([1, 2]));
+
+	Vector<Map<string, double>> rows = [];
+	rows.push({"a": 1});
+	print(rows.get(0).get("a"));
+
+	Map<string, Map<string, double>> nested = {};
+	nested.put("z", {"w": 2});
+	print(nested.get("z").get("w"));
+
+	print("PASS: test_collection_literal_argument_widening");
+	return 0;
+}

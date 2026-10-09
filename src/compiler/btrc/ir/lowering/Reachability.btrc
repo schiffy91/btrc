@@ -387,6 +387,7 @@ class StdlibReachability {
 				if (node.parent != null) { out.put(node.parent, true); }
 				for iface in node.interfaces() { out.put(iface, true); }
 			}
+			else if (node.kind == NK_INTERFACE_DECL && node.parent != null) { out.put(node.parent, true); }
 			StdlibReachability.pushChildren(node, stack);
 		}
 	}

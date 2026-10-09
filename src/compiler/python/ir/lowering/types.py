@@ -329,7 +329,7 @@ class CTypeLowerer:
             return IRLiteral(text="NULL")
         if (
             canonical.base == "Tuple"
-            or canonical.base.removeprefix("struct ") in self._analyzed.struct_table
+            or TypeSystem.record_tag_name(canonical.base) in self._analyzed.struct_table
             or canonical.base in self._analyzed.rich_enum_table
         ):
             return IRCompoundLiteral(c_type=CType(text=c_type), fields=[])

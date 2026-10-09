@@ -1,1 +1,5 @@
-error: Expected RBRACE, got EOF '' at 3:1
+error: Expected RBRACE, got EOF ''
+  --> build/verification/compiler-boundaries/workspace/sources/parse-error/parse_error.btrc:3:1
+   |
+ 3 | 
+   | ^

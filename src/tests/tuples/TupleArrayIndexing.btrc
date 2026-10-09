@@ -1,0 +1,59 @@
+// Indexing storage whose ELEMENT is a tuple: a local, global and field array,
+// a pointer to tuples, a Vector of tuples and nested tuples, read and written
+// through the index. Only indexing a tuple VALUE (`t[i]`) is refused.
+import Library.Vector;
+
+(int, int) globalPairs[2];
+
+class Holder {
+	public (int, string) items[2];
+
+	public Holder() {
+		self.items[0] = (1, "one");
+		self.items[1] = (2, "two");
+	}
+}
+
+int sumProducts((int, int)* values, int count) {
+	int total = 0;
+	for (int i = 0; i < count; i++) { total += values[i]._0 * values[i]._1; }
+	return total;
+}
+
+int main() {
+	(int, int) pairs[3] = {(1, 2), (3, 4), (5, 6)};
+	int total = 0;
+	for (int i = 0; i < 3; i++) { total += pairs[i]._0 + pairs[i]._1; }
+	print(total);
+	pairs[1]._0 = 7;
+	pairs[2] = (8, 9);
+	print(pairs[1]._0 + pairs[1]._1 + pairs[2]._0 + pairs[2]._1);
+	print(sumProducts(pairs, 3));
+
+	globalPairs[0] = (10, 20);
+	globalPairs[1] = (30, 40);
+	print(globalPairs[1]._0 + globalPairs[0]._1);
+	globalPairs[0]._1 = 200;
+	print(globalPairs[0]._1);
+
+	Holder holder = new Holder();
+	print(holder.items[1]._1);
+	holder.items[0]._1 = "uno";
+	holder.items[1] = (22, "dos");
+	print(holder.items[0]._1, holder.items[1]._0, holder.items[1]._1);
+
+	Vector<(int, int)> vector = new Vector<(int, int)>();
+	vector.push((4, 5));
+	vector.push((6, 7));
+	print(vector[1]._0 + vector[0]._1);
+	vector[0] = (11, 12);
+	print(vector[0]._1);
+
+	((int, int), string) nested[2] = {((1, 2), "a"), ((3, 4), "b")};
+	print(nested[1]._0._1, nested[0]._1);
+	nested[0]._0._0 = 42;
+	nested[1]._0 = (5, 6);
+	print(nested[0]._0._0, nested[1]._0._1);
+	print("PASS: test_tuple_array_indexing");
+	return 0;
+}

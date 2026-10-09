@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import NativeLinkPlan, PackageTarget
+from src.tests.process_limits import TOOL_TIMEOUT
 from tools.native_plan import NativePlanBuilder, NativePlanError
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="Darwin dependency-info link receipts")
@@ -367,3 +368,149 @@ def test_scratch_directories_do_not_change_cache_identities(tmp_path, monkeypatc
     report = NativePlanBuilder().build(**options)
     assert report.as_dict()["compiled_units"] == 0
     assert report.link_cache_status == "hit" and report.links == 0
+
+
+@pytest.mark.parametrize("identifier", [None, "org.btrc.signed-link"])
+def test_signed_link_retains_signature_and_executable_on_warm_and_touch(tmp_path, identifier):
+    from tools.native_plan import DarwinSigning
+
+    options = setup_build(tmp_path)
+    options["output"] = tmp_path / "program.reference"
+    NativePlanBuilder().build(**options)
+    # Compare the existing caller's signing semantics with staged signing.
+    command = ["/usr/bin/codesign", "--force", "--sign", "-"]
+    if identifier is not None:
+        command.extend(["--identifier", identifier])
+    subprocess.run([*command, str(options["output"])], check=True, capture_output=True, timeout=TOOL_TIMEOUT)
+
+    def requirement():
+        return subprocess.run(
+            ["/usr/bin/codesign", "-d", "-r-", str(options["output"])],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=TOOL_TIMEOUT,
+        ).stdout
+
+    def signature_identifier():
+        details = subprocess.run(
+            ["/usr/bin/codesign", "-dvv", str(options["output"])],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=TOOL_TIMEOUT,
+        ).stderr
+        return next(line for line in details.splitlines() if line.startswith("Identifier="))
+
+    original_requirement = requirement()
+    original_identifier = signature_identifier()
+    options["signing"] = DarwinSigning("-", identifier=identifier)
+    cold = NativePlanBuilder().build(**options)
+    assert cold.link_cache_status == "stored" and cold.links > 0
+    assert requirement() == original_requirement
+    before = identity(options["output"])
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.run(command, **kwargs)
+
+    warm = NativePlanBuilder(runner=run).build(**options)
+    assert warm.links == 0 and warm.as_dict()["compiled_units"] == 0
+    assert warm.link_cache_status == "hit"
+    assert not any("--force" in command for command in calls)
+    assert identity(options["output"]) == before
+    options["generated_c"].touch()
+    assert NativePlanBuilder().build(**options).links == 0
+    assert identity(options["output"]) == before
+    options["generated_c"].write_text(options["generated_c"].read_text().replace("first", "other"))
+    assert NativePlanBuilder().build(**options).links > 0
+    # Ad-hoc requirements contain a content hash; the default linker-derived
+    # identifier can change too. Preserve the caller's actual codesign policy,
+    # not an invented stability promise for ad-hoc identities.
+    assert requirement() != original_requirement
+    if identifier is not None:
+        assert signature_identifier() == original_identifier
+    changed_requirement, changed_identifier = requirement(), signature_identifier()
+    subprocess.run([*command, str(options["output"])], check=True, capture_output=True, timeout=TOOL_TIMEOUT)
+    assert (requirement(), signature_identifier()) == (changed_requirement, changed_identifier)
+    assert output(options) == "other\n"
+
+
+@pytest.mark.parametrize("failure", ["sign", "verify"])
+def test_signing_failure_preserves_previous_executable_and_receipt(tmp_path, failure):
+    from tools.native_plan import DarwinSigning
+
+    options = setup_build(tmp_path)
+    options["signing"] = DarwinSigning("-")
+    NativePlanBuilder().build(**options)
+    before = identity(options["output"])
+    receipt = next((options["object_cache"] / "links").glob("link-v1-*.json"))
+    receipt_before = identity(receipt)
+    options["generated_c"].write_text(options["generated_c"].read_text().replace("first", "other"))
+
+    def run(command, **kwargs):
+        if command[0] == "/usr/bin/codesign" and ("--force" if failure == "sign" else "--verify") in command:
+            Path(command[-1]).write_bytes(b"failed staged signing")
+            return subprocess.CompletedProcess(command, 1, "", "injected signing failure")
+        return subprocess.run(command, **kwargs)
+
+    with pytest.raises(NativePlanError, match="injected signing failure"):
+        NativePlanBuilder(runner=run).build(**options)
+    assert identity(options["output"]) == before
+    assert identity(receipt) == receipt_before
+    assert output(options) == "first\n"
+
+
+@pytest.mark.parametrize("change", ["identifier", "tool", "tamper"])
+def test_signed_link_revalidates_configuration_and_output(tmp_path, change):
+    from tools.native_plan import DarwinSigning
+
+    options = setup_build(tmp_path)
+    tool = tmp_path / "codesign"
+    tool.write_text('#!/bin/sh\nexec /usr/bin/codesign "$@"\n# first\n')
+    tool.chmod(0o755)
+    options["signing"] = DarwinSigning("-", identifier="org.btrc.first", tool=str(tool))
+    assert NativePlanBuilder().build(**options).link_cache_status == "stored"
+    assert NativePlanBuilder().build(**options).links == 0
+    if change == "identifier":
+        options["signing"] = DarwinSigning("-", identifier="org.btrc.other", tool=str(tool))
+    else:
+        path = tool if change == "tool" else options["output"]
+        metadata = path.stat()
+        before = path.read_bytes()
+        after = before.replace(b"# first", b"# other") if change == "tool" else before[:-1] + bytes([before[-1] ^ 1])
+        assert len(after) == len(before) and after != before
+        path.write_bytes(after)
+        os.utime(path, ns=(metadata.st_atime_ns, metadata.st_mtime_ns))
+    changed = NativePlanBuilder().build(**options)
+    assert changed.links > 0 and changed.as_dict()["compiled_units"] == 0
+    assert NativePlanBuilder().build(**options).links == 0
+    assert output(options) == "first\n"
+
+
+def test_signer_changed_during_receipt_validation_is_not_a_hit(tmp_path, monkeypatch):
+    from tools.native_plan import DarwinSigning, _DarwinLinkReceipt
+
+    options = setup_build(tmp_path)
+    tool = tmp_path / "codesign"
+    tool.write_text('#!/bin/sh\nexec /usr/bin/codesign "$@"\n# first\n')
+    tool.chmod(0o755)
+    options["signing"] = DarwinSigning("-", tool=str(tool))
+    NativePlanBuilder().build(**options)
+    before = identity(options["output"])
+    receipt = next((options["object_cache"] / "links").glob("link-v1-*.json"))
+    receipt_before = identity(receipt)
+    retained = _DarwinLinkReceipt.retained
+
+    def replace_signer(owner, context):
+        result = retained(owner, context)
+        assert result
+        tool.write_text(tool.read_text().replace("# first", "# other"))
+        return result
+
+    monkeypatch.setattr(_DarwinLinkReceipt, "retained", replace_signer)
+    with pytest.raises(NativePlanError, match="codesign configuration changed"):
+        NativePlanBuilder().build(**options)
+    assert identity(options["output"]) == before
+    assert identity(receipt) == receipt_before

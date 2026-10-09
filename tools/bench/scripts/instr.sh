@@ -1,7 +1,7 @@
 #!/bin/bash
 # Instructions retired and peak footprint of one cold single-process BTRSmith
 # module-unit compile (macOS /usr/bin/time -l), the noise-free comparison
-# CLAUDE.md "Measuring a compile" asks for:
+# docs/design/compile-performance.md "Measuring a compile" asks for:
 #
 #   instr.sh <btrcc> <tag>
 #

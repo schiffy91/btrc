@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../frontend/Timing.btrc;
+import ../frontend/Models.btrc;
 import ../generated/ast/Node.btrc;
 import ../syntax/Identity.btrc;
 import ./Expressions.btrc;
@@ -1459,7 +1460,6 @@ class RealtimeAnalyzer {
 			path = path + " -> " + witness.path.get(index);
 			index = index + 1;
 		}
-		fprintf(stderr, "error: @realtime callable '%s' reaches forbidden %s operation '%s' via %s at %d:%d\n", root.label, witness.category, witness.operation, path, witness.line, witness.col);
-		exit(1);
+		FeDiagnosticSources.fail(f"@realtime callable '{root.label}' reaches forbidden {witness.category} operation '{witness.operation}' via {path}", witness.line, witness.col);
 	}
 }

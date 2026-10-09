@@ -1,0 +1,60 @@
+import Library.Map;
+import Library.Vector;
+
+#include <assert.h>
+#include <stdlib.h>
+
+// C row 9: a record named like a generic parameter, passed tag-spelled to a
+// generic or inferred from one, is one instance with its written spelling:
+// `union V` beside Map<K, V>, `struct P` beside PBox<P>, `struct Q` beside
+// Bin<Q>.
+union V {
+	int i;
+	float f;
+};
+
+struct P {
+	int a;
+	int b;
+};
+
+struct Q {
+	int a;
+	int b;
+};
+
+class Bin<Q> {
+	public struct Q* make() {
+		struct Q* q = (struct Q*)calloc(1, sizeof(struct Q));
+		q->a = 11;
+		return q;
+	}
+}
+
+class PBox<P> {
+	public P value;
+	public PBox(P v) { self.value = v; }
+
+	public P get() { return self.value; }
+}
+
+int main() {
+	Bin<int> bin = new Bin<int>();
+	var made = bin.make();
+	Vector<struct Q*> list = [made];
+	var listed = [made];
+	var tuple = (made, 1);
+	(struct Q*, int) declared = tuple;
+	assert(list.get(0)->a + listed.get(0)->b + declared._1 == 12);
+	free(made);
+
+	struct P record = {3, 4};
+	PBox<struct P*> pointBox = new PBox<struct P*>(&record);
+	Map<string, union V*> table = {};
+	union V value;
+	value.i = 5;
+	table.put("x", &value);
+	assert(pointBox.get()->a + pointBox.get()->b == 7 && table.get("x")->i == 5);
+	print("PASS: a colliding record tag is one instance in a generic argument");
+	return 0;
+}

@@ -8,6 +8,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -75,6 +76,25 @@ def test_default_pytest_parallelism_is_bounded_and_configurable():
     assert " -n 8" in default
     assert " -n auto" not in default
     assert " -n 2" in constrained
+
+
+def test_python_runtime_executes_native_callbacks() -> None:
+    # Run out of process so a libffi trampoline abort is a test failure,
+    # rather than a crash of the entire pytest worker.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import ctypes; "
+            "callback = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int)(lambda n: n + 1); "
+            "assert callback(41) == 42",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=TOOL_TIMEOUT,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_dev_shell_does_not_inject_fortify_into_strict_o0_tests() -> None:

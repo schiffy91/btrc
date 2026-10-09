@@ -2,7 +2,7 @@
 
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-08**. Read [AGENTS.md](AGENTS.md) first for architecture and
+Updated **2026-10-09**. Read [AGENTS.md](AGENTS.md) first for architecture and
 development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -16,7 +16,7 @@ batch evidence. The frozen [reference](docs/design/plan-reference.md) and every
 `ref:N` line citation remain unchanged. This document has no effort or calendar
 estimates: order follows demonstrated dependencies and payoff.
 
-## Goals versus status (2026-10-08)
+## Goals versus status (2026-10-09)
 
 The owner's goals are a fast compiler across real build workloads and a usable
 standard library with native GUI on macOS, Linux, Windows, iOS/iPadOS and
@@ -29,7 +29,8 @@ they do not by themselves demonstrate faster compilation or delivered GUI featur
 **Overall:** the compiler is substantially implemented and has broad correctness
 evidence. Final performance acceptance is open. Desktop GUI shells and selected
 features work, while the complete desktop library and Windows/mobile providers
-remain incomplete. The Windows ARM64 slice is on main; the broader integrated candidate is not yet qualified. There is no
+remain incomplete. The Windows ARM64 slice and consolidated plan are on main `cbd3ddcd`;
+the broader compiler and GUI candidate is not yet qualified. There is no
 defensible overall percentage complete: the remaining items have different scope
 and several acceptance measurements are missing.
 
@@ -127,8 +128,474 @@ ASan/UBSan runs pass without reports. Source/tool closure and independent review
 are clear. Measured peak savings and final combined-tree gates remain pending. Combined
 candidate `92691bee` contains only the token and worker-reply lifetime changes
 plus their claim/report, based on `3974d47b`; the generic experiment is excluded.
-It awaits its own build, correctness and product-workload measurements.
-Deliberately retained compiler graphs remain unchanged.
+It now builds with the same original toolchain and passes 164 focused checks
+with no skips, failures or errors. The two emitted production functions match
+the independently qualified component outputs byte for byte. Its first current
+BTRSmith product measurement passes the original quiet admission and completes
+the discarded baseline warmup, reporting a 3.053 GiB peak. The harness then
+rejects the compiler's actual publication-lock files before candidate or measured
+samples. This is no paired performance result. A reviewed exact empty-lock
+classification correction is ready; the original quiet limits, sample order,
+counters and targets are unchanged. A second attempt stops at the unchanged 180-second quiet deadline, before
+any compiler execution. Background CPU and a transiently active agent transport
+prevent a continuous quiet window; post-run inspection does not establish a
+classifier defect. Both attempts remain retained. Approximately 2 GB of
+completed historical output has now been archived with verified restoration
+inventories, providing space for a later comparison. A separately scoped Linux
+product RSS comparison is prepared on private BTRSmith branch `0b040ca3`, with
+explicit public compiler inputs `3974d47b` and `92691bee`. It preserves the
+original product source, strict compilation recipe and paired sample order.
+Independent review is clear; private run
+[37771609277](https://github.com/schiffy91/btrsmith/actions/runs/37771609277)
+has failed while the original devcontainer recipe committed its realized Nix
+layer: Podman reported `io: read/write on closed pipe`. No compiler comparison
+or sample stage ran. The logs do not establish disk exhaustion or OOM as the
+cause. Final container inventory is empty and source checks pass. Retain this
+infrastructure failure; any unchanged-recipe retry follows the hosted capacity
+limit and the one-retry infrastructure rule. Private product source and generated output remain in private CI.
+Linux RSS cannot substitute for Mac footprint. Evidence remains in
+`compiler-lifetimes-3974/92691bee/`. Deliberately retained compiler graphs remain
+unchanged; the full final matrix is still required.
+
+Two current-product diagnostic hypotheses have now been measured and rejected
+as optimization priorities. The setjmp solve performs 134,606 definition scans
+for 45,877 actual flows; this does not support the proposed sparse worklist.
+Repeated native-header validation/construction is real, but its foreign-group native prefix
+accounts for only 0.346 seconds of the instrumented 83.444-second phase sum.
+Both diagnostic compilers preserve all 423 emitted C/header outputs under the
+explicit path normalization, with independently verified source/tool/process
+closure. These instrumented timings identify work; they are not performance
+acceptance results. The larger lowering buckets require a measured causal
+hypothesis before further compiler changes. A third diagnostic now rejects
+foreign-declaration key preflight as the next high-payoff priority. Across 463
+conserved unit notes, 1,011,434 foreign rejections discard 1,818,645 key-building
+calls, but the complete preflight scan envelope is only 1.528 seconds; actual
+declaration ownership/emission accounts for 11.676 seconds of the enclosing
+13.949-second phase. Key construction is only a subset of that scan envelope.
+All 423 emitted C/header outputs preserve exact normalized parity, source/tools
+are unchanged, and all six build/count groups are closed. Result SHA-256:
+`17c10a6305ec92ab6e5a94ff480b4c157487d9f12e89a7d02d3da5e988d3ff70`
+in `declaration-preflight-attribution-3974-count-1/result.json`. No optimization
+or performance acceptance follows from these instrumented counts. The adjacent-call
+resolution diagnostic also rejects its hypothesis as the next high-payoff
+optimization: across 62,135 pairs, the second-query envelopes total only
+0.410560 seconds (identifier 0.060842; field 0.349718). All 926 group/path notes
+conserve first/second/validation counts, with zero kind/environment mismatches.
+All 423 C/header outputs preserve the recorded normalized parity; independent
+review verifies input/tool/log hashes and closed process groups. The retained
+result is `adjacent-call-target-attribution-3974-count-2/result.json`, SHA-256
+`e774d8e2ee12c168f900e154e4d37fae4f30c49344228467252454e1a02570e1`. This is instrumented,
+nonquiet attribution, not a speedup or product memory acceptance result. The
+first build's diagnostic-only managed-to-raw pointer rejection remains retained;
+the successful correction uses the existing nonretaining AST identity string.
+
+A native stack profile of unchanged compiler `3974d47b` on product `d3fb25f4`
+now completes with 7,091 main-thread samples and all 423 generated C/header files
+preserving normalized parity. Exact process identity, original 240-second compile
+bound, source/tool closure and owned-group cleanup pass. Receipt
+`current-product-stack-3974-attempt-2/result.json` has SHA-256
+`0d763bb83d497004da0ac51cff00da2b3c2d61449fa8ca3bdda2541fc80da806`.
+These are intrusive attribution observations, not speed or memory acceptance.
+The raw profile records macOS 27.0.1 (26A434), alongside the inherited required
+host label macOS 27.0; neither is silently rewritten. The profile identifies duplicated body emission in both compiler implementations:
+module-unit header selection renders the complete draft, then final emission
+renders the same body again. There are 354 draft-emission and 351 other
+module-emission samples among 7,091 main-thread observations. These overlapping
+owner counts are attribution, not a savings estimate. A reviewed design reuses
+an emitter-owned immutable body within one finish operation while preserving
+complete-draft identifier scanning, final IR validation, prologue policy and
+separate debug-line finalization. Paired implementation `72357bac` now provides
+that reuse in the existing four emitter/pipeline owners. Independent source and
+regression-test review is clear; Python lint/format and BTRC format pass.
+The unchanged source/binary first passed all 18 affected checks, with no skips
+or errors and all 17 groups closed (baseline result SHA-256
+`486f06e71d7f3b53144825cc5148e467e6801b4b048262fd9c3662eedff55f78`).
+Two host-environment preflight failures before testing remain retained.
+The first traversal counterfactual unexpectedly passes on the unchanged
+compiler: CatalogMain's plain C include provides no native binding metadata,
+so it never exercises header pruning. Receipt SHA-256 `6143e8f4a8738bb82c6bcd2466793491c2d99226ec6a80e8ee5334fc1b8cc864`
+in `module-emission-once/counterfactual/result.json` is retained as invalid-test
+evidence; no candidate tests or build followed it. Fixture-only repair `8c7a8124`
+now uses the real CoreFoundation native binding through the public compiler API
+at one worker, checks actual retained/pruned headers and source-function visits,
+and strictly compiles/runs the native result. Independent source review is clear;
+production bytes remain identical to `72357bac`. The second attempt compiles
+successfully but fails the fixture's bare-header assertion before checking traversal
+counts: the native reader correctly preserves the resolved absolute header path.
+Receipt `module-emission-once-r2/counterfactual/result.json`, SHA-256
+`e0d26c7fe3a8a0be94ce22d661869d6f043142c9187075eb110e0d305d017e60`,
+retains that fixture failure; no candidate tests/build followed it. Fixture-only
+`660ac18d` now checks the exact resolved native header identity. Independent
+source and recipe reviews are clear; fresh R3 preparation preserves all original
+bounds, source/tool pins and the requirement for an actual repeated-body Counter
+failure on baseline `3974d47b`. R3 now proves that counterfactual: both observed
+source functions have traversal count two. The old control successfully
+transpiles and checks header selection, then fails before its native C/run step.
+Candidate `660ac18d` passes all 18 reference checks, including the six new cases
+and strict native compile/run, with zero failures/errors/skips. The original
+MacOSMain/Nix Clang 21.1.8 `-O2` build succeeds within its unchanged 1800-second
+bound; fresh binary SHA-256 `181e0d52ebe87396427155304f4bdd42b9f685e718aff06bbee352e8943f6625`
+then passes all 18 original paired checks with no skips/errors. Independent
+review confirms exact source/tool/JUnit identities and all 42 owned groups
+closed. Under `module-emission-once-r3/`, receipt SHA-256 values are:
+counterfactual `2327cf60538dd5cf9431fcb251eb5ea650f4bc2adc4803ca1fe5f04442b90dc5`,
+reference `f5bc22e9b3d6b77278274a2d2cb2fa64dd4c8c114f3b1fdb014ea66e4e382ee8`,
+build `edb08b87c2b22a07589ea6afafc4c0fd2367dd6e82e62fd30ffd859a2280cbcc`,
+paired `052063121c3f1553208f9076d0da158399de5301abcf658c982bda2c8efd13d3`.
+Report commit `1dbe4717` records the focused qualification without changing
+production. Current-product parity now passes for all 423 generated C/header
+names and bytes after only the permitted output-directory normalization. The
+original BTRSmith `d3fb25f4` workload and 240-second compile bound are unchanged;
+the compiler exits zero at one worker, lowers 461 units and reuses none.
+Independent review confirms source/tool/output closure and all three groups
+absent/reaped. Receipt `module-emission-once-product-660ac18d-attempt-1/result.json`
+has SHA-256 `7b11d8092a5725bc9e6dd6d6445956728ff1d100b806094cdfd504ddd36e553f`.
+Existing nullable warnings and the historical delayed baseline-output hashing
+limitation remain explicit. Report `7e4c3e30` records this result. The first
+quiet attempt passes the unchanged admission and both warmups compile with
+exit zero, but the comparison rejects their build plans before any measured
+sample. Both plans correctly hash all 422 raw emitted units; 418 hashes differ
+because debug directives embed the distinct output paths. All 423 normalized
+C/header files remain equal. Independent review confirms this comparator defect.
+The repair must authenticate every ordered raw digest before comparing digests
+of the already-normalized content, preserve all other fields/order, and reject
+corrupt hashes, missing/reordered units, source changes and other plan changes.
+Failed receipt `module-emission-once-quiet-660ac18d-attempt-1/manifest.json`,
+SHA-256 `87d5582de694d235b1a76b32e790b6fcd4861d8206a071415d2a28bfe30f7460`,
+retains both discarded warmups and unchanged final inputs; both process groups
+closed. No measured sample or performance saving is claimed. Report `dccaeb78`
+records the failure. Quiet paired instruction/peak-memory measurements remain
+pending; the snapshot's extra tuple/vector copy may offset the removed work.
+Comparator R2 is now independently reviewed: runner `53840249`, pins `73e80f71`,
+control proof `8667a5a5`. The original comparator rejects the actual warmups;
+the corrected comparator accepts them only after authenticating ordered raw
+hashes. Five controls reject corrupt hashes, missing/reordered units, semantic C
+changes and other plan changes. An initial control-copy newline error is retained.
+Quiet limits, sample order, deadlines and cleanup remain unchanged. This is a
+comparator proof, not a new compiler or performance run.
+The fresh R2 campaign subsequently stops at the unchanged 180-second quiet
+admission before the candidate warmup. The baseline warmup succeeds and is
+discarded; the candidate never launches and there are zero measured samples.
+The retained admission observations show background mdworker CPU activity and
+an active exec-server process; a later individually clear probe does not satisfy
+the required uninterrupted quiet window. No threshold or deadline was changed.
+Receipt `module-emission-once-quiet-660ac18d-attempt-2/manifest.json`, SHA-256
+`f41d318c3586a53ca543dd4a3ff98114372ddfbcbddb80289e7b768e29a2a5b7`,
+records unchanged final inputs and the sole owned compiler group absent and
+reaped with exit zero. Independent review confirms refusal evidence only. The
+local lane is released with 81.962 GB free; there is no automatic retry or new
+performance claim. The reviewed ApplicationHost repair is next in the local
+qualification lane. Hosted macOS unit and explicit GUI retries were live on
+`00e45379` at the 18:00 UTC check. The GUI retry later completes with a setup
+failure at 18:20 UTC: exactly 522 identities match between JUnit and skip report,
+with 352 passed, 169 expected platform skips and one GPU case that never reaches
+native entry because GUI-lease admission expires at 1,800 seconds. The recorded
+last holder itself passes; polling contention supports a starvation diagnosis,
+not a claim that one native child hung for 30 minutes. Independent review
+reconciles all skips; the Make skip-gate command did not run after pytest failed.
+The original 90-minute job limit was not reached. Log SHA-256
+`bd17ddbfd2f99a969e3769e6e81227c7279a24d30857d7402a8fa9d08ae4265c`,
+JUnit artifact `11569359756` (archive `648d1c6c`) and skip artifact `11570077383`
+(archive `9d940f14`) are retained under
+`/private/tmp/btrc-audit-repair/pr68-00e45379-macos-gui-attempt-2`.
+Scheduling repair `37f0a63c` now passes all 84 focused coordination/reporting
+checks (23 coordination and 61 existing skip-ledger cases), with no errors or
+skips. The actual original-source counterfactual fails the intended competing-
+worker assertion after all eight inner cases pass: GUI cases occupy three
+workers instead of one. The repair groups marked macOS GUI cases on one of the
+existing three workers in the explicit native-GUI workflow; the kernel lease,
+original cases, skip rules and deadlines remain unchanged. Exact canonical
+report identities survive xdist grouping without modifying live worker reports
+or stripping literal parameter suffixes. Controller-synthesized crash reports
+remain fail-closed. Receipt `macos-gui-scheduling-37f0-attempt-1/result.json`,
+SHA-256 `e1b95fcb0c1e08df6fc8d9b45a8478bb6dc3013749f40f6403a4d1117b7a7db9`,
+records all eight owned process groups closed and source/tool/archive closure.
+The report/claim is committed at `40bbafd3`; independent retained-result review
+is clear. The full hosted native-GUI rerun remains required. This is process/reporting
+evidence, not new AppKit execution or final combined-tree qualification.
+
+The unchanged macOS unit retry finishes at 19:06 UTC with 10,127 passes, 227
+expected skips and six failures, with zero setup errors. All 920 failures/errors
+from attempt one now pass. Each new failure is ENOENT launching the same selected
+absolute Nix GCC wrapper; no GCC or generated-C diagnostic is reached. The six
+Clang counterparts and 210 other GCC-parameter cases pass. Failure alone cannot
+distinguish a missing wrapper from a missing script interpreter/loader, and
+there is no evidence yet establishing garbage collection as the cause. The
+10,360 case identities match attempt one. Log SHA-256 `d64591d3` and artifact
+`11573200267` (archive `cf8da9ee`) are retained in
+`/private/tmp/btrc-audit-repair/pr68-00e45379-macos-unit-attempt-2`;
+`audit.json` records the source/chronology review. No JUnit artifact was uploaded;
+the retained unit skip ledger and job log supply these counts. Diagnostic
+source `66047414` now captures bounded metadata at initial compiler selection
+and at an actual selected-executable FileNotFoundError: wrapper/symlink/store
+ancestor and readable shebang interpreter identity. It does not re-resolve,
+replace, skip or retry the selected compiler, and preserves the original test
+exception/outcome. The existing selection baseline has 15 passes; the candidate
+has 109 passes (25 selection/diagnostic, 23 coordination and 61 skip-ledger),
+with no errors/skips and exact collection/JUnit correspondence. Real controlled
+wrapper/interpreter/parent removal and nested pytest failure reporting are
+covered. Receipt `host-compiler-launch-66047414-attempt-1/result.json`, SHA-256
+`74dfdf9306a63b439d99d0d49749754fba8aa80b9eb56427cfb7d41ae8fa0372`,
+records unchanged source/tools and all eight owned groups closed; independent
+review is clear. Report commit `decb5fd4` retains the unresolved hosted cause.
+The diagnostic and scheduling changes are published in PR68 head `6f1b81d9`;
+hosted merge `e10d8bab` has the same tree `5505ab70`. New Linux `37833377148`,
+macOS `37833377244`, Windows `37833377072`, ARM64 `37833377199` and Android
+`37833377200` workflows started at 19:37 UTC. Windows tests and Android tooling
+pass. Windows bootstrap and both Android API 29/API 36 emulator lanes have since
+passed, as have Linux X11/Wayland GUI, both compiler corpora, bootstrap and the
+unchanged benchmark regression gate. Remaining Linux checks and Windows ARM64
+native execution are running. Linux release and five C11 configurations now
+pass, but its unit job `113504242493` fails at 20:34 UTC with 7,245 passed,
+3,128 skipped and two failures. One workflow assertion still expects the old
+command without loadgroup; the nested-report observer identifies the controller
+as a worker using an inherited environment variable. Test-only repair `69e0b5d8` now reproduces both original failures and passes
+all 110 focused candidate checks, with zero skips/errors. It identifies the
+nested controller by actual pytest runtime role while preserving worker IDs,
+canonical report identities and phase correspondence. Independent audit
+`7eece4a55decb8cc3940e38f89f04196a6305faefa5300dbfa6aed5a0a611f4e`
+closes all eight groups and exact source/tool/archive/log/JUnit inputs in
+`linux-unit-gui-regressions-69e0-attempt-1`. This repair is locally integrated;
+published PR68 remains at 6f during its active qualifications. The original outer
+ledger's 10,375 identities reconcile exactly; its 3,128 skips are expected. The
+standalone skip gate did not run after pytest failed. macOS reference corpus passes; remaining
+checks run or queue. Its x64 bundle job `113504238329` hits the 45-minute limit
+while building Nix dependencies, before compiler-bundle output. Retained log
+SHA-256 is `a0864785d72863263063e9d790d9a9b639f77765605e46ae23aa2b187886711a`.
+These are current-candidate component results, not full final qualification or
+product performance/mobile-GUI acceptance.
+The required separate native-GUI dispatch `37835919865` started at 19:58 UTC
+on this exact head, with the reviewed worker grouping and original bounds.
+At 20:34 UTC it reaches the actual native-GUI test command after SDK-reader
+preparation; it is running, not merely queued.
+At 21:12 UTC, Windows, Windows ARM64 and Android workflows are complete and
+successful. Linux is terminal with every selected job except unit passing,
+including all eight C11 configurations, both corpora, bootstrap, release/ARM64
+bundles, X11, Wayland and benchmark regression. The unit failure and locally
+qualified test-only repair remain recorded above. Mac both corpora and Clang
+O0/O2 pass. At 21:28 UTC its bootstrap and ARM64 bundle also complete
+successfully; unit, self-host tests and the separate native GUI test job remain
+live. Its x64 job exhausted the unchanged 45-minute bound
+realizing the full development shell before compiler-bundle output. A source-only
+release-shell repair `3b64240e` preserves the original Python/compiler/SDK tools,
+checks and deadline while omitting test/LSP dependencies. The subsequent October 9
+evaluation below passes; actual release-bundle qualification remains open.
+No unchanged third retry or combined hosted pass is claimed. Do not change the
+published head during qualification. PR68 remains unqualified until the combined
+final gates pass.
+
+October 9 final audit of that exact head: the explicit Mac native-GUI run
+`37835919865` succeeds with 353 passes and 169 expected platform skips. Its
+JUnit and skip ledger have exactly the same 522 canonical identities. The full
+Mac matrix also passes self-host tests, bootstrap and the ARM64 release bundle.
+Unit finishes with 10,147 passes, 227 expected skips, the two known test-contract
+failures repaired by `69e0b5d8`, and one additional setup error: tray lifecycle
+reference/plain exhausts the unchanged 1800-second GUI lease wait. The recorded
+sanitized self-hosted shell holder ultimately passes; the same tray row passes
+in the dedicated grouped GUI run. No missing GCC-executable failure recurs, but
+its earlier cause remains unproven. The unit workflow lacked the scheduler
+opt-in used by the dedicated GUI job. Source `dbdc50d2` now applies the existing
+loadgroup scheduler only to unit, retaining every row's selection flags and
+three workers. Focused qualification now passes the original two baseline
+contracts and all 102 candidate cases (79 workflow plus 23 coordination), with
+zero failures, errors or skips. All eight owned process groups close and source,
+archive and tool inputs remain unchanged. Independent audit SHA-256 is
+`7f81ea57547b81f89eef765d5d4556217956863d6a596c2063346db8a1e31934`.
+The change is integrated locally at `c782ace8`; actual full hosted unit replay
+remains required before main integration.
+Independent final Mac audit SHA-256 is
+`69334cb33bf0a027c9d02281083fbffff67497c68be928263bc041718244ade2`
+in `/private/tmp/btrc-audit-repair/pr68-6f-final-mac-oct9`.
+
+The first local release-shell evaluation fails in its diagnostic expression:
+a global ROOT substitution corrupted the BTRC_NATIVE_SYSROOT attribute into a
+path. Both existing default/platform derivations otherwise match exactly, but
+that attempt did not compare actual SDK values. Reviewed correction uses one
+unique complete flake-URI placeholder and retains strict equality. The second
+attempt is refused before any Nix command because actual free space falls below
+80 GB; that attempt executes no commands. After verified recoverable archival,
+the third evaluation passes for both Darwin architectures: existing default and
+platform shell derivations and all metadata match exactly; the release shell
+retains the original Python interpreter, five tool outputs, native SDK, reader,
+target, provider compilers and hardening. The ARM64 derivation graph falls from
+1,977 to 1,097 derivations. This is dependency-graph evidence, not realized disk,
+build-time or release-bundle acceptance. Result SHA-256 is
+`e94b5034776610c082e3c68454fadefd35a98936617977ba6fa99b5a19abdd0a`;
+independent review is clear. Original bundle builds and relocated strict-C11
+smokes remain pending. No gate threshold is reduced. The first combined workflow check
+finds a new assertion comparing YAML text "45" with integer 45. Source `e893e174`
+corrects only that assertion, preserving the 45-minute workflow limit. Combined
+source `3a3304dd` passes all 102 workflow/coordination checks and the release source
+passes its affected contract: 103 total, zero failures/errors/skips, independent
+source/tool/process audit clear. Actual ARM64/x64 bundles and full hosted unit
+qualification remain pending. Read-only Nix admission advertises only the shell
+derivation to build; all selected release tools already exist.
+The reviewed current-compiler IR allocation census
+uses exact 6f compiler and dbe8 product sources. It now passes both actual
+cold, single-worker product compiles and equality of all 423 emitted C/header
+files; all 461 source groups are lowered with zero reuse. Three conserved
+snapshots show 3,219,828 unique live IR nodes occupying 1,236,413,952 allocator
+bytes after lowering and final demand. The separate 64 MiB observer is excluded.
+Independent audit is clear, with all ten process groups reaped and absent and
+source/tool inputs unchanged. This is allocation attribution, not quiet timing
+or final memory acceptance. The [current IR census](docs/workstreams/current-ir-node-census.md)
+records exact evidence and the next implementation: a compact fat-tagged core
+with optional typed payloads, modeled at roughly 510 MiB reduction including new
+allocation/edge costs. The compact representation and every production consumer are now drafted;
+parser/receiver audits find no old field accesses, but semantic/native tests
+and the estimated memory saving remain unqualified. Independent retention
+candidate `266cadd7` keeps per-node setjmp facts only for fixed safety roots while
+solving and exporting every function summary. The original `6f1b81d9` baseline edit passes;
+the candidate passes the same production incremental edit and six added cases,
+without skips/errors. Weak references prove non-root flow objects are collected,
+and the ordinary Lib unit still exports changed effects. Independent audit is
+clear. The fresh MacOSMain compiler now builds with strict Clang 21 at O2 and
+passes all five focused self-host checks with zero skips/errors, including the
+production incremental edit. The new driver also projects through that fresh
+self-hosted compiler and compiles/runs as strict C11 O2 with the expected output.
+Independent audit verifies exact inputs and all nine closed process groups.
+Current-product output parity, remaining worker coverage, generated ownership
+inspection and original performance gates remain. See
+[flow retention](docs/workstreams/setjmp-flow-roots.md).
+Product speed and memory targets stay open.
+
+Both October 9 diagnostic runs are now terminal failures, with narrower
+progress retained. BTRSmith `37864640752`, exact dbe8/f75, passes all four
+channel and all four standalone CLI/MCP cells, plus both reference live-app
+journeys. The first self-host/Clang live-app run fails when navigation.show-settings
+returns code 1 for revision 5. Captured stdout is absent from the fixture's
+failure message, so the actual protocol error is not established. Diagnostic-only
+source `8e58bd76` now retains a bounded response in that same failure path;
+reviewed replay `cd705952` starts automatic run `37869903754` with original full
+stage bodies and bounds. That replay is now terminal failure. The retained
+response explicitly reports a stale application semantic-state revision for the
+revision-5 navigation request. Why the expected revision moved is still under
+investigation; no retry or relaxed revision check is accepted as a repair.
+Self-host/GCC live, audio and installed-product acceptance remain open. Artifact SHA-256 is
+`738a0ab195497ba76f4c69bc7309735818b16bb6415960136c5777bebb52e862`.
+
+Linux Window `37865587336` builds its image/compiler but refuses its semantic
+baseline: two missing SDK bindings cause five unrelated SDL diagnostics alongside
+expected missing-owner errors. No candidate native case runs. R2 adds only
+SDL_WINDOW_MINIMIZED and SDL_EVENT_WINDOW_RESTORED identically to both role
+manifests and recognizes only source-location-bound missing-owner cascades;
+18 classifier controls reject unrelated errors. Exact source fe9e0c00 and
+diagnostic f1428db0 start automatic run `37869472960`. R2 accepts all four exact
+semantic baseline failures, then all four candidate C compilations reject an
+undeclared fixture helper. No native case runs. The manifest lacks
+`manifest-version = 1`, selecting legacy dependency-only metadata and excluding
+the helper's native header/source. R3 adds that one line identically to baseline
+`b9055d37` and candidate `bd2235f2`; actual f75 package resolution proves both
+native entries are selected while an unimported helper stays excluded.
+Diagnostic `e2b3619f` starts automatic run `37871496188`. R3 is now terminal:
+all four exact baseline failures are accepted, and all four candidate projections,
+strict C builds and links pass. Real native execution then reaches the same
+queue-pressure assertion in both frontends, plain and sanitized, after the
+earlier close/save/cancel checks pass. The failed predicate requires one state
+callback and no close request after one semantic dispatch; the actual counters
+are not captured, so a resize-settlement explanation is still a hypothesis.
+Source/tool/binary closure passes. All three artifacts remain retained; provider,
+assertions, four native cells, classifier and deadlines are unchanged.
+
+
+A fresh compiler measurement preparation preserves the byte-identical reviewed
+R2 runner, source/tool inputs, eight-run order, 60-second quiet windows and
+180/240-second admission/compile bounds. The current preliminary observation
+passes all six checks, but attempt three subsequently refuses first admission
+at its unchanged 180-second deadline: mdworker reaches 29.6% and 8.9% against
+the 5% limit. Other probes remain clear. No compiler is spawned, no warmup
+completes and there are zero measured samples. Receipt
+`module-emission-once-quiet-660ac18d-attempt-3/manifest.json`, SHA-256
+`c3ef033096538787d03a3df3e8e534ce8b604092aa4af0c3ea00781137a73249`,
+retains all 13 observations and unchanged final inputs. Independent review is
+clear. The lane is released; there is no automatic retry or performance claim.
+Completed
+historical product outputs and the discarded R2 warmup outputs have been
+archived with exact bytes/modes/symlinks verified before removal. Receipt
+`completed-product-and-warmup-archive-2026-10-08/result.json` has SHA-256
+`887e4ba1858fee74967bb136272da16d400387096e553221a6cffdf518fa6c48`;
+archive SHA-256 `e2077414e4a3253281aef5240386dfdeaf88d379c9283a5f941b5960ca8698ce`.
+All 11,182 protected entries remain unchanged and free space rises to 82.353 GB.
+Restore the selected outputs before re-auditing historical raw outputs; current
+compiler binaries, prepared inputs, source, logs and receipts remain in place.
+
+The prepared private BTRSmith Linux replay is now terminal failure:
+push-triggered run `37824120618`, job `113472397499`, diagnostic head
+`b056e678107f3fbe596e46b0639865ac30baebc7`,
+exact product `8f73b7d5` and compiler `f75c737b`. Reviewed workflow SHA-256
+`52f18b20de7b1f393d3fe0bf626e3fb7e4d9c0297077d54b24a1ba7ddb03302a`
+is unchanged: original live-agent, audio and package/install targets, process
+ownership and bounds. Only its workflow file changed; product compiler pins
+remain unchanged. The reference Clang AgentOperationChannel executable aborts
+at 19:12:02 UTC, after about 9.1 seconds of native execution, at the original
+`iterations < 1000000` guard in `agentChannelServeChild`. Make exits 134 then 2.
+The wrapper subsequently remains alive until its unchanged 5,340-second bound
+returns 124 at 19:56:10. These are distinct product and cleanup failures;
+a timeout is not 89 minutes of test progress. Self-host, audio and installation
+acceptance do not run. Exact remaining descendant identity is not recorded.
+Terminal log SHA-256 is
+`b74705a7402f35ca7d29b4bf498d10324e1a3e01cf16e3fd17eb5c6eaf1cf663`;
+artifact `11575806419` is authenticated as
+`2e51c0ce4d98b020152ed51733a6393e19b9eb0be1252ba6c429ad77d16ce904`.
+Source/tool/final-tree hashes close. Diagnose both failures before another replay;
+do not increase an iteration allowance or timeout to make this result green.
+The freed hosted slot is allocated to PR68's source-changed explicit macOS
+native-GUI gate. A redundant
+manual dispatch `37824120641` was pending with no jobs, verified to have identical
+inputs, and canceled at 18:39 UTC; the original push run is retained. Workflow
+publication itself triggers this replay, so future publication must inspect that
+run before considering any manual dispatch. This failed replay does not supply
+Linux qualification or full-MVP acceptance.
+
+BTRSmith test-source repair `dbe8df0e` preserves the original client assertions
+and iteration guard while moving the forked child immediately through raw
+async-safe operations into exec of the same binary's client mode. Arguments,
+environment and descriptor bounds are prepared before fork. The child stays in
+the outer stage process group; exact child-PID ownership, ECHILD handling and
+bounded termination/reaping precede parent assertions. Independent source review
+is clear. This addresses unsafe managed work after fork and missing child cleanup;
+it does not establish which descendant held the failed wrapper alive. Original
+compiler pins and workflows remain unchanged. Both original Clang Make targets
+now compile/link with compiler `f75c737b`; independent review of the actual
+26 emitted C units confirms both child-zero branches perform only descriptor
+closure, execve and _exit before any managed cleanup. The unchanged full
+three-client fixture passes through both frontends on macOS, with zero exit,
+one original PASS marker per frontend and empty stderr. The explicit native
+owner uses a 60-second outer bound per fixture; this is not an invented original
+Make timeout. All five native and six build process groups are reaped and absent;
+846 product files, 4,499 compiler files, tools, archives, recipes, plans and
+binaries retain their exact identities. Native result SHA-256 is
+`6870be3b7d790d9e211de49801476008ca5346f4564da01bda99623824301023`;
+independent audit is
+`b3ae7519c443937429b1e9e9d65f44a16b81e350ac498e39f6c37e49d05f9b8b`
+in `btrsmith-agent-channel-dbe8-f75-native-attempt-1`. This is the original
+product shell/SDK14.4 source-override Mac component proof. Linux replay, audio,
+installed-product, dependency-pin and full MVP acceptance remain open; no
+Linux rerun is dispatched yet.
+
+Before that attempt, a verified payload-only archive preserved 924 completed
+pre-October-8 emitted-C cache parts from 306 default-cache entries. It retained
+all manifests, coordination locks, current entries and proof inputs, and recovered
+1,988,952,064 allocated bytes. Archive `payloads.tar.gz` has SHA-256
+`703df2aca2a3945a5c9c82f90367a8da226abb40455ba4b73a84ddc2f1ddc5d7`;
+receipt `completed-pre-oct8-emission-cache-archive/result.json` has SHA-256
+`2d56b229908600eebabae37750b57651c9cfd8a24ab787772b52abb745c90297`.
+Its inventory and RESTORE.txt preserve bytes, modes and nanosecond mtimes.
+The benchmark uses fresh private caches; absent old payloads are normal cache
+misses through the existing driver. Free space after the failed comparison is
+about 81.843 GB, so another full eight-run campaign needs additional safe headroom. A second
+verified archive now preserves six completed product-parity/failed-warmup output
+and cache trees, recovering 532,267,008 bytes and leaving about 82.344 GB free.
+All 24,755 protected objects remain unchanged. Receipt
+`completed-emission-quiet-warmups-archive-2026-10-08/manifest.json` has SHA-256
+`fec9b58fe8ed62a2bec87ff8f453c1e7d9433749c152dc4feebd01975c1770c4`.
+Restore these archived outputs before historical parity/comparator re-audits;
+the next runner uses their authenticated compact receipts. The branch is unpublished; it does not alter PR68's current
+qualification head. The first attempt's recording-only circular-reference failure is
+retained separately with zero completed samples and explicit unknown sampler
+numeric PID; fresh external checks found no surviving owned process. A direct
+identity-serialization regression reproduces that bug and verifies the corrected
+copied ancestry rows before the successful run.
 
 The independent generic-plan allocation candidate `4d930d95` also builds through
 the original Linux Make recipe. Its first comparison stopped before correctness
@@ -146,6 +613,18 @@ process and artifact review is clear. This is proven allocation removal without
 a demonstrated peak-memory improvement; it is withheld from the integration
 candidate. Evidence: `generic-linux-peak-3974-hosted-r3/INDEPENDENT-REVIEW.md`.
 
+
+A further read-only memory audit identifies detailed setjmp flow graphs retained
+for non-setjmp functions as a falsifiable lifetime hypothesis. The current solver
+still analyzes every function; only the safety owner requires detailed root
+flows. Any change must preserve all summaries/dependencies and the general
+all-function API. Python module-unit callers currently obtain summaries through
+returned contexts, so filtering contexts alone would lose zero-root-unit exports.
+A fixed root selection and solver-owned summary accessor need paired review and
+actual retained-byte/destruction evidence before an optimization claim. Historical
+380.3 MiB attributed to the entire flow/effect category is not current savings;
+the original product workload and parity/measurement gates remain required.
+
 ### Goal 2: usable standard library and native GUI on five platforms
 
 These rows distinguish a compiler or fixture host from an application-facing
@@ -154,8 +633,8 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 
 | Platform | Demonstrated capability | Missing product capability / next demonstrable result |
 |---|---|---|
-| macOS | AppKit shell and selected controls; all four current shell variants complete 100-cycle/100-frame journeys with zero owned survivors | Finish uninstrumented lifecycle qualification: the independent AppKit control cannot obtain focus while loginwindow is foreground. The main-based coordination repair passes the affected native gate (327 pass, 67 expected skips); final combined-tree qualification, the separate activation failure, UI2 and remaining controls/services/accessibility stay open. |
-| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | Current assembled X11 CI exposes three scrollbar input failures. A controlled real focus-loss trace reproduces drag cancellation, and all eight isolated variants pass; a reviewed shared-display lease is in hosted qualification. Qualify the assembled tree, then land UI2 and remaining features/accessibility. Wayland remains report-only until its required main acceptance. |
+| macOS | AppKit shell and selected controls; shell endurance journeys pass. Native quit and affected application lifecycle now pass all 88 executions through both compilers, plain and sanitized, after three production repairs | The recorded provider composition is independently qualified against f75c737b but not merged. Complete narrow provider/control integration, remaining activation, services, accessibility and final combined-tree qualification. Earlier shell and real text-editing evidence remains separately scoped. |
+| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | The assembled PR68 tree passes X11 (324 passes, 199 expected skips) and Wayland (322 passes, 199 expected skips). Physical desktop coverage, UI2 and remaining features/accessibility stay open. Wayland remains configured report-only until its required main acceptance. |
 | Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows pass and PR53 landed on main `49f136ec` | Qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
 | iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
@@ -174,8 +653,10 @@ Independent review verifies all 4,374 source files against Git, exact diagnostic
 pins and unchanged tools/inputs. The full artifact is retained with SHA-256
 `07e0cabe6f83b4b854b1391dd578b26b4a1b1493a87858b097a97a9d55e365f9`.
 This qualifies the affected native gate; it does not establish the historical
-GPU failure's cause or the full final-tree matrix. The repair is being assembled
-with this consolidated plan for normal final PR qualification.
+GPU failure's cause or the full final-tree matrix. The repair and consolidated plan landed through
+[PR69](https://github.com/schiffy91/btrc/pull/69) at `cbd3ddcd` after all 36
+selected checks passed on head `01621436`. Three scope-skipped jobs are not
+counted as evidence. The post-merge Linux, macOS, Windows and Windows ARM64 workflows all pass at exact main `cbd3ddcd`. This closes that integration matrix; later compiler, UI2 and product changes require their own qualification.
 
 The first Linux shared-display lease qualification, run `37743819333`, stops
 before tests on both X11 and Wayland: its diagnostic launcher bypasses Bash and
@@ -199,9 +680,31 @@ candidate ancestor configuration and imports its lease owner even while the
 outer test belongs to the baseline. Explicit child configuration and cache
 ownership plus imported-owner path/hash checks restore both required baseline
 failures and all 16 candidate passes in the same nested directory layout.
-The new hosted X11 continuation is still pending; neither its native gate nor
-the full Linux matrix is claimed green. The original
-full Wayland gate at `14f9e193` passes all 322 executed cases, with 199 expected
+Hosted continuation `37758465696` now proves both required baseline failures
+and all 16 candidate coordination passes. The controlled focus-loss case, eight
+isolated native cases and all 12 concurrent native cases also pass. The qualifier
+then rejects the parallel runner's `@scroll-diagnostic` name suffix before the
+full original GUI shard. This is an inventory-adapter failure after native
+success, not a new native assertion failure. Diagnostic `7661fa34` records exact
+collected grouping markers when the stage uses loadgroup; a real four-case
+parallel-runner proof verifies positional, keyword, default and combined markers,
+and still rejects missing, duplicate and wrong identities. Its hosted run
+[37763215278](https://github.com/schiffy91/btrc/actions/runs/37763215278)
+has completed successfully. Its complete 129,604,291-byte artifact has passed
+ZIP integrity and SHA-256 verification
+(`2366679d471dadce9905e3eb0f304f23f484dbac79f01727d96e8f9e80583d19`).
+Independent review is complete: the original full X11 Make shard contains
+523 cases, with 324 passes, 199 expected platform skips and zero failures/errors.
+Both required lease baseline failures, all 16 repaired coordination checks,
+one controlled real focus-loss case, eight isolated native rows and 12
+lease-scheduled native rows pass their respective oracles. All 4,503 publication
+files independently match Git blobs and modes; source/index before and after
+and recorded tool identities are unchanged. The 199 skips remain uncovered by
+this host, and Fontconfig diagnostics remain retained. Command leaders were
+waited/reaped; the artifact does not prove global final descendant absence.
+Evidence: `linux-gui-lease-3974-hosted-r5/INDEPENDENT-REVIEW.md`.
+Combined-tree Linux qualification now passes at PR68 `00e45379`, with the
+independent report and coverage limits below. The original full Wayland gate at `14f9e193` passes all 322 executed cases, with 199 expected
 skips classified and covered on other hosts. Independent review verifies all
 521 collected/JUnit identities, 4,503 publication file hashes and modes,
 unchanged source/tools/index and the original enforced skip gate. Artifact
@@ -258,6 +761,301 @@ or line-versus-pixel units still produces no movement. A lost provider callback
 has not been established; event dispatch/context remains under investigation.
 Sanitized/self-hosted native stages have not run. The retained failures are not
 counted as complete ScrollView qualification.
+
+The next Window snapshot `12afdfff` implements state snapshots, state-change
+callbacks, close requests and cancellable close decisions through the existing
+window/context owners. Both reference and self-hosted projections of the two
+fixtures pass without diagnostics, and all 24 strict C/Objective-C units pass.
+The first native link is refused because fixture composition repeats the AppKit
+framework row; no native execution is claimed. The reviewed fixture-only
+correction keeps the inherited AppKit row once and preserves all production
+source, native predicates and plan validation. The corrected composition passes fresh paired projections and strict units,
+then its first native execution exposes a real lifecycle defect: detach failure
+leaves the root-mutation guard active and a later close is rejected. Reviewed
+repair `b6a4fe3e` retains an explicit failure flag and error, completes owned
+cleanup, then rethrows according to the language's existing catch/finally
+contract. All original fault/retry assertions remain. Fresh qualification passes
+all eight native rows (both fixtures through both frontends, plain and
+ASan/UBSan), four zero-diagnostic projections and all 24 strict C/Objective-C
+units. Report `e05e684b` records unchanged inputs, tool identities and closed
+process groups; aggregate SHA-256 is
+`6f5cd2f3058acca9fec82bf4b90d6677bc821b93d7ab18189d2e60821be9eccc`.
+That run uses compiler `56d548c4`. A fresh replay against repaired current
+compiler `f75c737b` now also passes all eight native rows, four zero-diagnostic
+projections, 24 strict C/Objective-C checks and eight links, with all input/tool
+checks unchanged and process groups closed. Report `904d2716` retains aggregate
+SHA-256 `1a395e4373e79835652e1d16920389750ebc4a0a14c91d50376b61f9f807a637`.
+The same provider/current-compiler pair now also passes all eight native
+capture-failure and run-loop-attachment rows (two fixtures, both frontends,
+plain and ASan/UBSan), four diagnostic-free projections, 16 strict units and
+eight links. All source/tool checks and process cleanup pass; aggregate
+`74f102369d7a003a4d50371d19f677818b4769eccb8d592d7f0454aa04346043`
+is retained in `ui2-macos-foundations-b6a4fe3e-compiler-f75c737b`.
+The authentic public `NativeApplicationHost` baseline then fails on 19 missing
+methods: TextField 3, Slider 6, Select 7 and Application 3. A separate nullable
+fixture capture warning is repaired by binding its already-checked publisher;
+none of the original assertions changed. Independent application, text-field
+and range/selection implementation claims now target those concrete gaps.
+This is the first public application baseline, not a complete application pass.
+The next public-host composition is now concrete and independently reviewed:
+Application base `b97732ba`, Text donor `88db78e5` and Range/Select donor
+`209fe7f7` supply all 19 methods, with the shared interfaces unchanged. The
+frozen bundle `ui2-macos-public-application-b97732ba-compiler-f75c737b` retains
+343 provider and 131 compiler inputs, qualified compiler `f75c737b`, and the
+original richer fixture SHA-256 `3c9554ce8a82fe2eea27b3e2450f81bf3cf54ef550069c0529aeb00a8dc3943b`.
+Its only metadata composition is the existing three provider binding fragments
+and removal of the duplicate fixture AppKit row. Prepared `b84fea33` and
+qualifier `17f46bfe` preserve the original paired projections, strict checks,
+plain/sanitized execution, assertions and deadlines. Its first reference
+projection now stops on one actual diagnostic: `NSApplication.delegate` is not
+an exposed method. The earlier 19 missing-method errors do not recur. Result
+`results/application1/application/reference/project-plain.json` has SHA-256
+`4f805ef0f439d6e3fec830a460c2ae88ba7f4e6ebd6eac73eaffa0955abe066e`;
+all four groups close and inputs remain unchanged. No self-host, C/link or native
+stage executes. Slot getters are intentionally private to the callback owner.
+Both compiler implementations already make the scoped setter reject an occupied
+slot before publication and abort the attempted activation. A reviewed one-file
+Application repair uses that setter before the broad run/teardown transaction,
+removing the invalid getter call and leaving the application open on rejected
+admission. Patch SHA-256 `305b5caa9bc43fa8712029911f15bc812ff805cc43ecf9024c4aedc6919edc18`
+is committed as Application-only `9ff2b912`; the active parser checkout and
+ordinary index are unchanged. Fresh original qualification now passes both
+compiler projections with zero diagnostics, all 22 strict syntax units and the
+reference/plain native link. The first native child aborts on the unchanged
+`application.pollClose() == COMPLETE` assertion after a real callback requests
+closure and unwinds. The preceding native-dispatch, one-call and no-nested-work
+assertions pass. This is distinct from the earlier deliberately failing host
+case, whose deadline exception is expected. Aggregate
+`ui2-macos-public-application-9ff2b912-compiler-f75c737b/application-result.json`,
+SHA-256 `9f0fbaab192ca0b0222b07a7e74a7d793d42b14fb6eb30b162521987eab3239f`,
+retains the failure, unchanged final sources/tools and all 59 groups reaped and
+absent; the remaining three native cells do not execute. Independent review
+confirms the assertion and evidence. Source review traces a deferred pointer
+cancellation record retained by a closing view while application shutdown no
+longer dispatches that queue. Fixture-only `21ee445b` reproduces this exact
+native cancellation failure after both real PRESS callbacks, two reserved
+credits and two queued records; receipt `4cc3fab55004a1db56602c1b370363b5e4845533864946bb310534ddacf79ce1`
+retains the original failure and all 30 groups closed. Repair `676d5043` removes
+only the canceled registration's queued record using the existing Context and
+ViewInput owners, preserving native/in-flight drain and terminal-credit ownership.
+Independent review confirms the approved contract already suppresses queued
+delivery after registration cancellation. All four repaired Barrier cases now
+pass through both frontends, plain and ASan/UBSan, including unrelated queue
+survival, entered cancellation, idempotence and balanced credits. The unchanged
+ApplicationHost fixture passes both projections/strict checks and reference/plain
+link, then fails `ui2DispatchHostInput(kind)` before that iteration's receiver
+and close assertions. The selected iteration/window was not logged in that run. A separate
+failure-only diagnostic subsequently proves that kind 1 selects the previous
+invisible, empty same-title window while the current visible window has one
+child. Selection, stimulus and assertions remained unchanged during that
+observation; receipt `c8ce66c031e7f745e1a495959d6ca61c7bffc19733f016d798fb51d43739cfe5`
+retains it and all 40 groups closed. Probe-only `af71b170` now selects exactly
+one visible same-title window and rejects ambiguity, preserving the original
+child count, event and assertions. Diagnostic logging is not retained. Aggregate
+`ui2-macos-deferred-input-676d5043-compiler-f75c737b/cancellation-application-result.json`,
+SHA-256 `e3b6a071f73a495f187efceb8ff8e6f7177ad69d7c84d0dfb11633bf5df46aa0`,
+records unchanged inputs and all 151 groups closed. Independent evidence review
+is clear; the remaining three Application native cells were unrun in that
+failed attempt. The fresh probe-corrected original ApplicationHost qualification
+now passes all four native cells: reference/selfhost, plain and ASan/UBSan. Both
+projections have zero diagnostics, all 22 strict source checks and four native
+links pass. Every native run reaches the original final marker with only the
+exact intentional `Host deadline failure` stderr from the earlier failure case;
+there are no sanitizer diagnostics. Aggregate
+`ui2-macos-public-application-af71b170-compiler-f75c737b/application-result.json`,
+SHA-256 `b9c1d2dc59beae175500f2674cb14937412cdbbbbf4853c25b985042af9c742f`,
+records the original rich fixture `3c9554ce`, unchanged production `676d5043`,
+compiler `f75c737b`/binary `60639d60`, all 122 groups reaped/absent and closed
+source/tool/output hashes. Independent review confirms this exact composed
+App/Text/Range/Select attached-host capability on SDK 27, arm64 target 14. The
+callback-close-after-unwind, queue/work, scope and foreign-host preservation
+oracles pass. The prior four Barrier native passes remain valid because neither
+production nor that fixture changed. Standalone run/delegate rejection, full
+UI2, other platforms and the full BTRSmith MVP remain separate open outcomes.
+
+The next native capability is coordinated application quit. Documentation
+checkpoint `e91a7412` records the D29 integrator clarification in the approved
+UI2 contract and IWindow comment: held AUTHORIZED transactions accept nonstale
+CANCEL or an explicitly newer SAVE/DISCARD revision; the document owner must
+report edits before returning to the executor. Application must revalidate
+membership, handler/transaction identity and reported revisions, then seal
+irreversible ingress without intervening callbacks or user destructors. Clean
+windows remain open until the whole group commits; one cancellation preserves
+all drafts. Independent contract review is clear. The packet retains all 12
+original application lifecycle scenario oracles, documents five necessary UI2
+fixture migrations and requires real native two-window evidence before
+acceptance. Existing pending transactions must be promoted by identity without
+another prompt/save attempt, including terminate followed by completeSave
+before the originating callback unwinds. No executable implementation or native
+quit result is claimed by that documentation checkpoint. The owned packet is
+`docs/workstreams/ui2-macos-native-quit.md` on `codex/ui2-macos-native-quit`.
+
+Fixture-only commit `f573f8dd` now demonstrates the actual missing native quit
+behavior. Reference projection has zero diagnostics, all 11 strict units and
+plain linking pass, then real NSApplication termination returns with one request
+but zero close-decision deliveries. The native process aborts at the exact
+`journey.cancellationObserved` assertion after its native-return/count assertion
+passes. Both dirty windows therefore have no opportunity to veto this shutdown.
+Aggregate `ui2-macos-native-quit-f573f8dd-baseline-compiler-f75c737b/baseline-result.json`,
+SHA-256 `d3912db46a1be0dd7bb7ea3805c090cc8a39f5893ab5a453f38ed27f51ee6943`,
+and native-stage receipt `cdfb0064904a6673e5d412f0cccbfe86f04edbc3691f8e9e5a864f40af472c96`
+retain the original bounds, unchanged 347 provider/131 compiler files, exact
+native assertion mapping and all 40 owned groups reaped/absent. Independent
+review is clear. This is the genuine reference/plain baseline failure; the
+provider repair, paired/sanitized acceptance, remaining save/revision/membership
+journeys and all 12 original lifecycle scenarios are still required.
+
+Reviewed production `39f9e0ce`, after fixture-first `2413b9dc`, now implements
+native capture-time transaction holds, deferred group decisions, membership and
+revision revalidation, and irreversible ingress sealing before user finalizers.
+Review found and corrected stale queued prompts, partial/reentrant cancellation
+progress and a native-only modal unwind deadlock. Four additional real-provider
+fixtures cover these boundaries alongside the unchanged two-dirty-window veto
+regression. The separate legacy lifecycle migration preserves all 12 scenarios,
+exact delivery/destruction counts, native view/root/scope assertions and 30-second
+native bounds. Its test-owned timer and explicit application context replace
+obsolete test APIs; foreign-delegate rejection moves to run admission and is
+proved to preserve the foreign owner and application's open windows. The original
+10-second stuck-subtree error oracle remains exact. Source review is clear. Candidate `5dd18d19` now passes all 40 focused native
+runs: five quit journeys, WorkQueue, Publisher, attached ApplicationHost and
+both Window fixtures, through both frontends in plain and ASan/UBSan modes.
+All 20 projections have zero diagnostics, all 174 strict units and 40 links pass.
+The exact original failing quit fixture now delivers both decisions and preserves
+the dirty windows on one veto. Early cancellation suppresses a queued peer
+prompt without cancelling its registration; current and stale save revisions,
+membership changes, retryable publisher cleanup, finalizer reentry and genuine
+native-only modal unwind all execute their original assertions.
+
+Independent aggregate
+`ui2-macos-native-quit-5dd18d19-compiler-f75c737b-r2/independent-qualification-audit.json`,
+SHA-256 `a639731ed60023c7b057c4dfc75bc191dae8690d7f60a333b08c7277584f2619`,
+closes all 1,050 recorded process groups and exact source/tool/log/binary pins.
+The overall runner then exits 1 at the legacy reference projection: the explicit
+test-owned `IApplicationTimer` declaration duplicates the interface synthesized
+from its native binding metadata. Receipt `42cb32412c0041784ce78e11404f5d178898e9a9131c79c9c0511ea12fb87fd4`
+retains both diagnostics. No legacy native child or self-host projection started;
+all 48 legacy runs were unrun on that source. Fixture repair `4fbed9a1` removes
+only the duplicate interface and applies AST-identical Python formatting. Its
+next native run passes the first ten reference/plain lifecycle scenarios, then
+fails scope-exit with `cannot retain destroying managed object`; 37 native cases
+remain unrun. Both projections, 20 strict units and the first link pass.
+Independent audit `8a7a90299e0c0b8e098cf2c6d226e6e6b4be2d555e1447fda8b458ad277514be`
+closes all 66 groups and exact input/tool/output inventories in
+`ui2-macos-native-quit-legacy-4fbed9a1-compiler-f75c737b`.
+Generated C connects destruction through close/sealQuit to replacing the
+application's member vector while its owner is destroying. Reviewed production
+repair `21ccce41` clears that existing vector in both guarded shutdown paths;
+all original lifecycle assertions remain unchanged. Its qualification follows below.
+The original stuck-subtree binary independently reproduces error masking
+after 10.5019 seconds, under the unchanged 30-second bound; receipt `c4c95b89`
+closes all four groups. Separate repair `4232652b` preserves the cleanup attempt
+and prioritizes the actual failure before a generic pending result. Its native
+replay passes eleven reference/plain scenarios, including scope-exit, and the
+original subtree-error assertion. The next stopped-loop/state assertion then
+fails. Independent audit `b97954384392ea9b637d849faffe23e38ee07b72b39574c4e5b2b4f48cf6abbe`
+closes all 67 groups and exact inputs; 36 legacy and all 40 focused cases are
+unrun on this source. isRunning counts an internally retained standalone-host
+attachment after the actual loop stops. Reviewed one-line correction excludes
+that internal cleanup attachment while preserving external-host semantics and
+pending ownership. Correction `73f636e8` now passes all 88 native executions:
+48 original lifecycle rows and all 40 focused quit, queue, publisher, attached-host
+and window rows, through reference/self-hosted compilers in plain and ASan/UBSan
+modes. The original assertions and deadlines remain unchanged. All 22 projections,
+194 strict C/Objective-C unit checks and 44 links pass; there are no sanitizer
+findings. Independent audit `b29066f543f43f92aa03c8aa6c47f999d4fc4390663d9977f413c4360a74f4d1`
+verifies exact source/tool/output inventories and closes all 1,206 owned process
+groups. Evidence is retained in
+`ui2-macos-native-quit-73f636e8-compiler-f75c737b/independent-full-qualification-audit.json`;
+the source report is committed at `238acc9f`. This qualifies the recorded macOS
+provider composition against compiler `f75c737b`, including all three lifecycle
+repairs; it is not a merged-tree, complete-control, other-platform or BTRSmith
+MVP result. Narrow provider-manifest integration, remaining control journeys,
+full UI2 and final integration gates remain open.
+
+The missing method implementations now exist; qualification remains scoped to the results below.
+Application provider `70df20a9` with compiler `f75c737b` passes WorkQueue,
+NativeContainerBarrier and NativeCaptureFailure through both frontends, plain
+and ASan/UBSan: 12 native rows, six zero-diagnostic projections, 28 strict
+C/Objective-C checks and 12 links. Independent review rehashes all input/log
+inventories and verifies all 180 command groups absent. Aggregate
+`a54c1f28b116c6a17bb3a9caef28379341e36e4c4d8afc52bd3b1d4457e57f0f`
+is retained in `ui2-macos-application-70df20a9-compiler-f75c737b`.
+Those components do not qualify Public ApplicationHost; its actual rerun and remaining
+shutdown failure are recorded above.
+
+Text provider `b987ebdc` passes the original real AppKit field-editor fixture
+through both current compiler frontends, plain and ASan/UBSan: four native rows,
+two zero-diagnostic projections, 12 strict C/Objective-C checks and four links.
+The original native attempt exposed unsupported `__weak` storage in the MRC
+native source; the repair uses Foundation zeroing weak storage and balanced
+native ownership without changing compiler flags. Native draft/composition,
+model replacement, ordered commit/cancellation and eligibility assertions pass.
+All 92 commands reap successfully, source/tool checks are unchanged and command
+groups are absent. Aggregate
+`273bdd3bbd6579527c18f631de3ac9e4b61b80458750ec1ad056409fa203fb84`
+is retained in `ui2-macos-text-b987ebdc-native-compiler-f75c737b`.
+Physical IME, expanded Escape/route/entered-close and combined application
+acceptance remain open. Range and keyed selection source/fixtures are implemented and partially tested.
+Range `b0305ce1` passes all four native model-state rows through both compiler
+frontends, plain and ASan/UBSan. Its event fixture initially exposed nullable
+probe owners and then a genuine manifest-order parity defect: the reference
+compiler accepts callback metadata after a native source table, while the
+self-host parser rejects it. Moving the source table preserves the exact parsed
+TOML object and allows qualification to continue. Repair `6b83cf1b` now retains
+the latest native-binding owner across unrelated tables and checks duplicate
+property tables per binding. The original 20-row proof has 13 failures and seven
+passes; the fresh candidate has 20 passes and zero skips/errors, including all
+16 manifest cases and four actual callback rows across both compilers and
+plain/sanitized native execution. Independent review is clear. The source is
+not yet published or integrated and still needs combined qualification.
+The original failure remains in `macos-range-current-f75-r4/METADATA-ORDER.md`;
+candidate receipt is `native-binding-metadata-order/candidate-1/result.json`,
+SHA-256 `cbc648afd4e5ebf9f8bbaacc089c3438e4363fe55df8ba05b54ca62e6078f33c`.
+Its retained provenance records post-run association of Apple Clang identity,
+not an invented before/after pin for that tool.
+
+The corrected range event fixture passes both projections and strict compilation.
+Its first native run passes key/repeat/accessibility/assistive assertions, then
+fails the unchanged drag preview assertion. A failure-only trace records zero
+previews, seven commits, zero cancels and unchanged value 4. A pointer commit
+alone does not prove dragging works. A matched stock/native-provider input and
+geometry comparison at `209fe7f7` now shows identical frames, bounds, track,
+knob and event coordinates. Both stock NSSlider and provider remain at value 4;
+stock emits zero actions and provider emits one unchanged-value action. Both
+are inactive/non-key and loginwindow remains foreground. This diagnostic aborts
+at the earlier unchanged pointer-commit assertion, rather than the prior preview
+assertion, so it does not reproduce an identical failure. All 28 command groups
+are closed and inputs unchanged (result `f57a4e02`). The evidence does not yet
+identify a provider fix; original preview and movement assertions remain.
+
+Selection's model fixture passes reference/plain native execution. Its first
+real event fixture passes performClick and mouseDown journeys, then fails Space
+input. The matched standard NSPopUpButton also fails to open despite actual
+first-responder ownership and corrected native key codes. Current capture source
+adds printable-key admission and a scoped Escape observer with exception and
+teardown ownership cleanup, but those native behaviors remain unqualified.
+The host fixture now uses regular activation policy, finishLaunching and an
+actual bounded AppKit event pump. At `f68e5654`, both compiler projections and
+strict checks pass; the reference executable fails the unchanged active-app,
+key-window and first-responder prerequisite before Space. The three-second pump
+dispatches zero events; app/window remain inactive/non-key. All 44 command groups
+are closed and inputs unchanged (aggregate `60b9a122`). A separate read-only
+LaunchServices query confirms `com.apple.loginwindow` is foreground. Do not
+repeat foreground-dependent qualification until that prerequisite changes, and
+do not claim the exact external cause beyond these observations. Original failed
+runs remain retained; no keyboard/Escape/type-selection acceptance is inferred.
+No source-only milestone counts as native capability.
+
+The Linux counterpart `53e4bfaa` implements request admission, cancellable close
+transactions, save-revision/attempt authority and context modal guards in the
+existing provider owners. Independent source review and format checks pass;
+actual baseline and repaired native execution remain outstanding. The real SDL
+fixture retains drafts and tests independent windows, stale saves, cancellation,
+terminal pressure and close during callbacks. Its existing text-field dependency
+needs the actual `SDL_ClearComposition` native export in a final fragment shared
+by both qualification compositions. Neither source review nor fixture completion
+is a native pass. Group application quit, ordinary-input integration and full
+provider acceptance remain open.
 
 Portable filesystem, process/terminal, HTTP/networking, regex/glob, jobs/IPC,
 audio and foreign-library ownership still require their platform-specific
@@ -393,12 +1191,173 @@ is retained. The paired agent target therefore did not complete, and later
 audio/product targets did not run. Prior frontend/library evidence stays
 separate. Artifact SHA-256 is
 `86b7dabba26e13c7405d078f8e2e41cb189ebe53fee77fb09504749a1976e472`;
-the compiler setjmp planner and a bounded reproducer are under investigation. App descendants are now checked
-and cleaned on ordinary test failure as well as timeout. No full MVP claim.
+the original class now reproduces the four failures through both compiler
+frontends at GCC -O2 and -O3. Paired fix `f75c737b` extends the existing typed
+setjmp storage policy to generated pointer temporaries inside protected regions.
+The reference side passes 36 focused checks and compiles that original class
+cleanly at both optimization levels, with strict flags unchanged. The new tests
+fail on the unchanged baseline. Its fresh self-hosted build now passes; the same original class compiles
+cleanly through that frontend at GCC -O2 and -O3 too. Four paired corpus runtime
+rows pass (both frontends at both optimizations), with no skips. Source, tools,
+binary and process closure are verified in report `3458c356`. The full hosted Linux application replay
+[37775247066](https://github.com/schiffy91/btrsmith/actions/runs/37775247066)
+has completed with a later failure, using unchanged product `d3fb25f4`, original
+strict flags/assertions and compiler `f75c737b`. The paired live-agent acceptance
+step passes: logs record operation-channel, standalone CLI/MCP and live GUI
+journeys through both frontends. The subsequent audio step passes setup,
+terminal-disposal and session-shutdown checks through both frontends, then
+`ApplicationShutdown.reference.clang` aborts on generated condition 50.
+The failing assertion requires one audio session before the first close, but
+the fixture never steps the GUI host to start its intentionally deferred audio.
+The self-hosted application-shutdown row and Linux product derivation/install
+do not complete in that failed run. The private artifact is `11554081040`,
+SHA-256 `9c9ed38209251a14a5ccc639dd5e3b58b0d42053118b60afa54af554e01594ee`;
+its download digest and selected source/log evidence have been verified. Workflow revision `b383f9f2` changes
+only compiler pins, artifact label and historical wording. Final combined gates
+remain pending. App descendants are checked and cleaned on ordinary test failure
+as well as timeout. No full MVP claim.
+
+Fixture-only product repair `37bbb680` starts audio through the actual native
+work queue and host step, preserving the original retryable-close, retained
+session, terminal-close and idempotence assertions. With compiler `f75c737b`,
+the original macOS `native-shutdown-failure-check` now passes through reference
+and self-hosted frontends, including original link-plan parity. Independent
+review verifies all five commands exited zero, their process groups are absent,
+and source, tools, binaries and logs match the retained receipt. Original
+60-second native limits and the 2640-second outer bound remain unchanged.
+Result SHA-256 is `694388f117fbe94e211f69a4fb511bbe789fea7cd393dcbb7a93ef9eb85b8b6b`
+in `btrsmith-native-shutdown-37bbb680-f75-attempt-1/result.json`. This is a macOS
+source-override component result, not installed-product or dependency-pin
+acceptance. Existing-owner nullable warnings remain in the logs. The matching
+Linux replay is pending. A separate production defect remains: GUIApplication
+must propagate every non-complete window-close state before releasing dependent
+view/session ownership. Source candidate `8f73b7d5` calls the existing idempotent
+window close operation unconditionally and preserves all non-complete results.
+It also fatally stops destruction on unfinished or thrown cleanup before runtime
+field release; throwing from the destructor alone is insufficient because the
+runtime catches hook failures. Source and paired-control recipes are independently
+reviewed. The first original-baseline attempt transpiles and compiles but fails
+at native linking: the test driver compares a bare compiler name with the resolved
+Nix executable path and omits its probe object. No native child executes, and the
+required baseline failure is correctly refused. All five owned groups close and
+inputs remain unchanged. Retained result SHA-256:
+`18e770a3ca3464a484af76939423a8061b2454fd4f3ddfc2168f73e4cd37b722`
+in `btrsmith-window-close-f75-baseline-attempt-1/result.json`. The narrow driver correction now recognizes the resolved compiler identity and
+injects its probe only into the intended link command, once. Twelve command
+controls pass, including the original resolved-link failure. Identical fixture
+bytes are mirrored across original baseline `f6c98636`, old-destructor
+counterfactual `435bf12d` and candidate `8f73b7d5`. The corrected original baseline
+now reproduces the actual bug through both compilers: both normal-close children
+exit zero; both failure children observe real GPU/window FAILED, then abort at
+the exact generated assertion that the application must return FAILED. This
+qualifies the counterfactual, not the fix. All ten owned groups are absent and
+inputs remain unchanged. Receipt `btrsmith-window-close-f75-baseline-attempt-2/result.json`
+has SHA-256 `1b8de5dc4b10783ac6c724f329e47f52b9c317a1624fe3cafa50e8d672f9bd5d`.
+The old-destructor counterfactual also reproduces through both compilers: normal
+and native-closed controls pass, while unique deletion returns after the exact
+FAILED/retained-dependency marker. Generated C confirms the unguarded hook then
+releases owner edges. All twelve groups close and inputs remain unchanged;
+independent review is clear. Receipt SHA-256 is
+`f1c983cb2d3747d5e335b20b944e97822763639f1f93c5fca7a88b79cedbb4fe`
+in `btrsmith-window-close-f75-destructor-baseline-attempt-2/result.json`.
+Candidate `8f73b7d5` now passes all eight native cases with compiler `f75c737b`:
+normal close, FAILED-state propagation with retained dependencies, native-close
+handling, and final-owner destruction through each frontend. Both destructor
+children stop at the exact fatal message with SIGABRT, before the after-delete
+marker. The original paired Make and link-plan parity also pass. Independent
+review authenticates both counterfactual receipts, all 846 product and 4,499
+compiler files/modes, 39 tools/wrappers, native binaries/logs, and all 13 closed
+process groups. Inputs remain unchanged. Result
+`btrsmith-window-close-f75-candidate-attempt-2/result.json` has SHA-256
+`c99e68fdcb2ca100006fac930b480e5009449de74e257c2aeb3a844e32ab56c4`.
+This is bounded macOS source-override qualification in the retained dependency
+shell with SDK 14.4. Thrown-close handling remains source-reviewed only; retained
+ownership in the deliberate failure child does not prove failed-resource cleanup
+or cycle collection. Existing compiler/Nix warnings remain. Exact `8f73b7d5` is
+published privately on `codex/window-close-result-propagation`; it includes the
+previously qualified `37bbb680` startup fixture. Linux, installed product,
+dependency-pin and complete MVP acceptance are still required. Product fixture `37bbb680` is now published privately on
+`codex/native-shutdown-lifecycle`, satisfying the Linux replay's source
+reachability requirement without changing the current dependency pin.
 
 ### Integration status in service of the goals
 
-**Current checkpoint, October 8:** Windows PR53 is merged on main at
+Latest live check on October 8: macOS unit retry `113416271573` and explicit
+native-GUI retry `113422566478` both reached their test steps on actual hosted
+runners. Both hosted capacity slots remain occupied; no third wave is dispatched.
+
+
+**Current checkpoint, October 8:** main is `cbd3ddcdb25b9c7519f2babc3dce38647b3a0212`,
+which merged the consolidated plan and qualified Mac test-coordination repair
+through PR69. The final PR head passed 36 selected checks; all four post-merge
+Linux, macOS, Windows and Windows ARM64 workflows now pass. This does not merge
+the remaining compiler/UI2/product work. Published PR68 head `00e45379` combines
+the reviewed token/reply lifetime, GCC pointer-temporary and Linux
+test-coordination repairs. Its 172 affected checks, generated-source validation,
+lint and formatting pass; the full combined matrix remains in progress.
+Its hosted merge `d38f344f` has exactly the candidate's tree. The combined
+benchmark gate now passes unchanged: heavy stdlib reports 42,213,376 bytes and
+dispatch 18,432,000 bytes. Artifact `11555372802` has SHA-256
+`da11918dd305041d1783e006c7e4d7ee5b1b0e63993415713251f8406c9573de`.
+This closes that combined regression gate, not the product memory/speed targets.
+Android API 36 first failed when adb reported its device offline; its one
+unchanged retry passes. The failed artifact `11554383604`, digest
+`668e13b8ec74d5f4b216d6df74530029fdd01b02f6ea006936f6486321e49ea2`,
+remains retained. API 29 and Windows bootstrap also pass at the new head.
+The required explicit macOS native-GUI dispatch is
+[37791840625](https://github.com/schiffy91/btrc/actions/runs/37791840625).
+Its first job reached the unchanged 90-minute limit: setup consumed 62m45s,
+leaving 27m36s for tests. The last visible progress was 72 passing dots (13%),
+with no logged failure; no JUnit/skip artifact survived. This is incomplete
+qualification, not a green suite or proof against a native hang. The retained
+job log has SHA-256 `3391f8e260da6509c7ac863ca77ab360bebcef45c62c5c5d8ac7d018b3bfacdd`
+in `pr68-00e45379-macos-gui-timeout/job.log`. One unchanged failed-job retry is
+accepted as attempt 2, job `113422566478`; preserve source, 90-minute job limit,
+600/60-second test bounds and three workers. Linux run `37786709187` is complete and independently audited:
+all 13 expected shard reports are present, tied to exact merge `d38f344f` and
+candidate tree `53a05e9f`, with fatal skip classification enforced. Unit tests
+report 7,230 passes/3,128 expected skips; self-host tests 5,857/34; both corpora
+1,019 passes with zero skips each. All eight GCC/Clang C11 cells pass 2,038 cases
+each with zero skips; bootstrap reaches its fixed point. X11 reports 324/199,
+Wayland 322/199. Wayland remains configured report-only, but its actual test step
+and JUnit pass. Release, generated-source, lint, format, extension, Linux bundle
+and final source hygiene pass. Boundary accounting is 287 checked of 311, with
+24 managed-behavior records explicitly excluded. Expected skips and physical
+Linux desktop coverage require counterpart evidence; they are not passes.
+Audit SHA-256 is `ff94d1ab8a3552c01121518f0bef6b9d4d1311d0a6449814a1055100a49164f8`
+in `pr68-00e45379-linux-final-audit/audit.json`. The macOS ARM64 bundle now also
+passes archive construction, relocation and execution of its strictly compiled
+output (job `113343316526`). The Mac bootstrap boundary artifact likewise checks
+287 of 311 records and excludes the same 24 managed-behavior records; it does
+not fill the Linux exclusion. The exact-tree build-safety contract explicitly
+keeps observed proof separate from the portable main gate; no required counterpart
+workflow exists. Keep the 24 records unchecked. The existing opt-in observed
+capture route is available without rewriting the frozen observation contract.
+Artifact `11559776904` has ZIP SHA-256
+`204066ca5f2cd1b9f95ab0f07ff50f93cfb11b109fa9b9eedfde7c921be1de8e`.
+The macOS x64
+bundle attempt reached its unchanged 45-minute job limit during Nix dependency
+realization, before compiler/bundle tests. Its retained log digest is
+`1cd1b8ca7ce8466b4e9498fbba383a74a2442d8543d889dc327428cd29b40588`;
+cache HTTP 429 is observed but not established as the sole cause. GitHub refused
+the immediate single-job rerun request while the workflow was live; that request
+started no retry. The original workflow is now terminal: bootstrap, both corpora,
+self-hosted tests, C11 O0/O2 and the ARM64 bundle pass. The macOS unit shard
+has now failed: 660 failures, 260 errors, 9,213 passes and 227 skips. Its log
+records previously used native-reader and Python store paths disappearing during
+the run, with secondary Python-module and child-start failures. No removal/GC
+cause is established; do not classify all failures as infrastructure. Job `113343316411` log SHA-256 is
+`2cb00dd368165e68e2038d6fb5c94742be882d3631ffa2774f541554755fd0be`; artifact `11561484842` retains the main failing unit report separately
+from a nested one-pass child report. On October 8, the one unchanged
+failed-job replay was accepted as attempt 2. The x64 release bundle now passes
+(job `113416270707`); unit retry `113416271573` is now executing its test step, with other successful jobs
+retained. The original terminal snapshot has SHA-256
+`4f4515b61e8e280b0588ba6f727aa67016d757afb45e33c92de8488898e9ff24`
+in `pr68-00e45379-macos-retry-2/attempt-1-terminal.json`. Root-cause analysis and
+the complete Mac matrix remain open. Do not merge until the failure is resolved
+and required skip/native evidence is qualified.
+
+Windows PR53 previously merged on main at
 `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Its source tree is exactly the
 qualified `110a514c` / hosted merge `93093bd4` tree. All five hosted workflows
 passed, including actual Windows ARM64 compiler/bootstrap, sample execution and
@@ -408,8 +1367,9 @@ generated checks, lint, formatting, extension and release hygiene passed;
 skipped standalone jobs are not counted as evidence. This independent slice did
 not wait for UI2 or the remaining compiler work.
 
-Current broader candidate `3974d47b` is published in
-[draft PR68](https://github.com/schiffy91/btrc/pull/68). Its original hosted matrix has
+The preceding broader candidate `3974d47b` remains the historical PR68 baseline;
+the [current draft PR68](https://github.com/schiffy91/btrc/pull/68) head and its
+qualification are recorded above. The baseline's original hosted matrix has
 completed; Android tooling/API 29/API 36, Windows, Windows ARM64, the Linux
 ARM64 bundle, release/static ownership and the Linux Wayland lane pass. Linux
 and macOS bootstrap pass; all eight Linux C11 cells, all Linux test shards and
@@ -685,13 +1645,13 @@ changes; historical test totals alone do not advance its status.
 
 | Outcome | Current state / evidence | Responsible role | Next acceptance and actual blocker |
 |---|---|---|---|
-| Current compiler speed and memory matrix | Historical product targets remain unqualified. Token candidate `71352c50` passes 292 focused checks, self-emission/C-byte parity and all three original Linux peak checks; heavy-stdlib reported peak falls 8.241% relative to exact `3974d47b` | Performance owner; main session runs quiet measurements | Qualify the token change on the combined tree. Mac D9 takes zero samples because actual background CPU fails the unchanged quiet gate. Formal Stage 4/pin and full Stage 5/product matrix remain open. |
+| Current compiler speed and memory matrix | Token candidate `71352c50` reduces the focused Linux heavy-stdlib reported peak by 8.241%. Combined lifetime candidate `92691bee` passes 164 focused checks. Whole-product targets remain unqualified | Performance owner; main session runs quiet measurements | Private current-product Linux RSS comparison `37771609277` failed during image-layer commit before compiler execution or samples. Mac quiet admission has no completed paired round. Stage 4/pin, Stage 5 and final product matrix remain open. |
 | Faster incremental edits | Current tuple/instance repair proves one changed group for inventory-preserving edits and three for genuinely new shared tuple shapes, across both frontends/release/debug with strict native outputs and clean-versus-incremental equality | Incremental compiler owner | Finish current combined gates, then measure edit median/p95 and memory. Full consulted-fact/analysis reuse and Stage 9 counters remain open. Work counts are not speed results. |
-| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Assembled `3974d47b` Wayland passes, while X11 has three ScrollThumbBounds native assertion failures | Provider repair owner; main integrator qualifies | Diagnostic `37735904202` failed to export detailed traces because container-owned directories were unreadable to the artifact uploader. Repair collection, rerun, select a causal-evidence-backed fix, then qualify affected and combined gates. Focus interference remains unproven. |
-| UI2 events, executor and lifecycle on desktop | macOS foundation `a9ffe1bd` passes 28 native runs. Ordered-container snapshot `71397941` adds six clean projections, 34 strict checks, 12 links and 12 actual native runs across both compilers/plain/sanitized; exact inputs and sanitizer flags verified | UI2 interface owner and platform owners | Finish application-host input barriers, ordinary input deferral, typed controls, Linux provider and atomic interface/provider landing. Component qualification does not close full UI2. Resolve the notification recipient contract without fabricating interaction-state changes. |
-| Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on main `49f136ec`; mobile fixture-host results above remain separate from complete providers | Platform slice owners | Prove real Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Both original macOS 600-frame library journeys pass against `3974d47b`. Bounded endpoint `933f79b7` passes four storage native rows and reference AgentOperationChannel. Linux paired frontend and both library/installed-smoke steps pass, with live-agent acceptance still running | BTRSmith owner and integrator | Qualify the reviewed dynamic-revision process fixture and its transport negatives; then complete both frontend live GUI/agent journeys, Linux artifacts/source checks, pin qualification and remaining screen/build/runtime budgets. Current override proof is not locked-release acceptance. |
-| One qualified implementation on main | Windows slice is merged at `49f136ec`, all its post-merge workflows pass. PR68/current `3974d47b` has full boundary recapture; Linux is blocked by peak-memory and X11 failures, with Mac unit qualification still running | Main integrator | Land the independently qualified consolidated plan; combine the measured token repair and causal GUI repair, then complete final-tree tests/bootstrap/C11/static/generated/extension/hygiene and applicable native evidence. macOS UI2 and product repairs remain separately tracked. |
+| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish Mac integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
+| UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
+| Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
+| BTRSmith macOS/Linux MVP on the current stack | Product8f73b7d5/f75c737b passes eight Mac window-close cases and plan parity. Repaired dbe8df0e now passes the original full three-client agent-channel fixture through both compilers on macOS, with actual generated child-path and native-result review clear | BTRSmith owner and integrator | Linux dbe8 now passes all four channel and standalone cells and both reference live-app journeys; first self-host/Clang live settings command returns code 1 with its protocol stdout missing from the failure log. Preserve that response and fix the demonstrated cause, then complete remaining self-host live, audio, installed-product and compiler-pin acceptance. Component passes do not close the full MVP. |
+| One qualified implementation on main | Main stays cbd3ddcd. PR68 6f passes Windows/ARM64/Android and every selected Linux job except unit. Dedicated Mac GUI now passes 353 cases with 169 classified skips; Mac bootstrap/ARM64 bundle/self-host tests pass. The two unit assertions have qualified local repairs; Mac unit additionally needs the prepared grouping opt-in, and x64 release preparation timed out | Main integrator | Qualify unit grouping and release-shell changes, integrate their exact reviewed sources, then finish final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip audit and native evidence before merging. Two independent product/provider diagnostic waves are active. |
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
@@ -870,7 +1830,9 @@ do not repeat a failed access request.
 The initial reconciliation used upstream main
 [`c011371b`](https://github.com/schiffy91/btrc/commit/c011371bf2cafd526348f3c6fc81f8958ddd0f9c)
 (batch 50), the six initially open btrc PRs, and the remote branch inventory.
-Current upstream main is `49f136ec` (qualified Windows PR53); the earlier integration checkpoints below retain their original evidence. PR60 is published at `50bf1c8c`,
+Current upstream main is `cbd3ddcd` (qualified Windows PR53 followed by
+consolidated-plan/Mac-coordination PR69); the earlier integration checkpoints
+below retain their original evidence. PR60 is published at `50bf1c8c`,
 combining the existing integration, Weston repair, C2, REQ-10/11, rich-enum
 and diagnostic corrections. Predecessor `b5e3f81a` found nine failures in
 the structural audit's raw-source parser. Repair `bb40e39c` passes the expanded
@@ -1415,8 +2377,12 @@ The remote snapshot contains 183 branches: 151 tips are ancestors of main and
 branches must also be checked before deletion; nothing is deleted by this plan.
 
 The later integration branches are tracked separately from that frozen inventory.
-These are the current checkpoints; the detailed status above retains the earlier
-failed runs and their evidence rather than replacing them with later passes.
+These rows retain historical qualification receipts as well as current heads;
+the detailed status above names the active candidate and later failures. PR60
+`50bf1c8c` and PR65 `93856dfc` are exact ancestors of PR68 `6f1b81d9` with zero
+unique commits relative to it. They remain open until qualified integration.
+PR34 `f49c5fe1` still has 13 unique commits and its iOS host files are absent from
+PR68; it requires separate reconciliation and hosted acceptance.
 
 | Integration checkpoint | Current head | Qualification / remaining work |
 |---|---|---|
@@ -1424,7 +2390,7 @@ failed runs and their evidence rather than replacing them with later passes.
 | PR65, `codex/integrate-c2-arrays` | `93856dfc` | Published with the AppKit comparison repair and plan. All hosted workflows are terminal: 37 successful checks and three skipped jobs (static and two native-GUI jobs). The source-matched AppKit run passed 41 tests, but the earlier restore-54 owned-field survivor remains unexplained and full integrated qualification remains open. |
 | Local REQ-10/11, rich-enum and Apple availability integration, `codex/integrate-rich-enum-diagnostics` | `ba6c221d` | Apple schema and pinned tables passed 186 focused checks plus static/generated checks; semantic consumers and final integration remain open. Before `bb40e39c`, parent `9a01104c` passed 1,179 native checks with three platform skips. The first Linux cast attempt failed; the revised integer arithmetic and all-target structural audit pass their focused checks and full Linux-target reference transpilation. The earlier REQ-10/11 and rich-enum changes are integrated into the combined candidate; the Apple merge is now included in `06c3923a`; full qualification/main landing remain pending. |
 | PR53, Windows ARM64 host | Merged main `49f136ec`, tested head `110a514c` | All five workflows and native ARM64 compiler/bootstrap/sample plus MSVC ABI/wgpu checks pass. Merged tree equals tested tree; archive checksum verified. Broader provider and combined-tree gates remain separate. |
-| PR68, `codex/integrate-compiler-harmonization` | Published `71a22734` | Android tooling/API29/API36, Windows/native bootstrap, Linux bootstrap/release and both GUI lanes pass. General CI still running with tuple-order parity and two peak-memory regressions already failed; macOS queued. Main integration remains gated on repair and qualification. |
+| PR68, compiler and Linux GUI integration | Published `6f1b81d9`; hosted merge `e10d8bab` has the same tree | Reviewed scheduling and bounded GCC launch diagnostics pass 109 focused checks. The new full matrix and explicit native-GUI run `37835919865` are active. Previous `00e45379` Linux/Windows/ARM64/Android passes remain historical; its Mac unit rerun failed six actual GCC launch ENOENT cases, and native-GUI failed lease admission before the GPU test body. Current exact-tree gates, skip classification and main integration remain open. |
 | PR34, iOS host | Published `f49c5fe1`; local `1844837b` | Local 50-case matrix passed. Hosted launch completed zero fixtures; iOS 17 floor and final hosted acceptance remain open. |
 
 At `50bf1c8c`, the [native Linux ARM64 release job](https://github.com/schiffy91/btrc/actions/runs/37623566727/job/112799636879)

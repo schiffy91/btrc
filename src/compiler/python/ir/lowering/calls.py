@@ -1192,7 +1192,7 @@ class CallableProvenance:
         expected = self._canonical(expected_type)
         if expected is None or expected.pointer_depth > 0:
             return None
-        declaration = self._analyzed.struct_table.get(expected.base.removeprefix("struct "))
+        declaration = self._analyzed.struct_table.get(TypeSystem.record_tag_name(expected.base))
         if declaration is None or declaration.is_forward:
             return None
         return declaration
@@ -3312,7 +3312,7 @@ class CallLowerer:
             return False
         if value_type.base == "Tuple" or value_type.base.startswith("("):
             return True
-        struct_name = value_type.base.removeprefix("struct ")
+        struct_name = TypeSystem.record_tag_name(value_type.base)
         return struct_name in self._analyzed.struct_table
 
     def rich_enum_variant_target(self, node, *, identifier_is_local=None):

@@ -170,6 +170,11 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
     assert "self.arraySize = null;" in field_schema
     assert "CallableFlowState callableFlow = CallableFlowState();" in emit_struct
     assert "f.type.arraySize, empty, callableFlow);" in emit_struct
+    # A flexible array member (r13) is IR array storage of unknown size, never
+    # a pointer field: the record-member owner's predicate marks it.
+    assert "bool flexible = SemanticTypeSystem.flexibleArrayMember(f);" in emit_struct
+    assert "field.isUnsizedArray = true;" in emit_struct
+    assert '} else if (field.isUnsizedArray) {\n\t\t\tsuffix = "[]";' in emitter
     assert (
         "public IRNode lowerExpr(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow)"
     ) in expressions

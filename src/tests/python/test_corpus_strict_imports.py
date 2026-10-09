@@ -38,6 +38,7 @@ STDLIB_GLOB_EXCLUSIONS = {
 SUPPORTING_CONSUMERS = frozenset(
     {
         "src/compiler/btrc/generated/ast/Node.btrc",
+        "src/compiler/btrc/generated/hosted_abi/Tables.btrc",
         "src/compiler/btrc/syntax/Grammar.btrc",
         "src/compiler/btrc/frontend/SourceIo.btrc",
         "src/compiler/btrc/lexer/Lexer.btrc",
@@ -85,7 +86,7 @@ class CorpusImportAudit:
         shared = (
             path for path in TEST_ROOT.rglob("*.btrc") if path.relative_to(TEST_ROOT).parts[0] not in {"python", "btrc"}
         )
-        fixtures = (TEST_ROOT / "btrc/fixtures").rglob("*.btrc")
+        fixtures = (path for suite in ("btrc", "python") for path in (TEST_ROOT / suite / "fixtures").rglob("*.btrc"))
         examples = (self.repository / "examples").rglob("*.btrc")
         supporting = (self.repository / relative for relative in SUPPORTING_CONSUMERS)
         return tuple(sorted({*shared, *fixtures, *examples, *supporting}))
@@ -219,7 +220,10 @@ def test_corpus_declares_every_direct_stdlib_owner(
     assert corpus_import_audit.direct_owner_diagnostics == ()
 
 
-@pytest.mark.parametrize("tree", ("src/tests/collections", "src/tests/native", "src/tests/btrc/fixtures", "examples"))
+@pytest.mark.parametrize(
+    "tree",
+    ("src/tests/collections", "src/tests/native", "src/tests/btrc/fixtures", "src/tests/python/fixtures", "examples"),
+)
 def test_coverage_names_a_source_the_consumer_walk_drops(corpus_audit: CorpusImportAudit, tree: str) -> None:
     consumers = corpus_audit.consumer_files()
     dropped = next(path for path in consumers if path.is_relative_to(corpus_audit.repository / tree))

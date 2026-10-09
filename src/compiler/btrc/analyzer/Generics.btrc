@@ -16,7 +16,144 @@ import ./Models.btrc;
 import ./Operators.btrc;
 import ./Types.btrc;
 
+/* One edge of the type-parameter use graph: a type parameter flowing into a
+ * parameter of the generic it uses (the reference's _add_use key). */
+class GenericUse {
+	public string source;
+	public string target;
+	public bool growing;
+	public int line;
+	public int col;
+	public string generic;
+
+	public GenericUse(string source, string target, bool growing, int line, int col, string generic) {
+		self.source = source;
+		self.target = target;
+		self.growing = growing;
+		self.line = line;
+		self.col = col;
+		self.generic = generic;
+	}
+}
+
+/* A generic-method call a template makes in its own type parameters, kept in
+ * the template's terms until a specialization of the template is reached. */
+class TemplateMethodCall {
+	public string owner;
+	public string method;
+	public Vector<Node> classArgs;
+	public Vector<string> methodParameters;
+	public Vector<Node> methodArgs;
+	public int line;
+	public int col;
+
+	public TemplateMethodCall(string owner, string method, Vector<Node> classArgs, Vector<string> methodParameters, Vector<Node> methodArgs, int line, int col) {
+		self.owner = owner;
+		self.method = method;
+		self.classArgs = classArgs;
+		self.methodParameters = methodParameters;
+		self.methodArgs = methodArgs;
+		self.line = line;
+		self.col = col;
+	}
+}
+
+/* The realtime plain-data payload rules: which payloads each realtime
+ * container admits. Validation applies them where a payload is concrete;
+ * a specialization rechecks them under its own arguments. */
+class RealtimePayloadRules {
+	/* How a container's payload is named, or "" when `base` is not one. */
+	class string label(string base) {
+		if (base == "OwnedBuffer" || base == "SPSCQueue" || base == "AtomicBuffer" || base == "Atomic") { return base + "<T> payload"; }
+		if (base == "Span") { return "Span<T> element type"; }
+		return "";
+	}
+
+	class string requirement(string base) {
+		if (base == "OwnedBuffer") { return "must be realtime POD without managed or atomic ownership"; }
+		if (base == "AtomicBuffer" || base == "Atomic") { return "must be bool, int, uint, or a raw pointer"; }
+		return "must be realtime POD without managed ownership";
+	}
+
+	class bool admits(string base, Node payload, Analyzed analyzed) {
+		if (base == "AtomicBuffer" || base == "Atomic") { return RealtimePayloadRules.atomicPayload(payload, analyzed); }
+		return RealtimePayloadRules.pod(payload, analyzed);
+	}
+
+	/* Whether a value has an exact lock-free C11 atomic representation. */
+	class bool atomicPayload(Node? typeExpr, Analyzed analyzed) {
+		Node? canonical = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
+		if (canonical == null || canonical.isArray || canonical.isNullable || canonical.genericArgs().len > 0) {
+			return false;
+		}
+		if (canonical.pointerDepth > 0) {
+			return canonical.base != "string" && canonical.base != "Atomic" && canonical.base != "Span" && !analyzed.isClass(canonical.base) && !analyzed.isGenericClass(canonical.base) && !analyzed.isInterface(canonical.base);
+		}
+		if (canonical.isConst || canonical.isVolatile) { return false; }
+		return canonical.base == "bool" || canonical.base == "int" || canonical.base == "signed" || canonical.base == "signed int" || canonical.base == "uint" || canonical.base == "unsigned" || canonical.base == "unsigned int";
+	}
+
+	/* Whether a value is shallow-copyable realtime plain data. */
+	class bool pod(Node? typeExpr, Analyzed analyzed) {
+		Map<string, bool> visiting = {};
+		return RealtimePayloadRules.podInner(typeExpr, analyzed, visiting);
+	}
+
+	class bool podInner(Node? typeExpr, Analyzed analyzed, Map<string, bool> visiting) {
+		Node? canonical = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
+		if (canonical == null || canonical.isArray || canonical.isNullable) {
+			return false;
+		}
+		if (canonical.pointerDepth > 0) {
+			return canonical.base != "string" && !analyzed.isClass(canonical.base) && !analyzed.isGenericClass(canonical.base) && !analyzed.isInterface(canonical.base);
+		}
+		if (canonical.base == "__realtime_fn_ptr") { return true; }
+		if (canonical.genericArgs().len > 0) { return false; }
+		if (canonical.base == "bool" || NumericSemantics.isType(canonical, analyzed) || analyzed.isEnum(canonical.base)) {
+			return true;
+		}
+		string name = SemanticTypeSystem.recordTagName(canonical.base);
+		if (visiting.has(name) || !analyzed.structTable.has(name)) {
+			return false;
+		}
+		Node declaration = analyzed.structTable.get(name);
+		if (declaration.isForward) { return false; }
+		/* Every union member is a plain C value (unionMemberBlocker). */
+		if (declaration.isUnion) { return true; }
+		Map<string, bool> nested = {};
+		for visited in visiting.keys() { nested.put(visited, true); }
+		nested.put(name, true);
+		for field in SemanticTypeSystem.recordFields(declaration) {
+			Node? payload = SemanticTypeSystem.resolveTypedefType(field.type, analyzed.typedefTable);
+			if (payload != null && payload.isArray) {
+				if (payload.arraySize == null || payload.isNullable) { return false; }
+				payload = TypeShape.withoutOuterArray(payload);
+			}
+			if (!RealtimePayloadRules.podInner(payload, analyzed, nested)) {
+				return false;
+			}
+		}
+		return true;
+	}
+}
+
+/* An instantiation site whose payloads are checked after finite closure. */
+class RealtimePayloadCheck {
+	public string siteName;
+	public Vector<Node> members;
+	public Map<string, Node> substitutions;
+	public Node site;
+
+	public RealtimePayloadCheck(string siteName, Vector<Node> members, Map<string, Node> substitutions, Node site) {
+		self.siteName = siteName;
+		self.members = members;
+		self.substitutions = substitutions;
+		self.site = site;
+	}
+}
+
 class GenericSpecializer {
+	private Vector<RealtimePayloadCheck> realtimeChecks;
 	private Analyzed analyzed;
 	private OperatorSemantics operators;
 	private ExpressionTypeResolver expressions;
@@ -33,8 +170,51 @@ class GenericSpecializer {
 	/* Whether validation's facts exist yet: instance scans that run before and
 	 * after validation are recorded apart. */
 	private bool validated = false;
+	/* hosted_abi.toml's limits.generic_argument_nesting. */
+	private int nestingLimit;
+	/* The declaration whose specialization is being scanned ("" for none),
+	 * and its method when the scan is a generic method's. */
+	private string scopeOwner;
+	private string scopeMethod;
+	/* The declaration whose template body the method-generics walk is in. */
+	/* The generic method of the scanned class instance whose body or
+	 * signature is being scanned (the reference's _member_method). */
+	private string memberOwner;
+	private string memberMethod;
+	private string templateOwner;
+	private string templateMethod;
+	/* The type-parameter use graph (the reference's _uses and _successors). */
+	private Map<string, bool> useKeys;
+	private Vector<GenericUse> uses;
+	private Map<string, Vector<string>> successors;
+	/* Whether the graph holds a growing cycle; from then on no derived
+	 * specialization is admitted, and reportGrowth names it once discovery
+	 * drains. */
+	private bool growthFound;
+	/* Template generic-method calls by scope, and the scopes a specialization
+	 * has reached; a call's uses join the graph once its scope is reached. */
+	private Map<string, Vector<TemplateMethodCall>> templateCalls;
+	private Map<string, bool> templateCallKeys;
+	/* Whether the method-generics walk only gathers template calls. */
+	private bool gatheringTemplates;
+	private Map<string, bool> reachedScopes;
 
-	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions) {
+	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions, int nestingLimit) {
+		self.nestingLimit = nestingLimit;
+		self.scopeOwner = "";
+		self.scopeMethod = "";
+		self.memberOwner = "";
+		self.memberMethod = "";
+		self.templateOwner = "";
+		self.templateMethod = "";
+		self.useKeys = {};
+		self.uses = [];
+		self.successors = {};
+		self.growthFound = false;
+		self.templateCalls = {};
+		self.templateCallKeys = {};
+		self.gatheringTemplates = false;
+		self.reachedScopes = {};
 		self.closedClassInstances = {};
 		self.closedMethodInstances = {};
 		self.templateParameters = {};
@@ -42,6 +222,7 @@ class GenericSpecializer {
 		self.operators = operators;
 		self.expressions = expressions;
 		self.validatedSpecializations = {};
+		self.realtimeChecks = [];
 	}
 
 	public void discover(Node program) {
@@ -57,6 +238,15 @@ class GenericSpecializer {
 			index = index + 1;
 		}
 		BtrccPhaseTimer.mark("g-collect");
+		/* The use graph needs every template's generic-method calls before the
+		 * first closure specializes anything, as the reference's template
+		 * dependencies are; gather them without registering instances. */
+		self.gatheringTemplates = true;
+		for declaration in program.declarations() {
+			if (declaration.kind == NK_CLASS_DECL) { self.collectMethodGenericsDecl(declaration, self.analyzed, self.operators); }
+		}
+		self.gatheringTemplates = false;
+		BtrccPhaseTimer.mark("g-templates");
 		self.registerTransitiveGenericInstances(self.analyzed, self.operators);
 		BtrccPhaseTimer.mark("g-transitive");
 		index = 0;
@@ -72,6 +262,8 @@ class GenericSpecializer {
 		BtrccPhaseTimer.mark("g-method-scan");
 		self.registerTransitiveGenericInstances(self.analyzed, self.operators);
 		BtrccPhaseTimer.mark("g-transitive-methods");
+		self.reportGrowth();
+		self.validateRealtimeChecks();
 	}
 
 	public void useRecords(IValidationRecords? records) { self.records = records; }
@@ -170,6 +362,8 @@ class GenericSpecializer {
 		self.collectNativeCallbackInstances(hostedAbi);
 		BtrccPhaseTimer.mark("c-native");
 		self.closeProgramGenericExpressionGraph(program, self.analyzed, self.operators);
+		self.reportGrowth();
+		self.validateRealtimeChecks();
 	}
 
 	private void collectNativeCallbackInstances(HostedAbiRepository hostedAbi) {
@@ -248,7 +442,8 @@ class GenericSpecializer {
 			int i = 0;
 			while (i < d.members().len) {
 				Node mem = d.members().get(i);
-				if (mem.kind == NK_METHOD_DECL && mem.bodyNode != null) {
+				bool genericMethod = mem.kind == NK_METHOD_DECL && mem.genericParams().len > 0;
+				if (mem.kind == NK_METHOD_DECL && mem.bodyNode != null && (genericMethod || !self.gatheringTemplates)) {
 					Map<string, Node> vt = {};
 					Node selfT = SemanticTypeSystem.namedClass(d.name);
 					selfT.pointerDepth = 1;
@@ -258,9 +453,17 @@ class GenericSpecializer {
 						vt.put(mem.params().get(p).name, mem.params().get(p).type);
 						p = p + 1;
 					}
+					/* A generic method's body is a template in its own parameters. */
+					Map<string, bool> previousParameters = self.templateParameters;
+					self.templateParameters = SemanticTypeSystem.genericParameterSet(mem.genericParams());
+					self.templateOwner = d.name;
+					self.templateMethod = mem.genericParams().len > 0 ? mem.name : "";
 					bool ownsMemo = self.expressions.beginScopedMemo();
 					self.collectMethodGenericsBlock(mem.bodyNode, a, operators, vt);
 					self.expressions.endScopedMemo(ownsMemo);
+					self.templateParameters = previousParameters;
+					self.templateOwner = "";
+					self.templateMethod = "";
 				}
 				i = i + 1;
 			}
@@ -280,6 +483,8 @@ class GenericSpecializer {
 				Map<string, bool> previous = self.templateParameters;
 				self.templateParameters = SemanticTypeSystem.genericParameterSet(d.genericParams());
 				for name in member.genericParams() { self.templateParameters.put(name, true); }
+				self.templateOwner = d.name;
+				self.templateMethod = member.genericParams().len > 0 ? member.name : "";
 				Map<string, Node> vt = {};
 				vt.put("self", self.genericClosureSelfType(d.name, parameters));
 				for parameter in member.params() { vt.put(parameter.name, parameter.type); }
@@ -287,6 +492,8 @@ class GenericSpecializer {
 				self.collectMethodGenericsBlock(member.bodyNode, a, operators, vt);
 				self.expressions.endScopedMemo(ownsMemo);
 				self.templateParameters = previous;
+				self.templateOwner = "";
+				self.templateMethod = "";
 			}
 		}
 	}
@@ -462,7 +669,29 @@ class GenericSpecializer {
 			}
 			mp = mp + 1;
 		}
-		if (!ok) { return; }
+		/* A call in a template whose type arguments name the template's
+		 * parameters carries them into every specialization of the template
+		 * (the reference records it as a template dependency); its uses join
+		 * the use graph once the template's scope is reached. */
+		if (self.templateParameters.len > 0 && self.templateOwner != "") {
+			bool symbolic = false;
+			Vector<string> methodParameters = [];
+			Vector<Node> symbolicArgs = [];
+			for argument in classArgs {
+				if (TypeIdentity.referencesNames(argument, self.templateParameters)) { symbolic = true; }
+			}
+			for parameter in methodDecl.genericParams() {
+				if (methodSubs.has(parameter)) {
+					methodParameters.push(parameter);
+					symbolicArgs.push(methodSubs.get(parameter));
+					if (TypeIdentity.referencesNames(methodSubs.get(parameter), self.templateParameters)) { symbolic = true; }
+				}
+			}
+			if (symbolic) {
+				self.addTemplateCall(call, TemplateMethodCall(classBase, method, classArgs, methodParameters, symbolicArgs, call.line, call.col));
+			}
+		}
+		if (!ok || self.gatheringTemplates) { return; }
 		/* A template call whose args name the template's parameters is not an
 		 * instance; keep its args for validating the template itself. */
 		if (self.templateParameters.len > 0) {
@@ -476,6 +705,13 @@ class GenericSpecializer {
 		}
 
 		string owner = classBase + "." + method;
+		string key = TypeIdentity.methodInstanceKey(classBase, classArgs, method, methodArgs);
+		if (!a.methodGenSeen.has(key)) {
+			Vector<Node> instanceArguments = [];
+			for argument in classArgs { instanceArguments.push(argument); }
+			for argument in methodArgs { instanceArguments.push(argument); }
+			if (!self.admitSpecialization("method '" + owner + "'", instanceArguments, call)) { return; }
+		}
 		self.validateGenericArgumentsForOwner(owner, methodArgs);
 
 		/* Resolve and validate the full signature before recording an instance.
@@ -501,7 +737,6 @@ class GenericSpecializer {
 			vsi = vsi + 1;
 		}
 
-		string key = TypeIdentity.methodInstanceKey(classBase, classArgs, method, methodArgs);
 		ValidationFact? demand = a.journalFact(VALIDATION_GENERIC_METHOD, null, null);
 		if (demand != null) {
 			demand.name = classBase;
@@ -512,25 +747,35 @@ class GenericSpecializer {
 		if (!a.methodGenSeen.has(key)) {
 			a.methodGenSeen.put(key, true);
 			a.methodGenInstances.push(MethodGenInstance(classBase, method, classArgs, methodArgs));
+			string methodOwner = classArgs.len > 0 ? GenericSpecializer.specializationSpelling(classBase, classArgs, a) : classBase;
+			Vector<Node> templates = [methodDecl];
+			self.realtimeChecks.push(RealtimePayloadCheck(methodOwner + "." + GenericSpecializer.specializationSpelling(method, methodArgs, a), templates, full, call));
 		}
 		/* Record per-call-site method args for IR-gen mangling, per instance
 		 * while an instance's body is scanned. */
 		a.recordMethodCallArguments(call, methodArgs);
 
 		/* Register concrete generic types that the substituted signature mentions
-         * (e.g. Vector<string> from mapTo's return type). */
+         * (e.g. Vector<string> from mapTo's return type), reached from this
+         * method instance. */
+		string previousOwner = self.scopeOwner;
+		string previousMethod = self.scopeMethod;
+		self.enterScope(classBase, method);
 		self.registerSubstitutedGenerics(methodDecl.returnType, full, a);
 		int pi = 0;
 		while (pi < methodDecl.params().len) {
 			self.registerSubstitutedGenerics(methodDecl.params().get(pi).type, full, a);
 			pi = pi + 1;
 		}
+		self.scopeOwner = previousOwner;
+		self.scopeMethod = previousMethod;
 	}
 
 	/* Resolve `t` through `subs` and register any concrete generic instance it
      * (or its nested args) names. */
 	private void registerSubstitutedGenerics(Node? t, Map<string, Node> subs, Analyzed a) {
 		if (t == null) { return; }
+		self.recordUses(t);
 		Node resolved = SemanticTypeSystem.resolveGenericType(t, subs, a);
 		self.registerGenericInstance(resolved, a);
 	}
@@ -571,6 +816,247 @@ class GenericSpecializer {
 			parameterIndex = parameterIndex + 1;
 		}
 		return names;
+	}
+
+	/* Whether a specialization may be registered. Growth itself is refused
+	 * through the use graph (addUse): once a growing cycle is seen no derived
+	 * specialization is admitted. A derived specialization nested past
+	 * hosted_abi.toml's limit is refused as a backstop. Types a program
+	 * writes out are not limited. The reference's _admit_specialization. */
+	private bool admitSpecialization(string generic, Vector<Node> arguments, Node site) {
+		if (self.scopeOwner == "") { return true; }
+		if (self.growthFound) { return false; }
+		int depth = 0;
+		for argument in arguments {
+			int nesting = TypeIdentity.typeNestingDepth(argument);
+			if (nesting > depth) { depth = nesting; }
+		}
+		if (depth > self.nestingLimit) {
+			FeDiagnosticSources.fail(f"Generic {generic} needs type arguments nested deeper than {self.nestingLimit} levels, the limit that keeps specialization finite", site.line, site.col);
+		}
+		return true;
+	}
+
+	class string scopeKey(string owner, string method) { return method == "" ? owner : owner + "." + method; }
+
+	/* Scan within a declaration's specialization scope, adding the uses of the
+	 * template calls it makes. The caller restores the previous scope. */
+	private void enterScope(string owner, string method) {
+		self.scopeOwner = owner;
+		self.scopeMethod = method;
+		string key = GenericSpecializer.scopeKey(owner, method);
+		if (self.reachedScopes.has(key)) { return; }
+		self.reachedScopes.put(key, true);
+		if (self.templateCalls.has(key)) {
+			for templateCall in self.templateCalls.get(key) { self.recordMethodUse(templateCall); }
+		}
+	}
+
+	/* Keep a template call in the method-generics walk's scope, adding its
+	 * uses now if a specialization already reached that scope. */
+	private void addTemplateCall(Node call, TemplateMethodCall templateCall) {
+		string key = GenericSpecializer.scopeKey(self.templateOwner, self.templateMethod);
+		string callKey = key + "|" + AstIdentity.key(call);
+		if (self.templateCallKeys.has(callKey)) { return; }
+		self.templateCallKeys.put(callKey, true);
+		if (!self.templateCalls.has(key)) {
+			Vector<TemplateMethodCall> calls = [];
+			self.templateCalls.put(key, calls);
+		}
+		self.templateCalls.get(key).push(templateCall);
+		if (self.reachedScopes.has(key)) {
+			string previousOwner = self.scopeOwner;
+			string previousMethod = self.scopeMethod;
+			self.scopeOwner = self.templateOwner;
+			self.scopeMethod = self.templateMethod;
+			self.recordMethodUse(templateCall);
+			self.scopeOwner = previousOwner;
+			self.scopeMethod = previousMethod;
+		}
+	}
+
+	private Node? scopeOwnerDeclaration(string owner) {
+		if (self.analyzed.isGenericClass(owner)) { return self.analyzed.genericClassTable.get(owner); }
+		if (self.analyzed.isClass(owner)) { return self.analyzed.classTable.get(owner); }
+		return null;
+	}
+
+	private Node? scopeMethodDeclaration(string owner, string method) {
+		if (self.analyzed.isGenericClass(owner)) { return self.analyzed.genericClassMethod(owner, method); }
+		if (self.analyzed.isClass(owner)) { return self.analyzed.classMethod(owner, method); }
+		return null;
+	}
+
+	/* Each type parameter of a declaration's scope, with its node in the use
+	 * graph: Owner.T, or Owner.method.U (and Owner.method.T) for a generic
+	 * method's. */
+	private Map<string, string> scopeNodes(string owner, string methodName) {
+		Map<string, string> nodes = {};
+		if (owner == "") { return nodes; }
+		Node? declaration = self.scopeOwnerDeclaration(owner);
+		if (declaration == null) { return nodes; }
+		string prefix = GenericSpecializer.scopeKey(owner, methodName);
+		for parameter in declaration.genericParams() { nodes.put(parameter, prefix + "." + parameter); }
+		if (methodName != "") {
+			Node? method = self.scopeMethodDeclaration(owner, methodName);
+			if (method != null) {
+				for parameter in method.genericParams() { nodes.put(parameter, prefix + "." + parameter); }
+			}
+		}
+		return nodes;
+	}
+
+	/* Add the use graph's edges for one template type the scanned declaration
+	 * uses. A class instance's scan specializes its generic methods' bodies
+	 * and signatures too: a type there that names only the class's parameters
+	 * is a use of every class instance, and one that names the method's own
+	 * parameters is a use of the method's scope, which holds only once the
+	 * method is specialized. The reference's _record_uses. */
+	private void recordUses(Node? template) {
+		if (template == null || self.scopeOwner == "") { return; }
+		string methodName = self.scopeMethod;
+		if (self.memberMethod != "" && self.memberOwner == self.scopeOwner && self.scopeMethod == "") {
+			Node? method = self.scopeMethodDeclaration(self.scopeOwner, self.memberMethod);
+			if (method != null && TypeIdentity.referencesNames(template, SemanticTypeSystem.genericParameterSet(method.genericParams()))) {
+				methodName = self.memberMethod;
+			}
+		}
+		Map<string, string> nodes = self.scopeNodes(self.scopeOwner, methodName);
+		if (nodes.len > 0) { self.recordTypeUses(template, nodes); }
+	}
+
+	private void recordTypeUses(Node typeExpr, Map<string, string> nodes) {
+		if (self.analyzed.isGenericClass(typeExpr.base)) {
+			Node declaration = self.analyzed.genericClassTable.get(typeExpr.base);
+			if (declaration.genericParams().len == typeExpr.genericArgs().len) {
+				int index = 0;
+				while (index < typeExpr.genericArgs().len) {
+					string target = typeExpr.base + "." + declaration.genericParams().get(index);
+					self.recordArgument(typeExpr.genericArgs().get(index), nodes, target, typeExpr.line, typeExpr.col, "class '" + typeExpr.base + "'");
+					index = index + 1;
+				}
+			}
+		}
+		for argument in typeExpr.genericArgs() { self.recordTypeUses(argument, nodes); }
+	}
+
+	/* Add the use graph's edges for one generic-method call in the scanned
+	 * declaration. */
+	private void recordMethodUse(TemplateMethodCall templateCall) {
+		Map<string, string> nodes = self.scopeNodes(self.scopeOwner, self.scopeMethod);
+		Node? method = self.scopeMethodDeclaration(templateCall.owner, templateCall.method);
+		if (nodes.len == 0 || method == null) { return; }
+		/* A call specializes the method's own scope, whose nodes carry the
+		 * class's parameters as well as the method's. */
+		string prefix = templateCall.owner + "." + templateCall.method;
+		Node? owner = self.scopeOwnerDeclaration(templateCall.owner);
+		if (owner != null) {
+			int index = 0;
+			while (index < owner.genericParams().len && index < templateCall.classArgs.len) {
+				string target = prefix + "." + owner.genericParams().get(index);
+				self.recordArgument(templateCall.classArgs.get(index), nodes, target, templateCall.line, templateCall.col, "class '" + templateCall.owner + "'");
+				index = index + 1;
+			}
+		}
+		string generic = "method '" + templateCall.owner + "." + templateCall.method + "'";
+		int argument = 0;
+		while (argument < templateCall.methodArgs.len) {
+			string target = prefix + "." + templateCall.methodParameters.get(argument);
+			self.recordArgument(templateCall.methodArgs.get(argument), nodes, target, templateCall.line, templateCall.col, generic);
+			argument = argument + 1;
+		}
+		for classArgument in templateCall.classArgs { self.recordTypeUses(classArgument, nodes); }
+		for methodArgument in templateCall.methodArgs { self.recordTypeUses(methodArgument, nodes); }
+	}
+
+	private void recordArgument(Node argument, Map<string, string> nodes, string target, int line, int col, string generic) {
+		for name in nodes.keys() {
+			Map<string, bool> names = {};
+			names.put(name, true);
+			if (TypeIdentity.referencesNames(argument, names)) {
+				/* A pure nullable marker saturates instead of adding a pointer
+				 * layer on each specialization, as composeTypeExpr records. */
+				int nullableLayer = argument.isNullable && argument.nullableOuterDepth == 0 ? 1 : 0;
+				bool nonGrowing = argument.base == name && argument.genericArgs().len == 0 && argument.pointerDepth <= nullableLayer && !argument.isArray;
+				self.addUse(nodes.get(name), target, !nonGrowing, line, col, generic);
+			}
+		}
+	}
+
+	/* Add one use edge, and note a growing use that lies on a cycle. A type
+	 * parameter flows into a parameter of the generic it uses; the use is
+	 * growing when the argument wraps the parameter (Chain<(T, int)> inside
+	 * Chain<T>). A cycle through a growing use makes every pass around it nest
+	 * one more level, so specialization never ends. Edges come from the uses
+	 * specialization follows, so the cycle is found once each declaration on
+	 * it has been scanned, however many uses grow. From then on no derived
+	 * specialization is admitted, and the uses of the specializations already
+	 * found still join the graph, so reportGrowth sees the same graph whatever
+	 * order they were scanned. The reference's _add_use. */
+	private void addUse(string source, string target, bool growing, int line, int col, string generic) {
+		int growth = growing ? 1 : 0;
+		string key = f"{source}|{target}|{growth}|{line}:{col}|{generic}";
+		if (self.useKeys.has(key)) { return; }
+		self.useKeys.put(key, true);
+		self.uses.push(GenericUse(source, target, growing, line, col, generic));
+		self.addEdge(self.successors, source, target);
+		if (!self.growthFound && self.reachable(target, self.successors).has(source)) {
+			self.growthFound = self.growingCycleUse() != null;
+		}
+	}
+
+	/* The growing use on a cycle that comes first in source, preferring one
+	 * with a source position: a use the analyzer inferred has none. */
+	private GenericUse? growingCycleUse() {
+		GenericUse? first = null;
+		for use in self.uses {
+			if (!use.growing || !self.reachable(use.target, self.successors).has(use.source)) { continue; }
+			if (first == null || GenericSpecializer.useBefore(use, first)) { first = use; }
+		}
+		return first;
+	}
+
+	/* Refuse the growing cycle's first use, once discovery has drained. The
+	 * reference's _report_growth. */
+	private void reportGrowth() {
+		if (!self.growthFound) { return; }
+		GenericUse? first = self.growingCycleUse();
+		if (first == null) { return; }
+		FeDiagnosticSources.fail(f"Generic {first.generic} grows its own type arguments through this use, so its specializations never end", first.line, first.col);
+	}
+
+	class bool useBefore(GenericUse left, GenericUse right) {
+		bool leftLocated = left.line != 0 || left.col != 0;
+		bool rightLocated = right.line != 0 || right.col != 0;
+		if (leftLocated != rightLocated) { return leftLocated; }
+		if (left.line != right.line) { return left.line < right.line; }
+		if (left.col != right.col) { return left.col < right.col; }
+		return Strings.compare(left.generic, right.generic) < 0;
+	}
+
+	private void addEdge(Map<string, Vector<string>> edges, string from, string to) {
+		if (!edges.has(from)) {
+			Vector<string> following = [];
+			edges.put(from, following);
+		}
+		edges.get(from).push(to);
+	}
+
+	private Map<string, bool> reachable(string start, Map<string, Vector<string>> edges) {
+		Map<string, bool> seen = {};
+		seen.put(start, true);
+		Vector<string> pending = [start];
+		while (pending.len > 0) {
+			string node = pending.pop();
+			if (!edges.has(node)) { continue; }
+			for following in edges.get(node) {
+				if (!seen.has(following)) {
+					seen.put(following, true);
+					pending.push(following);
+				}
+			}
+		}
+		return seen;
 	}
 
 	private void validateGenericArgumentsForOwner(string owner, Vector<Node> args) {
@@ -647,6 +1133,115 @@ class GenericSpecializer {
 		}
 	}
 
+	/* Reject a specialization whose arguments break a realtime payload rule.
+	 * A template checks its own payloads only where they are concrete, so a
+	 * payload spelled with a type parameter is rechecked here, under the
+	 * arguments of each instance, through every generic class the template
+	 * reaches. The least message is reported, so the walk order is not part
+	 * of the diagnostic. */
+	/* The use graph rejects growing specializations before this walk follows
+	 * concrete arguments. Checks keep their original instantiation sites. */
+	private void validateRealtimeChecks() {
+		for check in self.realtimeChecks {
+			self.validateRealtimePayloads(check.siteName, check.members, check.substitutions, check.site, self.analyzed);
+		}
+		self.realtimeChecks.clear();
+	}
+
+	private void validateRealtimePayloads(string siteName, Vector<Node> members, Map<string, Node> substitutions, Node site, Analyzed a) {
+		Map<string, bool> problems = {};
+		Map<string, bool> visiting = {};
+		self.realtimeTemplateProblems(members, substitutions, visiting, problems, a);
+		if (problems.len == 0) { return; }
+		string least = "";
+		for problem in problems.keys() {
+			if (least.isEmpty() || Strings.compare(problem, least) < 0) { least = problem; }
+		}
+		SemanticTypeSystem.typedefSemanticFail("Generic specialization '" + siteName + "' is invalid: " + least, site);
+	}
+
+	private void realtimeTemplateProblems(Vector<Node> members, Map<string, Node> substitutions, Map<string, bool> visiting, Map<string, bool> problems, Analyzed a) {
+		Map<string, bool> substituted = {};
+		for name in substitutions.keys() { substituted.put(name, true); }
+		for member in members {
+			Map<string, bool> unresolved = {};
+			for parameter in member.genericParams() {
+				if (!substitutions.has(parameter)) { unresolved.put(parameter, true); }
+			}
+			for node in AstStructure.preorder(member) {
+				/* A type no argument reaches was checked where it is declared. */
+				if (node.kind != NK_TYPE_EXPR || !TypeIdentity.referencesNames(node, substituted)) { continue; }
+				self.realtimeTypeProblems(SemanticTypeSystem.resolveGenericType(node, substitutions, a), unresolved, visiting, problems, a);
+			}
+		}
+	}
+
+	private void realtimeTypeProblems(Node? typeExpr, Map<string, bool> unresolved, Map<string, bool> visiting, Map<string, bool> problems, Analyzed a) {
+		if (typeExpr == null) { return; }
+		Node? canonical = SemanticTypeSystem.resolveTypedefType(typeExpr, a.typedefTable);
+		if (canonical == null) { return; }
+		Node shape = typeExpr.base == canonical.base ? typeExpr : canonical;
+		string label = RealtimePayloadRules.label(canonical.base);
+		if (!label.isEmpty() && shape.genericArgs().len > 0) {
+			Node payload = shape.genericArgs().get(0);
+			if (!TypeIdentity.referencesNames(payload, unresolved) && !RealtimePayloadRules.admits(canonical.base, payload, a)) {
+				problems.put(label + " '" + GenericSpecializer.sourceSpelling(payload, a) + "' " + RealtimePayloadRules.requirement(canonical.base), true);
+			}
+		}
+		if (label.isEmpty() && a.genericClassTable.has(canonical.base)) {
+			Node declaration = a.genericClassTable.get(canonical.base);
+			bool concrete = declaration.genericParams().len == shape.genericArgs().len;
+			for argument in shape.genericArgs() {
+				if (TypeIdentity.referencesNames(argument, unresolved)) { concrete = false; }
+			}
+			string key = TypeIdentity.genericInstanceKey(canonical.base, shape.genericArgs());
+			if (concrete && !visiting.has(key)) {
+				visiting.put(key, true);
+				self.realtimeTemplateProblems(declaration.members(), GenericSpecializer.templateSubstitutions(declaration, shape.genericArgs()), visiting, problems, a);
+			}
+		}
+		for argument in shape.genericArgs() { self.realtimeTypeProblems(argument, unresolved, visiting, problems, a); }
+	}
+
+	class Map<string, Node> templateSubstitutions(Node declaration, Vector<Node> args) {
+		Map<string, Node> substitutions = {};
+		int index = 0;
+		while (index < declaration.genericParams().len && index < args.len) {
+			substitutions.put(declaration.genericParams().get(index), args.get(index));
+			index = index + 1;
+		}
+		return substitutions;
+	}
+
+	/* One specialization as source names it: `Base<Arg, ...>`. */
+	class string specializationSpelling(string base, Vector<Node> args, Analyzed a) {
+		Vector<string> spelled = [];
+		for argument in args { spelled.push(GenericSpecializer.sourceSpelling(argument, a)); }
+		return base + "<" + Strings.join(spelled, ", ") + ">";
+	}
+
+	/* A type as source spells it: a class or interface without its implicit pointer. */
+	class string sourceSpelling(Node typeExpr, Analyzed a) {
+		int pointers = typeExpr.pointerDepth;
+		if (pointers > 0 && (a.isClass(typeExpr.base) || a.isGenericClass(typeExpr.base) || a.isInterface(typeExpr.base))) { pointers = pointers - 1; }
+		string result = typeExpr.isConst ? "const " : "";
+		if (typeExpr.base == "__fn_ptr") {
+			result = result + "CFunction";
+		} else if (typeExpr.base == "__realtime_fn_ptr") {
+			result = result + "RealtimeFunction";
+		} else {
+			result = result + typeExpr.base;
+		}
+		if (typeExpr.genericArgs().len > 0) {
+			Vector<string> spelled = [];
+			for argument in typeExpr.genericArgs() { spelled.push(GenericSpecializer.sourceSpelling(argument, a)); }
+			result = result + "<" + Strings.join(spelled, ", ") + ">";
+		}
+		result = result + "*".repeat(pointers);
+		if (typeExpr.isArray) { result = result + "[]"; }
+		return result;
+	}
+
 	/* Register the transitive generic-instance closure: for every concrete generic
      * instance, resolve its member field/method/param types through that instance's
      * type map and register any resolved generic-class type. Repeats until the
@@ -661,6 +1256,9 @@ class GenericSpecializer {
 		 * re-derive what this one already registered. */
 		while (idx < a.genericInstances.len) {
 			GenInstance inst = a.genericInstances.get(idx);
+			string previousOwner = self.scopeOwner;
+			string previousMethod = self.scopeMethod;
+			self.enterScope(inst.base, "");
 			if (a.genericClassTable.has(inst.base)) {
 				Node decl = a.genericClassTable.get(inst.base);
 				Map<string, Node> tm = {};
@@ -679,16 +1277,21 @@ class GenericSpecializer {
 					if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
 						self.registerResolvedGenericInstance(mem.type, tm, unresolved, a);
 					} else if (mem.kind == NK_METHOD_DECL) {
+						self.memberOwner = inst.base;
+						self.memberMethod = mem.genericParams().len > 0 ? mem.name : "";
 						self.registerResolvedGenericInstance(mem.returnType, tm, unresolved, a);
 						int p = 0;
 						while (p < mem.params().len) {
 							self.registerResolvedGenericInstance(mem.params().get(p).type, tm, unresolved, a);
 							p = p + 1;
 						}
+						self.memberMethod = "";
 					}
 					mi = mi + 1;
 				}
 			}
+			self.scopeOwner = previousOwner;
+			self.scopeMethod = previousMethod;
 			idx = idx + 1;
 		}
 		BtrccPhaseTimer.mark("g-members");
@@ -699,6 +1302,7 @@ class GenericSpecializer {
      * generic-class instance not yet seen, register it. */
 	private void registerResolvedGenericInstance(Node? t, Map<string, Node> tm, Map<string, bool> unresolved, Analyzed a) {
 		if (t == null) { return; }
+		self.recordUses(t);
 		self.registerGenericInstanceWithUnresolved(SemanticTypeSystem.resolveGenericType(t, tm, a), a, unresolved);
 	}
 
@@ -757,6 +1361,17 @@ class GenericSpecializer {
 			Map<string, bool> unresolved = {};
 			SemanticTypeSystem.upgradeTypeGenericArgs(d.type, a, unresolved);
 			self.upgradeExprGenericArgs(d.initializer, a, unresolved);
+		} else if (d.kind == NK_RICH_ENUM_DECL) {
+			/* A payload slot is a parameter of the variant constructor: its
+			 * nested class arguments use the same pointer representation as
+			 * the locals passed to it (`Vector<IProbeView>` payloads). */
+			Map<string, bool> unresolved = {};
+			for variant in d.variants() {
+				for parameter in variant.params() {
+					SemanticTypeSystem.upgradeTypeGenericArgs(parameter.type, a, unresolved);
+					self.upgradeExprGenericArgs(parameter.default_, a, unresolved);
+				}
+			}
 		}
 	}
 
@@ -919,6 +1534,9 @@ class GenericSpecializer {
 		/* One key serves both the validation de-duplication and the instance
 		 * table: both identify the exact specialization. */
 		string key = generic ? TypeIdentity.genericInstanceKey(base, t.genericArgs()) : "";
+		if (generic && !a.genericSeen.has(key) && !TypeIdentity.referencesNames(t, unresolved)) {
+			if (!self.admitSpecialization("class '" + base + "'", t.genericArgs(), t)) { return; }
+		}
 		if (generic) {
 			/* A specialization's validity depends only on its owner declaration and
 			 * exact arguments, so validate each distinct specialization once instead
@@ -941,6 +1559,10 @@ class GenericSpecializer {
 				 * pointer. */
 				a.genericSeen.put(key, true);
 				a.genericInstances.push(GenInstance(base, t.genericArgs(), TypeIdentity.mangleGenericType(base, t.genericArgs())));
+				if (RealtimePayloadRules.label(base).isEmpty()) {
+					Node declaration = a.genericClassTable.get(base);
+					self.realtimeChecks.push(RealtimePayloadCheck(GenericSpecializer.specializationSpelling(base, t.genericArgs(), a), declaration.members(), GenericSpecializer.templateSubstitutions(declaration, t.genericArgs()), t));
+				}
 			}
 		}
 		/* Even when the outer shape is unresolved, a concrete nested argument is
@@ -1120,6 +1742,7 @@ class GenericSpecializer {
 		Node resolved = SemanticTypeSystem.resolveGenericType(typeExpr, substitutions, analyzed);
 		if (resolved.genericArgs().len > 0) {
 			self.validateSpecializedContracts(resolved, analyzed);
+			self.recordUses(typeExpr);
 			self.registerGenericInstanceWithUnresolved(resolved, analyzed, unresolved);
 		}
 	}
@@ -1163,7 +1786,7 @@ class GenericSpecializer {
 		while (parameter < lambda.params().len) {
 			Node value = lambda.params().get(parameter);
 			Node resolved = SemanticTypeSystem.resolveGenericType(value.type, substitutions, analyzed);
-			self.genericClosureRegisterType(resolved, substitutions, unresolved, analyzed);
+			self.genericClosureRegisterType(value.type, substitutions, unresolved, analyzed);
 			nested.put(value.name, resolved);
 			self.genericClosureWalkNode(value.default_, substitutions, unresolved, analyzed, operators, nested);
 			parameter = parameter + 1;
@@ -1172,7 +1795,7 @@ class GenericSpecializer {
 		while (capture < lambda.captures().len) {
 			Node value = lambda.captures().get(capture);
 			Node resolved = SemanticTypeSystem.resolveGenericType(value.type, substitutions, analyzed);
-			self.genericClosureRegisterType(resolved, substitutions, unresolved, analyzed);
+			self.genericClosureRegisterType(value.type, substitutions, unresolved, analyzed);
 			nested.put(value.name, resolved);
 			capture = capture + 1;
 		}
@@ -1202,7 +1825,7 @@ class GenericSpecializer {
 			} else {
 				declared = self.genericClosureExpressionType(node.initializer, substitutions, analyzed, operators, variables);
 			}
-			self.genericClosureRegisterType(declared, substitutions, unresolved, analyzed);
+			self.genericClosureRegisterType(node.type != null ? node.type : declared, substitutions, unresolved, analyzed);
 			if (declared != null) { variables.put(node.name, declared); }
 			return;
 		}
@@ -1310,7 +1933,7 @@ class GenericSpecializer {
 		while (index < method.params().len) {
 			Node parameter = method.params().get(index);
 			Node resolved = SemanticTypeSystem.resolveGenericType(parameter.type, substitutions, analyzed);
-			self.genericClosureRegisterType(resolved, substitutions, unresolved, analyzed);
+			self.genericClosureRegisterType(parameter.type, substitutions, unresolved, analyzed);
 			variables.put(parameter.name, resolved);
 			self.genericClosureWalkNode(parameter.default_, substitutions, unresolved, analyzed, operators, variables);
 			index = index + 1;
@@ -1341,8 +1964,14 @@ class GenericSpecializer {
 				if (includeConstructor || !member.isConstructor) {
 					Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(member.genericParams());
 					Map<string, Node> variables = self.genericClosureCopyTypes(baseVariables);
+					string previousOwner = self.memberOwner;
+					string previousMember = self.memberMethod;
+					self.memberOwner = self.scopeOwner;
+					self.memberMethod = member.genericParams().len > 0 ? member.name : "";
 					self.genericClosureSeedParameters(member, substitutions, unresolved, analyzed, operators, variables);
 					self.genericClosureWalkNode(member.bodyNode, substitutions, unresolved, analyzed, operators, variables);
+					self.memberOwner = previousOwner;
+					self.memberMethod = previousMember;
 				}
 			}
 			index = index + 1;
@@ -1375,7 +2004,12 @@ class GenericSpecializer {
 		Map<string, bool> visited = {};
 		bool ownsMemo = self.expressions.beginScopedMemo();
 		string previous = analyzed.beginInstance(GenericSpecializer.classInstanceContext(instance));
+		string previousOwner = self.scopeOwner;
+		string previousMethod = self.scopeMethod;
+		self.enterScope(instance.base, "");
 		self.genericClosureScanHierarchy(declaration, instance.args, substitutions, analyzed, operators, baseVariables, visited, true);
+		self.scopeOwner = previousOwner;
+		self.scopeMethod = previousMethod;
 		analyzed.endInstance(previous);
 		self.expressions.endScopedMemo(ownsMemo);
 	}
@@ -1421,8 +2055,13 @@ class GenericSpecializer {
 		variables.put("self", self.genericClosureSelfType(instance.classBase, instance.classArgs));
 		bool ownsMemo = self.expressions.beginScopedMemo();
 		string previous = analyzed.beginInstance(GenericSpecializer.methodInstanceContext(instance));
+		string previousOwner = self.scopeOwner;
+		string previousMethod = self.scopeMethod;
+		self.enterScope(instance.classBase, instance.methodName);
 		self.genericClosureSeedParameters(method, substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkNode(method.bodyNode, substitutions, unresolved, analyzed, operators, variables);
+		self.scopeOwner = previousOwner;
+		self.scopeMethod = previousMethod;
 		analyzed.endInstance(previous);
 		self.expressions.endScopedMemo(ownsMemo);
 	}
@@ -1485,8 +2124,14 @@ class GenericSpecializer {
 			variables.put("self", self.genericClosureSelfType(owner.name, noArguments));
 		}
 		bool ownsMemo = self.expressions.beginScopedMemo();
+		string previousOwner = self.scopeOwner;
+		string previousMethod = self.scopeMethod;
+		self.scopeOwner = "";
+		self.scopeMethod = "";
 		self.genericClosureSeedParameters(callable, substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkNode(callable.bodyNode, substitutions, unresolved, analyzed, operators, variables);
+		self.scopeOwner = previousOwner;
+		self.scopeMethod = previousMethod;
 		self.expressions.endScopedMemo(ownsMemo);
 	}
 

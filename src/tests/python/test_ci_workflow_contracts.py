@@ -643,7 +643,13 @@ def test_a_pr_tier_corpus_row_reaches_pytest_through_pytest_addopts() -> None:
         suite = next(
             step for step in _parsed(workflow)["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", "")
         )
-        assert suite["env"] == {"PYTEST_ADDOPTS": "${{ matrix.pytest_addopts }}"}, workflow
+        options = "${{ matrix.pytest_addopts }}"
+        if workflow == "macos.yml":
+            options = (
+                "${{ matrix.shard == 'unit' && format('--dist=loadgroup {0}', matrix.pytest_addopts) "
+                "|| matrix.pytest_addopts }}"
+            )
+        assert suite["env"] == {"PYTEST_ADDOPTS": options}, workflow
     linux = next(step for step in _parsed("ci.yml")["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", ""))
     assert '-v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest' in linux["run"]
 
@@ -1090,6 +1096,9 @@ def test_macos_ci_matrix_runs_and_uploads_both_archived_bundles() -> None:
 
     parsed = _parsed("macos.yml")["jobs"]["native-bundle"]
     assert parsed["runs-on"] == "macos-15"
+    assert parsed["timeout-minutes"] == "45"
+    assert job.count("nix develop .#macos-release --command") == 2
+    assert "nix develop --command" not in job
     assert "macos-15-intel" not in job
     assert parsed["env"] == {
         "BUNDLE_MACHINE": "${{ matrix.target == 'macos-x64' && 'x86_64' || 'arm64' }}",
@@ -1163,7 +1172,8 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
         "- run: nix develop --command make NIX= PYTEST_WORKERS=3 "
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}\n"
         "        env:\n"
-        "          PYTEST_ADDOPTS: ${{ matrix.pytest_addopts }}"
+        "          PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && "
+        "format('--dist=loadgroup {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}"
     )
     assert "podman" not in job
 
@@ -1265,7 +1275,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
     assert steps[suite] == {
         "run": "nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 "
         "BTRC_TEST_RUN_TIMEOUT=60 test-native-gui",
-        "env": {"PYTEST_ADDOPTS": "--junitxml=build/junit/native-gui.xml"},
+        "env": {"PYTEST_ADDOPTS": "--dist=loadgroup --junitxml=build/junit/native-gui.xml"},
     }
 
     # Each keeps its JUnit results, then (the skip-report contract) its skip report.
@@ -1306,6 +1316,26 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     assert "nix/android-repo-overlay.json" in android
     assert ".#platforms" not in android
     assert _parsed("host-android.yml")["jobs"]["emulator"]["strategy"]["matrix"]["api"] == ["29", "36"]
+
+
+@pytest.mark.parametrize("sdk_exit", [0, 7])
+def test_android_license_acceptance_preserves_sdkmanager_status(sdk_exit: int) -> None:
+    job = _parsed("host-android.yml")["jobs"]["emulator"]
+    (command,) = [
+        line.strip() for step in job["steps"] for line in step.get("run", "").splitlines() if "--licenses" in line
+    ]
+    bash = shutil.which("bash")
+    assert bash, "the development shell provides bash"
+    # sdkmanager consumes a finite set of answers; yes can then receive SIGPIPE.
+    # Exercise the actual workflow command under GitHub's bash/pipefail settings.
+    script = (
+        'accept_sdk_licenses() { read -r answer; test "$answer" = y || return 9; '
+        f"return {sdk_exit}; }}\n"
+        "sdkmanager=accept_sdk_licenses\n"
+        f"{command}\n"
+    )
+    result = subprocess.run([bash, "-e", "-o", "pipefail", "-c", script], capture_output=True, timeout=10)
+    assert result.returncode == sdk_exit, result.stderr.decode(errors="replace")
 
 
 def test_windows_arm64_lane_keeps_cross_and_native_qualification_separate() -> None:

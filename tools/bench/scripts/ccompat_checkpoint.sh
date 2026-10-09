@@ -24,7 +24,7 @@ from tools.runbook.quiet import QuietCheck, QuietSettings
 settings = QuietSettings().load(Path.home() / '.cache/btrc/runbook/quiet.toml')
 print("Waiting for an automated quiet window", flush=True)
 QuietCheck(Path(sys.argv[2]), settings, say=lambda message: print(message, flush=True)).wait()
-print("Quiet window ready; starting budget measurement", flush=True)
+print("Quiet window ready; starting measurement", flush=True)
 raise SystemExit(subprocess.call(sys.argv[3:], timeout=12 * 60 * 60))
 """
 
@@ -152,13 +152,21 @@ class Checkpoint:
         }
         return revision, tree, binary
 
+    def quiet_measurement(self, workspace, *argv, log):
+        if not (self.repo / "tools/runbook/quiet.py").is_file():
+            raise RuntimeError("measurement deferred until the automated quiet check is available")
+        # Hold one lock across the quiet window and the measurement it qualifies.
+        return self.command(self.helper("withlock.sh"), "bench", "nix", "develop", self.repo,
+                     "--command", "python3", "-u", "-c", QUIET,
+                     self.repo, workspace, *argv, log=log)
+
     def memory(self, builds):
         for sample in range(1, 4):
             for role, (revision, tree, binary) in builds.items():
                 tag = f"{role}-{sample}"
-                output = self.command(
-                    *self.environment(tree), f"BTRC_BENCH_HOME={self.logs}", self.helper("withlock.sh"),
-                    "bench", *self.reader_shell(tree), self.helper("instr.sh"), binary, tag,
+                output = self.quiet_measurement(
+                    self.workspace, *self.environment(tree), f"BTRC_BENCH_HOME={self.logs}",
+                    *self.reader_shell(tree), self.helper("instr.sh"), binary, tag,
                     log=self.logs / f"{tag}.log")
                 if self.args.dry_run:
                     continue
@@ -188,16 +196,9 @@ class Checkpoint:
                          binary if frontend == "selfhost" else "", self.logs / f"budget-{role}-{frontend}",
                          "--frontend", frontend, "--scenarios", self.args.budget]
                 self.results["budget_reports"].append(str(self.logs / f"budget-{role}-{frontend}" / "report.json"))
-                if (self.repo / "tools/runbook/quiet.py").is_file():
-                    # Keep the quiet check and its measurement inside the same bench lock.
-                    self.command(self.helper("withlock.sh"), "bench", "nix", "develop", self.repo,
-                                 "--command", "python3", "-u", "-c", QUIET,
-                                 self.repo, tree, *bench, log=self.logs / f"budget-{role}-{frontend}.log")
-                else:
-                    print("# No automated quiet check: the wall-clock half needs a quiet window.")
-                    if not self.args.dry_run:
-                        raise RuntimeError("budget measurement deferred until the automated quiet check is available")
-                    self.command(self.helper("withlock.sh"), "bench", *bench)
+                # BudgetHarness measures its copy at <out>/ws, not the compiler tree.
+                self.quiet_measurement(self.logs / f"budget-{role}-{frontend}" / "ws", *bench,
+                                       log=self.logs / f"budget-{role}-{frontend}.log")
 
     def gate(self, tree, base):
         args = [self.helper("withlock.sh"), "gate", self.helper("batch_gate.sh"), tree, self.logs / "gate", base]

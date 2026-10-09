@@ -1050,6 +1050,29 @@ class IRStatementSequence:
     def __init__(self, statements: list[IRStmt]) -> None:
         self.statements = statements
 
+    def lexical_block(self) -> IRBlock:
+        """Keep each runtime array's storage from its declaration to block exit.
+
+        A distinct block also gives C optimizers an explicit stack boundary
+        after any preceding inlined call that allocated a VLA. GCC 15 can
+        otherwise associate the array with that call's completed stack save.
+        Cleanup statements must already be present, so they remain inside the
+        array's lifetime. Nested scopes survive callers that splice the outer list.
+        """
+        block = IRBlock()
+        current = block.stmts
+        for statement in self.statements:
+            if (
+                isinstance(statement, IRVarDecl)
+                and statement.array_size is not None
+                and not isinstance(statement.array_size, IRLiteral)
+            ):
+                scope = IRBlock()
+                current.append(scope)
+                current = scope.stmts
+            current.append(statement)
+        return block
+
     def may_fall_through(self) -> bool:
         return all(self._statement_may_fall_through(statement) for statement in self.statements)
 

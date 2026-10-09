@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -9,6 +10,31 @@ import pytest
 
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.reference_pipeline import emit_c
+
+
+def test_tuple_declarations_do_not_depend_on_body_discovery_order() -> None:
+    first = "(int, (int, (short, char))) outer = (7, (3, ((short)2, 'q')));"
+    second = "(char, int) earlier = ('a', 4);"
+    declarations = []
+    for statements in ((first, second), (second, first)):
+        source = "int main() { " + " ".join(statements) + " return outer._0 + earlier._1; }"
+        generated = emit_c(source)
+        definitions = re.findall(r"^struct (btrc_\w+) \{\n(.*?)^\};", generated, re.MULTILINE | re.DOTALL)
+        shapes = [symbol for symbol, _body in definitions]
+        assert len(shapes) == 4, shapes
+        dependencies = [
+            (owner, dependency)
+            for owner, body in definitions
+            for dependency in shapes
+            if re.search(r"\b" + re.escape(dependency) + r"\b", body)
+        ]
+        assert len(dependencies) == 2
+        assert any(owner < dependency for owner, dependency in dependencies), "guard against lexical sorting alone"
+        for owner, dependency in dependencies:
+            assert shapes.index(dependency) < shapes.index(owner), shapes
+        declarations.append(shapes)
+    assert declarations[0] == declarations[1]
+
 
 _INTERNAL_GENERIC_TUPLE_SOURCES = (
     pytest.param(

@@ -961,27 +961,31 @@ class TestTypeInferenceExtended:
 
     def test_var_infer_from_list_literal(self):
         """Var should infer List type from a list literal."""
+        # The literal becomes a Vector, so the program must declare one.
         src = """
+            class Vector<T> { public void push(T value) { } }
             void test() {
                 var nums = [1, 2, 3];
             }
         """
         result = analyze(src)
         assert not result.errors
-        stmt = result.program.declarations[0].body.statements[0]
+        stmt = result.program.declarations[1].body.statements[0]
         assert stmt.type.base == "Vector"
         assert stmt.type.generic_args[0].base == "int"
 
     def test_var_infer_from_map_literal(self):
         """Var should infer Map type from a map literal."""
+        # The literal becomes a Map, so the program must declare one.
         src = """
+            class Map<K, V> { public void put(K key, V value) { } }
             void test() {
                 var scores = {"alice": 100, "bob": 95};
             }
         """
         result = analyze(src)
         assert not result.errors
-        stmt = result.program.declarations[0].body.statements[0]
+        stmt = result.program.declarations[1].body.statements[0]
         assert stmt.type.base == "Map"
         assert stmt.type.generic_args[0].base == "string"
         assert stmt.type.generic_args[1].base == "int"
@@ -2447,12 +2451,22 @@ class TestCallArity:
 class TestListElementTypeValidation:
     def test_mixed_types_error(self):
         src = """
+            class Vector<T> { public void push(T value) { } }
+            int main() {
+                var nums = [1, 2, "three"];
+                return 0;
+            }
+        """
+        assert has_error(src, "List element 2 has type 'string' but expected 'int'")
+
+    def test_declared_list_checks_elements_against_its_type(self):
+        src = """
             int main() {
                 Vector<int> nums = [1, 2, "three"];
                 return 0;
             }
         """
-        assert has_error(src, "List element 2 has type 'string' but expected 'int'")
+        assert has_error(src, "Initializer for 'nums' expects 'int' elements but got 'string'")
 
     def test_homogeneous_list_ok(self):
         src = """

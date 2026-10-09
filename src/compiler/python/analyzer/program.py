@@ -386,6 +386,20 @@ class DeclarationIndex:
     struct_definitions: dict[str, object] = field(default_factory=dict)
     definition_index: dict[str, tuple[object, str]] = field(default_factory=dict)
 
+    def declares_type_name(self, name: str) -> bool:
+        """Whether a class, struct, enum, interface or typedef is named ``name``."""
+        return any(
+            name in table
+            for table in (
+                self.class_table,
+                self.struct_table,
+                self.enum_table,
+                self.rich_enum_table,
+                self.interface_table,
+                self.typedef_table,
+            )
+        )
+
 
 @dataclass(frozen=True)
 class InitializerSlot:
@@ -444,6 +458,8 @@ class AnalyzedProgram:
     generic_method_call_args: dict[int, tuple] = field(default_factory=dict)
     function_table: dict[str, FunctionDecl] = field(default_factory=dict)
     global_var_types: dict[str, TypeExpr] = field(default_factory=dict)
+    # Each global's initializer, which completes an unsized array's extent.
+    global_initializers: dict[str, object] = field(default_factory=dict)
     defined_global_names: frozenset[str] = frozenset()
     native_owned_globals: frozenset[str] = frozenset()
     native_type_spellings: dict[str, str] = field(default_factory=dict)
@@ -465,6 +481,20 @@ class AnalyzedProgram:
     warnings: list[str] = field(default_factory=list)
     diags: list[Diag] = field(default_factory=list)
     occurrences: dict[int, Occurrence] = field(default_factory=dict)
+
+    def declares_type_name(self, name: str) -> bool:
+        """Whether a class, struct, enum, interface or typedef is named ``name``."""
+        return any(
+            name in table
+            for table in (
+                self.class_table,
+                self.struct_table,
+                self.enum_table,
+                self.rich_enum_table,
+                self.interface_table,
+                self.typedef_table,
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -520,6 +550,8 @@ class AnalysisSession(AnalysisContext):
         self._flow_unreachable: bool = False
         self._address_escaped_symbol_ids: set[int] = set()
         self.rich_enum_unsafe_default_ids: set[int] = set()
+        # Lambda literals spawned directly: their results are Thread<T> results.
+        self.spawned_lambda_ids: set[int] = set()
         self.record_occurrences: bool = False
         self.occurrences: dict[int, Occurrence] = {}
         self._lambda_contexts: list[tuple[dict[str, SymbolInfo], dict[str, TypeExpr]]] = []
@@ -529,6 +561,11 @@ class AnalysisSession(AnalysisContext):
         self.source_visible_runtime_names: frozenset[str] = frozenset()
         self.reported_type_shape_errors: set[tuple[str, int, int]] = set()
         self._gpu_result_boundary: object | None = None
+        # An inferred collection literal's first mismatch (literal, message,
+        # line, col) waits for the end of its statement, where it is reported
+        # unless a typed position claimed the literal (contextual_literal_ids).
+        self.inferred_literal_mismatches: list[tuple[object, str, int, int]] = []
+        self.contextual_literal_ids: set[int] = set()
 
     def begin(self, program: Program) -> None:
         """Reset all mutable facts whose lifetime is one analysis run."""
@@ -546,12 +583,15 @@ class AnalysisSession(AnalysisContext):
         self.constant_array_bound_ids = set()
         self.initializer_slot_plans = {}
         self.rich_enum_unsafe_default_ids = set()
+        self.spawned_lambda_ids = set()
         self.generic_resolved_type_facts = []
         self.lambda_body_facts = {}
         self.expression_flow_seeds = {}
         self.known_nonnull_expression_ids = set()
         self.reported_type_shape_errors = set()
         self._gpu_result_boundary = None
+        self.inferred_literal_mismatches = []
+        self.contextual_literal_ids = set()
 
     @property
     def gpu_result_boundary(self) -> object | None:

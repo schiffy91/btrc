@@ -18,6 +18,21 @@ import ./Ownership.btrc;
 import ./Storage.btrc;
 import ./Types.btrc;
 
+/* A list or map literal argument bound to a Vector or Map parameter. Its
+ * elements are checked against the parameter as a declared initializer's
+ * are, by the expression validator that owns that check. */
+class CallCollectionArgument {
+	public Node expected;
+	public Node argument;
+	public string subject;
+
+	public CallCollectionArgument(Node expected, Node argument, string subject) {
+		self.expected = expected;
+		self.argument = argument;
+		self.subject = subject;
+	}
+}
+
 class CallValidator {
 	private SemanticValidationState state;
 	private HostedAbiRepository hostedAbi;
@@ -29,6 +44,7 @@ class CallValidator {
 	private StorageValidator storage;
 	private OwnershipValidator ownership;
 	private BorrowValidator borrows;
+	private Vector<CallCollectionArgument> collectionArguments = [];
 
 	public CallValidator(SemanticValidationState state, HostedAbiRepository hostedAbi, OperatorSemantics operators, GpuSemantics gpu, SourceMacroNamespace sourceMacros, SourceRuntimeSymbols sourceRuntimeSymbols, TypeValidator types, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows) {
 		self.state = state;
@@ -41,6 +57,16 @@ class CallValidator {
 		self.storage = storage;
 		self.ownership = ownership;
 		self.borrows = borrows;
+	}
+
+	public bool hasCollectionArguments() { return self.collectionArguments.len > 0; }
+
+	/* The collection literal arguments the last signatures bound, handed to
+	 * the caller once. */
+	public Vector<CallCollectionArgument> takeCollectionArguments() {
+		Vector<CallCollectionArgument> taken = self.collectionArguments;
+		self.collectionArguments = [];
+		return taken;
 	}
 
 	private void rejectThreadValueEscape(Node? expression, string destination, Map<string, Node> variables) {
@@ -187,6 +213,9 @@ class CallValidator {
 			threadArgumentIndex = threadArgumentIndex + 1;
 		}
 		self.ownership.rejectRichEnumOwnedArgs(call,  vars);
+		if (call.callee != null && call.callee.kind == NK_IDENTIFIER && call.callee.name == "print" && !self.state.analyzed.funcTable.has("print")) {
+			for argument in call.args() { self.types.validateFormattedValue(self.types.inferType(argument, vars), argument); }
+		}
 		Node callee = call.callee;
 		Map<string, Node> noSubstitutions = {};
 		if (callee == null) { return; }
@@ -718,6 +747,12 @@ class CallValidator {
 				expected = SemanticTypeSystem.resolveGenericType(expected, substitutions, self.state.analyzed);
 			}
 			Node argument = call.args().get(argumentIndex);
+			if (argument.kind == NK_LIST_LITERAL || argument.kind == NK_MAP_LITERAL) {
+				Node? collection = self.types.resolveAliases(expected);
+				if (collection != null && !collection.isArray && ((argument.kind == NK_LIST_LITERAL && collection.base == "Vector") || (argument.kind == NK_MAP_LITERAL && collection.base == "Map"))) {
+					self.collectionArguments.push(CallCollectionArgument(expected, argument, "Argument '" + parameter.name + "' to '" + label + "()'"));
+				}
+			}
 			self.types.validateRealtimeFunctionValue(expected, argument, vars);
 			Node? resolvedGpuExpected = self.types.resolveAliases(expected);
 			bool gpuArrayParameter = gpuDispatch && resolvedGpuExpected != null && resolvedGpuExpected.isArray;
@@ -928,9 +963,7 @@ class CallValidator {
 			argumentIndex = argumentIndex + 1;
 		}
 		string name = value.base;
-		if (name.startsWith("struct ")) {
-			name = name.substring(7, name.length() - 7);
-		}
+		name = SemanticTypeSystem.recordTagName(name);
 		string kind = self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:";
 		string key = kind + name;
 		if (visiting.has(key)) { return false; }

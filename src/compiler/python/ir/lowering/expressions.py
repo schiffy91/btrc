@@ -634,9 +634,18 @@ class ExpressionLowerer:
                 [self.lower_expr(element, provenance) for element in materialization.elements],
             )
         if isinstance(materialization, CollectionLiteralMaterialization):
+            # A leaf of a subclass or an implementation is stored as the
+            # collection's declared class or interface element.
+            leaves = materialization.plan.leaves
+            targets = materialization.leaf_targets or (None,) * len(leaves)
             return self._collections.materialize_literal(
                 materialization.plan,
-                [self.lower_expr(leaf, provenance) for leaf in materialization.plan.leaves],
+                [
+                    self._types.upcast_class_pointer(
+                        target, self._session.type_of(leaf), self.lower_expr(leaf, provenance)
+                    )
+                    for leaf, target in zip(leaves, targets)
+                ],
             )
         if isinstance(materialization, BinaryMaterialization):
             return self._lower_binary_plain(materialization.node, provenance)
@@ -1599,7 +1608,17 @@ class ExpressionLowerer:
         self,
         node: SizeofExpr,
         provenance: CallableProvenance,
-    ) -> IRSizeof:
+    ) -> IRExpr:
+        value = self._sizeof_value_operand(node)
+        if value is not None:
+            measured = self._sizeof_global(value.name, provenance)
+            if measured is not None:
+                return measured
+            self._session.unevaluated_depth += 1
+            try:
+                return IRSizeof(operand=self._materialize_static_scalar(value, provenance))
+            finally:
+                self._session.unevaluated_depth -= 1
         if isinstance(node.operand, SizeofType):
             return IRSizeof(operand=CType(text=self._types.render(node.operand.type)))
         if isinstance(node.operand, SizeofExprOp):
@@ -2155,7 +2174,63 @@ class ExpressionLowerer:
     def _source_identifier_var(self, node, c_name):
         return IRVar(name=c_name).record_array_value(self._session.type_of(node))
 
+    def _sizeof_value_operand(self, node: SizeofExpr) -> Identifier | None:
+        """The object ``sizeof(name)`` measures when ``name`` is a binding, not a type."""
+        if not isinstance(node.operand, SizeofType):
+            return None
+        name = TypeIdentity.ordinary_identifier(node.operand.type)
+        if name is None:
+            return None
+        if not self._session.local_is_declared(name):
+            # A global hides neither a type parameter of the specialization
+            # being lowered nor a declared type, as the analyzer decides.
+            active = self._types.resolve_active_type(node.operand.type)
+            parameter = active is not None and (active.base != name or active.pointer_depth or active.generic_args)
+            if name not in self._analyzed.global_var_types or parameter or self._analyzed.declares_type_name(name):
+                return None
+        return Identifier(name=name, line=node.operand.type.line, col=node.operand.type.col)
+
+    def _sizeof_global(self, name: str, provenance: CallableProvenance) -> IRExpr | None:
+        """Measure a global through its type, an array as element size times extent.
+
+        A global used only inside ``sizeof`` stays unreferenced, as C sees it,
+        so it is not an unneeded internal declaration; an array's extent is
+        lowered as the declaration lowers it, never copied from source text."""
+        binding = None if self._session.local_is_declared(name) else self._analyzed.global_var_types.get(name)
+        if binding is None or binding.array_pointer_depth or binding.elements:
+            return None
+        if not binding.is_array:
+            return IRSizeof(operand=CType(text=self._types.render(replace(binding, is_static=False, is_extern=False))))
+        if binding.array_size is not None:
+            extent = self.lower_expr(binding.array_size, provenance)
+        else:
+            initializer = self._analyzed.global_initializers.get(name)
+            if isinstance(initializer, (BraceInitializer, ListLiteral)):
+                extent = IRLiteral(text=str(len(initializer.elements)))
+            else:
+                extent = self.string_array_extent(initializer)
+            if extent is None:
+                return None
+        element = self._types.render(
+            replace(binding, is_array=False, array_size=None, is_static=False, is_extern=False)
+        )
+        return IRBinOp(
+            left=IRSizeof(operand=CType(text=element)),
+            op="*",
+            right=IRCast(target_type=CType(text="size_t"), expr=extent),
+        )
+
     def _lower_sizeof(self, node: SizeofExpr, provenance: CallableProvenance) -> IRExpr:
+        value = self._sizeof_value_operand(node)
+        if value is not None:
+            measured = self._sizeof_global(value.name, provenance)
+            if measured is not None:
+                return measured
+            self._session.unevaluated_depth += 1
+            try:
+                return IRSizeof(operand=self.lower_expr(value, provenance))
+            finally:
+                self._session.unevaluated_depth -= 1
         if isinstance(node.operand, SizeofType):
             return IRSizeof(operand=CType(text=self._types.render(node.operand.type)))
         elif isinstance(node.operand, SizeofExprOp):

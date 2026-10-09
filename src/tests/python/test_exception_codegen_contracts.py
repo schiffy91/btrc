@@ -11,6 +11,7 @@ from src.compiler.python.ir.lowering.exceptions import ExceptionLowerer
 from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.nodes import (
     CType,
+    IRAddressOf,
     IRAssign,
     IRBinOp,
     IRBlock,
@@ -23,6 +24,7 @@ from src.compiler.python.ir.nodes import (
     IRModule,
     IRParam,
     IRStmtExpr,
+    IRTypedefDef,
     IRVar,
     IRVarDecl,
 )
@@ -174,8 +176,8 @@ def test_try_local_c_aggregate_is_not_volatile():
     """)
 
     assert "int run(volatile int outer)" in emitted
-    assert "struct Probe probe;" in emitted
-    assert "volatile struct Probe probe;" not in emitted
+    assert "Probe probe;" in emitted
+    assert "volatile Probe probe;" not in emitted
 
 
 def test_unmodified_aggregate_parameter_is_not_volatile():
@@ -196,8 +198,8 @@ def test_unmodified_aggregate_parameter_is_not_volatile():
         int main() { struct Probe probe = {21}; return run(probe) == 42 ? 0 : 1; }
     """)
 
-    assert "int run(struct Probe probe)" in emitted
-    assert "volatile struct Probe" not in emitted
+    assert "int run(Probe probe)" in emitted
+    assert "volatile Probe" not in emitted
 
 
 @pytest.mark.parametrize(
@@ -643,10 +645,95 @@ def test_generated_locals_of_a_setjmp_function_are_volatile():
     assert re.search(r"^\s*int __btrc_ret_\d+ = ", _function_body(emitted, "withoutTry"), re.MULTILINE)
 
 
+def test_generated_pointer_temporaries_follow_setjmp_regions_and_storage_kinds():
+    """Pointer pseudos inside one try need protection without widening to scalars,
+    source locals, address-exposed objects or unaffected surrounding regions."""
+    before = IRVarDecl(CType("int*"), "__btrc_before")
+    after = IRVarDecl(CType("int*"), "__btrc_after")
+    pointer = IRVarDecl(CType("int*"), "__btrc_pointer")
+    alias = IRVarDecl(CType("PointerAlias"), "__btrc_alias")
+    handler = IRVarDecl(CType("int*"), "__btrc_handler")
+    scalar = IRVarDecl(CType("int"), "__btrc_scalar")
+    source = IRVarDecl(CType("int*"), "sourcePointer")
+    addressed = IRVarDecl(CType("int*"), "__btrc_addressed")
+    array = IRVarDecl(CType("int*"), "__btrc_array", array_size=IRLiteral("2"))
+    static = IRVarDecl(CType("int*"), "__btrc_static", is_static=True)
+    external = IRVarDecl(CType("int*"), "__btrc_external", is_extern=True)
+    body = IRBlock(
+        stmts=[
+            before,
+            IRIf(
+                condition=IRBinOp(IRCall("setjmp", [IRVar("frame")]), "==", IRLiteral("0")),
+                then_block=IRBlock(
+                    stmts=[
+                        pointer,
+                        alias,
+                        scalar,
+                        source,
+                        addressed,
+                        array,
+                        static,
+                        external,
+                        IRExprStmt(IRAddressOf(IRVar(addressed.name))),
+                    ]
+                ),
+                else_block=IRBlock(stmts=[handler]),
+            ),
+            after,
+        ]
+    )
+    module = IRModule(
+        typedef_defs=[IRTypedefDef(CType("int*"), "PointerAlias")],
+        function_defs=[IRFunctionDef(name="probe", return_type=CType("void"), body=body)],
+    )
+    ExceptionLowerer.apply_setjmp_volatility(module)
+    assert all(value.is_volatile for value in (pointer, alias, handler))
+    assert before.is_volatile  # Existing visible-generated-storage rule across setjmp.
+    assert all(not value.is_volatile for value in (after, scalar, source, addressed, array, static, external))
+
+
+_SINGLE_TRY_POINTERS = """
+    #include <stdlib.h>
+    int produceValue() { return 4; }
+    void store(int* values, int value) { values[0] = value; }
+    int pointerTry(bool fail) {
+        int* values = (int*)malloc(sizeof(int));
+        if (values == NULL) { return -1; }
+        values[0] = 0;
+        try {
+            store(values, produceValue());
+            values[0] = values[0] + 3;
+            if (fail) { throw "expected"; }
+        } catch (string error) {
+            values[0] = values[0] + 2;
+        } finally {
+            values[0] = values[0] + 1;
+        }
+        int result = values[0];
+        free(values);
+        return result;
+    }
+    int main() { assert(pointerTry(false) == 8 && pointerTry(true) == 10); return 0; }
+"""
+
+
+def test_single_try_pointer_call_and_storage_operands_are_volatile():
+    emitted = emit_c(_SINGLE_TRY_POINTERS)
+    assert re.search(r"^\s*int\* volatile __btrc_call_operand_\d+(?:\s*=[^;]*)?;", emitted, re.MULTILINE), "\n".join(
+        line for line in emitted.splitlines() if "int*" in line and "__btrc_" in line
+    )
+    assert re.search(r"^\s*int\* volatile __btrc_storage_receiver_\d+(?:\s*=[^;]*)?;", emitted, re.MULTILINE)
+    # Qualify the pointer object, never its pointee.
+    assert not re.search(r"^\s*volatile int\* __btrc_(?:call_operand|storage_receiver)_\d+", emitted, re.MULTILINE)
+
+
+@pytest.mark.parametrize(
+    "program", [_CLOBBER_SHAPES, _SINGLE_TRY_POINTERS], ids=["nested-and-return", "single-pointer"]
+)
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="needs gcc for -Wclobbered")
-def test_setjmp_shapes_build_with_gcc_clobbered_errors(tmp_path):
+def test_setjmp_shapes_build_with_gcc_clobbered_errors(tmp_path, program):
     source = tmp_path / "shapes.c"
-    source.write_text(emit_c(_CLOBBER_SHAPES))
+    source.write_text(emit_c(program))
     for optimization in ("-O2", "-O3"):
         build = subprocess.run(
             [

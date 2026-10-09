@@ -1487,6 +1487,7 @@ class DeclarationLowerer {
 			bool declared = false;
 			for definition in native.structDefs { if (definition.name == name) { declared = true; } }
 			if (declared) { continue; }
+			DeclarationLowerer.requireObjectiveCStruct(record);
 			var definition = IRStructDef();
 			definition.name = name;
 			for field in SemanticTypeSystem.recordDeclarators(record) { definition.fields.push(IRStructField(self.cTypes.lower(field.type), field.name)); }
@@ -1498,11 +1499,19 @@ class DeclarationLowerer {
 		return native;
 	}
 
+	/* The Objective-C adapters rebuild a record member by member, which is
+	 * wrong for a union; native union values stay refused (ref:3191-3192),
+	 * so meeting one here is a compiler defect, never a user error. */
+	class void requireObjectiveCStruct(Node record) {
+		if (record.isUnion) { throw f"internal error: Objective-C record '{record.name}' is a union"; }
+	}
+
 	private bool objectiveCRecord(Node type) { return type.pointerDepth == 0 && !type.isArray && self.analyzed.isObjectiveCRecord(type.base); }
 
 	private IRNode objectiveCValue(Node type, IRNode value, bool toNative) {
 		if (!self.objectiveCRecord(type)) { return value; }
 		Node record = self.analyzed.structTable.get(type.base);
+		DeclarationLowerer.requireObjectiveCStruct(record);
 		Vector<string> names = [];
 		Vector<IRNode> values = [];
 		for field in SemanticTypeSystem.recordFields(record) {
@@ -2778,6 +2787,7 @@ class DeclarationLowerer {
 		CallableFlowState callableFlow = CallableFlowState();
 		IRStructDef sd = IRStructDef();
 		sd.name = d.name;
+		sd.isUnion = d.isUnion;
 		string declarationKey = AstIdentity.key(d);
 		if (self.context.packAlignments.has(declarationKey)) {
 			sd.packAlignment = self.context.packAlignments.get(declarationKey);
@@ -2786,11 +2796,16 @@ class DeclarationLowerer {
 		int i = 0;
 		while (i < declarators.len) {
 			Node f = declarators.get(i);
-			if (f.type != null && f.type.isArray && f.type.arraySize != null) {
+			bool flexible = SemanticTypeSystem.flexibleArrayMember(f);
+			if (f.type != null && f.type.isArray && (f.type.arraySize != null || flexible)) {
 				Node baseType = TypeShape.withoutOuterArray(f.type);
 				Map<string, Node> empty = {};
 				IRStructField field = IRStructField(self.cTypes.lower(baseType), f.name);
-				field.arraySize = self.expressions.lowerExpr(f.type.arraySize, empty, callableFlow);
+				if (flexible) {
+					field.isUnsizedArray = true;
+				} else {
+					field.arraySize = self.expressions.lowerExpr(f.type.arraySize, empty, callableFlow);
+				}
 				field.isVolatile = f.type.isVolatile;
 				field.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(f.type, self.analyzed.typedefTable);
 				sd.fields.push(field);
@@ -2847,8 +2862,12 @@ class DeclarationLowerer {
 			m.globalDecls.push(global);
 			return;
 		}
+		/* A global `var` has the type the analyzer inferred from its
+		 * initializer (inferGlobals), not int. */
+		Node? valueType = d.type;
+		if (valueType == null && self.analyzed.globalVarTypes.has(d.name)) { valueType = self.analyzed.globalVarTypes.get(d.name); }
 		string ct = "int";
-		if (d.type != null) { ct = self.cTypes.lower(d.type); }
+		if (valueType != null) { ct = self.cTypes.lower(valueType); }
 		IRGlobalDecl global = IRGlobalDecl(ct, d.name);
 		global.isExtern = d.type != null && d.type.isExtern && !forceExternal;
 		global.isStatic = !(global.isExtern || forceExternal);
@@ -2858,7 +2877,7 @@ class DeclarationLowerer {
 		}
 		if (d.initializer != null && !global.isExtern) {
 			Map<string, Node> empty = {};
-			global.init = self.expressions.lowerStaticInitializer(d.initializer, d.type, empty, callableFlow);
+			global.init = self.expressions.lowerStaticInitializer(d.initializer, valueType, empty, callableFlow);
 		}
 		m.globalDecls.push(global);
 	}
@@ -3925,6 +3944,8 @@ class DeclarationLowerer {
 
 	public void emitForwardDecls(Node prog, IRModule m) {
 		Vector<IRFunctionDecl> functionDeclarations = [];
+		/* One typedef per record: a forward and its definition share it. */
+		Map<string, bool> forwardedRecords = {};
 		int i = 0;
 		while (i < prog.declarations().len) {
 			Node d = prog.declarations().get(i);
@@ -3944,7 +3965,10 @@ class DeclarationLowerer {
                  * so a function prototype can name `struct X*` before X is
                  * defined (mirrors legacy forward-declaration phase-1, which
                  * tests ClassDecl OR StructDecl). Only classes get _destroy. */
-				m.structForwards.push(IRStructForward(d.name));
+				IRStructForward forward = IRStructForward(d.name);
+				forward.isUnion = d.kind == NK_STRUCT_DECL && d.isUnion;
+				if (d.kind != NK_STRUCT_DECL || !forwardedRecords.has(d.name)) { m.structForwards.push(forward); }
+				if (d.kind == NK_STRUCT_DECL) { forwardedRecords.put(d.name, true); }
 				if (d.kind == NK_CLASS_DECL && d.genericParams().len == 0) {
 					IRFunctionDecl destroyDeclaration = IRFunctionDecl(d.name + "_destroy", "void", false);
 					destroyDeclaration.params.push(IRParam("void*", "object"));
@@ -3967,14 +3991,11 @@ class DeclarationLowerer {
 			}
 			i = i + 1;
 		}
-		/* Forward typedefs for concrete generic instances, in discovery order
-         * (mirrors legacy forward-declaration phase-1 generic loop). These
-         * come after the non-generic class typedefs and before function fwds. */
-		int g = 0;
-		while (g < self.analyzed.genericInstances.len) {
-			GenInstance gi = self.analyzed.genericInstances.get(g);
-			m.structForwards.push(IRStructForward(gi.mangled));
-			g = g + 1;
+		/* Forward declarations use the same canonical instance order as bodies.
+		 * They still precede definitions and function prototypes. */
+		GenericLowerer generics = GenericLowerer(self.analyzed);
+		for instance in generics.classInstances() {
+			m.structForwards.push(IRStructForward(instance.mangled));
 		}
 		/* Tuple struct definitions + typedefs (mirrors _emit_tuple_structs):
          * emitted after the generic typedefs and before the deferred function
@@ -4041,6 +4062,7 @@ class DeclarationLowerer {
 			scan.unbound = unbound;
 		}
 		scan.substitutions = {};
+		scan = self.canonicalTupleShapes(scan);
 		int s = 0;
 		while (s < scan.order.len) {
 			string mangled = scan.order.get(s);
@@ -4060,6 +4082,21 @@ class DeclarationLowerer {
 			m.structForwards.push(IRStructForward(mangled));
 			s = s + 1;
 		}
+	}
+
+	/* Order only after full discovery. Stable symbol roots and dependency-first
+	 * tuple traversal make inferred and explicit discovery paths agree, while
+	 * keeping nested by-value fields complete before their containing struct. */
+	private TupleShapeScan canonicalTupleShapes(TupleShapeScan discovered) {
+		Map<string, Node> shapes = {};
+		for (int index = 0; index < discovered.order.len; index++) {
+			shapes.put(discovered.order.get(index), discovered.tupleTypes.get(index));
+		}
+		Vector<string> symbols = shapes.keys();
+		symbols.sort();
+		TupleShapeScan ordered = TupleShapeScan();
+		for symbol in symbols { self.recordTupleShapes(shapes.get(symbol), ordered); }
+		return ordered;
 	}
 
 	/* A class's signature types first, then its members, as Python collects a

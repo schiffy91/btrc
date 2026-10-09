@@ -3,6 +3,8 @@ find-references, rename, document symbols, signature help, semantic tokens.
 All drive the real feature functions through the shared compiler, over SAMPLE
 and over sources that exercise struct, typedef, enum and generic declarations."""
 
+from lsprotocol import types as lsp
+
 from src.tests.lsp.lsphelp import (
     SAMPLE,
     analyze,
@@ -251,3 +253,22 @@ def test_semantic_tokens_struct_generic_typedef():
 def test_document_symbols_struct_typedef_generic():
     names = {s.name for s in get_document_symbols(analyze(TYPES))}
     assert {"Pt", "MyInt", "Color", "Gen", "Base"} <= names
+
+
+UNIONS = """\
+union Number { int integer; float real; };
+typedef union { int code; } Status;
+struct Point { int x; };
+int main() { return 0; }
+"""
+
+
+def test_document_symbols_union_is_a_struct_symbol_with_its_members():
+    """LSP has no union kind: a union is a Struct symbol whose detail says union (C row 9)."""
+    symbols = {s.name: s for s in get_document_symbols(analyze(UNIONS))}
+    for name, members in (("Number", ["integer", "real"]), ("Status", ["code"])):
+        assert symbols[name].kind == lsp.SymbolKind.Struct
+        assert symbols[name].detail == "union"
+        assert [child.name for child in symbols[name].children] == members
+    assert symbols["Point"].kind == lsp.SymbolKind.Struct
+    assert not symbols["Point"].detail

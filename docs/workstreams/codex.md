@@ -1,5 +1,7 @@
 # WORKSTREAMS packets: Codex
 
+**2026-10-07 consolidation:** [PLAN.md](../../PLAN.md) is the single active roadmap and queue. D29 supersedes older split-plan and integration-role wording for the authorized harmonization session; packet IDs, file claims, review and evidence requirements remain.
+
 > **D28 (2026-10-06).** Codex's active queue and results are now in [CODEX.md](../../CODEX.md). The packets here stay for traceability and for the scope of new contracts, and their ids keep their meaning. Their **Start now**, **Why not now** and **Depends on** fields do not gate CODEX.md units. Where a packet here conflicts with D28 or CODEX.md, CODEX.md governs ([CLAUDE.md D28](../../CLAUDE.md#decisions-all-resolved-2026-09-30)). The workflow files that packets below list as owned paths (`host-ios.yml`, `host-android.yml`, `windows-arm64.yml` and the rest) are Claude's, under D28 and the owner's restriction: Codex edits no workflow or `ci/proposed/` file, and the packet supplies the commands in a `REQUEST` block in its PR body. Those paths stay listed for traceability.
 
 Part of [WORKSTREAMS.md](../../WORKSTREAMS.md), the shared plan for Claude, Codex and the owner. That file holds the purpose, decision D27, the coordination protocol, the assignment matrix, the timeline and the open questions; this file holds the Codex packets in full. `packets.json` beside it is the same packet set in machine-readable form.

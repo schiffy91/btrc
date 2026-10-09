@@ -313,7 +313,13 @@ class OwnershipSemantics {
 			bool objectManaged = self.isManaged(objectType, environment) && object.kind != NK_SELF_EXPR && object.kind != NK_SUPER_EXPR && !objectOverridden;
 			Node? concreteObjectType = objectType == null ? null : self.resolveType(objectType, environment);
 			bool directAggregate = object.kind == NK_IDENTIFIER && concreteObjectType != null && concreteObjectType.pointerDepth == 0 && !concreteObjectType.isArray && !self.managedValues.isManaged(concreteObjectType) && !objectOwned;
-			if (objectOwned || objectManaged) {
+			if (concreteObjectType != null && concreteObjectType.isArray) {
+				/* An element's array is fixed storage, as Python's _receiver_operands
+				 * keeps it: one unretained operand, never a path to its owner. */
+				result.expressions.push(object);
+				result.owned.push(false);
+				result.retained.push(false);
+			} else if (objectOwned || objectManaged) {
 				result.expressions.push(object);
 				result.owned.push(objectOwned);
 				result.retained.push(objectManaged && !objectOwned);

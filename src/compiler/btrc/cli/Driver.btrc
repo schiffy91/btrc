@@ -200,7 +200,7 @@ class BtrccCommandLine {
 
 	public string argument(int index) { return self.arguments.get(index); }
 
-	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH[-ENV]] " + "[--emit-link-plan PATH] [--emit-units PREFIX [--module-units [--jobs N]]] [--emit-ir | --emit-optimized-ir] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve.\n" + "--target compiles for one of " + Strings.join(FePackageTarget.labels(), ", ") + " (x64 and arm64 are accepted architecture aliases; default: this host)."; }
+	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH[-ENV]] " + "[--emit-link-plan PATH] [--emit-units PREFIX [--module-units [--jobs N]]] [--emit-c | --emit-ir | --emit-optimized-ir] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve.\n" + "--target compiles for one of " + Strings.join(FePackageTarget.labels(), ", ") + " (x64 and arm64 are accepted architecture aliases; default: this host)."; }
 
 	/* Select the target after the argument errors and before any input is
 	 * read: the canonical label --target names, else the host's. Returns
@@ -232,6 +232,7 @@ class BtrccCommandLine {
 		int index = 1;
 		int importMode = 0;
 		int inputIndex = -1;
+		bool emitC = false;
 		while (index < self.arguments.len) {
 			string option = self.arguments.get(index);
 			if (option.equals("--no-cache")) {
@@ -275,7 +276,15 @@ class BtrccCommandLine {
 				options.linkPlanPath = self.arguments.get(index);
 			} else if (option.equals("--debug")) {
 				options.debug = true;
+			} else if (option.equals("--emit-c")) {
+				if (!options.irDump.isEmpty()) {
+					return self.invalid(options, "--emit-c cannot be combined with --emit-ir or --emit-optimized-ir");
+				}
+				emitC = true;
 			} else if (option.equals("--emit-ir") || option.equals("--emit-optimized-ir")) {
+				if (emitC) {
+					return self.invalid(options, "--emit-c cannot be combined with --emit-ir or --emit-optimized-ir");
+				}
 				if (!options.irDump.isEmpty()) {
 					return self.invalid(options, "--emit-ir and --emit-optimized-ir may be specified only once");
 				}
@@ -1876,6 +1885,44 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 
 	public void __del__() { self.close(); }
 }
+
+#if !defined(_WIN32)
+#include <sys/resource.h>
+
+/* Keep compilation and its forked workers on the original thread. macOS
+ * compiler build recipes reserve 512 MiB in the executable's main-stack
+ * command; Linux permits its main stack to grow to the process's soft limit.
+ * Only touched pages become resident. No helper thread may coexist with a
+ * forked worker's managed compilation. */
+class BtrccCompilerStack {
+	class int run(CFunction<int, int, char**> program, int argc, char** argv) {
+#if defined(__linux__)
+		struct rlimit limit;
+		if (getrlimit((int)RLIMIT_STACK, &limit) != 0) {
+			fprintf(stderr, "btrcc: error: cannot read compiler stack limit\n");
+			return 1;
+		}
+		unsigned long long hardLimit = (unsigned long long)limit.rlim_max;
+		unsigned long long currentLimit = (unsigned long long)limit.rlim_cur;
+		unsigned long long reservation = 536870912ULL;
+		if (hardLimit != (unsigned long long)RLIM_INFINITY && hardLimit < reservation) { reservation = hardLimit; }
+		if (currentLimit < reservation) {
+			limit.rlim_cur = (rlim_t)reservation;
+			if (setrlimit((int)RLIMIT_STACK, &limit) != 0) {
+				fprintf(stderr, "btrcc: error: cannot reserve compiler stack\n");
+				return 1;
+			}
+			currentLimit = reservation;
+		}
+		if (currentLimit < 67108864ULL) {
+			fprintf(stderr, "btrcc: error: compiler requires at least 64 MiB of stack\n");
+			return 1;
+		}
+#endif
+		return program(argc, argv);
+	}
+}
+#endif
 
 /* Command-line application owner for the production self-hosted compiler. */
 class BtrccDriver {

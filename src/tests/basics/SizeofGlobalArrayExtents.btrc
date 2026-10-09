@@ -1,0 +1,26 @@
+// sizeof of a global array used only inside sizeof measures its type: the
+// element size times the extent the declaration lowers (0b1000 and 0o10 are
+// spelled as C, a macro, an enum constant, a sizeof, a product, a character,
+// an unsized string or list), so strict gcc and clang -Werror accept it.
+#define COUNT 6
+
+enum Size { SMALL = 2, LARGE = 5 };
+
+int bits[0b1000];
+int octs[0o10];
+int hexes[0x3];
+int byMacro[COUNT];
+int byEnum[LARGE];
+int bySizeof[sizeof(double)];
+int byProduct[2 * 4];
+char byChar['A'];
+char greeting[] = "hello";
+int listed[] = {1, 2, 3};
+
+int main() {
+	print((int)(sizeof(bits) / sizeof(int)), (int)(sizeof(octs) / sizeof(int)), (int)(sizeof(hexes) / sizeof(int)));
+	print((int)(sizeof(byMacro) / sizeof(int)), (int)(sizeof(byEnum) / sizeof(int)), (int)(sizeof(bySizeof) / sizeof(int)));
+	print((int)(sizeof(byProduct) / sizeof(int)), (int)sizeof(byChar), (int)sizeof(greeting), (int)(sizeof(listed) / sizeof(int)));
+	print("PASS: test_sizeof_global_array_extents");
+	return 0;
+}

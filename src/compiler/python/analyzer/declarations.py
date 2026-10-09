@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import replace
+from dataclasses import fields, replace
 
 from src.compiler.python.abi.declarations import AbiType
 from src.compiler.python.abi.hosted import HOSTED_ABI
@@ -327,12 +327,13 @@ class TopLevelRegistrar:
 
     def register_struct(self, declaration) -> None:
         registry = self.registry
+        keyword = TypeSystem.record_keyword(declaration)
         if not declaration.name:
-            self.session.error("anonymous struct at top level must be named", declaration.line, declaration.col)
+            self.session.error(f"anonymous {keyword} at top level must be named", declaration.line, declaration.col)
             return
         self.claim_name(
             declaration.name,
-            "struct",
+            keyword,
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
             allow_same=True,
@@ -345,7 +346,7 @@ class TopLevelRegistrar:
                 declaration.source_file, NativeHeaderSource
             ):
                 self.session.error(
-                    f"Struct '{declaration.name}' cannot have an empty body under strict C11",
+                    f"{keyword.capitalize()} '{declaration.name}' cannot have an empty body under strict C11",
                     declaration.line,
                     declaration.col,
                 )
@@ -354,12 +355,12 @@ class TopLevelRegistrar:
                 registry.validate_name(field.name, "Struct field", field.line, field.col)
                 if field.name in seen:
                     self.session.error(
-                        f"Duplicate field '{field.name}' in struct '{declaration.name}'", field.line, field.col
+                        f"Duplicate field '{field.name}' in {keyword} '{declaration.name}'", field.line, field.col
                     )
                 seen.add(field.name)
             if declaration.name in self.index.struct_definitions:
                 self.session.error(
-                    f"Duplicate definition of struct '{declaration.name}'", declaration.line, declaration.col
+                    f"Duplicate definition of {keyword} '{declaration.name}'", declaration.line, declaration.col
                 )
             else:
                 self.index.struct_definitions[declaration.name] = declaration
@@ -759,6 +760,8 @@ C11_RESERVED_NAMES = frozenset(
         "_Thread_local",
     }
 )
+# Generated AST nodes, the only values the record-tag walk descends into.
+_AST_MODULE = TypeExpr.__module__
 _PUBLIC_NATIVE_BINDINGS = frozenset({"btrc_gpu_available"})
 MAGIC_METHOD_SIGNATURES = {
     "__add__": (1, None),
@@ -1247,6 +1250,7 @@ class DeclarationRegistry:
         self.index.global_declarations = {}
         self.index.global_definitions = {}
         self.index.struct_definitions = {}
+        self.normalize_record_tags(program)
         for declaration in self.session.declarations(program):
             if isinstance(declaration, InterfaceDecl):
                 self._register_interface(declaration, top_level)
@@ -1275,6 +1279,84 @@ class DeclarationRegistry:
             elif isinstance(declaration, VarDeclStmt):
                 top_level.register_global(declaration)
         inheritance.resolve(pre_resolved_classes)
+
+    def normalize_record_tags(self, program: Program) -> None:
+        """Spell every source record's C tag as the record's name (C row 9).
+
+        btrc emits ``typedef struct P P;`` for every source record, so
+        ``struct P`` and ``P`` are one C type. Rewriting the written tag, in
+        every type position (generic and tuple arguments and ``CFunction``
+        signatures included), makes them one btrc type too: one generic
+        instance, one assignability rule and one lowering. A tag of another
+        kind stays for the wrong-keyword refusal, an SDK record keeps its
+        written spelling, and a typedef named for its own tag (``typedef struct
+        P P;``) keeps its original for the name-claim diagnostic. It runs
+        before registration, so prototype and global compatibility compare
+        one spelling.
+
+        A record named like any generic parameter in the program (``T``,
+        ``K``, ``V``, the stdlib's included) keeps its written tag everywhere:
+        its bare name would be captured by an instance's substitution wherever
+        the record's type reaches that generic's body, so its tag and its name
+        stay two spellings, as before C row 9.
+        """
+        parameters = self._generic_parameter_names(program)
+        records: dict[str, str] = {}
+        for declaration in self.session.declarations(program):
+            if (
+                isinstance(declaration, StructDecl)
+                and declaration.name
+                and declaration.name not in parameters
+                and not isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            ):
+                records.setdefault(declaration.name, TypeSystem.record_keyword(declaration))
+        if not records:
+            return
+        stack: list = list(self.session.declarations(program))
+        while stack:
+            node = stack.pop()
+            if isinstance(node, list):
+                stack.extend(node)
+                continue
+            if type(node).__module__ != _AST_MODULE:
+                continue
+            if isinstance(node, TypeExpr):
+                self._normalize_record_tag(node, records)
+            elif isinstance(node, TypedefDecl) and self._names_its_own_tag(node):
+                stack.extend(node.original.generic_args)
+                continue
+            for member in fields(node):
+                value = getattr(node, member.name)
+                if isinstance(value, list) or type(value).__module__ == _AST_MODULE:
+                    stack.append(value)
+
+    def _generic_parameter_names(self, program: Program) -> set[str]:
+        """Every generic parameter a class, interface or method declares."""
+        names: set[str] = set()
+        for declaration in self.session.declarations(program):
+            if isinstance(declaration, (ClassDecl, InterfaceDecl)):
+                names.update(declaration.generic_params)
+            if isinstance(declaration, ClassDecl):
+                for member in declaration.members:
+                    names.update(getattr(member, "generic_params", ()))
+        return names
+
+    @staticmethod
+    def _normalize_record_tag(type_expr: TypeExpr, records: dict[str, str]) -> None:
+        keyword, _, name = type_expr.base.partition(" ")
+        if keyword in ("struct", "union") and records.get(name) == keyword:
+            type_expr.base = name
+
+    @staticmethod
+    def _names_its_own_tag(declaration: TypedefDecl) -> bool:
+        """``typedef struct P P;`` or ``typedef struct P* P;``: the alias
+        reuses the tag's name, a name claim the registry reports."""
+        original = declaration.original
+        return (
+            original is not None
+            and original.base != declaration.alias
+            and TypeSystem.record_tag_name(original.base) == declaration.alias
+        )
 
     @staticmethod
     def _build_definition_index(program: Program) -> dict[str, tuple[object, str]]:

@@ -175,6 +175,21 @@ def test_the_macos_manifest_explains_the_recorded_skips_and_names_their_coverage
         assert manifest.classify(nodeid, reason) is None, nodeid
 
 
+@pytest.mark.parametrize("runner", ["macos", "macos-hosted"])
+def test_macos_classifies_only_the_linux_main_stack_limit_cases(runner):
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+    test = "src/tests/btrc/test_deep_expression_parity.py::test_compiler_stack_respects_process_hard_limit"
+    reason = "Linux main-stack resource limit"
+    for hard_mib in (16, 64):
+        rule = manifest.classify(f"{test}[{hard_mib}]", reason)
+        assert rule is not None
+        assert rule.category == "platform"
+        assert rule.covered_by == ("linux-devcontainer",)
+    assert manifest.classify(f"{test}[64]", "compiler startup failed") is None
+    assert manifest.classify(f"{test}_unrelated[64]", reason) is None
+    assert manifest.classify("src/tests/btrc/test_other.py::test_limit[64]", reason) is None
+
+
 def test_the_macos_manifest_expects_a_dap_session_skip_only_for_developer_mode():
     """The DAP sessions skip under a reason per cause; on a Mac only developer mode being off is expected.
 
@@ -679,6 +694,9 @@ def _run_inner(tmp_path: Path, *extra: str) -> tuple[subprocess.CompletedProcess
         "PYTHONDONTWRITEBYTECODE": "1",
     }
     environment.pop("BTRC_TEST_CAPABILITIES", None)
+    # The child suite owns its options; workflow options may require plugins
+    # this invocation explicitly disables. Caller-supplied argv remains intact.
+    environment.pop("PYTEST_ADDOPTS", None)
     completed = subprocess.run(
         # One token: pytest would otherwise take an existing report path for a
         # test path while it determines the rootdir.
@@ -694,14 +712,15 @@ def _run_inner(tmp_path: Path, *extra: str) -> tuple[subprocess.CompletedProcess
 
 
 @pytest.mark.parametrize("workers", [None, "2"])
-def test_the_collector_records_outcomes_skips_and_capability_gates(tmp_path, workers):
+def test_the_collector_records_outcomes_skips_and_capability_gates(tmp_path, workers, monkeypatch):
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--dist=loadgroup")
     suite = tmp_path / "suite"
     suite.mkdir()
     (suite / "conftest.py").write_text(_INNER_CONFTEST)
     (suite / "test_cases.py").write_text(_INNER_TESTS)
     (suite / "test_module_skip.py").write_text('import pytest\npytest.skip("whole module", allow_module_level=True)\n')
 
-    _, report = _run_inner(tmp_path, *(("-n", workers) if workers else ("-p", "no:xdist")))
+    _, report = _run_inner(tmp_path, *(("-n", workers, "--dist=loadgroup") if workers else ("-p", "no:xdist")))
 
     assert report["schema"] == "btrc.skip-report/1"
     assert report["runner"] == "macos"
@@ -738,7 +757,8 @@ def test_the_collector_records_outcomes_skips_and_capability_gates(tmp_path, wor
     assert set(report["tools"]) >= {"naga", "lldb", "pkg-config"}
 
 
-def test_an_injected_unexpected_skip_fails_the_gate(tmp_path):
+def test_an_injected_unexpected_skip_fails_the_gate(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--dist=loadgroup")
     suite = tmp_path / "suite"
     suite.mkdir()
     (suite / "conftest.py").write_text(_INNER_CONFTEST)

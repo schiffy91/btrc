@@ -7,7 +7,8 @@
 #   BTRC_REPO       the tree (default: the repository holding this script)
 #   BTRC_DEV_SHELL  flake or saved profile for `nix develop` (default BTRC_REPO)
 #   BTRCC_CC        the C compiler (default Apple's /usr/bin/clang: Nix's cc on
-#                   macOS is gcc, whose emulated TLS slows btrcc ~20%; CLAUDE.md)
+#                   macOS is gcc, whose emulated TLS slows btrcc ~20%; see
+#                   docs/design/compile-performance.md)
 #
 # Writes <out>.c, <out>.build.log and <out>. Building btrcc takes the two-slot
 # semaphore: withlock.sh btrcc-build build_btrcc.sh ...
@@ -20,8 +21,10 @@ CC_FOR_BTRCC=${BTRCC_CC:-$([ -x /usr/bin/clang ] && echo /usr/bin/clang || echo 
 cd "$R" || exit 2
 nix develop "${BTRC_DEV_SHELL:-$R}" --command bash -c '
 export PYTHONDONTWRITEBYTECODE=1 BTRC_HOME="$PWD/src"
+stack_flags=()
+if [[ $(uname -s) == Darwin ]]; then stack_flags=(-Wl,-stack_size,0x20000000); fi
 uv run python -m src.compiler.python.main "$2" --strict-imports --no-cache -o "$1.c" > "$1.build.log" 2>&1 \
-  && "$3" -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 "$1.c" -o "$1" >> "$1.build.log" 2>&1 \
+  && "$3" -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 "$1.c" -o "$1" "${stack_flags[@]}" >> "$1.build.log" 2>&1 \
   && echo "BUILD OK $1 ($3)" || { echo "BUILD FAIL"; grep -v "^warning\|^ *-->\|^ *|\|^ *[0-9]* |" "$1.build.log" | tail -30; exit 1; }' \
   _ "$OUT" "$ENTRY" "$CC_FOR_BTRCC" 2>&1 | grep -v "^warning: \(Git tree\|ignoring\)"
 exit "${PIPESTATUS[0]}"

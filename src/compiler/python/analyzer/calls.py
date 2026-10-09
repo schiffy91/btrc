@@ -43,6 +43,7 @@ from src.compiler.python.syntax.ast.generated import (
 
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.aggregates import AggregateAnalyzer
+    from src.compiler.python.analyzer.generated_symbols import GeneratedSymbolRegistry
     from src.compiler.python.analyzer.generics import GenericAnalyzer
     from src.compiler.python.analyzer.gpu import GpuAnalyzer
     from src.compiler.python.analyzer.macros import SourceMacroAnalyzer
@@ -94,11 +95,13 @@ class CallAnalyzer:
         gpu: GpuAnalyzer,
         macros: SourceMacroAnalyzer,
         generics: GenericAnalyzer,
+        generated_symbols: GeneratedSymbolRegistry,
     ) -> None:
         self.session = session
         self.index = index
         self.aggregates = aggregates
         self.generics = generics
+        self.generated_symbols = generated_symbols
         self.gpu = gpu
         self.macros = macros
         self.ownership = ownership
@@ -404,7 +407,7 @@ class CallAnalyzer:
             actual = self.type_of(argument)
             if actual and (not self.types.types_compatible(expected, actual)):
                 self.session.error(
-                    f"Argument {index} to '{name}()' expects '{self.types.format_type(expected)}' but got '{self.types.format_type(actual)}'",
+                    f"Argument {index} to '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
                     getattr(argument, "line", expression.line),
                     getattr(argument, "col", expression.col),
                 )
@@ -583,7 +586,15 @@ class CallAnalyzer:
                     argument_col,
                 )
             )
-            if self.ownership.validate_callable_value(expected, argument, argument_line, argument_col):
+            # No callable value is a class or interface handle, so the type
+            # mismatch below is its diagnostic, whatever the callable captures.
+            if not self._object_handle_parameter(expected) and self.ownership.validate_callable_value(
+                expected, argument, argument_line, argument_col
+            ):
+                continue
+            if self._contextualize_collection_argument(
+                expected, argument, f"Argument '{params[param_index].name}' to '{name}()'", argument_line, argument_col
+            ):
                 continue
             actual = self.type_of(argument)
             if actual and gpu_array_parameter:
@@ -603,7 +614,7 @@ class CallAnalyzer:
             compatible = actual and self.types.types_compatible(expected, actual)
             if actual and (not compatible):
                 self.session.error(
-                    f"Argument '{params[param_index].name}' to '{name}()' expects '{self.types.format_type(expected)}' but got '{self.types.format_type(actual)}'",
+                    f"Argument '{params[param_index].name}' to '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
                     argument_line,
                     argument_col,
                 )
@@ -613,6 +624,16 @@ class CallAnalyzer:
             self.ownership.validate_callable_value(
                 None, argument, getattr(argument, "line", line), getattr(argument, "col", col)
             )
+
+    def _object_handle_parameter(self, expected) -> bool:
+        """Whether a parameter takes exactly one class or interface handle."""
+        canonical = self.types.canonical_type(expected)
+        return (
+            canonical is not None
+            and canonical.pointer_depth == 1
+            and not canonical.is_array
+            and (canonical.base in self.index.class_table or canonical.base in self.index.interface_table)
+        )
 
     def _validate_callable_target(self, call) -> None:
         callee = call.callee
@@ -887,10 +908,14 @@ class CallAnalyzer:
                     getattr(arg, "col", col),
                 )
             )
+            if self._contextualize_collection_argument(
+                expected, arg, f"Argument {index} to '{name}()'", getattr(arg, "line", line), getattr(arg, "col", col)
+            ):
+                continue
             actual = self.type_of(arg)
             if actual and (not self.types.types_compatible(expected, actual)):
                 self.session.error(
-                    f"Argument {index} to '{name}()' expects '{self.types.format_type(expected)}' but got '{self.types.format_type(actual)}'",
+                    f"Argument {index} to '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
                     getattr(arg, "line", line),
                     getattr(arg, "col", col),
                 )
@@ -902,6 +927,13 @@ class CallAnalyzer:
             if not raw_lifetime or index != 0:
                 self.aggregates.reject_thread_value_escape(arg, "passed as arguments")
         self.ownership.validate_conditional_raw_projection_call(expr)
+        if (
+            isinstance(expr.callee, Identifier)
+            and expr.callee.name == "print"
+            and expr.callee.name not in self.index.function_table
+        ):
+            for arg in expr.args:
+                self.types.validate_formatted_value(self.type_of(arg), arg.line, arg.col)
         if (
             isinstance(expr.callee, Identifier)
             and expr.callee.name == "gpu_id"
@@ -1152,6 +1184,41 @@ class CallAnalyzer:
         )
         self._collect_method_instance(expr, cls, method, receiver_type, substitutions)
 
+    def reject_inferred_flexible_arguments(self, expr) -> None:
+        """r13: before any argument or signature check, as btrcc's call
+        validation orders it, refuse a generic method call whose inferred type
+        arguments hold a struct with a flexible array member by value."""
+        callee = expr.callee
+        if not isinstance(callee, FieldAccessExpr):
+            return
+        if self.types.function_pointer_signature(self.type_of(callee)) is not None:
+            return
+        if (
+            isinstance(callee.obj, Identifier)
+            and self.session.scope.lookup(callee.obj.name) is None
+            and callee.obj.name in self.index.class_table
+        ):
+            return
+        receiver_type = self.type_of(callee.obj)
+        cls = self.index.class_table.get(receiver_type.base) if receiver_type is not None else None
+        method = cls.methods.get(callee.field) if cls is not None else None
+        if method is None or not method.generic_params:
+            return
+        class_substitutions = {}
+        if cls.generic_params and receiver_type.generic_args:
+            class_substitutions = dict(zip(cls.generic_params, receiver_type.generic_args))
+        inferred = self.generics.infer_method_type_args(
+            self._generic_method_plan(expr, method.params), method, class_substitutions
+        )
+        if not inferred:
+            return
+        self.generics.reject_flexible_array_method_arguments(
+            f"{receiver_type.base}.{method.name}",
+            [inferred.get(parameter) for parameter in method.generic_params],
+            expr.line,
+            expr.col,
+        )
+
     def _method_substitutions(self, expr, cls, method, receiver_type):
         substitutions = {}
         if receiver_type and cls.generic_params and receiver_type.generic_args:
@@ -1211,6 +1278,60 @@ class CallAnalyzer:
             cls.name,
         )
 
+    def _contextualize_collection_argument(self, expected, argument, subject, line, col) -> bool:
+        """Give a list or map literal argument the collection its parameter names.
+
+        The literal fills that storage as a declared initializer does: each
+        element is checked against the parameter's element types, and the
+        literal lowers as the parameter's collection.
+        """
+        if isinstance(argument, ListLiteral) and argument.elements:
+            collection = "Vector"
+        elif isinstance(argument, MapLiteral) and argument.entries:
+            collection = "Map"
+        else:
+            return False
+        canonical = self.types.canonical_type(expected)
+        if canonical is None or canonical.is_array or canonical.base != collection or not canonical.generic_args:
+            return False
+        # An unresolved element is the cause of any mismatch it makes, so it is
+        # reported instead, first, as the self-hosted validator does.
+        if self.generated_symbols.report_unresolved_value(argument):
+            return True
+        self.apply_initializer_plan(self.aggregates.plan_collection_initializer(expected, argument, subject, line, col))
+        literal_type = self.types.collection_literal_type(collection, list(canonical.generic_args))
+        self.session.record_node_type(argument, literal_type)
+        self.generics.collect_type_instances(literal_type)
+        return True
+
+    def _mark_contextual_literals(self, expected, expression) -> None:
+        """Mark the collection literals a typed position gives its type.
+
+        Such a literal is checked against that type, not against its own
+        first element (ExpressionAnalyzer._record_inferred_literal); the
+        position's element and entry types reach nested literals the same way.
+        """
+        canonical = self.types.canonical_type(expected)
+        if canonical is None:
+            return
+        if isinstance(expression, MapLiteral):
+            if canonical.base != "Map" or len(canonical.generic_args) != 2:
+                return
+            self.session.contextual_literal_ids.add(id(expression))
+            for entry in expression.entries:
+                self._mark_contextual_literals(canonical.generic_args[0], entry.key)
+                self._mark_contextual_literals(canonical.generic_args[1], entry.value)
+        elif isinstance(expression, ListLiteral):
+            if canonical.is_array:
+                element = TypeSystem.strip_outer_storage(canonical, array=True)
+            elif canonical.base in {"Array", "List", "Set", "Vector"} and len(canonical.generic_args) == 1:
+                element = canonical.generic_args[0]
+            else:
+                return
+            self.session.contextual_literal_ids.add(id(expression))
+            for value in expression.elements:
+                self._mark_contextual_literals(element, value)
+
     def _contextualize_empty_collection(self, expected, expression) -> bool:
         """Give an empty ``[]`` or ``{}`` the collection type its target names.
 
@@ -1241,6 +1362,7 @@ class CallAnalyzer:
         """Stamp generic constructor calls with an exact expected type."""
         if expected is None:
             return False
+        self._mark_contextual_literals(expected, expression)
         if isinstance(expression, TernaryExpr):
             left = self.contextualize_generic_constructor(expected, expression.true_expr)
             right = self.contextualize_generic_constructor(expected, expression.false_expr)
@@ -1437,7 +1559,7 @@ class CallAnalyzer:
                 and (not self.types.types_compatible(expected, actual))
             ):
                 self.session.error(
-                    f"Argument {index + 1} to hosted function '{name}()' expects '{self.types.format_type(expected)}' but got '{self.types.format_type(actual)}'",
+                    f"Argument {index + 1} to hosted function '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
                     getattr(argument, "line", call.line),
                     getattr(argument, "col", call.col),
                 )

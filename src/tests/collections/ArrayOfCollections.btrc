@@ -1,0 +1,20 @@
+// An array whose element is a collection indexes its storage: vectors[0] is
+// the Vector and vectors[0][1] its element, in both compilers.
+import Library.Map;
+import Library.Vector;
+
+int main() {
+	Vector<int> vectors[2];
+	Vector<int> first = new Vector<int>();
+	vectors[0] = first;
+	vectors[0].push(5);
+	vectors[0].push(6);
+	print(vectors[0][1], vectors[0].len);
+	Map<string, int> maps[1];
+	Map<string, int> table = new Map<string, int>();
+	maps[0] = table;
+	maps[0]["a"] = 3;
+	print(maps[0]["a"], maps[0].len);
+	print("PASS: test_array_of_collections");
+	return 0;
+}

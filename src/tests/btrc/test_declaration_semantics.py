@@ -14,7 +14,7 @@ from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, co
     [
         (
             "struct Item { int value; }; struct Item { int other; }; int main() { return 0; }",
-            "Duplicate struct definition 'Item'",
+            "Duplicate definition of struct 'Item'",
         ),
         (
             "struct Item { Item child; }; int main() { return 0; }",
@@ -23,6 +23,16 @@ from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, co
         (
             "struct Item; Item value; int main() { return 0; }",
             "Incomplete struct 'Item' cannot be used by value",
+        ),
+        pytest.param(
+            "class Box<T> {}\nstruct T;\nint main() { struct T value; return 0; }",
+            "Incomplete struct 'T' cannot be used by value",
+            id="tagged-generic-collision-incomplete-local",
+        ),
+        pytest.param(
+            "class Box<T> {}\nstruct T;\nint take(struct T value) { return 0; }\nint main() { return 0; }",
+            "Incomplete struct 'T' cannot be used by value",
+            id="tagged-generic-collision-incomplete-parameter",
         ),
         (
             "Unknown value; int main() { return 0; }",

@@ -1,0 +1,4 @@
+3 2
+5 4
+1
+PASS: test_sizeof_generic_global_arrays

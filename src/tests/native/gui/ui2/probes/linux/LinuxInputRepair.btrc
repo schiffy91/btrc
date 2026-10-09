@@ -1,0 +1,148 @@
+/* Real SDL input and GPU readback for the existing-interface repairs. */
+import Library.App;
+import Library.Callback;
+import Library.Image;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.IContainer;
+import Library.GUI.ISelect;
+import Library.GUI.ITextField;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+void click(unsigned int window, double x, double y) {
+	btrcSdlPushPointerMotion(window, (float)x, (float)y);
+	btrcSdlPushPointerButton(window, (float)x, (float)y, 1u, 1, 1u);
+	btrcSdlPushPointerButton(window, (float)x, (float)y, 1u, 0, 1u);
+}
+
+void chord(unsigned int window, unsigned int scan, unsigned int key) {
+	btrcSdlPushKey(window, scan, key, (unsigned int)SDL_KMOD_LCTRL, 1, 0);
+	btrcSdlPushKey(window, scan, key, (unsigned int)SDL_KMOD_LCTRL, 0, 0);
+}
+
+void cutFailure(LinuxApplication owner, IWindow window, LinuxWindow native) {
+	var field = owner.createTextField("alpha", "");
+	window.attachRoot(field);
+	unsigned int id = native.nativeId();
+	click(id, 12.0, 12.0);
+	owner.pumpOnce(0);
+	bool seeded = SDL_SetClipboardText("seed");
+	assert(seeded);
+	chord(id, (unsigned int)SDL_SCANCODE_A, (unsigned int)SDLK_A);
+	owner.pumpOnce(0);
+	int before = inputClipboardWrites();
+	inputFailClipboard(1);
+	chord(id, (unsigned int)SDL_SCANCODE_X, (unsigned int)'x');
+	owner.pumpOnce(0);
+	assert(inputClipboardWrites() == before + 1);
+	assert(field.text().equals("alpha"));
+	assert(inputClipboardMatches(0) == 1);
+	/* Retrying without reselecting proves selection, not only text, survived. */
+	inputFailClipboard(0);
+	chord(id, (unsigned int)SDL_SCANCODE_X, (unsigned int)'x');
+	owner.pumpOnce(0);
+	assert(inputClipboardWrites() == before + 2);
+	assert(field.text().isEmpty());
+	assert(inputClipboardMatches(1) == 1);
+	/* An empty selection cannot republish or destroy text. */
+	chord(id, (unsigned int)SDL_SCANCODE_X, (unsigned int)'x');
+	owner.pumpOnce(0);
+	assert(inputClipboardWrites() == before + 2);
+}
+
+void popupPosition(LinuxApplication owner, IWindow window, LinuxWindow native, bool above) {
+	var root = owner.createContainer();
+	var nested = owner.createContainer();
+	var select = owner.createSelect();
+	select.setItems(["Alpha", "Beta", "Gamma"], 0);
+	root.attach(nested);
+	nested.attach(select);
+	window.attachRoot(root);
+	nested.arrange(20.0, 20.0, 260.0, 210.0);
+	double controlY = above ? 160.0 : 10.0;
+	select.arrange(20.0, controlY, 140.0, select.fittingHeight());
+	double originX = 40.0;
+	double originY = 20.0 + controlY;
+	double itemHeight = LinuxMetrics.controlHeight(13.0) - 4.0;
+	double menuHeight = 3.0 * itemHeight + 8.0;
+	double menuTop = above ? originY - menuHeight - 2.0 : originY + select.fittingHeight() + 2.0;
+	double itemY = menuTop + 4.0 + itemHeight * 2.5;
+	click(native.nativeId(), originX + 10.0, originY + 10.0);
+	owner.pumpOnce(0);
+	var image = native.render(true);
+	assert(image != null);
+	if (image != null) {
+		int pixelX = (int)((originX + 12.0) * (double)image.width / window.contentWidth());
+		int pixelY = (int)(itemY * (double)image.height / window.contentHeight());
+		var color = image.pixel(pixelX, pixelY);
+		/* Third row's unhighlighted, text-free interior is the painted popup. */
+		assert(color.red > 245 && color.green > 245 && color.blue > 245);
+	}
+	click(native.nativeId(), originX + 12.0, itemY);
+	owner.pumpOnce(0);
+	assert(select.selectedIndex() == 2);
+	assert(select.selectedTitle().equals("Gamma"));
+}
+
+void externalVisibility(LinuxApplication owner, IWindow window, LinuxWindow native) {
+	var field = owner.createTextField("visible", "");
+	window.attachRoot(field);
+	window.show();
+	unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
+	while (inputFrames() == 0 && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); }
+	assert(inputFrames() > 0);
+	inputVisibility(native.nativeId(), 0);
+	deadline = SDL_GetTicksNS() + 1000000000ULL;
+	while (window.isVisible() && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); }
+	owner.pumpOnce(0);
+	assert(!window.isVisible());
+	field.setText("hidden update");
+	assert(!native.needsFrame());
+	assert(native.wakeAt() == 0ULL);
+	int before = inputFrames();
+	owner.pumpOnce(0);
+	assert(inputFrames() == before);
+	/* Offscreen capture must remain available while native presentation stops. */
+	var hidden = native.render(true);
+	assert(hidden != null && hidden.width > 0 && hidden.height > 0);
+	assert(inputFrames() == before);
+	inputVisibility(native.nativeId(), 1);
+	deadline = SDL_GetTicksNS() + 10000000000ULL;
+	while ((!window.isVisible() || inputFrames() == before) && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); }
+	assert(window.isVisible());
+	assert(inputFrames() > before);
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	int mode = atoi(argv[1]);
+	assert(mode >= 0 && mode <= 3);
+	bool initialized = SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS);
+	assert(initialized);
+	var owner = LinuxApplication(32);
+	var window = owner.createWindow("Linux input repair", 300.0, 240.0);
+	var native = owner.firstWindow();
+	assert(native != null);
+	if (native == null) { return 1; }
+	native.setDarkAppearance(false);
+	unsigned long long ready = SDL_GetTicksNS() + 10000000000ULL;
+	while (!native.pollDevice() && SDL_GetTicksNS() < ready) { owner.pumpOnce(10); }
+	assert(native.pollDevice());
+	if (mode == 0) { cutFailure(owner, window, native); }
+	else if (mode == 1 || mode == 2) { popupPosition(owner, window, native, mode == 2); }
+	else { externalVisibility(owner, window, native); }
+	var closing = owner.close();
+	unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
+	while (closing == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); closing = owner.pollClose(); }
+	assert(closing == CALLBACK_CANCELLATION_COMPLETE);
+	printf("PASS: Linux input repair %d\n", mode);
+	return 0;
+}

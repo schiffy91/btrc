@@ -148,6 +148,10 @@ class DocumentAnalysis:
         )
 
 
+# The wrong-keyword refusal, naming the declaration the tag collides with.
+_TAG_MISMATCH = re.compile(r"'(?:struct|union|enum) (\w+)' does not name an? \w+: '\1' is ")
+
+
 class DocumentAnalyzer:
     """Own compiler-backed document analysis for one retained workspace."""
 
@@ -169,6 +173,17 @@ class DocumentAnalyzer:
         if cls._WINDOWS_DRIVE_RE.match(path):
             path = path[1:]
         return path
+
+    @staticmethod
+    def _background_type_names(background: list[FileUnit], program_units: list[FileUnit]) -> frozenset[str]:
+        """Names only the background stdlib declares, never the program.
+
+        The editor composes every stdlib unit for completion. A C tag named
+        like one of them (a header's `struct Timer`) collides with nothing a
+        compiler sees, so its wrong-keyword refusal is not the program's.
+        """
+        declared = frozenset().union(*(unit.defined_names for unit in program_units))
+        return frozenset().union(*(unit.defined_names for unit in background)) - declared
 
     @staticmethod
     def _diagnostic(
@@ -236,11 +251,13 @@ class DocumentAnalyzer:
         result.ast = composition.program
         result.units = composition.units_with_tokens()
         result.graph = composition.graph
+        program_units = [composition.active, *composition.imported]
         visibility_failures = ImportVisibilityChecker(
             composition.program,
             (),
             composition.graph,
             external_symbol_files=self.workspace.stdlib_symbol_files(),
+            tag_owner_files=[unit.path for unit in program_units],
         ).failures(active_file=path)
         result.visibility_failures = tuple(visibility_failures)
         for failure in visibility_failures:
@@ -260,8 +277,12 @@ class DocumentAnalyzer:
             result.diagnostics.append(self._diagnostic(1, 1, str(error), source_text=source))
             return result
 
+        background_only = self._background_type_names(composition.stdlib, program_units)
         for diagnostic in result.analyzed.diags:
             if diagnostic.file is not None and diagnostic.file != path:
+                continue
+            tag = _TAG_MISMATCH.match(diagnostic.message)
+            if tag is not None and tag.group(1) in background_only:
                 continue
             severity = (
                 lsp.DiagnosticSeverity.Warning if diagnostic.severity == "warning" else lsp.DiagnosticSeverity.Error

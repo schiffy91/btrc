@@ -235,6 +235,7 @@ int main() {
 
 
 PROVIDER_GUI_FIXTURES = {
+    "controls/macos/ButtonAlignment",
     "NativePanel",
     "NativeButtons",
     "NativeContainers",
@@ -249,6 +250,7 @@ PROVIDER_GUI_FIXTURES = {
 @pytest.mark.parametrize(
     "fixture_name, expected",
     [
+        ("controls/macos/ButtonAlignment", "native button alignment survives title and symbol changes"),
         ("NativePanel", "rounded child clipping"),
         ("NativeProgressIndicator", "native progress appearance"),
         ("NativeButtons", "ordered native button actions"),
@@ -273,6 +275,28 @@ def test_macos_panel_and_progress_controls(
     source, _sdk, _triple = native_project
     root = source.parent.parent
     source.write_text((REPO / f"src/tests/native/gui/{fixture_name}.btrc").read_text())
+    if fixture_name == "controls/macos/ButtonAlignment":
+        # Read the actual NSButton properties without exposing test-only API
+        # on MacOSButton or requiring an unqualified Objective-C downcast.
+        (root / "ButtonAlignmentProbe.h").write_text(
+            "#import <AppKit/AppKit.h>\n@interface ButtonAlignmentProbe : NSObject\n"
+            "+ (NSInteger)alignment:(NSView*)view;\n"
+            "+ (BOOL)symbolMatches:(NSView*)view hasTitle:(BOOL)titled;\n@end\n"
+        )
+        (root / "ButtonAlignmentProbe.m").write_text(
+            '#import "ButtonAlignmentProbe.h"\n@implementation ButtonAlignmentProbe\n'
+            "+ (NSInteger)alignment:(NSView*)view { return [(NSButton*)view alignment]; }\n"
+            "+ (BOOL)symbolMatches:(NSView*)view hasTitle:(BOOL)titled { NSButton *button = (NSButton*)view; "
+            "return button.image != nil && button.imagePosition == (titled ? NSImageLeading : NSImageOnly) "
+            "&& button.imageHugsTitle == titled; }\n@end\n"
+        )
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "ButtonAlignmentProbe.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["+[ButtonAlignmentProbe alignment:]", "+[ButtonAlignmentProbe symbolMatches:hasTitle:]"]\n'
+            '[[native.sources]]\npath = "ButtonAlignmentProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        )
     if fixture_name == "NativeStacks":
         for name in ("StackProbe.h", "StackProbe.m"):
             (root / name).write_text((REPO / "src/tests/native/gui" / name).read_text())

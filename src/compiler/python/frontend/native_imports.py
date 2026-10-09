@@ -1293,7 +1293,7 @@ class NativeDeclarationImporter:
         if isinstance(native, NativePointer):
             return self._realtime_native_spelling(native.pointee) + "*" + (" const" if prefix else "")
         if isinstance(native, NativeRecordType) and native.tag_name:
-            return prefix + "struct " + native.tag_name
+            return f"{prefix}{native.record_kind} {native.tag_name}"
         return prefix + self._block_type_spelling(native)
 
     def _project_realtime_callbacks(self, binding):
@@ -3401,7 +3401,9 @@ class NativeDeclarationImporter:
             # A complete SDK type can own storage even when imported through
             # a pointer. Its fields remain unavailable until explicitly read;
             # the included header, not a mirrored record, owns sizeof/alignment.
-            declaration = ast.StructDecl(name=name, fields=[], is_forward=not native.complete)
+            declaration = ast.StructDecl(
+                name=name, fields=[], is_forward=not native.complete, is_union=native.record_kind == "union"
+            )
             spelling = f"{native.record_kind} {native.tag_name}" if native.tag_name else name
             self._add(name, declaration, (native.identity, native.record_kind), spelling)
             self._records[key] = declaration

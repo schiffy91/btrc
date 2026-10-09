@@ -252,7 +252,7 @@ src/compiler/btrc/
   Compiler.btrc                   # public Compiler application object
 
   cli/
-    Driver.btrc                   # BtrccDriver, command line, paths, output
+    Driver.btrc                   # BtrccDriver, command line, paths, output; Unix compile stack
     WindowsMain.btrc              # Windows host composition without Unix SDK scanning
     MacOSMain.btrc                # Native macOS host with SDK-backed artifact hashing
 
@@ -581,6 +581,64 @@ lives at `dist/btrc.vsix`. Source directories never contain compiled output,
 bundled payloads, dependency installs, Python bytecode, or test caches.
 
 ## Verification
+
+### Mapping the two architecture contracts
+
+This section is the shared change guide for
+[issue 14](https://github.com/schiffy91/btrc/issues/14). The invariants above
+are common to both compilers; their concrete owner graphs are language-specific.
+The reference compiler's
+[`test_lowering_architecture.py`](../../src/tests/python/test_lowering_architecture.py)
+checks the lowering package, while the self-hosted compiler's
+[`test_compiler_structure_contract.py`](../../src/tests/btrc/test_compiler_structure_contract.py)
+checks the whole compiler. Python's whole-tree inventory and module-scope
+behavior are checked separately by
+[`test_python_compiler_structure.py`](../../src/tests/python/test_python_compiler_structure.py).
+Use the following mapping when changing an owner; a passing check on one side
+does not stand in for the other side's check.
+
+| Shared rule | Reference compiler check / policy | Self-hosted compiler check / policy |
+| --- | --- | --- |
+| Exact tree and meaningful file owner | Whole-tree inventory reads this document; lowering uses `OWNER_MODULES` and `EXPECTED_FILES`. `test_production_lowering_behavior_is_class_owned` rejects loose behavior. | `EXPECTED_BTRC_FILES`, `REQUIRED_OWNER_BY_PATH`, `test_every_unit_parses_and_behavior_files_have_complete_owners`, and the explicit top-level process-entry check. |
+| Concrete imports with no cycles or facades | `EXPECTED_INTERNAL_IMPORTS` pins every lowering import, including method-local and `TYPE_CHECKING` imports. `test_full_internal_import_graph_is_exact_and_acyclic` and the concrete-owner import check enforce it. | `test_imports_resolve_form_a_dag_and_reach_every_unit` derives the graph from source and requires every unit to be reachable from `PUBLIC_ENTRY_POINTS`. `STAGE_MANIFESTS` contain imports only; textual source inclusion is rejected. |
+| Narrow constructor dependencies | `test_owner_constructors_are_explicit_and_concrete` requires typed non-variadic parameters, rejects `Any`, `object` and callable bags, and permits generated dataclass constructors. | Typed BTRC declarations are parsed; owner and retained-field checks enforce placement and dependency direction. There is no equivalent Python annotation or dataclass requirement. |
+| Retained collaborators form a DAG without composition-root leaks | `EXPECTED_PRIMARY_RETAINED` pins the primary-owner edges; the retained graph check also rejects every nontrivial owner SCC. `test_collaborators_are_retained_once_without_late_binders_or_locators` checks initialization and service location. | `test_retained_collaborators_form_a_dag_without_composition_root_leaks` derives retained edges, rejects cycles and retained `IRLowerer`, `SemanticAnalyzer` or `Compiler` roots, and checks the compiler-to-pipeline edge. |
+| Mutable context carries state rather than services | `test_lowering_session_is_state_only` requires a `LoweringSession` dataclass with declared state fields, no undeclared writes, and no collaborator or forbidden service fields. | The retained-graph check rejects service-shaped fields in `LoweringContext` and `SemanticValidationState`; these are BTRC classes, not dataclasses. |
+| Catalogs belong to concrete query owners | `test_runtime_helper_selection_is_owned_per_lowering_session` checks a fresh `RuntimeHelperSelection` supplied by the catalog; session state does not become a service locator. | `test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners` pins the allowed hosted-ABI holders and one pipeline construction, and rejects lookup through analyzed/state objects. This is an additional self-hosted constraint, not the same catalog test under another name. |
+| Lowering emits raw structured IR before later passes | `test_raw_ir_lowering_has_no_optimizer_or_verifier_dependency` checks the lowering composition and translation-unit owners. | `test_pipeline_exposes_the_six_stage_ir_boundary_explicitly` checks pipeline ordering and the explicit lowerer/optimizer/emitter boundary. |
+
+For a new lowering owner, make one architecture decision here, then apply its
+language-specific consequences in the same change:
+
+1. Name the responsibility and its state/dependencies. Prefer an existing owner
+   unless the new responsibility has an independent invariant and API. Update
+   this document's affected inventory and any normative count in AGENTS.md.
+2. On Python, update `OWNER_MODULES`, the exact import graph and the exact primary
+   retained graph when those facts change. A new whole-compiler file also changes
+   the inventory count in `test_python_compiler_structure.py`. A value-only
+   context must remain a dataclass with declared fields; do not add a service
+   there merely to avoid threading a constructor argument.
+3. On BTRC, update `EXPECTED_BTRC_FILES` and `REQUIRED_OWNER_BY_PATH` for a new
+   behavior owner. Make it reachable through concrete imports. Update manifests
+   or entry-point sets only if its role actually requires that. The import and
+   retained graphs are derived, so there is no second expected edge table to
+   maintain. Hosted-ABI access additionally requires a real query, explicit
+   injection and an entry in that check's allowed-holder set; a new lowerer does
+   not automatically need it.
+4. Review the corresponding owner on the other compiler even when no file is
+   added there. Record why the same semantic change fits its existing owner or
+   needs a different split. Keep naming conventions and structured IR intact;
+   do not force a one-to-one file or class layout.
+5. Run all three structural suites named above, then the affected behavior and
+   parity suites. An intentional graph change must be explained before updating
+   an expected set; adding an edge until a test passes is not architecture review.
+
+This mapping documents the deliberately different checks rather than generating
+both graphs from a new schema. Future common rules are specified in this section
+and linked to both enforcement sites; source-language details stay with the
+suite that can inspect them accurately.
+
+### Required gates
 
 The architecture destination is established, so every gate applies to claimed
 behavior. Structural checks still matter — exact-tree and stale-path audits,

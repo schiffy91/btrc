@@ -32,6 +32,7 @@ from src.compiler.python.syntax.ast.generated import (
     ClassDecl,
     FieldAccessExpr,
     Identifier,
+    InterfaceDecl,
     MethodDecl,
     MethodSig,
     PropertyDecl,
@@ -442,6 +443,8 @@ class StdlibReachability:
                 if node.parent:
                     names.add(node.parent)
                 names.update(node.interfaces)
+            elif isinstance(node, InterfaceDecl) and node.parent:
+                names.add(node.parent)
             for field in dataclasses.fields(node):
                 if field.name in {"line", "col", "source_file", "name_line", "name_col"}:
                     continue

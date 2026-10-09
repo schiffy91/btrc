@@ -208,10 +208,10 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	/* Hidden windows present nothing, so they never keep the loop awake. */
-	public bool needsFrame() { return self._visible && (self._host.invalidation.revision() != self._paintedRevision || (self._wakeAt != 0ULL && SDL_GetTicksNS() >= self._wakeAt)); }
+	public bool needsFrame() { return self.isVisible() && (self._host.invalidation.revision() != self._paintedRevision || (self._wakeAt != 0ULL && SDL_GetTicksNS() >= self._wakeAt)); }
 
 	/* When a painted view asked to be redrawn (a caret blink, a spinner); zero for none. */
-	public unsigned long long wakeAt() { return self._visible ? self._wakeAt : 0ULL; }
+	public unsigned long long wakeAt() { return self.isVisible() ? self._wakeAt : 0ULL; }
 
 	private RGBA background() { var theme = self._dark ? self._context.darkTheme : self._context.lightTheme; return theme.dark ? RGBA(30, 30, 33, 255) : RGBA(238, 238, 240, 255); }
 
@@ -233,7 +233,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		var painter = self._painter;
 		var surface = self._surface;
 		var device = self._device;
-		if (presenter == null || painter == null || surface == null || device == null || self._closing || self._closed || (!capture && !self._visible)) { return null; }
+		if (presenter == null || painter == null || surface == null || device == null || self._closing || self._closed || (!capture && !self.isVisible())) { return null; }
 		surface.refreshBackingSize();
 		double scale = surface.backingScale();
 		self._host.scale = scale;
@@ -573,8 +573,9 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_LOST) { self._focused = false; self.cancelCapture(); self._host.invalidation.mark(); return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_LEAVE) { self._pointerInside = false; if (self._captureButton == APP_POINTER_BUTTON_NONE) { self.clearHover(); } return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_ENTER) { self._pointerInside = true; return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_SHOWN) { self._visible = true; self._host.invalidation.mark(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_HIDDEN || type == (unsigned int)SDL_EVENT_WINDOW_MINIMIZED) { return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_SHOWN) { self._visible = true; self.layoutRoot(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_HIDDEN) { self._visible = false; return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_MINIMIZED) { return; }
 		if (type == (unsigned int)SDL_EVENT_MOUSE_MOTION) {
 			self._pointerX = (double)event->x;
 			self._pointerY = (double)event->y;

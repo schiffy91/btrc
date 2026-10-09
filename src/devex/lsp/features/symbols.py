@@ -230,6 +230,8 @@ class SymbolProvider:
                         kind=lsp.SymbolKind.Struct,
                         range=decl_range,
                         selection_range=decl_selection,
+                        # LSP has no union kind; the detail tells a union apart.
+                        detail="union" if decl.is_union else None,
                         children=field_children,
                     )
                 )

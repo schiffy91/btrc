@@ -1,13 +1,15 @@
 # Codex UI lanes (2026-10-03)
 
-> **Historical assignment (2026-10-03/04). Superseded for scheduling by [CODEX.md](../../CODEX.md) (D28).** Codex's
-> active queue is now CODEX.md. Packet ids here stay for traceability. Where this file conflicts with D28 or
-> CODEX.md, CODEX.md governs ([CLAUDE.md D28](../../CLAUDE.md#decisions-all-resolved-2026-09-30)).
+**2026-10-07 consolidation:** [PLAN.md](../../PLAN.md) is the single active roadmap and queue. D29 supersedes older split-plan and integration-role wording for the authorized harmonization session; packet IDs, file claims, review and evidence requirements remain.
+
+> **Historical assignment (2026-10-03/04). Superseded for scheduling by [PLAN.md](../../PLAN.md) (D28/D29).**
+> Packet IDs stay for traceability. PLAN.md owns the active queue and governs conflicts;
+> CLAUDE.md and CODEX.md are compatibility entry points only.
 
 This was the file Codex's standing goal waited for: the owner asked for Codex to do all the native-UI work, with
 macOS, Linux, iOS/iPadOS, Android and Windows parallelized. It was Claude's assignment as integrator under
-CLAUDE.md D27 and WORKSTREAMS.md §2–§3. It no longer takes precedence over `docs/workstreams/codex.md`; both yield
-to CODEX.md. Queue changes now go in CODEX.md: read it on `origin/main` before each new unit.
+PLAN.md D27 and WORKSTREAMS.md §2–§3. It no longer takes precedence over `docs/workstreams/codex.md`; both yield
+to PLAN.md. Queue changes go in PLAN.md: read the current integration status before each new unit.
 
 ## Corrections (2026-10-04)
 
@@ -24,7 +26,7 @@ Linux session (`tools/ui/headless-session.sh`) and the `.#platforms` Android too
 gained the catalog shard loader (`CX-UIA-02` follow-up, batch 20), the UI1 shell fixture (`CX-UIA-09`, batch 30),
 the Linux SDL shell evidence (`CX-UIA-11`, batches 34 and 38) and the macOS accessibility evidence (`CX-UIA-10`,
 batch 36). `src/stdlib/GUI` still has only `MacOS/`, `Linux/` and `FreeType/`. For current readiness and each
-platform's next checkpoint, read [CODEX.md](../../CODEX.md#platform-slices-beyond-the-repairs). The table below is
+platform's next checkpoint, read [PLAN.md](../../PLAN.md#platform-slices-beyond-the-repairs). The table below is
 the 2026-10-03 snapshot, kept as history.
 
 | Platform | Can start now (2026-10-03, historical) | What blocks the native shell and its UI tracks |
@@ -42,7 +44,7 @@ evidence), never as a separate agent on the same files.
 The new-platform shells (`CX-UIA-15/16/17`) are roughly 290–350 agent-hours of Claude-side compiler, host and
 interop work away. Until then a Windows, iOS or Android agent can do the foundations only (host spikes, shell notes,
 designs: about 40–50 agent-hours), and those foundations do gate the shells, so do them early. **D28:** the
-per-platform slices in [CODEX.md](../../CODEX.md#platform-slices-beyond-the-repairs) start on their own
+per-platform slices in [PLAN.md](../../PLAN.md#platform-slices-beyond-the-repairs) start on their own
 prerequisites.
 
 ## Lanes that can run at the same time
@@ -75,7 +77,7 @@ the seed ledger) before `CX-UIA-05` integrates; and reviews the drafts that gate
   - PR #21's commit `b7aa53f` is on `main` (batch 11), and PR #21 is closed. Its CI was green: ci.yml 37090470053, macos.yml 37090470052, windows.yml 37090470074.
   - **The CX-UIA-02 follow-up was integrated in batch 20** (PR #22). `tools/qualification/ui_catalog.py` now exists and is a Claude hotspot.
 - **Stage 24's early start is approved** (owner, 2026-10-03). The Windows, iOS and Android host lanes open once Stage 25's runner core lands.
-- **Read first:** AGENTS.md's Codex section, then [CODEX.md](../../CODEX.md), then WORKSTREAMS.md §2–§3. Where this text conflicts with D28 or CODEX.md, CODEX.md governs.
+- **Read first:** AGENTS.md's Codex section, then [PLAN.md](../../PLAN.md), then WORKSTREAMS.md §2–§3. Where this text conflicts with D28/D29 or PLAN.md, PLAN.md governs.
 - **Environment.**
   - Run `export BTRC_TEST_RUNNER=linux-devcontainer`.
   - Run every command through `nix develop --command …`; inside an open shell, use `make NIX= …`.
@@ -97,7 +99,7 @@ the seed ledger) before `CX-UIA-05` integrates; and reviews the drafts that gate
      nix develop --command gh api "repos/schiffy91/btrc/actions/runs?per_page=50" --jq '.workflow_runs[]|select(.head_branch|startswith("codex/"))|select(.status!="completed")|"\(.id) \(.head_branch) \(.name) \(.status)"'
      ```
      If another Codex branch has a run listed, keep working locally and push when it completes.
-   - **Priority:** follow the order of [CODEX.md](../../CODEX.md#first-delivery-queue)'s queue (D28). The 2026-10-03 advisory order (CX-C-01, then the CX-UIA-02 follow-up, then CX-UIA-09, then CX-P1-05, then the rest) is historical.
+   - **Priority:** follow the order of [PLAN.md](../../PLAN.md#first-delivery-queue)'s queue (D28). The 2026-10-03 advisory order (CX-C-01, then the CX-UIA-02 follow-up, then CX-UIA-09, then CX-P1-05, then the rest) is historical.
    - **When it rises:** Claude raises the cap to two once CL-R-50 (path-selective lane tier) lands and the first lane run's runner-minutes are recorded.
 3. **Before every push:**
    - the packet's acceptance commands pass locally;

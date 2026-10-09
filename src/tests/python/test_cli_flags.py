@@ -22,9 +22,12 @@ def run_main(monkeypatch, argv):
     CompilerCommand(Compiler()).run(argv)
 
 
-def test_emit_modes_are_mutually_exclusive(monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "modes", [("--emit-tokens", "--emit-ast"), ("--emit-c", "--emit-tokens"), ("--emit-c", "--emit-ast")]
+)
+def test_emit_modes_are_mutually_exclusive(monkeypatch, capsys, modes):
     with pytest.raises(SystemExit) as error:
-        run_main(monkeypatch, ["Input.btrc", "--emit-tokens", "--emit-ast"])
+        run_main(monkeypatch, ["Input.btrc", *modes])
 
     assert error.value.code == 2
     assert "not allowed with argument" in capsys.readouterr().err

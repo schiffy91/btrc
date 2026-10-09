@@ -94,23 +94,11 @@ id = "r09-union-declaration"
 row = "9"
 construct = "union U { int i; float f; };"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected name, got LBRACE '{' at 2:14" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:14" }
-source = '''
-#include <assert.h>
-union Number { int integer; float real; };
-int main() {
-	union Number number;
-	number.integer = 5;
-	assert(number.integer == 5);
-	assert(sizeof(union Number) >= sizeof(float));
-	print("PASS: union declaration");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "0214f3d"
+python = { exit = 0, stdout = "PASS: union declaration 5 6 200\n" }
+btrcc = { exit = 0, stdout = "PASS: union declaration 5 6 200\n" }
+corpus = "c_compat/UnionDeclaration.btrc"
 
 [[probe]]
 id = "r09-union-managed-member"
@@ -118,10 +106,9 @@ row = "9"
 construct = "a managed union member (ownership rule refuses)"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected name, got LBRACE '{' at 1:14" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 1:14" }
+revision = "0214f3d"
+python = { diagnostic = "Union 'Holder' member 'text' cannot hold managed type 'string'; a union cannot tell which member is live, so its members must be plain C values at 1:23" }
+btrcc = { diagnostic = "Union 'Holder' member 'text' cannot hold managed type 'string'; a union cannot tell which member is live, so its members must be plain C values at 1:23" }
 source = '''
 union Holder { string text; int value; };
 int main() { return 0; }
@@ -269,39 +256,21 @@ id = "r13-flexible-array-member"
 row = "13"
 construct = "int data[]; flexible array member"
 intent = "positive"
-status = "known-divergence"
-revision = "cf28fe7"
-python = { exit = 1, stdout = "FAIL: flexible array member has pointer layout\n" }
-btrcc = { exit = 1, stdout = "FAIL: flexible array member has pointer layout\n" }
-source = '''
-struct Buffer { int count; int data[]; };
-int main() {
-	if (sizeof(struct Buffer) != sizeof(int)) {
-		print("FAIL: flexible array member has pointer layout");
-		return 1;
-	}
-	struct Buffer* buffer = (struct Buffer*)malloc(sizeof(struct Buffer) + (size_t)4 * sizeof(int));
-	buffer->count = 4;
-	for (int i = 0; i < buffer->count; i++) {
-		buffer->data[i] = i * i;
-	}
-	int last = buffer->data[3];
-	free(buffer);
-	if (last != 9) { return 2; }
-	print("PASS: flexible array member");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "0214f3d"
+python = { exit = 0, stdout = "PASS: flexible array member\nPASS: struct elements\nleft right\nPASS: pointer elements\nPASS: typedef arrays stay pointers\n" }
+btrcc = { exit = 0, stdout = "PASS: flexible array member\nPASS: struct elements\nleft right\nPASS: pointer elements\nPASS: typedef arrays stay pointers\n" }
+corpus = "c_compat/FlexibleArrayMembers.btrc"
 
 [[probe]]
 id = "r13-flexible-array-not-last"
 row = "13"
 construct = "a flexible array member that is not last"
 intent = "negative"
-status = "known-divergence"
-revision = "cf28fe7"
-python = { exit = 0, stdout = "" }
-btrcc = { exit = 0, stdout = "" }
+status = "rejected"
+revision = "0214f3d"
+python = { diagnostic = "Flexible array member 'Buffer.data' must be the last field of struct 'Buffer' at 1:21" }
+btrcc = { diagnostic = "Flexible array member 'Buffer.data' must be the last field of struct 'Buffer' at 1:21" }
 source = '''
 struct Buffer { int data[]; int count; };
 int main() { return 0; }
@@ -391,22 +360,11 @@ id = "x-typedef-union"
 row = "x-typedef-union"
 construct = "typedef union { } T;"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected union name, got LBRACE '{' at 2:15" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:15" }
-source = '''
-#include <assert.h>
-typedef union { int integer; float real; } Number;
-int main() {
-	Number number;
-	number.integer = 3;
-	assert(number.integer == 3);
-	print("PASS: typedef union");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "0214f3d"
+python = { exit = 0, stdout = "PASS: union declaration 5 6 200\n" }
+btrcc = { exit = 0, stdout = "PASS: union declaration 5 6 200\n" }
+corpus = "c_compat/UnionDeclaration.btrc"
 
 [[probe]]
 id = "x-typedef-union-managed-member"
@@ -414,10 +372,9 @@ row = "x-typedef-union"
 construct = "a managed member in a typedef union"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected union name, got LBRACE '{' at 1:15" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 1:15" }
+revision = "0214f3d"
+python = { diagnostic = "Union 'Holder' member 'text' cannot hold managed type 'string'; a union cannot tell which member is live, so its members must be plain C values at 1:24" }
+btrcc = { diagnostic = "Union 'Holder' member 'text' cannot hold managed type 'string'; a union cannot tell which member is live, so its members must be plain C values at 1:24" }
 source = '''
 typedef union { string text; int integer; } Holder;
 int main() { return 0; }

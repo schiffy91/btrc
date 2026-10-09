@@ -412,6 +412,15 @@ _NAMED_DECLS = (
     ast.VarDeclStmt,
 )
 _REFERENCE_DECLS = _NAMED_DECLS + (ast.PreprocessorDirective,)
+_C_TAG_KEYWORDS = frozenset(("struct", "union", "enum"))
+_TYPE_DECLS = (
+    ast.ClassDecl,
+    ast.InterfaceDecl,
+    ast.StructDecl,
+    ast.EnumDecl,
+    ast.RichEnumDecl,
+    ast.TypedefDecl,
+)
 
 
 class FrontendVisibilityError(Exception):
@@ -427,6 +436,8 @@ class ImportReference:
     name: str
     line: int
     col: int
+    # A C tag (`struct X`) names only a type: C keeps tags in their own namespace.
+    tag: bool = False
 
 
 @dataclass(frozen=True)
@@ -461,12 +472,12 @@ class ImportReferenceCollector:
     def _bound(self, name: str) -> bool:
         return any(name in frame for frame in self.scope)
 
-    def add(self, name: str, line: int, col: int, *, typename: bool = False) -> None:
+    def add(self, name: str, line: int, col: int, *, typename: bool = False, tag: bool = False) -> None:
         if not name or name in self.generic_params:
             return
         if not typename and self._bound(name):
             return
-        self.refs.append(ImportReference(name, line or 1, col or 1))
+        self.refs.append(ImportReference(name, line or 1, col or 1, tag))
 
     def _in_frame(self, names: Iterable[str], *nodes) -> None:
         self.scope.append(set(names))
@@ -493,7 +504,11 @@ class ImportReferenceCollector:
         if node is None:
             return
         if isinstance(node, ast.TypeExpr):
-            self.add(node.base, node.line, node.col, typename=True)
+            # `struct X`, `union X` and `enum X` name the declaration `X`
+            # (its C tag alias), so they need X's import like `X` does.
+            keyword, _, tag = node.base.partition(" ")
+            tagged = keyword in _C_TAG_KEYWORDS and bool(tag) and " " not in tag
+            self.add(tag if tagged else node.base, node.line, node.col, typename=True, tag=tagged)
             for argument in node.generic_args:
                 self.visit(argument)
             self.visit(node.array_size)
@@ -594,11 +609,20 @@ class ImportVisibilityChecker:
         graph: SourceDependencyGraph,
         *,
         external_symbol_files: Mapping[str, Iterable[str]] | None = None,
+        tag_owner_files: Iterable[str] | None = None,
     ) -> None:
         self.program = program
         self.provenance = provenance
         self.graph = graph
         self.external_symbol_files = external_symbol_files or {}
+        # The files whose types can own a C tag. A compiler's program is
+        # exactly its sources; an editor composes the whole stdlib for
+        # completion and names the files the active program really contains.
+        self.tag_owner_files = (
+            None
+            if tag_owner_files is None
+            else frozenset(SourceDependencyGraph.canonical_file(path) for path in tag_owner_files)
+        )
         self.package_access = PackageImportPolicy()
 
     @staticmethod
@@ -621,7 +645,14 @@ class ImportVisibilityChecker:
             None,
         )
 
-    def _symbol_files(self) -> dict[str, set[str]]:
+    def _symbol_files(self) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+        """Map each name to its declaring files: every symbol, and separately
+        the types this program declares. A C tag (`struct X`) resolves only
+        among the latter: the external symbol index may name a stdlib module
+        that is not in the program, and a header's own `struct Timer` is not
+        the stdlib's Timer. A generic class or interface owns no C tag (its C
+        names are mangled per instance), so it is never a tag's owner."""
+        types: dict[str, set[str]] = {}
         symbols = {
             name: {SourceDependencyGraph.canonical_file(path) for path in paths}
             for name, paths in self.external_symbol_files.items()
@@ -649,6 +680,12 @@ class ImportVisibilityChecker:
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
             if name:
                 symbols.setdefault(name, set()).add(canonical_file)
+                if (
+                    isinstance(declaration, _TYPE_DECLS)
+                    and not getattr(declaration, "generic_params", None)
+                    and (self.tag_owner_files is None or canonical_file in self.tag_owner_files)
+                ):
+                    types.setdefault(name, set()).add(canonical_file)
             if isinstance(declaration, ast.EnumDecl):
                 for value in declaration.values:
                     if value.name:
@@ -657,7 +694,7 @@ class ImportVisibilityChecker:
                 for variant in declaration.variants:
                     if variant.name:
                         symbols.setdefault(variant.name, set()).add(canonical_file)
-        return symbols
+        return symbols, types
 
     @staticmethod
     def _macro_references(declaration: ast.PreprocessorDirective) -> list[ImportReference]:
@@ -702,7 +739,7 @@ class ImportVisibilityChecker:
     ) -> list[ImportVisibilityFailure]:
         """Return structured references hidden by missing imports."""
 
-        symbol_files = self._symbol_files()
+        symbol_files, type_files = self._symbol_files()
         reachable_cache: dict[str, set[str]] = {}
         failures: list[ImportVisibilityFailure] = []
         canonical_active = SourceDependencyGraph.canonical_file(active_file) if active_file is not None else None
@@ -721,15 +758,14 @@ class ImportVisibilityChecker:
                 continue
             display_file = os.path.abspath(source_file)
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
+            # Every generic's marks, not only the active file's: the analyzer
+            # checks the whole program, so an editor check must see them too.
+            self._record_visible_type_parameters(
+                declaration, symbol_files, lambda file=canonical_file: self._reachable(file, reachable_cache)
+            )
             if canonical_active is not None and canonical_file != canonical_active:
                 continue
-            if canonical_file not in reachable_cache:
-                reachable_cache[canonical_file] = {
-                    owner
-                    for owner in self.graph.visibility_reachable(canonical_file)
-                    if self.package_access.permits_reference(canonical_file, owner)
-                }
-            reachable = reachable_cache[canonical_file]
+            reachable = self._reachable(canonical_file, reachable_cache)
 
             seen_refs: set[ImportReference] = set()
             for reference in self._references(declaration):
@@ -741,7 +777,7 @@ class ImportVisibilityChecker:
                     reference,
                 ):
                     continue
-                declaring = symbol_files.get(reference.name)
+                declaring = (type_files if reference.tag else symbol_files).get(reference.name)
                 if not declaring or declaring & reachable:
                     continue
                 failures.append(
@@ -754,6 +790,34 @@ class ImportVisibilityChecker:
                     )
                 )
         return failures
+
+    def _reachable(self, canonical_file: str, cache: dict[str, set[str]]) -> set[str]:
+        """The files `canonical_file` may reference, computed once per file."""
+        if canonical_file not in cache:
+            cache[canonical_file] = {
+                owner
+                for owner in self.graph.visibility_reachable(canonical_file)
+                if self.package_access.permits_reference(canonical_file, owner)
+            }
+        return cache[canonical_file]
+
+    @staticmethod
+    def _record_visible_type_parameters(declaration, symbol_files, reachable_from) -> None:
+        """Mark which type-parameter names of a generic also name a top-level
+        symbol its file can see. Inside the generic such a name means the
+        parameter, so the analyzer refuses one that would hide a struct the
+        generic could otherwise reach (r13); a symbol the file cannot see is
+        never hidden. Unmarked generics (no strict visibility) are treated as
+        seeing every symbol."""
+        owners = [declaration]
+        if isinstance(declaration, ast.ClassDecl):
+            owners.extend(member for member in declaration.members if isinstance(member, ast.MethodDecl))
+        for owner in owners:
+            if not isinstance(owner, (ast.ClassDecl, ast.InterfaceDecl, ast.MethodDecl)):
+                continue
+            # Reachability is computed only for a parameter named like a symbol.
+            named = [name for name in owner.generic_params or () if name in symbol_files]
+            owner.visible_type_parameters = frozenset(name for name in named if symbol_files[name] & reachable_from())
 
     def check(self, *, active_file: str | None = None) -> list[tuple[str, int, int]]:
         """Return visibility failures as ``(message, line, col)`` tuples."""

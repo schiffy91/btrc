@@ -100,9 +100,9 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		self.changed();
 	}
 
-	private void copySelection() {
-		if (!self.hasSelection()) { return; }
-		SDL_SetClipboardText(self._text.substring(self.selectionStart(), self.selectionEnd()));
+	private bool copySelection() {
+		if (!self.hasSelection()) { return false; }
+		return SDL_SetClipboardText(self._text.substring(self.selectionStart(), self.selectionEnd()));
 	}
 
 	private void paste() {
@@ -191,7 +191,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		}
 		if (control && event.key == APP_KEY_A) { self._anchor = 0; self._caret = self._text.len(); self.changed(); return true; }
 		if (control && event.key == APP_KEY_C) { self.copySelection(); return true; }
-		if (control && event.key == APP_KEY_X) { self.copySelection(); self.replaceSelection(""); return true; }
+		if (control && event.key == APP_KEY_X) { if (self.copySelection()) { self.replaceSelection(""); } return true; }
 		if (control && event.key == APP_KEY_V) { self.paste(); return true; }
 		return false;
 	}

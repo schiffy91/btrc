@@ -1,0 +1,31 @@
+// Structs with flexible array members (C row 13) named like the type
+// parameters of a stdlib generic: K and V in Library.Map. Stdlib generics
+// cannot refer to a program's structs, so their parameters keep meaning the
+// parameter and the program compiles; only the structs stay behind a pointer.
+// A program's own generic may not name a type parameter like such a struct
+// (test_flexible_array_member_contract.py pins that refusal).
+import Library.Map;
+
+#include <assert.h>
+#include <stdlib.h>
+
+struct K { int count; int data[]; };
+
+struct V { int count; double data[]; };
+
+int main() {
+	Map<int, int> squares = {};
+	squares.put(3, 9);
+	struct K* keys = (struct K*)calloc((size_t)1, sizeof(struct K) + (size_t)2 * sizeof(int));
+	struct V* values = (struct V*)calloc((size_t)1, sizeof(struct V) + sizeof(double));
+	assert(keys != null && values != null);
+	keys->count = 2;
+	keys->data[1] = squares.get(3);
+	values->data[0] = 0.5;
+	int total = keys->data[1] + (int)(values->data[0] * 2.0);
+	free(keys);
+	free(values);
+	assert(total == 10);
+	print(f"PASS: stdlib type parameters named like flexible-array structs ({total})");
+	return 0;
+}

@@ -1,0 +1,101 @@
+/* Invalid replacement must preserve both ownership and actual painted content. */
+import Library.Callback;
+import Library.Image;
+import Library.GUI.IApplication;
+import Library.GUI.IContainer;
+import Library.GUI.IGrid;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+
+void verifyCell(LinuxWindow native, IWindow window, IGrid grid, IView? child, RGBA expected) {
+	assert(grid.childAt(0, 0) == child);
+	ILinuxView? nativeGrid = (ILinuxView?)grid;
+	assert(nativeGrid != null);
+	if (nativeGrid != null) {
+		assert(nativeGrid.node().children.len == (child == null ? 0 : 1));
+		if (child != null) {
+			assert(nativeGrid.node().children.get(0) == child);
+			assert(nativeGrid.node().children.get(0).node().attached);
+		}
+	}
+	var image = native.render(true);
+	assert(image != null);
+	if (image != null) {
+		int x = (int)(40.0 * (double)image.width / window.contentWidth());
+		int y = (int)(40.0 * (double)image.height / window.contentHeight());
+		var pixel = image.pixel(x, y);
+		assert(pixel.red == expected.red && pixel.green == expected.green && pixel.blue == expected.blue);
+	}
+}
+
+int main() {
+	bool initialized = SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS);
+	assert(initialized);
+	var owner = LinuxApplication(16);
+	var window = owner.createWindow("Linux grid replacement", 240.0, 160.0);
+	var native = owner.firstWindow();
+	assert(native != null);
+	if (native == null) { return 1; }
+	var root = owner.createPanel(RGBA(0, 0, 0, 255), 0.0);
+	var grid = owner.createGrid(1, 1, 0.0, 0.0);
+	var previous = owner.createPanel(RGBA(255, 0, 0, 255), 0.0);
+	var donor = owner.createContainer();
+	var parented = owner.createPanel(RGBA(0, 0, 255, 255), 0.0);
+	var replacement = owner.createPanel(RGBA(0, 255, 0, 255), 0.0);
+	var closed = owner.createPanel(RGBA(255, 255, 255, 255), 0.0);
+	assert(closed.close() == CALLBACK_CANCELLATION_COMPLETE);
+	grid.setColumnWidth(0, 80.0);
+	grid.setRowHeight(0, 80.0);
+	grid.setChild(0, 0, previous);
+	parented.arrange(0.0, 0.0, 60.0, 60.0);
+	donor.attach(parented);
+	donor.arrange(140.0, 20.0, 60.0, 60.0);
+	root.attach(grid); root.attach(donor); window.attachRoot(root);
+	grid.arrange(20.0, 20.0, 80.0, 80.0);
+	unsigned long long ready = SDL_GetTicksNS() + 10000000000ULL;
+	while (!native.pollDevice() && SDL_GetTicksNS() < ready) { owner.pumpOnce(10); }
+	assert(native.pollDevice());
+	verifyCell(native, window, grid, previous, RGBA(255, 0, 0, 255));
+	bool parentedRejected = false;
+	try { grid.setChild(0, 0, parented); } catch (string error) { parentedRejected = true; }
+	assert(parentedRejected && donor.childCount() == 1 && donor.childAt(0) == parented);
+	verifyCell(native, window, grid, previous, RGBA(255, 0, 0, 255));
+	bool closedRejected = false;
+	try { grid.setChild(0, 0, closed); } catch (string error) { closedRejected = true; }
+	assert(closedRejected);
+	verifyCell(native, window, grid, previous, RGBA(255, 0, 0, 255));
+	grid.setChild(0, 0, previous);
+	verifyCell(native, window, grid, previous, RGBA(255, 0, 0, 255));
+	grid.setChild(0, 0, replacement);
+	verifyCell(native, window, grid, replacement, RGBA(0, 255, 0, 255));
+	/* Successful replacement detaches rather than closes the old alias. */
+	assert(previous.isOpen());
+	assert(previous.close() == CALLBACK_CANCELLATION_COMPLETE);
+	grid.setChild(0, 0, null);
+	verifyCell(native, window, grid, null, RGBA(0, 0, 0, 255));
+	assert(replacement.isOpen());
+	assert(replacement.close() == CALLBACK_CANCELLATION_COMPLETE);
+	/* A detached grid reaches cycle validation independently of parenting. */
+	var cycleGrid = owner.createGrid(1, 1, 0.0, 0.0);
+	var cycleChild = owner.createPanel(RGBA(255, 0, 0, 255), 0.0);
+	cycleGrid.setChild(0, 0, cycleChild);
+	bool cycleRejected = false;
+	try { cycleGrid.setChild(0, 0, cycleGrid); } catch (string error) { cycleRejected = true; }
+	assert(cycleRejected && cycleGrid.childAt(0, 0) == cycleChild);
+	var closing = owner.close();
+	unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
+	while (closing == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); closing = owner.pollClose(); }
+	assert(closing == CALLBACK_CANCELLATION_COMPLETE);
+	assert(!window.isOpen() && !root.isOpen() && !grid.isOpen() && !donor.isOpen());
+	assert(!cycleGrid.isOpen() && !cycleChild.isOpen());
+	assert(!previous.isOpen() && !replacement.isOpen() && !parented.isOpen() && !closed.isOpen());
+	printf("PASS: linux grid replacement preserves rejected child and pixels\n");
+	return 0;
+}

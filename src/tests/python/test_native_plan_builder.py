@@ -1881,3 +1881,132 @@ def test_emitted_unit_digests_name_one_sha256_per_unit(tmp_path, digests):
     else:
         with pytest.raises(NativePlanError, match="emitted-unit-digests must give one SHA-256 per emitted unit"):
             NativePlanReader().read(path)
+
+
+@pytest.mark.parametrize("identities", [[], [("a" * 40, "Application"), ("b" * 40, "Application")]])
+def test_codesign_missing_or_ambiguous_identity_fails_closed(tmp_path, identities):
+    from tools.native_plan import DarwinSigning, _DarwinSigner
+
+    tool = tmp_path / "codesign"
+    tool.write_text("signer")
+    tool.chmod(0o755)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        listing = "\n".join(
+            f'  {index}) {fingerprint} "{name}"' for index, (fingerprint, name) in enumerate(identities, 1)
+        )
+        return subprocess.CompletedProcess(command, 0, listing, "")
+
+    with pytest.raises(NativePlanError, match="exactly one certificate"):
+        _DarwinSigner(DarwinSigning("Application", tool=str(tool)), run)
+    assert calls == [["/usr/bin/security", "find-identity", "-p", "codesigning"]]
+
+
+@pytest.mark.parametrize("requested", ["Application", "A" * 40])
+def test_codesign_resolves_exact_certificate_and_verifies_it(tmp_path, requested):
+    from tools.native_plan import DarwinSigning, _DarwinSigner
+
+    tool, keychain, staged = tmp_path / "codesign", tmp_path / "keychain", tmp_path / "program"
+    for path in (tool, keychain, staged):
+        path.write_text("fixture")
+    tool.chmod(0o755)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, f'  1) {"A" * 40} "Application"\n', "")
+
+    signer = _DarwinSigner(DarwinSigning(requested, keychain=keychain, identifier="org.btrc.app", tool=str(tool)), run)
+    signer.sign(staged)
+    signing = next(command for command in calls if "--force" in command)
+    assert signing == [
+        str(tool),
+        "--force",
+        "--sign",
+        "a" * 40,
+        "--keychain",
+        str(keychain),
+        "--identifier",
+        "org.btrc.app",
+        str(staged),
+    ]
+    verification = next(command for command in calls if "--verify" in command)
+    assert verification[-2] == '=certificate leaf = H"' + "a" * 40 + '" and identifier "org.btrc.app"'
+    assert signer.context["certificate"] == "a" * 40
+
+
+def test_codesign_identity_changed_during_build_is_not_signed(tmp_path):
+    from tools.native_plan import DarwinSigning, _DarwinSigner
+
+    tool = tmp_path / "codesign"
+    tool.write_text("fixture")
+    tool.chmod(0o755)
+    fingerprint = "a" * 40
+
+    def run(command, **kwargs):
+        assert command[0] == "/usr/bin/security"
+        return subprocess.CompletedProcess(command, 0, f'  1) {fingerprint} "Application"\n', "")
+
+    signer = _DarwinSigner(DarwinSigning("Application", tool=str(tool)), run)
+    fingerprint = "b" * 40
+    with pytest.raises(NativePlanError, match="configuration changed"):
+        signer.sign(tmp_path / "program")
+
+
+def test_codesign_options_require_an_identity(tmp_path):
+    with pytest.raises(SystemExit) as failure:
+        main(["--plan", "p", "--generated-c", "c", "--output", "o", "--codesign-identifier", "org.btrc.app"])
+    assert failure.value.code == 2
+
+
+@pytest.mark.parametrize("host,target", [("linux", "macos-arm64"), ("darwin", "linux-x86_64")])
+def test_codesign_rejects_other_hosts_or_targets_before_tools(tmp_path, monkeypatch, host, target):
+    from tools.native_plan import DarwinSigning
+
+    source, plan = tmp_path / "main.c", tmp_path / "plan.json"
+    source.write_text("int main(void) { return 0; }\n")
+    plan.write_text(
+        json.dumps(NativeLinkPlan.empty(PackageTarget.parse(target)).as_dict(), separators=(",", ":"), sort_keys=True)
+        + "\n"
+    )
+
+    def never_run(*args, **kwargs):
+        pytest.fail("unsupported signing reached a tool")
+
+    monkeypatch.setattr("tools.native_plan.sys.platform", host)
+    with pytest.raises(NativePlanError, match="Darwin host and macOS target"):
+        NativePlanBuilder(runner=never_run).build(
+            plan_path=plan, generated_c=source, output=tmp_path / "program", signing=DarwinSigning("-")
+        )
+
+
+@pytest.mark.parametrize("requested", ["BTRSmith Build Signing", "D3D5AA4395E93CC694C136DD3F327DB4DA18D703"])
+def test_codesign_resolves_existing_local_certificate_without_global_trust(tmp_path, requested):
+    from tools.native_plan import DarwinSigning, _DarwinSigner
+
+    tool = tmp_path / "codesign"
+    tool.write_text("fixture")
+    tool.chmod(0o755)
+    fingerprint = "d3d5aa4395e93cc694c136dd3f327db4da18d703"
+    listing = (
+        "Policy: Code Signing\n  Matching identities\n"
+        f'  1) {fingerprint.upper()} "BTRSmith Build Signing" (CSSMERR_TP_NOT_TRUSTED)\n'
+        "     1 identities found\n\n  Valid identities only\n     0 valid identities found\n"
+    )
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, listing if command[0] == "/usr/bin/security" else "", "")
+
+    signer = _DarwinSigner(DarwinSigning(requested, tool=str(tool)), run)
+    signer.sign(tmp_path / "program")
+    assert signer.context["certificate"] == fingerprint
+    assert all("-v" not in command for command in calls if command[0] == "/usr/bin/security")
+    signing = next(command for command in calls if "--sign" in command)
+    assert signing[signing.index("--sign") + 1] == fingerprint
+    verification = next(command for command in calls if "--verify" in command)
+    assert "--strict" in verification
+    assert verification[verification.index("--test-requirement") + 1] == f'=certificate leaf = H"{fingerprint}"'

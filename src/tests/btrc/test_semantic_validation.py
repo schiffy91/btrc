@@ -429,7 +429,7 @@ def test_type_name_shadowing_uses_instance_member_lookup(
         ),
         (
             "class A { public int value; public int value; } int main() { return 0; }",
-            "Duplicate member 'A.value'",
+            "Duplicate field 'value' in class 'A'",
         ),
         (
             "class Base { public int run(int value) { return value; } } "
@@ -440,11 +440,31 @@ def test_type_name_shadowing_uses_instance_member_lookup(
         ),
         (
             "class A { class int value() { return 1; } } int main() { A item = A(); return item.value(); }",
-            "must be called on the class",
+            "Class method 'value' must be accessed on 'A', not on an instance",
         ),
         (
             "class A { public int value() { return 1; } } int main() { return A.value(); }",
             "is not a class method",
+        ),
+        # The callee resolves before its arguments, keyed by the member's
+        # owner as the reference does: a parent's private method through
+        # `self` in a subclass, and a private function-pointer field.
+        (
+            "class A { public A() {} private int helper() { return 1; } }\n"
+            "class B extends A { public B() {} public int viaB() { return self.helper(); } }\n"
+            "int main() { B b = new B(); return b.viaB(); }",
+            "Cannot access private method 'helper' of class 'A'",
+        ),
+        (
+            "class A { public A() { self.cb = null; } private CFunction<int, int>? cb; }\n"
+            "int main() { A a = new A(); return a.cb(1); }",
+            "Cannot access private field 'cb' of class 'A'",
+        ),
+        (
+            "int f(int x) { return x; }\n"
+            "class R { public R() {} private int m(int v) { return v; } }\n"
+            "int main() { R r = new R(); return r.m(f(1, 2)); }",
+            "Cannot access private method 'm' of class 'R'",
         ),
     ],
 )

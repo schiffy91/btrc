@@ -121,6 +121,16 @@ FUNCTION_TYPE_TYPEDEF = "A function type typedef is not supported: write 'typede
 NULLABLE_DECLARATORS = "A nullable declaration declares one variable: write one declaration per nullable variable"
 VAR_DECLARATORS = "'var' declares one variable: write one 'var' declaration per variable"
 FUNCTION_BESIDE_DECLARATORS = "Function '{}' must be declared on its own, not beside other declarators"
+# Union member spellings (C row 9, docs/design/c-compatibility.md "r09 unions").
+UNION_ARRAY_SPELLING = "Union field '{}' cannot use the 'T[] name' spelling; declare a pointer as 'T* {}'"
+UNION_FLEXIBLE_ARRAY = "Union member '{}.{}' cannot be a flexible array member"
+UNTAGGED_TYPEDEF_RECORD = (
+    "An untagged {0} in a typedef needs a plain declarator to name it; add a tag (typedef {0} Name {{ ... }} *Alias;)"
+)
+STRUCT_ARRAY_SPELLING = (
+    "Struct field '{0}' cannot use the 'T[] name' spelling; "
+    "declare a flexible array member as 'T {0}[]' or a pointer as 'T* {0}'"
+)
 
 
 class ParseError(Exception):
@@ -1042,7 +1052,7 @@ class Parser:
                     TokenKind.IMPLEMENTS,
                 ):
                     return [self._parse_class_decl()]
-        if tok.type == TokenKind.STRUCT and not is_gpu and not is_realtime and not keep_return:
+        if tok.type in (TokenKind.STRUCT, TokenKind.UNION) and not is_gpu and not is_realtime and not keep_return:
             next_tok = self._peek(1)
             if next_tok.type == TokenKind.IDENT:
                 if self._peek(2).type in (TokenKind.LBRACE, TokenKind.SEMICOLON):
@@ -1125,51 +1135,141 @@ class Parser:
         return ".".join(segments)
 
     def _parse_struct_decl(self) -> StructDecl:
-        tok = self._expect(TokenKind.STRUCT)
+        """``struct S { ... };``, ``union U { ... };`` or a tag forward."""
+        tok = self._advance()
+        is_union = tok.type == TokenKind.UNION
         name = ""
         name_line, name_col = tok.line, tok.col
         if self._check(TokenKind.IDENT):
             name_tok = self._advance()
             name = name_tok.value
             name_line, name_col = name_tok.line, name_tok.col
-        if not self._match(TokenKind.LBRACE):
+        if not self._check(TokenKind.LBRACE):
             self._expect(TokenKind.SEMICOLON)
             return StructDecl(
                 name=name,
                 fields=[],
                 is_forward=True,
+                is_union=is_union,
                 line=tok.line,
                 col=tok.col,
                 name_line=name_line,
                 name_col=name_col,
             )
-
-        fields = []
-        while not self._check(TokenKind.RBRACE) and not self._at_end():
-            field_start = self._peek()
-            field_type = self._parse_type_expr()
-            specifier = self._declarator_specifier(field_type)
-            name_tok, field_type = self._parse_declarator_name(field_type, "field name")
-            declarators = self._parse_declarators(
-                field_type, name_tok, field_start, initializers=False, specifier=specifier
-            )
-            # A struct field is positioned at its name.
-            fields.extend(
-                FieldDef(type=declarator.type, name=declarator.name, line=declarator.name_line, col=declarator.name_col)
-                for declarator in declarators
-            )
-            self._expect(TokenKind.SEMICOLON)
-        self._expect(TokenKind.RBRACE)
+        fields = self._parse_record_body(name, is_union)
         self._expect(TokenKind.SEMICOLON)
         return StructDecl(
             name=name,
             fields=fields,
             is_forward=False,
+            is_union=is_union,
             line=tok.line,
             col=tok.col,
             name_line=name_line,
             name_col=name_col,
         )
+
+    def _parse_record_body(self, name: str, is_union: bool) -> list[FieldDef]:
+        fields, flexible = self._parse_record_members(is_union)
+        if flexible is not None:
+            raise ParseError(UNION_FLEXIBLE_ARRAY.format(name, flexible.name), flexible.line, flexible.col)
+        return fields
+
+    def _parse_typedef_record(self, typedef_tok: Token) -> list:
+        """``typedef union [Tag] { ... } D1, *D2;`` splices into one record and
+        one ``TypedefDecl`` per declarator (C row 9; r08 extends this to
+        ``struct`` and ``enum``). An untagged record takes its first plain
+        declarator's name as its tag, and a plain declarator equal to the tag
+        is dropped: it would only repeat the record's own name."""
+        keyword_tok = self._advance()
+        keyword = keyword_tok.value
+        tag_tok = self._advance() if self._check(TokenKind.IDENT) else None
+        fields, flexible = self._parse_record_members(is_union=True)
+        specifier = TypeExpr(base="", line=keyword_tok.line, col=keyword_tok.col)
+        first_type = copy.deepcopy(specifier)
+        while self._match(TokenKind.STAR):
+            first_type.pointer_depth += 1
+        alias_tok = self._expect(TokenKind.IDENT, "typedef alias")
+        if self._check(TokenKind.LPAREN):
+            raise self._error(FUNCTION_TYPE_TYPEDEF)
+        declarators = self._parse_declarators(
+            first_type,
+            alias_tok,
+            typedef_tok,
+            initializers=False,
+            array_suffixes=False,
+            specifier=specifier,
+        )
+        self._expect(TokenKind.SEMICOLON)
+        if tag_tok is not None:
+            name, name_line, name_col = tag_tok.value, tag_tok.line, tag_tok.col
+        else:
+            naming = next((declarator for declarator in declarators if declarator.type.pointer_depth == 0), None)
+            if naming is None:
+                raise ParseError(UNTAGGED_TYPEDEF_RECORD.format(keyword), keyword_tok.line, keyword_tok.col)
+            name, name_line, name_col = naming.name, naming.name_line, naming.name_col
+        if flexible is not None:
+            raise ParseError(UNION_FLEXIBLE_ARRAY.format(name, flexible.name), flexible.line, flexible.col)
+        for declarator in declarators:
+            declarator.type.base = f"{keyword} {name}"
+        record = StructDecl(
+            name=name,
+            fields=fields,
+            is_forward=False,
+            is_union=True,
+            line=keyword_tok.line,
+            col=keyword_tok.col,
+            name_line=name_line,
+            name_col=name_col,
+        )
+        return [record] + [
+            TypedefDecl(
+                original=declarator.type,
+                alias=declarator.name,
+                line=declarator.line,
+                col=declarator.col,
+                name_line=declarator.name_line,
+                name_col=declarator.name_col,
+            )
+            for declarator in declarators
+            if declarator.type.pointer_depth > 0 or declarator.name != name
+        ]
+
+    def _parse_record_members(self, is_union: bool) -> tuple[list[FieldDef], FieldDef | None]:
+        """A record's ``{ member; ... }`` and, in a union, its first member of
+        unknown size. A union member is a plain C value, so neither unsized
+        spelling has a meaning there: ``T[] name`` is btrc's pointer-valued
+        array, refused here, and ``T name[]`` a flexible array member (C11
+        6.7.2.1p18 allows one only in a struct), refused by the caller once
+        the union's name is known."""
+        self._expect(TokenKind.LBRACE)
+        fields = []
+        flexible = None
+        while not self._check(TokenKind.RBRACE) and not self._at_end():
+            field_start = self._peek()
+            field_type = self._parse_type_expr()
+            specifier = self._declarator_specifier(field_type)
+            name_tok, field_type = self._parse_declarator_name(field_type, "field name")
+            if not is_union and specifier.is_array:
+                # P1: the AST cannot tell `T[] name` from `T name[]`, which
+                # declares a flexible array member in a struct body.
+                raise ParseError(STRUCT_ARRAY_SPELLING.format(name_tok.value), name_tok.line, name_tok.col)
+            declarators = self._parse_declarators(
+                field_type, name_tok, field_start, initializers=False, specifier=specifier
+            )
+            # A struct field is positioned at its name.
+            for declarator in declarators:
+                field = FieldDef(
+                    type=declarator.type, name=declarator.name, line=declarator.name_line, col=declarator.name_col
+                )
+                if is_union and specifier.is_array:
+                    raise ParseError(UNION_ARRAY_SPELLING.format(field.name, field.name), field.line, field.col)
+                if is_union and flexible is None and field.type.is_array and field.type.array_size is None:
+                    flexible = field
+                fields.append(field)
+            self._expect(TokenKind.SEMICOLON)
+        self._expect(TokenKind.RBRACE)
+        return fields, flexible
 
     def _parse_interface_decl(self) -> InterfaceDecl:
         tok = self._expect(TokenKind.INTERFACE)
@@ -1528,9 +1628,14 @@ class Parser:
 
     # ---- Typedef declaration ----
 
-    def _parse_typedef_decls(self) -> list[TypedefDecl]:
+    def _parse_typedef_decls(self) -> list:
         """``typedef int A, *B;`` declares one alias per declarator, ``*`` bound to each."""
         tok = self._expect(TokenKind.TYPEDEF)
+        if self._check(TokenKind.UNION) and (
+            self._peek(1).type == TokenKind.LBRACE
+            or (self._peek(1).type == TokenKind.IDENT and self._peek(2).type == TokenKind.LBRACE)
+        ):
+            return self._parse_typedef_record(tok)
         original = self._parse_type_expr()
         specifier = self._declarator_specifier(original)
         if self._is_function_pointer_declarator(self.pos):

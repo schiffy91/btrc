@@ -665,17 +665,25 @@ class ExpressionTypeResolver {
 			if (node.elements().len > 0) {
 				Node? et = self.inferSpecializationType(node.elements().get(0), a, operators, varTypes);
 				if (et != null) {
-					Node elementType = et;
-					if ((a.isClass(et.base) || a.isGenericClass(et.base) || a.isInterface(et.base)) && et.pointerDepth == 0) {
-						elementType = SemanticTypeSystem.classReference(et);
-					}
-					Node u = Node();
-					u.kind = NK_TYPE_EXPR;
-					u.base = "Vector";
 					Vector<Node> ga = [];
-					ga.push(elementType);
-					u.genericArgsStorage = ga;
-					return u;
+					ga.push(self.collectionLiteralArgument(et, a));
+					return self.collectionLiteralType("Vector", ga);
+				}
+			}
+			return null;
+		}
+		if (node.kind == NK_MAP_LITERAL) {
+			/* Mirrors the reference compiler: the first entry's key and value
+			 * types name the literal's Map specialization. */
+			if (node.entries().len > 0) {
+				Node first = node.entries().get(0);
+				Node? kt = self.inferSpecializationType(first.key, a, operators, varTypes);
+				Node? vt = self.inferSpecializationType(first.valueNode, a, operators, varTypes);
+				if (kt != null && vt != null) {
+					Vector<Node> ga = [];
+					ga.push(self.collectionLiteralArgument(kt, a));
+					ga.push(self.collectionLiteralArgument(vt, a));
+					return self.collectionLiteralType("Map", ga);
 				}
 			}
 			return null;
@@ -759,6 +767,22 @@ class ExpressionTypeResolver {
      * alias naming the value itself, but retain aliases nested in generic
      * arguments so IR symbol selection agrees with generic-instance collection. */
 	private Node? inferSpecializationTypeUnmemoized(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) { return SemanticTypeSystem.resolveOuterTypedefType(self.inferTypeRawMemoized(node, a, operators, varTypes), a.typedefTable); }
+
+	/* A collection literal stores class values by reference. */
+	private Node collectionLiteralArgument(Node inferred, Analyzed a) {
+		if ((a.isClass(inferred.base) || a.isGenericClass(inferred.base) || a.isInterface(inferred.base)) && inferred.pointerDepth == 0) {
+			return SemanticTypeSystem.classReference(inferred);
+		}
+		return inferred;
+	}
+
+	private Node collectionLiteralType(string base, Vector<Node> arguments) {
+		Node u = Node();
+		u.kind = NK_TYPE_EXPR;
+		u.base = base;
+		u.genericArgsStorage = arguments;
+		return u;
+	}
 
 	/* Infer the __fn_ptr(ret, params...) TypeExpr for a lambda expression so that
      * `var f = lambda` declares `f` with the right typedef'd C type. The return
@@ -1195,11 +1219,7 @@ class ExpressionTypeResolver {
 
 	class string rawProjectionStructName(Node? typeExpr) {
 		if (typeExpr == null) { return ""; }
-		string name = typeExpr.base;
-		if (name.startsWith("struct ")) {
-			return name.substring(7, name.length() - 7);
-		}
-		return name;
+		return SemanticTypeSystem.recordTagName(typeExpr.base);
 	}
 
 	class bool rawProjectionCarrierHasStorage(RawProjectionCarrier carrier, RawProjectionCarrierContext context) {
@@ -1239,16 +1259,26 @@ class ExpressionTypeResolver {
 class LambdaFreeNames {
 	private Vector<Map<string, bool>> scopes;
 	private Map<string, bool> names;
+	/* The first sizeof operand naming each free name, in source order. */
+	private Map<string, Node> measured;
 
 	public LambdaFreeNames() {
 		self.scopes = [];
 		self.names = {};
+		self.measured = {};
 	}
 
 	class Map<string, bool> of(Node lambda) {
 		LambdaFreeNames collector = LambdaFreeNames();
 		collector.collectLambda(lambda);
 		return collector.names;
+	}
+
+	/* Free names a sizeof operand measures, each with its first operand. */
+	class Map<string, Node> measuredOf(Node lambda) {
+		LambdaFreeNames collector = LambdaFreeNames();
+		collector.collectLambda(lambda);
+		return collector.measured;
 	}
 
 	private void push() {
@@ -1300,6 +1330,16 @@ class LambdaFreeNames {
 		}
 		if (n.kind == NK_SELF_EXPR || n.kind == NK_SUPER_EXPR) {
 			self.names.put("self", true);
+			return;
+		}
+		if (n.kind == NK_SIZEOF_TYPE && TypeIdentity.ordinaryIdentifier(n.type) != "") {
+			/* sizeof(x) may name the object x; the caller keeps only names
+			 * that resolve to a variable, as for any identifier. */
+			string name = TypeIdentity.ordinaryIdentifier(n.type);
+			if (!self.bound(name)) {
+				self.names.put(name, true);
+				if (!self.measured.has(name)) { self.measured.put(name, n.type); }
+			}
 			return;
 		}
 		if (n.kind == NK_LAMBDA_EXPR) {

@@ -162,6 +162,7 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.linux_gui
 def test_linux_gui_controls(tmp_path, request, frontend, sanitized):
     """A live window: synthetic input drives every control kind and the composed frame reads back.
     The fixture pushes SDL events at the provider's window, so it compiles against gui_provider_root."""
@@ -182,6 +183,7 @@ def test_linux_gui_controls(tmp_path, request, frontend, sanitized):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.linux_gui
 def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
     """A subtree that never finishes closing fails run() after one deadline instead of hanging quit.
     The stalled view extends the provider's LinuxNodeView, so it compiles against gui_provider_root."""
@@ -202,6 +204,7 @@ def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.linux_gui
 def test_linux_gui_gpu_view_reparent(tmp_path, request, frontend, sanitized):
     """A GPU view moved to a window with another device never samples its old target there."""
     require_linux_reader()

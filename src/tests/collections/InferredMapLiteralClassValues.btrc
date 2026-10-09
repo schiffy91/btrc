@@ -1,0 +1,23 @@
+// A `var` bound to a map literal of class values infers Map<K, V> with the
+// class held by reference, as a declared Map<string, Point> would.
+import Library.Map;
+
+class Point {
+	public int x;
+	public int y;
+	public Point(int x, int y) {
+		self.x = x;
+		self.y = y;
+	}
+}
+
+int main() {
+	var points = {"origin": Point(0, 0), "unit": Point(1, 1)};
+	Point unit = points.get("unit");
+	print(unit.x + unit.y + points.len);
+	points.put("far", Point(10, 20));
+	Point far = points.get("far");
+	print(far.x + far.y);
+	print("PASS: test_inferred_map_literal_class_values");
+	return 0;
+}

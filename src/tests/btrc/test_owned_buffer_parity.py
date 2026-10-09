@@ -139,7 +139,7 @@ def test_fixture_runs_from_both_frontends_with_gcc_and_clang(
             "int main() { AtomicBuffer<uint> values = AtomicBuffer((size_t)1); "
             "values.tryGet((size_t)0, null); return 0; }",
             "Class 'AtomicBuffer' has no field or method 'tryGet'",
-            "Type 'AtomicBuffer<uint>' has no method 'tryGet'",
+            "Class 'AtomicBuffer' has no field or method 'tryGet'",
         ),
         (
             "import Library.Array;\nint main() { Array<Atomic<uint>> values; return 0; }",

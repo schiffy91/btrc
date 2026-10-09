@@ -9,6 +9,7 @@ broken image, not an absent capability."""
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -129,6 +130,46 @@ def test_wayland_session_offers_a_compositor_and_the_accessibility_bus():
     assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
 
 
+def test_wayland_session_survives_unmapped_subsurface_ordering(tmp_path):
+    _require_session_tools("weston", "cc", "pkg-config")
+    source = ROOT / "src/tests/native/gui/shell/probes/linux/UnmappedSubsurface.c"
+    executable = tmp_path / "UnmappedSubsurface"
+    flags = subprocess.run(
+        ["pkg-config", "--cflags", "--libs", "wayland-client"],
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert flags.returncode == 0, flags.stderr
+    build = subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-o",
+            str(executable),
+            *shlex.split(flags.stdout),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert build.returncode == 0, build.stderr
+    result = subprocess.run(
+        [str(SESSION), "--wayland", "--", str(executable)],
+        cwd=ROOT,
+        env=_session_environment(),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "100 unmapped subsurface cycles passed"
+
+
 def test_sessions_never_share_a_runtime_directory(tmp_path):
     """The AT-SPI bus always binds <runtime>/at-spi/bus: a session that reused
     its caller's directory would replace and then delete the caller's socket."""
@@ -199,6 +240,31 @@ def test_session_returns_the_command_status(mode):
         timeout=TIMEOUT,
     )
     assert result.returncode == 7, result.stderr
+
+
+@pytest.mark.parametrize("mode", ["--x11", "--wayland"])
+def test_failed_session_preserves_diagnostics_before_removing_its_directory(mode):
+    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    command = """
+import os
+from pathlib import Path
+session = Path(os.environ["XDG_RUNTIME_DIR"]).parent
+(session / "failure.log").write_text("original session failure\\n")
+print(session, flush=True)
+raise SystemExit(7)
+"""
+    result = subprocess.run(
+        [str(SESSION), mode, "--", sys.executable, "-c", command],
+        cwd=ROOT,
+        env=_session_environment(),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 7, result.stderr
+    assert "headless-session: failure.log (last 200 lines)" in result.stderr
+    assert "original session failure" in result.stderr
+    assert not Path(result.stdout.strip()).exists()
 
 
 @pytest.mark.parametrize("mode", ["--x11", "--wayland"])

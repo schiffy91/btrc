@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import ../frontend/Models.btrc;
 import ../syntax/Identity.btrc;
 import ../syntax/Types.btrc;
 import ./Models.btrc;
@@ -216,8 +217,8 @@ class SemanticTypeSystem {
 		Node resolved = typeExpr;
 		Node? alias = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
 		if (alias != null) { resolved = alias; }
-		if (resolved.base.startsWith("struct ")) {
-			string explicitName = resolved.base.substring(7, resolved.base.length() - 7);
+		string explicitName = SemanticTypeSystem.recordTagName(resolved.base);
+		if (explicitName != resolved.base) {
 			if (analyzed.structTable.has(explicitName)) { return explicitName; }
 			return "";
 		}
@@ -235,6 +236,21 @@ class SemanticTypeSystem {
 	 * layout (emission and its type dependencies) reads unnamed bit-fields;
 	 * semantic walks read recordMembers or recordFields. */
 	class Vector<Node> recordDeclarators(Node record) { return record.fields(); }
+
+	/* The C keyword that declares record: `struct` or `union`. */
+	class string recordKeyword(Node record) { return record.isUnion ? "union" : "struct"; }
+
+	/* The keyword as a diagnostic's first word. */
+	class string recordKeywordTitle(Node record) { return record.isUnion ? "Union" : "Struct"; }
+
+	/* The record a by-value base names: `struct S` and `union U` name S and
+	 * U. A canonical base already went through the tag alias rows; this
+	 * reads one that may not have. */
+	class string recordTagName(string base) {
+		if (base.startsWith("struct ")) { return base.substring(7, base.length() - 7); }
+		if (base.startsWith("union ")) { return base.substring(6, base.length() - 6); }
+		return base;
+	}
 
 	class bool recordIsFlat(Node record) {
 		for member in record.fields() {
@@ -306,6 +322,39 @@ class SemanticTypeSystem {
 			}
 		}
 		return null;
+	}
+
+	/* Whether a record member is declared `T name[]` (C11 6.7.2.1p18). P1
+	 * refuses the `T[] name` spelling in record bodies, so an unsized array on
+	 * a FieldDef's own type is always this declarator; a typedef never makes
+	 * one. Placement is validated separately. */
+	class bool flexibleArrayMember(Node member) { return member.kind == NK_FIELD_DEF && member.type != null && member.type.isArray && member.type.arraySize == null; }
+
+	/* The flexible array member of a complete record, or null. */
+	class Node? flexibleArrayField(Node? record) {
+		if (record == null || record.isForward) { return null; }
+		for field in SemanticTypeSystem.recordFields(record) {
+			if (SemanticTypeSystem.flexibleArrayMember(field)) { return field; }
+		}
+		return null;
+	}
+
+	/* The struct with a flexible array member that typeExpr holds by value,
+	 * directly or through a generic argument, or "". */
+	class string flexibleArrayValueStruct(Node? typeExpr, Analyzed analyzed) {
+		if (typeExpr == null) { return ""; }
+		Node resolved = typeExpr;
+		Node? alias = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
+		if (alias != null) { resolved = alias; }
+		if (resolved.pointerDepth == 0) {
+			string name = SemanticTypeSystem.resolvedStructName(resolved, analyzed);
+			if (name != "" && SemanticTypeSystem.flexibleArrayField(analyzed.structTable.get(name)) != null) { return name; }
+		}
+		for argument in resolved.genericArgs() {
+			string found = SemanticTypeSystem.flexibleArrayValueStruct(argument, analyzed);
+			if (found != "") { return found; }
+		}
+		return "";
 	}
 
 	/* The complete record a by-value member type names, for designator chains. */
@@ -456,10 +505,7 @@ class SemanticTypeSystem {
      * the underlying shape so operators, members, calls, and generic arguments all
      * see one semantic type domain. */
 
-	class void typedefSemanticFail(string message, Node site) {
-		fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
-		exit(1);
-	}
+	class void typedefSemanticFail(string message, Node site) { FeDiagnosticSources.fail(message, site.line, site.col); }
 
 	class Node composeTypedefType(Node useType, Node originalType) {
 		if (useType.isArray && originalType.isArray) {
@@ -783,6 +829,8 @@ class SemanticTypeSystem {
 	}
 
 	class Node? indexedMethod(Node objectType, string name, Analyzed analyzed) {
+		/* An array of collections indexes its storage, not a collection. */
+		if (objectType.isArray) { return null; }
 		if (analyzed.isGenericClass(objectType.base) && objectType.pointerDepth <= 1) {
 			return analyzed.genericClassMethod(objectType.base, name);
 		}
@@ -793,7 +841,7 @@ class SemanticTypeSystem {
 	}
 
 	class Node? indexResultType(Node? objectType, Analyzed analyzed) {
-		if (objectType == null || objectType.base == "Tuple") { return null; }
+		if (objectType == null || (objectType.base == "Tuple" && !objectType.isArray && objectType.pointerDepth == 0)) { return null; }
 		if (SemanticTypeSystem.isString(objectType)) {
 			Node character = SemanticTypeSystem.primitive("char");
 			character.isConst = objectType.isConst;

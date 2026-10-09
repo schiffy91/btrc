@@ -307,7 +307,7 @@ class TranslationUnitLowerer:
             if isinstance(decl, EnumDecl) and decl.name:
                 function_decls.append(TranslationUnitLowerer._enum_to_string_decl(decl.name))
             elif (isinstance(decl, ClassDecl) and (not decl.generic_params)) or isinstance(decl, StructDecl):
-                forward = IRStructForward(name=decl.name)
+                forward = IRStructForward(name=decl.name, is_union=isinstance(decl, StructDecl) and decl.is_union)
                 if forward not in self._session.module.struct_forwards:
                     self._session.module.struct_forwards.append(forward)
                 if isinstance(decl, ClassDecl) and (not decl.generic_params):
@@ -355,9 +355,9 @@ class TranslationUnitLowerer:
                 continue
             for args in instances:
                 mangled = self._type_identity.specialization_symbol(base_name, args)
-                if mangled not in seen:
-                    seen.add(mangled)
-                    self._session.module.struct_forwards.append(IRStructForward(name=mangled))
+                seen.add(mangled)
+        for mangled in sorted(seen):
+            self._session.module.struct_forwards.append(IRStructForward(name=mangled))
         self._session.module.function_decls.extend(function_decls)
 
     def _emit_structs(self):
@@ -618,7 +618,33 @@ class TranslationUnitLowerer:
                     seen,
                     skip_generic_methods=False,
                 )
-        return seen
+        ordered: dict[str, list[TypeExpr]] = {}
+        for symbol in sorted(seen):
+            self._order_tuple_shape(symbol, seen, ordered)
+        return ordered
+
+    def _order_tuple_shape(
+        self,
+        symbol: str,
+        shapes: dict[str, list[TypeExpr]],
+        ordered: dict[str, list[TypeExpr]],
+    ) -> None:
+        """Canonical roots with concrete nested dependencies before their owner.
+
+        Discovery is complete: this view does not re-resolve types or change the
+        span/atomic catalogs populated by the original collection walk.
+        """
+        if symbol in ordered:
+            return
+        pending = list(reversed(shapes[symbol]))
+        while pending:
+            argument = pending.pop()
+            if argument.base == "Tuple" and argument.generic_args:
+                dependency = self._type_identity.generic_symbol("Tuple", argument.generic_args)
+                self._order_tuple_shape(dependency, shapes, ordered)
+            else:
+                pending.extend(reversed(argument.generic_args))
+        ordered[symbol] = shapes[symbol]
 
     def _collect_declaration_tuple_types(
         self,

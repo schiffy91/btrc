@@ -148,6 +148,33 @@ class HostedAbiPlatformSets:
 
 
 @dataclass(frozen=True, slots=True)
+class HostedAbiPlatformTargetSpec:
+    """The ``[platform]`` names one target row's C compile does not declare, kind by kind.
+
+    Schema 3's ``[[platform_targets]]`` (platform-target-contract.md §2.2):
+    each list is a sorted subset of the matching ``[platform]`` list, and
+    ``source`` says where the row was extracted.
+    """
+
+    target: str
+    functions: tuple[str, ...]
+    macros: tuple[str, ...]
+    objects: tuple[str, ...]
+    types: tuple[str, ...]
+    typedefs: tuple[str, ...]
+    source: str
+
+    KINDS = ("functions", "macros", "objects", "types", "typedefs")
+
+    def canonical(self) -> dict[str, object]:
+        return {
+            "target": self.target,
+            **{f"unavailable_{kind}": list(getattr(self, kind)) for kind in self.KINDS},
+            "source": self.source,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class HostedAbiProvenanceSpec:
     """Compiler-authenticated source markers used by trust decisions."""
 
@@ -162,6 +189,16 @@ class HostedAbiProvenanceSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class HostedAbiLimitsSpec:
+    """Translation limits both compilers enforce, like C11 5.2.4.1's."""
+
+    generic_argument_nesting: int
+
+    def canonical(self) -> dict[str, object]:
+        return {"generic_argument_nesting": self.generic_argument_nesting}
+
+
+@dataclass(frozen=True, slots=True)
 class HostedAbiManifest:
     """Validated authoritative hosted ABI shared by both compilers."""
 
@@ -169,12 +206,23 @@ class HostedAbiManifest:
 
     schema_version: int
     provenance: HostedAbiProvenanceSpec
+    limits: HostedAbiLimitsSpec
     names: HostedAbiNameSets
     platform: HostedAbiPlatformSets
     functions: tuple[HostedAbiFunctionSpec, ...]
+    platform_targets: tuple[HostedAbiPlatformTargetSpec, ...]
 
-    _ROOT_KEYS = frozenset({"schema_version", "provenance", "names", "platform", "functions"})
+    SCHEMA_VERSION = 3
+    # btrc's own namespace: the runtime is ported to every row, never filtered.
+    RUNTIME_PREFIXES = ("btrc_", "Btrc", "BTRC_", "__btrc_")
+    _ROOT_KEYS = frozenset(
+        {"schema_version", "provenance", "limits", "names", "platform", "functions", "platform_targets"}
+    )
+    _PLATFORM_TARGET_KEYS = frozenset(
+        {"target", "source", *(f"unavailable_{kind}" for kind in HostedAbiPlatformTargetSpec.KINDS)}
+    )
     _PROVENANCE_KEYS = frozenset({"stdlib_source_marker", "user_source_marker"})
+    _LIMIT_KEYS = frozenset({"generic_argument_nesting"})
     _NAME_KEYS = frozenset(
         {
             "functions",
@@ -255,7 +303,7 @@ class HostedAbiManifest:
 
         cls._FIELDS.require_keys(document, cls._ROOT_KEYS, "hosted ABI manifest")
         schema_version = cls._FIELDS.integer(document, "schema_version", "hosted ABI manifest")
-        if schema_version != 2:
+        if schema_version != cls.SCHEMA_VERSION:
             raise HostedAbiManifestError(f"unsupported hosted ABI schema version: {schema_version}")
 
         provenance_table = cls._FIELDS.table(document, "provenance", "hosted ABI manifest")
@@ -263,6 +311,12 @@ class HostedAbiManifest:
         provenance = HostedAbiProvenanceSpec(
             stdlib_source_marker=cls._FIELDS.string(provenance_table, "stdlib_source_marker", "provenance"),
             user_source_marker=cls._FIELDS.string(provenance_table, "user_source_marker", "provenance"),
+        )
+
+        limits_table = cls._FIELDS.table(document, "limits", "hosted ABI manifest")
+        cls._FIELDS.require_keys(limits_table, cls._LIMIT_KEYS, "limits")
+        limits = HostedAbiLimitsSpec(
+            generic_argument_nesting=cls._FIELDS.integer(limits_table, "generic_argument_nesting", "limits"),
         )
 
         names_table = cls._FIELDS.table(document, "names", "hosted ABI manifest")
@@ -294,12 +348,20 @@ class HostedAbiManifest:
         if not isinstance(raw_functions, list) or not raw_functions:
             raise HostedAbiManifestError("functions must be a non-empty array of tables")
         functions = tuple(cls._function(raw_function, index) for index, raw_function in enumerate(raw_functions))
+        raw_platform_targets = document.get("platform_targets")
+        if not isinstance(raw_platform_targets, list) or not raw_platform_targets:
+            raise HostedAbiManifestError("platform_targets must be a non-empty array of tables")
+        platform_targets = tuple(
+            cls._platform_target(raw_target, index) for index, raw_target in enumerate(raw_platform_targets)
+        )
         manifest = cls(
             schema_version=schema_version,
             provenance=provenance,
+            limits=limits,
             names=names,
             platform=platform,
             functions=functions,
+            platform_targets=platform_targets,
         )
         manifest._validate(runtime)
         return manifest
@@ -309,12 +371,29 @@ class HostedAbiManifest:
         payload = {
             "schema_version": self.schema_version,
             "provenance": self.provenance.canonical(),
+            "limits": self.limits.canonical(),
             "names": self.names.canonical(),
             "platform": self.platform.canonical(),
             "functions": [function.canonical() for function in self.functions],
+            "platform_targets": [target.canonical() for target in self.platform_targets],
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def _platform_target(cls, value: Any, index: int) -> HostedAbiPlatformTargetSpec:
+        context = f"platform_targets[{index}]"
+        if not isinstance(value, dict):
+            raise HostedAbiManifestError(f"{context} must be a table")
+        cls._FIELDS.require_keys(value, cls._PLATFORM_TARGET_KEYS, context)
+        return HostedAbiPlatformTargetSpec(
+            target=cls._FIELDS.string(value, "target", context),
+            source=cls._FIELDS.string(value, "source", context),
+            **{
+                kind: cls._name_tuple(value, f"unavailable_{kind}", context)
+                for kind in HostedAbiPlatformTargetSpec.KINDS
+            },
+        )
 
     @classmethod
     def _function(cls, value: Any, index: int) -> HostedAbiFunctionSpec:
@@ -399,6 +478,8 @@ class HostedAbiManifest:
         )
 
     def _validate(self, runtime: RuntimeManifest) -> None:
+        if self.limits.generic_argument_nesting < 1:
+            raise HostedAbiManifestError("limits.generic_argument_nesting must be at least 1")
         if self.provenance.stdlib_source_marker == self.provenance.user_source_marker:
             raise HostedAbiManifestError("hosted ABI provenance markers must be distinct")
         for marker in (
@@ -452,6 +533,7 @@ class HostedAbiManifest:
                 "runtime hosted functions differ from source-visible runtime helpers: "
                 f"missing={missing!r}, extra={extra!r}"
             )
+        self._validate_platform_targets(runtime_specs)
         adopting = set(self.names.runtime_adopting_helpers)
         if not adopting <= source_visible:
             raise HostedAbiManifestError("runtime-adopting helpers must be source-visible runtime helpers")
@@ -469,6 +551,41 @@ class HostedAbiManifest:
                 raise HostedAbiManifestError(
                     f"runtime-adopting helper {name!r} lacks the required string-adoption contract"
                 )
+
+    def _validate_platform_targets(self, runtime_names: set[str]) -> None:
+        """Each row lists only ``[platform]`` names, never ISO C or btrc's own runtime.
+
+        A name in ``[names]`` but not in ``[platform]`` (ISO C, runtime and
+        native names) is available everywhere, so the subset rule refuses it.
+        ``TargetManifest`` checks that the rows are exactly its labels.
+        """
+
+        labels = [target.target for target in self.platform_targets]
+        if len(labels) != len(set(labels)):
+            duplicate = next(label for label in labels if labels.count(label) > 1)
+            raise HostedAbiManifestError(f"platform_targets lists target {duplicate!r} more than once")
+        if labels != sorted(labels):
+            raise HostedAbiManifestError("platform_targets must be listed in target order")
+        for target in self.platform_targets:
+            context = f"platform_targets[{target.target!r}]"
+            for kind in HostedAbiPlatformTargetSpec.KINDS:
+                listed = getattr(target, kind)
+                outside = sorted(set(listed) - set(getattr(self.platform, kind)))
+                if outside:
+                    raise HostedAbiManifestError(
+                        f"{context}.unavailable_{kind} lists names outside platform.{kind}: {outside[:5]!r}"
+                    )
+                # [platform] carries the GPU runtime's btrc_/BTRC_/Btrc names, so the
+                # prefixes do the work; runtime_names guards a future [platform] overlap.
+                # The extractor, not this rule, excludes unprefixed src/runtime/gpu names.
+                runtime = sorted(
+                    name for name in listed if name in runtime_names or name.startswith(self.RUNTIME_PREFIXES)
+                )
+                if runtime:
+                    raise HostedAbiManifestError(
+                        f"{context}.unavailable_{kind} lists btrc runtime names, which are ported, not filtered: "
+                        f"{runtime[:5]!r}"
+                    )
 
     @classmethod
     def _validate_function(cls, function: HostedAbiFunctionSpec) -> None:
@@ -985,6 +1102,18 @@ class TargetManifest:
         self._validate_aliases()
         self._validate_targets()
         self._validate_macros(hosted_abi)
+        self._validate_platform_targets(hosted_abi)
+
+    def _validate_platform_targets(self, hosted_abi: HostedAbiManifest) -> None:
+        """Every row has exactly one hosted availability table, so no row ships without one."""
+
+        listed = {target.target for target in hosted_abi.platform_targets}
+        unknown = sorted(listed - set(self.labels))
+        if unknown:
+            raise HostedAbiManifestError(f"hosted platform_targets name unknown targets {unknown!r}")
+        missing = sorted(set(self.labels) - listed)
+        if missing:
+            raise HostedAbiManifestError(f"hosted platform_targets lack a table for targets {missing!r}")
 
     def _validate_aliases(self) -> None:
         for alias, architecture in self.architecture_aliases:
@@ -1303,6 +1432,12 @@ class HostedAbiCatalogGenerator:
             *(f"    {field.name}: {field.type}" for field in fields(TargetRowSpec)),
             "",
             "",
+            "class GeneratedPlatformTargetRow(NamedTuple):",
+            "    target: str",
+            *(f"    {kind}: frozenset[str]" for kind in HostedAbiPlatformTargetSpec.KINDS),
+            "    source: str",
+            "",
+            "",
             "class GeneratedPredefinedMacroRow(NamedTuple):",
             "    name: str",
             "    value: int",
@@ -1341,10 +1476,12 @@ class HostedAbiCatalogGenerator:
         GeneratedSourceStyle.append_python_tuple(
             lines, "HOSTED_PLATFORM_TYPEDEF_NAMES", self._manifest.platform.typedefs
         )
+        lines.extend(self._python_platform_targets())
         lines.extend(
             [
                 f"HOSTED_STDLIB_SOURCE_MARKER = {self._manifest.provenance.stdlib_source_marker!r}",
                 f"HOSTED_USER_SOURCE_MARKER = {self._manifest.provenance.user_source_marker!r}",
+                f"HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT = {self._manifest.limits.generic_argument_nesting}",
                 f"HOSTED_ABI_FINGERPRINT = {self._manifest.fingerprint!r}",
                 "",
             ]
@@ -1393,6 +1530,30 @@ class HostedAbiCatalogGenerator:
             lines, "TARGET_PREDEFINED_MACRO_NAMES", self._targets.predefined_macro_names
         )
         lines.extend([f"TARGET_SPEC_FINGERPRINT = {self._targets.fingerprint!r}", ""])
+        return lines
+
+    def _python_platform_targets(self) -> list[str]:
+        """``HOSTED_PLATFORM_UNAVAILABLE``: each row's unavailable ``[platform]`` names, keyed by label."""
+
+        lines = [
+            "HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] = MappingProxyType(",
+            "    {",
+        ]
+        for target in self._manifest.platform_targets:
+            lines.extend(
+                [f"        {target.target!r}: GeneratedPlatformTargetRow(", f"            target={target.target!r},"]
+            )
+            for kind in HostedAbiPlatformTargetSpec.KINDS:
+                values = getattr(target, kind)
+                if not values:
+                    lines.append(f"            {kind}=frozenset(),")
+                    continue
+                lines.append(f"            {kind}=frozenset(")
+                lines.append("                {")
+                lines.extend(f"                    {value!r}," for value in values)
+                lines.extend(["                }", "            ),"])
+            lines.extend([f"            source={target.source!r},", "        ),"])
+        lines.extend(["    }", ")", ""])
         return lines
 
     @staticmethod
@@ -1543,9 +1704,28 @@ class HostedAbiCatalogGenerator:
             "    }",
             "}",
             "",
+            "/* The [platform] names one target row's C compile does not declare,",
+            " * one membership table per kind (hosted_abi.toml [[platform_targets]]). */",
+            "class GeneratedPlatformTargetRow {",
+            "    public string target;",
+            "    public string source;",
+            *(f"    public Map<string, bool> {kind};" for kind in HostedAbiPlatformTargetSpec.KINDS),
+            "",
+            "    public GeneratedPlatformTargetRow(string target, string source) {",
+            "        self.target = target;",
+            "        self.source = source;",
+            *(
+                line
+                for index, kind in enumerate(HostedAbiPlatformTargetSpec.KINDS)
+                for line in (f"        Map<string, bool> names{index} = {{}};", f"        self.{kind} = names{index};")
+            ),
+            "    }",
+            "}",
+            "",
             "class GeneratedHostedAbiData {",
             "    public string stdlibSourceMarker;",
             "    public string userSourceMarker;",
+            "    public int genericArgumentNestingLimit;",
             "    public string fingerprint;",
             "    public string targetSpecFingerprint;",
             "    private Vector<GeneratedTargetRow>? targetRowsMemo = null;",
@@ -1555,6 +1735,7 @@ class HostedAbiCatalogGenerator:
             "    private Vector<GeneratedHostedFunctionRow>? functionRows = null;",
             "    private Map<string, int>? functionSlots = null;",
             "    private Map<string, GeneratedHostedFunctionRow>? functionMemo = null;",
+            "    private Map<string, GeneratedPlatformTargetRow>? platformTargetMemo = null;",
         ]
         name_fields = (
             *self._btrc_name_fields(),
@@ -1585,6 +1766,7 @@ class HostedAbiCatalogGenerator:
                 "        self.stdlibSourceMarker = "
                 f"{GeneratedSourceStyle.btrc_string(self._manifest.provenance.stdlib_source_marker)};",
                 f"        self.userSourceMarker = {GeneratedSourceStyle.btrc_string(self._manifest.provenance.user_source_marker)};",
+                f"        self.genericArgumentNestingLimit = {self._manifest.limits.generic_argument_nesting};",
                 f"        self.fingerprint = {GeneratedSourceStyle.btrc_string(self._manifest.fingerprint)};",
                 f"        self.targetSpecFingerprint = {GeneratedSourceStyle.btrc_string(self._targets.fingerprint)};",
                 "    }",
@@ -1685,9 +1867,63 @@ class HostedAbiCatalogGenerator:
                     for value in values[start_index : start_index + self.BTRC_NAMES_PER_METHOD]
                 )
                 lines.extend(["    }", ""])
+        lines.extend(self._btrc_platform_targets())
         lines.extend(self._btrc_targets())
         lines.extend(["}", ""])
         return "\n".join(lines)
+
+    def _btrc_platform_targets(self) -> list[str]:
+        """``platformUnavailable(label)``: one row's tables, built on first use for that label only.
+
+        Each kind's names spread over small methods, like the hosted tables.
+        """
+
+        lines = [
+            "    private Map<string, GeneratedPlatformTargetRow> platformTargetTable() {",
+            "        Map<string, GeneratedPlatformTargetRow>? existing = self.platformTargetMemo;",
+            "        if (existing != null) { return existing; }",
+            "        Map<string, GeneratedPlatformTargetRow> fresh = {};",
+            "        self.platformTargetMemo = fresh;",
+            "        return fresh;",
+            "    }",
+            "",
+            "    public GeneratedPlatformTargetRow? platformUnavailable(string label) {",
+            "        Map<string, GeneratedPlatformTargetRow> memo = self.platformTargetTable();",
+            "        if (memo.has(label)) { return memo.get(label); }",
+            "        GeneratedPlatformTargetRow? built = self.platformTargetNamed(label);",
+            "        if (built != null) { memo.put(label, built); }",
+            "        return built;",
+            "    }",
+            "",
+            "    private GeneratedPlatformTargetRow? platformTargetNamed(string label) {",
+        ]
+        targets = self._manifest.platform_targets
+        lines.extend(
+            f"        if (label == {GeneratedSourceStyle.btrc_string(target.target)}) "
+            f"{{ return self.platformTarget{index}(); }}"
+            for index, target in enumerate(targets)
+        )
+        lines.extend(["        return null;", "    }", ""])
+        for index, target in enumerate(targets):
+            body = [
+                f"    private GeneratedPlatformTargetRow platformTarget{index}() {{",
+                "        GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("
+                f"{GeneratedSourceStyle.btrc_string(target.target)}, {GeneratedSourceStyle.btrc_string(target.source)});",
+            ]
+            methods: list[str] = []
+            for kind in HostedAbiPlatformTargetSpec.KINDS:
+                values = getattr(target, kind)
+                for chunk, start_index in enumerate(range(0, len(values), self.BTRC_NAMES_PER_METHOD)):
+                    method = f"putPlatformTarget{index}{kind[:1].upper()}{kind[1:]}{chunk}"
+                    body.append(f"        self.{method}(row.{kind});")
+                    methods.append(f"    private void {method}(Map<string, bool> names) {{")
+                    methods.extend(
+                        f"        names.put({GeneratedSourceStyle.btrc_string(value)}, true);"
+                        for value in values[start_index : start_index + self.BTRC_NAMES_PER_METHOD]
+                    )
+                    methods.extend(["    }", ""])
+            lines.extend([*body, "        return row;", "    }", "", *methods])
+        return lines
 
     def _btrc_targets(self) -> list[str]:
         """The target spec's rows and tables, built on first use like the hosted tables."""

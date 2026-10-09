@@ -1,5 +1,6 @@
 import Library.Image;
 import Library.Vector;
+import Library.Timer;
 import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
@@ -166,8 +167,8 @@ Image captureButtons(IContainer root) {
 	return GUI.capture(root, layers);
 }
 
-/* Runs on the native loop: the first turn renders and clicks, the second
- * reads the click AppKit tracked and tears the window down. */
+/* AppKit may deliver injected input after the next scheduled work item.
+ * Wait for its real action within a bounded input budget before teardown. */
 class ButtonInput implements IApplicationWork {
 	private IWindow _window;
 	private IContainer _root;
@@ -176,6 +177,8 @@ class ButtonInput implements IApplicationWork {
 	private MacOSButton _first;
 	private MacOSButton _second;
 	private bool _clicked = false;
+	private Timer _inputDeadline = Timer();
+	private int _deferredPolls = 0;
 
 	public ButtonInput(IWindow window, IContainer root, IPanel background, MacOSActionQueue actions, MacOSButton first, MacOSButton second) {
 		self._window = window;
@@ -230,6 +233,7 @@ class ButtonInput implements IApplicationWork {
 		var transparent = captureButtons(self._root);
 		assert(!hasButtonText(transparent, 20) && hasButtonText(transparent, 220));
 		clickNativeButton(self._root, first);
+		self._inputDeadline.start();
 	}
 
 	private void finish() {
@@ -237,7 +241,14 @@ class ButtonInput implements IApplicationWork {
 		var first = self._first;
 		var second = self._second;
 		IView view = first;
-		assert(takesButton(actions, first) && actions.take() == null);
+		var action = actions.take();
+		if (action == null && self._inputDeadline.elapsed() < 15.0f) {
+			self._deferredPolls++;
+			GUI.postAfter(0.01, self);
+			return;
+		}
+		fprintf(stderr, "Native button deferred action polls=%d\n", self._deferredPolls);
+		assert(action != null && first.matches(action) && actions.take() == null);
 		assert(first.activate() && second.activate() && first.activate());
 		first.cancelPendingActions();
 		assert(takesButton(actions, second) && actions.take() == null);

@@ -206,7 +206,7 @@ class SourceMacroAnalyzer:
             return True
         if any(self._macro_type_requires_boundary(item, type_params, seen) for item in canonical.generic_args):
             return True
-        name = canonical.base.removeprefix("struct ")
+        name = self.types.record_tag_name(canonical.base)
         structure = self.index.struct_table.get(name)
         if structure is not None and (not structure.is_forward):
             return any(

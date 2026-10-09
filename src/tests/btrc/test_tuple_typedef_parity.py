@@ -37,6 +37,32 @@ HOLDER_MODULE = """class Holder<T> {
 """
 
 PROGRAMS = {
+    "CanonicalInstanceReturnOrder": (
+        """class Pair<T> {
+    public T value;
+    public Pair(T value) { self.value = value; }
+    public (T, T) both() { return (self.value, self.value); }
+}
+
+int main() {
+    Pair<int> numbers = new Pair<int>(7);
+    Pair<char> letters = new Pair<char>('k');
+    print(f"{numbers.both()._0} {letters.both()._1}");
+    return 0;
+}
+""",
+        "7 k\n",
+    ),
+    "CanonicalNestedDependencies": (
+        """int main() {
+    (int, (int, (short, char))) outer = (7, (3, ((short)2, 'q')));
+    (char, int) earlier = ('a', 4);
+    print(f"{outer._0 + outer._1._0 + outer._1._1._0 + earlier._1} {outer._1._1._1}");
+    return 0;
+}
+""",
+        "16 q\n",
+    ),
     "GenericMethodSizeof": (
         """class Box {
 	public int width<U>(U value) {

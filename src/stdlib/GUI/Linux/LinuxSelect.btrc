@@ -20,7 +20,7 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 	private bool _open = false;
 	private int _highlight = -1;
 	private bool _hovered = false;
-	private bool _above = false;
+	private double _menuOffsetY = 0.0;
 
 	public LinuxSelect(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); self.node().focusable = true; }
 
@@ -39,6 +39,7 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 		if (host == null || self._titles.isEmpty()) { return; }
 		self._open = true;
 		self._highlight = self._selected;
+		self._menuOffsetY = self.node().height + 2.0;
 		host.overlayId = self.node().id;
 		self.node().requestFocus();
 		self.node().invalidate();
@@ -78,14 +79,15 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 		var host = self.node().host;
 		double height = self.menuHeight();
 		double below = y + self.node().height + 2.0;
-		self._above = host != null && below + height > host.height && y - height - 2.0 >= 0.0;
-		return self._above ? y - height - 2.0 : below;
+		bool above = host != null && below + height > host.height && y - height - 2.0 >= 0.0;
+		return above ? y - height - 2.0 : below;
 	}
 
 	public void paintOverlay(LinuxPainter painter, double x, double y) {
 		if (!self._open) { return; }
 		var theme = painter.theme();
 		double top = self.menuTop(y);
+		self._menuOffsetY = top - y;
 		double height = self.menuHeight();
 		double width = Math.maxDouble(self.node().width, self.widestTitle() + 28.0);
 		painter.fillRect(x + 2.0, top + 3.0, width, height, theme.shadow, 8.0);
@@ -109,7 +111,8 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 	}
 
 	private int itemAt(double localX, double localY) {
-		double top = self.menuTop(0.0);
+		/* Input is control-local; retain the offset of the menu actually painted. */
+		double top = self._menuOffsetY;
 		double width = Math.maxDouble(self.node().width, self.widestTitle() + 28.0);
 		if (localX < 0.0 || localX >= width) { return -1; }
 		double relative = localY - top - 4.0;

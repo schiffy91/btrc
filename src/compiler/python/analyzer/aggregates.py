@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from src.compiler.python.analyzer.program import (
@@ -10,7 +11,9 @@ from src.compiler.python.analyzer.program import (
     DeclarationIndex,
 )
 from src.compiler.python.analyzer.types import TypeSystem
+from src.compiler.python.frontend.sources import CompilerStdlibSource
 from src.compiler.python.syntax.ast.generated import (
+    AnonymousMember,
     BraceInitializer,
     CallExpr,
     ClassDecl,
@@ -20,6 +23,7 @@ from src.compiler.python.syntax.ast.generated import (
     FStringLiteral,
     FunctionDecl,
     Identifier,
+    InterfaceDecl,
     IntLiteral,
     ListLiteral,
     MapLiteral,
@@ -122,7 +126,13 @@ class InitializerTypeLayout:
             canonical is None
             or not canonical.is_array
             or canonical.array_size is not None
-            or (field.access == "class" and isinstance(field.initializer, (BraceInitializer, ListLiteral)))
+            # A flexible array member is array storage, not a pointer slot.
+            or TypeSystem.is_flexible_array_member(field)
+            or (
+                isinstance(field, FieldDecl)
+                and field.access == "class"
+                and isinstance(field.initializer, (BraceInitializer, ListLiteral))
+            )
         ):
             return value_type
         return TypeSystem.add_outer_pointer(canonical, clear_array=True)
@@ -178,7 +188,7 @@ class InitializerAnalyzer:
         if canonical is None or canonical.pointer_depth > 0 or canonical.is_array:
             return InitializerPlan(False)
         steps: list[InitializerStep] = []
-        struct_name = canonical.base.removeprefix("struct ")
+        struct_name = TypeSystem.record_tag_name(canonical.base)
         declaration = self.index.struct_table.get(struct_name)
         if declaration is not None and (not declaration.is_forward):
             if initializer.elements and getattr(declaration.source_file, "private_fields", False):
@@ -198,7 +208,15 @@ class InitializerAnalyzer:
             slots = [(slot.element, slot.member.name, self.types.array_field_value(slot.member)) for slot in plan.slots]
             capacity = plan.capacity
             excess = plan.excess
-            aggregate_name = f"struct '{struct_name}'"
+            aggregate_name = f"{TypeSystem.record_keyword(declaration)} '{struct_name}'"
+            if excess and declaration.is_union:
+                self.context.error(
+                    f"Union '{struct_name}' initializer has {len(initializer.elements)} elements; a positional union "
+                    "initializer sets only the first member (use a designator such as {.f = ...})",
+                    initializer.line or line,
+                    initializer.col or col,
+                )
+                excess = 0
         elif canonical.base == "Tuple":
             slots = [
                 (element, f"_{index}", argument)
@@ -270,6 +288,7 @@ class InitializerAnalyzer:
                 element_types = canonical.generic_args
         elif isinstance(initializer, MapLiteral) and canonical.base == "Map" and (len(canonical.generic_args) == 2):
             steps: list[InitializerStep] = []
+            self.context.contextual_literal_ids.add(id(initializer))
             key_type, value_type = canonical.generic_args
             for entry in initializer.entries:
                 steps.extend(self._plan_collection_element(key_type, entry.key, f"{subject} key", line, col))
@@ -278,6 +297,8 @@ class InitializerAnalyzer:
             return InitializerPlan(True, tuple(steps))
         if element_types is None:
             return InitializerPlan(False)
+        if isinstance(initializer, ListLiteral):
+            self.context.contextual_literal_ids.add(id(initializer))
         expected_element = element_types[0]
         steps = []
         for element in initializer.elements:
@@ -321,6 +342,7 @@ class AggregateAnalyzer:
         self.session = session
         self.index = index
         self.types = types
+        self._signature_type_parameters: frozenset[str] = frozenset()
         self._initializers = InitializerAnalyzer(
             session,
             index,
@@ -376,13 +398,15 @@ class AggregateAnalyzer:
         canonical = self.types.canonical_type(object_type)
         if canonical is None:
             return False
-        struct_name = canonical.base.removeprefix("struct ")
+        struct_name = TypeSystem.record_tag_name(canonical.base)
         declaration = self.index.struct_table.get(struct_name)
         if declaration is None:
             return False
         if TypeSystem.record_member(declaration, expression.field) is None:
             self.session.error(
-                f"Struct '{struct_name}' has no field '{expression.field}'", expression.line, expression.col
+                f"{TypeSystem.record_keyword(declaration).capitalize()} '{struct_name}' has no field '{expression.field}'",
+                expression.line,
+                expression.col,
             )
         return True
 
@@ -394,17 +418,44 @@ class AggregateAnalyzer:
         owners = {}
         for declaration in declarations:
             with self.session.source(getattr(declaration, "source_file", None)):
+                self._validate_union_members(declaration)
                 self._collect_aggregate_dependencies(declaration, graph, owners)
         self._report_dependency_cycles(graph, owners, "Aggregate")
+
+    def _validate_union_members(self, declaration) -> None:
+        """A union cannot tell which member is live, so every member is a plain
+        C value (C row 9): no ARC, no proof-carrying callback."""
+        if not isinstance(declaration, StructDecl) or not declaration.is_union or declaration.is_forward:
+            return
+        for field in TypeSystem.record_fields(declaration):
+            reason = self.types.union_member_blocker(field.type)
+            if reason is None:
+                continue
+            prefix = f"Union '{declaration.name}' member '{field.name}' cannot hold"
+            if reason[0] == "realtime":
+                message = f"{prefix} a RealtimeFunction; a union could reinterpret it without its realtime proof"
+            else:
+                held = (
+                    f"managed type '{reason[1]}'"
+                    if reason[0] == "managed"
+                    else (f"'{reason[1]}', which contains managed field '{reason[2]}'")
+                )
+                message = (
+                    f"{prefix} {held}; a union cannot tell which member is live, so its members must be plain C values"
+                )
+            self.session.error(message, field.line, field.col)
 
     def _collect_aggregate_dependencies(self, declaration, graph, owners) -> None:
         if isinstance(declaration, StructDecl) and (not declaration.is_forward):
             owners[declaration.name] = declaration
             graph[declaration.name] = set()
             for field in TypeSystem.record_fields(declaration):
-                subject = f"Struct field '{declaration.name}.{field.name}'"
+                subject = (
+                    f"{TypeSystem.record_keyword(declaration).capitalize()} field '{declaration.name}.{field.name}'"
+                )
                 self.validate_complete_aggregate_use(field.type, subject, field.line, field.col)
                 graph[declaration.name].update(self._value_aggregate_names(field.type))
+            self._validate_flexible_array_members(declaration)
         elif isinstance(declaration, RichEnumDecl):
             owners[declaration.name] = declaration
             graph[declaration.name] = set()
@@ -415,10 +466,197 @@ class AggregateAnalyzer:
                     graph[declaration.name].update(self._value_aggregate_names(parameter.type))
         elif isinstance(declaration, FunctionDecl) and declaration.body:
             self._validate_callable_complete_types(declaration, declaration.name)
+        elif isinstance(declaration, FunctionDecl):
+            self._reject_flexible_array_signature(declaration, declaration.name)
         elif isinstance(declaration, ClassDecl):
-            self._validate_class_complete_types(declaration)
+            self._reject_shadowing_type_parameters(
+                declaration, declaration.generic_params, declaration.name, declaration
+            )
+            for member in declaration.members:
+                if isinstance(member, MethodDecl):
+                    self._reject_shadowing_type_parameters(
+                        declaration, member.generic_params, f"{declaration.name}.{member.name}", member
+                    )
+            with self._type_parameters(declaration.generic_params):
+                self._validate_class_complete_types(declaration)
+        elif isinstance(declaration, InterfaceDecl):
+            self._reject_shadowing_type_parameters(
+                declaration, declaration.generic_params, declaration.name, declaration
+            )
+            with self._type_parameters(declaration.generic_params):
+                for method in declaration.methods:
+                    self._reject_flexible_array_signature(method, f"{declaration.name}.{method.name}")
+
+    def _reject_shadowing_type_parameters(self, declaration, names, owner, site) -> None:
+        """Inside a generic, a type named like a type parameter means the
+        parameter, so a parameter named like a struct with a flexible array
+        member would hide that struct's by-value refusals. The compiler stdlib
+        is exempt: its generics cannot refer to a program's structs."""
+        if CompilerStdlibSource.authenticated(getattr(declaration, "source_file", None)):
+            return
+        # The frontend marks the names the generic's file can see; a struct
+        # in a file it does not import cannot be hidden by the parameter.
+        visible = getattr(site, "visible_type_parameters", None)
+        for name in names or ():
+            if visible is not None and name not in visible:
+                continue
+            if TypeSystem.flexible_array_member(self.index.struct_table.get(name)) is not None:
+                self.session.error(
+                    f"Type parameter '{name}' of '{owner}' is named like struct '{name}', which has a flexible "
+                    "array member; rename the type parameter",
+                    site.line,
+                    site.col,
+                )
+
+    @contextmanager
+    def _type_parameters(self, names):
+        """Declare the type parameters a signature is checked under, so a
+        parameter named like a struct never resolves to that struct."""
+        previous = self._signature_type_parameters
+        self._signature_type_parameters = previous | frozenset(names or ())
+        try:
+            yield
+        finally:
+            self._signature_type_parameters = previous
+
+    def _active_type_parameters(self) -> frozenset[str]:
+        active = set(self._signature_type_parameters)
+        if self.session.current_class is not None:
+            active.update(self.session.current_class.generic_params)
+        if self.session.current_method is not None:
+            active.update(getattr(self.session.current_method, "generic_params", ()) or ())
+        return frozenset(active)
+
+    def _reject_flexible_array_signature(self, declaration, owner) -> None:
+        """A prototype passes and returns by value as a definition does, so a
+        bodyless signature refuses a struct with a flexible array member too."""
+        with self._type_parameters(getattr(declaration, "generic_params", ())):
+            self._reject_flexible_array_signature_types(declaration, owner)
+
+    def _reject_flexible_array_signature_types(self, declaration, owner) -> None:
+        if not getattr(declaration, "is_constructor", False):
+            self.reject_flexible_array_value(
+                declaration.return_type, f"Return type of '{owner}'", declaration.line, declaration.col
+            )
+        for parameter in declaration.params:
+            self.reject_flexible_array_value(
+                parameter.type, f"Parameter '{owner}.{parameter.name}'", parameter.line, parameter.col
+            )
+
+    def _validate_flexible_array_members(self, declaration) -> None:
+        """r13: one flexible array member, last, after a named member, directly
+        in the struct's body, holding complete plain C elements (C11 6.7.2.1p3, p18)."""
+        members = TypeSystem.record_members(declaration)
+        declarators = TypeSystem.record_declarators(declaration)
+        for index, member in enumerate(members):
+            if isinstance(member, AnonymousMember):
+                nested = next(
+                    (field for field in TypeSystem.record_fields(member) if TypeSystem.is_flexible_array_member(field)),
+                    None,
+                )
+                if nested is not None:
+                    self.session.error(
+                        f"Flexible array member '{nested.name}' must be declared directly in a struct, "
+                        "not in an anonymous member",
+                        nested.line,
+                        nested.col,
+                    )
+                continue
+            if not TypeSystem.is_flexible_array_member(member):
+                continue
+            label = f"'{declaration.name}.{member.name}'"
+            if member is not declarators[-1]:
+                self.session.error(
+                    f"Flexible array member {label} must be the last field of struct '{declaration.name}'",
+                    member.line,
+                    member.col,
+                )
+            elif index == 0:
+                self.session.error(
+                    f"Flexible array member {label} needs a named field before it", member.line, member.col
+                )
+            else:
+                element = self._array_element_type(member.type)
+                if not self._is_flexible_array_element(self.types.canonical_type(element)):
+                    # Name the managed type, not its reference or pointer.
+                    spelling = self.types.format_type(element).rstrip("*?")
+                    self.session.error(
+                        f"Flexible array member {label} cannot hold managed type '{spelling}'",
+                        member.line,
+                        member.col,
+                    )
+
+    def _is_flexible_array_element(self, element) -> bool:
+        """A complete plain C element: realtime POD, a function pointer or a
+        fixed array of these. Managed elements are refused for now; relaxing to
+        the shallow-aggregate rule later stays compatible."""
+        if element is None:
+            return True
+        if element.is_array and element.array_size is not None and not element.is_nullable:
+            return self._is_flexible_array_element(self.types.canonical_type(self._array_element_type(element)))
+        if element.base == "__fn_ptr" and element.pointer_depth == 0 and not element.is_nullable:
+            return True
+        if element.is_nullable and element.pointer_depth > 0:
+            # A nullable raw or function pointer is a plain C pointer.
+            return (
+                element.base != "string"
+                and element.base not in self.index.class_table
+                and element.base not in self.index.interface_table
+            )
+        name = element.base.removeprefix("struct ")
+        if element.pointer_depth == 0 and self.index.struct_table.get(name) is not None:
+            if self.index.struct_table[name].is_forward or self.flexible_array_struct(element) is not None:
+                # The by-value checks report incomplete and FAM elements.
+                return True
+        # Hosted-ABI scalars (uint8_t, size_t, ...) and C enum tags too.
+        return self.types.is_numeric_value(element) or self.types.is_realtime_pod(element)
+
+    def flexible_array_struct(self, type_expr) -> str | None:
+        """The struct with a flexible array member that ``type_expr`` stores by
+        value (directly or as array storage), or ``None``."""
+        canonical = self.types.canonical_type(type_expr)
+        if canonical is None or canonical.pointer_depth > 0:
+            return None
+        if type_expr.base in self._active_type_parameters():
+            return None
+        name = canonical.base.removeprefix("struct ")
+        if TypeSystem.flexible_array_member(self.index.struct_table.get(name)) is not None:
+            return name
+        return None
+
+    def reject_flexible_array_value(self, type_expr, subject, line=0, col=0) -> bool:
+        """r13: a struct with a flexible array member exists only behind a
+        pointer, so no object, parameter, return, record, tuple, payload or
+        generic argument may hold one by value."""
+        name = self.flexible_array_struct(type_expr)
+        if name is not None:
+            self.session.error(
+                f"{subject} uses struct '{name}' with a flexible array member by value; use a pointer", line, col
+            )
+            return True
+        # A generic argument is by-value storage even behind a class
+        # reference or a pointer: Box<S>* still names a Box that holds an S.
+        canonical = self.types.canonical_type(type_expr)
+        if canonical is None:
+            return False
+        return any(
+            self.reject_flexible_array_value(argument, f"Generic argument {index + 1} of {subject}", line, col)
+            for index, argument in enumerate(canonical.generic_args)
+        )
+
+    def flexible_array_target(self, expression) -> str | None:
+        """``'Struct.member'`` when ``expression`` names a flexible array member."""
+        member, storage = self._array_target_member(expression)
+        if storage != "struct-field" or not TypeSystem.is_flexible_array_member(member):
+            return None
+        receiver = self.types.canonical_type(self.type_of(expression.obj))
+        return f"{receiver.base.removeprefix('struct ')}.{member.name}"
 
     def _validate_callable_complete_types(self, declaration, owner) -> None:
+        with self._type_parameters(getattr(declaration, "generic_params", ())):
+            self._validate_callable_complete_signature(declaration, owner)
+
+    def _validate_callable_complete_signature(self, declaration, owner) -> None:
         if not getattr(declaration, "is_constructor", False):
             self.validate_complete_aggregate_use(
                 declaration.return_type, f"Return type of '{owner}'", declaration.line, declaration.col
@@ -440,8 +678,18 @@ class AggregateAnalyzer:
                 )
             elif isinstance(member, MethodDecl) and member.body:
                 self._validate_callable_complete_types(member, f"{declaration.name}.{member.name}")
+            elif isinstance(member, MethodDecl):
+                self._reject_flexible_array_signature(member, f"{declaration.name}.{member.name}")
 
     def validate_complete_aggregate_use(self, type_expr, subject, line=0, col=0, *, sizeof=False) -> bool:
+        if type_expr is not None and (
+            type_expr.base in self._active_type_parameters() or self.types.is_active_type_parameter(type_expr)
+        ):
+            return True
+        # sizeof(struct S) is the one by-value use of a struct with a
+        # flexible array member: its size without the member.
+        if not sizeof and self.reject_flexible_array_value(type_expr, subject, line, col):
+            return False
         canonical = self.types.canonical_type(type_expr)
         if canonical is None or canonical.pointer_depth > 0:
             return True
@@ -450,13 +698,14 @@ class AggregateAnalyzer:
                 self.validate_complete_aggregate_use(argument, subject, line, col, sizeof=sizeof)
                 for argument in canonical.generic_args
             )
-        name = canonical.base.removeprefix("struct ")
+        name = TypeSystem.record_tag_name(canonical.base)
         if name not in self.index.struct_table or name in self.index.struct_definitions:
             return True
         if sizeof:
             self.session.error(f"{subject} cannot use incomplete type '{name}'", line, col)
         else:
-            self.session.error(f"{subject} uses incomplete struct '{name}'", line, col)
+            keyword = TypeSystem.record_keyword(self.index.struct_table[name])
+            self.session.error(f"{subject} uses incomplete {keyword} '{name}'", line, col)
         return False
 
     def _value_aggregate_names(self, type_expr) -> set[str]:
@@ -465,7 +714,7 @@ class AggregateAnalyzer:
             return set()
         if canonical.base == "Tuple":
             return {name for argument in canonical.generic_args for name in self._value_aggregate_names(argument)}
-        name = canonical.base.removeprefix("struct ")
+        name = TypeSystem.record_tag_name(canonical.base)
         if name in self.index.struct_definitions or name in self.index.rich_enum_table:
             return {name}
         return set()
@@ -523,7 +772,15 @@ class AggregateAnalyzer:
         if isinstance(operand, SizeofType):
             type_expr = operand.type
             line, col = (type_expr.line or expression.line, type_expr.col or expression.col)
+            if not self.types.validate_tag_keyword(type_expr, line, col):
+                return
         elif isinstance(operand, SizeofExprOp):
+            member = self.flexible_array_target(operand.expr)
+            if member is not None:
+                self.session.error(
+                    f"sizeof cannot be applied to flexible array member '{member}'", expression.line, expression.col
+                )
+                return
             type_expr = self.type_of(operand.expr)
             line, col = (expression.line, expression.col)
         else:
@@ -534,6 +791,11 @@ class AggregateAnalyzer:
         if self.types.is_void_value(canonical):
             self.session.error("sizeof cannot be applied to void", line, col)
             return
+        # Only sizeof(struct S) and sizeof(*p) measure a struct with a flexible
+        # array member; a tuple or generic instance would embed it by value.
+        for index, argument in enumerate(canonical.generic_args):
+            if self.reject_flexible_array_value(argument, f"Generic argument {index + 1} of sizeof", line, col):
+                return
         self.validate_complete_aggregate_use(canonical, "sizeof", line, col, sizeof=True)
 
     @staticmethod
@@ -692,6 +954,7 @@ class AggregateAnalyzer:
             canonical is None
             or not canonical.is_array
             or canonical.array_size is not None
+            or TypeSystem.is_flexible_array_member(field)
             or (
                 getattr(field, "access", None) == "class"
                 and isinstance(getattr(field, "initializer", None), (BraceInitializer, ListLiteral))
@@ -745,7 +1008,7 @@ class AggregateAnalyzer:
             return False
         if storage == "property":
             return member.access != "class" and canonical.array_size is None
-        if canonical.array_size is not None:
+        if canonical.array_size is not None or TypeSystem.is_flexible_array_member(member):
             return False
         if storage in {"instance-field", "struct-field"}:
             return True
@@ -827,7 +1090,7 @@ class AggregateAnalyzer:
             member = class_info.fields.get(target.field)
             if member is not None:
                 return (member, "instance-field")
-        struct_name = receiver.base.removeprefix("struct ")
+        struct_name = TypeSystem.record_tag_name(receiver.base)
         structure = self.index.struct_table.get(struct_name)
         if structure is not None:
             member = TypeSystem.record_member(structure, target.field)

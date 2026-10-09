@@ -33,7 +33,11 @@ def test_pointer_backed_array_bindings_rebind_and_index_in_both_frontends(
             public int[] values { get; set; }
         }
 
-        struct Slice { int[] data; };
+        // P1 refuses `int[] data` in a struct body; the typedef keeps
+        // btrc's pointer-valued array field.
+        typedef int[] Values;
+
+        struct Slice { Values data; };
 
         int reboundFirst(int target[2], int[] source) {
             target = source;

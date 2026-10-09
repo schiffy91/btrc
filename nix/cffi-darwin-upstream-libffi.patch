@@ -1,0 +1,19 @@
+Use the Darwin libffi path with upstream libffi, whose headers lack Apple's
+FFI_AVAILABLE_APPLE annotation. CFFI 2.0.0 otherwise uses its own RWX allocator
+and skips ffi_prep_cif_var, causing rejected callbacks and incorrect variadic
+calls on macOS ARM64. Upstream libffi provides all three APIs this branch uses;
+retain the existing OS availability checks and the Linux allocator policy.
+
+Source: https://github.com/python-cffi/cffi/blob/v2.0.0/src/c/_cffi_backend.c
+
+--- a/src/c/_cffi_backend.c
++++ b/src/c/_cffi_backend.c
+@@ -108,7 +108,7 @@
+ # define CFFI_CHECK_FFI_PREP_CIF_VAR 0
+ # define CFFI_CHECK_FFI_PREP_CIF_VAR_MAYBE 0
+
+-#elif defined(__APPLE__) && defined(FFI_AVAILABLE_APPLE)
++#elif defined(__APPLE__)
+
+ # define CFFI_CHECK_FFI_CLOSURE_ALLOC __builtin_available(macos 10.15, ios 13, watchos 6, tvos 13, *)
+ # define CFFI_CHECK_FFI_CLOSURE_ALLOC_MAYBE 1

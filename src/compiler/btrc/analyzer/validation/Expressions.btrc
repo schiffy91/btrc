@@ -36,6 +36,20 @@ class LambdaValidationPlan {
 	}
 }
 
+/* The first element or entry of an inferred collection literal that does not
+ * fit the type the literal infers. */
+class InferredLiteralMismatch {
+	public Node literal;
+	public Node site;
+	public string message;
+
+	public InferredLiteralMismatch(Node literal, Node site, string message) {
+		self.literal = literal;
+		self.site = site;
+		self.message = message;
+	}
+}
+
 class ExpressionValidator {
 	private SemanticValidationState state;
 	private OperatorSemantics operators;
@@ -48,6 +62,8 @@ class ExpressionValidator {
 	private OwnershipValidator ownership;
 	private BorrowValidator borrows;
 	private CallValidator calls;
+	private Vector<InferredLiteralMismatch> literalMismatches = [];
+	private Map<string, bool> contextualLiterals = {};
 
 	public ExpressionValidator(SemanticValidationState state, OperatorSemantics operators, SourceMacroNamespace sourceMacros, SourceRuntimeSymbols sourceRuntimeSymbols, ExpressionTypeResolver expressionTypes, TypeValidator types, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, CallValidator calls) {
 		self.state = state;
@@ -142,6 +158,124 @@ class ExpressionValidator {
 
 	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
+	/* Collection literal arguments take their parameter's element types. */
+	private void validateCollectionArguments(Map<string, Node> vars) {
+		if (!self.calls.hasCollectionArguments()) { return; }
+		for check in self.calls.takeCollectionArguments() { self.validateTypedInitializer(check.expected, check.argument, check.subject, vars); }
+	}
+
+	/* A collection literal whose type is inferred takes it from its first
+	 * element, or from its first entry's key and value, so every other one
+	 * must fit that type; an empty literal takes its type from the context and
+	 * neither sets nor breaks it. A literal in a typed position (a declared
+	 * binding, an assignment, a return, an argument, a field or a default)
+	 * takes that position's type instead and is checked against it. A call
+	 * argument's position is known only after the argument is validated, so a
+	 * mismatch waits for the end of its statement (checkInferredLiterals). */
+	private void recordInferredLiteral(Node expression, Map<string, Node> vars) {
+		InferredLiteralMismatch? mismatch = self.inferredLiteralMismatch(expression, vars);
+		if (mismatch != null) { self.literalMismatches.push(mismatch); }
+	}
+
+	private InferredLiteralMismatch? inferredLiteralMismatch(Node expression, Map<string, Node> vars) {
+		if (expression.kind == NK_LIST_LITERAL) {
+			Node? expected = self.firstLiteralPartType(expression.elements(), vars);
+			int index = 0;
+			while (expected != null && index < expression.elements().len) {
+				Node element = expression.elements().get(index);
+				string message = self.literalPartMismatch("List element " + Strings.fromInt(index), expected, element, vars);
+				if (message != "") { return InferredLiteralMismatch(expression, element, message); }
+				index = index + 1;
+			}
+			return null;
+		}
+		Vector<Node> keys = [];
+		Vector<Node> values = [];
+		for entry in expression.entries() {
+			keys.push(entry.key);
+			values.push(entry.valueNode);
+		}
+		Node? keyType = self.firstLiteralPartType(keys, vars);
+		Node? valueType = self.firstLiteralPartType(values, vars);
+		int index = 0;
+		while (index < keys.len) {
+			string message = keyType == null ? "" : self.literalPartMismatch("Map key " + Strings.fromInt(index), keyType, keys.get(index), vars);
+			if (message != "") { return InferredLiteralMismatch(expression, keys.get(index), message); }
+			message = valueType == null ? "" : self.literalPartMismatch("Map value " + Strings.fromInt(index), valueType, values.get(index), vars);
+			if (message != "") { return InferredLiteralMismatch(expression, values.get(index), message); }
+			index = index + 1;
+		}
+		return null;
+	}
+
+	private Node? firstLiteralPartType(Vector<Node> parts, Map<string, Node> vars) {
+		for part in parts {
+			if (!ExpressionValidator.emptyContextualLiteral(part)) { return self.types.inferType(part, vars); }
+		}
+		return null;
+	}
+
+	private string literalPartMismatch(string label, Node expected, Node value, Map<string, Node> vars) {
+		if (ExpressionValidator.emptyContextualLiteral(value)) { return ""; }
+		Node? actual = self.types.inferType(value, vars);
+		if (actual == null || self.types.assignmentCompatible(expected, actual)) { return ""; }
+		return label + " has type '" + self.types.formatType(actual) + "' but expected '" + self.types.formatType(expected) + "'";
+	}
+
+	private void markContextualLiteral(Node expression) {
+		if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL) { self.contextualLiterals.put(AstIdentity.key(expression), true); }
+	}
+
+	/* A literal stored into a collection takes the target's element types, as
+	 * a declared initializer does. */
+	private void validateAssignedCollectionLiteral(Node expression, Map<string, Node> vars) {
+		Node value = expression.valueNode;
+		if (value.kind != NK_LIST_LITERAL && value.kind != NK_MAP_LITERAL) { return; }
+		Node? target = self.types.resolveAliases(self.types.inferType(expression.target, vars));
+		if (target == null || target.isArray) { return; }
+		bool sequence = target.genericArgs().len == 1 && (target.base == "Array" || target.base == "List" || target.base == "Set" || target.base == "Vector");
+		if (sequence || (target.base == "Map" && target.genericArgs().len == 2)) { self.validateInitializerValue(target, value, "Assignment", vars); }
+	}
+
+	public int inferredLiteralMark() { return self.literalMismatches.len; }
+
+	/* Reports the first mismatch recorded since `mark` by a literal that no
+	 * typed position claimed, and forgets them all. */
+	public void checkInferredLiterals(int mark) {
+		int index = mark;
+		while (index < self.literalMismatches.len) {
+			InferredLiteralMismatch mismatch = self.literalMismatches.get(index);
+			if (!self.contextualLiterals.has(AstIdentity.key(mismatch.literal))) { TypeValidator.fail(mismatch.message, mismatch.site); }
+			index = index + 1;
+		}
+		while (self.literalMismatches.len > mark) { self.literalMismatches.pop(); }
+	}
+
+	/* An inferred binding or a for-in iterable takes the literal's own type
+	 * now, so its mismatch is reported before anything that type implies. */
+	public void checkInferredLiteral(Node? expression) {
+		if (expression == null) { return; }
+		for mismatch in self.literalMismatches {
+			if (mismatch.literal == expression && !self.contextualLiterals.has(AstIdentity.key(expression))) { TypeValidator.fail(mismatch.message, mismatch.site); }
+		}
+	}
+
+	class bool emptyContextualLiteral(Node node) {
+		if (node.kind == NK_BRACE_INITIALIZER || node.kind == NK_LIST_LITERAL) { return node.elements().len == 0; }
+		return node.kind == NK_MAP_LITERAL && node.entries().len == 0;
+	}
+
+	/* A literal names no symbol, so it needs no import of its own; but an
+	 * inferred binding or a for-in iterable materializes it as a Vector or a
+	 * Map, whose class some module of the program must declare. */
+	public void rejectUndeclaredCollectionLiteral(Node? expression) {
+		if (expression == null || (expression.kind != NK_LIST_LITERAL && expression.kind != NK_MAP_LITERAL)) { return; }
+		string collection = expression.kind == NK_LIST_LITERAL ? "Vector" : "Map";
+		if (self.state.analyzed.isClass(collection) || self.state.analyzed.isGenericClass(collection)) { return; }
+		string kind = expression.kind == NK_LIST_LITERAL ? "List" : "Map";
+		TypeValidator.fail(kind + " literal needs the " + collection + " class; add 'import Library." + collection + ";'", expression);
+	}
+
 	public bool gpuArrayResultCall(Node? expression, Map<string, Node> vars) {
 		if (expression == null || expression.kind != NK_CALL_EXPR || expression.callee == null || expression.callee.kind != NK_IDENTIFIER) {
 			return false;
@@ -167,15 +301,18 @@ class ExpressionValidator {
 		if (name == "" || !self.state.analyzed.structTable.has(name)) { return; }
 		Node declaration = self.state.analyzed.structTable.get(name);
 		if (declaration.isForward) {
-			TypeValidator.fail("Incomplete struct '" + name + "' cannot be initialized by value", initializer);
+			TypeValidator.fail("Incomplete " + SemanticTypeSystem.recordKeyword(declaration) + " '" + name + "' cannot be initialized by value", initializer);
 		}
 		if (initializer.kind != NK_BRACE_INITIALIZER) {
-			TypeValidator.fail(subject + " requires a brace initializer for " + "struct '" + name + "'", initializer);
+			TypeValidator.fail(subject + " requires a brace initializer for " + SemanticTypeSystem.recordKeyword(declaration) + " '" + name + "'", initializer);
 		}
 		/* The initializer-slot owner: each element's member path, recorded for
 		 * every later reader (SemanticTypeSystem.initializerSlots). */
 		SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(declaration, initializer, self.state.analyzed);
 		self.state.analyzed.initializerPlans.put(AstIdentity.key(initializer), plan);
+		if (plan.excess > 0 && declaration.isUnion) {
+			TypeValidator.fail("Union '" + name + "' initializer has " + Strings.fromInt(initializer.elements().len) + " elements; a positional union initializer sets only the first member (use a designator such as {.f = ...})", initializer);
+		}
 		if (plan.excess > 0) {
 			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(plan.capacity) + " fields", initializer);
 		}
@@ -195,13 +332,18 @@ class ExpressionValidator {
 		int index = 0;
 		while (index < initializer.entries().len) {
 			Node entry = initializer.entries().get(index);
-			self.validateInitializerValue(expected.genericArgs().get(0), entry.key, subject + " key", vars);
-			self.validateInitializerValue(expected.genericArgs().get(1), entry.valueNode, subject + " value", vars);
+			self.validateInitializerValueAs(expected.genericArgs().get(0), entry.key, subject + " key", " elements", vars);
+			self.validateInitializerValueAs(expected.genericArgs().get(1), entry.valueNode, subject + " value", " elements", vars);
 			index = index + 1;
 		}
 	}
 
-	public void validateInitializerValue(Node expected, Node value, string subject, Map<string, Node> vars) {
+	public void validateInitializerValue(Node expected, Node value, string subject, Map<string, Node> vars) { self.validateInitializerValueAs(expected, value, subject, "", vars); }
+
+	/* `mismatch` follows the expected type in a mismatch diagnostic: a map
+	 * key or value reads "expects 'int' elements but got 'string'", as the
+	 * reference compiler words a collection element. */
+	private void validateInitializerValueAs(Node expected, Node value, string subject, string mismatch, Map<string, Node> vars) {
 		self.storage.validateReferenceQualifiers(expected, value, subject, vars);
 		self.types.validateRealtimeFunctionValue(expected, value, vars);
 		Node? valueExpected = self.types.arrayValueType(expected);
@@ -211,10 +353,12 @@ class ExpressionValidator {
 		Node? canonical = self.types.resolveAliases(representedExpected);
 		if (canonical == null) { return; }
 		if (value.kind == NK_MAP_LITERAL) {
+			if (canonical.base == "Map" && canonical.genericArgs().len == 2) { self.markContextualLiteral(value); }
 			self.validateMapInitializer(canonical, value, subject, vars);
 			return;
 		}
 		if (canonical.isArray) {
+			self.markContextualLiteral(value);
 			if (value.kind != NK_BRACE_INITIALIZER && value.kind != NK_LIST_LITERAL) {
 				/* Array-valued GPU dispatch is the sole expression form that
                  * materializes array storage. Ordinary C arrays remain
@@ -262,7 +406,8 @@ class ExpressionValidator {
 					string hint = canonical.base == "Set" ? "'{}' creates an empty Set and add() inserts elements" : "use a list literal [...]";
 					TypeValidator.fail(subject + " cannot use a non-empty brace initializer for '" + canonical.base + "'; " + hint, value);
 				}
-				self.validateInitializerElements(canonical.genericArgs().get(0), value.elements(), subject, vars);
+				self.markContextualLiteral(value);
+				for element in value.elements() { self.validateInitializerValueAs(canonical.genericArgs().get(0), element, subject, " elements", vars); }
 				return;
 			}
 			if (value.kind == NK_BRACE_INITIALIZER && value.elements().len == 0 && canonical.genericArgs().len > 0 && self.state.analyzed.isGenericClass(canonical.base)) {
@@ -272,7 +417,7 @@ class ExpressionValidator {
 		}
 		Node? actual = self.types.inferType(value,  vars);
 		if (actual != null && !self.types.assignmentCompatible(canonical, actual)) {
-			TypeValidator.fail(subject + " expects '" + self.types.formatType(canonical) + "' but got '" + self.types.formatType(actual) + "'", value);
+			TypeValidator.fail(subject + " expects '" + self.types.formatType(canonical) + "'" + mismatch + " but got '" + self.types.formatType(actual) + "'", value);
 		}
 	}
 
@@ -374,7 +519,7 @@ class ExpressionValidator {
 		Node? receiver = self.types.inferType(expression.obj, vars);
 		if (receiver == null) { return; }
 		string owner = SemanticTypeSystem.resolvedStructName(receiver, self.state.analyzed);
-		if (!owner.isEmpty() && SemanticTypeSystem.structFieldFor(receiver, expression.field, self.state.analyzed) == null) { TypeValidator.fail("Struct '" + owner + "' has no field '" + expression.field + "'", expression); }
+		if (!owner.isEmpty() && SemanticTypeSystem.structFieldFor(receiver, expression.field, self.state.analyzed) == null) { TypeValidator.fail(SemanticTypeSystem.recordKeywordTitle(self.state.analyzed.structTable.get(owner)) + " '" + owner + "' has no field '" + expression.field + "'", expression); }
 		if (!owner.isEmpty() && self.state.analyzed.nativeFieldCallContract(owner, expression.field) != null) { TypeValidator.fail("Reading a native callback field with non-null parameters requires a checked callback adapter", expression); }
 	}
 
@@ -436,15 +581,18 @@ class ExpressionValidator {
 		}
 		if (receiver.base == "Tuple") {
 			int tupleIndex = SemanticTypeSystem.tupleIndex(expression.field);
-			if (tupleIndex < 0 || tupleIndex >= receiver.genericArgs().len) {
-				TypeValidator.fail("Tuple type '" + self.types.formatType(receiver) + "' has no field '" + expression.field + "'", expression);
+			if (tupleIndex < 0 || expression.field != "_" + Strings.fromInt(tupleIndex)) {
+				TypeValidator.fail("Tuple has no field '" + expression.field + "'; use '_N' for a zero-based element index", expression);
+			}
+			if (tupleIndex >= receiver.genericArgs().len) {
+				TypeValidator.fail("Tuple field '" + expression.field + "' is out of range for " + Strings.fromInt(receiver.genericArgs().len) + " element(s)", expression);
 			}
 			return;
 		}
 		string structName = SemanticTypeSystem.resolvedStructName(receiver, self.state.analyzed);
 		if (structName != "") {
 			if (SemanticTypeSystem.structFieldFor(receiver, expression.field, self.state.analyzed) == null) {
-				TypeValidator.fail("Struct '" + structName + "' has no field '" + expression.field + "'", expression);
+				TypeValidator.fail(SemanticTypeSystem.recordKeywordTitle(self.state.analyzed.structTable.get(structName)) + " '" + structName + "' has no field '" + expression.field + "'", expression);
 			}
 			return;
 		}
@@ -536,6 +684,10 @@ class ExpressionValidator {
 
 	public void validateUnary(Node expression, Map<string, Node> vars) {
 		if (expression.op == "&") {
+			string flexibleMember = self.storage.flexibleArrayTarget(expression.operand, vars);
+			if (flexibleMember != "") {
+				TypeValidator.fail("Cannot take the address of flexible array member '" + flexibleMember + "'; use the member itself or an element's address", expression);
+			}
 			self.storage.validateNativeGlobalAddress(expression.operand, vars, expression);
 			bool addressable = self.storage.isLifetimeStableStorage(expression.operand, vars) || (expression.operand.kind == NK_IDENTIFIER && (self.state.analyzed.funcNames.has(expression.operand.name) || self.sourceRuntimeSymbols.helper(expression.operand.name)));
 			if (!addressable) {
@@ -642,6 +794,7 @@ class ExpressionValidator {
 				self.contextualizeGenericConstructor(self.types.inferType(expression.target, vars), expression.valueNode, vars);
 			}
 			self.validateExpr(expression.valueNode,  vars);
+			if (expression.op == "=") { self.validateAssignedCollectionLiteral(expression, vars); }
 			self.ownership.rejectShallowStore(expression, vars);
 			/* The assignment's own type rules report a mismatched value before
 			 * the representation rule for what it would store. */
@@ -660,6 +813,7 @@ class ExpressionValidator {
 			if (expression.callee != null && expression.callee.kind == NK_FIELD_ACCESS_EXPR) {
 				self.validateExpr(expression.callee.obj,  vars);
 				self.validateNativeCallbackRead(expression.callee, vars);
+				self.validateCalleeMember(expression.callee, vars);
 			} else if (expression.callee == null || expression.callee.kind != NK_IDENTIFIER) {
 				self.validateExpr(expression.callee,  vars);
 			}
@@ -668,8 +822,14 @@ class ExpressionValidator {
 				self.validateExpr(expression.args().get(index),  vars);
 				index = index + 1;
 			}
+			// r13: inferred method type arguments, then the arguments
+			// themselves, before the call's own type and arity checks.
+			self.validateInferredFlexibleArrayArguments(expression, vars);
+			self.validateFlexibleArrayArguments(expression.args(), vars);
 			self.names.deferGeneratedSymbolCall(expression, vars);
 			self.calls.validateCall(expression,  vars);
+			self.validateCollectionArguments(vars);
+			self.rejectNonescapingMethodArguments(expression);
 		} else if (expression.kind == NK_INDEX_EXPR) {
 			self.validateExpr(expression.obj,  vars);
 			self.validateExpr(expression.index,  vars);
@@ -698,8 +858,147 @@ class ExpressionValidator {
 			if (first != null && second != null && !self.types.assignmentCompatible(first, second) && !self.types.assignmentCompatible(second, first)) {
 				TypeValidator.fail("Ternary branches have incompatible types '" + self.types.formatType(first) + "' and '" + self.types.formatType(second) + "'", expression);
 			}
+			self.validateFlexibleArrayOperand(expression, "Conditional expression", vars);
 		} else {
 			self.validateExprChildren(expression,  vars);
+		}
+		self.rejectNonescapingConstruction(expression, vars);
+	}
+
+	public void recordSpawnedLambda(Node expression) {
+		if (expression.kind == NK_SPAWN_EXPR && expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
+			self.state.spawnedLambdas.put(AstIdentity.key(expression.fn), true);
+		}
+	}
+
+	/* An rvalue copy of a struct with a flexible array member drops its
+	 * elements, and reading them through the copy overruns it. */
+	private void validateFlexibleArrayOperand(Node? expression, string subject, Map<string, Node> vars) {
+		if (expression == null) { return; }
+		self.types.validateFlexibleArrayValue(self.types.inferType(expression, vars), subject, expression);
+	}
+
+	/* Only sizeof(struct S) and sizeof(*p) measure a struct with a flexible
+	 * array member; a tuple or generic instance would embed it by value. */
+	private void validateFlexibleArraySizeof(Node expression, Map<string, Node> vars) {
+		Node? operand = expression.operand;
+		if (operand == null) { return; }
+		Node site = expression;
+		Node? measured = null;
+		if (operand.kind == NK_SIZEOF_TYPE) {
+			measured = operand.type;
+			if (operand.type != null && operand.type.line != 0) { site = operand.type; }
+		} else if (operand.kind == NK_SIZEOF_EXPR_OP) {
+			measured = self.types.inferType(operand.expr, vars);
+		}
+		Node? canonical = self.types.resolveAliases(measured);
+		if (canonical == null) { return; }
+		int index = 0;
+		while (index < canonical.genericArgs().len) {
+			self.types.validateFlexibleArrayValue(canonical.genericArgs().get(index), "Generic argument " + Strings.fromInt(index + 1) + " of sizeof", site);
+			index = index + 1;
+		}
+	}
+
+	/* A method callee on an instance resolves before its arguments are
+	 * checked: a missing, private or class-only member is the first error. */
+	private void validateCalleeMember(Node callee, Map<string, Node> vars) {
+		Node? obj = callee.obj;
+		if (obj == null) { return; }
+		if (obj.kind == NK_IDENTIFIER && !vars.has(obj.name)) {
+			// Variant constructors are the call's own to check.
+			if (self.state.analyzed.isRichEnum(obj.name) || self.state.analyzed.isEnum(obj.name)) { return; }
+			if (self.state.analyzed.isClass(obj.name) || self.state.analyzed.isGenericClass(obj.name)) {
+				self.validateClassProjection(callee, obj.name);
+				return;
+			}
+		}
+		Node? receiver = self.types.inferType(obj, vars);
+		if (receiver == null) { return; }
+		string member = callee.field;
+		if (receiver.base == "Thread") {
+			if (member != "join") { TypeValidator.fail("Thread<T> has no method '" + member + "'", callee); }
+			return;
+		}
+		if (receiver.base == "Mutex") {
+			if (member != "get" && member != "set" && member != "destroy") { TypeValidator.fail("Mutex<T> has no method '" + member + "'", callee); }
+			return;
+		}
+		if (receiver.base == "Atomic") {
+			if (member != "init" && member != "load" && member != "store" && member != "exchange" && member != "fetchAdd" && member != "fetchSub" && member != "fetchAnd" && member != "fetchOr" && member != "fetchXor" && member != "compareExchangeStrong") {
+				TypeValidator.fail("Atomic<T> has no method '" + member + "'", callee);
+			}
+			return;
+		}
+		if (receiver.base == "Span") {
+			if (member != "length" && member != "isEmpty" && member != "isValid" && member != "tryGet" && member != "trySet") { TypeValidator.fail("Span<T> has no method '" + member + "'", callee); }
+			return;
+		}
+		if (self.state.analyzed.isRichEnum(receiver.base)) {
+			if (member != "tag" && member != "data" && member != "toString") { TypeValidator.fail("Rich enum '" + receiver.base + "' has no field '" + member + "'", callee); }
+			return;
+		}
+		Node? canonical = self.types.resolveAliases(receiver);
+		if (canonical != null && canonical.base == "Tuple") {
+			int tupleIndex = SemanticTypeSystem.tupleIndex(member);
+			if (tupleIndex < 0 || "_" + Strings.fromInt(tupleIndex) != member) {
+				TypeValidator.fail("Tuple has no field '" + member + "'; use '_N' for a zero-based element index", callee);
+			}
+			if (tupleIndex >= canonical.genericArgs().len) {
+				TypeValidator.fail("Tuple field '" + member + "' is out of range for " + Strings.fromInt(canonical.genericArgs().len) + " element(s)", callee);
+			}
+			return;
+		}
+		if (self.state.analyzed.isInterface(receiver.base)) {
+			if (self.state.analyzed.interfaceMethod(receiver.base, member) == null) { TypeValidator.fail("Interface '" + receiver.base + "' has no method '" + member + "'", callee); }
+			return;
+		}
+		if (self.state.analyzed.isClass(receiver.base) || self.state.analyzed.isGenericClass(receiver.base)) {
+			self.validateInstanceProjection(callee, receiver, false);
+		}
+	}
+
+	/* An inferred method type argument is by-value storage in the instance,
+	 * so it is never a struct with a flexible array member. An argument naming
+	 * the enclosing template's own type parameters is checked per instance. */
+	private void validateInferredFlexibleArrayArguments(Node call, Map<string, Node> vars) {
+		Node? callee = call.callee;
+		if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR || callee.obj == null) { return; }
+		if (callee.obj.kind == NK_IDENTIFIER && !vars.has(callee.obj.name) && self.state.analyzed.isClass(callee.obj.name)) { return; }
+		Vector<Node>? inferred = self.state.analyzed.methodCallArguments(call);
+		Node? receiver = self.types.resolveAliases(self.types.inferType(callee.obj, vars));
+		if (inferred == null || receiver == null) { return; }
+		Vector<Node> arguments = inferred;
+		int index = 0;
+		while (index < arguments.len) {
+			Node argument = arguments.get(index);
+			index = index + 1;
+			if (self.types.typeContainsParams(argument, self.state.typeParams)) { continue; }
+			string flexible = SemanticTypeSystem.flexibleArrayValueStruct(argument, self.state.analyzed);
+			if (flexible != "") {
+				TypeValidator.fail("Generic argument " + Strings.fromInt(index) + " for '" + receiver.base + "." + callee.field + "' uses struct '" + flexible + "' with a flexible array member by value; use a pointer", call);
+			}
+		}
+	}
+
+	/* An argument is passed by value, so it is never a struct with a flexible
+	 * array member, whatever the callee: a generic instance, a variadic C
+	 * function or a constructor. */
+	private void validateFlexibleArrayArguments(Vector<Node> arguments, Map<string, Node> vars) {
+		for argument in arguments {
+			self.types.validateFlexibleArrayValue(self.types.inferType(argument, vars), "Call argument", argument);
+		}
+	}
+
+	/* A lambda's parameters and its declared or inferred result are by value,
+	 * so none may be a struct with a flexible array member. */
+	private void validateFlexibleArrayLambda(Node expression, Map<string, Node> vars) {
+		for parameter in expression.params() {
+			self.types.validateFlexibleArrayValue(parameter.type, "Lambda parameter '" + parameter.name + "'", parameter);
+		}
+		Node? lambdaType = self.types.inferType(expression, vars);
+		if (lambdaType != null && lambdaType.genericArgs().len > 0) {
+			self.types.validateFlexibleArrayValue(lambdaType.genericArgs().get(0), "Lambda return type", expression);
 		}
 	}
 
@@ -734,6 +1033,10 @@ class ExpressionValidator {
 		}
 
 		Vector<string> names = LambdaFreeNames.of(expression).keys();
+		Map<string, Node> measured = LambdaFreeNames.measuredOf(expression);
+		/* The earliest sizeof of a captured array, as the reference meets it. */
+		string measuredCapture = "";
+		Node measuredSite = expression;
 		plan.borrowedBindings = self.types.cloneFlags(parameterNames);
 		plan.localBindings = self.types.cloneFlags(parameterNames);
 		int captureIndex = 0;
@@ -749,6 +1052,13 @@ class ExpressionValidator {
 					TypeValidator.fail("A lambda cannot capture Thread handle '" + name + "'; join it before capture or create a fresh owner " + "inside the lambda", expression);
 				}
 				Node? captured = self.types.resolveAliases(vars.get(name));
+				if (captured != null && captured.isArray && measured.has(name)) {
+					Node site = measured.get(name);
+					if (measuredCapture == "" || site.line < measuredSite.line || (site.line == measuredSite.line && site.col < measuredSite.col)) {
+						measuredCapture = name;
+						measuredSite = site;
+					}
+				}
 				if (captured != null && captured.base == "Span") {
 					TypeValidator.fail("A lambda cannot capture nonescaping Span '" + name + "'", expression);
 				}
@@ -758,8 +1068,19 @@ class ExpressionValidator {
 			}
 			captureIndex = captureIndex + 1;
 		}
+		if (measuredCapture != "") {
+			TypeValidator.fail("sizeof cannot measure array '" + measuredCapture + "' inside a lambda, which captures it as a pointer; measure it outside the lambda", measuredSite);
+		}
 
 		plan.resultType = self.expressionTypes.lambdaReturnType(expression, vars);
+		if (expression.returnType == null && !self.state.spawnedLambdas.has(AstIdentity.key(expression))) {
+			self.types.validateNonescapingRichEnumRole(self.types.resolveAliases(plan.resultType), "Lambda return type", "return", expression);
+		}
+		for name in names {
+			if (vars.has(name) && self.state.localBindings.has(name) && self.types.nonescapingRichEnum(vars.get(name)) != "") {
+				TypeValidator.fail("A lambda cannot capture nonescaping rich enum '" + name + "'", expression);
+			}
+		}
 		Node? representedResult = self.types.arrayValueType(plan.resultType);
 		if (representedResult != null) {
 			plan.resultType = representedResult;
@@ -902,6 +1223,7 @@ class ExpressionValidator {
 		}
 		self.calls.validateConstructorAccess(className, constructor, expression);
 		self.calls.validateSignature(className, constructor.params(), expression, substitutions, false, vars);
+		self.validateCollectionArguments(vars);
 		if (className == "CallbackRegistration") {
 			self.calls.validateDirectRealtimeCallback(className, constructor, expression, vars, "invoke");
 		} else if (className == "RealtimeAudioProgram") {
@@ -917,6 +1239,8 @@ class ExpressionValidator {
 			self.validateExpr(entry.valueNode,  vars);
 			self.rejectThreadValueEscape(entry.key, "embedded in aggregate values", vars);
 			self.rejectThreadValueEscape(entry.valueNode, "embedded in aggregate values", vars);
+			self.validateFlexibleArrayOperand(entry.key, "Map literal key", vars);
+			self.validateFlexibleArrayOperand(entry.valueNode, "Map literal value", vars);
 			index = index + 1;
 		}
 	}
@@ -928,6 +1252,8 @@ class ExpressionValidator {
 			if (part.kind == NK_F_STRING_EXPR) {
 				self.validateExpr(part.expression,  vars);
 				self.rejectThreadValueEscape(part.expression, "formatted as values", vars);
+				self.types.validateFormattedValue(self.types.inferType(part.expression, vars), part.expression);
+				self.validateFlexibleArrayOperand(part.expression, "Formatted value", vars);
 			}
 			index = index + 1;
 		}
@@ -958,7 +1284,7 @@ class ExpressionValidator {
 				TypeValidator.fail("Hosted function '" + name + "' cannot be stored or forwarded as a value because bare " + "__fn_ptr does not preserve its exact C ABI and effects; " + "call it directly", expression);
 			}
 			if (!vars.has(name) && self.state.analyzed.isAmbiguousEnumValue(name)) {
-				TypeValidator.fail("Ambiguous enum value '" + name + "'; qualify it with the enum name", expression);
+				TypeValidator.fail("Ambiguous enum member '" + name + "' belongs to " + self.state.analyzed.enumValueOwnerList(name) + "; qualify it", expression);
 			}
 			bool known = vars.has(name) || self.state.analyzed.funcTable.has(name) || self.sourceMacros.declared(name) || self.state.analyzed.isClass(name) || self.state.analyzed.isGenericClass(name) || self.state.analyzed.isEnum(name) || self.state.analyzed.isRichEnum(name) || self.state.analyzed.isEnumValue(name) || self.sourceRuntimeSymbols.helper(name) || name == "errno" || self.names.foreignConstant(name, expression) || name == "NULL" || name == "__func__" || name == "stdin" || name == "stdout" || name == "stderr";
 			self.names.deferGeneratedSymbolReference(expression, vars, known);
@@ -981,8 +1307,10 @@ class ExpressionValidator {
 				TypeValidator.fail("'super' used in a class without a parent", expression);
 			}
 		} else if (expression.kind == NK_CAST_EXPR) {
+			self.types.validateTagKeyword(expression.targetType, expression);
 			self.types.rejectRuntimeInterfaceType(expression.targetType, expression);
 			self.validateExpr(expression.expr,  vars);
+			self.types.validateFlexibleArrayValue(expression.targetType, "Cast target", expression);
 			self.rejectThreadValueEscape(expression.expr, "cast", vars);
 			self.validatePointerIntegerCast(expression,  vars);
 			Node? source = self.types.resolveAliases(self.types.inferType(expression.expr, vars));
@@ -993,34 +1321,80 @@ class ExpressionValidator {
 			if (source != null && target != null && self.state.analyzed.nativeClassLanguage(source.base) == "objective-c" && self.state.analyzed.nativeClassLanguage(target.base) == "objective-c" && !self.state.analyzed.isSubclass(source.base, target.base)) { TypeValidator.fail("Objective-C casts require a proven object upcast", expression); }
 			if (source != null && target != null && (self.state.analyzed.nativeClassLanguage(source.base) == "c" || self.state.analyzed.nativeClassLanguage(target.base) == "c") && ((!self.state.analyzed.isSubclass(source.base, target.base) && self.state.analyzed.nativeResourceQueryType(target, source) == "") || source.pointerDepth - (source.isNullable ? 1 : 0) != 0 || target.pointerDepth - (target.isNullable ? 1 : 0) != 0)) { TypeValidator.fail("Managed native resources cannot be cast to or from other value types", expression); }
 		} else if (expression.kind == NK_SIZEOF_EXPR) {
+			if (expression.operand != null && expression.operand.kind == NK_SIZEOF_TYPE) {
+				self.types.validateTagKeyword(expression.operand.type, expression);
+			}
 			if (expression.operand != null && expression.operand.kind == NK_SIZEOF_EXPR_OP) {
 				self.validateExpr(expression.operand.expr,  vars);
+				string flexibleMember = self.storage.flexibleArrayTarget(expression.operand.expr, vars);
+				if (flexibleMember != "") {
+					TypeValidator.fail("sizeof cannot be applied to flexible array member '" + flexibleMember + "'", expression);
+				}
+			} else if (expression.operand != null && expression.operand.kind == NK_SIZEOF_TYPE) {
+				/* sizeof(x) names the object when x is a binding in scope (C11
+				 * 6.5.3.4), as the reference's sizeof_value_operand reads it. */
+				string name = TypeIdentity.ordinaryIdentifier(expression.operand.type);
+				/* A global hides neither a type parameter nor a declared type. */
+				bool hiddenGlobal = self.state.analyzed.globalVarTypes.has(name) && (self.state.typeParams.has(name) || self.state.analyzed.declaresTypeName(name));
+				if (name != "" && vars.has(name) && !hiddenGlobal) {
+					Node value = Node();
+					value.kind = NK_IDENTIFIER;
+					value.name = name;
+					value.line = expression.operand.type.line;
+					value.col = expression.operand.type.col;
+					self.validateExpr(value, vars);
+				}
 			}
+			self.validateFlexibleArraySizeof(expression, vars);
 		} else if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
 			self.validateExprList(expression.elements(),  vars);
+			if (expression.kind == NK_LIST_LITERAL) {
+				for element in expression.elements() {
+					self.validateFlexibleArrayOperand(element, "List literal element", vars);
+				}
+				self.recordInferredLiteral(expression, vars);
+			}
 			if (expression.kind == NK_TUPLE_LITERAL) {
 				self.ownership.rejectOwnedElements(expression.elements(), "a shallow aggregate", vars);
+				self.types.validateFlexibleArrayValue(self.types.inferType(expression, vars), "Tuple literal", expression);
 			}
 		} else if (expression.kind == NK_MAP_LITERAL) {
 			self.validateMapEntries(expression.entries(),  vars);
+			self.recordInferredLiteral(expression, vars);
 		} else if (expression.kind == NK_F_STRING_LITERAL) {
 			self.validateFStringParts(expression.parts(),  vars);
 		} else if (expression.kind == NK_NEW_EXPR) {
+			self.types.validateTagKeyword(expression.type, expression);
 			self.contextualizeNewGenericConstructors(expression,  vars);
 			self.validateExprList(expression.args(),  vars);
+			self.validateFlexibleArrayArguments(expression.args(), vars);
 			self.validateNew(expression,  vars);
+			if (expression.type != null) {
+				int argumentIndex = 0;
+				while (argumentIndex < expression.type.genericArgs().len) {
+					self.types.validateFlexibleArrayValue(expression.type.genericArgs().get(argumentIndex), "Generic argument " + Strings.fromInt(argumentIndex + 1) + " of new expression", expression);
+					argumentIndex = argumentIndex + 1;
+				}
+			}
 		} else if (expression.kind == NK_LAMBDA_EXPR) {
 			if (self.state.typeParams.len > 0) {
 				TypeValidator.fail("Lambda expressions are not supported inside generic declarations", expression);
 			}
 			self.validateLambda(expression,  vars);
+			self.validateFlexibleArrayLambda(expression, vars);
 		} else if (expression.kind == NK_SPAWN_EXPR) {
 			if (self.state.typeParams.len > 0 && (expression.fn == null || expression.fn.kind != NK_LAMBDA_EXPR)) {
 				TypeValidator.fail("spawn expressions are not supported inside generic declarations", expression);
 			}
+			self.recordSpawnedLambda(expression);
 			self.validateExpr(expression.fn,  vars);
 			if (expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
 				self.validateSpawnCaptures(expression,  vars);
+				Node? thread = self.types.resolveAliases(self.types.inferType(expression, vars));
+				Map<string, bool> visiting = {};
+				if (thread != null && thread.genericArgs().len == 1 && self.types.containsNonescapingRichEnum(thread.genericArgs().get(0), visiting) != "") {
+					TypeValidator.fail(TypeValidator.threadAggregateResultMessage(), expression);
+				}
 			}
 			Node? callable = self.types.inferType(expression.fn,  vars);
 			if (expression.fn == null || (expression.fn.kind != NK_LAMBDA_EXPR && (callable == null || (callable.base != "__fn_ptr" && callable.base != "__realtime_fn_ptr")))) {
@@ -1031,6 +1405,36 @@ class ExpressionValidator {
 					TypeValidator.fail("Non-lambda spawn requires __fn_ptr<void*, void*>; use a " + "lambda adapter for other signatures", expression);
 				}
 			}
+		}
+	}
+
+	/* A generic method's type arguments may not hold a nonescaping rich enum:
+	 * its body could store or return them inside managed storage. */
+	private void rejectNonescapingMethodArguments(Node call) {
+		if (call.callee == null || call.callee.kind != NK_FIELD_ACCESS_EXPR) { return; }
+		Vector<Node>? arguments = self.state.analyzed.methodCallArguments(call);
+		if (arguments == null) { return; }
+		Vector<Node> methodArguments = arguments;
+		for (int index = 0; index < methodArguments.len; index++) {
+			Map<string, bool> visiting = {};
+			string contained = self.types.containsNonescapingRichEnum(methodArguments.get(index), visiting);
+			if (contained != "") {
+				TypeValidator.fail("Generic argument " + Strings.fromInt(index + 1) + " for method '" + call.callee.field + "' cannot contain nonescaping rich enum '" + contained + "'", call);
+			}
+		}
+	}
+
+	/* A constructed class instance (`new Box<E>(...)`, or `Box(...)` inferred)
+	 * is managed storage, so it may not hold a nonescaping rich enum. */
+	private void rejectNonescapingConstruction(Node expression, Map<string, Node> vars) {
+		bool construction = expression.kind == NK_NEW_EXPR || (expression.kind == NK_CALL_EXPR && expression.callee != null && expression.callee.kind == NK_IDENTIFIER && !vars.has(expression.callee.name) && (self.state.analyzed.isClass(expression.callee.name) || self.state.analyzed.isGenericClass(expression.callee.name)));
+		if (!construction) { return; }
+		Node? constructed = self.types.resolveAliases(self.types.inferType(expression, vars));
+		if (constructed == null || self.types.nonescapingRichEnum(constructed) != "") { return; }
+		Map<string, bool> visiting = {};
+		string contained = self.types.containsNonescapingRichEnum(constructed, visiting);
+		if (contained != "") {
+			TypeValidator.fail("Constructed '" + constructed.base + "' cannot contain nonescaping rich enum '" + contained + "' in aggregate or managed storage", expression);
 		}
 	}
 
@@ -1062,6 +1466,7 @@ class ExpressionValidator {
 			return;
 		}
 		if (expression.kind == NK_MAP_LITERAL && concrete.base == "Map" && concrete.genericArgs().len == 2) {
+			self.markContextualLiteral(expression);
 			int entryIndex = 0;
 			while (entryIndex < expression.entries().len) {
 				Node entry = expression.entries().get(entryIndex);
@@ -1074,6 +1479,7 @@ class ExpressionValidator {
 		bool aggregate = expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_LIST_LITERAL || expression.kind == NK_TUPLE_LITERAL;
 		if (aggregate) {
 			if (concrete.isArray) {
+				self.markContextualLiteral(expression);
 				Node elementType = TypeShape.withoutOuterArray(concrete);
 				self.contextualizeGenericElements(elementType, expression.elements(), variables);
 				return;
@@ -1087,6 +1493,7 @@ class ExpressionValidator {
 				return;
 			}
 			if (concrete.genericArgs().len == 1 && (concrete.base == "Array" || concrete.base == "List" || concrete.base == "Set" || concrete.base == "Vector")) {
+				self.markContextualLiteral(expression);
 				self.contextualizeGenericElements(concrete.genericArgs().get(0), expression.elements(), variables);
 				return;
 			}

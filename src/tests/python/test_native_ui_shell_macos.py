@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from src.tests.python.native_ui_shell_fixtures import ROOT, exercise_shell
+from src.tests.python.native_ui_shell_fixtures import ROOT, exercise_shell, macos_private_survivors
 
 CONTROL_IDS = ("field", "button", "scroll", "gpu")
 
@@ -49,9 +49,44 @@ def summarize_macos_shell(observations):
     assert observations["fresh_process_restores"] == 100
     teardown = observations["teardown"]
     assert len(teardown) == 100
-    # AppKit retains one private helper in the genuine hosted baseline. That
-    # bounded allowance must never hide one additional survivor per cycle.
-    assert all(len(row) == 3 and int(row[0]) == int(row[2]) == 0 and 0 <= int(row[1]) <= 1 for row in teardown)
+    assert all(len(row) == 3 and int(row[0]) == int(row[2]) == 0 and int(row[1]) >= 0 for row in teardown)
+    # AppKit's retained field-editor descendants differ between OS releases.
+    # A separate native process measures the same lifecycle without BTRC.
+    # Neither growing control retention nor extra BTRC classes/instances is
+    # allowed; counts alone cannot excuse a different private object.
+    baseline = observations.get("appkit_control")
+    assert isinstance(baseline, dict)
+    assert baseline["kind"] == "public-appkit-only; no BTRC runtime/provider or GPU proof"
+    assert len(baseline["teardown"]) == len(baseline["private_classes"]) == 100
+    assert [row[0] for row in baseline["teardown"]] == list(range(1, 101))
+    assert all(len(row) == 3 and row[1] == 0 for row in baseline["teardown"])
+    # An inactive native control misses helpers created during active editing.
+    # Require the measured journey, never merely an activation request.
+    control_context = baseline.get("tab_context")
+    assert isinstance(control_context, list) and len(control_context) == 100
+    for cycle_context in control_context:
+        assert isinstance(cycle_context, list) and len(cycle_context) == 3
+        assert all(context["application_active"] is True and context["window_key"] is True for context in cycle_context)
+    private_classes = observations.get("private_classes")
+    assert isinstance(private_classes, list) and len(private_classes) == 100
+    allowance = {}
+    for rows, counts in (
+        (baseline["private_classes"], [row[2] for row in baseline["teardown"]]),
+        (private_classes, [int(row[1]) for row in teardown]),
+    ):
+        for classes, count in zip(rows, counts, strict=True):
+            assert isinstance(classes, dict)
+            assert all(
+                isinstance(name, str) and name and type(value) is int and value > 0 for name, value in classes.items()
+            )
+            assert sum(classes.values()) == count
+            if rows is baseline["private_classes"]:
+                # AppKit can lazily create a helper after the first lifecycle.
+                # Its first observed multiplicity is the bound, never a later
+                # maximum; growth remains a failure even after disappearance.
+                for name, value in classes.items():
+                    allowance.setdefault(name, value)
+            assert all(value <= allowance.get(name, 0) for name, value in classes.items()), (classes, allowance)
     assert type(observations["private_objects"]) is int
     assert observations["private_objects"] == int(teardown[-1][1])
     probes = observations["probes"]
@@ -120,6 +155,8 @@ def summarize_macos_shell(observations):
         "registration_survivors": 0,
         "teardown": teardown,
         "private_objects": observations["private_objects"],
+        "private_classes": private_classes,
+        "appkit_control": baseline,
         "subview_totals": subviews,
         "ax_frame_space": probes[0]["ax_frame_space"],
         "native_frame_space": probes[0]["native_frame_space"],
@@ -234,11 +271,20 @@ def _observation_fixture():
         "teardown": [["0", "1", "0"] for _ in range(100)],
         "probes": [copy.deepcopy(probe) for _ in range(100)],
         "private_objects": 1,
+        "private_classes": [{"AppKitHelper": 1} for _ in range(100)],
+        "appkit_control": {
+            "kind": "public-appkit-only; no BTRC runtime/provider or GPU proof",
+            "teardown": [[cycle + 1, 0, 1] for cycle in range(100)],
+            "private_classes": [{"AppKitHelper": 1} for _ in range(100)],
+            "tab_context": [copy.deepcopy(keys["tab_context"]) for _ in range(100)],
+        },
     }
 
 
 def test_macos_shell_observation_keeps_native_gaps_and_private_objects_explicit():
-    report = summarize_macos_shell(_observation_fixture())
+    observed = _observation_fixture()
+    report = summarize_macos_shell(observed)
+    assert report["appkit_control"] == observed["appkit_control"]
     assert report["key_view_traversal"]["status"] == report["gpu_focusability"]["status"] == "gap"
     assert report["provider_survivors"] == report["registration_survivors"] == 0
     assert report["private_objects"] == 1
@@ -260,6 +306,14 @@ def test_macos_shell_observation_keeps_native_gaps_and_private_objects_explicit(
         "callback_leak",
         "private_survivor_growth",
         "private_summary_mismatch",
+        "missing_control",
+        "partial_control",
+        "control_owned_leak",
+        "control_growth",
+        "unknown_private_class",
+        "extra_private_instance",
+        "missing_private_classes",
+        "private_class_count_mismatch",
         "partial_cycles",
         "missing_gpu",
         "inconsistent_focus",
@@ -295,6 +349,24 @@ def test_macos_shell_observation_rejects_incomplete_or_contradictory_proof(defec
         observed["private_objects"] = 100
     elif defect == "private_summary_mismatch":
         observed["private_objects"] = 0
+    elif defect == "missing_control":
+        del observed["appkit_control"]
+    elif defect == "partial_control":
+        observed["appkit_control"]["teardown"].pop()
+    elif defect == "control_owned_leak":
+        observed["appkit_control"]["teardown"][37][1] = 1
+    elif defect == "control_growth":
+        observed["appkit_control"]["teardown"][37][2] = 2
+        observed["appkit_control"]["private_classes"][37]["AppKitHelper"] = 2
+    elif defect == "unknown_private_class":
+        observed["private_classes"][37] = {"UnexpectedHelper": 1}
+    elif defect == "extra_private_instance":
+        observed["teardown"][37][1] = "2"
+        observed["private_classes"][37]["AppKitHelper"] = 2
+    elif defect == "missing_private_classes":
+        del observed["private_classes"]
+    elif defect == "private_class_count_mismatch":
+        observed["private_classes"][37] = {}
     elif defect == "partial_cycles":
         observed["probes"].pop()
     elif defect == "missing_gpu":
@@ -307,6 +379,29 @@ def test_macos_shell_observation_rejects_incomplete_or_contradictory_proof(defec
         probe["key_views"]["tab_context"][0]["window_key"] = "true"
     with pytest.raises(AssertionError):
         summarize_macos_shell(observed)
+
+
+@pytest.mark.parametrize("count", [0, 1, 7])
+def test_macos_shell_private_allowance_comes_from_native_control(count):
+    observed = _observation_fixture()
+    classes = {f"AppKitHelper{index}": 1 for index in range(count)}
+    observed["private_objects"] = count
+    observed["teardown"] = [["0", str(count), "0"] for _ in range(100)]
+    observed["private_classes"] = [classes.copy() for _ in range(100)]
+    observed["appkit_control"]["teardown"] = [[cycle + 1, 0, count] for cycle in range(100)]
+    observed["appkit_control"]["private_classes"] = [classes.copy() for _ in range(100)]
+    assert summarize_macos_shell(observed)["private_objects"] == count
+
+
+def test_macos_private_survivors_keeps_multiplicity_and_cycle_boundaries():
+    stderr = "unrelated framework diagnostic\n" + "\n".join(
+        f"SHELL survivor scope=appkit-private class={name} identity=0x{index:x}"
+        for index, name in enumerate(["Editor", "Editor", "Clip", "Clip"])
+    )
+    assert macos_private_survivors(stderr, [0, 3, 1]) == [{}, {"Editor": 2, "Clip": 1}, {"Clip": 1}]
+    for counts in ([3], [3, 2], [-1, 5]):
+        with pytest.raises(AssertionError):
+            macos_private_survivors(stderr, counts)
 
 
 def test_macos_shell_observation_rejects_missing_commit_among_window_and_scroller_buttons():
@@ -328,3 +423,55 @@ def test_macos_shell_observation_keeps_inactive_tab_context_a_gap(context_field)
     observed["probes"][37]["key_views"]["tab_context"][1][context_field] = False
     report = summarize_macos_shell(observed)
     assert report["key_view_traversal"]["status"] == report["gpu_focusability"]["status"] == "gap"
+
+
+@pytest.mark.parametrize("first_cycle", [1, 37])
+def test_macos_shell_private_control_allows_lazy_first_observation(first_cycle):
+    observed = _observation_fixture()
+    control = observed["appkit_control"]
+    for cycle in range(first_cycle, 100):
+        control["private_classes"][cycle]["LazyAppKitHelper"] = 1
+        control["teardown"][cycle][2] += 1
+    # The independent processes need not initialize toolkit helpers on the same
+    # cycle. BTRC still cannot retain more instances than the control first saw.
+    observed["private_classes"][0]["LazyAppKitHelper"] = 1
+    observed["teardown"][0][1] = "2"
+    report = summarize_macos_shell(observed)
+    assert report["appkit_control"] == control
+
+
+@pytest.mark.parametrize("disappears", [False, True])
+def test_macos_shell_private_control_rejects_growth_after_lazy_first_observation(disappears):
+    observed = _observation_fixture()
+    control = observed["appkit_control"]
+    control["private_classes"][1]["LazyAppKitHelper"] = 1
+    control["teardown"][1][2] = 2
+    for cycle in range(2, 100):
+        count = 2 if cycle >= 37 else (0 if disappears else 1)
+        if count:
+            control["private_classes"][cycle]["LazyAppKitHelper"] = count
+        control["teardown"][cycle][2] = 1 + count
+    with pytest.raises(AssertionError):
+        summarize_macos_shell(observed)
+
+
+@pytest.mark.parametrize(
+    "defect", ["missing", "partial_cycles", "partial_context", "inactive", "not_key", "nonboolean"]
+)
+def test_macos_shell_private_control_requires_active_key_journey(defect):
+    observed = _observation_fixture()
+    control = observed["appkit_control"]
+    if defect == "missing":
+        del control["tab_context"]
+    elif defect == "partial_cycles":
+        control["tab_context"].pop()
+    elif defect == "partial_context":
+        control["tab_context"][37].pop()
+    elif defect == "inactive":
+        control["tab_context"][37][1]["application_active"] = False
+    elif defect == "not_key":
+        control["tab_context"][37][1]["window_key"] = False
+    elif defect == "nonboolean":
+        control["tab_context"][37][1]["window_key"] = 1
+    with pytest.raises(AssertionError):
+        summarize_macos_shell(observed)

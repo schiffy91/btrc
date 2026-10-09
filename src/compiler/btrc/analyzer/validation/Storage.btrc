@@ -260,6 +260,16 @@ class StorageValidator {
 		return STATIC_INITIALIZER_INVALID;
 	}
 
+	/* A global `var` has no declared type until its initializer is inferred,
+	 * so validateVariableStorage cannot check its static storage; check it
+	 * against the inferred type, as the reference compiler does. */
+	public void validateInferredStaticStorage(Node declaration, Node? inferred, bool isGlobal) {
+		if (!isGlobal || declaration.type != null || declaration.initializer == null) { return; }
+		if (!self.staticInitializer(declaration.initializer, inferred)) {
+			TypeValidator.fail("Global '" + declaration.name + "' requires a C constant/address initializer for " + "static storage", declaration);
+		}
+	}
+
 	public bool staticInitializer(Node? expression, Node? expected) {
 		if (expression == null) { return true; }
 		bool literal = expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_LIST_LITERAL;
@@ -640,12 +650,23 @@ class StorageValidator {
 		}
 
 		string structName = receiverType.base;
-		if (structName.startsWith("struct ")) {
-			structName = structName.substring(7, structName.length() - 7);
-		}
+		structName = SemanticTypeSystem.recordTagName(structName);
 		if (!self.state.analyzed.structTable.has(structName)) { return null; }
 		Node structure = self.state.analyzed.structTable.get(structName);
 		return SemanticTypeSystem.recordMember(structure, target.field);
+	}
+
+	/* "Struct.member" when expression names a flexible array member, else "". */
+	public string flexibleArrayTarget(Node? expression, Map<string, Node> vars) {
+		Node? member = self.arrayTargetMember(expression, vars);
+		if (expression == null || member == null || !SemanticTypeSystem.flexibleArrayMember(member)) { return ""; }
+		Node? receiverType = self.types.resolveAliases(self.types.inferType(expression.obj, vars));
+		if (receiverType == null) { return ""; }
+		string structName = receiverType.base;
+		if (structName.startsWith("struct ")) {
+			structName = structName.substring(7, structName.length() - 7);
+		}
+		return structName + "." + member.name;
 	}
 
 	public bool structArrayFieldTarget(Node? expression, Map<string, Node> vars) {
@@ -656,9 +677,7 @@ class StorageValidator {
 		receiverType = self.types.resolveAliases(receiverType);
 		if (receiverType == null) { return false; }
 		string structName = receiverType.base;
-		if (structName.startsWith("struct ")) {
-			structName = structName.substring(7, structName.length() - 7);
-		}
+		structName = SemanticTypeSystem.recordTagName(structName);
 		return self.state.analyzed.structTable.has(structName);
 	}
 
@@ -706,7 +725,8 @@ class StorageValidator {
 		Node? valueType = self.types.arrayValueType(field.type);
 		Node? resolvedType = self.types.resolveAliases(valueType);
 		if (resolvedType != null && !resolvedType.isArray) { return valueType; }
-		if (resolvedType == null || !resolvedType.isArray || resolvedType.arraySize != null || (field.access == "class" && self.aggregateArrayBacking(field.initializer))) {
+		// A flexible array member is array storage, not a pointer slot.
+		if (resolvedType == null || !resolvedType.isArray || resolvedType.arraySize != null || SemanticTypeSystem.flexibleArrayMember(field) || (field.access == "class" && self.aggregateArrayBacking(field.initializer))) {
 			return field.type;
 		}
 		return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(resolvedType));
@@ -842,6 +862,24 @@ class StorageValidator {
 		}
 	}
 
+	/* Refuse a variable that would let a borrowing rich enum outlive its
+	 * owners. A declared type is checked before the initializer and an
+	 * inferred `var` type after it, as the reference compiler orders them. */
+	public void validateNonescapingVariable(Node declaration, Node? type, bool isGlobal) {
+		Node? canonical = self.types.resolveAliases(type);
+		if (canonical == null) { return; }
+		string subject = (isGlobal ? "Global '" : "Variable '") + declaration.name + "'";
+		self.types.validateNonescapingRichEnumRole(canonical, subject, "object", declaration);
+		string richEnum = self.types.nonescapingRichEnum(canonical);
+		if (richEnum == "" || canonical.pointerDepth != 0 || canonical.isArray) { return; }
+		if (isGlobal || canonical.isStatic || canonical.isExtern) {
+			TypeValidator.fail(subject + " cannot store nonescaping rich enum '" + richEnum + "'; " + TypeValidator.nonescapingRichEnumReason(), declaration);
+		}
+		if (declaration.initializer == null) {
+			TypeValidator.fail(subject + " must initialize its nonescaping rich enum '" + richEnum + "' borrow", declaration);
+		}
+	}
+
 	public void validateVariableStorage(Node declaration, bool isGlobal, Map<string, Node> vars) {
 		string subject = isGlobal ? "Global '" : "Variable '";
 		subject = subject + declaration.name + "'";
@@ -855,6 +893,7 @@ class StorageValidator {
 				TypeValidator.fail(subject + " must initialize its Span<T> borrow", declaration);
 			}
 		}
+		self.validateNonescapingVariable(declaration, declaration.type, isGlobal);
 		if (canonical != null && canonical.base == "Atomic" && canonical.pointerDepth == 0 && declaration.initializer != null) {
 			Node initializer = declaration.initializer;
 			bool validConstructor = initializer.kind == NK_CALL_EXPR && initializer.callee != null && initializer.callee.kind == NK_IDENTIFIER && initializer.callee.name == "Atomic";
@@ -898,9 +937,8 @@ class StorageValidator {
 
 	class string structTypeName(Node? typeExpr, Analyzed analyzed) {
 		if (typeExpr == null || typeExpr.pointerDepth > 0) { return ""; }
-		if (typeExpr.base.startsWith("struct ")) {
-			return typeExpr.base.substring(7, typeExpr.base.length() - 7);
-		}
+		string tagName = SemanticTypeSystem.recordTagName(typeExpr.base);
+		if (tagName != typeExpr.base) { return tagName; }
 		if (analyzed.structTable.has(typeExpr.base)) { return typeExpr.base; }
 		return "";
 	}
@@ -1085,6 +1123,8 @@ class StorageValidator {
 	}
 
 	class Node? indexedMethod(Node objectType, string name, Analyzed analyzed) {
+		/* An array of collections indexes its storage, not a collection. */
+		if (objectType.isArray) { return null; }
 		if (analyzed.isGenericClass(objectType.base) && objectType.pointerDepth <= 1) {
 			return analyzed.genericClassMethod(objectType.base, name);
 		}
@@ -1127,7 +1167,7 @@ class StorageValidator {
 	}
 
 	public Node? indexResultTypeInState(Node? objectType) {
-		if (objectType == null || objectType.base == "Tuple") { return null; }
+		if (objectType == null || (objectType.base == "Tuple" && !objectType.isArray && objectType.pointerDepth == 0)) { return null; }
 		if (SemanticTypeSystem.isString(objectType)) {
 			Node character = SemanticTypeSystem.primitive("char");
 			character.isConst = objectType.isConst;
@@ -1176,7 +1216,7 @@ class StorageValidator {
 			TypeValidator.fail("Cannot determine whether expression is indexable", expression);
 		}
 		Node concreteObject = objectType;
-		if (concreteObject.base == "Tuple") {
+		if (concreteObject.base == "Tuple" && !concreteObject.isArray && concreteObject.pointerDepth == 0) {
 			TypeValidator.fail("Tuple values are not dynamically indexable; use ._N fields", expression);
 		}
 		bool rawIntegral = SemanticTypeSystem.isString(concreteObject) || concreteObject.isArray || self.rawIndexedPointerInState(concreteObject);
@@ -1413,6 +1453,29 @@ class StorageValidator {
 		}
 	}
 
+	/* Refuse a store that could make a borrowing rich enum outlive its payload owners. */
+	private void rejectNonescapingRichEnumStore(Node expression, Node? canonicalTarget, Map<string, Node> vars) {
+		string richEnum = self.types.nonescapingRichEnum(canonicalTarget);
+		if (richEnum != "") {
+			TypeValidator.fail("Nonescaping rich enum '" + richEnum + "' cannot be reassigned; " + TypeValidator.nonescapingRichEnumReason() + ", so declare a new local", expression);
+		}
+		/* Inline struct, tuple and array projections stay in the enum's
+		 * storage. Crossing a pointer or managed object reaches other storage. */
+		Node? node = expression.target;
+		while (node != null && (node.kind == NK_FIELD_ACCESS_EXPR || node.kind == NK_INDEX_EXPR)) {
+			Node current = node;
+			if (current.kind == NK_FIELD_ACCESS_EXPR && current.field == "data") {
+				richEnum = self.types.nonescapingRichEnum(self.types.inferType(current.obj, vars));
+				if (richEnum != "") {
+					TypeValidator.fail("Payload of nonescaping rich enum '" + richEnum + "' cannot be reassigned; " + TypeValidator.nonescapingRichEnumReason() + ", so declare a new local", expression);
+				}
+			}
+			Node? receiver = self.types.resolveAliases(self.types.inferType(current.obj, vars));
+			if (receiver != null && !receiver.isArray && (receiver.pointerDepth > 0 || self.types.managedOwnershipType(receiver) || SemanticTypeSystem.isString(receiver))) { break; }
+			node = current.obj;
+		}
+	}
+
 	public void validateAssignment(Node expression, Map<string, Node> vars) {
 		if (!self.isLvalue(expression.target, vars)) {
 			TypeValidator.fail("Assignment target is not assignable", expression);
@@ -1422,6 +1485,12 @@ class StorageValidator {
 		if (canonicalStorageTarget != null && canonicalStorageTarget.base == "Atomic" && canonicalStorageTarget.pointerDepth == 0 && !canonicalStorageTarget.isArray) {
 			TypeValidator.fail("Atomic<T> owner cannot be assigned or copied; use Atomic.init/store on stable storage", expression);
 		}
+		string flexibleStruct = self.types.flexibleArrayStruct(canonicalStorageTarget);
+		if (flexibleStruct != "") {
+			// C11 6.7.2.1p25 copies only the members before the flexible array.
+			TypeValidator.fail("Struct '" + flexibleStruct + "' with a flexible array member cannot be assigned or copied", expression);
+		}
+		self.rejectNonescapingRichEnumStore(expression, canonicalStorageTarget, vars);
 		bool gpuArrayOutput = expression.op == "=" && self.types.gpuArrayResultCall(expression.valueNode, vars);
 		bool gpuCollectionOutput = gpuArrayOutput && self.gpuOutputCollectionTarget(expression.target, storageTarget, vars);
 		bool gpuTargetHasCapacity = gpuArrayOutput && self.arrayTargetHasCapacity(expression.target, storageTarget, vars) && (!self.types.gpuOutputCollectionType(storageTarget) || gpuCollectionOutput);
@@ -1461,7 +1530,7 @@ class StorageValidator {
 				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target), expression);
 			}
 			if (!gpuTargetHasCapacity && !genericNull) {
-				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars);
+				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars, expression);
 				self.validateCharArrayElements(target, expression.valueNode, vars);
 			}
 		}

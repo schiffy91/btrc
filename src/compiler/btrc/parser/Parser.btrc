@@ -256,7 +256,7 @@ class Parser {
 			}
 		}
 
-		if (tok.type == "STRUCT" && !isGpu && !isRealtime && !keepReturn) {
+		if ((tok.type == "STRUCT" || tok.type == "UNION") && !isGpu && !isRealtime && !keepReturn) {
 			string nt = self.peekAt(1).type;
 			if (nt == "IDENT") {
 				string after2 = self.peekAt(2).type;
@@ -616,10 +616,12 @@ class Parser {
 
 	/* ---- Struct declaration ---- */
 
+	/* `struct S { ... };`, `union U { ... };` or a tag forward. */
 	public Node parseStructDecl() {
-		Token tok = self.expect("STRUCT");
+		Token tok = self.advance();
 		Node n = Node();
 		n.kind = NK_STRUCT_DECL;
+		n.isUnion = tok.type == "UNION";
 		n.name = "";
 		n.line = tok.line;
 		n.col = tok.col;
@@ -631,12 +633,10 @@ class Parser {
 			n.nameLine = nameTok.line;
 			n.nameCol = nameTok.col;
 		}
-		if (self.matchTok("LBRACE")) {
+		if (self.check("LBRACE")) {
 			n.isForward = false;
-			while (!self.check("RBRACE") && !self.atEnd()) {
-				self.parseStructFieldsInto(n.fieldsMut());
-			}
-			self.expect("RBRACE");
+			Node? flexible = self.parseRecordMembersInto(n.fieldsMut(), n.isUnion);
+			if (flexible != null) { self.failUnionFlexibleArray(n.name, flexible); }
 			self.expect("SEMICOLON");
 		} else {
 			n.isForward = true;
@@ -645,15 +645,40 @@ class Parser {
 		return n;
 	}
 
-	public void parseStructFieldsInto(Vector<Node> fields) {
+	/* A record's `{ member; ... }`, returning a union's first member of
+	 * unknown size. A union member is a plain C value, so neither unsized
+	 * spelling has a meaning there: `T[] name` is btrc's pointer-valued array,
+	 * refused here, and `T name[]` a flexible array member (C11 6.7.2.1p18
+	 * allows one only in a struct), refused by the caller once the union's
+	 * name is known. */
+	public Node? parseRecordMembersInto(Vector<Node> fields, bool isUnion) {
+		self.expect("LBRACE");
+		Node? flexible = null;
+		while (!self.check("RBRACE") && !self.atEnd()) {
+			Node? memberFlexible = self.parseStructFieldsInto(fields, isUnion);
+			if (flexible == null) { flexible = memberFlexible; }
+		}
+		self.expect("RBRACE");
+		return flexible;
+	}
+
+	public void failUnionFlexibleArray(string unionName, Node member) { self.failAt(f"Union member '{unionName}.{member.name}' cannot be a flexible array member", Token("IDENT", member.name, member.line, member.col)); }
+
+	public Node? parseStructFieldsInto(Vector<Node> fields, bool isUnion) {
 		Token start = self.peek();
 		Node ftype = self.parseType();
 		Node specifier = Parser.declaratorSpecifier(ftype);
 		Node declarator = self.parseDeclaratorName(ftype);
+		if (!isUnion && specifier.isArray) {
+			// P1: the AST cannot tell `T[] name` from `T name[]`, which
+			// declares a flexible array member in a struct body.
+			Token nameTok = Parser.declaratorNameToken(declarator);
+			self.failAt(f"Struct field '{nameTok.value}' cannot use the 'T[] name' spelling; declare a flexible array member as 'T {nameTok.value}[]' or a pointer as 'T* {nameTok.value}'", nameTok);
+		}
 		int first = fields.len;
 		self.parseDeclarators(fields, declarator.type, Parser.declaratorNameToken(declarator), start, specifier, false, true);
-		self.expect("SEMICOLON");
 		// A struct field is positioned at its name.
+		Node? flexible = null;
 		int index = first;
 		while (index < fields.len) {
 			Node field = fields.get(index);
@@ -662,7 +687,83 @@ class Parser {
 			field.col = field.nameCol;
 			field.nameLine = 0;
 			field.nameCol = 0;
+			if (isUnion && specifier.isArray) {
+				self.failAt(f"Union field '{field.name}' cannot use the 'T[] name' spelling; declare a pointer as 'T* {field.name}'", Token("IDENT", field.name, field.line, field.col));
+			}
+			if (isUnion && flexible == null && field.type.isArray && field.type.arraySize == null) { flexible = field; }
 			index++;
+		}
+		self.expect("SEMICOLON");
+		return flexible;
+	}
+
+	/* `typedef union [Tag] { ... } D1, *D2;` splices into one record and one
+	 * typedef per declarator (C row 9; r08 extends this to `struct` and
+	 * `enum`). An untagged record takes its first plain declarator's name as
+	 * its tag, and a plain declarator equal to the tag is dropped: it would
+	 * only repeat the record's own name. */
+	public void parseTypedefRecordInto(Vector<Node> declarations, Token typedefTok) {
+		Token keywordTok = self.advance();
+		Node record = Node();
+		record.kind = NK_STRUCT_DECL;
+		record.isUnion = true;
+		record.isForward = false;
+		record.line = keywordTok.line;
+		record.col = keywordTok.col;
+		record.name = "";
+		bool tagged = false;
+		if (self.check("IDENT")) {
+			Token tagTok = self.advance();
+			tagged = true;
+			record.name = tagTok.value;
+			record.nameLine = tagTok.line;
+			record.nameCol = tagTok.col;
+		}
+		Node? flexible = self.parseRecordMembersInto(record.fieldsMut(), true);
+		Node specifier = Node();
+		specifier.kind = NK_TYPE_EXPR;
+		specifier.base = "";
+		specifier.line = keywordTok.line;
+		specifier.col = keywordTok.col;
+		Node firstType = Parser.copySpecifier(specifier);
+		while (self.matchTok("STAR")) { firstType.pointerDepth = firstType.pointerDepth + 1; }
+		Token aliasTok = self.expect("IDENT");
+		if (self.check("LPAREN")) {
+			self.failAt("A function type typedef is not supported: write 'typedef R (*Name)(...);' for the pointer", self.peek());
+		}
+		Vector<Node> declarators = [];
+		self.parseDeclarators(declarators, firstType, aliasTok, typedefTok, specifier, false, false);
+		self.expect("SEMICOLON");
+		if (self.failed) { return; }
+		if (!tagged) {
+			int naming = 0;
+			while (naming < declarators.len && declarators.get(naming).type.pointerDepth != 0) { naming++; }
+			if (naming == declarators.len) {
+				self.failAt(f"An untagged {keywordTok.value} in a typedef needs a plain declarator to name it; add a tag (typedef {keywordTok.value} Name {{ ... }} *Alias;)", keywordTok);
+				return;
+			}
+			Node namingDeclarator = declarators.get(naming);
+			record.name = namingDeclarator.name;
+			record.nameLine = namingDeclarator.nameLine;
+			record.nameCol = namingDeclarator.nameCol;
+		}
+		if (flexible != null) {
+			self.failUnionFlexibleArray(record.name, flexible);
+			return;
+		}
+		declarations.push(record);
+		for declarator in declarators {
+			declarator.type.base = keywordTok.value + " " + record.name;
+			if (declarator.type.pointerDepth == 0 && declarator.name == record.name) { continue; }
+			Node alias = Node();
+			alias.kind = NK_TYPEDEF_DECL;
+			alias.original = declarator.type;
+			alias.alias = declarator.name;
+			alias.line = declarator.line;
+			alias.col = declarator.col;
+			alias.nameLine = declarator.nameLine;
+			alias.nameCol = declarator.nameCol;
+			declarations.push(alias);
 		}
 	}
 
@@ -809,6 +910,10 @@ class Parser {
 	/* `typedef int A, *B;` declares one alias per declarator, `*` bound to each. */
 	public void parseTypedefDeclsInto(Vector<Node> declarations) {
 		Token tok = self.expect("TYPEDEF");
+		if (self.check("UNION") && (self.peekAt(1).type == "LBRACE" || (self.peekAt(1).type == "IDENT" && self.peekAt(2).type == "LBRACE"))) {
+			self.parseTypedefRecordInto(declarations, tok);
+			return;
+		}
 		Node original = self.parseType();
 		Node specifier = Parser.declaratorSpecifier(original);
 		Node firstType = original;

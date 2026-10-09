@@ -650,7 +650,10 @@
                    (* Ambiguous: sizeof(int) vs sizeof(x). The parser uses
                       lookahead: a type keyword, or an IDENT immediately
                       followed by ")", "*", or "<", is read as a type;
-                      otherwise the operand is parsed as an expression. *) ;
+                      otherwise the operand is parsed as an expression. A
+                      lone identifier read as a type that names a variable in
+                      scope denotes that object (C11 6.5.3.4), so sizeof(arr)
+                      measures the array arr. *) ;
 
   postfix        = ( compound_literal | primary ) { postfix_op } ;
 

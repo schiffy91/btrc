@@ -43,6 +43,8 @@ from tools.qualification.skips import (
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_REPORT = REPO / "build" / "skip-report.json"
 GATES_PROPERTY = "btrc.capability-gates"
+GUI_IDENTITY_PROPERTY = "btrc.gui-report-identity"
+_GUI_IDENTITY = pytest.StashKey[tuple[str, str]]()
 
 # Variables whose presence decides whether some test runs. Only presence is
 # recorded: values hold private paths, and a report is uploaded from CI.
@@ -85,12 +87,65 @@ _TOOLS = (
 )
 
 
-class CapabilityGateForwarder:
-    """Attach the capability gates a test evaluated to that test's reports."""
+class TestReportForwarder:
+    """Forward capability verdicts and exact source identities across workers."""
+
+    @pytest.hookimpl(wrapper=True, tryfirst=True)
+    def pytest_collection_modifyitems(self, items):
+        originals = {item: item.nodeid for item in items if item.get_closest_marker("macos_gui") is not None}
+        result = yield
+        for item, original in originals.items():
+            if item.nodeid == original:
+                continue
+            groups = {
+                str(mark.args[0] if mark.args else mark.kwargs.get("name", "default"))
+                for mark in item.iter_markers("xdist_group")
+            }
+            if groups != {"macos_gui"} or item.nodeid != original + "@macos_gui":
+                raise pytest.UsageError(f"{original}: inconsistent AppKit scheduling identity")
+            item.stash[_GUI_IDENTITY] = (original, item.nodeid)
+        return result
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_report_to_serializable(self, report):
+        data = yield
+        identity = getattr(report, "btrc_gui_identity", None)
+        if identity is None:
+            return data
+        original, scheduled = identity
+        if (
+            scheduled != original + "@macos_gui"
+            or report.nodeid != scheduled
+            or data is None
+            or data.get("nodeid") != scheduled
+        ):
+            raise ValueError("Inconsistent AppKit report identity")
+        # xdist checks the live report against the scheduled item after this
+        # hook. Only its serialized copy may carry the canonical source ID.
+        copied = dict(data)
+        copied["nodeid"] = original
+        properties = []
+        for name, value in data.get("user_properties", ()):
+            if name == GUI_IDENTITY_PROPERTY:
+                raise ValueError("Duplicate AppKit report identity")
+            if name == GATES_PROPERTY:
+                gates = json.loads(value)
+                value = json.dumps(
+                    [{**gate, "nodeid": original} if gate.get("nodeid") == scheduled else gate for gate in gates]
+                )
+            properties.append((name, value))
+        properties.append((GUI_IDENTITY_PROPERTY, json.dumps({"original": original, "scheduled": scheduled})))
+        copied["user_properties"] = properties
+        return copied
 
     @pytest.hookimpl(wrapper=True)
     def pytest_runtest_makereport(self, item, call):
         report = yield
+        identity = item.stash.get(_GUI_IDENTITY, None)
+        if identity is not None:
+            if report.nodeid != identity[1]:
+                raise ValueError("Changed AppKit report identity")
+            report.btrc_gui_identity = identity
         gates = CapabilityGateLog.drain()
         if gates:
             report.user_properties.append((GATES_PROPERTY, json.dumps(gates)))
@@ -125,7 +180,7 @@ class SkipLedger:
 
     @classmethod
     def install(cls, config: pytest.Config) -> None:
-        config.pluginmanager.register(CapabilityGateForwarder(), "btrc-capability-gates")
+        config.pluginmanager.register(TestReportForwarder(), "btrc-test-reports")
         if hasattr(config, "workerinput") or config.option.collectonly:
             return
         raw = config.getoption("--skip-report")

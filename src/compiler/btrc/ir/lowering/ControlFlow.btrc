@@ -9,6 +9,24 @@ class IRStatementSequence {
 
 	public IRStatementSequence(Vector<IRNode> statements) { self.statements = statements; }
 
+	/* Runtime arrays live from their declaration through the original block's
+     * cleanup. A separate lexical block prevents GCC 15 from attaching an
+     * array to a preceding inlined call's already-restored stack save.
+     * Install cleanup before assembling these scopes. */
+	public IRNode lexicalBlock() {
+		Vector<IRNode> current = [];
+		IRNode block = IRNode.block(current);
+		for statement in self.statements {
+			if (statement.kind == IRK_VAR_DECL && statement.isArrayDecl && statement.arraySize != null && statement.arraySize.kind != IRK_LITERAL) {
+				Vector<IRNode> nested = [];
+				current.push(IRNode.block(nested));
+				current = nested;
+			}
+			current.push(statement);
+		}
+		return block;
+	}
+
 	private bool expressionMayComplete(IRNode? expression) {
 		if (expression == null) { return true; }
 		if (expression.kind == IRK_CALL && expression.neverReturns) {

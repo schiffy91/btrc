@@ -168,9 +168,7 @@ class OwnershipValidator {
 		if (canonical.pointerDepth > 0) { return false; }
 
 		string name = canonical.base;
-		if (name.startsWith("struct ")) {
-			name = name.substring(7, name.length() - 7);
-		}
+		name = SemanticTypeSystem.recordTagName(name);
 		string kind = self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:";
 		string visitKey = kind + name;
 		if (visiting.has(visitKey)) { return false; }
@@ -236,9 +234,7 @@ class OwnershipValidator {
 		}
 
 		string name = canonical.base;
-		if (name.startsWith("struct ")) {
-			name = name.substring(7, name.length() - 7);
-		}
+		name = SemanticTypeSystem.recordTagName(name);
 		string kind = self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:";
 		string visitKey = kind + name;
 		if (visiting.has(visitKey)) { return false; }
@@ -296,9 +292,7 @@ class OwnershipValidator {
 		}
 
 		string name = canonical.base;
-		if (name.startsWith("struct ")) {
-			name = name.substring(7, name.length() - 7);
-		}
+		name = SemanticTypeSystem.recordTagName(name);
 		string kind = self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:";
 		string visitKey = kind + name;
 		if (visiting.has(visitKey)) { return false; }
@@ -385,9 +379,7 @@ class OwnershipValidator {
 		if (canonical.pointerDepth > 0) { return false; }
 
 		string name = canonical.base;
-		if (name.startsWith("struct ")) {
-			name = name.substring(7, name.length() - 7);
-		}
+		name = SemanticTypeSystem.recordTagName(name);
 		string kind = self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:";
 		string visitKey = kind + name;
 		if (visiting.has(visitKey)) { return false; }

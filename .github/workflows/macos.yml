@@ -188,13 +188,13 @@ jobs:
         run: |
           test "$(uname -s)" = Darwin
           test "$(uname -m)" = arm64
-          nix develop --command make NIX= "btrcc-${{ matrix.target }}"
+          nix develop .#macos-release --command make NIX= "btrcc-${{ matrix.target }}"
 
       - name: Run the relocated archive and its strictly compiled output
         run: |
           # GitHub resolves matrix expressions before nested Bash evaluates the script.
           # shellcheck disable=SC2016
-          nix develop --command bash -euo pipefail -c '
+          nix develop .#macos-release --command bash -euo pipefail -c '
             test "$(uname -m)" = arm64
             unset BTRC_HOME
             (cd dist && shasum -a 256 -c "btrcc-${{ matrix.target }}.tar.gz.sha256")
@@ -289,9 +289,11 @@ jobs:
           fi
           /usr/sbin/DevToolsSecurity -status | grep -q "currently enabled"
 
+      # The unit shard also owns native GUI cases. Keep those on one worker,
+      # retaining the row's selection flags and parallel execution elsewhere.
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
-          PYTEST_ADDOPTS: ${{ matrix.pytest_addopts }}
+          PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
 
       # The bootstrap shard's boundary-check writes build/boundary-report.json;
       # the release bundle ingests it.
@@ -379,7 +381,8 @@ jobs:
 
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui
         env:
-          PYTEST_ADDOPTS: --junitxml=build/junit/native-gui.xml
+          # One AppKit worker avoids starvation between valid successive lease holders.
+          PYTEST_ADDOPTS: --dist=loadgroup --junitxml=build/junit/native-gui.xml
 
       - name: Retain the JUnit results
         if: always()

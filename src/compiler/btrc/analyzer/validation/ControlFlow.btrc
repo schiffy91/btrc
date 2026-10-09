@@ -130,6 +130,7 @@ class ControlFlowValidator {
 		self.prepareExpression(expression.falseExpr, variables);
 		self.prepareExpression(expression.target, variables);
 		self.prepareExpression(expression.valueNode, variables);
+		self.expressions.recordSpawnedLambda(expression);
 		self.prepareExpression(expression.fn, variables);
 		self.prepareExpression(expression.key, variables);
 		self.prepareExpressionList(expression.args(), variables);
@@ -428,6 +429,8 @@ class ControlFlowValidator {
 			}
 		} else {
 			self.validateExpression(statement.iterable,  vars);
+			self.expressions.checkInferredLiteral(statement.iterable);
+			self.expressions.rejectUndeclaredCollectionLiteral(statement.iterable);
 			iterableType = self.types.inferType(statement.iterable,  vars);
 			if (iterableType == null) {
 				TypeValidator.fail("Cannot determine a for-in iterable protocol", statement);
@@ -610,7 +613,9 @@ class ControlFlowValidator {
 	 * unreachable code. */
 	private void validateSequenced(Node statement, Map<string, Node> vars) {
 		bool reached = self.flow.reachable();
+		int literals = self.expressions.inferredLiteralMark();
 		self.validateStmt(statement, vars);
+		self.expressions.checkInferredLiterals(literals);
 		if (!reached || self.flow.endsFlow(statement)) { self.flow.markUnreachable(); }
 	}
 
@@ -645,7 +650,8 @@ class ControlFlowValidator {
 	}
 
 	public void validateVariable(Node declaration, Map<string, Node> vars) {
-		if (self.state.owner == "") {
+		bool isGlobal = self.state.globalDeclaration == declaration;
+		if (isGlobal) {
 			self.names.validateDeclaredName(declaration.name, "Variable", declaration);
 		} else {
 			self.names.validateLexicalBindingName(declaration.name, "Variable", declaration);
@@ -654,12 +660,12 @@ class ControlFlowValidator {
 		if (preliminaryType == null && declaration.initializer != null) {
 			preliminaryType = self.types.inferType(declaration.initializer, vars);
 		}
-		if (self.state.owner != "") {
+		if (!isGlobal) {
 			self.ownership.rejectThreadOwnerShadow(declaration.name, preliminaryType, vars, declaration);
 		}
 		self.ownership.validateMutexPayloadsInType(preliminaryType, declaration);
-		self.storage.validateThreadVariableOwner(declaration, preliminaryType, self.state.owner == "");
-		self.storage.validateVariableStorage(declaration, self.state.owner == "", vars);
+		self.storage.validateThreadVariableOwner(declaration, preliminaryType, isGlobal);
+		self.storage.validateVariableStorage(declaration, isGlobal, vars);
 		self.types.rejectRuntimeInterfaceType(declaration.type, declaration);
 		self.expressions.contextualizeGenericConstructor(declaration.type, declaration.initializer, vars);
 		self.prepareExpression(declaration.initializer, vars);
@@ -689,6 +695,8 @@ class ControlFlowValidator {
 			if (declaration.initializer.kind == NK_BRACE_INITIALIZER) {
 				TypeValidator.fail("Cannot infer array storage for 'var' from " + "a brace initializer; use an explicit array declaration", declaration);
 			}
+			self.expressions.checkInferredLiteral(declaration.initializer);
+			self.expressions.rejectUndeclaredCollectionLiteral(declaration.initializer);
 			if (actual == null) {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
 			}
@@ -696,9 +704,13 @@ class ControlFlowValidator {
 			if (declared == null) {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
 			}
+			self.storage.validateNonescapingVariable(declaration, declared, isGlobal);
+			self.storage.validateInferredStaticStorage(declaration, declared, isGlobal);
 		} else if (actual != null && !self.types.assignmentCompatible(declared, actual) && !self.expressions.contextualAggregateInitializer(declaration.initializer) && !self.storage.charArrayStringInitializer(declared, declaration.initializer, vars)) {
 			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'" + TypeValidator.commaTupleHint(declaration.initializer, declared), declaration);
 		}
+		// After the initializer, where the reference compiler checks storage.
+		self.types.validateFlexibleArrayValue(preliminaryType, (self.state.owner == "" ? "Global '" : "Variable '") + declaration.name + "'", declaration);
 		self.ownership.rejectThreadHandleCopy(declared, actual, declaration.initializer, declaration);
 		/* A global's bound was validated before any body; a local's bound is
 		 * validated after its initializer, where the reference compiler

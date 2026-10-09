@@ -2164,8 +2164,57 @@ class ExpressionLowerer {
 		return IRNode.unary(op, operand, node.prefix);
 	}
 
+	/* Measure a global through its type, an array as element size times
+	 * extent, so a global used only inside sizeof stays unreferenced, as C
+	 * sees it, and is not an unneeded internal declaration. An array's extent
+	 * is lowered as its declaration lowers it, never copied from source text
+	 * (the reference's _sizeof_global). Null when the object must be measured. */
+	private IRNode? sizeofGlobal(string name, Map<string, Node> varTypes, CallableFlowState callableFlow) {
+		if (self.context.sourceLexicalBindings.has(name) || !self.analyzed.globalVarTypes.has(name)) { return null; }
+		Node binding = self.analyzed.globalVarTypes.get(name);
+		if (binding.arrayPointerDepth != 0 || binding.elements().len > 0) { return null; }
+		Node shape = TypeShape.copyWithoutArraySize(binding, binding.genericArgs());
+		shape.isStatic = false;
+		shape.isExtern = false;
+		if (!binding.isArray) { return IRNode.sizeofType(self.cTypes.lower(shape)); }
+		IRNode? extent = null;
+		if (binding.arraySize != null) {
+			extent = self.lowerExpr(binding.arraySize, varTypes, callableFlow);
+		} else if (self.analyzed.globalInitializers.has(name)) {
+			Node initializer = self.analyzed.globalInitializers.get(name);
+			if (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL) {
+				extent = IRNode.literal(Strings.fromInt(initializer.elements().len));
+			} else {
+				extent = self.stringArrayExtent(initializer);
+			}
+		}
+		if (extent == null) { return null; }
+		shape.isArray = false;
+		return IRNode.binary(IRNode.sizeofType(self.cTypes.lower(shape)), "*", IRNode.cast("size_t", extent));
+	}
+
 	public IRNode lowerSizeof(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node operand = node.operand;
+		/* sizeof(x) measures the object x when x is a binding, not a type
+		 * (C11 6.5.3.4); lowering the name keeps its C spelling and its use. */
+		string valueName = operand != null && operand.kind == NK_SIZEOF_TYPE ? TypeIdentity.ordinaryIdentifier(operand.type) : "";
+		bool lexicalValue = valueName != "" && self.context.sourceLexicalBindings.has(valueName) && varTypes.has(valueName);
+		/* A global hides neither a type parameter of the specialization being
+		 * lowered nor a declared type, as the reference decides. */
+		bool globalValue = valueName != "" && !lexicalValue && self.analyzed.globalVarTypes.has(valueName) && !self.context.activeTypeMap.has(valueName) && !self.analyzed.declaresTypeName(valueName);
+		if (lexicalValue || globalValue) {
+			IRNode? throughType = self.sizeofGlobal(valueName, varTypes, callableFlow);
+			if (throughType != null) { return throughType; }
+			Node value = Node();
+			value.kind = NK_IDENTIFIER;
+			value.name = valueName;
+			value.line = operand.type.line;
+			value.col = operand.type.col;
+			self.context.unevaluatedDepth = self.context.unevaluatedDepth + 1;
+			IRNode measured = self.lowerExpr(value, varTypes, callableFlow);
+			self.context.unevaluatedDepth = self.context.unevaluatedDepth - 1;
+			return IRNode.sizeofExpression(measured);
+		}
 		if (operand != null && operand.kind == NK_SIZEOF_TYPE) {
 			Node resolvedOperand = self.cTypes.resolveBodyType(operand.type, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 			string operandC = self.cTypes.lower(resolvedOperand);
@@ -2201,7 +2250,9 @@ class ExpressionLowerer {
 	public IRNode lowerListLiteral(Node node, Map<string, Node> varTypes, Node? expected, CallableFlowState callableFlow) {
 		string mangled = "btrc_Vector_int";
 		Node? elementExpected = null;
-		Node concreteExpected = self.cTypes.resolveBodyType(expected, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		/* A typedef naming the collection (`typedef Vector<double> Doubles`) is
+		 * resolved first, so the literal builds that collection. */
+		Node concreteExpected = self.cTypes.resolveBodyType(SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		if (expected != null && concreteExpected.genericArgs().len > 0) {
 			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
 			elementExpected = concreteExpected.genericArgs().get(0);
@@ -2385,7 +2436,7 @@ class ExpressionLowerer {
 		string mangled = "btrc_Map_string_int";
 		Node? keyExpected = null;
 		Node? valueExpected = null;
-		Node concreteExpected = self.cTypes.resolveBodyType(expected, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		Node concreteExpected = self.cTypes.resolveBodyType(SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		if (expected != null && concreteExpected.genericArgs().len > 1) {
 			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
 			keyExpected = concreteExpected.genericArgs().get(0);
@@ -2498,8 +2549,12 @@ class ExpressionLowerer {
 			}
 		}
 		if (node.elements().len == 0) {
-			if (expected != null && expected.genericArgs().len > 0 && self.analyzed.isGenericClass(expected.base)) {
-				string mangled = TypeIdentity.mangleGenericType(expected.base, expected.genericArgs());
+			/* A typedef spelling of a collection (`typedef Map<K, V> Weights`)
+			 * builds the collection it names. */
+			Node? collection = expected == null ? null : SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable);
+			if (collection == null) { collection = expected; }
+			if (collection != null && collection.genericArgs().len > 0 && self.analyzed.isGenericClass(collection.base)) {
+				string mangled = TypeIdentity.mangleGenericType(collection.base, collection.genericArgs());
 				Vector<IRNode> newArgs = [];
 				return IRNode.call(mangled + "_new", newArgs);
 			}
@@ -3703,8 +3758,19 @@ class ExpressionLowerer {
 		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 	}
 
+	/* A list or map literal lowers to the collection its target names, so its
+	 * prepared value has the target's type, not the type its first element
+	 * would infer: [1, 2] passed as Vector<double> is a Vector<double>. */
+	private Node? preparedSourceType(Node expression, Node? targetType, Map<string, Node> varTypes) {
+		if (targetType != null && (expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL)) {
+			Node? collection = SemanticTypeSystem.resolveTypedefType(targetType, self.analyzed.typedefTable);
+			if (collection != null && !collection.isArray && ((expression.kind == NK_LIST_LITERAL && collection.base == "Vector") || (expression.kind == NK_MAP_LITERAL && collection.base == "Map"))) { return targetType; }
+		}
+		return self.resolvedExpressionType(expression, varTypes);
+	}
+
 	public PreparedValue prepareTargetValue(Node expression, Node? targetType, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		Node? sourceType = self.resolvedExpressionType(expression, varTypes);
+		Node? sourceType = self.preparedSourceType(expression, targetType, varTypes);
 		string hostedMode = self.strings.hostedStringConversionMode(expression, targetType, sourceType);
 		if (hostedMode == "reject") {
 			fprintf(stderr, "error: raw char* to managed string conversion reached IR without a proven hosted ownership effect\n");
@@ -3731,7 +3797,7 @@ class ExpressionLowerer {
 	}
 
 	private PreparedValue prepareCallTargetValue(Node expression, Node? targetType, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		Node? sourceType = self.resolvedExpressionType(expression, varTypes);
+		Node? sourceType = self.preparedSourceType(expression, targetType, varTypes);
 		string hostedMode = self.strings.hostedStringConversionMode(expression, targetType, sourceType);
 		if (hostedMode == "reject") {
 			fprintf(stderr, "error: raw char* to managed string conversion reached IR without a proven hosted ownership effect\n");

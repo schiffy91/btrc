@@ -214,7 +214,7 @@ class StatementLowerer:
             self._ownership.pop_local_ownership_scope()
             self._cleanup_scope.pop()
             provenance.finish_scope(enclosing_callables)
-        return IRBlock(stmts=stmts)
+        return IRStatementSequence(stmts).lexical_block()
 
     def _emit_line_marker(self, ast_stmt, out: list) -> None:
         """In --debug mode, prepend a ``#line`` marker mapping this statement back to

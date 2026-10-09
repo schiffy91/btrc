@@ -5,7 +5,8 @@ Base: `49f136ec94bb46cf67dd9bf407df6e4b0d79332c`. Reviewed source donor: `ade994
 This packet transplants only the ten Python test/harness deltas below onto main;
 unrelated compiler-cache flags from the donor parent are excluded. No compiler,
 stdlib/provider, native fixture, assertion, timeout or expected-skip change is included.
-Current-source process and hosted native qualification are **pending**.
+The affected hosted native gate is qualified below; final combined-tree
+qualification and integration remain outstanding.
 
 PR69 (`f01ec0ff9c025b56feacf28a304659f286d57f9c`) failed hosted native GUI
 run 37738227455 / job 113182639729: 326 passed, 67 skipped and one selfhost

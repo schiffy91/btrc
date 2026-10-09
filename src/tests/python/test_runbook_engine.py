@@ -468,6 +468,167 @@ def test_requirements_absent_on_the_revision_fail_with_a_named_reason(tmp_path: 
 
 # -- release-check failures, the qualifying diff, the green-only push ------------------------
 
+UNITTEST_RELEASE_FAILURES = """\
+MAKE='make' python3 tests/packaging/Artifacts.py
+F.F
+======================================================================
+FAIL: test_warm_link (__main__.ReferenceArtifacts.test_warm_link)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/build/tests/packaging/Artifacts.py", line 42, in test_warm_link
+    self.assertEqual(actual, 0)
+AssertionError: 1 != 0
+======================================================================
+FAIL: test_warm_link (__main__.SelfhostArtifacts.test_warm_link)
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+FAILED (failures=2)
+make[1]: *** [make/Application.mk:16: application-check] Error 1
+make: *** [make/Routes.mk:55: application-check] Error 2
+"""
+
+
+def read_failure_log(tmp_path: Path, text: str, code: int = 2, *, patterns: tuple[str, ...] = ()):
+    log = tmp_path / "release.log"
+    log.write_text(text)
+    cell = runbook.CellSpec("release", "Release", result="failure-list", failures=patterns)
+    return runbook.Results.failure_list(cell, code, tmp_path, log)
+
+
+def test_release_results_name_unittest_cases_not_the_aggregate(tmp_path: Path) -> None:
+    passed, results, _ = read_failure_log(tmp_path, UNITTEST_RELEASE_FAILURES)
+
+    assert passed
+    assert results["failures"] == [
+        "tests/packaging/Artifacts.py::ReferenceArtifacts::test_warm_link",
+        "tests/packaging/Artifacts.py::SelfhostArtifacts::test_warm_link",
+    ]
+    assert results["non_test_failures"] == []
+
+
+@pytest.mark.parametrize(
+    "extra, kind",
+    [
+        ("Main.c:12:5: error: unknown type name 'Missing'\n", "compile"),
+        ("ld: symbol(s) not found for architecture arm64\n", "link"),
+        ("error: Cannot build '/nix/store/example.drv'.\n", "infrastructure"),
+        ("make: *** [Makefile:12: unexplained] Error 1\n", "unclassified"),
+    ],
+)
+def test_release_results_do_not_hide_other_failures_with_named_tests(tmp_path: Path, extra: str, kind: str) -> None:
+    passed, results, _ = read_failure_log(tmp_path, extra + UNITTEST_RELEASE_FAILURES)
+
+    assert not passed
+    assert len(results["failures"]) == 2
+    assert kind in {failure["kind"] for failure in results["non_test_failures"]}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "FAILED (failures=2)\n",
+        "FAIL: test_bad (__main__.Checks.test_bad)\nFAILED (failures=1)\n",
+        "python3 -m unrelated\nFAIL: test_bad (__main__.Checks.test_bad)\nFAILED (failures=1)\n",
+        "message mentioning python3 checks.py\nFAIL: test_bad (__main__.Checks.test_bad)\nFAILED (failures=1)\n",
+        "python3 /unknown/root/checks.py\nFAIL: test_bad (__main__.Checks.test_bad)\nFAILED (failures=1)\n",
+        "python3 checks.py\nFAIL: test_bad (__main__.Checks.test_bad)\npython3 other.py\nFAILED (failures=1)\n",
+        UNITTEST_RELEASE_FAILURES.replace("failures=2", "failures=3"),
+        "python3 checks.py\nFAIL: test_bad (__main__.Checks.test_bad)\n",
+        "unrecognized runner stopped\n",
+    ],
+)
+def test_release_results_fail_closed_without_complete_identities(tmp_path: Path, text: str) -> None:
+    passed, results, _ = read_failure_log(tmp_path, text)
+
+    assert not passed
+    assert "(failures=2)" not in results["failures"]
+
+
+def test_release_results_keep_pytest_ids_and_custom_formats(tmp_path: Path) -> None:
+    passed, results, _ = read_failure_log(tmp_path, "FAILED tests/test_ui.py::test_close - AssertionError\n")
+    assert passed and results["failures"] == ["tests/test_ui.py::test_close"]
+    passed, results, _ = read_failure_log(tmp_path, "CASE-FAIL widget.close\n", patterns=(r"^CASE-FAIL (\S+)$",))
+    assert passed and results["failures"] == ["widget.close"]
+
+
+@pytest.mark.parametrize("parameter", ["two words", "two - words", "two - different words"])
+def test_release_results_preserve_pytest_parameter_identity(tmp_path: Path, parameter: str) -> None:
+    passed, results, _ = read_failure_log(
+        tmp_path, f"FAILED tests/test_ui.py::test_title[{parameter}] - AssertionError\n"
+    )
+    assert passed and results["failures"] == [f"tests/test_ui.py::test_title[{parameter}]"]
+
+
+@pytest.mark.parametrize("node", ["test_title[unfinished", "test_title]extra", "test_title[extra]]"])
+def test_release_results_reject_ambiguous_pytest_identity(tmp_path: Path, node: str) -> None:
+    passed, results, _ = read_failure_log(tmp_path, f"FAILED tests/test_ui.py::{node} - AssertionError\n")
+    assert not passed and results["failures"] == []
+    assert results["non_test_failures"][0]["kind"] == "unclassified"
+
+
+@pytest.mark.parametrize(
+    "text, kind",
+    [("ld: undefined symbols\n", "link"), ("make: *** [Makefile:20: unrelated] Error 1\n", "unclassified")],
+)
+def test_release_results_custom_pattern_cannot_name_away_a_command_failure(
+    tmp_path: Path, text: str, kind: str
+) -> None:
+    passed, results, _ = read_failure_log(tmp_path, text, patterns=(r"^(.*)$",))
+    assert not passed and results["non_test_failures"][0]["kind"] == kind
+
+
+def test_release_results_keep_traceback_diagnostics_with_the_test(tmp_path: Path) -> None:
+    passed, results, _ = read_failure_log(
+        tmp_path, UNITTEST_RELEASE_FAILURES.replace("AssertionError: 1 != 0", "Main.c:12:5: error: unknown type")
+    )
+    assert passed and results["non_test_failures"] == []
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "ERROR tests/test_collection.py\n",
+        "make[1]: *** [Makefile:20: unrelated] Error 1\n",
+    ],
+)
+def test_release_results_reject_unrelated_errors_after_test_failure(tmp_path: Path, extra: str) -> None:
+    passed, results, _ = read_failure_log(tmp_path, UNITTEST_RELEASE_FAILURES + extra)
+    assert not passed and results["non_test_failures"][-1]["kind"] == "unclassified"
+
+
+def test_release_results_bind_main_identity_to_each_observed_script(tmp_path: Path) -> None:
+    passed, results, _ = read_failure_log(
+        tmp_path, UNITTEST_RELEASE_FAILURES + UNITTEST_RELEASE_FAILURES.replace("Artifacts.py", "OtherArtifacts.py")
+    )
+    assert passed and len(results["failures"]) == 4
+    assert results["failures"][2] == "tests/packaging/OtherArtifacts.py::ReferenceArtifacts::test_warm_link"
+
+
+def test_release_results_unittest_error_and_module_identity(tmp_path: Path) -> None:
+    passed, results, _ = read_failure_log(
+        tmp_path,
+        "ERROR: test_load (package.tests.Checks.test_load)\nRan 1 test in 0.001s\nFAILED (errors=1)\n",
+    )
+    assert passed and results["failures"] == ["unittest:package.tests.Checks.test_load"]
+
+
+def test_release_results_new_command_breaks_make_failure_attribution(tmp_path: Path) -> None:
+    passed, results, _ = read_failure_log(
+        tmp_path, UNITTEST_RELEASE_FAILURES + "./unknown-check\nmake: *** [Makefile:20: unknown] Error 1\n"
+    )
+    assert not passed
+    assert results["non_test_failures"][-1]["kind"] == "unclassified"
+
+
+@pytest.mark.parametrize("code", [-6, 124, 127, 134])
+def test_release_results_interrupted_commands_cannot_be_allowlisted(tmp_path: Path, code: int) -> None:
+    passed, results, _ = read_failure_log(tmp_path, "FAILED tests/test_ui.py::test_close\n", code)
+    assert not passed and results["non_test_failures"][-1]["kind"] == "infrastructure"
+
+
 REQUAL = """\
     [preset]
     title = "requal"
@@ -516,6 +677,65 @@ def test_new_release_check_failures_block_the_push(
     assert diff is not None and diff.status == "failed"
     assert diff.results["new_failures"] == ["tests/Drifted.py::test_reference", "tests/Drifted.py::test_selfhost"]
     assert diff.results["now_passing"] == ["tests/Gone.py::test_y"]
+    push = state.checkpoint("push-btrsmith-main")
+    assert push is not None and push.status == "blocked"
+    assert git("rev-parse", "main", cwd=hubs["btrsmith_upstream"]) == git("rev-parse", "main", cwd=hubs["btrsmith"])
+
+
+def test_release_infrastructure_failure_blocks_push_despite_allowed_tests(
+    tmp_path: Path, hubs: dict[str, Path]
+) -> None:
+    preset = write_preset(
+        tmp_path,
+        REQUAL.replace("echo 'FAILED tests/Drifted", "echo 'ld: undefined symbols'; echo 'FAILED tests/Drifted"),
+    )
+    (tmp_path / "home").mkdir()
+    (tmp_path / "home" / "qualifying.txt").write_text(
+        "tests/Old.py::test_x\ntests/Drifted.py::test_reference\ntests/Drifted.py::test_selfhost\n"
+    )
+    engine = engine_for(preset, options(tmp_path, hubs, preset), system="Darwin")
+
+    assert engine.run() == 1
+    state = engine.state
+    assert state is not None
+    release = state.checkpoint("release-check-reference")
+    assert release is not None and release.status == "failed"
+    assert release.results["non_test_failures"][0]["kind"] == "link"
+    diff = state.checkpoint("qualifying-diff")
+    assert diff is not None and diff.status != "passed"
+    push = state.checkpoint("push-btrsmith-main")
+    assert push is not None and push.status == "blocked"
+    assert git("rev-parse", "main", cwd=hubs["btrsmith_upstream"]) == git("rev-parse", "main", cwd=hubs["btrsmith"])
+
+
+def test_release_retry_cannot_erase_new_test_after_incomplete_attempt(tmp_path: Path, hubs: dict[str, Path]) -> None:
+    original = "echo 'FAILED tests/Drifted.py::test_{frontend}'; echo 'FAILED tests/Old.py::test_x'; exit 2"
+    retry = (
+        "if [ ! -e attempt-{frontend} ]; then touch attempt-{frontend}; "
+        "echo 'ld: undefined symbols'; echo 'FAILED tests/Old.py::test_x'; "
+        "else echo 'FAILED tests/New.py::test_{frontend}'; fi; exit 2"
+    )
+    preset = write_preset(
+        tmp_path,
+        REQUAL.replace(original, retry).replace('result = "failure-list"', 'result = "failure-list"\n    retries = 1'),
+    )
+    (tmp_path / "home").mkdir()
+    (tmp_path / "home" / "qualifying.txt").write_text("tests/Old.py::test_x\n")
+    engine = engine_for(preset, options(tmp_path, hubs, preset), system="Darwin")
+
+    assert engine.run() == 1
+    state = engine.state
+    assert state is not None
+    release = state.checkpoint("release-check-reference")
+    assert release is not None and release.status == "passed" and release.attempts == 2
+    assert release.results["failures"] == ["tests/New.py::test_reference"]
+    history = release.results["attempt_history"]
+    assert len(history) == 2 and not history[0]["eligible"] and history[1]["eligible"]
+    assert history[0]["results"]["non_test_failures"][0]["kind"] == "link"
+    assert Path(history[0]["log"]).is_file()
+    diff = state.checkpoint("qualifying-diff")
+    assert diff is not None and diff.status == "failed"
+    assert diff.results["new_failures"] == ["tests/New.py::test_reference", "tests/New.py::test_selfhost"]
     push = state.checkpoint("push-btrsmith-main")
     assert push is not None and push.status == "blocked"
     assert git("rev-parse", "main", cwd=hubs["btrsmith_upstream"]) == git("rev-parse", "main", cwd=hubs["btrsmith"])

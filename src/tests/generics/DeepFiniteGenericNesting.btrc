@@ -1,0 +1,46 @@
+// Deep but finite generic nesting compiles: nested collections, a tuple inside
+// a map's vector, a recursive class whose fields reuse its own argument or a
+// fixed one, and a written type nested 8 levels deep (a type the program
+// writes out is not limited). Only a use that grows its own arguments is
+// refused (docs/language/translation-limits.md).
+import Library.Map;
+import Library.Vector;
+
+class Tree<T> {
+	public T value;
+	public Tree<T>? left = null;
+	public Tree<Vector<int>>? fixed = null;
+
+	public Tree(T value) { self.value = value; }
+}
+
+class Box<T> {
+	public T value;
+
+	public Box(T value) { self.value = value; }
+}
+
+int main() {
+	Vector<Vector<Vector<int>>> cube = new Vector<Vector<Vector<int>>>();
+	Vector<Vector<int>> plane = new Vector<Vector<int>>();
+	Vector<int> row = new Vector<int>();
+	row.push(7);
+	plane.push(row);
+	cube.push(plane);
+	print(cube[0][0][0]);
+
+	Map<string, Vector<(int, string)>> index = new Map<string, Vector<(int, string)>>();
+	Vector<(int, string)> entries = new Vector<(int, string)>();
+	entries.push((3, "three"));
+	index.put("k", entries);
+	print(index.get("k")[0]._1);
+
+	Tree<int> tree = new Tree<int>(5);
+	tree.left = new Tree<int>(6);
+	print(tree.value, tree.left?.value ?? 0);
+
+	Box<Box<Box<Box<Box<Box<Box<Box<int>>>>>>>> deepest = new Box<Box<Box<Box<Box<Box<Box<Box<int>>>>>>>>(new Box<Box<Box<Box<Box<Box<Box<int>>>>>>>(new Box<Box<Box<Box<Box<Box<int>>>>>>(new Box<Box<Box<Box<Box<int>>>>>(new Box<Box<Box<Box<int>>>>(new Box<Box<Box<int>>>(new Box<Box<int>>(new Box<int>(9))))))));
+	print(deepest.value.value.value.value.value.value.value.value);
+	print("PASS: test_deep_finite_generic_nesting");
+	return 0;
+}

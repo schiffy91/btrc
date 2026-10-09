@@ -18,7 +18,18 @@ gap ID.
 | — | A discarded tuple literal in btrcc | `(j = 1, i = i + 1);` as a statement, or as a for-update operand, makes btrcc emit C naming an undeclared tuple struct; the reference compiles it. Found by the Stage 16 r19 review. | `btrc/ir/lowering` tuple instance collection |
 | — | The address of a `volatile` managed local | When the setjmp planner keeps a managed local `volatile` (`char* volatile value`), `string* view = &value;` emits `char** view = (&value);`, which strict C11 refuses (`-Wdiscarded-qualifiers`), whether the declarations are separate or share one list, in both compilers. Found by the Stage 16 C1 exit's ARC witness. | `python/ir/lowering/storage.py`, `btrc/ir/lowering` address-of lowering |
 | — | A null raw pointer to `string` warns | `string* p = null;` warns `Possibly-null value stored in non-nullable variable 'p' of type 'string'`: the nullable check reads the pointer as its pointee, and a raw pointer may hold null; both compilers warn alike. Found by the Stage 16 C1 exit. | `python/analyzer/flow.py`, `btrc/analyzer` nullable flow |
+| — | A collection literal in other value positions of a program without the class | A `var` initializer and a for-in iterable report `List literal needs the Vector class` (or `Map`) when no module declares the class. A literal in other value positions that becomes a collection, such as a lambda result (`() => [1, 2]`), a return, an argument, an assignment or a conditional for-in iterable (`for x in (c ? [1] : [2])`), is accepted by the reference compiler, whose C names an undeclared `btrc_Vector_*` type; `btrcc` rejects the conditional iterable with a for-in protocol diagnostic. A list or map literal argument to a `Set`, pointer or array parameter is accepted by `btrcc` with invalid C where the reference compiler rejects it. An empty first value in an inferred map literal (`{"a": [], "b": [1]}`) is inferred by the reference compiler and refused by `btrcc`. A literal argument's element errors are reported after its call's other argument errors in `btrcc`. Found by the `CL-REQ-10` reviews. | `python/analyzer/statements.py`, `btrc/analyzer/validation/ControlFlow.btrc` |
+| — | Collection literal typing left after `CL-REQ-10` | Both compilers check an inferred literal (one in no typed position) against its first element or entry, wherever it stands; that refuses `{"a": 1, "b": true}`, a null first entry (`{"a": null, "b": Point(1)}`, as `[null, Point(1)]` always was), and a literal mixing a type parameter with a concrete type in a generic body. A literal in a typed position is checked against that type instead. What remains: a declared ternary of two heterogeneous literals (`Vector<Animal> zoo = c ? [Dog(), Bird()] : [Bird()]`) is refused by both with `Ternary branches have incompatible types`, the reference compiler spelling the types `Vector<Dog*>*`, `btrcc` `Vector<Dog*>`; a typedef of a collection of collections (`typedef Map<string, Vector<double>> Table`) makes `btrcc` store the inner collection by value, and a collection of such a typedef (`Vector<Weights>`, `Map<string, Doubles>`) gives invalid C in both; an inferred global taking another global's address (`var p = &base;`) runs in the reference compiler and is `Unresolved identifier 'p'` in `btrcc`, and `var values = [];` or `var pair = ([1, 2], 3);` at file scope give different first diagnostics; an inferred map entry from a raw `char*` (`{"a": "x", "b": raw}`) fails in the reference compiler's IR without a location and is accepted by `btrcc`; numeric entries narrow silently to the first entry's type (`{"a": 'c', "b": 300}`), as an assignment does; a map literal's typed-position diagnostic reads `Return value value expects …` in both, and a positional argument is `Argument '1'` in `btrcc` and `Argument 1` in the reference compiler. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc`, `btrc/ir/lowering/Expressions.btrc` |
+| — | Shallow structs holding managed fields escape | `struct S { Probe p; }` built from a local and returned (or stored past the local's scope) reads freed memory in both compilers; rich enums with managed payloads are nonescaping (see below), structs are not yet. Reassigning a borrowed payload's owner while a rich enum or `Span<T>` still holds it is also unchecked. Found by CL-REQ-UI2-C. | `python/analyzer/types.py`, `btrc/analyzer/validation/Types.btrc` |
 | — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
+| — | `for`-in over an array a lambda captured | A lambda captures an array as a pointer, so `for (int v in captured)` inside it iterates the pointer's decayed shape (summing 3 where the array sums 45), in both compilers. `sizeof(captured)` there is refused instead (CL-REQ-11). | `python/ir/lowering`, `btrc/ir/lowering` lambda capture of arrays |
+| — | Tuple misuse that reaches C | `int x = w._0;` on an array of tuples, `(int)t` and `if (t)` on a tuple value are not refused; both compilers emit C that does not compile. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
+| — | `sizeof` of a name that is not a variable | `sizeof(LARGE)` for an enum constant, or `sizeof(gone)` for a variable out of scope, is read as a type name and emitted as written, so C reports an undeclared identifier, in both compilers. | `python/analyzer/aggregates.py`, `btrc/ir/lowering/Expressions.btrc` |
+| — | Shallow tuple elements of class type | A tuple stored in a class's array or field holds its class references without retaining them, so an element outlives an owner that dies first; and an indexed store does not retain its receiver while the right-hand side runs. Both compilers agree. | `python/ir/lowering/ownership.py`, `btrc/ir/lowering/ownership` |
+| — | A `Vector<Tree<T>>` field initializer in a generic class (btrcc) | `public Vector<Tree<T>> children = new Vector<Tree<T>>();` inside `class Tree<T>` is refused by btrcc (`expects 'Vector<Tree<T>*>' but got 'Vector<Tree<T>>*'`); the reference accepts it. | `btrc/analyzer/validation` field initializer typing |
+| — | A function-literal lambda in a generic class method (btrcc) | `var f = int function(int k) { ... };` inside a method of `class Box<T>` is refused by the reference ("Lambda expressions are not supported inside generic declarations") but compiled by btrcc, which scans its body under each specialization. | `btrc/analyzer/validation/Expressions.btrc` |
+| — | Uncalled methods of a generic class instance (btrcc) | btrcc specializes the generic-method calls in every method body of a generic class instance, called or not; the reference only in callables something uses. A growing call cycle through a method nothing calls is therefore refused by btrcc (`grows its own type arguments`) and accepted by the reference. | `btrc/analyzer/Generics.btrc` instance closure |
+| — | btrcc line numbers in importing programs | A diagnostic in a program that imports the stdlib reports a line counted across the prepended stdlib (516:12 where the reference says 5:12); messages and columns agree. | `btrc/frontend` source line mapping |
 
 ## Open native-platform defects
 
@@ -48,9 +59,42 @@ second tuple access must currently use a parenthesized intermediate—
 `value._1._0` is intentionally not accepted by the lexer. The equivalent
 separate local binding is also supported.
 
+Expression nesting has no language limit; each compiler's stack budget sets
+it. Every stage walks an expression recursively, and compile time grows
+quadratically with a left-associative chain: `k + k + … + k` of 5,000 terms
+takes about 9 seconds in `btrcc` and two minutes in the reference compiler.
+`btrcc`'s Unix entries run the whole compile on their original main thread.
+The macOS build recipes reserve a 512 MiB main stack with
+`-Wl,-stack_size,0x20000000`; Linux's `BtrccCompilerStack` raises its
+process-local soft limit up to 512 MiB without exceeding the hard limit, and
+requires at least 64 MiB. This keeps forked module workers single-threaded.
+The earlier 8 MiB stack exhausted near 950 terms. The Windows entry still uses
+its existing main stack. The reference compiler's recursion limit
+(40,000 frames) ends sooner, and past it the compiler reports `expression or
+declaration nested too deeply to compile`: a left-associative chain compiles
+at 5,000 terms and fails at 20,000, while parenthesized nesting
+(`k + (k + (…))`), which recurses through every precedence level while
+parsing, already fails at 5,000. Between 2,000 and those depths one compiler
+may accept what the other refuses; `btrc/test_deep_expression_parity.py`
+checks both shapes at 2,000 levels in both compilers.
+
 Exceptions carry string messages. A catch may be untyped or bind `string`; a
 different catch annotation is rejected explicitly. The stdlib error classes
 are ordinary values and do not introduce typed exception payloads.
+
+## Translation limits
+
+Generic specialization must end. A cycle of type-parameter uses that wraps a
+parameter (`class Chain<T>` with a field `Chain<(T, int)>?`, a generic method
+calling itself with `(item, depth)`, or two classes that specialize each other
+with a growing argument) is refused at the cycle's first growing use, with one
+diagnostic, in both compilers: `Generic class 'Chain' grows its own type
+arguments through this use, so its specializations never end`. As a
+backstop, a derived specialization whose type arguments nest deeper than 32
+levels (`limits.generic_argument_nesting` in `src/language/hosted_abi.toml`)
+is refused. Types a program writes out are not limited.
+[docs/language/translation-limits.md](language/translation-limits.md) states
+the rule.
 
 ## C that btrc rejects on purpose
 
@@ -64,6 +108,10 @@ C-compatibility table in `docs/design/plan-reference.md`.
 | Row | C source | btrc's rule | Diagnostic |
 |-----|----------|-------------|------------|
 | 4 | `char s[3] = "abc";` — the exact fit | A narrow string literal initializes a `char`, `signed char` or `unsigned char` array: `char s[] = "abc"` takes four elements and `char s[4] = "abc"` holds the terminator (`c_compat/CharArrayStringInit.btrc`, locals, statics, globals and struct-field elements). C drops the terminator silently when the literal exactly fills the bound; btrc refuses it (D20). Extents count bytes: a UTF-8 character or universal character name is its encoded length. Only a literal initializes a char array: an f-string or a `string` value is refused, and wide literals wait for row 16. A bound the front end cannot evaluate, such as a C preprocessor macro or a `sizeof`, is left to the C compiler, whose strict flags may or may not catch the exact fit (gcc 15 refuses it; C11 itself allows it). | `String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty` |
+| 13 | `struct Buffer b;`, `static struct Buffer b;`, `struct Buffer g;` for a struct with a flexible array member | A struct whose last member is a flexible array member (`int data[];`) exists only behind a pointer to allocated or C-provided storage (`c_compat/FlexibleArrayMembers.btrc`). C11 accepts an object of the struct, whose member then has no elements; btrc refuses every by-value use: objects, parameters, returns, call arguments, casts, records, tuples, rich-enum payloads and generic arguments. `sizeof(struct Buffer)` and `sizeof(*p)` stay allowed; a tuple or generic `sizeof` operand holding the struct is refused. | `Variable 'b' uses struct 'Buffer' with a flexible array member by value; use a pointer` (`Global 'g'` at file scope) |
+| 13 | `extern struct Buffer g;` | The same rule refuses an external object of the struct, which C11 6.7.2.1p18 permits. | `Global 'g' uses struct 'Buffer' with a flexible array member by value; use a pointer` |
+| 13 | `*a = *b;` for two `struct Buffer*` | C11 6.7.2.1p25 copies only the members before the flexible array member, which is rarely what the code meant; btrc refuses the whole-object copy. Copy the members and elements explicitly, or `memcpy` with the allocated size. | `Struct 'Buffer' with a flexible array member cannot be assigned or copied` |
+| 13 | `struct S { int n; int[] data; };` | `int[] data` is btrc's pointer-valued array spelling, and in a struct body the AST cannot tell it from the flexible array member `int data[]` (P1). Write `int data[]` for C's layout or `int* data` for a pointer; a typedef (`typedef int[] Values;`) still declares a pointer-valued field. | `Struct field 'data' cannot use the 'T[] name' spelling; declare a flexible array member as 'T data[]' or a pointer as 'T* data'` |
 | 18 | `#if UNKNOWN` (C reads 0) | btrc evaluates `#if`, `#ifdef`, `#ifndef` and `#elif` per file before lexing, against the selected target's predefined macros (`src/language/targets.toml`) and the file's own earlier `#define`s (D20, `c_compat/PreprocessorConditionals.btrc`). An evaluated identifier that is neither is an error, never C's silent 0; test it with `defined(X)`. An unevaluated operand (`0 && X`) is never read. | `Identifier 'UNKNOWN' in #if is not a macro defined earlier in this file or a target macro; test it with defined(UNKNOWN)` |
 | 18 | `#ifdef __GNUC__`, `#if __LINE__` | A reserved name (`_` prefix) that is not a target macro names the C implementation btrc cannot see. | `'__GNUC__' is reserved for the C implementation and is not a btrc target macro; #if cannot test it` |
 | 18 | `#if PATH_MAX`, `#ifdef NDEBUG`, `#if bool` | A hosted-ABI name, a `foreign_macro_names` entry, a `btrc_`/`BTRC_` name or a package's `[[native.defines]]` name is set by headers or compiler flags, which `#if` runs before. | `'PATH_MAX' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it` (a package define names its package) |
@@ -209,6 +257,64 @@ because the parser's rule never consults type names; add an initializer or
 write `CFunction<...>`. An abstract declarator is not a generic argument
 (`Vector<int (*)(int)>`); write `Vector<CFunction<int, int>>`.
 
+## Unions (C row 9)
+
+`union U { … };` and its forward `union U;` declare a C union at file scope,
+and `typedef union [Tag] { … } Name, *Pointer;` splices into the union and
+its typedefs (`c_compat/UnionDeclaration.btrc`). btrc emits
+`typedef union U U;`, so `U` and `union U` are one type; the same holds for
+`struct S` and `S`, and for an SDK record imported under its tag. A union may
+be a struct or class field, an array or `Vector` element, a generic argument,
+a parameter or a return value, and `sizeof` and `offsetof` are the C
+compiler's (`c_compat/UnionLayout.btrc` checks them against a C mirror). `{}`
+zero-initializes and one positional element sets the first member (C11
+6.7.9p17); designators arrive with C row 10.
+
+A union cannot tell which member is live, so every member is a plain C value,
+transitively: integers, floats, `bool`, `char`, plain enums, raw pointers
+whose pointee is not `string`, a class or an interface, `CFunction` pointers
+with no managed type in their signature, fixed arrays and records of these,
+and foreign C tags. A union has no ARC header and copies bitwise. Reading a
+member other than the last one written is C type punning (C11 6.5.2.3
+footnote 95): documented, not checked. Refused, with the same diagnostic in
+both compilers (`btrc/test_c_compatibility_refusals.py`):
+
+| C source | Diagnostic |
+|----------|------------|
+| `union H { string text; };` | `Union 'H' member 'text' cannot hold managed type 'string'; a union cannot tell which member is live, so its members must be plain C values` |
+| `union H { struct Pair pair; };` with a managed field in `Pair` | `Union 'H' member 'pair' cannot hold 'Pair', which contains managed field 'name'; …` |
+| `union U { RealtimeFunction callback; };` | `Union 'U' member 'callback' cannot hold a RealtimeFunction; a union could reinterpret it without its realtime proof` |
+| `union U { Atomic<int> counter; };` | `Union field 'U.counter' cannot embed an Atomic<T> owner in shallow copyable storage; …` |
+| `union U { int n; int data[]; };` | `Union member 'U.data' cannot be a flexible array member` (C11 6.7.2.1p18 allows one only in a struct) |
+| `union U { int[] data; };` | `Union field 'data' cannot use the 'T[] name' spelling; declare a pointer as 'T* data'` |
+| `U u = {1, 2};` | `Union 'U' initializer has 2 elements; a positional union initializer sets only the first member (use a designator such as {.f = ...})` |
+| `union P p;` for a `struct P` | `'union P' does not name a union: 'P' is a struct` (also for an enum, rich enum, class, interface or typedef, in every type position) |
+| `union { int a; };` | `anonymous union at top level must be named` |
+
+As for structs, `==`, `new`, `delete`, `keep` and `release` are refused, and
+`@gpu` refuses a union as a non-scalar parameter. Unlike a struct, which
+prints as `<struct>`, a union cannot be printed or formatted in an f-string:
+`Union 'U' cannot be printed or formatted; a union cannot tell which member is
+live, so print one of its members`.
+Native union values stay refused; an opaque SDK union imports as a union
+record, so `union T*` and `T*` are one type.
+
+A program that spells a btrc record or enum with its tag (`struct Point`,
+`union Number`, `enum Color`) under strict imports must import the module
+that declares it, as for the bare name (`enum Color` for a btrc enum is
+otherwise the enum-tag row's work). As in C, a tag names only a type: a
+module that declares a function `timeval` does not make `struct timeval`
+need its import, and a tag needs an import only for a non-generic type the
+program declares: a header's own `struct Timer`, or its `struct ListNode`
+beside `import Library.List;` (a generic class owns no C tag), is the
+header's. A source record's tag and its bare name are one type everywhere,
+generic and tuple arguments and `CFunction` signatures included:
+`Vector<struct P>` is `Vector<P>`. The exception is a record named like a
+generic parameter anywhere in the program (`T`, `K`, `V`, …): its tag and its
+name stay two spellings, as before C row 9, so `Vector<struct T>` and
+`Vector<T>` are two instances, and an instance's substitution never captures
+the record.
+
 ## Variable-length arrays (C row 23)
 
 A block-scope array whose bound is not a constant expression is a C
@@ -246,6 +352,103 @@ in a shallow aggregate`). `goto` is not part of the grammar yet (PLAN.md Stage
 20), so a jump into a VLA's scope cannot be written; Stage 20's negative
 fixtures must cover it.
 
+## Flexible array members (C row 13)
+
+A struct member `T name[]` that is the last member, follows a named member and
+sits directly in a named struct's body is a C11 flexible array member (FAM):
+`struct Buffer { int count; int data[]; };` emits exactly that declaration,
+and its layout is C's (`c_compat/FlexibleArrayLayout.btrc` compares `sizeof`
+and the member offset with a C mirror under gcc and clang). Elements are
+complete plain C values: scalars (hosted-ABI ones such as `uint8_t` and
+`size_t` too), enums, raw and function pointers (nullable ones too), structs without a FAM and fixed arrays of these; managed elements
+are refused for now.
+
+A FAM struct exists only behind a pointer. Allocate it with the size of the
+struct plus the elements, check the result and free it; no runtime helper is
+involved:
+
+```btrc
+struct Buffer* b = (struct Buffer*)calloc((size_t)1, sizeof(struct Buffer) + (size_t)n * sizeof(int));
+if (b == null) { return 1; }
+b->count = n;
+b->data[0] = 7;
+free(b);
+```
+
+Growth uses `realloc` with the same size expression. `p->data[i]` is an
+element lvalue, `p->data` decays to `T*`, `&p->data[i]` and pointer
+arithmetic on `struct Buffer*` work, and `for x in p->data` is refused because
+the member has no provable capacity. These are refused, with the same
+diagnostic in both compilers (`btrc/test_flexible_array_member_contract.py`):
+
+| Case | Diagnostic |
+|------|------------|
+| not the last member | `Flexible array member 'Buffer.data' must be the last field of struct 'Buffer'` |
+| no named member before it | `Flexible array member 'Buffer.data' needs a named field before it` |
+| inside an anonymous member | `Flexible array member 'data' must be declared directly in a struct, not in an anonymous member` |
+| a managed element | `Flexible array member 'Buffer.items' cannot hold managed type 'string'` |
+| a by-value use (object, parameter or return of a definition, prototype, interface method or lambda, cast, call argument, conditional expression, list or map literal element, f-string value, tuple or tuple literal, record or class field, rich-enum payload, generic argument (also of `new` and of `sizeof`), also behind a class reference or pointer as in `Box<struct Buffer>?`) | `Parameter 'f.b' uses struct 'Buffer' with a flexible array member by value; use a pointer` |
+| a whole-object copy or assignment | `Struct 'Buffer' with a flexible array member cannot be assigned or copied` |
+| `sizeof(p->data)` | `sizeof cannot be applied to flexible array member 'Buffer.data'` |
+| `&p->data` | `Cannot take the address of flexible array member 'Buffer.data'; use the member itself or an element's address` |
+| assigning the member from an array | `Array object 'int[]' is not assignable` (from a pointer, btrcc reports `Cannot assign 'int*' to 'int[]'` first, as it does for a fixed array member) |
+| `new Buffer()` | `new requires a class type, got 'Buffer'` |
+| a type argument inferred for a generic method (`r.get(p)` with `T get<T>(T* value)`) | `Generic argument 1 for 'Reader.get' uses struct 'Buffer' with a flexible array member by value; use a pointer` |
+| a type parameter of a program's own generic named like such a struct (`class Holder<Buffer>`, `pick<Packet>`, `interface Getter<Buffer>`) | `Type parameter 'Buffer' of 'Holder' is named like struct 'Buffer', which has a flexible array member; rename the type parameter` |
+
+A typedef never makes a FAM: `typedef int[] Values;` and a `Values data;`
+field keep btrc's pointer-valued array. Sizing with `offsetof` waits for btrc
+`offsetof`, and a native struct's incomplete-array field is still refused by
+the importer.
+
+Inside a generic, a type spelled like a type parameter means the parameter,
+so a parameter named like a FAM struct would hide the struct's refusals. Such
+a generic is refused when its file can name the struct (the struct is
+declared there or in a file it imports, transitively). A generic whose file
+cannot name it, in the stdlib (`Map<K, V>` beside a program's `struct K`,
+`c_compat/FlexibleArrayGenericNames.btrc`) or in an imported user library,
+keeps working: inside it the name can only mean the parameter. A generic
+argument is refused even where the generic only uses it behind a pointer.
+Under `--relaxed-imports` no file's visibility is computed, so every generic
+is treated as able to name every struct: an imported library generic whose
+type parameter is named like the program's FAM struct is refused there,
+though the strict build accepts it. The `struct X` spelling is not covered by
+the visibility marks: a file can write `struct Buffer` without importing the
+file that declares it, and a type parameter never hides that spelling, so
+`struct Buffer` inside `class Holder<Buffer>` still names the struct.
+
+Known gaps around FAMs, recorded rather than fixed here:
+
+- `char16_t` and `pthread_t` elements are refused in both compilers with the
+  misleading wording `cannot hold managed type`; neither is managed.
+- `enum Color d[]` spelled with the tag of a btrc enum is accepted and both
+  compilers emit invalid C: the x-enum-tag divergence, fixed by the enum-tag
+  lane. Write `Color d[]`.
+- `p->data.len` on an array member (fixed or flexible) emits invalid C in
+  both compilers; `sizeof(r.get(p))` drops the variable use and trips
+  `-Werror=unused-variable`.
+- Inside a generic class body, btrcc cannot infer a generic method's type
+  arguments from a template-typed argument (`r.get(self.ptr)` with
+  `T get<T>(T* value)` reports `Cannot infer generic arguments for method
+  'get'`), with or without a FAM; the reference infers them. The same gap
+  holds in a lambda body, where the reference gives the FAM refusal and
+  btrcc `Cannot infer generic arguments`.
+- The reference compiler skips the inferred-argument check for a static
+  generic call (`Reader.get(p).count` with a `class` method) and then emits
+  invalid C (an implicit declaration of `Reader_get`). Without any FAM it
+  also emits non-compiling C for an optional-chained generic method call
+  (`maybe?.count(&pt)`: an implicit declaration of `R_count`); btrcc
+  compiles both. Both predate r13.
+- In a generic body, btrcc reports `Cannot determine whether expression is
+  indexable` for `copy.data[index]` where the reference accepts it.
+- A program's `struct T` makes the reference compiler refuse
+  `Library.Vector`'s `T s = (T)0;` (`Cannot cast scalar 'int' to aggregate
+  struct 'T'`), with or without a FAM; btrcc accepts it. A parity gap that
+  predates r13.
+- Without a FAM, a type parameter named like a struct still shadows it
+  inside the generic: `var x = *gp;` in `class Holder<Buffer>` with a global
+  `Buffer* gp` emits invalid C in both compilers.
+
 ## Adjacent string literals (C row 5)
 
 Adjacent string literals concatenate as in C (`c_compat/AdjacentStringLiterals.btrc`):
@@ -264,6 +467,46 @@ first piece:
 |--------|------------|
 | an f-string beside a literal (`f"{n}" " tail"`) | `An f-string cannot be concatenated with an adjacent string literal` |
 | a piece naming anything but a source macro that expands to string literals, including a native macro such as `PRId64` that the front end cannot resolve (D20) | `Cannot concatenate 'PRId64' with an adjacent string literal: it is not a source macro that expands to a string literal` |
+
+## Rich enums with managed payloads are lexical borrows
+
+A rich-enum value is a by-value tagged union that never retains its payloads.
+A rich enum whose payloads hold (directly, or through a struct, tuple, array
+or nested rich enum) a `string`, a class, an interface or a collection is
+therefore **nonescaping**, like `Span<T>`
+([realtime-primitives.md](language/realtime-primitives.md#borrowed-spans)): it
+may be one direct local, initialized where it is declared, or a parameter.
+A payload read out of it (`Probe p = r.data.Detached.child;`, or a `return` of
+one) takes an ordinary reference that outlives the enum. A rich enum with only
+scalar payloads is an ordinary value and is unrestricted.
+
+The following escape and storage flows are refused, with the same diagnostic
+in both compilers (`btrc/test_rich_enum_payload_borrows.py`;
+allowed flows in `enums/RichEnumBorrowedPayloads.btrc`). The reason clause
+`R` is `its managed payloads are borrowed references that it never retains`:
+
+| Flow | Diagnostic |
+|------|------------|
+| a function, method, interface-method or declared lambda return type | `Return type of function 'f' cannot be nonescaping rich enum 'E'; R` |
+| a lambda whose inferred return is one, or contains one (an immediately invoked lambda too) | `Lambda return type cannot be nonescaping rich enum 'E'; R` (`… cannot contain nonescaping rich enum 'E' in aggregate or managed storage`) |
+| a constructed class instance that would hold one (`new Box<E>(…)`, an inferred `Box(e)`) | `Constructed 'Box' cannot contain nonescaping rich enum 'E' in aggregate or managed storage` |
+| a generic method type argument that is or holds one | `Generic argument 1 for method 'm' cannot contain nonescaping rich enum 'E'` |
+| a class or struct field, a rich-enum payload | `Field 'C.f' cannot store nonescaping rich enum 'E'; R` |
+| a global, `static` or `extern` variable | `Global 'g' cannot store nonescaping rich enum 'E'; R` |
+| a `var` whose inferred type is or contains one, at file scope or in a disallowed shape | the same diagnostics as the declared type |
+| a local without an initializer | `Variable 'v' must initialize its nonescaping rich enum 'E' borrow` |
+| reassigning it, or storing into its own payload slots, including nested structs, tuples and arrays (a write through a managed payload object is allowed) | `Nonescaping rich enum 'E' cannot be reassigned; R, so declare a new local` (`Payload of nonescaping rich enum …` for a payload store) |
+| any collection, tuple, generic, `Thread<T>` or `Mutex<T>` that contains one | `Variable 'v' cannot contain nonescaping rich enum 'E' in aggregate or managed storage` |
+| a pointer, nullable or array shape | `Rich enum 'E' borrows its managed payloads and must be one direct value; pointer, nullable and array shapes are not supported` |
+| a spawned lambda whose result is or contains one, stored or joined at once (`spawn(…).join()`) | `Thread<T> aggregate result type cannot contain string or class references; return the managed value directly or use a scalar-only aggregate` |
+| a lambda or `spawn` capture | `A lambda cannot capture nonescaping rich enum 'v'` |
+
+Two hazards remain, shared with `Span<T>` and every shallow aggregate: the
+rule does not stop the payload's owner itself from being reassigned or
+released while the enum is alive (`Probe c = Probe(1); E r = E.Held(c); c =
+Probe(2);` leaves `r` dangling), and a struct with a class field
+(`struct S { Probe p; }`) is not yet nonescaping, so returning one built from a
+local reads freed memory in both compilers.
 
 ## Nullable references are checked by warnings
 

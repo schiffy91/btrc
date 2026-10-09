@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests import runner
 from src.tests.process_limits import TOOL_TIMEOUT
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -51,7 +52,13 @@ def _records(cache: Path) -> dict[Path, tuple[int, int]]:
 
 
 def _build(
-    command: list[str], source: Path, output: Path, cache: Path, *extra: str, environment: dict[str, str] | None = None
+    command: list[str],
+    source: Path,
+    output: Path,
+    cache: Path,
+    *extra: str,
+    environment: dict[str, str] | None = None,
+    succeeds: bool = True,
 ) -> _Build:
     output.mkdir(parents=True, exist_ok=True)
     for stale in output.glob("p*.c"):
@@ -84,7 +91,7 @@ def _build(
         text=True,
         timeout=_BUILD_TIMEOUT,
     )
-    assert completed.returncode == 0, completed.stderr
+    assert (completed.returncode == 0) == succeeds, completed.stderr
     diagnostics = [line for line in completed.stderr.splitlines() if not line.startswith("btrcc ")]
     if "module-units=lowered:" in completed.stderr:
         lowered = int(completed.stderr.split("module-units=lowered:", 1)[1].split(",", 1)[0])
@@ -515,16 +522,34 @@ int combine(int value) {
     "Main.btrc": """import ./Use.btrc;
 
 int main() {
-	print(f"{combine(2)}");
+	print(f"PASS {combine(2)}");
 	return 0;
 }
 """,
 }
 
 
-def test_a_new_tuple_shape_in_one_body_keeps_other_units_exact(compiler: str, tmp_path, request):
-    """SB-D7: tuple structs were ordered by discovery across every body."""
-    _, incremental, _ = _incremental_matches_clean(
+def _run_tuple_units(build: _Build, tmp_path: Path, monkeypatch, expected: int) -> None:
+    """Use the corpus's multi-unit native runner on the retained build bytes."""
+    source = tmp_path / "program" / "Main.btrc"
+    golden = source.parent / "expected" / "Main.stdout"
+    golden.parent.mkdir(exist_ok=True)
+    golden.write_text(f"PASS {expected}\n")
+    with monkeypatch.context() as native:
+        native.setattr(
+            runner, "BTRC_CFLAGS", [*runner.BTRC_CFLAGS, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror"]
+        )
+        runner._compile_run_check(tuple(build.units.values()), str(source), source.name)
+
+
+@pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
+def test_a_new_tuple_shape_in_one_body_keeps_other_units_exact(compiler: str, debug, tmp_path, request, monkeypatch):
+    """SB-D7: moving discovery of an existing shape changes only Lib's unit."""
+    # Use already owns (double, int). Add its earlier discovery without moving
+    # source lines, so debug positions in other units remain unchanged too.
+    # Reuse Use's mentioned local name too: a new referenced identifier would
+    # exercise the separate whole-program mentioned-name invalidation guard.
+    cold, incremental, _ = _incremental_matches_clean(
         compiler,
         request,
         tmp_path,
@@ -532,11 +557,41 @@ def test_a_new_tuple_shape_in_one_body_keeps_other_units_exact(compiler: str, tm
         {
             "Lib.btrc": (
                 '(int, string) pair = (value, "lib");',
-                '(double, int) flag = (0.5, value);\n\t(int, string) pair = (value, "lib");',
+                '(double, int) left = (0.5, value); (int, string) pair = (left._1, "lib");',
             )
         },
+        *(["--debug"] if debug else []),
     )
+    changed = {name for name, text in incremental.units.items() if text != cold.units[name]}
+    assert len(changed) == 1 and next(iter(changed)).startswith("p.unit-Lib-"), changed
+    _lowered(incremental, 1)
+    _run_tuple_units(cold, tmp_path, monkeypatch, 6)
+    _run_tuple_units(incremental, tmp_path, monkeypatch, 6)
+
+
+@pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
+def test_a_genuinely_new_tuple_shape_preserves_conservative_invalidation(
+    compiler: str, debug, tmp_path, request, monkeypatch
+):
+    """A new shared shape still invalidates all groups until shared-answer replay exists."""
+    cold, incremental, _ = _incremental_matches_clean(
+        compiler,
+        request,
+        tmp_path,
+        _TUPLE_PROGRAM,
+        {"Lib.btrc": ("return pair._0;", "(int, int) left = (value, 7); return pair._0 + left._1;")},
+        *(["--debug"] if debug else []),
+    )
+    shape = "struct btrc_Tuple_int_int {"
+    assert not any(shape in text for text in cold.units.values())
+    assert any(shape in text for text in incremental.units.values())
+    changed = {name for name, text in incremental.units.items() if text != cold.units[name]}
+    assert len(changed) == 1 and next(iter(changed)).startswith("p.unit-Lib-"), changed
+    # Canonical ordering does not remove a genuinely changed shared inventory
+    # from the current whole-program key. Keep this guard until replay is proved.
     _lowered(incremental, 3)
+    _run_tuple_units(cold, tmp_path, monkeypatch, 6)
+    _run_tuple_units(incremental, tmp_path, monkeypatch, 13)
 
 
 _SPAN_PROGRAM = {
@@ -615,21 +670,135 @@ int main() {
 }
 
 
-def test_swapping_instance_uses_keeps_the_template_unit_exact(compiler: str, tmp_path, request):
-    """SB-D8: a template's instances were emitted in discovery order."""
-    _, incremental, _ = _incremental_matches_clean(
+_METHOD_INSTANCE_ORDER_PROGRAM = {
+    "Lib.btrc": """class Converter {
+    public Converter() {}
+    public T identity<T>(T value) { return value; }
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+float total() {
+    Converter converter = new Converter();
+    int whole = converter.identity(2);
+    float part = converter.identity(0.5);
+    return whole + part;
+}
+""",
+    "Main.btrc": _INSTANCE_ORDER_PROGRAM["Main.btrc"],
+}
+
+
+@pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
+@pytest.mark.parametrize(
+    "files,first,second",
+    [
+        pytest.param(
+            _INSTANCE_ORDER_PROGRAM,
+            "Box<int> whole = new Box<int>(2);",
+            "Box<float> part = new Box<float>(0.5);",
+            id="class",
+        ),
+        pytest.param(
+            _METHOD_INSTANCE_ORDER_PROGRAM,
+            "int whole = converter.identity(2);",
+            "float part = converter.identity(0.5);",
+            id="method",
+        ),
+    ],
+)
+def test_swapping_instance_uses_keeps_the_template_unit_exact(
+    compiler: str, debug, files, first, second, tmp_path, request
+):
+    """G12/SB-29: discovery order changes only Use, never the template unit."""
+    # Preserve line count and indentation so debug output in Lib cannot move.
+    original = files["Use.btrc"]
+    between = original[original.index(first) + len(first) : original.index(second)]
+    cold, incremental, _ = _incremental_matches_clean(
         compiler,
         request,
         tmp_path,
-        _INSTANCE_ORDER_PROGRAM,
-        {
-            "Use.btrc": (
-                "Box<int> whole = new Box<int>(2);\n\tBox<float> part = new Box<float>(0.5);",
-                "Box<float> part = new Box<float>(0.5);\n\tBox<int> whole = new Box<int>(2);",
-            )
-        },
+        files,
+        {"Use.btrc": (first + between + second, second + between + first)},
+        *(["--debug"] if debug else []),
     )
+    changed = {name for name, text in incremental.units.items() if text != cold.units[name]}
+    assert len(changed) == 1 and next(iter(changed)).startswith("p.unit-Use-"), changed
+    _lowered(incremental, 1)
+
+
+@pytest.mark.parametrize(
+    "files,old,new",
+    [
+        pytest.param(
+            _INSTANCE_ORDER_PROGRAM,
+            "Box<float> part = new Box<float>(0.5);",
+            "Box<double> part = new Box<double>(0.5);",
+            id="class",
+        ),
+        pytest.param(
+            _METHOD_INSTANCE_ORDER_PROGRAM,
+            "float part = converter.identity(0.5);",
+            "int part = converter.identity(3);",
+            id="method",
+        ),
+    ],
+)
+def test_changed_instance_set_invalidates_template_units(compiler: str, files, old, new, tmp_path, request):
+    """Canonical order must still key every actually demanded specialization."""
+    cold, incremental, _ = _incremental_matches_clean(compiler, request, tmp_path, files, {"Use.btrc": (old, new)})
+    templates = [name for name in cold.units if name.startswith("p.unit-Lib-")]
+    assert len(templates) == 1
+    assert incremental.units[templates[0]] != cold.units[templates[0]]
+    # The current whole-program facts key conservatively invalidates all three.
     _lowered(incremental, 3)
+
+
+_DEPENDENT_INSTANCE_PROGRAM = {
+    "Lib.btrc": """struct ZRecord { int value; };
+
+class ABox<T> {
+    public T value;
+    public ABox(T value) { self.value = value; }
+    public T get() { return self.value; }
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+int total() {
+    ZRecord record = {7};
+    ABox<int> number = new ABox<int>(2);
+    ABox<ZRecord> wrapped = new ABox<ZRecord>(record);
+    ZRecord result = wrapped.get();
+    return number.get() + result.value;
+}
+""",
+    "Main.btrc": """import ./Use.btrc;
+
+int main() { return total() == 9 ? 0 : 1; }
+""",
+}
+
+
+def test_canonical_instance_order_preserves_by_value_dependencies(compiler: str, tmp_path, request):
+    """ABox sorts before ZRecord, but its by-value field needs ZRecord first."""
+    first = "ABox<int> number = new ABox<int>(2);"
+    second = "ABox<ZRecord> wrapped = new ABox<ZRecord>(record);"
+    cold, incremental, _ = _incremental_matches_clean(
+        compiler,
+        request,
+        tmp_path,
+        _DEPENDENT_INSTANCE_PROGRAM,
+        {"Use.btrc": (first + "\n    " + second, second + "\n    " + first)},
+    )
+    _lowered(incremental, 1)
+    templates = [name for name in cold.units if name.startswith("p.unit-Lib-")]
+    assert len(templates) == 1
+    assert incremental.units[templates[0]] == cold.units[templates[0]]
+    definitions = [text for text in incremental.units.values() if "struct btrc_ABox_ZRecord {" in text]
+    assert definitions
+    for text in definitions:
+        assert text.index("struct ZRecord {") < text.index("struct btrc_ABox_ZRecord {")
 
 
 @pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
@@ -647,3 +816,42 @@ def test_an_unrelated_line_shift_reuses_every_other_unit(compiler: str, debug: b
         *(["--debug"] if debug else []),
     )
     _lowered(incremental, 1)
+
+
+# r13: a generic's type parameter may not hide a struct with a flexible array
+# member that its file can see. `Lib` is unchanged when `Mid` starts importing
+# that struct, so its class validation may replay from its record; the refusal
+# must not replay away with it.
+_SHADOW_FORMS = {
+    "class": (
+        "class Holder<Packet> {\n\tpublic Holder() {}\n\n\tpublic int size() { return 1; }\n}\n",
+        "\tHolder<int> holder = new Holder<int>();\n\treturn holder.size() - 1;\n",
+        "Type parameter 'Packet' of 'Holder' is named like struct 'Packet'",
+    ),
+    "method": (
+        "class Holder {\n\tpublic Holder() {}\n\n\tpublic int pick<Packet>(Packet* value) { return 0; }\n}\n",
+        "\tHolder holder = new Holder();\n\tint value = 0;\n\treturn holder.pick(&value);\n",
+        "Type parameter 'Packet' of 'Holder.pick' is named like struct 'Packet'",
+    ),
+}
+
+
+@pytest.mark.parametrize("form", sorted(_SHADOW_FORMS))
+def test_a_newly_visible_flexible_struct_refuses_an_unchanged_generic(compiler: str, form: str, tmp_path, request):
+    declaration, body, refusal = _SHADOW_FORMS[form]
+    root = tmp_path.resolve()
+    source = root / "program"
+    source.mkdir()
+    (source / "Packet.btrc").write_text("struct Packet { int length; int items[]; };\n")
+    (source / "Mid.btrc").write_text("int midValue() { return 0; }\n")
+    (source / "Lib.btrc").write_text("import ./Mid.btrc;\n\n" + declaration)
+    (source / "Main.btrc").write_text("import ./Lib.btrc;\n\nint main() {\n" + body + "}\n")
+    command = _command(compiler, request)
+    output = root / "out"
+    cold = _build(command, source, output, root / "cache")
+    assert not cold.diagnostics
+    (source / "Mid.btrc").write_text("import ./Packet.btrc;\n\nint midValue() { return 0; }\n")
+    incremental = _build(command, source, output, root / "cache", succeeds=False)
+    clean = _build(command, source, output, root / "fresh-cache", succeeds=False)
+    assert incremental.diagnostics == clean.diagnostics
+    assert any(refusal in line for line in clean.diagnostics), clean.diagnostics

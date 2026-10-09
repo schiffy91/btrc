@@ -93,6 +93,22 @@
         "linux-devcontainer"
       ],
       "note": "The patched SDL's X11 clipboard path (nix/sdl3-x11-selection-requestor.patch) exists only on Linux; the probe runs under the Linux virtual display."
+    },
+    {
+      "id": "android-activity-lifecycle-posix",
+      "files": [
+        "src/tests/python/test_android_host_versions.py"
+      ],
+      "nodes": [
+        "*::test_recreated_native_activity_does_not_restart_or_outlive_the_fixture"
+      ],
+      "reason": "^Android activity lifecycle simulation requires POSIX fork$",
+      "category": "platform",
+      "covered_by": [
+        "macos-hosted",
+        "linux-devcontainer"
+      ],
+      "note": "The lifecycle simulator compiles the Android C host and executes its POSIX fork/thread/file path. It is a local lifetime regression, not Android emulator qualification."
     }
   ]
 }

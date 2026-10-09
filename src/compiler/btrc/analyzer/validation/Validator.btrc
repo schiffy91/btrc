@@ -43,7 +43,7 @@ class SemanticValidator {
 	public SemanticValidator(Node program, Analyzed analyzed, HostedAbiRepository hostedAbi, SourceMacroRules macroRules, OperatorSemantics operators, GpuSemantics gpu, CycleSemantics cycles, SourceRuntimeSymbols sourceRuntimeSymbols, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes) {
 		self.program = program;
 		self.state = SemanticValidationState(analyzed);
-		SourceMacroNamespace sourceMacros = SourceMacroNamespace(program, hostedAbi, macroRules, analyzed.stdlibLineCount, analyzed.sourceLines);
+		SourceMacroNamespace sourceMacros = SourceMacroNamespace(program, hostedAbi, macroRules);
 		analyzed.sourceMacros = sourceMacros;
 
 		self.types = TypeValidator(self.state, operators, gpu, semanticTypes, declarationRegistry, expressionTypes);
@@ -59,6 +59,11 @@ class SemanticValidator {
 	}
 
 	public void validate() {
+		/* Names and top-level claims first, as the reference registry claims
+		 * them while registering: `typedef union P P;` over a struct P is the
+		 * name claim before it is a wrong-keyword tag. */
+		self.names.validateDeclarationNames(self.program);
+		self.names.validateTopLevelDuplicates(self.program);
 		self.types.validateTypedefs(self.program);
 		self.declarations.validateInterfaceDeclarations(self.program);
 		int index = 0;
@@ -75,7 +80,6 @@ class SemanticValidator {
 		self.ownership.validateConcreteMutexInstances();
 		self.declarations.validateStructLayouts(self.program);
 		BtrccPhaseTimer.mark("v-layouts");
-		self.names.validateDeclarationNames(self.program);
 		self.names.validateDeclarationDuplicates(self.program);
 		BtrccPhaseTimer.mark("v-names");
 		self.names.publishKnownGeneratedSymbols(self.program);
@@ -94,11 +98,15 @@ class SemanticValidator {
 			index = index + 1;
 		}
 
+		self.declarations.validateFlexibleArrayDeclarations(self.program);
+
 		index = 0;
 		while (index < self.program.declarations().len) {
 			Node declaration = self.program.declarations().get(index);
 			if (declaration.kind == NK_RICH_ENUM_DECL) {
+				int literals = self.expressions.inferredLiteralMark();
 				self.declarations.validateRichEnumDefaults(declaration);
+				self.expressions.checkInferredLiterals(literals);
 			}
 			index = index + 1;
 		}
@@ -117,7 +125,7 @@ class SemanticValidator {
 				}
 			} else if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
 				for field in SemanticTypeSystem.recordFields(declaration) {
-					self.controlFlow.validateArrayBound(field.type, "struct field '" + declaration.name + "." + field.name + "'", "field", field, globals);
+					self.controlFlow.validateArrayBound(field.type, SemanticTypeSystem.recordKeyword(declaration) + " field '" + declaration.name + "." + field.name + "'", "field", field, globals);
 				}
 			} else if (declaration.kind == NK_RICH_ENUM_DECL) {
 				for variant in declaration.variants() {
@@ -136,13 +144,17 @@ class SemanticValidator {
 			Node declaration = self.program.declarations().get(index);
 			/* Each declaration's bodies start reachable and know no non-null facts. */
 			self.controlFlow.flow.enterBody();
+			int literals = self.expressions.inferredLiteralMark();
 			if (declaration.kind == NK_FUNCTION_DECL || declaration.kind == NK_CLASS_DECL) {
 				self.validateBodies(declaration);
 			} else if (declaration.kind == NK_VAR_DECL_STMT) {
 				/* Always live: cheap, and it extends `globals` for later
 				 * globals, which a record does not carry. */
+				self.state.globalDeclaration = declaration;
 				self.controlFlow.validateVariable(declaration, globals);
+				self.state.globalDeclaration = null;
 			}
+			self.expressions.checkInferredLiterals(literals);
 			index = index + 1;
 		}
 		BtrccPhaseTimer.mark("v-bodies");

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.c_toolchains import HOST_COMPILER_DIAGNOSTICS, configured_c_compiler, selfhost_link_flags
 from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.skip_ledger import SkipLedger
 
@@ -64,6 +64,39 @@ def pytest_configure(config):
     """Record every skip and capability gate in this session's skip report."""
     SkipLedger.install(config)
     config.addinivalue_line("markers", "macos_gui: requires exclusive AppKit application execution on macOS")
+    config.addinivalue_line("markers", "linux_gui: owns shared Linux GUI focus or clipboard state")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = yield
+    if call.excinfo is not None:
+        evidence = HOST_COMPILER_DIAGNOSTICS.failure(call.excinfo.value)
+        if evidence is not None:
+            report.sections.append(("host compiler launch evidence", json.dumps(evidence, sort_keys=True)))
+    return report
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    """Schedule one AppKit owner per worker pool; the kernel lease spans pools."""
+    if sys.platform != "darwin" or not (
+        config.getoption("dist", default=None) == "loadgroup" or config.getoption("loadgroup", default=False)
+    ):
+        return
+    for item in items:
+        if item.get_closest_marker("macos_gui") is None:
+            continue
+        groups = {
+            str(mark.args[0] if mark.args else mark.kwargs.get("name", "default"))
+            for mark in item.iter_markers("xdist_group")
+        }
+        # xdist combines all names into a new group. Adding our name to a
+        # different group would silently restore concurrent AppKit workers.
+        if groups - {"macos_gui"}:
+            raise pytest.UsageError(f"{item.nodeid}: macos_gui cannot combine with another xdist_group")
+        if not groups:
+            item.add_marker(pytest.mark.xdist_group(name="macos_gui"))
 
 
 def _parse_compilers(raw: str) -> list[str]:
@@ -188,6 +221,7 @@ def _btrcc_fingerprint(compiler: list[str]) -> str:
 
     digest = hashlib.sha256()
     digest.update(b"btrcc-test-fixture-v1")
+    digest.update(b"\0".join(flag.encode() for flag in selfhost_link_flags()))
     for relative, pattern in _BTRCC_INPUT_GLOBS:
         for source in sorted((REPO / relative).rglob(pattern)):
             if "__pycache__" in source.parts:
@@ -259,6 +293,24 @@ def _macos_gui_session(request):
         yield
 
 
+@pytest.fixture(autouse=True)
+def _linux_gui_session(request):
+    """Serialize display-mutating Linux journeys, including their fixture lifetime.
+
+    Like the AppKit lease, this is shared by workers/processes using this
+    checkout's pytest cache, not the outer host gui-capture lock. X11 and
+    Wayland can share one desktop focus domain, so protocol is not a bypass.
+    Delegating desktop collectors stay unmarked: their child pytest cases
+    acquire the lease; the parent must not hold it while waiting for them.
+    """
+    if sys.platform != "linux" or request.node.get_closest_marker("linux_gui") is None:
+        yield
+        return
+    lock_path = request.config.cache.mkdir("linux-gui") / "execution.lock"
+    with _exclusive(lock_path, timeout=1800, owner=request.node.nodeid):
+        yield
+
+
 @pytest.fixture(scope="session")
 def immutable_btrcc(_selfhost_runtime_data) -> Path:
     """Return one strict immutable self-host compiler for the whole run.
@@ -322,6 +374,7 @@ def _build_immutable_btrcc(compiler: list[str], output: Path, binary: Path) -> N
             str(generated),
             "-o",
             str(staged),
+            *selfhost_link_flags(),
             "-lm",
             "-lpthread",
         ],

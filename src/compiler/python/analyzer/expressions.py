@@ -11,7 +11,10 @@ from src.compiler.python.analyzer.ownership import MutexDestroyReceiverPlan
 from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES, DeclarationIndex, Occurrence
 from src.compiler.python.analyzer.types import (
     _RUNTIME_AGGREGATE_BASES,
+    NONESCAPING_RICH_ENUM_REASON,
+    THREAD_AGGREGATE_RESULT_MESSAGE,
     OperatorTypeError,
+    TypeIdentity,
 )
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.lexer.lexer import LiteralDecoder
@@ -160,6 +163,9 @@ class ExpressionAnalyzer:
             )
         if isinstance(expression.fn, LambdaExpr):
             self._validate_spawn_captures(expression)
+            result = self._infer_spawn_return_type(expression.fn)
+            if self.types.contains_nonescaping_rich_enum(result) is not None:
+                self.session.error(THREAD_AGGREGATE_RESULT_MESSAGE, expression.line, expression.col)
 
     def _validate_spawn_captures(self, expression) -> None:
         for capture in expression.fn.captures:
@@ -337,6 +343,15 @@ class ExpressionAnalyzer:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
+        flexible_member = self.aggregates.flexible_array_target(operand)
+        if flexible_member is not None:
+            self.session.error(
+                f"Cannot take the address of flexible array member '{flexible_member}'; "
+                "use the member itself or an element's address",
+                expression.line,
+                expression.col,
+            )
+            return
         if self._is_native_constant(operand):
             self.session.error(
                 f"Native constant '{operand.name}' is a value and has no address", expression.line, expression.col
@@ -402,6 +417,67 @@ class ExpressionAnalyzer:
                 mutable=mutable,
             ),
         )
+
+    def undeclared_collection_literal(self, expression) -> str | None:
+        """The diagnostic for a literal that must become a collection the program never declares.
+
+        A literal names no symbol, so it needs no import of its own; but an
+        inferred binding or a for-in iterable materializes it as a Vector or a
+        Map, whose class some module of the program must declare.
+        """
+        if isinstance(expression, ListLiteral):
+            collection, kind = "Vector", "List"
+        elif isinstance(expression, MapLiteral):
+            collection, kind = "Map", "Map"
+        else:
+            return None
+        if collection in self.index.class_table:
+            return None
+        return f"{kind} literal needs the {collection} class; add 'import Library.{collection};'"
+
+    def _record_inferred_literal(self, expression) -> None:
+        """Record the first part that does not fit an inferred literal's type.
+
+        A collection literal whose type is inferred takes it from its first
+        element, or from its first entry's key and value, so every other one
+        must fit that type; an empty literal takes its type from the context
+        and neither sets nor breaks it. A literal in a typed position takes
+        that position's type instead and is checked against it. A call
+        argument's position is known only after the argument is analyzed, so
+        the mismatch waits for the end of its statement, as the self-hosted
+        validator's does (StatementAnalyzer.report_inferred_literals)."""
+        if isinstance(expression, ListLiteral):
+            parts = [(f"List element {index}", element) for index, element in enumerate(expression.elements)]
+            groups = (parts,)
+        else:
+            groups = (
+                [(f"Map key {index}", entry.key) for index, entry in enumerate(expression.entries)],
+                [(f"Map value {index}", entry.value) for index, entry in enumerate(expression.entries)],
+            )
+        expected = [self._first_literal_part_type(group) for group in groups]
+        for index in range(len(groups[0])):
+            for group, group_expected in zip(groups, expected, strict=True):
+                if group_expected is None:
+                    continue
+                label, value = group[index]
+                if self.types.is_empty_contextual_literal(value):
+                    continue
+                actual = self._infer_type(value)
+                if actual is not None and not self.types.types_compatible(group_expected, actual):
+                    message = (
+                        f"{label} has type '{self.types.format_type(actual)}' "
+                        f"but expected '{self.types.format_type(group_expected)}'"
+                    )
+                    self.session.inferred_literal_mismatches.append(
+                        (expression, message, getattr(value, "line", 0), getattr(value, "col", 0))
+                    )
+                    return
+
+    def _first_literal_part_type(self, parts):
+        for _, value in parts:
+            if not self.types.is_empty_contextual_literal(value):
+                return self._infer_type(value)
+        return None
 
     def has_temporary_managed_owner(self, expression) -> bool:
         result_type = self.types.canonical_type(self.infer_type(expression))
@@ -574,6 +650,41 @@ class ExpressionAnalyzer:
         if zero:
             self.session.error("Division by zero", operand.line, operand.col)
 
+    def _reject_nonescaping_rich_enum_store(self, expression, canonical_target) -> bool:
+        """Refuse a store that could make a borrowing rich enum outlive its payload owners."""
+        rich_enum = self.types.nonescaping_rich_enum(canonical_target)
+        if rich_enum is not None:
+            self.session.error(
+                f"Nonescaping rich enum '{rich_enum}' cannot be reassigned; "
+                f"{NONESCAPING_RICH_ENUM_REASON}, so declare a new local",
+                expression.line,
+                expression.col,
+            )
+            return True
+        # Inline struct, tuple and array projections stay in the enum's
+        # storage. Crossing a pointer or managed object reaches other storage.
+        node = expression.target
+        while isinstance(node, (FieldAccessExpr, IndexExpr)):
+            if isinstance(node, FieldAccessExpr) and node.field == "data":
+                rich_enum = self.types.nonescaping_rich_enum(self.infer_type(node.obj))
+                if rich_enum is not None:
+                    self.session.error(
+                        f"Payload of nonescaping rich enum '{rich_enum}' cannot be reassigned; "
+                        f"{NONESCAPING_RICH_ENUM_REASON}, so declare a new local",
+                        expression.line,
+                        expression.col,
+                    )
+                    return True
+            receiver = self.types.canonical_type(self.infer_type(node.obj))
+            if (
+                receiver is not None
+                and not receiver.is_array
+                and (receiver.pointer_depth > 0 or self.ownership.is_managed_result_type(receiver))
+            ):
+                break
+            node = node.obj
+        return False
+
     def _validate_assignment(self, expression):
         if isinstance(expression.target, FieldAccessExpr) and expression.target.optional:
             self.session.error("Optional-chain expression is not assignable", expression.line, expression.col)
@@ -607,6 +718,17 @@ class ExpressionAnalyzer:
                 expression.line,
                 expression.col,
             )
+            return
+        flexible_struct = self.aggregates.flexible_array_struct(canonical_target)
+        if flexible_struct is not None:
+            # C11 6.7.2.1p25 copies only the members before the flexible array.
+            self.session.error(
+                f"Struct '{flexible_struct}' with a flexible array member cannot be assigned or copied",
+                expression.line,
+                expression.col,
+            )
+            return
+        if self._reject_nonescaping_rich_enum_store(expression, canonical_target):
             return
         if self._reject_borrowed_managed_rebind(expression, canonical_target):
             return
@@ -820,7 +942,7 @@ class ExpressionAnalyzer:
     def _aggregate_has_const_member(self, type_expr, seen=None) -> bool:
         if type_expr is None or self.types.is_pointer_value(type_expr):
             return False
-        name = type_expr.base.removeprefix("struct ")
+        name = self.types.record_tag_name(type_expr.base)
         declaration = self.index.struct_table.get(name)
         if declaration is None:
             return False
@@ -924,8 +1046,43 @@ class ExpressionAnalyzer:
         self.session.error(f"Duplicate {kind} name '{name}' in the same scope", line, col)
         return False
 
+    def _reject_flexible_array_operand(self, expression, subject) -> None:
+        """An rvalue copy of a struct with a flexible array member drops its
+        elements, and reading them through the copy overruns it."""
+        self.aggregates.reject_flexible_array_value(
+            self._infer_type(expression), subject, expression.line, expression.col
+        )
+
+    def _reject_flexible_array_arguments(self, arguments) -> None:
+        """An argument is passed by value, so it is never a struct with a
+        flexible array member, whatever the callee: a generic instance, a
+        variadic C function or a constructor."""
+        for argument in arguments:
+            if self.aggregates.reject_flexible_array_value(
+                self._infer_type(argument), "Call argument", argument.line, argument.col
+            ):
+                return
+
+    def _reject_flexible_array_lambda(self, expression) -> None:
+        """A lambda's parameters and its declared or inferred result are by
+        value, so none may be a struct with a flexible array member."""
+        for parameter in expression.params:
+            if self.aggregates.reject_flexible_array_value(
+                parameter.type, f"Lambda parameter '{parameter.name}'", parameter.line, parameter.col
+            ):
+                return
+        lambda_type = self._infer_type(expression)
+        if lambda_type is not None and lambda_type.generic_args:
+            self.aggregates.reject_flexible_array_value(
+                lambda_type.generic_args[0], "Lambda return type", expression.line, expression.col
+            )
+
     def _validate_cast_expr(self, expression) -> None:
         if not self.types.validate_cast_target_name(expression):
+            return
+        if self.aggregates.reject_flexible_array_value(
+            expression.target_type, "Cast target", expression.line, expression.col
+        ):
             return
         target = self.types.canonical_type(expression.target_type)
         source = self.types.canonical_type(self._infer_type(expression.expr))
@@ -1020,7 +1177,7 @@ class ExpressionAnalyzer:
             return
         if not self._is_scalar_cast_value(source):
             return
-        struct_name = target.base.removeprefix("struct ")
+        struct_name = self.types.record_tag_name(target.base)
         if (
             struct_name in self.index.struct_table
             and target.pointer_depth == 0
@@ -1129,13 +1286,14 @@ class ExpressionAnalyzer:
     def infer_index_type(self, expression):
         object_type = self._infer_type(expression.obj)
         canonical = self.types.canonical_type(object_type)
-        if canonical and canonical.base in {"Vector", "List", "Array", "Set"} and (len(canonical.generic_args) == 1):
+        collection = canonical is not None and (not canonical.is_array)
+        if collection and canonical.base in {"Vector", "List", "Array", "Set"} and (len(canonical.generic_args) == 1):
             self.generics.record_class_method_use(
                 canonical,
                 "set" if self.session.analyzing_assignment_target else "get",
             )
             return canonical.generic_args[0]
-        if canonical and canonical.base == "Map" and (len(canonical.generic_args) == 2):
+        if collection and canonical.base == "Map" and (len(canonical.generic_args) == 2):
             self.generics.record_class_method_use(
                 canonical,
                 "set" if self.session.analyzing_assignment_target else "get",
@@ -1495,7 +1653,7 @@ class ExpressionAnalyzer:
                 field_type = self.types.substitute_type(field_type, subs)
             return self._const_member_type(obj_type, field_type, is_property)
         if obj_type:
-            struct_name = obj_type.base.removeprefix("struct ")
+            struct_name = self.types.record_tag_name(obj_type.base)
             struct_decl = self.index.struct_table.get(struct_name)
             if struct_decl:
                 member = self.types.record_member(struct_decl, expr.field)
@@ -1923,6 +2081,10 @@ class ExpressionAnalyzer:
             self._infer_type(expr.callee)
             for argument in expr.args:
                 self._analyze_expr(argument)
+            # r13, in btrcc's order: inferred method type arguments, then the
+            # arguments themselves, before the call's own type and arity checks.
+            self.calls.reject_inferred_flexible_arguments(expr)
+            self._reject_flexible_array_arguments(expr.args)
             self._validate_mutex_destroy_receiver(expr)
             self.calls.analyze_call(expr)
         elif isinstance(expr, IndexExpr):
@@ -1973,41 +2135,29 @@ class ExpressionAnalyzer:
             self.session.replace_nonnull_paths(true_flow & false_flow)
             self.contextualize_ternary_literals(expr)
             self._validate_ternary_expr(expr)
+            self._reject_flexible_array_operand(expr, "Conditional expression")
         elif isinstance(expr, CastExpr):
             expr.target_type = self.types.upgrade_class_type(expr.target_type)
             self.generics.collect_type_instances(expr.target_type)
             self._analyze_expr(expr.expr)
             self._validate_cast_expr(expr)
         elif isinstance(expr, SizeofExpr):
-            if isinstance(expr.operand, SizeofType):
-                self.generics.collect_type_instances(expr.operand.type)
-            elif isinstance(expr.operand, SizeofExprOp):
-                self._analyze_expr(expr.operand.expr)
-            self.aggregates.validate_sizeof_operand(expr)
+            value = self.sizeof_value_operand(expr)
+            if value is not None:
+                self._refuse_captured_array_sizeof(value)
+                self._analyze_expr(value)
+            else:
+                if isinstance(expr.operand, SizeofType):
+                    self.generics.collect_type_instances(expr.operand.type)
+                elif isinstance(expr.operand, SizeofExprOp):
+                    self._analyze_expr(expr.operand.expr)
+                self.aggregates.validate_sizeof_operand(expr)
         elif isinstance(expr, ListLiteral):
             for el in expr.elements:
                 self._analyze_expr(el)
                 self.aggregates.reject_thread_value_escape(el, "embedded in aggregate values")
-            if len(expr.elements) >= 2:
-                first_type = next(
-                    (
-                        self._infer_type(element)
-                        for element in expr.elements
-                        if not self.types.is_empty_contextual_literal(element)
-                    ),
-                    None,
-                )
-                if first_type:
-                    for i, el in enumerate(expr.elements):
-                        if self.types.is_empty_contextual_literal(el):
-                            continue
-                        el_type = self._infer_type(el)
-                        if el_type and (not self.types.types_compatible(first_type, el_type)):
-                            self.session.error(
-                                f"List element {i} has type '{el_type.base}' but expected '{first_type.base}'",
-                                getattr(el, "line", 0),
-                                getattr(el, "col", 0),
-                            )
+                self._reject_flexible_array_operand(el, "List literal element")
+            self._record_inferred_literal(expr)
             inferred_literal = self._infer_type(expr)
             if expr.elements:
                 self.generics.record_class_method_use(inferred_literal, "push")
@@ -2017,6 +2167,9 @@ class ExpressionAnalyzer:
                 self._analyze_expr(entry.value)
                 self.aggregates.reject_thread_value_escape(entry.key, "embedded in aggregate values")
                 self.aggregates.reject_thread_value_escape(entry.value, "embedded in aggregate values")
+                self._reject_flexible_array_operand(entry.key, "Map literal key")
+                self._reject_flexible_array_operand(entry.value, "Map literal value")
+            self._record_inferred_literal(expr)
             if expr.entries:
                 self.generics.record_class_method_use(self._infer_type(expr), "put")
         elif isinstance(expr, FStringLiteral):
@@ -2024,7 +2177,9 @@ class ExpressionAnalyzer:
                 if isinstance(part, FStringExpr):
                     self._analyze_expr(part.expression)
                     self.aggregates.reject_thread_value_escape(part.expression, "formatted as values")
+                    self._reject_flexible_array_operand(part.expression, "Formatted value")
                     part_type = self._infer_type(part.expression)
+                    self.types.validate_formatted_value(part_type, part.expression.line, part.expression.col)
                     if self.types.has_scalar_to_string(part_type):
                         self.generics.record_class_method_use(part_type, "toString")
         elif isinstance(expr, TupleLiteral):
@@ -2036,6 +2191,7 @@ class ExpressionAnalyzer:
                 t = self._infer_type(el)
                 elem_types.append(t if t else TypeExpr(base="int"))
             tuple_type = TypeExpr(base="Tuple", generic_args=elem_types)
+            self.aggregates.reject_flexible_array_value(tuple_type, "Tuple literal", expr.line, expr.col)
             self.generics.collect_type_instances(tuple_type)
         elif isinstance(expr, LambdaExpr):
             if self._inside_generic_declaration():
@@ -2044,7 +2200,9 @@ class ExpressionAnalyzer:
                 )
             if id(expr) not in self.session.lambda_body_facts:
                 self.session.error("Lambda body was not prepared by statement analysis", expr.line, expr.col)
+            self._reject_flexible_array_lambda(expr)
         elif isinstance(expr, NewExpr):
+            self.types.validate_tag_keyword(expr.type, expr.line, expr.col)
             # A re-analysed tree already carries the implicit class pointer.
             written_depth = expr.type.pointer_depth - int(getattr(expr.type, "auto_upgraded", False))
             if written_depth or expr.type.is_array or expr.type.is_nullable:
@@ -2068,6 +2226,11 @@ class ExpressionAnalyzer:
             for arg in expr.args:
                 self._analyze_expr(arg)
                 self.aggregates.reject_thread_value_escape(arg, "passed as arguments")
+            self._reject_flexible_array_arguments(expr.args)
+            for index, argument in enumerate(expr.type.generic_args):
+                self.aggregates.reject_flexible_array_value(
+                    argument, f"Generic argument {index + 1} of new expression", expr.line, expr.col
+                )
             if expr.type.base == "Mutex":
                 if any(expr.arg_names or []):
                     self.session.error("'new Mutex<T>()' does not accept named arguments", expr.line, expr.col)
@@ -2101,6 +2264,8 @@ class ExpressionAnalyzer:
                 self.session.error(
                     "spawn expressions are not supported inside generic declarations", expr.line, expr.col
                 )
+            if isinstance(expr.fn, LambdaExpr):
+                self.session.spawned_lambda_ids.add(id(expr.fn))
             self._analyze_expr(expr.fn)
             self._validate_spawn_expr(expr)
             ret_type = self._infer_spawn_return_type(expr.fn)
@@ -2113,22 +2278,80 @@ class ExpressionAnalyzer:
         inferred = self._infer_type(expr)
         if inferred:
             self.session.record_node_type(expr, inferred)
+        self._reject_nonescaping_construction(expr, inferred)
+
+    def _reject_nonescaping_construction(self, expr, inferred) -> None:
+        """A constructed class instance may not hold a nonescaping rich enum."""
+        construction = isinstance(expr, NewExpr) or (
+            isinstance(expr, CallExpr)
+            and isinstance(expr.callee, Identifier)
+            and self.session.scope.lookup(expr.callee.name) is None
+            and expr.callee.name in self.index.class_table
+        )
+        constructed = self.types.canonical_type(inferred) if construction else None
+        if constructed is None or self.types.nonescaping_rich_enum(constructed) is not None:
+            return
+        contained = self.types.contains_nonescaping_rich_enum(constructed)
+        if contained is not None:
+            self.session.error(
+                f"Constructed '{constructed.base}' cannot contain nonescaping rich enum '{contained}' "
+                "in aggregate or managed storage",
+                expr.line,
+                expr.col,
+            )
+
+    def sizeof_value_operand(self, expression) -> Identifier | None:
+        """The object a ``sizeof(name)`` operand names when ``name`` is a binding in scope."""
+        operand = expression.operand
+        if not isinstance(operand, SizeofType):
+            return None
+        name = TypeIdentity.ordinary_identifier(operand.type)
+        symbol = None if name is None else self.session.scope.lookup(name)
+        if symbol is None:
+            return None
+        # A local binding hides any type of that name, as in C; a global does
+        # not hide a type parameter or a declared type (Map's sizeof(K) beside
+        # a user's global K measures the type).
+        if symbol is self.session.global_scope.lookup(name) and (
+            name in self.storage.active_type_parameters() or self.index.declares_type_name(name)
+        ):
+            return None
+        return Identifier(name=name, line=operand.type.line, col=operand.type.col)
+
+    def _refuse_captured_array_sizeof(self, value) -> None:
+        """A lambda captures an array as a pointer, so sizeof would measure the pointer."""
+        symbol = self.session.scope.lookup(value.name)
+        captured = symbol is not None and (
+            symbol.kind == "capture"
+            or any(outer.get(value.name) is symbol for outer, _captures in self.session.lambda_capture_contexts)
+        )
+        if captured and symbol.type is not None and symbol.type.is_array:
+            self.session.error(
+                f"sizeof cannot measure array '{value.name}' inside a lambda, which captures it as a pointer; "
+                "measure it outside the lambda",
+                value.line,
+                value.col,
+            )
 
     def _validate_index_expr(self, expression):
         object_type = self.types.canonical_type(self._infer_type(expression.obj))
         index_type = self._infer_type(expression.index)
         if object_type is None:
             return
-        if object_type.base == "Tuple":
+        if object_type.base == "Tuple" and not object_type.is_array and object_type.pointer_depth == 0:
             self.session.error(
                 "Tuple values are not dynamically indexable; use ._N fields", expression.line, expression.col
             )
             return
         expected_index = None
-        if object_type.base == "Map" and len(object_type.generic_args) == 2:
+        # An array of collections indexes its storage, not a collection.
+        collection = not object_type.is_array
+        if collection and object_type.base == "Map" and len(object_type.generic_args) == 2:
             expected_index = object_type.generic_args[0]
-        protocol = self.types.resolve_index_protocol(
-            object_type, active_type_params=self.storage.active_type_parameters()
+        protocol = (
+            self.types.resolve_index_protocol(object_type, active_type_params=self.storage.active_type_parameters())
+            if collection
+            else None
         )
         if expected_index is None and protocol is not None:
             assigning = self.session.analyzing_assignment_target
@@ -2266,7 +2489,7 @@ class ExpressionAnalyzer:
             self._analyze_expr(expr.obj)
         obj_type = self._infer_type(expr.obj)
         canonical = self.types.canonical_type(obj_type)
-        structure = self.index.struct_table.get(canonical.base.removeprefix("struct ")) if canonical else None
+        structure = self.index.struct_table.get(self.types.record_tag_name(canonical.base)) if canonical else None
         origin = getattr(structure, "source_file", None)
         if (
             not native_callback_write

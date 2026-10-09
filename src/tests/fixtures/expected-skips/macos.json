@@ -144,7 +144,11 @@
       "id": "linux-native-reader-covered",
       "files": [
         "src/tests/python/test_native_linux_providers.py",
-        "src/tests/python/test_native_font_runtime.py"
+        "src/tests/python/test_native_font_runtime.py",
+        "src/tests/python/test_native_ui_scroll_thumb.py",
+        "src/tests/python/test_native_ui_linux_spike.py",
+        "src/tests/python/test_native_ui_layout_resize.py",
+        "src/tests/python/test_native_ui_grid_replacement.py"
       ],
       "nodes": [
         "*::test_linux_image_decoding*",
@@ -154,14 +158,19 @@
         "*::test_linux_gui_controls*",
         "*::test_linux_gui_shutdown_deadline*",
         "*::test_linux_gui_gpu_view_reparent*",
-        "*::test_linux_gui_keeps_provider_modules_private*"
+        "*::test_linux_gui_keeps_provider_modules_private*",
+        "*::test_linux_scroll_thumb_bounds*",
+        "src/tests/python/test_native_ui_linux_spike.py::test_linux_event_boundary[[]*]",
+        "src/tests/python/test_native_ui_linux_spike.py::test_linux_input_repair[[]*]",
+        "src/tests/python/test_native_ui_layout_resize.py::test_linux_layout_resize[[]*]",
+        "src/tests/python/test_native_ui_grid_replacement.py::test_linux_grid_replacement[[]*]"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows and the GPU view, so the devcontainer runs all eight."
+      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows, GPU view and scrollbar regression. Required Linux execution is tracked separately from these Mac platform skips."
     },
     {
       "id": "linux-glibc-call-shapes",
@@ -284,6 +293,21 @@
         "linux-devcontainer"
       ],
       "note": "The patched SDL's X11 clipboard path (nix/sdl3-x11-selection-requestor.patch) exists only on Linux; the probe runs under the Linux virtual display."
+    },
+    {
+      "id": "linux-main-stack-resource-limit",
+      "files": [
+        "src/tests/btrc/test_deep_expression_parity.py"
+      ],
+      "nodes": [
+        "*::test_compiler_stack_respects_process_hard_limit[[]*[]]"
+      ],
+      "reason": "^Linux main-stack resource limit$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The Linux btrc shard checks refusal at a 16 MiB hard stack limit and successful startup at 64 MiB. Only the launcher child changes its resource limits; macOS uses a separate compiler stack."
     }
   ]
 }

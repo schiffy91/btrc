@@ -48,7 +48,8 @@ _PLATFORM_STRUCT_MEMBERS = frozenset(
         "pw_dir",
         "pw_name",
         "pw_uid",  # struct passwd
-        "rlim_cur",  # struct rlimit
+        "rlim_cur",
+        "rlim_max",  # struct rlimit
         "rm_eo",
         "rm_so",  # regmatch_t
         "ru_maxrss",
@@ -148,11 +149,11 @@ def _interpolated_names(text: str) -> set[str]:
 def test_self_hosted_compiler_owns_only_camel_case_names() -> None:
     """The compiler is held to the narrowest allowlist.
 
-    It links against no fixture and no example package, so the hosted ABI is
-    the only foreign spelling it may borrow.
+    It links against no fixture and no example package, so only hosted ABI
+    names and members of system-header structures are foreign spellings.
     """
 
-    foreign = _foreign_names()
+    foreign = _foreign_names() | _PLATFORM_STRUCT_MEMBERS
     sources = sorted(SELFHOST.rglob("*.btrc"))
     assert sources, "no self-hosted compiler sources found"
     offenders: dict[str, set[str]] = {}

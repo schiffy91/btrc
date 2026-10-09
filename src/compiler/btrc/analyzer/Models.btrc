@@ -1,4 +1,5 @@
 import Library.Map;
+import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
@@ -194,6 +195,10 @@ class Analyzed {
 	 * source the importer does not model; ALL_CAPS names there may be C
 	 * macros the compiler cannot see. */
 	public Map<int, bool> unmodeledIncludeLines = {};
+	/* Generic type-parameter names that also name a top-level symbol the
+	 * generic's file can see, keyed "<declaration key>\t<name>"; null when the
+	 * frontend ran no strict-import visibility, which sees every symbol. */
+	public Map<string, bool>? visibleTypeParameters = null;
 	private Map<string, FeNativeImportedDeclaration> nativeClassIndex;
 	private Map<string, Node> nativeOwnedFunctions = {};
 	public Map<string, bool> nativeLifetimeOperations = {};
@@ -361,6 +366,9 @@ class Analyzed {
 	/* Number of enum declarations that export each bare spelling. Qualified
      * access remains legal when the bare form is ambiguous. */
 	public Map<string, int> enumValueOwnerCount;
+	/* Every enum (by name, "" when anonymous) that exports each bare spelling,
+	 * which an ambiguous bare use lists. */
+	public Map<string, Map<string, bool>> enumValueOwnerNames;
 	/* rich (tagged-union) enum type name -> its RichEnumDecl node
      * (NK_RICH_ENUM_DECL). Mirrors rich_enum_table. */
 	public Map<string, Node> richEnumTable;
@@ -394,6 +402,8 @@ class Analyzed {
      * `order.equals(...)` lowers as a string method). Seeded into each
      * function's local varTypes at lowering entry. */
 	public Map<string, Node> globalVarTypes;
+	/* Each global's initializer, which completes an unsized array's extent. */
+	public Map<string, Node> globalInitializers;
 	/* Global names with a concrete definition (not an initializer-less extern).
      * IR generation suppresses redundant extern redeclarations when the same
      * composed translation unit already owns the definition. */
@@ -428,10 +438,6 @@ class Analyzed {
 	/* The program's source-macro namespace, installed by validation; lowering
 	 * decodes a string constant's extent through it. */
 	public SourceMacroNamespace? sourceMacros = null;
-	/* The composed source's user lines, which position macro refusals in
-	 * their own files. */
-	public int stdlibLineCount = 0;
-	public Vector<FeLine> sourceLines = [];
 	/* The selected target row's long width in bits (its sizeof_long), which
 	 * types literals and bounds long casts; SemanticAnalyzer sets it. */
 	public int longBits = 0;
@@ -459,6 +465,7 @@ class Analyzed {
 		self.enumTable = {};
 		self.enumValueOwner = {};
 		self.enumValueOwnerCount = {};
+		self.enumValueOwnerNames = {};
 		self.richEnumTable = {};
 		self.methodGenInstances = [];
 		self.methodGenSeen = {};
@@ -468,6 +475,7 @@ class Analyzed {
 		self.hostedCallKeys = {};
 		self.genericConstructorTypes = {};
 		self.globalVarTypes = {};
+		self.globalInitializers = {};
 		self.globalHasDefinition = {};
 		self.typedefTable = {};
 		self.structTable = {};
@@ -637,6 +645,17 @@ class Analyzed {
 
 	public bool isAmbiguousEnumValue(string name) { return self.enumValueOwnerCount.has(name) && self.enumValueOwnerCount.get(name) > 1; }
 
+	/* The enums an ambiguous bare spelling belongs to, sorted, as a
+	 * diagnostic lists them. */
+	public string enumValueOwnerList(string name) {
+		Vector<string> owners = [];
+		if (self.enumValueOwnerNames.has(name)) {
+			for owner in self.enumValueOwnerNames.get(name).keys() { owners.push(owner.isEmpty() ? "<anonymous>" : owner); }
+		}
+		owners.sort();
+		return Strings.join(owners, ", ");
+	}
+
 	public bool enumContains(string enumName, string valueName) {
 		if (!self.enumTable.has(enumName)) { return false; }
 		Node declaration = self.enumTable.get(enumName);
@@ -666,6 +685,9 @@ class Analyzed {
 
 	/* Interfaces share managed receiver identity with their implementers. */
 	public bool isInterface(string name) { return self.interfaceTable.has(name); }
+
+	/* Whether a class, struct, enum, interface or typedef is named `name`. */
+	public bool declaresTypeName(string name) { return self.isClass(name) || self.isGenericClass(name) || self.structTable.has(name) || self.isEnum(name) || self.isRichEnum(name) || self.isInterface(name) || self.typedefTable.has(name); }
 
 	/* Find an interface method through its declared inheritance chain. The
      * declaration index belongs to Analyzed so validation and lowering resolve

@@ -329,7 +329,7 @@ class FeNativeDeclarationImporter {
 		if (native.kind == NNK_NATIVE_QUALIFIED_TYPE) { return self.realtimeNativeSpelling(native.underlying); }
 		string prefix = native.qualifiers.isConst ? "const " : "";
 		if (native.kind == NNK_NATIVE_POINTER) { return self.realtimeNativeSpelling(native.pointee) + "*" + (prefix.isEmpty() ? "" : " const"); }
-		if (native.kind == NNK_NATIVE_RECORD_TYPE && !native.tagName.isEmpty()) { return prefix + "struct " + native.tagName; }
+		if (native.kind == NNK_NATIVE_RECORD_TYPE && !native.tagName.isEmpty()) { return prefix + native.recordKind + " " + native.tagName; }
 		return prefix + self.blockTypeSpelling(native);
 	}
 
@@ -1362,6 +1362,7 @@ class FeNativeDeclarationImporter {
 			declaration.name = name;
 			/* Complete SDK types own storage without mirroring private fields. */
 			declaration.isForward = !native.complete;
+			declaration.isUnion = native.recordKind == "union";
 			string spelling = native.tagName.isEmpty() ? name : native.recordKind + " " + native.tagName;
 			self.add(name, declaration, native.identity + ":" + native.recordKind, spelling);
 			self.records.put(key, declaration);

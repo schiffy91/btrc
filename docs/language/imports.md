@@ -23,6 +23,24 @@ not create import requirements. Compiler built-ins and names supplied by an
 external C header are not owned by a btrc source file and therefore are outside
 this graph check.
 
+A list or map literal names no symbol, so it creates no import requirement of
+its own; `for x in [1, 2, 3]` needs no import when some module of the program
+declares `Vector`. Where the literal must become a collection value, as a
+`var` initializer or a for-in iterable, the program must declare that class
+(`Vector` for a list literal, `Map` for a map literal). Otherwise both
+compilers reject the literal with `List literal needs the Vector class; add
+'import Library.Vector;'` (or the `Map` equivalent). A literal whose type is
+inferred, wherever it stands (nested in another literal, in a lambda, a
+conditional or a receiver), takes its type from its first element or entry,
+and another one that does not fit is rejected (`Map value 1 has type 'string'
+but expected 'int'`); a null entry fits only a type that can hold null, and an
+empty `[]` or `{}` entry takes the literal's type. A literal written into
+storage whose type it fills, such as an array, a declared `Vector<Animal>`, an
+assignment, a return, a field or parameter default, or a `Map<string, double>`
+parameter, follows that type instead, and each element is checked against it:
+`[1, 2]` passed as `Vector<double>` is a `Vector<double>`, and
+`[Dog(), Bird()]` fills a `Vector<Animal>`.
+
 `--strict-imports` remains accepted as an explicit assertion of the default.
 `--relaxed-imports` is the only compatibility opt-out. Relaxed mode preserves
 the legacy implicit-stdlib behavior and does not enforce per-file visibility.

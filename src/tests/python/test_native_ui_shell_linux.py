@@ -19,6 +19,7 @@ from tools.qualification.skips import RunnerIdentity
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+@pytest.mark.linux_gui
 def test_linux_native_shell(tmp_path, request, frontend, sanitized):
     if sys.platform != "linux":
         pytest.skip("requires Linux SDL native shell")

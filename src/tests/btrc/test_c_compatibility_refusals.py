@@ -417,6 +417,12 @@ DECLARATOR_REFUSALS = [
         ("'var' declares one variable: write one 'var' declaration per variable", 1, 10),
         id="r03-global-var-declarators",
     ),
+    # Several declarators reach the duplicate-member check.
+    pytest.param(
+        "class C { public int a, a; }\nint main() { return 0; }",
+        ("Duplicate field 'a' in class 'C'", 1, 25),
+        id="r03-duplicate-class-field",
+    ),
 ]
 
 # Row 5: adjacent string literals concatenate (src/tests/c_compat/AdjacentStringLiterals.btrc);
@@ -796,6 +802,50 @@ FUNCTION_POINTER_REFUSALS = [
     ),
 ]
 
+# Row 13: C11 6.7.2.1p18 permits an object of a struct with a flexible array
+# member, an external one, and the partial copy of 6.7.2.1p25; btrc keeps such
+# a struct behind a pointer. P1 refuses btrc's `T[] name` spelling in a struct
+# body, which the AST could not tell from `T name[]`.
+FLEXIBLE_BUFFER = "struct Buffer { int count; int data[]; };\n"
+FLEXIBLE_BY_VALUE = "{} uses struct 'Buffer' with a flexible array member by value; use a pointer"
+FLEXIBLE_ARRAY_REFUSALS = [
+    pytest.param(
+        FLEXIBLE_BUFFER + "int main() { struct Buffer b; return 0; }",
+        (FLEXIBLE_BY_VALUE.format("Variable 'b'"), 2, 14),
+        id="r13-local-object",
+    ),
+    pytest.param(
+        FLEXIBLE_BUFFER + "int main() { static struct Buffer b; return 0; }",
+        (FLEXIBLE_BY_VALUE.format("Variable 'b'"), 2, 14),
+        id="r13-static-object",
+    ),
+    pytest.param(
+        FLEXIBLE_BUFFER + "struct Buffer g;\nint main() { return 0; }",
+        (FLEXIBLE_BY_VALUE.format("Global 'g'"), 2, 1),
+        id="r13-global-object",
+    ),
+    pytest.param(
+        FLEXIBLE_BUFFER + "extern struct Buffer g;\nint main() { return 0; }",
+        (FLEXIBLE_BY_VALUE.format("Global 'g'"), 2, 1),
+        id="r13-extern-object",
+    ),
+    pytest.param(
+        FLEXIBLE_BUFFER + "void copy(struct Buffer* a, struct Buffer* b) { *a = *b; }\nint main() { return 0; }",
+        ("Struct 'Buffer' with a flexible array member cannot be assigned or copied", 2, 49),
+        id="r13-partial-copy",
+    ),
+    pytest.param(
+        "struct Buffer { int count; int[] data; };\nint main() { return 0; }",
+        (
+            "Struct field 'data' cannot use the 'T[] name' spelling; "
+            "declare a flexible array member as 'T data[]' or a pointer as 'T* data'",
+            1,
+            34,
+        ),
+        id="r13-type-position-array-field",
+    ),
+]
+
 # Row 23 refusals where the compilers agree on the refusal but not on its
 # diagnostic. Each is pre-existing and shared with fixed-size arrays; the pair
 # is pinned so a change to either side is deliberate.
@@ -809,6 +859,453 @@ VLA_DIVERGENT_REFUSALS = [
 ]
 
 
+BOX = "class Box<T> { public T value; public Box(T value) { self.value = value; } }\n"
+UNION_PLAIN = "; a union cannot tell which member is live, so its members must be plain C values"
+MAIN_LINE = "\nint main() { return 0; }"
+NOT_UNION = "'union P' does not name a union: 'P' is a struct"
+
+# Row 9 (docs/design/c-compatibility.md "Refusals", records and tags). The
+# struct messages were made identical first; each union message derives from
+# its struct twin. A tag of another kind is refused in every type position.
+RECORD_REFUSALS = [
+    pytest.param(
+        "struct S { int a; };\nstruct S { int a; };" + MAIN_LINE,
+        ("Duplicate definition of struct 'S'", 2, 1),
+        id="r09-struct-duplicate-definition",
+    ),
+    pytest.param(
+        "struct S { };" + MAIN_LINE,
+        ("Struct 'S' cannot have an empty body under strict C11", 1, 1),
+        id="r09-struct-empty-body",
+    ),
+    pytest.param(
+        "struct { int a; };" + MAIN_LINE,
+        ("anonymous struct at top level must be named", 1, 1),
+        id="r09-struct-anonymous",
+    ),
+    pytest.param(
+        "struct S { int a; };\nint main() { S s; s.z = 1; return 0; }",
+        ("Struct 'S' has no field 'z'", 2, 19),
+        id="r09-struct-unknown-member",
+    ),
+    pytest.param(
+        "union U { int a; int a; };" + MAIN_LINE,
+        ("Duplicate field 'a' in union 'U'", 1, 22),
+        id="r09-union-duplicate-member",
+    ),
+    pytest.param(
+        "union U { int a; };\nunion U { int a; };" + MAIN_LINE,
+        ("Duplicate definition of union 'U'", 2, 1),
+        id="r09-union-duplicate-definition",
+    ),
+    pytest.param(
+        "union U { };" + MAIN_LINE,
+        ("Union 'U' cannot have an empty body under strict C11", 1, 1),
+        id="r09-union-empty-body",
+    ),
+    pytest.param(
+        "union { int a; };" + MAIN_LINE,
+        ("anonymous union at top level must be named", 1, 1),
+        id="r09-union-anonymous",
+    ),
+    pytest.param(
+        "struct U { int a; };\nunion U;" + MAIN_LINE,
+        ("Top-level name 'U' is declared as both struct and union", 2, 7),
+        id="r09-struct-and-union",
+    ),
+    pytest.param(
+        "union U { int a; };\nint main() { union U u; u.z = 1; return 0; }",
+        ("Union 'U' has no field 'z'", 2, 25),
+        id="r09-union-unknown-member",
+    ),
+    pytest.param(
+        "struct P { int a; };\nint main() { union P p; return 0; }",
+        ("'union P' does not name a union: 'P' is a struct", 2, 14),
+        id="r09-wrong-keyword-struct",
+    ),
+    pytest.param(
+        "enum Color { RED };\nint main() { struct Color c; return 0; }",
+        ("'struct Color' does not name a struct: 'Color' is an enum", 2, 14),
+        id="r09-wrong-keyword-enum",
+    ),
+    pytest.param(
+        "class Box { public int v; }\nint main() { union Box* b = null; return 0; }",
+        ("'union Box' does not name a union: 'Box' is a class", 2, 14),
+        id="r09-wrong-keyword-class",
+    ),
+    pytest.param(
+        "typedef int Id;\nint main() { int s = sizeof(struct Id); return s; }",
+        ("'struct Id' does not name a struct: 'Id' is a typedef", 2, 29),
+        id="r09-wrong-keyword-sizeof",
+    ),
+    pytest.param(
+        "union U { int a; };\nint main() { void* p = null; return (struct U*)p == null ? 0 : 1; }",
+        ("'struct U' does not name a struct: 'U' is a union", 2, 38),
+        id="r09-wrong-keyword-cast",
+    ),
+    pytest.param(
+        "union Holder { string text; int value; };" + MAIN_LINE,
+        ("Union 'Holder' member 'text' cannot hold managed type 'string'" + UNION_PLAIN, 1, 23),
+        id="r09-union-managed-member",
+    ),
+    pytest.param(
+        "class Box { public int v; }\nunion Holder { Box box; int value; };" + MAIN_LINE,
+        ("Union 'Holder' member 'box' cannot hold managed type 'Box'" + UNION_PLAIN, 2, 20),
+        id="r09-union-class-member",
+    ),
+    pytest.param(
+        "union Holder { CFunction<string, int> describe; int value; };" + MAIN_LINE,
+        ("Union 'Holder' member 'describe' cannot hold managed type 'CFunction<string, int>'" + UNION_PLAIN, 1, 39),
+        id="r09-union-managed-callback-member",
+    ),
+    pytest.param(
+        "struct Pair { string name; int n; };\nunion Holder { struct Pair pair; int value; };" + MAIN_LINE,
+        ("Union 'Holder' member 'pair' cannot hold 'Pair', which contains managed field 'name'" + UNION_PLAIN, 2, 28),
+        id="r09-union-nested-managed-member",
+    ),
+    pytest.param(
+        "struct T { string name; int n; };\nclass Box<T> { public T value; }\n"
+        "union Holder { struct T pair; int value; };" + MAIN_LINE,
+        ("Union 'Holder' member 'pair' cannot hold 'T', which contains managed field 'name'" + UNION_PLAIN, 3, 25),
+        id="r09-union-tagged-generic-collision-managed-member",
+    ),
+    pytest.param(
+        "union U { Atomic<int> counter; int a; };" + MAIN_LINE,
+        (
+            "Union field 'U.counter' cannot embed an Atomic<T> owner in shallow copyable storage; "
+            "keep Atomic<T> as a direct class field or local owner",
+            1,
+            11,
+        ),
+        id="r09-union-atomic-member",
+    ),
+    pytest.param(
+        "union U { RealtimeFunction callback; int a; };" + MAIN_LINE,
+        (
+            "Union 'U' member 'callback' cannot hold a RealtimeFunction; "
+            "a union could reinterpret it without its realtime proof",
+            1,
+            28,
+        ),
+        id="r09-union-realtime-function",
+    ),
+    pytest.param(
+        "union U { int n; int data[]; };" + MAIN_LINE,
+        ("Union member 'U.data' cannot be a flexible array member", 1, 22),
+        id="r09-union-flexible-array",
+    ),
+    pytest.param(
+        "union U { int n; int[] data; };" + MAIN_LINE,
+        ("Union field 'data' cannot use the 'T[] name' spelling; declare a pointer as 'T* data'", 1, 24),
+        id="r09-union-array-spelling",
+    ),
+    pytest.param(
+        "typedef union { int n; int data[]; } Holder;" + MAIN_LINE,
+        ("Union member 'Holder.data' cannot be a flexible array member", 1, 28),
+        id="r09-typedef-union-flexible-array",
+    ),
+    pytest.param(
+        "typedef union { int n; } *Handle;" + MAIN_LINE,
+        (
+            "An untagged union in a typedef needs a plain declarator to name it; "
+            "add a tag (typedef union Name { ... } *Alias;)",
+            1,
+            9,
+        ),
+        id="r09-typedef-union-unnamed",
+    ),
+    pytest.param(
+        "union U { int i; float f; };\nint main() { U u = {1, 2}; return 0; }",
+        (
+            "Union 'U' initializer has 2 elements; a positional union initializer sets only the first member "
+            "(use a designator such as {.f = ...})",
+            2,
+            20,
+        ),
+        id="r09-union-two-positional-elements",
+    ),
+    pytest.param(
+        "union U { int i; float f; };\n@gpu void k(U u) { }" + MAIN_LINE,
+        ("@gpu function 'k': type 'U' not allowed in parameter 'u' (use int, float, or bool)", 2, 6),
+        id="r09-union-gpu",
+    ),
+    pytest.param(
+        "struct P { int a; };\nint apply(CFunction<int, union P> f) { return 0; }" + MAIN_LINE,
+        ("'union P' does not name a union: 'P' is a struct", 2, 26),
+        id="r09-wrong-keyword-generic-argument",
+    ),
+    pytest.param(
+        "struct P { int a; };\nstruct Q { union P inner; };" + MAIN_LINE,
+        ("'union P' does not name a union: 'P' is a struct", 2, 12),
+        id="r09-wrong-keyword-field",
+    ),
+    pytest.param(
+        "interface Shape { int area(); }\nint main() { struct Shape* s = null; return 0; }",
+        ("'struct Shape' does not name a struct: 'Shape' is an interface", 2, 14),
+        id="r09-wrong-keyword-interface",
+    ),
+    pytest.param(
+        "struct S { int a; int a; };" + MAIN_LINE,
+        ("Duplicate field 'a' in struct 'S'", 1, 23),
+        id="r09-struct-duplicate-member",
+    ),
+    pytest.param(
+        "union U { int i; };\nint main() { U a = {1}; print(a); return 0; }",
+        (
+            "Union 'U' cannot be printed or formatted; a union cannot tell which member is live, "
+            "so print one of its members",
+            2,
+            31,
+        ),
+        id="r09-union-print",
+    ),
+    pytest.param(
+        "union T { int i; };\nclass Box<T> { public T value; }\nint main() { union T a = {1}; print(a); return 0; }",
+        (
+            "Union 'T' cannot be printed or formatted; a union cannot tell which member is live, "
+            "so print one of its members",
+            3,
+            37,
+        ),
+        id="r09-union-tagged-generic-collision-print",
+    ),
+    pytest.param(
+        'union U { int i; };\nint main() { U a = {1}; string s = f"{a}"; return 0; }',
+        (
+            "Union 'U' cannot be printed or formatted; a union cannot tell which member is live, "
+            "so print one of its members",
+            2,
+            39,
+        ),
+        id="r09-union-f-string",
+    ),
+    pytest.param(
+        "union T { int i; };\nclass Box<T> { public T value; }\n"
+        'int main() { union T a = {1}; string s = f"{a}"; return 0; }',
+        (
+            "Union 'T' cannot be printed or formatted; a union cannot tell which member is live, "
+            "so print one of its members",
+            3,
+            45,
+        ),
+        id="r09-union-tagged-generic-collision-f-string",
+    ),
+    # The wrong keyword in `new`'s type and its nested arguments.
+    pytest.param(
+        "struct P { int x; };\n" + BOX + "int main() { var b = new Box<union P*>(null); return 0; }",
+        ("'union P' does not name a union: 'P' is a struct", 3, 30),
+        id="r09-wrong-keyword-new",
+    ),
+    pytest.param(
+        "struct P { int x; };\n" + BOX + "int main() { var b = new Box<enum P>(0); return 0; }",
+        ("'enum P' does not name an enum: 'P' is a struct", 3, 30),
+        id="r09-wrong-keyword-new-enum",
+    ),
+    pytest.param(
+        "struct P { int x; };\n" + BOX + "int main() { var b = new Box<Box<union P*>>(null); return 0; }",
+        ("'union P' does not name a union: 'P' is a struct", 3, 34),
+        id="r09-wrong-keyword-new-nested",
+    ),
+    pytest.param(
+        "union U { int x; };\n" + BOX + "int main() { var b = new Box<struct U*>(null); return 0; }",
+        ("'struct U' does not name a struct: 'U' is a union", 3, 30),
+        id="r09-wrong-keyword-new-union",
+    ),
+    # A wrong tag inside an initialized local's type is reported first.
+    pytest.param(
+        "struct P { int x; };\nint main() { (int, union P*) t = (1, null); return 0; }",
+        ("'union P' does not name a union: 'P' is a struct", 2, 20),
+        id="r09-wrong-keyword-tuple-local",
+    ),
+    pytest.param(
+        "struct P { int x; };\nint main() { CFunction<int, union P*> f = null; return 0; }",
+        ("'union P' does not name a union: 'P' is a struct", 2, 29),
+        id="r09-wrong-keyword-cfunction-local",
+    ),
+    # An identity typedef keeps the name-claim diagnostic until r08 accepts it.
+    pytest.param(
+        "struct P { int x; };\ntypedef struct P P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 18),
+        id="r09-identity-typedef-after",
+    ),
+    pytest.param(
+        "typedef struct P P;\nstruct P { int x; };" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both typedef and struct", 2, 8),
+        id="r09-identity-typedef-before",
+    ),
+    pytest.param(
+        "struct P { int x; };\ntypedef struct P* P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 19),
+        id="r09-pointer-typedef-own-tag",
+    ),
+    pytest.param(
+        "union U { int x; };\ntypedef union U U;" + MAIN_LINE,
+        ("Top-level name 'U' is declared as both union and typedef", 2, 17),
+        id="r09-identity-typedef-union",
+    ),
+    # A managed member is named as written.
+    pytest.param(
+        "class Box { public int v; }\nunion U { CFunction<int, Box> f; int i; };" + MAIN_LINE,
+        ("Union 'U' member 'f' cannot hold managed type 'CFunction<int, Box>'" + UNION_PLAIN, 2, 31),
+        id="r09-union-callback-class-argument",
+    ),
+    pytest.param(
+        "class Box { public int v; }\nunion U { CFunction<Box, int> f; int i; };" + MAIN_LINE,
+        ("Union 'U' member 'f' cannot hold managed type 'CFunction<Box, int>'" + UNION_PLAIN, 2, 31),
+        id="r09-union-callback-class-result",
+    ),
+    pytest.param(
+        "class Box { public int v; }\nunion U { (int, Box) f; int i; };" + MAIN_LINE,
+        ("Union 'U' member 'f' cannot hold managed type 'Tuple<int, Box>'" + UNION_PLAIN, 2, 22),
+        id="r09-union-tuple-class",
+    ),
+    pytest.param(
+        "class Box { public int v; }\nunion U { Box? b; int i; };" + MAIN_LINE,
+        ("Union 'U' member 'b' cannot hold managed type 'Box?'" + UNION_PLAIN, 2, 16),
+        id="r09-union-nullable-class",
+    ),
+    pytest.param(
+        "union U { int n; char data[0]; };" + MAIN_LINE,
+        ("Array bound for union field 'U.data' must be positive", 1, 28),
+        id="r09-union-array-bound",
+    ),
+    # A brace list passed or assigned as a record has at most its slots.
+    pytest.param(
+        "class Box<T> {}\nunion T { int a; float b; };\n"
+        "int take(union T u) { return u.a; }\nint main() { return take({1, 2}); }",
+        (
+            "Union 'T' initializer has 2 elements; a positional union initializer sets only the first member "
+            "(use a designator such as {.f = ...})",
+            4,
+            26,
+        ),
+        id="r09-union-tagged-generic-collision-argument-excess",
+    ),
+    pytest.param(
+        "class Box<T> {}\nunion T { int a; float b; };\nint main() { union T u; u = {1, 2}; return u.a; }",
+        (
+            "Union 'T' initializer has 2 elements; a positional union initializer sets only the first member "
+            "(use a designator such as {.f = ...})",
+            3,
+            29,
+        ),
+        id="r09-union-tagged-generic-collision-assignment-excess",
+    ),
+    pytest.param(
+        "union U { int a; float b; double c; };\nint take(U u) { return u.a; }\nint main() { return take({1, 2}); }",
+        (
+            "Union 'U' initializer has 2 elements; a positional union initializer sets only the first member "
+            "(use a designator such as {.f = ...})",
+            3,
+            26,
+        ),
+        id="r09-union-argument-two-elements",
+    ),
+    pytest.param(
+        "union U { int a; float b; double c; };\nint main() { U u; u = {1, 2}; return u.a; }",
+        (
+            "Union 'U' initializer has 2 elements; a positional union initializer sets only the first member "
+            "(use a designator such as {.f = ...})",
+            2,
+            23,
+        ),
+        id="r09-union-assignment-two-elements",
+    ),
+    pytest.param(
+        "struct S { int a; };\nint take(S s) { return s.a; }\nint main() { return take({1, 2}); }",
+        ("Argument 's' to 'take()' has 2 initializer elements but struct 'S' has 1 fields", 3, 26),
+        id="r09-struct-argument-excess",
+    ),
+    pytest.param(
+        "struct S { int a; };\nint main() { S s; s = {1, 2}; return s.a; }",
+        ("Assignment has 2 initializer elements but struct 'S' has 1 fields", 2, 19),
+        id="r09-struct-assignment-excess",
+    ),
+    pytest.param(
+        "union U { int i; };\nint main() { U* p = new U(); return 0; }",
+        ("new requires a class type, got 'U'", 2, 21),
+        id="r09-union-new",
+    ),
+    # Both compilers check the keyword of a `new` type, generic arguments
+    # included, before the expression's other checks.
+    *(
+        pytest.param("struct P { int x; };\n" + BOX + body, (message, 3, col), id=f"r09-new-tag-{name}")
+        for name, body, message, col in (
+            ("compare", "int main() { if (new Box<union P*>(null) != null) { return 1; } return 0; }", NOT_UNION, 26),
+            (
+                "member",
+                "int main() { bool e = new Box<union P*>(null).value == null; return e ? 0 : 1; }",
+                NOT_UNION,
+                31,
+            ),
+            ("bool", "int main() { bool z = new Box<union P*>(null) != null; return z ? 0 : 1; }", NOT_UNION, 31),
+            ("address", "int main() { P p = {1}; var b = new Box<union P*>(&p); return 0; }", NOT_UNION, 41),
+            ("declared", "int main() { Box<P*> b = new Box<union P*>(null); return 0; }", NOT_UNION, 34),
+            (
+                "return",
+                "Box<P*> make() { return new Box<union P*>(null); }\nint main() { make(); return 0; }",
+                NOT_UNION,
+                33,
+            ),
+            (
+                "assignment",
+                "int main() { Box<P*> b = new Box<P*>(null); b = new Box<union P*>(null); return 0; }",
+                NOT_UNION,
+                57,
+            ),
+        )
+    ),
+    pytest.param(
+        "union U { int a; float b; };\n" + BOX + "int main() { U u = {1}; var b = new Box<struct U>(u); return 0; }",
+        ("'struct U' does not name a struct: 'U' is a union", 3, 41),
+        id="r09-new-tag-struct-of-union",
+    ),
+    pytest.param(
+        "struct P { int x; };\ninterface IShow<T> { int show(T value); }\nint use(IShow<union P*> s) { return 0; }"
+        + MAIN_LINE,
+        (NOT_UNION, 3, 15),
+        id="r09-generic-interface-argument-tag",
+    ),
+    # A typedef named for its own tag claims the record's name; that claim is
+    # the diagnostic whichever keyword it spells.
+    pytest.param(
+        "struct P { int v; };\ntypedef union P P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 17),
+        id="r09-identity-typedef-other-keyword",
+    ),
+    pytest.param(
+        "union U { int v; };\ntypedef struct U U;" + MAIN_LINE,
+        ("Top-level name 'U' is declared as both union and typedef", 2, 18),
+        id="r09-identity-typedef-struct-of-union",
+    ),
+    pytest.param(
+        "struct P { int v; };\ntypedef union P* P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 18),
+        id="r09-identity-typedef-other-keyword-pointer",
+    ),
+    pytest.param(
+        "struct P { int v; };\ntypedef enum P P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 16),
+        id="r09-identity-typedef-enum-keyword",
+    ),
+    pytest.param(
+        "struct P { int v; };\ntypedef union P Q;\ntypedef union P P;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 3, 17),
+        id="r09-identity-typedef-after-wrong-tag-typedef",
+    ),
+    pytest.param(
+        "struct P { int v; };\ntypedef union P P;\ntypedef union P Q;" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 17),
+        id="r09-identity-typedef-before-wrong-tag-typedef",
+    ),
+    pytest.param(
+        "struct P { int v; };\ntypedef union P P;\nstruct Q { union P* bad; };" + MAIN_LINE,
+        ("Top-level name 'P' is declared as both struct and typedef", 2, 17),
+        id="r09-identity-typedef-before-wrong-tag-field",
+    ),
+]
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     REFUSALS
@@ -817,7 +1314,9 @@ VLA_DIVERGENT_REFUSALS = [
     + ADJACENT_STRING_REFUSALS
     + CHAR_ARRAY_REFUSALS
     + VLA_REFUSALS
-    + FUNCTION_POINTER_REFUSALS,
+    + FUNCTION_POINTER_REFUSALS
+    + RECORD_REFUSALS
+    + FLEXIBLE_ARRAY_REFUSALS,
 )
 def test_refusal_is_identical_in_both_compilers(
     semantic_btrcc: Path,
@@ -908,6 +1407,22 @@ ACCEPTED = [
         """,
         id="r04-class-static-char-array",
     ),
+    pytest.param(
+        """
+        #include <assert.h>
+        struct P { int x; };
+        int readP(struct P* p);
+        int readP(P* p) { return p->x; }
+        extern struct P shared;
+        P shared = {5};
+        int main() {
+            P local = {2};
+            assert(readP(&local) + readP(&shared) == 7);
+            return 0;
+        }
+        """,
+        id="r09-record-tag-in-prototypes-and-globals",
+    ),
 ]
 
 
@@ -927,15 +1442,32 @@ def test_accepted_neighbour_runs_strictly_in_both_compilers(
 # literal after it is refused. The two import parsers already reported this
 # differently before row 5 landed (btrcc has no same-line import check); the
 # pair is pinned so a change to either side is deliberate.
-# The two compilers word a duplicate class member differently for single
-# declarations too; several declarators reach the same check, so the
-# divergence is pinned, not new.
-DECLARATOR_DIVERGENT_REFUSALS = [
+# Row 9: the compilers word `==` and the ownership operations on any record
+# differently (a struct does too); a union meets the same refusals.
+RECORD_DIVERGENT_REFUSALS = [
     pytest.param(
-        "class C { public int a, a; }\nint main() { return 0; }",
-        ("Duplicate field 'a' in class 'C'", 1, 25),
-        ("Duplicate member 'C.a'", 1, 25),
-        id="r03-duplicate-class-field",
+        "union U { int i; };\nint main() { U a = {1}; U b = {2}; bool same = a == b; return 0; }",
+        ("operator '==' is not defined for aggregate operands 'U' and 'U'", 2, 48),
+        ("Operator '==' is not defined for 'U' and 'U'", 2, 48),
+        id="r09-union-equality",
+    ),
+    pytest.param(
+        "union U { int i; };\nint main() { U a = {1}; keep a; return 0; }",
+        ("Ownership operation is not valid for 'U'", 2, 25),
+        ("keep is not valid for type 'U'", 2, 25),
+        id="r09-union-keep",
+    ),
+    pytest.param(
+        "union U { int i; };\nint main() { U a = {1}; release a; return 0; }",
+        ("Ownership operation is not valid for 'U'", 2, 25),
+        ("release is not valid for type 'U'", 2, 25),
+        id="r09-union-release",
+    ),
+    pytest.param(
+        "union U { int i; };\nint main() { U a = {1}; delete a; return 0; }",
+        ("Ownership operation is not valid for 'U'", 2, 25),
+        ("delete is not valid for type 'U'", 2, 25),
+        id="r09-union-delete",
     ),
 ]
 
@@ -967,7 +1499,7 @@ IMPORT_PATH_REFUSALS = [
 
 @pytest.mark.parametrize(
     ("source", "reference_expected", "selfhost_expected"),
-    VLA_DIVERGENT_REFUSALS + DECLARATOR_DIVERGENT_REFUSALS + COMMA_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS,
+    VLA_DIVERGENT_REFUSALS + COMMA_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS + RECORD_DIVERGENT_REFUSALS,
 )
 def test_divergent_refusal_is_pinned_per_compiler(
     semantic_btrcc: Path,

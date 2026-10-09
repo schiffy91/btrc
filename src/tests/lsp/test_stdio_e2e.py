@@ -186,3 +186,53 @@ def test_editor_session(project):
         client.send("exit", {}, request=False)
     finally:
         client.close()
+
+
+def test_target_changes_reanalyze_open_buffers_over_stdio(tmp_path):
+    """Exercise real protocol registration and worker-to-client publication."""
+    path = tmp_path / "Target.btrc"
+    source = "#if _WIN32\nint main() { return missingOnWindows; }\n#else\nint main() { return 0; }\n#endif\n"
+    path.write_text(source)
+    uri = path.as_uri()
+    client = LspClient(env={"BTRC_LSP_DEBOUNCE": "0"})
+    try:
+        init_id = client.send(
+            "initialize",
+            {
+                "processId": None,
+                "rootUri": tmp_path.as_uri(),
+                "capabilities": {},
+                "initializationOptions": {"target": "linux-x86_64"},
+            },
+        )
+        response = client.wait_response(init_id)
+        assert "error" not in response, response
+        client.send("initialized", {}, request=False)
+        client.send(
+            "textDocument/didOpen",
+            {"textDocument": {"uri": uri, "languageId": "btrc", "version": 1, "text": source}},
+            request=False,
+        )
+        initial = client.wait_notification("textDocument/publishDiagnostics")
+        assert initial["params"]["uri"] == uri
+        assert initial["params"]["diagnostics"] == []
+
+        for target, missing in (("windows-x86_64", True), ("linux-x86_64", False)):
+            client.send(
+                "workspace/didChangeConfiguration",
+                {"settings": {"btrc": {"target": target}}},
+                request=False,
+            )
+            publish = client.wait_notification("textDocument/publishDiagnostics")
+            assert publish["params"]["uri"] == uri
+            diagnostics = publish["params"]["diagnostics"]
+            if missing:
+                assert len(diagnostics) == 1, diagnostics
+                assert "missingOnWindows" in diagnostics[0]["message"]
+            else:
+                assert diagnostics == []
+        shutdown_id = client.send("shutdown", {})
+        client.wait_response(shutdown_id)
+        client.send("exit", {}, request=False)
+    finally:
+        client.close()
