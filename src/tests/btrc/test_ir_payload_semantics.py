@@ -79,7 +79,7 @@ void acyclic() {
         ((IRControlPayload)owner.payload).elseBlock = child;
     }
     assert(alive == 1 && destroyed == 0);
-    ((IRControlPayload)owner.payload).elseBlock = null;
+    ((IRControlPayload)owner.payload).elseBlock = IRNode();
     assert(alive == 0 && destroyed == 1);
     {
         TrackedNode child = TrackedNode();
