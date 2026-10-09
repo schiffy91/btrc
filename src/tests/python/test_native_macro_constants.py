@@ -510,11 +510,16 @@ static inline int pointerMatchesSdk(void* zero, SentinelHandle all, int* castVal
 }
 """
 POINTER_SYMBOLS = ["PTR_NULL", "PTR_ALL", "PTR_CAST", "PTR_CONST", "PTR_ALIAS", "PTR_TRUNCATED"]
+POINTER_REJECTED_TYPES = """typedef void (*PointerCallback)(void);
+typedef void __attribute__((address_space(1)))* AddressSpacePointer;
+#define PTR_FUNCTION_NULL ((PointerCallback)0)
+#define PTR_ADDRESS_SPACE_ALIAS ((AddressSpacePointer)0)
+"""
 
 
 def _read_pointer(reader: str, tmp_path: Path, symbol: str, triple: str) -> subprocess.CompletedProcess[str]:
     header = tmp_path / "Pointers.h"
-    header.write_text(POINTER_MACROS, encoding="utf-8")
+    header.write_text(POINTER_MACROS + POINTER_REJECTED_TYPES, encoding="utf-8")
     return subprocess.run(
         [reader, f"--symbol={symbol}", str(header), "--", "-x", "c", "-std=c11", "-target", triple],
         capture_output=True,
@@ -573,16 +578,18 @@ def test_pointer_macro_reader_preserves_target_type_and_bits(reader, tmp_path, t
         "PTR_CALL",
         "PTR_EFFECT",
         "PTR_FUNCTION",
+        "PTR_FUNCTION_NULL",
         "PTR_STRING",
         "PTR_STRING_OFFSET",
         "PTR_ADDRESS_SPACE",
+        "PTR_ADDRESS_SPACE_ALIAS",
     ],
 )
 def test_pointer_macro_reader_rejects_nonrepresentable_values(reader, tmp_path, symbol):
     result = _read_pointer(reader, tmp_path, symbol, "x86_64-w64-windows-gnu")
 
     assert result.returncode != 0
-    if symbol == "PTR_ADDRESS_SPACE":
+    if symbol in {"PTR_ADDRESS_SPACE", "PTR_ADDRESS_SPACE_ALIAS"}:
         assert symbol in result.stderr or "Native address spaces are not implemented" in result.stderr
     else:
         assert f"Native macro {symbol}" in result.stderr
