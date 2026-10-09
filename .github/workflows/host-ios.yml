@@ -1,100 +1,351 @@
-name: Host iOS
-
-# CX-P1-04's iOS simulator test host (tools/target_hosts/ios) on a hosted
-# macos-15 runner: twelve strict-C11 fixtures, each launched through simctl
-# spawn and as an installed app, on an iPhone and an iPad simulator, plus one
-# repeated app run per device class (50 executions). The runner's Xcode is
-# stand-in provenance, not the owner's pinned 27A266a, and the runtime is the
-# newest installed iOS >= 17, not the iOS 17 floor (MAC-P1-02). Until the tool
-# directory is on the revision being tested, the tooling job reports it absent
-# and the simulator job is skipped, so this workflow can land before the host.
+name: Hosted iOS 17 component admission
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/host-ios.yml
-      - tools/target_hosts/ios/**
-  pull_request:
-    branches: [main]
-    paths:
-      - .github/workflows/host-ios.yml
-      - tools/target_hosts/ios/**
   workflow_dispatch:
-
 permissions:
   contents: read
-
-# A newer push to a pull request cancels the run it supersedes; runs on main
-# queue rather than cancel.
 concurrency:
-  group: host-ios-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
+  group: ios17-component-admission-${{ github.run_id }}
+  cancel-in-progress: false
 jobs:
-  tooling:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      present: ${{ steps.check.outputs.present }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - id: check
-        run: |
-          if [ -f tools/target_hosts/ios/spike.py ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::tools/target_hosts/ios is not on this revision; the simulator job is skipped."
-          fi
-
-  simulator:
-    needs: tooling
-    if: needs.tooling.outputs.present == 'true'
-    runs-on: macos-15
+  component:
+    runs-on: xcode-27
     timeout-minutes: 90
-    # An explicit bash shell runs with pipefail, so a failing command piped
-    # into tee still fails its step.
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.app/Contents/Developer
+      PYTHONDONTWRITEBYTECODE: "1"
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: a29ab3e3704b4b1300e21d9dc89256f50ed0c6f4
           persist-credentials: false
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.13"
-      - name: Record the Xcode and simulator inventory
+      - name: Install exact diagnostic helpers
         run: |
-          mkdir -p build/ios-results
-          xcodebuild -version | tee build/ios-results/xcode-version.txt
-          xcrun simctl list -j > build/ios-results/simctl-list.json
-      - name: Local host tests
-        run: python3 -m unittest tools.target_hosts.ios.test_executor -v 2>&1 | tee build/ios-results/unittest.log
-      - name: Build the fixtures
-        id: build
-        run: python3 -m tools.target_hosts.ios.spike build build/ios-testhost 2>&1 | tee build/ios-results/build.log
-      # Each device class and mode runs even when an earlier one failed, so a
-      # single run records every result; each stops at its own first failure.
-      - name: iPhone, simctl spawn
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone --mode spawn 2>&1 | tee build/ios-results/iphone-spawn.log
-      - name: iPhone, installed app
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone --mode app 2>&1 | tee build/ios-results/iphone-app.log
-      - name: iPad, simctl spawn
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class ipad --mode spawn 2>&1 | tee build/ios-results/ipad-spawn.log
-      - name: iPad, installed app
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class ipad --mode app 2>&1 | tee build/ios-results/ipad-app.log
-      - name: Retain the results
+          set -euo pipefail
+          mkdir task evidence
+          cat > task/run-stage.py <<'IOS17_COMPONENT_0'
+          """Bounded owner for an unchanged hosted workflow stage, not a product wrapper."""
+          import argparse
+          import json
+          import os
+          from pathlib import Path
+          import signal
+          import subprocess
+          import time
+          
+          
+          class Interrupted(Exception):
+              def __init__(self, signum):
+                  self.signum = signum
+          
+          
+          def interrupted(signum, frame):
+              raise Interrupted(signum)
+          
+          
+          def main():
+              parser = argparse.ArgumentParser()
+              parser.add_argument('--seconds', type=int, required=True)
+              parser.add_argument('--label', required=True)
+              parser.add_argument('command', nargs=argparse.REMAINDER)
+              args = parser.parse_args()
+              command = args.command[1:] if args.command[:1] == ['--'] else args.command
+              if not command or not args.label.isidentifier() or not 1 <= args.seconds <= 7200:
+                  raise SystemExit('Invalid bounded stage invocation')
+              evidence = Path(os.environ['GITHUB_WORKSPACE']) / 'evidence'
+              receipt = evidence / (args.label + '-process.json')
+              if receipt.exists():
+                  raise SystemExit('Refusing to overwrite stage evidence')
+              record = {'label': args.label, 'command': command, 'started_unix': time.time(),
+                        'timeout_seconds': args.seconds, 'state': 'running'}
+              def save():
+                  receipt.write_text(json.dumps(record, indent=2) + '\n')
+              save()
+              signal.signal(signal.SIGTERM, interrupted)
+              signal.signal(signal.SIGINT, interrupted)
+              process = None
+              status = 1
+              try:
+                  process = subprocess.Popen(command, start_new_session=True)
+                  record['pid'] = process.pid
+                  record['owned_process_group'] = process.pid
+                  save()
+                  code = process.wait(timeout=args.seconds)
+                  record['returncode'] = code
+                  status = code if code >= 0 else 128 - code
+                  record['state'] = 'completed' if code == 0 else 'failed'
+              except subprocess.TimeoutExpired:
+                  record['state'] = 'timeout'
+                  status = 124
+              except Interrupted as error:
+                  record.update(state='interrupted', signal=error.signum)
+                  status = 128 + error.signum
+              except BaseException as error:
+                  record.update(state='failed', error=repr(error))
+              finally:
+                  # Repeated cancellation cannot interrupt this bounded retirement.
+                  signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                  signal.signal(signal.SIGINT, signal.SIG_IGN)
+                  if process is not None:
+                      try:
+                          try:
+                              os.killpg(process.pid, signal.SIGTERM)
+                          except ProcessLookupError:
+                              pass
+                          deadline = time.monotonic() + 10
+                          while time.monotonic() < deadline:
+                              process.poll()
+                              try:
+                                  os.killpg(process.pid, 0)
+                              except ProcessLookupError:
+                                  break
+                              time.sleep(0.05)
+                      finally:
+                          # A leader can exit while descendants retain its group.
+                          try:
+                              os.killpg(process.pid, signal.SIGKILL)
+                          except ProcessLookupError:
+                              pass
+                          try:
+                              record['reaped_returncode'] = process.wait(timeout=10)
+                              record['leader_reaped'] = True
+                          except subprocess.TimeoutExpired:
+                              record.update(state='cleanup-failed', leader_reaped=False)
+                              status = 125
+                  record.update(wrapper_status=status, finished_unix=time.time())
+                  save()
+              return status
+          
+          
+          if __name__ == '__main__':
+              raise SystemExit(main())
+          IOS17_COMPONENT_0
+          cat > task/admit.py <<'IOS17_COMPONENT_1'
+          """Hosted-only component admission; never builds fixtures or boots a device."""
+          
+          import hashlib
+          import json
+          import os
+          import platform
+          import plistlib
+          import shutil
+          import subprocess
+          import sys
+          import urllib.request
+          from pathlib import Path
+          
+          ROOT = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+          OUT = ROOT / 'evidence'
+          HERE = Path(__file__).resolve().parent
+          PINS = json.loads((HERE / 'pins.json').read_text())
+          XCODE = Path('/Applications/Xcode_27.app/Contents/Developer')
+          
+          
+          def require(condition, message):
+              if not condition:
+                  raise RuntimeError(message)
+          
+          
+          def sha(path):
+              with Path(path).open('rb') as stream:
+                  return hashlib.file_digest(stream, 'sha256').hexdigest()
+          
+          
+          def save(name, value):
+              (OUT / name).write_text(json.dumps(value, indent=2) + '\n')
+          
+          
+          def capture(name, argv):
+              result = subprocess.run(argv, capture_output=True, timeout=30)
+              (OUT / (name + '.stdout')).write_bytes(result.stdout)
+              (OUT / (name + '.stderr')).write_bytes(result.stderr)
+              save(name + '.json', {'argv': argv, 'returncode': result.returncode})
+              require(result.returncode == 0, 'Metadata command failed: ' + name)
+              return result.stdout
+          
+          
+          def tools():
+              return {str(path): sha(path) for path in [
+                  XCODE / 'usr/bin/xcodebuild', XCODE / 'usr/bin/simctl',
+                  Path('/usr/bin/hdiutil'), Path('/usr/bin/codesign'), Path(sys.executable).resolve(),
+              ]}
+          
+          
+          def free(label, minimum):
+              value = shutil.disk_usage(ROOT).free
+              save(label + '-disk.json', {'free_bytes': value, 'minimum_bytes': minimum})
+              require(value >= minimum, 'Insufficient disk before ' + label)
+          
+          
+          def snapshot(label):
+              raw = capture(label + '-simulators', [str(XCODE / 'usr/bin/simctl'), 'list', '-j'])
+              inventory = json.loads(raw)
+              require(all(d.get('state') == 'Shutdown' for rows in inventory['devices'].values() for d in rows),
+                      'A simulator is not shutdown')
+              capture(label + '-runtime-images', [str(XCODE / 'usr/bin/simctl'), 'runtime', 'list', '-j'])
+              capture(label + '-processes', ['/bin/ps', '-axo', 'pid,ppid,pgid,state,comm'])
+              return inventory
+          
+          
+          def initial():
+              require(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('RUNNER_OS') == 'macOS'
+                      and os.environ.get('RUNNER_ARCH') == 'ARM64' and platform.machine() == 'arm64',
+                      'This packet is restricted to an eligible hosted ARM64 macOS runner')
+              require(os.environ.get('DEVELOPER_DIR') == str(XCODE), 'Wrong explicit Xcode selection')
+              version = plistlib.loads((XCODE.parent / 'version.plist').read_bytes())
+              require(version['ProductBuildVersion'] == '27A266a', 'Wrong Xcode build')
+              revision = capture('checkout', ['git', 'rev-parse', 'HEAD']).decode().strip()
+              require(revision == PINS['base'], 'Wrong checkout revision')
+              save('host.json', {'platform': platform.platform(), 'machine': platform.machine(),
+                                'xcode': version, 'deployment_target_preserved': '17.0',
+                                'guest_boots_requested': 0, 'fixture_executions': 0})
+              save('tools-before.json', tools())
+              free('initial', 110_000_000_000)
+              before = snapshot('before')
+              require(not any(r.get('buildversion') == '21A328' for r in before['runtimes']),
+                      'Exact runtime was already installed; this fresh-acquisition packet is inapplicable')
+              with urllib.request.urlopen(PINS['catalog_url'], timeout=25) as response:
+                  data = response.read(2_000_001)
+              require(len(data) <= 2_000_000, 'Catalog exceeds metadata bound')
+              (OUT / 'catalog.plist').write_bytes(data)
+              rows = [row for row in plistlib.loads(data)['downloadables']
+                      if row.get('identifier') == PINS['asset']['identifier']]
+              require(rows == [PINS['asset']], 'Exact selected Apple asset metadata changed')
+              save('catalog-selection.json', {'catalog_sha256': hashlib.sha256(data).hexdigest(),
+                                             'asset': rows[0], 'architecture_variant': 'universal'})
+              (ROOT / 'component-export').mkdir(exist_ok=False)
+          
+          
+          def image():
+              require(json.loads((OUT / 'download-process.json').read_text())['wrapper_status'] == 0,
+                      'Acquisition did not succeed')
+              paths = list((ROOT / 'component-export').rglob('*.dmg'))
+              require(len(paths) == 1 and paths[0].is_file() and not paths[0].is_symlink(),
+                      'Expected exactly one exported runtime image')
+              path = paths[0].resolve()
+              require(path.is_relative_to(ROOT / 'component-export'), 'Export escaped its owned directory')
+              require(path.stat().st_size == PINS['asset']['fileSize'], 'Export differs from pinned asset size')
+              save('export.json', {'path': str(path), 'bytes': path.stat().st_size, 'sha256': sha(path),
+                                   'identity_limit': 'Size and hash inventory only; native verification/import and runtime build identity still required'})
+              require('\n' not in str(path), 'Invalid component path')
+              with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+                  output.write('path=' + str(path) + '\n')
+              free('before-import', 100_000_000_000)
+          
+          
+          def final():
+              errors = []
+              stages = {}
+              for path in sorted(OUT.glob('*-process.json')):
+                  row = json.loads(path.read_text())
+                  if row['label'] == 'closure':
+                      continue  # The outer owner writes its own terminal receipt after this helper exits.
+                  stages[row['label']] = row
+                  if not row.get('leader_reaped') or row.get('reaped_returncode') is None:
+                      errors.append('Unreaped client: ' + row['label'])
+                  if row.get('owned_process_group'):
+                      try:
+                          os.killpg(row['owned_process_group'], 0)
+                      except ProcessLookupError:
+                          pass
+                      else:
+                          errors.append('Client process group remains: ' + row['label'])
+              inventory = None
+              try:
+                  inventory = snapshot('after')
+                  free('final', 80_000_000_000)
+                  require(tools() == json.loads((OUT / 'tools-before.json').read_text()), 'Tool drift')
+                  require(capture('checkout-after', ['git', 'rev-parse', 'HEAD']).decode().strip()
+                          == PINS['base'], 'Checkout revision drift')
+              except Exception as error:
+                  errors.append(repr(error))
+              needed = ['admit', 'download', 'image', 'verify', 'import']
+              commands_passed = all(stages.get(name, {}).get('wrapper_status') == 0 for name in needed)
+              matching = [] if inventory is None else [r for r in inventory['runtimes']
+                  if r.get('identifier') == 'com.apple.CoreSimulator.SimRuntime.iOS-17-0'
+                  and r.get('version') == '17.0' and r.get('buildversion') == '21A328'
+                  and r.get('isAvailable') is True]
+              passed = commands_passed and len(matching) == 1 and not errors
+              save('result.json', {'state': 'passed' if passed else 'failed', 'stages': stages,
+                  'closure_errors': errors, 'matching_runtime': matching,
+                  'scope': 'Hosted component acquisition/import only; no guest boot or original fifty-case qualification',
+                  'closure_receipt': 'The enclosing closure-process.json is finalized after result.json and must be independently audited',
+                  'failure_interpretation': 'An auth, transport, timeout or generic import failure does not establish iOS17 uninstallability',
+                  'export_entries': [{'path': str(p.relative_to(ROOT)), 'bytes': p.stat().st_size}
+                                     for p in (ROOT / 'component-export').rglob('*') if p.is_file()],
+                  'service_boundary': 'The unchanged process owner retires command clients and their groups. Xcode/CoreSimulator service work is daemon-owned; raw final inventory/processes are retained, and disposable hosted-runner teardown is the outer boundary. No global service is killed.',
+                  'artifacts': {str(p.relative_to(OUT)): sha(p) for p in OUT.rglob('*') if p.is_file()}})
+              require(passed, 'Component admission did not qualify exact iOS17.0/21A328')
+          
+          
+          if __name__ == '__main__':
+              OUT.mkdir(exist_ok=True)
+              for name, digest in PINS['helpers'].items():
+                  require(sha(HERE / name) == digest, 'Packet helper drift: ' + name)
+              {'initial': initial, 'image': image, 'final': final}[sys.argv[1]]()
+          IOS17_COMPONENT_1
+          cat > task/pins.json <<'IOS17_COMPONENT_2'
+          {
+            "base": "a29ab3e3704b4b1300e21d9dc89256f50ed0c6f4",
+            "xcode_build": "27A266a",
+            "target_arch": "arm64",
+            "deployment_target": "17.0",
+            "catalog_url": "https://devimages-cdn.apple.com/downloads/xcode/simulators/index2.dvtdownloadableindex",
+            "reviewed_catalog_sha256": "bc09a2f1ed338b9e4937f956e2fd76214a2a8db3219ccbe9a5c3db3d770b55b6",
+            "asset": {
+              "authentication": "virtual",
+              "category": "simulator",
+              "contentType": "diskImage",
+              "dictionaryVersion": 2,
+              "fileSize": 7559529352,
+              "identifier": "com.apple.dmg.iPhoneSimulatorSDK17_0",
+              "name": "iOS 17.0 Simulator Runtime",
+              "platform": "com.apple.platform.iphoneos",
+              "simulatorVersion": {
+                "buildUpdate": "21A328",
+                "version": "17.0"
+              },
+              "source": "https://download.developer.apple.com/Developer_Tools/iOS_17_Simulator_Runtime/iOS_17_Simulator_Runtime.dmg",
+              "version": "17.0.0.0"
+            },
+            "helpers": {
+              "run-stage.py": "35fcb2e666b51026c33ddd1c07ed0a1ad718088d9ab35017fdd7cceb5db0029d",
+              "admit.py": "2283b1933f7943d1c88e7b619ebb0481f91553ed4d90947744bed5219b6b8e49"
+            }
+          }
+          IOS17_COMPONENT_2
+      - name: Admit exact host, tools, disk and advertised runtime
+        run: |
+          python3 task/run-stage.py --seconds 180 --label admit -- python3 task/admit.py initial > evidence/admit.stdout 2> evidence/admit.stderr
+      - name: Acquire exact iOS 17.0 universal component without booting
+        run: |
+          python3 task/run-stage.py --seconds 1800 --label download -- "$DEVELOPER_DIR/usr/bin/xcodebuild" -downloadPlatform iOS -buildVersion 17.0 -architectureVariant universal -exportPath "$GITHUB_WORKSPACE/component-export" > evidence/download.stdout 2> evidence/download.stderr
+      - name: Authenticate exported image identity and import capacity
+        id: image
+        run: |
+          python3 task/run-stage.py --seconds 180 --label image -- python3 task/admit.py image > evidence/image.stdout 2> evidence/image.stderr
+      - name: Verify the native disk image
+        env:
+          COMPONENT_IMAGE: ${{ steps.image.outputs.path }}
+        run: |
+          python3 task/run-stage.py --seconds 300 --label verify -- /usr/bin/hdiutil verify "$COMPONENT_IMAGE" > evidence/verify.stdout 2> evidence/verify.stderr
+      - name: Import through the selected native Xcode component owner
+        env:
+          COMPONENT_IMAGE: ${{ steps.image.outputs.path }}
+        run: |
+          python3 task/run-stage.py --seconds 900 --label import -- "$DEVELOPER_DIR/usr/bin/xcodebuild" -importPlatform "$COMPONENT_IMAGE" > evidence/import.stdout 2> evidence/import.stderr
+      - name: Close tools, client processes and actual runtime admission
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        run: |
+          python3 task/run-stage.py --seconds 180 --label closure -- python3 task/admit.py final > evidence/closure.stdout 2> evidence/closure.stderr
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
-          name: ios-host-results
-          path: build/ios-results
-          if-no-files-found: warn
-          retention-days: 30
+          name: ios17-component-admission-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/
+            task/
+          if-no-files-found: error
+          retention-days: 14
