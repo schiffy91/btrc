@@ -1549,3 +1549,32 @@ Focused qualification passed: original15 baseline and candidate109 checks,
 zero failures/errors/skips, exact collection/JUnit, all8 owned groups closed and
 source/tools unchanged. See the owned report. No compiler repair, hosted unit
 pass or Nix garbage-collection cause is claimed.
+
+
+## 2026-10-09 D29 typed native pointer constants
+
+Packet: CX-HARMONIZE-NATIVE-POINTER-CONSTANTS. Base
+`5aa232ad27854b7f45a2a42f75cbf0cbab589578`, branch
+`codex/native-pointer-constants`. Integrator-assigned owners:
+platform_review owns `src/language/native_abi.asdl`,
+`tools/NativeHeaderReader.cpp`, generator-produced
+`src/compiler/python/abi/native_generated.py`,
+`src/compiler/btrc/generated/native_abi/Models.btrc`, this claim and
+`docs/workstreams/native-pointer-constants.md`; performance_review owns
+`src/compiler/python/frontend/native_imports.py`,
+`src/compiler/btrc/frontend/NativeImports.btrc`,
+`src/compiler/btrc/frontend/Models.btrc`,
+`src/compiler/python/analyzer/expressions.py` and
+`src/compiler/btrc/analyzer/Models.btrc`; execution_review owns
+`src/tests/python/test_native_macro_constants.py`.
+Use an isolated index and owned source mirrors; preserve ordinary checkout/index.
+The fresh current-equivalent Toolhelp baseline rejects INVALID_HANDLE_VALUE in
+both frontends for Windows x64 and ARM64 before C emission. Add an explicit
+native pointer constant, preserving SDK type, qualifiers, target-width value
+identity and SDK symbol spelling; reject storage mutation/addressing and
+nonconstant/effectful/non-sentinel expressions. No provider, public API,
+worker-pool, runtime or emitter changes. Generated data changes only through
+the existing generator in a separate derived commit after allocation.
+Reader/reference focused qualification precedes a fresh selfhost build; all
+paired native macro tests and unchanged four genuine Toolhelp projections
+remain required. No native Windows provider or historical codec repair is claimed.
