@@ -615,19 +615,24 @@ behavior exclusions; GUI skips include one real-desktop hardware case. Audit
 SHA-256: `414810d8b7af251dba590c0ec6eb95be6196eefe351d53439f8a6df03422c1e1`.
 Both Mac
 release bundles, self-host tests, bootstrap, both corpora and Clang O0/O2 pass;
-Mac unit and the dedicated native-GUI run remain active.
-Window R4 has finished and its hosted slot now runs the dedicated macOS native
-GUI gate `37877458498`, dispatched once against exact `5aa232ad` with
-`focus=native-gui`. The memory candidates and new UI2 provider work remain
-separate. Main stays `cbd3ddcd`; the remaining Mac gates and final evidence audit
-are still required before integration. BTRSmith's
+Mac unit remains active. Dedicated macOS native GUI run `37877458498` has
+completed successfully on exact `5aa232ad`: 353 passes, 169 expected platform
+skips and no failures/errors. Its independent source, artifact and skip audit is
+clear; two Linux tray rows remain explicitly uncovered. The memory candidates
+and new UI2 provider work remain separate. Main stays `cbd3ddcd`; Mac unit and
+its final evidence audit are still required before integration. BTRSmith's
 reviewed `2c9e5b43` live revision fixture now has a peer-cleared current-compiler
 qualification workflow `16d69500`, pinned to exact `5aa232ad`. All original
 acceptance commands and limits remain unchanged. The earlier `db9bc814`/`f75`
-recipe remains retained; neither workflow is published or dispatched. Exact
-product source `2c9e5b43` is now published privately on
-`codex/live-agent-revision-recovery`, whose tree contains no workflows. The current
-qualification recipe waits for the next free hosted slot.
+recipe remains retained and unpublished. Exact product source `2c9e5b43` is
+published privately on `codex/live-agent-revision-recovery`, whose tree contains
+no workflows. Workflow `16d69500` was published once by fast-forward to
+`codex/linux-current-compiler-3974`; automatic push run `37883596677` started at
+04:22 UTC October 9. Source/environment preparation passed; the original paired
+live agent acceptance is running at the latest 04:39 UTC check. Audio failure
+journeys and installed-product checks remain pending. No duplicate dispatch was
+made. This and the remaining PR68 Mac unit gate occupy both hosted waves; paired
+Linux memory measurement `4f7e7c17` is next, then native Linux quit `e6f076e5`.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -1425,9 +1430,16 @@ Mach-O architectures and hosted relocation/strict-C11 execution are verified.
 Boundary coverage stays 287/311 with 24 explicit exclusions. Audit
 `pr68-5aa-macos-completed-audit/audit.json` has SHA-256
 `8e4ab2ae3e75e7c5b430f2079321e538990a225a1e15bf16477c735569a2ed3f`.
-Mac unit and dedicated native-GUI run `37877458498` remain active, with their
-terminal skip/evidence audits pending. No final combined-tree merge is
-claimed. The separate compact/flow candidate has passed its fresh build,
+Dedicated native-GUI run `37877458498` is now successful and independently
+audited: 353 passes, 169 expected platform skips, all 522 test identities matched,
+and no failures/errors/xfails/xpasses. The 169 skips comprise 167 declared
+counterpart cases and two explicitly uncovered Linux tray rows; the counterpart
+labels do not independently re-prove another runner. Hosted ARM64 Darwin evidence
+does not supply physical Mac input evidence. Audit
+`pr68-5aa-macos-native-gui-audit/audit.json` has SHA-256
+`365ed15d7bfe78b7aae41458cdd0c34e0a6642e5b2437366df8f26cb962eff0f`.
+Mac unit is the remaining active platform gate at 04:39 UTC October 9. No final
+combined-tree merge is claimed. The separate compact/flow candidate has passed its fresh build,
 45 focused checks, native flow driver and exact current-product 423-file/ordered
 plan parity. Paired performance measurement and its full integration matrix
 remain pending.
@@ -2886,6 +2898,25 @@ The historical eight-case qualified-function rejection remains a separate record
 whose artifact locator has not been recovered; this fresh earlier rejection does
 not reproduce it. The next repair must preserve typed native semantics rather
 than skipping the sentinel check or inventing another provider ownership model.
+
+The typed pointer-constant repair is implemented in isolated candidate
+`414db329` on `codex/native-pointer-constants`, based on exact `5aa232ad`.
+The shared ASDL, SDK reader, paired import codecs and analyzers preserve the
+pointer type, target-width address identity, SDK spelling and value-only
+provenance; constants cannot become assignable or addressable storage. Forty-one
+new reader/semantic macro cases plus codec cases are prepared, but behavior and
+the updated reader build remain unrun. Generation attempt one exposed a catalog
+bootstrap import cycle; its failure is retained. Attempt two used the existing
+ASDL generator API to bootstrap the Python catalog and then passed unchanged
+unified generation and generated-source checks. Independent audit verifies only
+the two intended native ABI catalogs changed; all other 4,505 files remained
+exact and all six command groups closed. Audit SHA-256:
+`46c2b0b2c268340fb7e376df2741e74f8016b7b394adc1100f8b611c7c57711e`.
+This establishes generated-source integrity only. Next is rebuilding the reader
+with the locked Clang 21 dependencies and replaying reference Toolhelp x64/ARM64
+before a fresh self-host build and all four cells. The installed runtime lacks
+some locked development inputs; their bounded restoration and reader build are
+being prepared. Windows native execution remains unproven.
 
 Reuse the existing stdlib shell fixture as a small conformance app: window,
 button, editable field, scrolling, clipboard, visibility and teardown. Attach
