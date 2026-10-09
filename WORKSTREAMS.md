@@ -1549,3 +1549,16 @@ Focused qualification passed: original15 baseline and candidate109 checks,
 zero failures/errors/skips, exact collection/JUnit, all8 owned groups closed and
 source/tools unchanged. See the owned report. No compiler repair, hosted unit
 pass or Nix garbage-collection cause is claimed.
+
+
+## 2026-10-09 D29 nested skip-ledger pytest environment
+
+Packet: CX-HARMONIZE-SKIP-LEDGER-CHILD-ENV. Integrator-assigned writer:
+execution_review, branch `codex/skip-ledger-child-env-5aa`, exact base
+`5aa232ad27854b7f45a2a42f75cbf0cbab589578`. Owned paths:
+`src/tests/python/test_skip_ledger.py`,
+`docs/workstreams/skip-ledger-child-environment.md`, and this claim.
+Isolate nested test options from inherited workflow PYTEST_ADDOPTS; preserve
+outer GUI grouping, all ledger assertions, explicit child argv and deadlines.
+Original hosted unit evidence is retained; focused qualification pending.
+Ordinary checkout/index, PLAN and workflow source remain untouched.
