@@ -20,7 +20,29 @@ uses real SDK operations. Targeted test-only interception must prove failed
 snapshot opens do not close, short records are rejected before field reads,
 dwSize is reset, both enumeration failures reject, and CloseHandle is attempted
 once even when it fails or overwrites last error. All child threads/processes
-need bounded release/join/handle cleanup on test exits. Overflow needs an
-explicit boundary proof without billions of native iterations. Both frontends
+need bounded release/join/handle cleanup on test exits. Overflow has a structural boundary proof: the int counter starts at zero, its
+only update is +1 after an equality check against the actual imported INT_MAX,
+and no other write can put it outside [0, INT_MAX]. The equality path fails
+before arithmetic. This is not a runtime overflow-branch claim; no reduced
+constant or test-only production helper is introduced. Both frontends
 must emit then run strict C11 on Windows x64 and ARM64; WindowsMain SDK-reader
 process support is not included.
+
+The native fixture and explicit two-stage driver now live in the existing
+background-jobs test owner. `WindowsProcessThreadsFixture.project` requires an
+explicit real SDK reader and immutable selected frontend, emits for x64 or ARM64,
+and seals the original C/plan plus native fixture and copied header hashes.
+`run_native` requires actual matching-architecture Windows and a supplied pinned
+Clang-compatible C command. It uses a VFS overlay for only the two authenticated
+project headers; emitted C is not rewritten and native SDK headers remain real.
+The allocated qualifier must pin that projection receipt. No new default pytest
+rows or platform skip claims are introduced; the explicit native stage has not run.
+
+The real-thread trial checks +3 then restoration; the foreign child contributes
+at least four actual snapshot records while leaving the parent's count unchanged.
+The child waits on release or the exact parent-process handle and has its own
+bounded deadline. Test-only interception covers open/first/next/close failure,
+short foreign records, valid shortened records requiring size reset, empty and
+foreign-only results, and close overwriting last error. A close-failure injection
+still performs the real close to avoid leaking the fixture handle. No SDK layouts
+or production return values are replaced on the successful real-operations path.

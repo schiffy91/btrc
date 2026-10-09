@@ -1,0 +1,69 @@
+import Library.BackgroundJobs.ProcessThreads;
+
+int main(int argc, char** argv) {
+	int child = process_threads_child_mode(argc, argv);
+	if (child >= 0) { return child; }
+	process_threads_reset(PROCESS_THREADS_REAL);
+	int baseline = ProcessThreads.count();
+	assert(baseline >= 1);
+	assert(process_threads_snapshots() == 1 && process_threads_closes() == 1);
+	assert(process_threads_live_snapshots() == 0 && process_threads_bad_sizes() == 0);
+
+	process_threads_start_held();
+	assert(ProcessThreads.count() == baseline + 3);
+	process_threads_stop_held();
+	assert(ProcessThreads.count() == baseline);
+
+	process_threads_start_foreign();
+	process_threads_reset(PROCESS_THREADS_REAL);
+	assert(ProcessThreads.count() == baseline);
+	assert(process_threads_foreign_seen() >= 4);
+	assert(process_threads_live_snapshots() == 0);
+	process_threads_stop_foreign();
+
+	process_threads_reset(PROCESS_THREADS_SNAPSHOT_FAILURE);
+	assert(ProcessThreads.count() == -1);
+	assert(process_threads_snapshots() == 1 && process_threads_closes() == 0);
+	assert(process_threads_live_snapshots() == 0);
+
+	process_threads_reset(PROCESS_THREADS_FIRST_FAILURE);
+	assert(ProcessThreads.count() == -1);
+	assert(process_threads_closes() == 1 && process_threads_next_calls() == 0);
+	assert(process_threads_live_snapshots() == 0);
+
+	process_threads_reset(PROCESS_THREADS_NEXT_FAILURE);
+	assert(ProcessThreads.count() == -1);
+	assert(process_threads_closes() == 1 && process_threads_next_calls() == 1);
+	assert(process_threads_live_snapshots() == 0);
+
+	process_threads_reset(PROCESS_THREADS_SHORT_FIRST);
+	assert(ProcessThreads.count() == -1);
+	assert(process_threads_closes() == 1 && process_threads_next_calls() == 0);
+	assert(process_threads_live_snapshots() == 0);
+
+	process_threads_reset(PROCESS_THREADS_SHORT_NEXT);
+	assert(ProcessThreads.count() == -1);
+	assert(process_threads_closes() == 1 && process_threads_next_calls() == 1);
+	assert(process_threads_live_snapshots() == 0);
+
+	process_threads_reset(PROCESS_THREADS_SHORT_VALID);
+	assert(ProcessThreads.count() == baseline);
+	assert(process_threads_closes() == 1 && process_threads_next_calls() > 1);
+	assert(process_threads_bad_sizes() == 0 && process_threads_live_snapshots() == 0);
+
+	process_threads_reset(PROCESS_THREADS_CLOSE_FAILURE);
+	assert(ProcessThreads.count() == -1);
+	assert(process_threads_closes() == 1 && process_threads_live_snapshots() == 0);
+
+	process_threads_reset(PROCESS_THREADS_EMPTY);
+	assert(ProcessThreads.count() == -1);
+	assert(process_threads_closes() == 1 && process_threads_next_calls() == 0);
+	assert(process_threads_live_snapshots() == 0);
+
+	process_threads_reset(PROCESS_THREADS_FOREIGN_ONLY);
+	assert(ProcessThreads.count() == -1);
+	assert(process_threads_closes() == 1 && process_threads_live_snapshots() == 0);
+	assert(process_threads_bad_sizes() == 0);
+	printf("PASS: Windows process thread count\n");
+	return 0;
+}

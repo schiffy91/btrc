@@ -1,5 +1,7 @@
+import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -415,3 +417,185 @@ def test_import_emits_and_links_sdk_declarations_without_native_executor(
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == "PASS: planned background jobs runtime\n"
     assert ran.stderr == ""
+
+
+class WindowsProcessThreadsFixture:
+    """Two-stage native proof: SDK projection on a reader-capable host, then
+    strict C11 execution on the corresponding real Windows architecture.
+
+    The allocated Windows qualifier calls these methods explicitly. This does
+    not add platform-skipped default-suite rows or pretend WindowsMain owns a
+    native SDK reader. A Clang VFS maps authenticated relocated headers without
+    changing the emitted C or any SDK declarations.
+    """
+
+    SYMBOLS = (
+        "ProcessThreadFault",
+        "PROCESS_THREADS_REAL",
+        "PROCESS_THREADS_SNAPSHOT_FAILURE",
+        "PROCESS_THREADS_FIRST_FAILURE",
+        "PROCESS_THREADS_NEXT_FAILURE",
+        "PROCESS_THREADS_SHORT_FIRST",
+        "PROCESS_THREADS_SHORT_NEXT",
+        "PROCESS_THREADS_SHORT_VALID",
+        "PROCESS_THREADS_CLOSE_FAILURE",
+        "PROCESS_THREADS_EMPTY",
+        "PROCESS_THREADS_FOREIGN_ONLY",
+        "process_threads_child_mode",
+        "process_threads_start_held",
+        "process_threads_stop_held",
+        "process_threads_start_foreign",
+        "process_threads_stop_foreign",
+        "process_threads_reset",
+        "process_threads_snapshots",
+        "process_threads_closes",
+        "process_threads_next_calls",
+        "process_threads_bad_sizes",
+        "process_threads_live_snapshots",
+        "process_threads_foreign_seen",
+    )
+
+    @staticmethod
+    def digest(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    @staticmethod
+    def command(argv: list[str], directory: Path, label: str, timeout: int, *, env=None) -> subprocess.CompletedProcess:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env, cwd=ROOT)
+        (directory / f"{label}.stdout").write_text(result.stdout)
+        (directory / f"{label}.stderr").write_text(result.stderr)
+        assert result.returncode == 0, (argv, result.stderr)
+        assert not result.stderr, result.stderr
+        return result
+
+    @classmethod
+    def project(cls, frontend: str, target: str, directory: Path, *, btrcc: Path | None = None) -> Path:
+        assert frontend in {"python", "btrc"}
+        assert target in {"windows-x64", "windows-arm64"}
+        assert os.environ.get("BTRC_NATIVE_HEADER_READER"), "explicit SDK reader required"
+        assert directory.is_absolute(), "projection paths must be absolute"
+        directory.mkdir(parents=True, exist_ok=False)
+        source = NativeBindingPackage.write(
+            FIXTURE / "WindowsProcessThreads.btrc",
+            directory / "project",
+            FIXTURE / "WindowsProcessThreadsProbe.h",
+            cls.SYMBOLS,
+        )
+        generated, plan = directory / "Program.c", directory / "plan.json"
+        if frontend == "python":
+            compiler = [sys.executable, "-B", "-m", "src.compiler.python.main"]
+        else:
+            assert btrcc is not None and btrcc.is_file(), "allocated immutable compiler required"
+            compiler = [str(btrcc)]
+        flags = [
+            "--strict-imports",
+            "--no-cache",
+            "--target",
+            target,
+            "--emit-link-plan",
+            str(plan),
+            str(source),
+            "-o",
+            str(generated),
+        ]
+        environment = {**os.environ, "BTRC_HOME": str(ROOT / "src"), "BTRC_CACHE_DIR": str(directory / "cache")}
+        cls.command([*compiler, *flags], directory, "project", 120, env=environment)
+        text = generated.read_text()
+        includes = [RUNTIME / "Windows/ProcessThreads.h", directory / "project/WindowsProcessThreadsProbe.h"]
+        mappings = {}
+        for header in includes:
+            assert f'#include "{header}"' in text, header
+            destination = directory / "headers" / header.name
+            destination.parent.mkdir(exist_ok=True)
+            shutil.copyfile(header, destination)
+            mappings[str(header)] = str(destination.relative_to(directory))
+        for name in ("WindowsProcessThreadsProbe.c", "WindowsProcessThreadsFaults.h"):
+            shutil.copyfile(FIXTURE / name, directory / name)
+        files = [
+            "Program.c",
+            "plan.json",
+            "WindowsProcessThreadsProbe.c",
+            "WindowsProcessThreadsFaults.h",
+            *mappings.values(),
+        ]
+        proof = {
+            "frontend": frontend,
+            "target": target,
+            "compiler": compiler,
+            "compiler_sha256": cls.digest(btrcc) if btrcc is not None and frontend == "btrc" else None,
+            "files": {name: cls.digest(directory / name) for name in files},
+            "header_mappings": mappings,
+            "source": {
+                str(path.relative_to(ROOT)): cls.digest(path)
+                for path in (
+                    RUNTIME / "ProcessThreads.btrc",
+                    RUNTIME / "Windows/ProcessThreadsProvider.btrc",
+                    RUNTIME / "btrc.toml",
+                    FIXTURE / "WindowsProcessThreads.btrc",
+                )
+            },
+        }
+        receipt = directory / "projection.json"
+        receipt.write_text(json.dumps(proof, indent=2) + "\n")
+        return receipt
+
+    @classmethod
+    def run_native(cls, projection: Path, output: Path, *, cc: tuple[str, ...]) -> None:
+        assert sys.platform == "win32", "requires actual Windows native execution"
+        proof = json.loads(projection.read_text())
+        architectures = {
+            "arm64": "windows-arm64",
+            "aarch64": "windows-arm64",
+            "amd64": "windows-x64",
+            "x86_64": "windows-x64",
+        }
+        assert platform.machine().lower() in architectures, platform.machine()
+        expected = architectures[platform.machine().lower()]
+        assert proof["target"] == expected, (proof["target"], platform.machine())
+        directory = projection.parent
+        for name, digest in proof["files"].items():
+            path = directory / name
+            assert path.resolve().is_relative_to(directory.resolve()) and cls.digest(path) == digest
+        output.mkdir(parents=True, exist_ok=False)
+        overlay = {
+            "version": 0,
+            "roots": [
+                {"type": "file", "name": original, "external-contents": str((directory / relative).resolve())}
+                for original, relative in proof["header_mappings"].items()
+            ],
+        }
+        overlay_path = output / "headers.json"
+        overlay_path.write_text(json.dumps(overlay, indent=2) + "\n")
+        flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic-errors", "-O2", "-I", str(directory / "headers")]
+        generated_object, probe_object = output / "Program.o", output / "Probe.o"
+        cls.command(
+            [
+                *cc,
+                *flags,
+                "-ivfsoverlay",
+                str(overlay_path),
+                "-include",
+                str(directory / "WindowsProcessThreadsFaults.h"),
+                "-c",
+                str(directory / "Program.c"),
+                "-o",
+                str(generated_object),
+            ],
+            output,
+            "generated-build",
+            COMPILE_TIMEOUT,
+        )
+        cls.command(
+            [*cc, *flags, "-c", str(directory / "WindowsProcessThreadsProbe.c"), "-o", str(probe_object)],
+            output,
+            "probe-build",
+            COMPILE_TIMEOUT,
+        )
+        executable = output / "WindowsProcessThreads.exe"
+        cls.command(
+            [*cc, str(generated_object), str(probe_object), "-o", str(executable)], output, "link", COMPILE_TIMEOUT
+        )
+        ran = cls.command([str(executable)], output, "native", RUN_TIMEOUT)
+        assert ran.stdout == "PASS: Windows process thread count\n", ran.stdout
+        for name, digest in proof["files"].items():
+            assert cls.digest(directory / name) == digest, name
