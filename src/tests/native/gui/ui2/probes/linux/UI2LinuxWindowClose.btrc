@@ -107,6 +107,14 @@ int main() {
 	var pressure = LinuxWindow(pressureContext, "terminal reservation", 160.0, 100.0);
 	var states = LinuxCloseStates(); var requests = LinuxCloseRequests();
 	pressure.onStateChanged(states, scope); pressure.onCloseRequested(requests, scope); pressure.setContentSize(180.0, 110.0);
+	/* SDL resize requests may complete on a later native turn. Establish the
+	 * original full normal queue without delivering either semantic handler. */
+	unsigned long long resizeDeadline = SDL_GetTicksNS() + 5000000000ULL;
+	while ((pressure.contentWidth() != 180.0 || pressure.contentHeight() != 110.0 || pressure.semanticPending() != 1) && SDL_GetTicksNS() < resizeDeadline) {
+		LinuxCloseChecks.events(pressure, pressure);
+	}
+	assert(pressure.contentWidth() == 180.0 && pressure.contentHeight() == 110.0);
+	assert(pressure.semanticPending() == 1 && states.calls == 0 && requests.requests.len == 0);
 	var reserved = LinuxCloseChecks.pending(pressure.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
 	assert(states.calls == 0 && requests.requests.len == 0);
 	assert(pressure.dispatchSemantic()); assert(states.calls == 1 && requests.requests.len == 0);
