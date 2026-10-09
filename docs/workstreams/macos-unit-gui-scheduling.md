@@ -19,5 +19,14 @@ are retained in `/private/tmp/btrc-audit-repair/pr68-6f-final-mac-oct9`;
 independent audit SHA-256 is
 `69334cb33bf0a027c9d02281083fbffff67497c68be928263bc041718244ade2`.
 No missing GCC-executable error recurred in this run; its prior cause remains
-unproven. This scheduling change still requires focused contract checks and
-an actual full hosted unit replay. Source preparation alone is not acceptance.
+unproven.
+
+Focused qualification on October 9 passes the two original baseline contracts
+and all 102 candidate cases (79 workflow, 23 coordination), with no failures,
+errors or skips. Collection, JUnit and skip identities agree; every source,
+archive, tool and log hash closes, and all eight process groups are reaped and
+absent. Independent audit SHA-256 is
+`7f81ea57547b81f89eef765d5d4556217956863d6a596c2063346db8a1e31934`.
+Evidence is retained under `macos-unit-gui-grouping-dbdc50d2-attempt-1` in the
+October 7 consolidation evidence directory. The actual full hosted unit replay
+remains required; these focused checks do not establish that acceptance.

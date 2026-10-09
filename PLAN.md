@@ -2,7 +2,7 @@
 
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-08**. Read [AGENTS.md](AGENTS.md) first for architecture and
+Updated **2026-10-09**. Read [AGENTS.md](AGENTS.md) first for architecture and
 development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -16,7 +16,7 @@ batch evidence. The frozen [reference](docs/design/plan-reference.md) and every
 `ref:N` line citation remain unchanged. This document has no effort or calendar
 estimates: order follows demonstrated dependencies and payoff.
 
-## Goals versus status (2026-10-08)
+## Goals versus status (2026-10-09)
 
 The owner's goals are a fast compiler across real build workloads and a usable
 standard library with native GUI on macOS, Linux, Windows, iOS/iPadOS and
@@ -378,8 +378,8 @@ successfully; unit, self-host tests and the separate native GUI test job remain
 live. Its x64 job exhausted the unchanged 45-minute bound
 realizing the full development shell before compiler-bundle output. A source-only
 release-shell repair `3b64240e` preserves the original Python/compiler/SDK tools,
-checks and deadline while omitting test/LSP dependencies; it is not yet evaluated
-or qualified.
+checks and deadline while omitting test/LSP dependencies. The subsequent October 9
+evaluation below passes; actual release-bundle qualification remains open.
 No unchanged third retry or combined hosted pass is claimed. Do not change the
 published head during qualification. PR68 remains unqualified until the combined
 final gates pass.
@@ -396,7 +396,13 @@ in the dedicated grouped GUI run. No missing GCC-executable failure recurs, but
 its earlier cause remains unproven. The unit workflow lacked the scheduler
 opt-in used by the dedicated GUI job. Source `dbdc50d2` now applies the existing
 loadgroup scheduler only to unit, retaining every row's selection flags and
-three workers. Its affected checks and actual hosted unit replay remain pending.
+three workers. Focused qualification now passes the original two baseline
+contracts and all 102 candidate cases (79 workflow plus 23 coordination), with
+zero failures, errors or skips. All eight owned process groups close and source,
+archive and tool inputs remain unchanged. Independent audit SHA-256 is
+`7f81ea57547b81f89eef765d5d4556217956863d6a596c2063346db8a1e31934`.
+The change is integrated locally at `c782ace8`; actual full hosted unit replay
+remains required before main integration.
 Independent final Mac audit SHA-256 is
 `69334cb33bf0a027c9d02281083fbffff67497c68be928263bc041718244ade2`
 in `/private/tmp/btrc-audit-repair/pr68-6f-final-mac-oct9`.
@@ -407,9 +413,16 @@ path. Both existing default/platform derivations otherwise match exactly, but
 that attempt did not compare actual SDK values. Reviewed correction uses one
 unique complete flake-URI placeholder and retains strict equality. The second
 attempt is refused before any Nix command because actual free space falls below
-80 GB; no production or evaluation success follows. Immutable sources remain
-unchanged. Recoverable completed-source/object archival is restoring headroom;
-no gate threshold is reduced. The reviewed current-compiler IR allocation census
+80 GB; that attempt executes no commands. After verified recoverable archival,
+the third evaluation passes for both Darwin architectures: existing default and
+platform shell derivations and all metadata match exactly; the release shell
+retains the original Python interpreter, five tool outputs, native SDK, reader,
+target, provider compilers and hardening. The ARM64 derivation graph falls from
+1,977 to 1,097 derivations. This is dependency-graph evidence, not realized disk,
+build-time or release-bundle acceptance. Result SHA-256 is
+`e94b5034776610c082e3c68454fadefd35a98936617977ba6fa99b5a19abdd0a`;
+independent review is clear. Original bundle builds and relocated strict-C11
+smokes remain pending. No gate threshold is reduced. The reviewed current-compiler IR allocation census
 uses exact 6f compiler and dbe8 product sources and remains unexecuted until its
 build/output headroom is available. Product speed and memory targets stay open.
 
