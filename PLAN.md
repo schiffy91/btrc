@@ -655,7 +655,13 @@ At the 06:16 UTC job-level check, Windows and Android jobs have passed. Linux
 release bundles, X11 GUI, bootstrap, benchmark guards and five C11 cells have
 passed; Wayland and the remaining test shards are running. macOS ARM64 release,
 selfhost checks and Clang O2 have passed; its remaining jobs and Windows ARM64
-native qualification are still running. Final artifacts remain to be audited.
+native qualification are still running. Windows/Android exact-tree logs are independently audited: Windows has 39
+pytest passes and three expected POSIX skips, extension 79 passes/six explicit
+Windows skips, and a successful native bootstrap. Android has 56 actual emulator
+fixture executions across API 29/36; ARM64 remains compile-only. Audit:
+`153fdfbd73f7738fdd6a9e61a101832caf730eb2a3efe65d1854319b4c5946df`.
+The Windows release ZIP payload has not been downloaded locally; its in-job
+checksum/smoke and upload digest are retained. This does not close other lanes.
 The top-level queued labels do not imply that all jobs are idle. PR68's description
 now matches current head `a29ab3e3` and its actual qualification scope. This PR68
 wave and BTRSmith replay `37883596677` occupy both hosted slots. The replay's original paired live-agent acceptance stage has now passed
@@ -708,9 +714,15 @@ The next regression selection preserves nine original programs and their compile
 matrix: Clang/GCC through both frontends for eight programs, and PSARC's native/
 Clang/GCC through both, for 38 native executions plus nine plan comparisons.
 PSARC retains its actual fixture setup/cleanup owner. The bounded recipe passed
-independent review and is now running locally as
-`btrsmith-album-regressions-2a15e4c-attempt-1`; no complete regression result is
-claimed yet. Before launch, exactly ten historical generated C files were archived
+independent review. Attempt 1 passed eight native checks, then stopped after
+Make successfully linked the next SQLite fixture and deleted its generated C/plan
+intermediates. This was evidence-retention failure, not a native test failure; two
+fixture nullability warnings are retained. Audit:
+`22ed3c5f14ebdb548f87d7bc87655365592afb300379185938ec8f82a353655d`.
+The reviewed one-line recipe correction names those generated files as explicit
+Make goals, preserving the original rules, flags, time limits and full matrix.
+Fresh `btrsmith-album-regressions-2a15e4c-attempt-2` is now running; no complete
+regression result is claimed yet. Before launch, exactly ten historical generated C files were archived
 with verified bytes, modes, timestamps and recovery instructions, reclaiming
 644,300,800 allocated bytes and leaving about 80.75 GB free. Current sources,
 binaries, readers, logs, audits and qualification inputs remain unchanged. Archive
