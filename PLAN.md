@@ -655,9 +655,9 @@ At the 05:45 UTC job-level check, Android has passed, Windows lanes are running,
 and macOS/Linux are executing tests and release jobs with remaining shards queued.
 The top-level queued labels do not imply that all jobs are idle. PR68's description
 now matches current head `a29ab3e3` and its actual qualification scope. This PR68
-wave and BTRSmith replay `37883596677` occupy both hosted slots. The replay remains
-in its original paired live-agent acceptance stage; audio and installed-product
-checks are pending. Native Linux quit `e6f076e5` and the repaired memory comparison
+wave and BTRSmith replay `37883596677` occupy both hosted slots. The replay's original paired live-agent acceptance stage has now passed
+(observed 05:52 UTC); its original audio-failure journeys are running, with
+installed-product checks and the final artifact audit pending. Native Linux quit `e6f076e5` and the repaired memory comparison
 remain queued.
 Main integration and any measured compiler improvement remain unclaimed.
 
@@ -680,18 +680,34 @@ closed groups. Earlier attempts stopped before compilation because of an archive
 mode expectation and an incorrect Make owner; both are retained, and an actual
 same-shell dry run confirmed `tests/Makefile` before the successful reproduction.
 
-The production repair is in progress: remove fuzzy consolidation, preserve full
-legacy album metadata recoverably, move unverified old groupings away from
-canonical identities and refresh source memberships atomically. Offline and
-failed sources retain their records with unknown/stale metadata. The incomplete
-local draft `f8d5a24b` includes migration/recovery tests but is not qualified.
-Unknown-year casing/spacing normalization in the format-reader call sites also
-requires correction. Review additionally found that obsolete schema9 rekeying and
-schema10 display cleanup could modify original rows before schema12 preservation;
-they must be retired while retaining schema-version transitions and the earlier
-migration/rollback and pagination oracles. Candidate tests must use exact original
-schema inventories. These source/test corrections are in progress; no new
-implementation or migration acceptance is claimed.
+The production repair is now committed as `2a15e4c` after independent source
+review. It removes fuzzy consolidation, preserves full legacy album rows in
+recoverable storage, moves unverified old memberships away from canonical IDs,
+and invalidates cached summaries for authoritative refresh. Unknown-year titles
+retain authored formatting; failed/offline sources retain their records. Obsolete
+schema9 rekeying and schema10 display cleanup are retired before preservation,
+while version transitions and earlier migration/rollback/pagination oracles remain.
+There is no new UI-badge claim: source-summary staleness is explicit in the record.
+
+The complete AlbumReconciliation native fixture now passes through both current-
+compiler frontends, followed by the original LinkPlanParity check. Each execution
+reaches all 14 policy observations, both schema11 refresh orders and the schema9
+migration journey before its completion marker. Both generated mains contain 98
+actual assertion sites. Result SHA-256:
+`a253d4f1c06fdd165a3d219ce1f563e665fe61a50406e2bb34ffb8352eb862dc`;
+independent audit `86cc0b0d6f56d13b4497cf56bf5f62a827b3ca41b5caf37284e5161e47e2c5a1`
+verifies 23 pins, 847 product files, 4,502 compiler files, 154 generated files,
+original SDK/tools, 24 logs and 12 closed process groups. This repairs the
+reproduced album-grouping defect in the native fixture; full product acceptance
+still requires the surrounding catalog/format regressions and application journeys.
+
+The next regression selection preserves nine original programs and their compiler
+matrix: Clang/GCC through both frontends for eight programs, and PSARC's native/
+Clang/GCC through both, for 38 native executions plus nine plan comparisons.
+PSARC retains its actual fixture setup/cleanup owner. Preparation is in progress;
+these broader checks have not run. Completed task-owned derived output may be
+archived with verified recovery inventories to provide headroom before this stage;
+current binaries, sources, logs, audits and qualification inputs remain protected.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -2954,7 +2970,7 @@ an unwired fixture. Old passing counts do not validate a newly ported tree.
 
 | Platform | Next concrete checkpoint | Actual dependency and evidence |
 |---|---|---|
-| Windows | Qualify the fresh self-hosted importer, then implement and run Toolhelp/process thread count | Candidate `b04309d8` passes 103 reference checks and genuine SDK Toolhelp imports for x64 and ARM64, preserving typed pointer constants and SDK spelling. Both old-reader signature failures reproduce. Fresh self-hosted build passes; 154 paired checks pass and one existing-diagnostic fixture mismatch is under repair. Four paired SDK imports, the actual ProcessThreads provider and Windows runtime execution remain unqualified. |
+| Windows | Wire and qualify the actual Toolhelp/process thread-count provider | Candidate `3e02deba` passes all 155 paired checks and all four genuine SDK imports through reference/selfhost for x64/ARM64, with exact paired C/plan equality. The original pointer and function-signature defects are repaired. Provider draft `8ef29047` is source-reviewed; manifest wiring, native fixtures, strict Windows C build and real x64/ARM64 execution remain unqualified. |
 | iOS/iPadOS | App-private file create/write/read and relaunch persistence through both frontends | Actual iOS target/provider/cache selection, required nongeneric Foundation ownership/calls, filesystem seam and a real Xcode simulator host. Full UIKit widgets are not prerequisites for this service. |
 | Android | NativeActivity host execution, then app-private file create/write/read and relaunch persistence | NDK/SDK, correct target/provider selection, trusted host-derived roots, filesystem seam and emulator execution. Initial private roots need not wait for the complete Java UI/JNI stack. |
 | Each mobile GUI | Lifecycle, one native button and one editable field with events and safe teardown | Checked UIKit/main-executor adapters on iOS; checked JNI/Looper/callback ownership on Android. GPU embedding and richer collection controls are subsequent milestones. |
@@ -3031,13 +3047,27 @@ SDK projections are not reached. Result SHA-256:
 `2516f6ed5cf6b8d9c518bcb90c71d8703ae5aee460665e3bc9f2f97b647be3b6`;
 independent audit `6fab672a4567a1a0b12f8572e431ec618d88e9e02b524be14f9005b603d46f7a`
 verifies exact inputs, all 155 identities, retained outputs and eight closed groups.
-A narrow fixture correction is being reviewed against existing qualifier tests:
-require each frontend's exact established diagnostic and compare imported
-constants with ordinary same-type const pointers, retaining all six rejection
-and no-output checks. Production compiler bytes are unchanged, so the retained
-fresh binary can be authenticated for the corrected paired run. No completed
-self-hosted SDK or Windows runtime acceptance is claimed. The ProcessThreads
-provider, strict Windows C build and actual x64/ARM64 execution remain required.
+The narrow fixture correction `3e02deba` now requires each frontend's exact
+established diagnostic and compares imported constants with ordinary same-type
+const pointers, retaining all six rejection and no-output checks. Production
+compiler bytes are unchanged. The corrected run authenticates and reuses the
+fresh binary, then passes all 155 paired checks and all four genuine SDK imports
+with empty diagnostics and byte-identical C/plans per target. Result SHA-256:
+`a32d159f2e60807cfed9d36073630fac1f0cd8ef41dff29742e684152eae503a`;
+independent audit `09b252f0e23e39c1115cbea02fe6e1810d3cc891aa35692b099d71dd9fd47948`
+verifies 79 static pins, nine tools, 183 dynamic inputs, exact three-file test/report
+delta, SDK/resource inventories, 22 logs and 11 closed groups. This establishes
+paired Windows SDK projection, not native Windows link/runtime behavior.
+
+The actual ProcessThreads provider is drafted in `8ef29047` and independently
+source-reviewed. It uses genuine SDK declarations, checks returned record extent
+before owner-PID access, resets dwSize per call, filters the current PID, guards
+count overflow and attempts exactly one handle close while preserving enumeration
+errors. Public count()/minus-one behavior and Windows worker pools are unchanged.
+Manifest wiring and real-thread/fault fixtures are being implemented. The original
+WindowsMain SDK-scanning process-composition gap remains explicit; supported-host
+projection followed by actual Windows x64/ARM64 execution must be distinguished
+from claiming SDK scanning on a Windows-hosted compiler.
 
 
 Reuse the existing stdlib shell fixture as a small conformance app: window,
