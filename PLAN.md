@@ -637,11 +637,23 @@ made. After Mac unit finished, private paired Linux memory workflow `4f7e7c17`
 was published once; automatic run `37885703276` began at 04:49 UTC. It compares
 baseline `6f1b81d9` with compact/flow candidate `c8221ae4` against exact product
 `dbe8df0e`, with unchanged qualification and measurement bounds. Source and
-workflow publication are verified. Environment preparation passed at 05:05 UTC;
-both canonical Linux compiler builds are running at the 05:19 UTC check. No
-measured improvement is claimed. This
-comparison and BTRSmith's replay occupy both hosted waves. Mac test-helper
-qualification `a29ab3e3` and native Linux quit `e6f076e5` remain queued.
+workflow publication are verified. Both canonical Linux compilers built, and all
+45 focused checks plus the actual native flow driver passed. The run then failed
+at product-tool admission: the product environment omitted the SDK reader,
+target and sysroot exported by the compiler environment. No product compilation,
+warmup or measurement ran. The authenticated failure audit is `84366846d2d3497ad286db8dac3e397a419ee472e9806037c255b9524953ffe3`;
+its binary addendum `f44cea16441bcf308aabc060209604fd52ff268db429c3f995bea632b9be5d84`
+verifies both actual binaries and generated C. A minimal environment-composition
+repair passes eight shell checks; it remains unpublished and unmeasured.
+
+That terminal run released a hosted slot. Qualified Mac test-helper `a29ab3e3`
+was published once by normal fast-forward to PR68 at 05:32 UTC, preserving the
+84-pass test bytes and ordinary checkout. Automatic workflows are Linux
+`37889064844`, macOS `37889064858`, Windows `37889064843`, Windows ARM64
+`37889064907` and Android `37889064913`; no manual duplicate dispatch occurred.
+This PR68 wave and BTRSmith replay `37883596677` occupy both hosted slots.
+Native Linux quit `e6f076e5` and the repaired memory comparison remain queued.
+Main integration and any measured compiler improvement remain unclaimed.
 
 The current product review also found a concrete Library source defect against
 PRD lines 53–55: `CatalogAlbumMerge.related` permits unknown years, two-year
@@ -652,8 +664,23 @@ same known year, approved formatting only), preserve recordings/arrangements,
 and refresh old derived memberships from authoritative sources. Existing songs
 do not retain their original per-song year, so a migration must not invent it
 from a merged survivor; failed or unavailable roots must preserve current data
-and expose unresolved state. Source review is complete; implementation and real
-SQLite publication/reopen/recovery tests remain pending.
+and expose unresolved state. A new fixture-only baseline now proves the defect
+through actual SQLite publication and the current-equivalent compiler: safe title
+formatting consolidates to one album, then distinct 2006/2007 releases incorrectly
+remain one instead of two. The native process aborts at that exact generated
+count assertion. Baseline audit `6d7c8d0a9f6f6ecd5807f7cce996872fcf2675ea4d7c7c6749f89d6547e5135b`
+authenticates all sources, compiler/tool inputs, generated C/plan/binary and six
+closed groups. Earlier attempts stopped before compilation because of an archive
+mode expectation and an incorrect Make owner; both are retained, and an actual
+same-shell dry run confirmed `tests/Makefile` before the successful reproduction.
+
+The production repair is in progress: remove fuzzy consolidation, preserve full
+legacy album metadata recoverably, move unverified old groupings away from
+canonical identities and refresh source memberships atomically. Offline and
+failed sources retain their records with unknown/stale metadata. The incomplete
+local draft `f8d5a24b` includes migration/recovery tests but is not qualified.
+Unknown-year casing/spacing normalization in the format-reader call sites also
+requires correction; no new implementation or migration acceptance is claimed.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -1471,11 +1498,14 @@ baseline failures and passes all 84 candidate ledger/coordination cases without
 skips. Eight owned groups close; inputs and logs match. Independent audit:
 `2c837e02ed890b32a0771e3366f7422eba967ef1098a24c9ea87298a908177a3`.
 Report-only follow-up `a29ab3e3` preserves those test bytes and is ready for a
-normal PR68 fast-forward from `5aa232ad`; publication waits for a hosted slot.
-No final combined-tree merge is claimed. The separate compact/flow candidate
+normal PR68 fast-forward from `5aa232ad`; publication completed once at 05:32 UTC.
+Automatic qualification is now running on exact `a29ab3e3`, with run identities
+recorded above. No final combined-tree merge is claimed. The separate compact/flow candidate
 has passed its fresh build, 45 focused checks, native flow driver and exact
 current-product 423-file/ordered-plan parity. Paired Linux measurement is now
-running as `37885703276`; its results and full integration matrix remain pending.
+attempted as `37885703276`: both builds and correctness passed, but missing
+product SDK exports stopped admission before any measurement. Its reviewed
+environment repair, actual samples and full integration matrix remain pending.
 The latest compiler and native component outcomes are recorded under the goals
 above; test passes do not close the outstanding product performance or MVP targets.
 
