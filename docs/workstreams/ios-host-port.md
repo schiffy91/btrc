@@ -41,13 +41,29 @@ simulators shut down. The earlier f49 hosted run37579929097 completed zero of
 source combination or closes D8's runtime-selection evidence.
 
 Preparation authenticated all eleven donor file hashes and preserved their
-bytes/modes. Python AST parsing passed. No local test, compiler, native
-simulator, runtime acquisition or hosted run has executed for this packet yet.
-The next focused qualification uses the original28 local unittest methods as
-an authentic baseline, then the same28 on the current-main port and the
-relevant unchanged current workflow contracts. Those local process/transport
-checks remain explicitly `not-ios`; the original50 native matrix is a separate
-allocation after runtime admission. Full integration gates remain root-owned.
+bytes and Git executable modes. Python AST parsing passed. Focused local gate
+38412 then passed the exact original 28 process/transport methods on preserved
+1844837b, the same 28 on candidate55daaf9b, and four unchanged current workflow
+contracts. Actual collection, JUnit and the workflow skip ledger matched every
+expected identity, with zero failures, errors or skips. The gate took 37.19s.
+
+Evidence remains at `ios-host-port-55daaf9b-attempt-1` beneath the local
+`plan-consolidation-2026-10-07` evidence root. Result SHA-256:
+`c7213525cf4e8ed0fc002320ba229fab359ebf8dca37731b1b7c8e6ede973ac7`.
+Independent audit SHA-256:
+`c87cb379b508145b4e05b12275a13a85652977bc9b7222de92993049021308e5`.
+The audit rehashed all 55 input/tool pins, both source archives, all 4,370
+baseline and 4,518 candidate source entries and Git executable modes, all
+26 command logs, and the exact test reports. All 13 owned process groups were
+absent and their leaders reaped zero; final source and tools were unchanged.
+Archive extraction explicitly restores canonical Git executable modes rather
+than retaining archive-specific group-write permission bits; source bytes and
+archive hashes were unchanged. This correction preceded all test execution.
+
+These are local trusted C process/transport checks, explicitly `not-ios`.
+No simulator was booted and no runtime was acquired. The original 50 native
+simulator executions on the integrated source and D8 oldest-installable-runtime
+admission remain outstanding, as do final root-owned integration gates.
 
 The ordinary parked checkout/index, acquisition packet and root-owned PLAN
 remain unchanged. No publication or dispatch is included in this preparation.
