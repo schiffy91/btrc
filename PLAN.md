@@ -467,8 +467,10 @@ returns code 1 for revision 5. Captured stdout is absent from the fixture's
 failure message, so the actual protocol error is not established. Diagnostic-only
 source `8e58bd76` now retains a bounded response in that same failure path;
 reviewed replay `cd705952` starts automatic run `37869903754` with original full
-stage bodies and bounds. That replay is now terminal failure; its newly retained
-protocol response is being inspected before a cause or repair is claimed.
+stage bodies and bounds. That replay is now terminal failure. The retained
+response explicitly reports a stale application semantic-state revision for the
+revision-5 navigation request. Why the expected revision moved is still under
+investigation; no retry or relaxed revision check is accepted as a repair.
 Self-host/GCC live, audio and installed-product acceptance remain open. Artifact SHA-256 is
 `738a0ab195497ba76f4c69bc7309735818b16bb6415960136c5777bebb52e862`.
 
