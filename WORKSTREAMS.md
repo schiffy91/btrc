@@ -1604,3 +1604,26 @@ source or reader changes. Execution_review owns the same-binary reuse qualifier
 with full155 cases and all four actual Toolhelp projections; no new build or
 execution is authorized by this source checkpoint. Ordinary checkout/index stay
 unchanged through an isolated index and `codex/` packet ref.
+
+## 2026-10-09 D29 Windows process thread count
+
+Packet CX-HARMONIZE-WINDOWS-PROCESS-THREADS, base `3e02deba`, isolated branch
+`codex/windows-process-threads`. Root assigns performance_review the new
+`src/stdlib/BackgroundJobs/Windows/ProcessThreadsProvider.btrc`,
+`src/stdlib/BackgroundJobs/Windows/ProcessThreads.h`, the public comment in
+`src/stdlib/BackgroundJobs/ProcessThreads.btrc`, this claim and
+`docs/workstreams/windows-process-threads.md`. Behavioral follow-up owns
+`src/tests/python/test_background_jobs_runtime.py` and WindowsProcessThreads
+fixture/probe/fault-control files under `src/tests/native/background_jobs/`.
+The provider/native bindings in `src/stdlib/BackgroundJobs/btrc.toml` are reserved
+for a final fragment commit; no manifest edit is in this initial source draft.
+
+Preserve public count()/-1 and all Windows worker-pool bytes. Use genuine Toolhelp
+SDK types and declarations: validate dwSize before reading owner PID, reset size
+for every enumeration call, filter this PID, capture enumeration error before
+closing, and attempt exactly one CloseHandle for every acquired snapshot. Fail
+on overflow, malformed records, enumeration errors or close failure. Qualification
+requires real Windows x64/ARM64 programs through both frontends, held-thread and
+foreign-PID behavior, and targeted native failure/cleanup controls. WindowsMain
+SDK process composition is explicitly outside this packet. No build, tests or
+publication until root allocates; pointer importer acceptance remains prerequisite.
