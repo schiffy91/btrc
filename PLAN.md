@@ -38,7 +38,7 @@ with focused combined qualification passed and final hosted gates outstanding. T
 defensible overall percentage complete: the remaining items have different scope
 and several acceptance measurements are missing.
 
-### Delivery checkpoint (October 12, 00:05 Europe/London)
+### Delivery checkpoint (October 12, Europe/London)
 
 GitHub main remains `36b647f0`, the exact tree qualified before PR68 merged.
 The local clone hub's older `cf28fe74` is not GitHub main. Automatic post-merge
@@ -55,8 +55,15 @@ job `114596824910` (run `37905525576`, attempt 2); setup passed. The separate
 reader-lifetime repair `ad46f269` retains both jobs' Nix outputs through teardown
 and captures wrapper/interpreter/backend/closure evidence before and after tests.
 Independent review caught and corrected the actual wrapper's `bash -e` shebang
-handling. Behavior and disposable-path retention checks are still unrun; this is
-not a claim that garbage collection caused the original failure.
+handling. The 91 baseline and 106 candidate workflow/toolchain checks now pass.
+The first test attempt retained a wrong-shell environment failure; the corrected
+attempt uses the original authenticated Nix Bash. Real pre/post observations of
+two retained readers also pass, including each reader's 47 dependency paths.
+A disposable path was protected while rooted and deleted after removing its root.
+That runner's result remains failed because its text classifier expected different
+Nix wording; independent audit establishes the recorded protection/release behavior.
+The original reader's disappearance mechanism remains unknown; final hosted
+qualification of this repair is still required.
 
 Combined memory/Windows source `3694ce58` passes generated/lint/format gates,
 a fresh Mac self-host build, 200 focused cases with zero skips, the strict native
@@ -73,8 +80,11 @@ It locates remaining peak retention using authenticated existing compiler inputs
 and fresh plain/observed output parity. It is not a final benchmark acceptance run.
 
 Current Linux BTRSmith replay `37905070491` completed successfully, including
-album/Settings, Library and actual installed-app smoke steps. Full artifact and
-capture review is ongoing. The Player No-folder diagnostic passed catalog and
+album/Settings, Library and actual installed-app smoke steps. Independent audit
+`e759a38b` is clear: 24 agent/audio, 40 album and six Settings cases, 15 paired
+plan comparisons, two 600-frame Library runs and two installed-app smoke runs.
+All 18 captures were reviewed and 104 process receipts closed. This qualifies
+those selected journeys, not the complete MVP or physical desktop input. The Player No-folder diagnostic passed catalog and
 arrangement readiness, then timed out waiting for the song at stage 1; close
 remained RETRYABLE_FAILURE. No speaker stimulus ran. Reviewed failure-only
 snapshot `58bcd266` is ready to distinguish timeline, media and audio readiness
