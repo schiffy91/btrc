@@ -2,7 +2,7 @@
 
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-09**. Read [AGENTS.md](AGENTS.md) first for architecture and
+Updated **2026-10-11**. Read [AGENTS.md](AGENTS.md) first for architecture and
 development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -18,7 +18,7 @@ estimates: order follows demonstrated dependencies and payoff.
 
 <a id="goals-versus-status-2026-10-08"></a>
 
-## Goals versus status (2026-10-09)
+## Goals versus status (2026-10-11)
 
 The owner's goals are a fast compiler across real build workloads and a usable
 standard library with native GUI on macOS, Linux, Windows, iOS/iPadOS and
@@ -37,6 +37,44 @@ memory improvement and new Windows process/thread provider are separate candidat
 awaiting combined qualification. There is no
 defensible overall percentage complete: the remaining items have different scope
 and several acceptance measurements are missing.
+
+### Delivery checkpoint (October 11, 22:49 UTC)
+
+Main remains `36b647f0`, the exact tree qualified before PR68 merged. Its automatic
+post-merge Linux, Windows x64, Windows ARM64 and Android workflows passed. Mac
+post-merge qualification has two retained failures: Clang O0 never reached C11
+tests because the upstream pytest-timeout dependency failed its debugger test;
+the unit shard passed 10,142 cases and skipped 227 expected cases, then eight
+WebGPU cases failed before native execution because the configured header reader
+could no longer be started. The reader was legitimately built and checked during
+setup; a private-path leak is ruled out, while its disappearance mechanism is
+not established. The original single failed-job retry of Clang O0 has now been
+accepted after the earlier request was refused while the workflow was active.
+A job-lifetime reader-root repair is being prepared without changing GPU checks.
+
+The combined memory/Windows source `3694ce58` is locally qualified: generated,
+lint and both format checks, a fresh Mac self-host build, 200 focused cases with
+zero skips, the strict native flow driver and four Windows SDK projections all
+pass. Both frontends produce identical C and ordered plans for both Windows
+targets. Independent audit `216b3812` verifies all 25 process groups closed and
+source/tool closure. These SDK projections are not Windows native execution;
+the earlier component's four actual Windows cells remain separately scoped.
+Full final hosted qualification and main integration of the combined tree remain.
+
+Current Linux BTRSmith replay `37905070491` completed successfully, including
+its latest album/Settings, Library and actual installed-app smoke steps. Its
+complete artifact is undergoing independent audit and capture review. The Player
+No-folder diagnostic passed catalog readiness and opening the arrangement, then
+timed out waiting for the song at stage 1; close remained RETRYABLE_FAILURE.
+No speaker stimulus ran. A reviewed failure-only state snapshot is queued to
+identify timeline, media or audio readiness without changing deadlines.
+
+The iOS host-tooling port `af50005b` passes the original 28 tests, the same 28
+on the current-tree port and four workflow contracts; independent audit is clear.
+It is held separately: adding the tooling activates existing push/PR simulator
+jobs, and oldest-installed selection does not establish D8's oldest-installable
+runtime. Preserve those gates and complete runtime admission before publication.
+Historical 50-case C fixture evidence does not establish current BTRC providers.
 
 ### Goal 1: fast compilation and bounded memory
 
@@ -83,9 +121,10 @@ All eight compilations preserve the 422 C/header outputs and complete ordered
 build plan under the original comparator. Independent audit `4bb27c36` verifies
 the full 215,216,793-byte artifact, all 33,295 members, authenticated sources,
 tools, reused binaries and process receipts. Report `0b309bb9` records the result.
-Private combined source `12fd0423` composes this work with current main and the
-native-qualified Windows provider; it has no production merge conflicts but is
-not yet a qualified combined tree. A reviewed, held phase-RSS diagnostic can
+Combined source `3694ce58` composes this work with current main and the
+native-qualified Windows provider. Its fresh self-host and all 200 affected checks,
+native flow driver, four SDK projections and generated/lint/format gates pass;
+full final hosted qualification is still outstanding. A reviewed, held phase-RSS diagnostic can
 identify the remaining peak before another ownership optimization is attempted.
 The failed preceding comparison and its receipt-label repair remain retained.
 Mac quiet admission and the full final workload matrix remain open.
@@ -1408,7 +1447,7 @@ frontend and library smoke checks through both compilers, followed by completed
 screen journeys as their library providers land. Hardware, listening and release
 account requirements remain explicit where automated tests cannot prove them.
 
-**Current product evidence (October 9, 08:47 UTC):** album identity repair
+**Current product evidence (updated October 11):** album identity repair
 `2a15e4c1` passes 38 actual Mac native regressions and nine original compiler-plan
 comparisons. Settings Back repair `f077985b`, recorded in `3608cb65`, passes both
 compilers at widths 480, 540 and 1100, original plan equality and visual review
@@ -1418,13 +1457,13 @@ agent/audio/scanner qualification has 24 native passes and four plan comparisons
 plus product derivation/install-layout checks; that run did not launch the
 installed app.
 
-The current Linux replay is running as
+The current Linux replay completed successfully as
 [37905070491](https://github.com/schiffy91/btrsmith/actions/runs/37905070491),
 workflow `a01ab210`, product `3608cb65` and compiler `a29ab3e3` (the tree merged
 into main). It includes the latest album and Settings source, both original
 Library journeys and installed-application smokes. It was published once, with
-no duplicate manual dispatch. Native Linux Settings activation remains distinct
-from the Mac mouse-event/hit-test proof.
+no duplicate manual dispatch. Independent artifact and visual review is underway.
+Native Linux Settings activation remains distinct from the Mac mouse-event/hit-test proof.
 
 The native Player speaker button has a source-proven missing connection to the
 existing mute/restore command. Its attempted real-library regression builds and
@@ -1432,11 +1471,14 @@ links, but fails at stage 0 with `Timed out waiting for the catalog`, before any
 speaker stimulus. Cleanup reports `RETRYABLE_FAILURE` and the original completion
 assertion aborts. Independent audit `85e9bc02` verifies all inputs and seven closed
 process groups. The private catalog snapshot admits full-library refresh through
-its configured root; a supported No-folder private configuration is being prepared
-to isolate scanning while preserving catalog readiness and all Player assertions.
-This narrower diagnostic cannot close the retained full-library timeout or cleanup
-finding. User originals remain unchanged; no speaker regression pass or repair is
-claimed.
+its configured root. The supported No-folder diagnostic subsequently passed catalog
+readiness and opening the arrangement, then timed out waiting for the song at stage 1.
+Audit `b0f75dd1` verifies exact retained binary/input identity and four closed groups;
+close again reports RETRYABLE_FAILURE. Reviewed fixture `58bcd266` adds failure-only
+observations of existing model, guarded errors, audio and presentation/clock state,
+preserving the original readiness checks, assertions and deadlines. It has not run.
+Neither diagnostic closes full-library refresh or cleanup acceptance. User originals
+remain unchanged; no speaker regression pass or repair is claimed.
 
 Remote BTRSmith main remains `adb3276f`, pinned to compiler `05ec9cb7`; the
 current working product still locks `cdf9d952` and uses explicit current-compiler
@@ -2060,8 +2102,8 @@ changes; historical test totals alone do not advance its status.
 | Useful desktop library improvement | Final source `a29ab3e3` passes Linux native-GUI, X11 and Wayland plus Mac native GUI; the identical tree is merged at main `36b647f0` | Provider repair owner; main integrator qualifies | Physical-desktop coverage and remaining UI2/features/accessibility stay open; preserve declared host limits. |
 | UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
 | Windows and mobile application-facing services | Windows source `3e480fcd` passes all four original process/thread native cells on real x64/ARM64 in `37904145886`, independently audited `b957d11d`. Historical Android and iOS fixture results remain scoped | Platform slice owners | Fresh combined compiler/provider gates are required. Mobile widgets/lifecycle/persistence and oldest-installable iOS runtime remain open. Reviewed acquisition packet is held; no runtime acquired. |
-| BTRSmith macOS/Linux MVP on the current stack | Mac album/Settings fixes remain qualified; current Linux product replay `37905070491` is running and includes installed-app launches. Player diagnostic fails catalog readiness before speaker testing | BTRSmith owner and integrator | Finish and audit Linux replay; isolate and resolve catalog readiness/cleanup, then repair and qualify native mute. Complete broader screen/audio journeys, timing budgets and actual locked pin. |
-| One qualified implementation on main | PR68 merged at `36b647f0` after all standard and dedicated final GUI gates passed; merged tree equals qualified `a29ab3e3`. Eight included PRs reconciled automatically | Main integrator | Post-merge checks continue. Private next composition `12fd0423` contains measured memory and native-qualified Windows changes but still needs fresh combined and full final gates; remaining UI2/iOS/design branches are not implicitly qualified. |
+| BTRSmith macOS/Linux MVP on the current stack | Mac album/Settings fixes are qualified; latest Linux run `37905070491` completed successfully and includes installed-app launches, with artifact/visual audit underway. No-folder Player diagnostic passes catalog readiness then times out waiting for song | BTRSmith owner and integrator | Audit Linux outcomes, identify and repair Player readiness/cleanup and native mute, then complete broader screen/audio journeys, timing budgets and the actual compiler pin. |
+| One qualified implementation on main | PR68 is merged at `36b647f0` after final standard/dedicated gates; eight included PRs reconciled. Next combined source `3694ce58` passes fresh build, 200 focused cases, native driver, four SDK projections and static checks | Main integrator | Repair retained post-merge Mac reader-lifetime/setup failures and complete the next exact-tree hosted/native matrix. Other UI2/iOS/design branches remain separately unqualified. |
 
 **October 9, 08:47 UTC integration update:** [PR68](https://github.com/schiffy91/btrc/pull/68)
 merged at `36b647f079ed7338e51b119a11046eb222dd4877` at 08:31:45 UTC.
