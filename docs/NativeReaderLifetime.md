@@ -43,3 +43,28 @@ The probe records the absolute interpreter and its optional argument separately,
 without executing or shell-splitting it. The same missing wrapper/interpreter/
 backend/closure/root cases now cover both bare and actual `-e` shebang forms.
 The prior rejected draft remains retained; no hosted or retention result exists.
+
+
+## Qualification results
+
+The corrected original-toolchain recipe passes91 baseline and106 candidate
+workflow/toolchain tests, with zero skips/failures/errors. Result SHA-256:
+`19782782b8627ca26ad5e1247f7976be36b645e1b49999f02b7345e5b147d674`.
+The first recipe's system-Bash3 classifier failures remain retained; production,
+assertions and240-second bounds were unchanged in the corrected attempt.
+
+The real disposable-path trace demonstrates that its exact registered root
+prevents deletion and removal of only that root permits deletion of the same
+authenticated payload. Nix's refusal named the exact protecting root. The runner
+expected different wording, so original result `75893f24` remains failed.
+Independent review verifies the intended mechanism, all inputs/logs, six closed
+groups and final root/store absence. No repeat deletion is needed for that proof.
+
+Actual pre/post observations use Xcode's independent Python3.9.6 on the retained
+warm out-link and the original retained reader package. Both authentic bash-e
+wrappers, interpreters, backends and47-path requisite closures remain usable and
+unchanged. Four observed command groups close. Result SHA-256:
+`6de6df8e850ac546955d95ae628552190f631f6fcddc1eb3608f4114cb5d0c5f`.
+No reader execution, rebuild, store realization or historical-cause inference is
+part of that observation. The final hosted matrix must still qualify the job
+lifetime change in its actual macOS workflows.

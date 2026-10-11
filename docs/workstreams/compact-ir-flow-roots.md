@@ -82,3 +82,25 @@ solve, during finish/emission, or during final publication. It must preserve
 the current generated C and product-output parity; instrumented observations
 will not become performance acceptance. No retention or ownership change is
 justified solely by the historical census or by this aggregate RSS result.
+
+
+## Combined current-main and Windows qualification
+
+Combined source `3694ce58` merges the measured memory improvement and Windows
+process-thread/native-pointer work onto qualified main `36b647f0`. A fresh
+MacOSMain compiler passes all 200 affected cases with zero skips, the strict
+native flow driver and four Windows SDK projections; paired C and ordered plans
+match for both targets. Generated-source, lint and Python/BTRC format checks pass.
+The earlier attempt's import-order failure and isolated repair remain retained.
+
+Result SHA-256: `bbaf589431ddd3cee117929ab55d5ea2341b75a13770d79435d3164ac73a3068`.
+Independent audit: `216b3812ecf35594a28f55243a1c04782f3f91541b8829e4908b13434426fadc`.
+All25 process groups close and source/tools remain unchanged. These projections
+are not actual Windows execution, a new memory measurement or final full-matrix
+acceptance. The Windows component's four actual native cells remain separately
+qualified. Final hosted/native qualification is still required before integration.
+
+Phase-RSS diagnostic `b4efe229`, hosted run `38182812913`, is in progress to
+locate the remaining roughly685MiB gap to1.5GiB. It preserves original source,
+strict compiler flags, bounds and plain/observed product-output parity; it is an
+instrumented diagnostic, not a benchmark acceptance result.

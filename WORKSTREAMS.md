@@ -1781,7 +1781,28 @@ Root owns private `codex/integrate-memory-windows-36b` from qualified main
 `3e480fcd`. Independent Linux product RSS/parity and real Windows x64/ARM64
 ProcessThreads results qualify the components only. Production paths merge
 without conflicts; claim history and reports retain both parents' evidence.
-Root owns PLAN and the combined qualification/publication. Fresh combined
-compiler, affected paired behavior, regenerated-source checks and the required
-final gate matrix remain outstanding. No new main landing is authorized by
-this source composition alone.
+Root owns PLAN and the combined qualification/publication. Combined source
+`3694ce58` now passes the fresh MacOSMain build, generated/lint/format checks,
+200 focused cases with zero skips, the strict native flow driver and all four
+paired Windows projections. Independent audit `216b3812` verifies exact input,
+output and process closure. Full final hosted gates and actual final-tree native
+coverage remain required before a main landing; component evidence keeps its scope.
+
+
+## 2026-10-12 D29 macOS reader lifetime qualification
+
+Root assigned platform_review the two macOS workflow reader owners, existing
+workflow contract tests, tools/qualification/toolchain.py and its report. Source
+`ad46f269` retains the normal Nix out-link through teardown and records launch
+prerequisites before/after tests through independent host Python. Production
+compiler/provider bytes are unchanged from focused-qualified `3694ce58`.
+
+Execution_review independently reviewed the source and recipes. Baseline91 and
+candidate106 workflow/toolchain tests pass with zero skips; the first wrong-Bash
+recipe failure stays retained. Real reader observations `6de6df8e` pass for the
+existing warm out-link and retained original package, including both47-path
+closures. The disposable-root trace establishes protection/release; its original
+receipt remains failed solely at its diagnostic-wording classifier. This does
+not establish the historical ENOENT cause. Root owns the final documentation,
+draft publication and complete final-tree gate matrix. The iOS tooling port
+remains separate until D8 runtime admission.
