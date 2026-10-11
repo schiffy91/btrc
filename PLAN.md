@@ -2,7 +2,7 @@
 
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-11**. Read [AGENTS.md](AGENTS.md) first for architecture and
+Updated **2026-10-12**. Read [AGENTS.md](AGENTS.md) first for architecture and
 development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -18,7 +18,7 @@ estimates: order follows demonstrated dependencies and payoff.
 
 <a id="goals-versus-status-2026-10-08"></a>
 
-## Goals versus status (2026-10-11)
+## Goals versus status (2026-10-12)
 
 The owner's goals are a fast compiler across real build workloads and a usable
 standard library with native GUI on macOS, Linux, Windows, iOS/iPadOS and
@@ -34,46 +34,56 @@ features work, while the complete desktop library and Windows/mobile providers
 remain incomplete. The qualified compiler and desktop GUI integration is on main
 `36b647f0` after PR68 merged on October 9 at 08:31 UTC. The measured compact-IR/flow
 memory improvement and new Windows process/thread provider are separate candidates
-awaiting combined qualification. There is no
+with focused combined qualification passed and final hosted gates outstanding. There is no
 defensible overall percentage complete: the remaining items have different scope
 and several acceptance measurements are missing.
 
-### Delivery checkpoint (October 11, 22:49 UTC)
+### Delivery checkpoint (October 12, 00:05 Europe/London)
 
-Main remains `36b647f0`, the exact tree qualified before PR68 merged. Its automatic
-post-merge Linux, Windows x64, Windows ARM64 and Android workflows passed. Mac
-post-merge qualification has two retained failures: Clang O0 never reached C11
-tests because the upstream pytest-timeout dependency failed its debugger test;
-the unit shard passed 10,142 cases and skipped 227 expected cases, then eight
-WebGPU cases failed before native execution because the configured header reader
-could no longer be started. The reader was legitimately built and checked during
-setup; a private-path leak is ruled out, while its disappearance mechanism is
-not established. The original single failed-job retry of Clang O0 has now been
-accepted after the earlier request was refused while the workflow was active.
-A job-lifetime reader-root repair is being prepared without changing GPU checks.
+GitHub main remains `36b647f0`, the exact tree qualified before PR68 merged.
+The local clone hub's older `cf28fe74` is not GitHub main. Automatic post-merge
+Linux, Windows x64, Windows ARM64 and Android workflows passed. Mac post-merge
+qualification retains two failures: Clang O0 initially stopped in the upstream
+pytest-timeout dependency's debugger test before C11 execution; eight WebGPU
+cases in the unit shard failed before native execution because the configured
+header reader could no longer be started. The unit shard otherwise passed
+10,142 cases and skipped 227 expected cases. The reader was legitimately built
+and checked during setup; its later missing launch prerequisite remains unknown.
 
-The combined memory/Windows source `3694ce58` is locally qualified: generated,
-lint and both format checks, a fresh Mac self-host build, 200 focused cases with
-zero skips, the strict native flow driver and four Windows SDK projections all
-pass. Both frontends produce identical C and ordered plans for both Windows
-targets. Independent audit `216b3812` verifies all 25 process groups closed and
-source/tool closure. These SDK projections are not Windows native execution;
-the earlier component's four actual Windows cells remain separately scoped.
-Full final hosted qualification and main integration of the combined tree remain.
+The single accepted Clang O0 retry is now executing the original C11 tests in
+job `114596824910` (run `37905525576`, attempt 2); setup passed. The separate
+reader-lifetime repair `ad46f269` retains both jobs' Nix outputs through teardown
+and captures wrapper/interpreter/backend/closure evidence before and after tests.
+Independent review caught and corrected the actual wrapper's `bash -e` shebang
+handling. Behavior and disposable-path retention checks are still unrun; this is
+not a claim that garbage collection caused the original failure.
+
+Combined memory/Windows source `3694ce58` passes generated/lint/format gates,
+a fresh Mac self-host build, 200 focused cases with zero skips, the strict native
+flow driver and four Windows SDK projections. Both frontends produce identical
+C and ordered plans for both Windows targets. Independent audit `216b3812`
+verifies process and input closure. Projections do not establish Windows native
+execution; the component's four actual Windows cells remain separately scoped.
+Full final hosted qualification and main integration of this combined tree remain.
+
+The measured memory improvement is 32.96%, but the worst Linux candidate remains
+about 685 MiB above 1.5 GiB. The reviewed phase-RSS diagnostic was published once
+at `b4efe229` and manually dispatched once: run `38182812913` is in progress.
+It locates remaining peak retention using authenticated existing compiler inputs
+and fresh plain/observed output parity. It is not a final benchmark acceptance run.
 
 Current Linux BTRSmith replay `37905070491` completed successfully, including
-its latest album/Settings, Library and actual installed-app smoke steps. Its
-complete artifact is undergoing independent audit and capture review. The Player
-No-folder diagnostic passed catalog readiness and opening the arrangement, then
-timed out waiting for the song at stage 1; close remained RETRYABLE_FAILURE.
-No speaker stimulus ran. A reviewed failure-only state snapshot is queued to
-identify timeline, media or audio readiness without changing deadlines.
+album/Settings, Library and actual installed-app smoke steps. Full artifact and
+capture review is ongoing. The Player No-folder diagnostic passed catalog and
+arrangement readiness, then timed out waiting for the song at stage 1; close
+remained RETRYABLE_FAILURE. No speaker stimulus ran. Reviewed failure-only
+snapshot `58bcd266` is ready to distinguish timeline, media and audio readiness
+without changing deadlines; it has not run.
 
-The iOS host-tooling port `af50005b` passes the original 28 tests, the same 28
-on the current-tree port and four workflow contracts; independent audit is clear.
-It is held separately: adding the tooling activates existing push/PR simulator
-jobs, and oldest-installed selection does not establish D8's oldest-installable
-runtime. Preserve those gates and complete runtime admission before publication.
+The iOS host-tooling port `af50005b` passes 28 original tests, the same 28 on the
+current-tree port and four workflow contracts, with independent audit clear.
+It remains separate because publishing those paths activates simulator jobs,
+and oldest-installed selection does not establish D8's oldest-installable runtime.
 Historical 50-case C fixture evidence does not establish current BTRC providers.
 
 ### Goal 1: fast compilation and bounded memory
@@ -124,8 +134,8 @@ tools, reused binaries and process receipts. Report `0b309bb9` records the resul
 Combined source `3694ce58` composes this work with current main and the
 native-qualified Windows provider. Its fresh self-host and all 200 affected checks,
 native flow driver, four SDK projections and generated/lint/format gates pass;
-full final hosted qualification is still outstanding. A reviewed, held phase-RSS diagnostic can
-identify the remaining peak before another ownership optimization is attempted.
+full final hosted qualification is still outstanding. Reviewed phase-RSS diagnostic `b4efe229` is running in hosted run `38182812913`
+to identify the remaining peak before another ownership optimization is attempted.
 The failed preceding comparison and its receipt-label repair remain retained.
 Mac quiet admission and the full final workload matrix remain open.
 
@@ -996,7 +1006,7 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 | macOS | Main `36b647f0` includes the qualified AppKit integration; final dedicated native GUI has 353 passes and 169 expected skips. Separate UI2 quit/application lifecycle repairs pass all 88 executions through both compilers, plain and sanitized | The newer UI2 provider composition qualified against `f75c737b` remains separate and unmerged. Complete its integration, remaining activation, controls, services, accessibility and final combined-tree qualification. |
 | Linux | Main `36b647f0` includes the qualified SDL shell/provider integration. Final native-GUI, X11 and Wayland gates pass; X11 has 324 passes/199 expected skips and Wayland 322/199 | Physical desktop coverage, UI2, remaining features and accessibility stay open. Headless X11/Wayland results do not establish physical desktop input. |
 | Windows | ARM64 compiler/bootstrap/sample and MSVC ABI/wgpu smoke are on main. Separate process/thread provider `3e480fcd` passes all four original native cells through both compilers on matching x64 and ARM64 hardware | Integrate the provider after combined gates, qualify remaining OS services and demonstrate a native shell with button, editable field, events and safe teardown. Process/thread passes do not establish a complete GUI provider. |
-| iOS/iPadOS | Historical iOS 26.4 simulator host passes 50 handwritten strict-C11 fixtures. The 11-path host-tooling port onto current main is source-reviewed | Run current-tree and oldest-installable-runtime qualification; demonstrate compiler-generated app-private persistence and checked UIKit lifecycle/button/text-field providers. The historical C host fixtures do not prove those providers. |
+| iOS/iPadOS | Historical iOS 26.4 simulator host passes 50 handwritten strict-C11 fixtures. The 11-path host-tooling port passes 28 original, 28 current-tree and four workflow checks; simulator publication is held for D8 runtime admission | Run current-tree and oldest-installable-runtime qualification; demonstrate compiler-generated app-private persistence and checked UIKit lifecycle/button/text-field providers. The historical C host fixtures do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
 
 The main-based canonical PLAN candidate `f01ec0ff` passes Linux, Windows and
