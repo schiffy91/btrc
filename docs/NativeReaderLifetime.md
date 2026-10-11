@@ -37,3 +37,9 @@ same exact path can be deleted. No global GC, force deletion, unrelated path,
 settings mutation, dependency download or toolchain change is allowed. Existing
 bounded process ownership retains all exit/cleanup receipts. This proves Nix
 root retention only and does not reproduce the old hosted disappearance.
+
+The authentic retained Nix wrapper starts with `#! /nix/store/.../bash -e`.
+The probe records the absolute interpreter and its optional argument separately,
+without executing or shell-splitting it. The same missing wrapper/interpreter/
+backend/closure/root cases now cover both bare and actual `-e` shebang forms.
+The prior rejected draft remains retained; no hosted or retention result exists.

@@ -1443,8 +1443,11 @@ def test_macos_reader_is_rooted_and_observed_through_job_failure(job_name: str) 
     assert "nix-store --delete" not in job and "--gc" not in job
 
 
+@pytest.mark.parametrize("optional_argument", ["", " -e"])
 @pytest.mark.parametrize("missing", ["reader", "interpreter", "backend", "closure", "root", None])
-def test_reader_evidence_distinguishes_missing_launch_dependencies(tmp_path: Path, missing: str | None) -> None:
+def test_reader_evidence_distinguishes_missing_launch_dependencies(
+    tmp_path: Path, missing: str | None, optional_argument: str
+) -> None:
     from types import SimpleNamespace
 
     from tools.qualification.toolchain import NativeReaderProbe
@@ -1455,7 +1458,7 @@ def test_reader_evidence_distinguishes_missing_launch_dependencies(tmp_path: Pat
     interpreter.write_text("interpreter bytes")
     interpreter.chmod(0o755)
     reader = store / "bin/btrc-native-header"
-    reader.write_text(f"#!{interpreter}\nexec wrapped\n")
+    reader.write_text(f"#! {interpreter}{optional_argument}\nexec wrapped\n")
     reader.chmod(0o755)
     backend = store / "bin/.btrc-native-header-wrapped"
     backend.write_text("native bytes")
@@ -1475,6 +1478,9 @@ def test_reader_evidence_distinguishes_missing_launch_dependencies(tmp_path: Pat
     evidence = tmp_path / "evidence"
     probe = NativeReaderProbe(root, evidence, query)
     assert probe.capture("pre") == 0
+    before = json.loads((evidence / "pre.json").read_text())
+    assert before["files"]["interpreter"]["path"] == str(interpreter)
+    assert before["interpreter_arguments"] == (["-e"] if optional_argument else [])
     removed = {"reader": reader, "interpreter": interpreter, "backend": backend, "closure": dependency, "root": root}
     if missing is not None:
         path = removed[missing]

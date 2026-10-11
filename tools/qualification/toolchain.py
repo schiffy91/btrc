@@ -243,8 +243,11 @@ class NativeReaderProbe:
                 shebang = stream.readline(4096).decode("utf-8").rstrip()
         except (OSError, UnicodeError) as error:
             files["reader"]["header_error"] = str(error)
-        words = shebang[2:].split() if shebang.startswith("#!") else []
-        interpreter = words[0] if len(words) == 1 and words[0].startswith("/") else None
+        # A shebang carries an executable and at most one optional argument.
+        # Preserve the latter verbatim; it is not a shell command to tokenize.
+        words = shebang[2:].split(maxsplit=1) if shebang.startswith("#!") else []
+        interpreter = words[0] if words and words[0].startswith("/") else None
+        interpreter_arguments = words[1:]
         if interpreter is None:
             interpreter = previous.get("files", {}).get("interpreter", {}).get("path")
         if interpreter is not None:
@@ -264,7 +267,7 @@ class NativeReaderProbe:
         if query["returncode"] == 0:
             paths.update(query["stdout"].splitlines())
         closure = {path: Path(path).exists() for path in sorted(paths)}
-        valid_shebang = bool(words and len(words) == 1 and words[0].startswith("/"))
+        valid_shebang = bool(words and words[0].startswith("/"))
         usable = (
             root.get("resolved") == str(store)
             and valid_shebang
@@ -287,6 +290,7 @@ class NativeReaderProbe:
             "store": str(store),
             "root": root,
             "shebang": shebang,
+            "interpreter_arguments": interpreter_arguments,
             "files": files,
             "query": query,
             "closure": closure,
