@@ -42,7 +42,7 @@ The authentic retained Nix wrapper starts with `#! /nix/store/.../bash -e`.
 The probe records the absolute interpreter and its optional argument separately,
 without executing or shell-splitting it. The same missing wrapper/interpreter/
 backend/closure/root cases now cover both bare and actual `-e` shebang forms.
-The prior rejected draft remains retained; no hosted or retention result exists.
+At that source-review checkpoint, the prior rejected draft remained retained and no hosted or retention result existed. The subsequent qualification is recorded below.
 
 
 ## Qualification results
