@@ -68,10 +68,15 @@ qualification of this repair is still required.
 
 Combined memory/Windows source `3694ce58` passes generated/lint/format gates,
 a fresh Mac self-host build, 200 focused cases with zero skips, the strict native
-flow driver and four Windows SDK projections. Both frontends produce identical
-C and ordered plans for both Windows targets. Independent audit `216b3812`
-verifies process and input closure. Projections do not establish Windows native
-execution; the component's four actual Windows cells remain separately scoped.
+flow driver and four direct Toolhelp import projections. Both frontends produce
+identical C and ordered plans for both Windows targets. Independent audit
+`216b3812` verifies process and input closure. These imports did not project the
+full process/thread fixture. The fresh PR70 provider replay now passes the
+original 17 checks and all four full-fixture projections through both frontends
+on x64 and ARM64, with raw C/plan parity. Result `93ce6556` records 11 successful
+commands, unchanged inputs and no remaining process groups; independent review
+and actual Windows execution are next. The component's earlier four native
+Windows cells remain separately scoped.
 The reviewed combined candidate is published at `5be08004` in draft
 [PR70](https://github.com/schiffy91/btrc/pull/70). Linux, macOS, Windows and
 Windows ARM64 qualification is running. Dedicated GUI and final combined
@@ -80,9 +85,10 @@ them. Main integration is pending. Keep that CI head frozen while results arrive
 
 The measured memory improvement is 32.96%, but the worst Linux candidate remains
 about 685 MiB above 1.5 GiB. The reviewed phase-RSS diagnostic was published once
-at `b4efe229` and manually dispatched once: run `38182812913` is in progress.
-It locates remaining peak retention using authenticated existing compiler inputs
-and fresh plain/observed output parity. It is not a final benchmark acceptance run.
+at `b4efe229` and manually dispatched once: run `38182812913` completed
+successfully on October 11 at 23:31 UTC. Artifact review is in progress before
+using its phase attribution to choose the next memory change. It is not a final
+benchmark acceptance run.
 
 Current Linux BTRSmith replay `37905070491` completed successfully, including
 album/Settings, Library and actual installed-app smoke steps. Independent audit
@@ -95,9 +101,16 @@ remained RETRYABLE_FAILURE. No speaker stimulus ran. Failure-only snapshot `58bc
 "PSARC source changed during the read" while timeline/media/audio readiness is
 idle and no playback clock exists. The original song timeout and retryable-close
 cleanup failure follow. Private input bytes remained unchanged throughout;
-source-identity validation is under investigation. No speaker event occurred.
+read-only diagnosis found a cached file revision that differs from current file
+metadata, plus a legacy song ID that differs from the current source identity.
+The revision guard rejected the request before archive parsing; its origin is
+not yet established. No speaker event occurred.
 Result `488bf51f` and independent audit `7a1342f5` verify retained inputs and
-seven closed process groups; no assertion or deadline was changed.
+seven closed process groups; no assertion or deadline was changed. Reviewed
+fixture `9ca7084f` is now running. It refreshes only the selected source in the
+disposable catalog through the existing format reader and transactional catalog
+owner, retaining every other root record and the original Player assertions.
+Full-library refresh and retryable-close failures remain unresolved.
 
 The iOS host-tooling port `af50005b` passes 28 original tests, the same 28 on the
 current-tree port and four workflow contracts, with independent audit clear.
@@ -153,8 +166,9 @@ tools, reused binaries and process receipts. Report `0b309bb9` records the resul
 Combined source `3694ce58` composes this work with current main and the
 native-qualified Windows provider. Its fresh self-host and all 200 affected checks,
 native flow driver, four SDK projections and generated/lint/format gates pass;
-full final hosted qualification is still outstanding. Reviewed phase-RSS diagnostic `b4efe229` is running in hosted run `38182812913`
-to identify the remaining peak before another ownership optimization is attempted.
+full final hosted qualification is still outstanding. Reviewed phase-RSS
+diagnostic `b4efe229` passed hosted run `38182812913`; its artifact is being
+audited before the phase results guide another ownership optimization.
 The failed preceding comparison and its receipt-label repair remain retained.
 Mac quiet admission and the full final workload matrix remain open.
 
@@ -1505,7 +1519,13 @@ readiness and opening the arrangement, then timed out waiting for the song at st
 Audit `b0f75dd1` verifies exact retained binary/input identity and four closed groups;
 close again reports RETRYABLE_FAILURE. Reviewed fixture `58bcd266` adds failure-only
 observations of existing model, guarded errors, audio and presentation/clock state,
-preserving the original readiness checks, assertions and deadlines. It has not run.
+preserving the original readiness checks, assertions and deadlines. Its run
+retains timeline error 2, "PSARC source changed during the read", before any
+media/audio readiness or playback clock. Result `488bf51f` and audit `7a1342f5`
+verify that failure and input/process closure. Cached revision metadata and the
+legacy song identity differ from the current format reader's values. Reviewed
+selected-source diagnostic `9ca7084f` is running against a disposable catalog;
+it uses existing format/catalog owners and preserves the complete root inventory.
 Neither diagnostic closes full-library refresh or cleanup acceptance. User originals
 remain unchanged; no speaker regression pass or repair is claimed.
 
