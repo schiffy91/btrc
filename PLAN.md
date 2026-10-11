@@ -72,7 +72,11 @@ flow driver and four Windows SDK projections. Both frontends produce identical
 C and ordered plans for both Windows targets. Independent audit `216b3812`
 verifies process and input closure. Projections do not establish Windows native
 execution; the component's four actual Windows cells remain separately scoped.
-Full final hosted qualification and main integration of this combined tree remain.
+The reviewed combined candidate is published at `5be08004` in draft
+[PR70](https://github.com/schiffy91/btrc/pull/70). Linux, macOS, Windows and
+Windows ARM64 qualification is running. Dedicated GUI and final combined
+Windows native coverage remain required where the standard tier does not execute
+them. Main integration is pending. Keep that CI head frozen while results arrive.
 
 The measured memory improvement is 32.96%, but the worst Linux candidate remains
 about 685 MiB above 1.5 GiB. The reviewed phase-RSS diagnostic was published once
@@ -87,9 +91,13 @@ plan comparisons, two 600-frame Library runs and two installed-app smoke runs.
 All 18 captures were reviewed and 104 process receipts closed. This qualifies
 those selected journeys, not the complete MVP or physical desktop input. The Player No-folder diagnostic passed catalog and
 arrangement readiness, then timed out waiting for the song at stage 1; close
-remained RETRYABLE_FAILURE. No speaker stimulus ran. Reviewed failure-only
-snapshot `58bcd266` is ready to distinguish timeline, media and audio readiness
-without changing deadlines; it has not run.
+remained RETRYABLE_FAILURE. No speaker stimulus ran. Failure-only snapshot `58bcd266` has now run: timeline error 2 reports
+"PSARC source changed during the read" while timeline/media/audio readiness is
+idle and no playback clock exists. The original song timeout and retryable-close
+cleanup failure follow. Private input bytes remained unchanged throughout;
+source-identity validation is under investigation. No speaker event occurred.
+Result `488bf51f` and independent audit `7a1342f5` verify retained inputs and
+seven closed process groups; no assertion or deadline was changed.
 
 The iOS host-tooling port `af50005b` passes 28 original tests, the same 28 on the
 current-tree port and four workflow contracts, with independent audit clear.
