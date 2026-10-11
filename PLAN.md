@@ -74,9 +74,11 @@ identical C and ordered plans for both Windows targets. Independent audit
 full process/thread fixture. The fresh PR70 provider replay now passes the
 original 17 checks and all four full-fixture projections through both frontends
 on x64 and ARM64, with raw C/plan parity. Result `93ce6556` records 11 successful
-commands, unchanged inputs and no remaining process groups; independent review
-and actual Windows execution are next. The component's earlier four native
-Windows cells remain separately scoped.
+commands, unchanged inputs and no remaining process groups. Independent audit
+`d56ca25a` is clear. Fresh native qualification was published once at `408791ba`
+and dispatched once as run `38185400596`, using the unchanged prior native
+qualifier and both header-lookup negative controls. It is running on Windows
+x64/ARM64. The component's earlier four native Windows cells remain separate.
 The reviewed combined candidate is published at `5be08004` in draft
 [PR70](https://github.com/schiffy91/btrc/pull/70). Linux, macOS, Windows and
 Windows ARM64 qualification is running. Dedicated GUI and final combined
@@ -86,9 +88,16 @@ them. Main integration is pending. Keep that CI head frozen while results arrive
 The measured memory improvement is 32.96%, but the worst Linux candidate remains
 about 685 MiB above 1.5 GiB. The reviewed phase-RSS diagnostic was published once
 at `b4efe229` and manually dispatched once: run `38182812913` completed
-successfully on October 11 at 23:31 UTC. Artifact review is in progress before
-using its phase attribution to choose the next memory change. It is not a final
-benchmark acceptance run.
+successfully on October 11 at 23:31 UTC. Independent audit `e5c477b9` verifies
+422 paired C/header outputs, the complete ordered plan, 929 observations and
+15 closed process receipts. Peak RSS was 2,326,470,656 bytes, with 95.99% already
+reached before final optimization/emission began. All 459 unit/analysis/effect
+entries remained through finish. This points toward lowering retention, not
+finish-only cleanup; it does not attribute bytes to an owner or establish final
+performance acceptance. Retained records identify 6,850 generic members that
+were lowered but not kept, including 6,612 Vector members. Demand-driven body
+materialization is being reviewed against existing semantic roots, incremental
+cache contracts and canonical naming; no new savings are claimed.
 
 Current Linux BTRSmith replay `37905070491` completed successfully, including
 album/Settings, Library and actual installed-app smoke steps. Independent audit
@@ -106,11 +115,15 @@ metadata, plus a legacy song ID that differs from the current source identity.
 The revision guard rejected the request before archive parsing; its origin is
 not yet established. No speaker event occurred.
 Result `488bf51f` and independent audit `7a1342f5` verify retained inputs and
-seven closed process groups; no assertion or deadline was changed. Reviewed
-fixture `9ca7084f` is now running. It refreshes only the selected source in the
-disposable catalog through the existing format reader and transactional catalog
-owner, retaining every other root record and the original Player assertions.
-Full-library refresh and retryable-close failures remain unresolved.
+seven closed process groups; no assertion or deadline was changed. Selected-source
+fixture `9ca7084f` built and passed real stale rejection, fresh probe and summary
+correlation, then failed its unchanged catalog publication assertion before
+application startup. Result `4eb906ae` and audit `2429849e` retain seven closed
+groups and unchanged private inputs. Failure-only diagnostic `1120dea8` is now
+running to expose the existing publication outcome. Source/retained-row evidence
+suggests an artwork identity conflict during legacy song-ID replacement, but
+the actual rejection is not yet observed. No speaker event occurred. Full-library
+refresh and retryable-close failures remain unresolved.
 
 The iOS host-tooling port `af50005b` passes 28 original tests, the same 28 on the
 current-tree port and four workflow contracts, with independent audit clear.
@@ -167,8 +180,11 @@ Combined source `3694ce58` composes this work with current main and the
 native-qualified Windows provider. Its fresh self-host and all 200 affected checks,
 native flow driver, four SDK projections and generated/lint/format gates pass;
 full final hosted qualification is still outstanding. Reviewed phase-RSS
-diagnostic `b4efe229` passed hosted run `38182812913`; its artifact is being
-audited before the phase results guide another ownership optimization.
+diagnostic `b4efe229` passed hosted run `38182812913` and independent audit
+`e5c477b9`. Before finishing, high-water RSS is 2,233,065,472 bytes; final high
+water is 2,326,470,656. Earlier lowering retention must be addressed to reach
+1.5 GiB; final-only release cannot close the measured gap. No owner-byte or
+additional speed/memory improvement is claimed.
 The failed preceding comparison and its receipt-label repair remain retained.
 Mac quiet admission and the full final workload matrix remain open.
 
@@ -1524,8 +1540,10 @@ retains timeline error 2, "PSARC source changed during the read", before any
 media/audio readiness or playback clock. Result `488bf51f` and audit `7a1342f5`
 verify that failure and input/process closure. Cached revision metadata and the
 legacy song identity differ from the current format reader's values. Reviewed
-selected-source diagnostic `9ca7084f` is running against a disposable catalog;
-it uses existing format/catalog owners and preserves the complete root inventory.
+selected-source diagnostic `9ca7084f` reached the fresh summary but failed
+publication before application startup (result `4eb906ae`, audit `2429849e`).
+The same single transactional refresh with failure-only outcome reporting is
+running as `1120dea8`; original deadlines and assertions remain unchanged.
 Neither diagnostic closes full-library refresh or cleanup acceptance. User originals
 remain unchanged; no speaker regression pass or repair is claimed.
 
