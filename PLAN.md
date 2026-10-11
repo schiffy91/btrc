@@ -50,8 +50,9 @@ header reader could no longer be started. The unit shard otherwise passed
 10,142 cases and skipped 227 expected cases. The reader was legitimately built
 and checked during setup; its later missing launch prerequisite remains unknown.
 
-The single accepted Clang O0 retry is now executing the original C11 tests in
-job `114596824910` (run `37905525576`, attempt 2); setup passed. The separate
+The single accepted Clang O0 retry passed the original C11 tests in job
+`114596824910` (run `37905525576`, attempt 2). That workflow remains failed
+because the separate unit-shard reader failure is retained. The separate
 reader-lifetime repair `ad46f269` retains both jobs' Nix outputs through teardown
 and captures wrapper/interpreter/backend/closure evidence before and after tests.
 Independent review caught and corrected the actual wrapper's `bash -e` shebang
@@ -1482,7 +1483,7 @@ The current Linux replay completed successfully as
 workflow `a01ab210`, product `3608cb65` and compiler `a29ab3e3` (the tree merged
 into main). It includes the latest album and Settings source, both original
 Library journeys and installed-application smokes. It was published once, with
-no duplicate manual dispatch. Independent artifact and visual review is underway.
+no duplicate manual dispatch. Independent artifact and visual audit `e759a38b` is clear for the selected journeys; full MVP acceptance remains open.
 Native Linux Settings activation remains distinct from the Mac mouse-event/hit-test proof.
 
 The native Player speaker button has a source-proven missing connection to the
@@ -2122,7 +2123,7 @@ changes; historical test totals alone do not advance its status.
 | Useful desktop library improvement | Final source `a29ab3e3` passes Linux native-GUI, X11 and Wayland plus Mac native GUI; the identical tree is merged at main `36b647f0` | Provider repair owner; main integrator qualifies | Physical-desktop coverage and remaining UI2/features/accessibility stay open; preserve declared host limits. |
 | UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
 | Windows and mobile application-facing services | Windows source `3e480fcd` passes all four original process/thread native cells on real x64/ARM64 in `37904145886`, independently audited `b957d11d`. Historical Android and iOS fixture results remain scoped | Platform slice owners | Fresh combined compiler/provider gates are required. Mobile widgets/lifecycle/persistence and oldest-installable iOS runtime remain open. Reviewed acquisition packet is held; no runtime acquired. |
-| BTRSmith macOS/Linux MVP on the current stack | Mac album/Settings fixes are qualified; latest Linux run `37905070491` completed successfully and includes installed-app launches, with artifact/visual audit underway. No-folder Player diagnostic passes catalog readiness then times out waiting for song | BTRSmith owner and integrator | Audit Linux outcomes, identify and repair Player readiness/cleanup and native mute, then complete broader screen/audio journeys, timing budgets and the actual compiler pin. |
+| BTRSmith macOS/Linux MVP on the current stack | Mac album/Settings fixes are qualified; latest Linux run `37905070491` completed successfully and includes installed-app launches, with independent artifact/visual audit `e759a38b` clear for the selected journeys. No-folder Player diagnostic passes catalog readiness then times out waiting for song | BTRSmith owner and integrator | Identify and repair Player readiness/cleanup and native mute, then complete broader screen/audio journeys, timing budgets and the actual compiler pin. |
 | One qualified implementation on main | PR68 is merged at `36b647f0` after final standard/dedicated gates; eight included PRs reconciled. Next combined source `3694ce58` passes fresh build, 200 focused cases, native driver, four SDK projections and static checks | Main integrator | Repair retained post-merge Mac reader-lifetime/setup failures and complete the next exact-tree hosted/native matrix. Other UI2/iOS/design branches remain separately unqualified. |
 
 **October 9, 08:47 UTC integration update:** [PR68](https://github.com/schiffy91/btrc/pull/68)
