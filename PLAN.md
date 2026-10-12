@@ -146,9 +146,27 @@ failures, any genuinely live process, and the next bounded action. Another agent
 should be able to continue without repeating the investigation or assuming that
 the document's author will return to execute it.
 
-<a id="goals-versus-status-2026-10-08"></a>
+## Execution record (Claude integrator, from 2026-10-12)
+
+Claude executes this plan as the integrator (CLAUDE.md roles, D4/D29): compiler,
+spec and runtime owner, merges and `main` pushes after green gates. Each line gives
+rank, capability, state and the next action; detailed evidence stays in the linked
+PRs and the [integration record](docs/design/claude-integration-record.md).
+
+| Rank | Capability | State | Next |
+|---|---|---|---|
+| 1 | Strict GCC (`-Werror=clobbered`, `-O1`…`-Os`) accepts every try/setjmp shape seen in the Linux GUI provider and BTRSmith scanner: scalars and pointers visible at a `setjmp` are kept out of register pseudos in both compilers | Batch 1, [PR #75](https://github.com/schiffy91/btrc/pull/75): paired contracts plus `RegisterScalarsAcrossTry` (red on the baseline, green on both compilers × GCC/Clang × `-O0`…`-Os`) | Land with batch 1 |
+| 1 | Self-hosted compiler accepts class-typed collection field and parameter defaults (`new Vector<Slot>()`), as the reference compiler does | Batch 1: `ClassArgumentDefaults` through both compilers | Land with batch 1 |
+| — | PR #70 (compact IR, Windows ProcessThreads, CoreAudio cleanup) and PR #74 (Linux thread-count errors) | Batch 1 with the owner's 2026-10-12 plan; Mac `make test` gate and hosted CI running | Merge on green |
+| 2 | Android and iOS stdlib providers can be declared: `os`/`arch`/`env` selectors over every target row, row-based overlap, platform-directory rule (CL-P1-14) | `claude/provider-filters`: 172 paired tests | Batch 2 |
+| 2 | Native SDK headers import for every row; iOS device and simulator headers read through Xcode's SDKs and the emitted C compiles for iOS 17 (CL-P1-10) | `claude/native-import-targets`: 177 paired tests | Batch 2 |
+| 2 | Runtime reports iOS (4) and Android (5) instead of macOS/Linux; `Platform.isIOS/isAndroid/isApple/isMobile` (CL-P1-16) | `claude/target-probes`: per-triple IR probe test for all 11 rows | Boundary re-capture, then batch 2 |
+| 2 | Corpus programs run on the iOS 26.4 simulator through the reference compiler | 41 of 41 sampled programs pass (survey, not yet a committed runner) | Full corpus both compilers; Stage 25 runner (CL-P1-17) with PR #34's executor |
+| 1 | Interop step 1: callback slot parameters and every calling convention in the native document (schema v2) | `claude/interop-schema-v2`: 347 paired tests | Batch 3 |
+| 1 | Interop step 2: BTRC calls through SDK-owned function tables (M1 dispatch) with release slots | `claude/interop-dispatch`: 10 reference tests pass (swap, release once, sanitizers, aborts); self-hosted mirror building | Paired run, then batch 3; then steps 3 and 6 (Objective-C protocols, instantiated UIKit delegates) and 5 (COM) |
 
 <a id="goals-versus-status-2026-10-08"></a>
+<a id="goals-versus-status-2026-10-09"></a>
 
 ## Goals versus status (2026-10-12)
 
