@@ -30,6 +30,11 @@ from ..abi.native_generated import (
     NativeFunctionType,
     NativeGlobal,
     NativeHeader,
+    NativeJavaArray,
+    NativeJavaClass,
+    NativeJavaField,
+    NativeJavaMethod,
+    NativeJavaObject,
     NativeObjectiveCBlock,
     NativeObjectiveCInterface,
     NativeObjectiveCMethod,
@@ -5515,7 +5520,7 @@ class NativeDeclarationImporter:
 class NativeHeaderCodec:
     """Own the checked boundary from experimental Clang JSON to shared types."""
 
-    SCHEMA = "btrc.native-declarations.v2"
+    SCHEMA = "btrc.native-declarations.v3"
     # The reader reports every calling convention by name; the importer, not
     # the codec, decides which ones it has qualified.
     _CONVENTION = re.compile(r"[a-z][a-z0-9_]*\Z")
@@ -5669,13 +5674,18 @@ class NativeHeaderCodec:
                 raise NativeImportError("duplicate native declaration or record identity")
             layouts = set(identities)
             for entry in header.exports:
+                if isinstance(entry, NativeJavaClass):
+                    continue
                 native_type = (
                     entry.signature
-                    if isinstance(entry, (NativeFunction, NativeObjectiveCMethod, NativeCxxMethod))
+                    if isinstance(entry, (NativeFunction, NativeObjectiveCMethod, NativeCxxMethod, NativeJavaMethod))
                     else entry.underlying
                     if isinstance(entry, NativeTypedef)
                     else entry.value_type
-                    if isinstance(entry, (NativeConstant, NativeStringConstant, NativePointerConstant, NativeGlobal))
+                    if isinstance(
+                        entry,
+                        (NativeConstant, NativeStringConstant, NativePointerConstant, NativeGlobal, NativeJavaField),
+                    )
                     else entry.record_type
                 )
                 self._verify_layout_references(native_type, layouts)
@@ -5685,6 +5695,74 @@ class NativeHeaderCodec:
             return header
         except (json.JSONDecodeError, RecursionError) as error:
             raise NativeImportError(f"invalid native header document: {error}") from error
+
+    def _java_declaration(self, kind, value, position, native_type):
+        """A class-file declaration: its identity is a JVM descriptor or smali member form."""
+        if kind == "java_class":
+            binary_name = self._text(value["binary_name"])
+            super_name = value["super_name"]
+            if super_name is not None:
+                super_name = self._text(super_name)
+            if (
+                not isinstance(native_type, NativeJavaObject)
+                or native_type.name != position["name"]
+                or binary_name != native_type.binary_name
+                or self._text(value["identity"]) != f"L{binary_name};"
+            ):
+                raise NativeImportError("Java class must match its own object type and descriptor")
+            return NativeJavaClass(
+                **position,
+                identity=value["identity"],
+                binary_name=binary_name,
+                super_name=super_name,
+                super_interfaces=[self._text(entry) for entry in self._array(value["super_interfaces"])],
+                interface_class=self._boolean(value["interface_class"]),
+                abstract_class=self._boolean(value["abstract_class"]),
+                complete=self._boolean(value["complete"]),
+            )
+        owner = self._text(value["owner"])
+        descriptor = self._text(value["descriptor"])
+        if kind == "java_method":
+            method_name = self._text(value["method_name"])
+            constructor = self._boolean(value["constructor"])
+            if (
+                not isinstance(native_type, NativeFunctionType)
+                or native_type.calling_convention != "java"
+                or native_type.variadic
+                or not descriptor.startswith("(")
+                or position["name"] != f"{owner}.{method_name}{descriptor}"
+                or self._text(value["identity"]) != f"L{owner.replace('.', '/')};->{method_name}{descriptor}"
+                or constructor != (method_name == "<init>")
+            ):
+                raise NativeImportError("Java method must match its owner, descriptor and signature")
+            return NativeJavaMethod(
+                **position,
+                identity=value["identity"],
+                owner=owner,
+                method_name=method_name,
+                descriptor=descriptor,
+                signature=native_type,
+                static_member=self._boolean(value["static_member"]),
+                constructor=constructor,
+                native_method=self._boolean(value["native_method"]),
+            )
+        field_name = self._text(value["field_name"])
+        if (
+            isinstance(native_type, NativeFunctionType)
+            or position["name"] != f"{owner}.{field_name}:{descriptor}"
+            or self._text(value["identity"]) != f"L{owner.replace('.', '/')};->{field_name}:{descriptor}"
+        ):
+            raise NativeImportError("Java field must match its owner and descriptor")
+        return NativeJavaField(
+            **position,
+            identity=value["identity"],
+            owner=owner,
+            field_name=field_name,
+            descriptor=descriptor,
+            value_type=native_type,
+            static_member=self._boolean(value["static_member"]),
+            read_only=self._boolean(value["read_only"]),
+        )
 
     def _interface(self, value):
         self._object(value, {"name", "identity", "complete", "superclass"})
@@ -5731,6 +5809,8 @@ class NativeHeaderCodec:
             "qualified": ({"underlying"}, set()),
             "objc_object": ({"name", "identity", "class_object", "protocols", "type_arguments"}, set()),
             "objc_block": ({"signature"}, set()),
+            "java_object": ({"name", "binary_name"}, set()),
+            "java_array": ({"element"}, set()),
         }
         if kind not in fields:
             raise NativeImportError(f"unsupported native type: {kind}")
@@ -5825,6 +5905,14 @@ class NativeHeaderCodec:
             if not isinstance(function, NativeFunctionType):
                 raise NativeImportError("Objective-C block requires a function signature")
             return NativeObjectiveCBlock(signature=signature, qualifiers=qualifiers)
+        if kind == "java_object":
+            name = self._text(value["name"])
+            binary_name = self._text(value["binary_name"])
+            if binary_name != name.replace(".", "/"):
+                raise NativeImportError("Java object name does not match its binary name")
+            return NativeJavaObject(name=name, binary_name=binary_name, qualifiers=qualifiers)
+        if kind == "java_array":
+            return NativeJavaArray(element=self._type(value["element"]), qualifiers=qualifiers)
         return NativeQualifiedType(underlying=self._type(value["underlying"]), qualifiers=qualifiers)
 
     def _declaration(self, value):
@@ -5858,6 +5946,20 @@ class NativeHeaderCodec:
             required |= {"value"}
         elif kind == "global":
             required |= {"read_only"}
+        elif kind == "java_class":
+            required |= {
+                "identity",
+                "binary_name",
+                "super_name",
+                "super_interfaces",
+                "interface_class",
+                "abstract_class",
+                "complete",
+            }
+        elif kind == "java_method":
+            required |= {"identity", "owner", "method_name", "descriptor", "static_member", "constructor", "native_method"}
+        elif kind == "java_field":
+            required |= {"identity", "owner", "field_name", "descriptor", "static_member", "read_only"}
         elif kind not in {"typedef", "record"}:
             raise NativeImportError(f"unsupported native declaration: {kind}")
         optional_fields = {"source", "line", "column"}
@@ -5873,6 +5975,8 @@ class NativeHeaderCodec:
             "column": self._integer(value.get("column", 0)),
         }
         native_type = self._type(value["type"])
+        if kind.startswith("java_"):
+            return self._java_declaration(kind, value, position, native_type)
         if kind == "cxx_class":
             if (
                 not isinstance(native_type, NativeRecordType)
@@ -6065,6 +6169,8 @@ class NativeHeaderCodec:
                 self._verify_layout_references(argument, layouts)
         elif isinstance(native_type, NativeObjectiveCBlock):
             self._verify_layout_references(native_type.signature, layouts)
+        elif isinstance(native_type, NativeJavaArray):
+            self._verify_layout_references(native_type.element, layouts)
         elif isinstance(native_type, NativeFunctionType):
             self._verify_layout_references(native_type.return_type, layouts)
             for parameter in native_type.parameters:

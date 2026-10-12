@@ -4011,6 +4011,16 @@ class FeNativeHeaderCodec {
 			NativeNode signatureType = result.signature;
 			while (signatureType.kind == NNK_NATIVE_ALIAS || signatureType.kind == NNK_NATIVE_QUALIFIED_TYPE) { signatureType = signatureType.underlying; }
 			if (signatureType.kind != NNK_NATIVE_FUNCTION_TYPE) { self.fail("Objective-C block requires a function signature"); }
+		} else if (kind.equals("java_object")) {
+			self.fields(value, common + ",name,binary_name");
+			result.kind = NNK_NATIVE_JAVA_OBJECT;
+			result.name = self.text(value.get("name"));
+			result.binaryName = self.text(value.get("binary_name"));
+			if (result.binaryName != result.name.replace(".", "/")) { self.fail("Java object name does not match its binary name"); }
+		} else if (kind.equals("java_array")) {
+			self.fields(value, common + ",element");
+			result.kind = NNK_NATIVE_JAVA_ARRAY;
+			result.element = self.type(value.get("element"));
 		} else { self.fail(f"unsupported native type '{kind}'"); }
 		return result;
 	}
@@ -4025,6 +4035,9 @@ class FeNativeHeaderCodec {
 		else if (kind.equals("pointer_constant")) { required = required + ",pointer_bits,value"; }
 		else if (kind.equals("enum_constant") || kind.equals("string_constant")) { required = required + ",value"; }
 		else if (kind.equals("global")) { required = required + ",read_only"; }
+		else if (kind.equals("java_class")) { required = required + ",identity,binary_name,super_name,super_interfaces,interface_class,abstract_class,complete"; }
+		else if (kind.equals("java_method")) { required = required + ",identity,owner,method_name,descriptor,static_member,constructor,native_method"; }
+		else if (kind.equals("java_field")) { required = required + ",identity,owner,field_name,descriptor,static_member,read_only"; }
 		else if (!kind.equals("typedef") && !kind.equals("record")) { self.fail(f"unsupported native declaration '{kind}'"); }
 		self.fields(value, required, kind.equals("objc_method") ? "source,line,column,protocol_owner,optional" : (kind.equals("enum_constant") ? "source,line,column,enum_identity" : "source,line,column"));
 		var result = NativeNode();
@@ -4033,6 +4046,10 @@ class FeNativeHeaderCodec {
 		if (value.has("line")) { result.line = self.integer(value.get("line")); }
 		if (value.has("column")) { result.column = self.integer(value.get("column")); }
 		NativeNode nativeType = self.type(value.get("type"));
+		if (kind.startsWith("java_")) {
+			self.javaDeclaration(kind, value, result, nativeType);
+			return result;
+		}
 		if (kind.equals("cxx_class")) {
 			if (nativeType.kind != NNK_NATIVE_RECORD_TYPE || !nativeType.complete || nativeType.name != result.name) { self.fail("C++ class requires its complete SDK record identity"); }
 			result.kind = NNK_NATIVE_CXX_CLASS; result.recordType = nativeType;
@@ -4149,6 +4166,43 @@ class FeNativeHeaderCodec {
 		return result;
 	}
 
+	/* A class-file declaration: its identity is a JVM descriptor or the smali
+	 * member form Lpkg/C;->name(D)R. */
+	private void javaDeclaration(string kind, JSONValue value, NativeNode result, NativeNode nativeType) {
+		if (kind.equals("java_class")) {
+			result.kind = NNK_NATIVE_JAVA_CLASS;
+			result.identity = self.text(value.get("identity"));
+			result.binaryName = self.text(value.get("binary_name"));
+			if (!value.get("super_name").isNull()) { result.superName = self.text(value.get("super_name")); }
+			for entry in self.array(value.get("super_interfaces")) { result.superInterfaces.push(self.text(entry)); }
+			result.interfaceClass = self.boolean(value.get("interface_class"));
+			result.abstractClass = self.boolean(value.get("abstract_class"));
+			result.complete = self.boolean(value.get("complete"));
+			if (nativeType.kind != NNK_NATIVE_JAVA_OBJECT || nativeType.name != result.name || nativeType.binaryName != result.binaryName || result.identity != "L" + result.binaryName + ";") { self.fail("Java class must match its own object type and descriptor"); }
+			return;
+		}
+		result.identity = self.text(value.get("identity"));
+		result.owner = self.text(value.get("owner"));
+		result.descriptor = self.text(value.get("descriptor"));
+		string ownerPath = result.owner.replace(".", "/");
+		if (kind.equals("java_method")) {
+			result.kind = NNK_NATIVE_JAVA_METHOD;
+			result.methodName = self.text(value.get("method_name"));
+			result.signature = nativeType;
+			result.staticMember = self.boolean(value.get("static_member"));
+			result.constructor = self.boolean(value.get("constructor"));
+			result.nativeMethod = self.boolean(value.get("native_method"));
+			if (nativeType.kind != NNK_NATIVE_FUNCTION_TYPE || nativeType.callingConvention != "java" || nativeType.variadic || !result.descriptor.startsWith("(") || result.name != result.owner + "." + result.methodName + result.descriptor || result.identity != "L" + ownerPath + ";->" + result.methodName + result.descriptor || result.constructor != (result.methodName == "<init>")) { self.fail("Java method must match its owner, descriptor and signature"); }
+			return;
+		}
+		result.kind = NNK_NATIVE_JAVA_FIELD;
+		result.fieldName = self.text(value.get("field_name"));
+		result.valueType = nativeType;
+		result.staticMember = self.boolean(value.get("static_member"));
+		result.readOnly = self.boolean(value.get("read_only"));
+		if (nativeType.kind == NNK_NATIVE_FUNCTION_TYPE || result.name != result.owner + "." + result.fieldName + ":" + result.descriptor || result.identity != "L" + ownerPath + ";->" + result.fieldName + ":" + result.descriptor) { self.fail("Java field must match its owner and descriptor"); }
+	}
+
 	private void verifyLayoutReferences(NativeNode nativeType, Map<string, bool> layouts) {
 		if (nativeType.kind == NNK_NATIVE_RECORD_TYPE) {
 			if (!nativeType.opaque && !layouts.has(nativeType.identity)) { self.fail("native record layout is missing"); }
@@ -4163,6 +4217,8 @@ class FeNativeHeaderCodec {
 			for parameter in nativeType.parameters { self.verifyLayoutReferences(parameter, layouts); }
 		} else if (nativeType.kind == NNK_NATIVE_OBJECTIVE_C_OBJECT) {
 			for argument in nativeType.typeArguments { self.verifyLayoutReferences(argument, layouts); }
+		} else if (nativeType.kind == NNK_NATIVE_JAVA_ARRAY) {
+			self.verifyLayoutReferences(nativeType.element, layouts);
 		} else if (nativeType.kind == NNK_NATIVE_OBJECTIVE_C_BLOCK) {
 			self.verifyLayoutReferences(nativeType.signature, layouts);
 		}
@@ -4244,7 +4300,7 @@ class FeNativeHeaderCodec {
 	public NativeNode decode(string source, string expectedTarget = "") {
 		JSONValue value = self.document(source);
 		self.fields(value, "schema,target,clang,big_endian,character_bits,declarations,records", "interfaces");
-		if (!self.text(value.get("schema")).equals("btrc.native-declarations.v2")) { self.fail("unsupported native header schema"); }
+		if (!self.text(value.get("schema")).equals("btrc.native-declarations.v3")) { self.fail("unsupported native header schema"); }
 		var result = self.node(NNK_NATIVE_HEADER);
 		result.targetTriple = self.text(value.get("target"));
 		if (!expectedTarget.isEmpty() && !result.targetTriple.equals(expectedTarget)) { self.fail("native header target does not match the requested target"); }
@@ -4271,9 +4327,10 @@ class FeNativeHeaderCodec {
 			result.records.push(record);
 		}
 		for entry in result.exports {
-			if (entry.kind == NNK_NATIVE_FUNCTION || entry.kind == NNK_NATIVE_OBJECTIVE_C_METHOD || entry.kind == NNK_NATIVE_CXX_METHOD) { self.verifyLayoutReferences(entry.signature, layouts); }
+			if (entry.kind == NNK_NATIVE_JAVA_CLASS) { continue; }
+			if (entry.kind == NNK_NATIVE_FUNCTION || entry.kind == NNK_NATIVE_OBJECTIVE_C_METHOD || entry.kind == NNK_NATIVE_CXX_METHOD || entry.kind == NNK_NATIVE_JAVA_METHOD) { self.verifyLayoutReferences(entry.signature, layouts); }
 			else if (entry.kind == NNK_NATIVE_TYPEDEF) { self.verifyLayoutReferences(entry.underlying, layouts); }
-			else if (entry.kind == NNK_NATIVE_CONSTANT || entry.kind == NNK_NATIVE_STRING_CONSTANT || entry.kind == NNK_NATIVE_POINTER_CONSTANT || entry.kind == NNK_NATIVE_GLOBAL) { self.verifyLayoutReferences(entry.valueType, layouts); }
+			else if (entry.kind == NNK_NATIVE_CONSTANT || entry.kind == NNK_NATIVE_STRING_CONSTANT || entry.kind == NNK_NATIVE_POINTER_CONSTANT || entry.kind == NNK_NATIVE_GLOBAL || entry.kind == NNK_NATIVE_JAVA_FIELD) { self.verifyLayoutReferences(entry.valueType, layouts); }
 			else { self.verifyLayoutReferences(entry.recordType, layouts); }
 		}
 		for record in result.records {

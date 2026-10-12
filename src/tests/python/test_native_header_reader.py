@@ -10,8 +10,15 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.abi.native_generated import (
+    NativeBuiltin,
     NativeCxxClass,
     NativeCxxMethod,
+    NativeFunctionType,
+    NativeJavaArray,
+    NativeJavaClass,
+    NativeJavaField,
+    NativeJavaMethod,
+    NativeJavaObject,
     NativeObjectiveCMethod,
     NativePointerConstant,
 )
@@ -70,6 +77,22 @@ def probe_document(codec_probe, tmp_path, source):
     return subprocess.run([str(codec_probe), str(document)], capture_output=True, text=True, timeout=15)
 
 
+def describe(native_type):
+    """The compact spelling of a Java member's type that the btrc probe prints."""
+    if isinstance(native_type, NativeBuiltin):
+        spelling = native_type.name
+    elif isinstance(native_type, NativeJavaObject):
+        spelling = f"L{native_type.binary_name};"
+    elif isinstance(native_type, NativeJavaArray):
+        spelling = "[" + describe(native_type.element)
+    elif isinstance(native_type, NativeFunctionType):
+        parameters = ",".join(describe(parameter) for parameter in native_type.parameters)
+        spelling = f"({parameters}){describe(native_type.return_type)}@{native_type.calling_convention}"
+    else:
+        spelling = "other"
+    return spelling + ("?" if native_type.qualifiers.nullability == "nullable" else "")
+
+
 def assert_codec_parity(codec_probe, tmp_path, source):
     header = NativeHeaderCodec().decode(source)
     result = probe_document(codec_probe, tmp_path, source)
@@ -96,6 +119,24 @@ def assert_codec_parity(codec_probe, tmp_path, source):
         elif isinstance(declaration, NativeCxxClass):
             lines.append(
                 f"cxxclass {declaration.name} {int(declaration.default_constructor)} {int(declaration.public_destructor)} {int(declaration.trivially_copyable)} {int(declaration.trivially_destructible)}"
+            )
+        elif isinstance(declaration, NativeJavaClass):
+            lines.append(
+                f"javaclass {declaration.name} {declaration.identity} {declaration.binary_name} "
+                f"{declaration.super_name or '-'} {','.join(declaration.super_interfaces) or '-'} "
+                f"{int(declaration.interface_class)} {int(declaration.abstract_class)} {int(declaration.complete)}"
+            )
+        elif isinstance(declaration, NativeJavaMethod):
+            lines.append(
+                f"javamethod {declaration.name} {declaration.identity} {declaration.owner} {declaration.method_name} "
+                f"{declaration.descriptor} {int(declaration.static_member)} {int(declaration.constructor)} "
+                f"{int(declaration.native_method)} {describe(declaration.signature)}"
+            )
+        elif isinstance(declaration, NativeJavaField):
+            lines.append(
+                f"javafield {declaration.name} {declaration.identity} {declaration.owner} {declaration.field_name} "
+                f"{declaration.descriptor} {int(declaration.static_member)} {int(declaration.read_only)} "
+                f"{describe(declaration.value_type)}"
             )
         elif isinstance(declaration, NativeCxxMethod):
             lines.append(
@@ -904,6 +945,182 @@ def test_native_semantic_decoders_reject_invalid_metadata(reader, codec_probe, t
     source = json.dumps(document)
     if mutation == "duplicate_key":
         source = source.replace('"character_bits": 8', '"character_bits": 8, "character_bits": 8')
+    with pytest.raises(NativeImportError):
+        NativeHeaderCodec().decode(source)
+    rejected = probe_document(codec_probe, tmp_path, source)
+    assert rejected.returncode == 1, rejected.stderr
+    assert rejected.stdout == ""
+    assert "native header:" in rejected.stderr
+
+
+def _java_qualifiers(nullability="unannotated"):
+    return {"const": False, "volatile": False, "restrict": False, "nullability": nullability}
+
+
+def _java_object(name):
+    return {"kind": "java_object", "name": name, "binary_name": name.replace(".", "/"), **_java_qualifiers("nullable")}
+
+
+def _java_method(owner, method, descriptor, parameters, returned, *, static=False):
+    binary = owner.replace(".", "/")
+    return {
+        "kind": "java_method",
+        "name": f"{owner}.{method}{descriptor}",
+        "identity": f"L{binary};->{method}{descriptor}",
+        "owner": owner,
+        "method_name": method,
+        "descriptor": descriptor,
+        "static_member": static,
+        "constructor": method == "<init>",
+        "native_method": False,
+        "type": {
+            "kind": "function",
+            "return_type": returned,
+            "parameters": parameters,
+            "variadic": False,
+            "calling_convention": "java",
+            **_java_qualifiers(),
+        },
+        "source": f"classes!{binary}.class",
+        "line": 0,
+        "column": 0,
+    }
+
+
+def java_document():
+    """A class-file document in the shape tools/JavaClassReader.c emits (schema v3)."""
+    jint = {"kind": "builtin", "name": "jint", "bits": 32, "alignment_bits": 32, "signed": True, **_java_qualifiers()}
+    void = {"kind": "builtin", "name": "void", **_java_qualifiers()}
+    counts = {"kind": "java_array", "element": jint, **_java_qualifiers("nullable")}
+    owner = "dev.btrc.fixture.Counter"
+    return {
+        "schema": "btrc.native-declarations.v3",
+        "target": "aarch64-unknown-linux-android29",
+        "clang": "btrc-class-reader/1 sha256:" + "0" * 64,
+        "big_endian": False,
+        "character_bits": 8,
+        "declarations": [
+            {
+                "kind": "java_class",
+                "name": owner,
+                "identity": "Ldev/btrc/fixture/Counter;",
+                "binary_name": "dev/btrc/fixture/Counter",
+                "super_name": "java/lang/Object",
+                "super_interfaces": ["java/lang/Runnable"],
+                "interface_class": False,
+                "abstract_class": False,
+                "complete": True,
+                "type": _java_object(owner),
+                "source": "classes!dev/btrc/fixture/Counter.class",
+                "line": 0,
+                "column": 0,
+            },
+            _java_method(owner, "<init>", "(Ljava/lang/String;[I)V", [_java_object("java.lang.String"), counts], void),
+            _java_method(owner, "label", "()Ljava/lang/String;", [], _java_object("java.lang.String")),
+            _java_method(owner, "total", "([[I)I", [{**counts, "element": counts}], jint, static=True),
+            {
+                "kind": "java_field",
+                "name": f"{owner}.LIMIT:I",
+                "identity": "Ldev/btrc/fixture/Counter;->LIMIT:I",
+                "owner": owner,
+                "field_name": "LIMIT",
+                "descriptor": "I",
+                "static_member": True,
+                "read_only": True,
+                "type": jint,
+            },
+            {
+                "kind": "java_class",
+                "name": "java.lang.Object",
+                "identity": "Ljava/lang/Object;",
+                "binary_name": "java/lang/Object",
+                "super_name": None,
+                "super_interfaces": [],
+                "interface_class": False,
+                "abstract_class": False,
+                "complete": True,
+                "type": _java_object("java.lang.Object"),
+            },
+        ],
+        "records": [],
+        "interfaces": [],
+    }
+
+
+def test_java_class_documents_have_compiled_codec_parity(codec_probe, tmp_path):
+    source = json.dumps(java_document())
+    assert_codec_parity(codec_probe, tmp_path, source)
+    declarations = {entry.name: entry for entry in NativeHeaderCodec().decode(source).exports}
+    constructor = declarations["dev.btrc.fixture.Counter.<init>(Ljava/lang/String;[I)V"]
+    assert constructor.constructor and describe(constructor.signature) == "(Ljava/lang/String;?,[jint?)void@java"
+    assert describe(declarations["dev.btrc.fixture.Counter.total([[I)I"].signature) == "([[jint??)jint@java"
+    assert declarations["java.lang.Object"].super_name is None
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "older_schema",
+        "class_identity",
+        "class_type",
+        "object_binary_name",
+        "super_name",
+        "missing_interfaces",
+        "unknown_field",
+        "method_name",
+        "method_identity",
+        "constructor_flag",
+        "calling_convention",
+        "variadic",
+        "descriptor",
+        "method_type",
+        "field_identity",
+        "field_type",
+        "array_element",
+    ],
+)
+def test_java_class_decoders_reject_unchecked_metadata(codec_probe, tmp_path, mutation):
+    document = java_document()
+    declarations = document["declarations"]
+    owner, constructor, label, total, field = declarations[:5]
+    if mutation == "older_schema":
+        document["schema"] = "btrc.native-declarations.v2"
+    elif mutation == "class_identity":
+        owner["identity"] = "Ldev/btrc/fixture/Other;"
+    elif mutation == "class_type":
+        owner["type"] = _java_object("java.lang.String")
+    elif mutation == "object_binary_name":
+        label["type"]["return_type"]["binary_name"] = "java.lang.String"
+    elif mutation == "super_name":
+        owner["super_name"] = 5
+    elif mutation == "missing_interfaces":
+        del owner["super_interfaces"]
+    elif mutation == "unknown_field":
+        label["selector"] = "label"
+    elif mutation == "method_name":
+        label["name"] = "dev.btrc.fixture.Counter.title()Ljava/lang/String;"
+    elif mutation == "method_identity":
+        label["identity"] = "Ldev/btrc/fixture/Counter;->title()Ljava/lang/String;"
+    elif mutation == "constructor_flag":
+        constructor["constructor"] = False
+    elif mutation == "calling_convention":
+        label["type"]["calling_convention"] = "c"
+    elif mutation == "variadic":
+        total["type"]["variadic"] = True
+    elif mutation == "descriptor":
+        # Name and identity agree with the descriptor, which is still not a method's.
+        for key in ("name", "identity"):
+            label[key] = label[key].replace("label()", "label")
+        label["descriptor"] = label["descriptor"][2:]
+    elif mutation == "method_type":
+        label["type"] = field["type"]
+    elif mutation == "field_identity":
+        field["identity"] = "Ldev/btrc/fixture/Counter;->LIMIT:J"
+    elif mutation == "field_type":
+        field["type"] = label["type"]
+    elif mutation == "array_element":
+        del total["type"]["parameters"][0]["element"]
+    source = json.dumps(document)
     with pytest.raises(NativeImportError):
         NativeHeaderCodec().decode(source)
     rejected = probe_document(codec_probe, tmp_path, source)

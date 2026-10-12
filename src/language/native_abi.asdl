@@ -27,6 +27,17 @@ module NativeAbi {
                        | NativePointerConstant(identifier name, native_type value_type, int pointer_bits, string decimal_value)
                        | NativeGlobal(identifier name, native_type value_type, bool read_only)
                        | NativeRecordDeclaration(identifier name, native_type record_type)
+                       -- Java class-file metadata (interop step 4). The identity of a class
+                       -- is its descriptor; a member's is the smali form Lpkg/C;->m(D)R.
+                       | NativeJavaClass(identifier name, string identity, string binary_name,
+                                         string? super_name, identifier* super_interfaces,
+                                         bool interface_class, bool abstract_class, bool complete)
+                       | NativeJavaMethod(identifier name, string identity, identifier owner,
+                                          string method_name, string descriptor, native_type signature,
+                                          bool static_member, bool constructor, bool native_method)
+                       | NativeJavaField(identifier name, string identity, identifier owner,
+                                         string field_name, string descriptor, native_type value_type,
+                                         bool static_member, bool read_only)
                        attributes(string source_file, int line, int column)
 
     native_type = NativeBuiltin(identifier name, int bits, int alignment_bits, string signedness)
@@ -41,6 +52,8 @@ module NativeAbi {
                 | NativeObjectiveCObject(identifier name, string identity, bool class_object,
                                          identifier* protocols, native_type* type_arguments)
                 | NativeObjectiveCBlock(native_type signature)
+                | NativeJavaObject(identifier name, string binary_name)
+                | NativeJavaArray(native_type element)
                 attributes(native_qualifiers qualifiers)
 
     native_qualifiers = NativeQualifiers(bool is_const, bool is_volatile, bool is_restrict, string nullability)

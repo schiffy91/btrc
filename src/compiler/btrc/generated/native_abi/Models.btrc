@@ -17,6 +17,9 @@ enum NativeNodeKind {
 	NNK_NATIVE_POINTER_CONSTANT,
 	NNK_NATIVE_GLOBAL,
 	NNK_NATIVE_RECORD_DECLARATION,
+	NNK_NATIVE_JAVA_CLASS,
+	NNK_NATIVE_JAVA_METHOD,
+	NNK_NATIVE_JAVA_FIELD,
 	NNK_NATIVE_BUILTIN,
 	NNK_NATIVE_POINTER,
 	NNK_NATIVE_ALIAS,
@@ -27,6 +30,8 @@ enum NativeNodeKind {
 	NNK_NATIVE_QUALIFIED_TYPE,
 	NNK_NATIVE_OBJECTIVE_C_OBJECT,
 	NNK_NATIVE_OBJECTIVE_C_BLOCK,
+	NNK_NATIVE_JAVA_OBJECT,
+	NNK_NATIVE_JAVA_ARRAY,
 	NNK_NATIVE_QUALIFIERS,
 	NNK_NATIVE_PARAMETER_SEMANTICS,
 	NNK_NATIVE_OBJECTIVE_C_INTERFACE,
@@ -76,6 +81,17 @@ class NativeNode {
 	public string stringValue;
 	public int pointerBits;
 	public bool readOnly;
+	public string binaryName;
+	public string? superName;
+	public Vector<string> superInterfaces;
+	public bool interfaceClass;
+	public bool abstractClass;
+	public bool complete;
+	public string descriptor;
+	public bool staticMember;
+	public bool constructor;
+	public bool nativeMethod;
+	public string fieldName;
 	public int bits;
 	public int alignmentBitsInt;
 	public string signedness;
@@ -83,7 +99,6 @@ class NativeNode {
 	public NativeNode pointee;
 	public string tagName;
 	public string recordKind;
-	public bool complete;
 	public bool opaque;
 	public NativeNode returnType;
 	public Vector<NativeNode> parameters;
@@ -151,12 +166,21 @@ class NativeNode {
 		self.stringValue = "";
 		self.pointerBits = 0;
 		self.readOnly = false;
+		self.binaryName = "";
+		self.superInterfaces = [];
+		self.interfaceClass = false;
+		self.abstractClass = false;
+		self.complete = false;
+		self.descriptor = "";
+		self.staticMember = false;
+		self.constructor = false;
+		self.nativeMethod = false;
+		self.fieldName = "";
 		self.bits = 0;
 		self.alignmentBitsInt = 0;
 		self.signedness = "";
 		self.tagName = "";
 		self.recordKind = "";
-		self.complete = false;
 		self.opaque = false;
 		self.parameters = [];
 		self.variadic = false;
