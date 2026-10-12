@@ -1806,3 +1806,20 @@ receipt remains failed solely at its diagnostic-wording classifier. This does
 not establish the historical ENOENT cause. Root owns the final documentation,
 draft publication and complete final-tree gate matrix. The iOS tooling port
 remains separate until D8 runtime admission.
+
+
+## 2026-10-12 Generic member demand request and regression controls
+
+Reserved packet CX-GENERIC-MEMBER-DEMAND, private branch
+`codex/generic-member-demand-contract` from `5be08004`. Root assigns
+execution_review only `src/tests/python/test_module_unit_staleness.py`,
+`src/tests/btrc/test_generic_instance_closure.py`, this claim and
+`docs/workstreams/generic-member-demand.md`. The latest human AGENTS restriction
+reserves all compiler production paths to the integrator: this packet contains
+a REQUEST and regression controls only. No optimization is implemented.
+
+Preserve Python's eager reference, current semantic validation and no-DCE path.
+New controls cover warm/add/remove/member-body reuse and transitive lifecycle
+method execution. Existing focused owners cover effect edits, invalid generic
+callables and broader interfaces/ARC. No build, test or publication until root
+allocates a reviewed recipe; ordinary checkout/index remain unchanged.
