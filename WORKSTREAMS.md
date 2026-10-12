@@ -1819,3 +1819,5 @@ remains separate until D8 runtime admission.
 ### CX-UI2-CURRENT driver integration correction
 
 Codex platform_review owns the existing three Mac UI2 text/range/selection Python drivers, this claim and docs/workstreams/ui2-current-composition.md on codex/ui2-composed-driver-fix. Remove obsolete donor-only provider fragment appends because the composed production GUI manifest owns those exact declarations. Preserve all probe manifests, native assertions, matrix rows and deadlines. Reapply the exact reviewed GUI manifest in a final fragment commit; no provider, compiler, generated or workflow changes. Source/metadata validation only; current native qualification remains pending.
+
+The same packet also owns src/tests/native/gui/NativeContainers.btrc to migrate its existing FailingView wrapper to the seven added IMacOSView/IView methods by delegation to its real MacOSView. Preserve all injected faults, assertions and driver bounds. No new platform stubs.
