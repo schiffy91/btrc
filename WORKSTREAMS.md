@@ -1820,3 +1820,15 @@ assertions and deadlines. No compiler/generated/runtime/workflow owner changes.
 Actual PR70 Linux unit run38183975817 supplies the baseline:160 shared fixture
 setup errors and one stale source-contract failure. Focused execution and final
 CI remain required; source-only checks are not acceptance.
+
+
+## 2026-10-12 compact reachability contract test alignment
+
+Root assigns platform_review `src/tests/btrc/test_selfhost_reachability_performance_contract.py`,
+`src/tests/btrc/test_selfhost_type_reachability_performance_contract.py`, this claim
+and `docs/workstreams/compact-reachability-contracts.md` on private
+`codex/compact-reachability-contracts`, based on frozen `5be08004`. Actual PR70
+Linux shard reported two stale field-spelling assertions after compact typed
+payload integration. Preserve exact membership and single type-field scanning,
+all negative guards and existing native semantic tests. No production compiler,
+runtime, workflow or generated changes; no publication under this assignment.
