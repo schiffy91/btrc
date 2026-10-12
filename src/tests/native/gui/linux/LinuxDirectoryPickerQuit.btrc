@@ -1,0 +1,167 @@
+import Library.App;
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxDirectoryPicker;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+class PickerWork implements IApplicationWork {
+	public LinuxApplication application;
+	public int action;
+	public int calls = 0;
+	public bool nestedRejected = false;
+	public int nestedOwners = 0;
+	public int nestedCallbacks = 0;
+
+	public PickerWork(LinuxApplication application, int action) { self.application = application; self.action = action; }
+
+	public void run() {
+		self.calls++;
+		if (self.action == 1 || self.action == 2) { self.application.requestQuit(); }
+		if (self.action == 2 || self.action == 3) { pickerComplete(1); }
+		if (self.action == 4) {
+			var picker = LinuxDirectoryPicker(null, self.application);
+			try { picker.chooseDirectory(DirectoryPickerRequest("nested pump")); }
+			catch (string error) { self.nestedRejected = error == "Native event dispatch is already active"; }
+			self.nestedOwners = pickerOwners(); self.nestedCallbacks = pickerCallbackCount();
+		}
+	}
+}
+
+class PickerQuitRequest implements IWindowCloseRequestHandler {
+	private LinuxApplication application;
+	private PickerWork completion;
+	private bool refuse;
+	public int calls = 0;
+	public bool acceptedDuringRequest = false;
+
+	public PickerQuitRequest(LinuxApplication application, PickerWork completion, bool refuse) {
+		self.application = application; self.completion = completion; self.refuse = refuse;
+	}
+
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		self.calls++;
+		self.acceptedDuringRequest = self.application.quitRequested();
+		if (self.refuse) { var refused = transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL); assert(refused.state == WINDOW_CLOSE_CANCELLED); }
+		/* A later real executor turn finishes the pending dialog. Capturing an
+		 * SDL_QUIT event, with authority deferred or refused, must not abort it. */
+		self.application.post(self.completion);
+	}
+}
+
+class PickerChecks {
+	class void close(LinuxApplication application) {
+		application.requestQuit();
+		var closed = application.close();
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (closed == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { application.pumpOnce(0); closed = application.pollClose(); }
+		assert(closed == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void ordinary(int mode) {
+		var application = LinuxApplication(8);
+		var picker = LinuxDirectoryPicker(null, application);
+		int nativeMode = mode >= 1 && mode <= 4 ? mode : 1;
+		pickerReset(nativeMode);
+		var work = PickerWork(application, 1);
+		if (mode == 6 || mode == 14) { application.requestQuit(); }
+		if (mode == 7) { application.post(work); }
+		var request = DirectoryPickerRequest(mode == 0 || mode == 14 ? "" : "select folder");
+		var outcome = picker.chooseDirectory(request);
+		int opens = pickerOpenCount(); int callbacks = pickerCallbackCount(); int frees = pickerFreeCount();
+		bool quitAtReturn = application.quitRequested(); int calls = work.calls;
+		pickerComplete(1); PickerChecks.close(application); pickerDispose();
+		printf("picker ordinary mode=%d result=%d opens=%d callbacks=%d frees=%d quit=%d work=%d\n", mode, (int)outcome.kind, opens, callbacks, frees, (int)quitAtReturn, calls); fflush(stdout);
+		if (mode == 0 || mode == 14) {
+			assert(outcome.kind == DIRECTORY_PICKER_FAILED && outcome.error != null);
+			assert(opens == 0 && callbacks == 0 && frees == 0);
+		} else if (mode == 6) {
+			assert(outcome.kind == DIRECTORY_PICKER_CANCELLED);
+			assert(opens == 0 && callbacks == 0 && frees == 0 && quitAtReturn);
+		} else {
+			assert(opens == 1 && callbacks == 1 && frees == 1);
+			if (mode == 2) { assert(outcome.kind == DIRECTORY_PICKER_CANCELLED && outcome.error == null); }
+			else if (mode == 3 || mode == 4) { assert(outcome.kind == DIRECTORY_PICKER_FAILED && outcome.error != null); }
+			else { assert(outcome.kind == DIRECTORY_PICKER_SELECTED && outcome.directory == "/test/selected-directory"); }
+			if (mode == 7) { assert(!quitAtReturn && calls == 0); }
+		}
+	}
+
+	class void pendingQuit(int mode) {
+		var application = LinuxApplication(8);
+		var picker = LinuxDirectoryPicker(null, application);
+		pickerReset(0);
+		var work = PickerWork(application, mode == 8 ? 2 : 1); application.post(work);
+		var outcome = picker.chooseDirectory(DirectoryPickerRequest("pending quit"));
+		int callbacksAtReturn = pickerCallbackCount(); int ownersAtReturn = pickerOwners(); int freesAtReturn = pickerFreeCount();
+		/* Always retire the actual callback before asserting, including on the
+		 * baseline where the bounded fallback already delivered a selection. */
+		pickerComplete(mode == 9 ? 2 : mode == 10 ? 3 : 1);
+		int callbacks = pickerCallbackCount(); int callbackOwners = pickerCallbackOwners();
+		int frees = pickerFreeCount(); int fallback = pickerFallbackCount(); int opens = pickerOpenCount();
+		bool accepted = application.quitRequested();
+		PickerChecks.close(application); pickerDispose();
+		printf("picker pending result=%d callbacksAtReturn=%d ownersAtReturn=%d freesAtReturn=%d fallback=%d\n", (int)outcome.kind, callbacksAtReturn, ownersAtReturn, freesAtReturn, fallback);
+		fflush(stdout);
+		assert(accepted && work.calls == 1 && opens == 1 && callbacks == 1 && frees == 1);
+		if (mode == 8) {
+			/* Explicit observation order: the terminal state sampled after a
+			 * pump wins even when that same turn also accepted application Quit. */
+			assert(outcome.kind == DIRECTORY_PICKER_SELECTED && callbackOwners == 2);
+			assert(callbacksAtReturn == 1 && ownersAtReturn == 0 && freesAtReturn == 1);
+		} else {
+			assert(outcome.kind == DIRECTORY_PICKER_CANCELLED);
+			assert(outcome.directory.isEmpty() && outcome.error == null);
+			assert(callbacksAtReturn == 0 && ownersAtReturn == 1 && freesAtReturn == 0);
+			assert(callbackOwners == 1);
+		}
+		assert(fallback == 0);
+	}
+
+	class void pumpThrows() {
+		var application = LinuxApplication(8); pickerReset(0);
+		var work = PickerWork(application, 4); application.post(work);
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (work.calls == 0 && SDL_GetTicksNS() < deadline) { application.pumpOnce(0); }
+		pickerComplete(1);
+		int callbacks = pickerCallbackCount(); int callbackOwners = pickerCallbackOwners();
+		int frees = pickerFreeCount(); int fallback = pickerFallbackCount(); int opens = pickerOpenCount();
+		PickerChecks.close(application); pickerDispose();
+		assert(work.calls == 1 && work.nestedRejected && work.nestedOwners == 1 && work.nestedCallbacks == 0);
+		assert(opens == 1 && callbacks == 1 && callbackOwners == 1 && frees == 1 && fallback == 0);
+	}
+
+	class void nativeQuit(bool refuse) {
+		var application = LinuxApplication(8); var scope = CallbackScope();
+		var window = application.createWindow("picker native quit authority", 240.0, 160.0);
+		var completion = PickerWork(application, 3);
+		var handler = PickerQuitRequest(application, completion, refuse); window.onCloseRequested(handler, scope);
+		pickerReset(0); int pushed = pickerPushQuit(); assert(pushed == 1);
+		var picker = LinuxDirectoryPicker(null, application);
+		var outcome = picker.chooseDirectory(DirectoryPickerRequest("unaccepted native quit"));
+		int callsAtReturn = completion.calls; bool accepted = application.quitRequested(); bool windowOpen = window.isOpen();
+		pickerComplete(1);
+		int callbacks = pickerCallbackCount(); int callbackOwners = pickerCallbackOwners(); int frees = pickerFreeCount(); int fallback = pickerFallbackCount();
+		var cancelled = scope.cancel(); assert(cancelled == CALLBACK_CANCELLATION_COMPLETE);
+		PickerChecks.close(application); pickerDispose();
+		assert(handler.calls == 1 && !handler.acceptedDuringRequest && !accepted && windowOpen);
+		assert(outcome.kind == DIRECTORY_PICKER_SELECTED && callsAtReturn == 1);
+		assert(callbacks == 1 && callbackOwners == 2 && frees == 1 && fallback == 0);
+	}
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 2); int mode = atoi(argv[1]); assert(mode >= 0 && mode <= 14);
+	bool initialized = SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS); assert(initialized);
+	if (mode == 5 || (mode >= 8 && mode <= 10)) { PickerChecks.pendingQuit(mode); }
+	else if (mode == 11) { PickerChecks.pumpThrows(); }
+	else if (mode == 12 || mode == 13) { PickerChecks.nativeQuit(mode == 13); }
+	else { PickerChecks.ordinary(mode); }
+	SDL_Quit(); printf("PASS: Linux directory picker mode %d\n", mode); return 0;
+}
