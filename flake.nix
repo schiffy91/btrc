@@ -177,6 +177,8 @@
             pkgs.pkg-config
             self.packages.${system}.wgpu-native
             self.packages.${system}.btrc-gpu
+            self.packages.${system}.btrc-jni
+            pkgs.jdk17_headless   # javac and java for the host-JVM JNI tests
             self.packages.${system}.btrc-format
             self.packages.${system}.btrc-lsp
           ];
@@ -527,6 +529,20 @@
             patchelf --add-rpath /run/opengl-driver/lib "$library"
           done
         '';
+        # JNI headers and HotSpot for Library.Java on a host JVM: its JNI.h
+        # binding and runtime source compile against this, and its tests create
+        # a VM under -Xcheck:jni. Android reads jni.h from the NDK sysroot and
+        # links no VM, so the stdlib selects this only on macOS and Linux.
+        javaNativeInterface = let
+          jdk = pkgs.jdk17_headless;
+          platform = if isDarwin then "darwin" else "linux";
+        in pkgs.writeTextDir "lib/pkgconfig/btrc-jni.pc" ''
+          Name: btrc-jni
+          Description: JNI headers and the HotSpot VM for btrc host-JVM programs
+          Version: ${jdk.version}
+          Cflags: -I${jdk.home}/include -I${jdk.home}/include/${platform}
+          Libs: -L${jdk.home}/lib/server -Wl,-rpath,${jdk.home}/lib/server -ljvm
+        '';
         nativeWebGpu = pkgs.symlinkJoin {
           name = "wgpu-native-${pkgs.wgpu-native.version}";
           paths = [ wgpuNativeLibrary pkgs.wgpu-native.dev
@@ -592,6 +608,7 @@
         btrc-native-plan = nativePlan;
         btrc-native-header = nativeHeaderReader;
         btrc-java-class-reader = javaClassReader;
+        btrc-jni = javaNativeInterface;
         wgpu-native = nativeWebGpu;
         btrc-vscode-extension = btrc-vscode;
         inherit btrc;

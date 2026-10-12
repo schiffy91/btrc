@@ -1,0 +1,32 @@
+/* btrc standard library — the process's Java VM
+ *
+ * A host program, such as a test or a desktop tool, creates the VM here; an
+ * Android application runs in the app's own VM, which is adopted at
+ * JNI_OnLoad (interop step 7). Generated Java class owners count their global
+ * references against this VM, and threads that call Java attach as daemons on
+ * first use and detach when they exit. Destroying the VM while a reference is
+ * alive, or while such a thread runs, terminates.
+ */
+import Library.Vector;
+
+class JavaVirtualMachine {
+	/* Starts the host VM with `options`, such as "-Xcheck:jni" or
+	 * "-Djava.class.path=classes". A process runs at most one VM. */
+	class void createHost(Vector<string> options) {
+		for option in options { btrcJavaAddOption(option); }
+		int status = btrcJavaCreateHost();
+		if (status != 0) { throw f"JavaVirtualMachine: JNI_CreateJavaVM failed with status {status}"; }
+	}
+
+	class bool running() { return btrcJavaRunning() != 0; }
+
+	/* Global references held by live Java class owners. */
+	class long long liveClaims() { return btrcJavaLiveClaims(); }
+
+	/* Threads this library attached that have not exited yet. */
+	class int attachedThreads() { return btrcJavaAttachedThreads(); }
+
+	/* Shuts the VM down from the thread that created it, after every owner
+	 * has been released and every attached thread has exited. */
+	class void shutdown() { btrcJavaDestroy(); }
+}

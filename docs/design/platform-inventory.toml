@@ -861,6 +861,19 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.Java.JavaVirtualMachine"
+group = "stdlib/Java"
+title = "Host Java VM, per-thread JNI environment and reference accounting"
+regression = ["src/tests/python/test_native_jni_host.py::test_host_jvm_lifecycle"]
+windows-x64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "btrc-jni pkg-config and the host VM are declared os=[macos,linux] only; a Windows host JVM is unwired" }
+windows-arm64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "btrc-jni pkg-config and the host VM are declared os=[macos,linux] only; a Windows host JVM is unwired" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS runs no Java VM" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS runs no Java VM" }
+android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "createHost aborts on Android, where the application owns the VM; adopting it at JNI_OnLoad is interop step 7 (CL-P2-24)" }
+android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "createHost aborts on Android, where the application owns the VM; adopting it at JNI_OnLoad is interop step 7 (CL-P2-24)" }
+
+[[rows]]
+kind = "operation"
 id = "Library.LocalApplicationChannel"
 group = "stdlib/LocalApplicationChannel"
 title = "Same-user local request channel"
