@@ -22,6 +22,7 @@ WORKER_POOLS_EXPECTED = FIXTURE / "host_worker_pools.expected"
 COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
 NATIVE_WORKER = FIXTURE / "NativeWorkerFailures.btrc"
+PROCESS_THREADS = FIXTURE / "BackgroundJobsProcessThreads.btrc"
 FAULT_CONTROLS = (
     FIXTURE / "NativeThreadFaultControl.h",
     (
@@ -66,6 +67,20 @@ BINDINGS = {
     ),
     FAILURES: FAULT_CONTROLS,
     NATIVE_WORKER: FAULT_CONTROLS,
+    PROCESS_THREADS: (
+        FIXTURE / "ProcessThreadFaultControl.h",
+        (
+            "process_threads_fault_reset",
+            "process_threads_fault_entries",
+            "process_threads_fault_closes",
+            "process_threads_fault_live",
+            "PROCESS_THREADS_NORMAL",
+            "PROCESS_THREADS_OPEN_ERROR",
+            "PROCESS_THREADS_INITIAL_ERROR",
+            "PROCESS_THREADS_PARTIAL_ERROR",
+            "PROCESS_THREADS_STALE_ERRNO",
+        ),
+    ),
 }
 
 PLANNED_CONSUMER = """\
@@ -149,6 +164,7 @@ def _compile(
     *,
     sanitized: bool = False,
     faults: bool = False,
+    process_thread_faults: bool = False,
 ) -> None:
     environment = dict(os.environ)
     sanitizer_flags = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitized else []
@@ -169,13 +185,19 @@ def _compile(
         "-pthread",
         f"-I{FIXTURE}",
     ]
+    assert not (faults and process_thread_faults)
+    probe = "NativeThreadFaults.c" if faults else "background_job_probe.c"
+    hook = "NativeThreadFaults.h" if faults else None
+    if process_thread_faults:
+        probe = "ProcessThreadFaults.c"
+        hook = "ProcessThreadFaults.h"
     objects = []
     for name, source in (
         ("generated", generated),
-        ("probe", FIXTURE / ("NativeThreadFaults.c" if faults else "background_job_probe.c")),
+        ("probe", FIXTURE / probe),
     ):
         object_path = executable.with_suffix(f".{name}.o")
-        hooks = ["-include", str(FIXTURE / "NativeThreadFaults.h")] if faults and name == "generated" else []
+        hooks = ["-include", str(FIXTURE / hook)] if hook is not None and name == "generated" else []
         result = subprocess.run(
             [c_compiler, *flags, *hooks, "-c", str(source), "-o", str(object_path)],
             env=environment,
@@ -415,3 +437,16 @@ def test_import_emits_and_links_sdk_declarations_without_native_executor(
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == "PASS: planned background jobs runtime\n"
     assert ran.stderr == ""
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires native Linux /proc/self/task and dirent errno")
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_process_thread_count_read_errors(compiler, tmp_path, request, sanitized):
+    generated = tmp_path / f"process-threads-{compiler}.c"
+    executable = tmp_path / f"process-threads-{compiler}"
+    _transpile(compiler, generated, request, PROCESS_THREADS, threads=False)
+    _compile("clang", generated, executable, sanitized=sanitized, process_thread_faults=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "ProcessThreads initial EIO count=-1\nPASS: Linux process thread read errors\n"
+    assert result.stderr == ""

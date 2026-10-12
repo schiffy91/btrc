@@ -1,0 +1,44 @@
+/* The Linux provider must distinguish real /proc EOF from SDK read failure. */
+import Library.BackgroundJobs.ProcessThreads;
+
+#include <assert.h>
+#include <stdio.h>
+
+void completed(int expectedCloses) {
+	assert(process_threads_fault_live() == 0);
+	assert(process_threads_fault_closes() == expectedCloses);
+}
+
+void succeeds(int mode) {
+	process_threads_fault_reset(mode);
+	int count = ProcessThreads.count();
+	assert(count >= 1);
+	assert(count == process_threads_fault_entries());
+	completed(1);
+}
+
+int main() {
+	succeeds(PROCESS_THREADS_NORMAL);
+	process_threads_fault_reset(PROCESS_THREADS_INITIAL_ERROR);
+	int initial = ProcessThreads.count();
+	completed(1);
+	assert(process_threads_fault_entries() == 0);
+	printf("ProcessThreads initial EIO count=%d\n", initial);
+	fflush(stdout);
+	assert(initial == -1);
+
+	process_threads_fault_reset(PROCESS_THREADS_PARTIAL_ERROR);
+	int partial = ProcessThreads.count();
+	completed(1);
+	assert(process_threads_fault_entries() >= 1);
+	assert(partial == -1);
+
+	process_threads_fault_reset(PROCESS_THREADS_OPEN_ERROR);
+	assert(ProcessThreads.count() == -1);
+	completed(0);
+	assert(process_threads_fault_entries() == 0);
+	succeeds(PROCESS_THREADS_STALE_ERRNO);
+	succeeds(PROCESS_THREADS_NORMAL);
+	print("PASS: Linux process thread read errors");
+	return 0;
+}
