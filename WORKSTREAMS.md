@@ -1806,3 +1806,13 @@ receipt remains failed solely at its diagnostic-wording classifier. This does
 not establish the historical ENOENT cause. Root owns the final documentation,
 draft publication and complete final-tree gate matrix. The iOS tooling port
 remains separate until D8 runtime admission.
+
+
+## 2026-10-12 LSP feature/validation contention test
+
+Execution_review owns `src/tests/lsp/test_server_hardening.py`, this claim and
+`docs/workstreams/lsp-contention.md` on `codex/lsp-contention-5be`, from frozen
+5be08004. Preserve the real-analysis/cache contract and five-second completion
+bound while observing actual lock contention and retiring the worker on every
+assertion path. No LSP/compiler production, workflow or harness changes. The
+actual hosted timeout remains retained; focused tests do not replace final CI.
