@@ -502,7 +502,7 @@ class FeNativeDeclarationImporter {
 		}
 	}
 
-	private Node tableParameter(NativeNode native) {
+	private Node tableParameter(NativeNode native, string what = "callback table method") {
 		NativeNode value = self.unqualifiedNative(native);
 		if (value.kind == NNK_NATIVE_BUILTIN || value.kind == NNK_NATIVE_ENUM_TYPE) { return self.callType(native, true); }
 		if (value.kind == NNK_NATIVE_POINTER) {
@@ -510,7 +510,7 @@ class FeNativeDeclarationImporter {
 			Vector<string> seen = [];
 			if ((pointee.kind == NNK_NATIVE_BUILTIN || pointee.kind == NNK_NATIVE_ENUM_TYPE || pointee.kind == NNK_NATIVE_RECORD_TYPE) && self.realtimePod(native, seen)) { return self.callType(native, true); }
 		}
-		self.fail("callback table method arguments require SDK scalar or POD data-pointer types"); return null;
+		self.fail(what + " arguments require SDK scalar or POD data-pointer types"); return null;
 	}
 
 	private NativeNode tableFunctionType(NativeNode fieldType, string what) {
@@ -634,6 +634,87 @@ class FeNativeDeclarationImporter {
 				contract.nonnullParameters.push(true); contract.readOnlyBorrows.push(false); contract.resourceParameters.push(""); contract.recordInputs.push(null);
 			}
 			self.add(table.name, factory, "callback-table-factory:" + name, "", false, contract);
+		}
+	}
+
+	/* The argument at context-index takes the context field, or the object itself. */
+	private void dispatchContext(string resourceName, FeNativeDispatchTable dispatch, NativeNode record, NativeNode signature, string what) {
+		if (dispatch.contextIndex >= signature.parameters.len) { self.fail(f"resource {resourceName}: dispatch context-index is outside {what}"); }
+		NativeNode argument = signature.parameters.get(dispatch.contextIndex);
+		if (!dispatch.context.isEmpty()) { self.tableContextArgument(argument, what); return; }
+		NativeNode pointer = self.unqualifiedNative(argument);
+		NativeNode? pointee = pointer.kind == NNK_NATIVE_POINTER ? self.unqualifiedNative(pointer.pointee) : null;
+		if (pointee == null || pointee.kind != NNK_NATIVE_RECORD_TYPE || pointee.identity != record.identity) { self.fail(f"resource {resourceName}: {what} must take the object at context-index"); }
+	}
+
+	/* Project each mapped slot of an SDK-owned table as a method of its unique
+	 * owner. The object owns its table: every call reloads the table pointer
+	 * and the slot and checks both for null, so a table swapped by the SDK is
+	 * honored and nothing is cached (native-interop-ownership.md section 2.1). */
+	private void projectDispatchTables(FeNativeBinding binding) {
+		for name in binding.resources.keys() {
+			FeNativeResourceBinding resource = binding.resources.get(name);
+			FeNativeDispatchTable? selected = resource.dispatch;
+			if (selected == null) { continue; }
+			FeNativeDispatchTable dispatch = selected;
+			NativeNode pointer = self.resourceTypes.get(name);
+			NativeNode record = self.unqualifiedNative(pointer.pointee);
+			if (!resource.storage.isEmpty() || record.kind != NNK_NATIVE_RECORD_TYPE || !self.layouts.has(record.identity) || self.layouts.get(record.identity).recordKind != "struct") { self.fail(f"resource {name}: dispatch requires a unique pointer resource over a complete SDK struct"); }
+			Map<string, NativeNode> fields = {};
+			for field in self.layouts.get(record.identity).fields { fields.put(field.name, field); }
+			NativeNode? tableLayout = null;
+			if (fields.has(dispatch.table)) {
+				NativeNode tablePointer = self.unqualifiedNative(fields.get(dispatch.table).fieldType);
+				if (tablePointer.kind == NNK_NATIVE_POINTER) {
+					NativeNode tableRecord = self.unqualifiedNative(tablePointer.pointee);
+					if (tableRecord.kind == NNK_NATIVE_RECORD_TYPE && self.layouts.has(tableRecord.identity) && self.layouts.get(tableRecord.identity).recordKind == "struct") { tableLayout = self.layouts.get(tableRecord.identity); }
+				}
+			}
+			if (tableLayout == null) { self.fail(f"resource {name}: dispatch table {dispatch.table} must point to a complete SDK struct"); }
+			if (!dispatch.context.isEmpty()) {
+				if (!fields.has(dispatch.context)) { self.fail(f"resource {name}: dispatch context {dispatch.context} is not a field"); }
+				self.tableContextArgument(fields.get(dispatch.context).fieldType, "dispatch context field");
+			}
+			string tableType = self.realtimeNativeSpelling(fields.get(dispatch.table).fieldType);
+			Map<string, NativeNode> slots = {};
+			for field in tableLayout.fields { slots.put(field.name, field); }
+			var owner = self.resourceDeclaration(name);
+			for index in range(dispatch.methodNames.len) {
+				string method = dispatch.methodNames.get(index); string slot = dispatch.methodSlots.get(index);
+				if (!slots.has(slot)) { self.fail(f"resource {name}: dispatch slot {slot} is not a table field"); }
+				NativeNode field = slots.get(slot);
+				NativeNode signature = self.tableFunctionType(field.fieldType, "dispatch method " + method);
+				self.requireQualifiedConvention(signature);
+				self.dispatchContext(name, dispatch, record, signature, "dispatch method " + method);
+				NativeNode result = self.unqualifiedNative(signature.returnType);
+				bool voidResult = result.kind == NNK_NATIVE_BUILTIN && result.name == "void";
+				if (!voidResult && !self.realtimeScalar(signature.returnType)) { self.fail("dispatch methods require scalar or void results"); }
+				Vector<string> names = field.callbackParameters.len > 0 ? self.semanticNames(field.callbackParameters) : [];
+				var projected = FeNativeDispatchMethod(method, slot, self.callType(signature.returnType), self.realtimeNativeSpelling(signature.returnType), tableType);
+				Node member = self.node(NK_METHOD_DECL); member.access = "public"; member.name = method; member.returnType = projected.returnType;
+				for position in range(signature.parameters.len) {
+					if (position == dispatch.contextIndex) { continue; }
+					Node value = self.tableParameter(signature.parameters.get(position), "dispatch method");
+					string parameterName = names.len > 0 ? names.get(position) : f"argument{position}";
+					projected.names.push(parameterName); projected.parameters.push(value);
+					projected.nativeParameters.push(self.realtimeNativeSpelling(signature.parameters.get(position)));
+					Node parameter = self.node(NK_PARAM); parameter.name = parameterName; parameter.type = value; member.paramsMut().push(parameter);
+				}
+				var contract = FeNativeCallContract(); contract.dispatchMethod = projected;
+				owner.methods.put(method, contract);
+				owner.declaration.membersMut().push(member);
+			}
+			if (!dispatch.releaseSlot.isEmpty()) {
+				if (!slots.has(dispatch.releaseSlot)) { self.fail(f"resource {name}: dispatch release slot {dispatch.releaseSlot} is not a table field"); }
+				NativeNode signature = self.tableFunctionType(slots.get(dispatch.releaseSlot).fieldType, "dispatch release");
+				self.requireQualifiedConvention(signature);
+				NativeNode result = self.unqualifiedNative(signature.returnType);
+				if (signature.parameters.len != 1 || result.kind != NNK_NATIVE_BUILTIN || result.name != "void") { self.fail("dispatch release requires one object argument and a void result"); }
+				self.dispatchContext(name, dispatch, record, signature, "dispatch release");
+				Node voidType = self.node(NK_TYPE_EXPR); voidType.base = "void";
+				var contract = FeNativeCallContract(); contract.dispatchMethod = FeNativeDispatchMethod("", dispatch.releaseSlot, voidType, "void", tableType);
+				owner.methods.put("", contract);
+			}
 		}
 	}
 
@@ -1887,12 +1968,14 @@ class FeNativeDeclarationImporter {
 		return member.fieldType;
 	}
 
-	private Vector<string> parameterNames(NativeNode declaration) {
+	private Vector<string> parameterNames(NativeNode declaration) { return self.semanticNames(declaration.parameterSemantics); }
+
+	private Vector<string> semanticNames(Vector<NativeNode> semantics) {
 		Map<string, bool> occupied = {};
-		for parameter in declaration.parameterSemantics { if (!parameter.name.isEmpty()) { occupied.put(parameter.name, true); } }
+		for parameter in semantics { if (!parameter.name.isEmpty()) { occupied.put(parameter.name, true); } }
 		Vector<string> names = [];
-		for index in range(declaration.parameterSemantics.len) {
-			string name = declaration.parameterSemantics.get(index).name;
+		for index in range(semantics.len) {
+			string name = semantics.get(index).name;
 			if (name.isEmpty()) {
 				name = f"argument{index}";
 				while (occupied.has(name)) { name = name + "_"; }
@@ -3202,6 +3285,15 @@ class FeNativeDeclarationImporter {
 			for index in range(1, snapshot.byteSpan.len) { string path = snapshot.owner + "." + snapshot.byteSpan.get(index); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
 			if (snapshot.guard.len > 0) { string path = snapshot.owner + "." + snapshot.guard.get(0); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
 		}
+		/* A dispatched slot's path reads its table's layout without exporting the table itself. */
+		for resourceName in binding.resources.keys() {
+			FeNativeDispatchTable? dispatch = binding.resources.get(resourceName).dispatch;
+			if (dispatch == null) { continue; }
+			Vector<string> slots = [];
+			slots.extend(dispatch.methodSlots);
+			if (!dispatch.releaseSlot.isEmpty()) { slots.push(dispatch.releaseSlot); }
+			for slot in slots { string path = resourceName + "." + dispatch.table + "." + slot; if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
+		}
 		snapshotPaths.sortBy((string left, string right) => Strings.lessThan(left, right));
 		for path in snapshotPaths { arguments.push("--record-path=" + path); }
 		Vector<string> packages = [];
@@ -3343,6 +3435,7 @@ class FeNativeDeclarationImporter {
 			for declaration in decoded.exports { self.importDeclaration(declaration); }
 			self.projectRealtimeCallbacks(binding);
 			self.projectCallbackTables(binding);
+			self.projectDispatchTables(binding);
 			self.projectRecordSnapshots(binding);
 			if (self.borrows.len > 0) { self.fail("read-only-borrows names unknown function parameter"); }
 			if (self.realtime.len > 0) { self.fail("realtime-safe names a non-function declaration"); }

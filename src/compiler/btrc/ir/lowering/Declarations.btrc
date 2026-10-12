@@ -486,7 +486,20 @@ class DeclarationLowerer {
 	private void emitResourceLifetime(FeNativeImportedDeclaration imported, IRModule module) {
 		var resource = imported.resource;
 		if (resource == null) { return; }
-		if (resource.ownership == "unique") { self.emitUniqueResource(imported, module); return; }
+		if (resource.ownership == "unique") {
+			FeNativeDispatchTable? dispatch = resource.dispatch;
+			string releaseAdapter = dispatch != null && !dispatch.releaseSlot.isEmpty() ? self.emitDispatchRelease(imported, module) : "";
+			self.emitUniqueResource(imported, module, "", releaseAdapter);
+			if (dispatch != null) {
+				for member in imported.declaration.members() {
+					if (member.kind != NK_METHOD_DECL || member.name == "close" || member.name == "isOpen") { continue; }
+					FeNativeDispatchMethod? method = imported.methods.get(member.name).dispatchMethod;
+					if (method == null) { throw "dispatched method requires its projection"; }
+					self.emitDispatchMethod(imported, member, method, module);
+				}
+			}
+			return;
+		}
 		module.structForwards.push(IRStructForward("__btrc_native_" + resource.name));
 		for operation in ["retain", "release"] {
 			var adapter = IRFunction();
@@ -980,6 +993,76 @@ class DeclarationLowerer {
 
 	/* C++ owners are published under their BTRC alias and released through a generated
 	 * extern "C" adapter rather than a selected C function. */
+	/* Reload the object's table and slot, check both, and call through the slot.
+	 * The object owns its table, so nothing is cached between calls: an SDK that
+	 * swaps tables is honored on the next call (M1 dispatch). */
+	private IRNode dispatchCall(FeNativeImportedDeclaration imported, FeNativeDispatchMethod method, IRNode native, Vector<IRNode> arguments, Vector<IRNode> statements) {
+		var resource = imported.resource;
+		if (resource == null) { throw "dispatch requires its resource binding"; }
+		FeNativeDispatchTable? selected = resource.dispatch;
+		if (selected == null) { throw "dispatch requires its table binding"; }
+		FeNativeDispatchTable dispatch = selected;
+		string what = imported.declaration.name + "." + (method.name.isEmpty() ? "release" : method.name);
+		IRNode table = IRNode.variable("table");
+		IRNode slot = IRNode.fieldAccess(table, method.slot, true);
+		IRNode context = dispatch.context.isEmpty() ? native : IRNode.fieldAccess(native, dispatch.context, true);
+		Vector<IRNode> callArguments = [];
+		for index in range(arguments.len) {
+			if (index == dispatch.contextIndex) { callArguments.push(context); }
+			callArguments.push(arguments.get(index));
+		}
+		if (dispatch.contextIndex >= arguments.len) { callArguments.push(context); }
+		statements.push(IRNode.variableDeclaration(method.tableType, "table", IRNode.fieldAccess(native, dispatch.table, true)));
+		statements.push(self.nativeNullGuard(table, f"Native dispatch {what}: null function table"));
+		statements.push(self.nativeNullGuard(slot, f"Native dispatch {what}: null table slot {method.slot}"));
+		return IRNode.indirectCall(slot, callArguments);
+	}
+
+	/* Final owner cleanup runs the table's release slot exactly once. */
+	private string emitDispatchRelease(FeNativeImportedDeclaration imported, IRModule module) {
+		var resource = imported.resource;
+		if (resource == null) { throw "dispatch requires its resource binding"; }
+		FeNativeDispatchMethod? method = imported.methods.get("").dispatchMethod;
+		if (method == null) { throw "dispatch release requires its projection"; }
+		string name = "__btrc_dispatch_" + imported.declaration.name + "_release";
+		string nativeType = imported.typeSpelling.isEmpty() ? resource.name : imported.typeSpelling;
+		Vector<IRNode> statements = [];
+		Vector<IRNode> noArguments = [];
+		IRNode call = self.dispatchCall(imported, method, IRNode.variable("native"), noArguments, statements);
+		statements.push(IRNode.expressionStatement(call));
+		self.nativeUniqueFunction(module, name, "void", [IRParam(nativeType, "native")], statements);
+		return name;
+	}
+
+	/* A dispatched slot borrows the unique owner for exactly the native call. */
+	private void emitDispatchMethod(FeNativeImportedDeclaration imported, Node member, FeNativeDispatchMethod method, IRModule module) {
+		var resource = imported.resource;
+		if (resource == null) { throw "dispatch requires its resource binding"; }
+		string symbol = imported.declaration.name;
+		IRNode owner = IRNode.variable("self");
+		string nativeType = imported.typeSpelling.isEmpty() ? resource.name : imported.typeSpelling;
+		Vector<IRParam> parameters = [];
+		for parameter in member.params() { parameters.push(self.cTypes.lowerParameter(parameter)); }
+		string resultType = self.cTypes.lower(member.returnType);
+		Vector<IRNode> arguments = [];
+		for index in range(parameters.len) { arguments.push(IRNode.cast(method.nativeParameters.get(index), IRNode.variable(parameters.get(index).name))); }
+		Vector<IRNode> statements = [
+			self.nativeNullGuard(owner, f"Native dispatch {symbol}.{method.name}: null receiver"),
+			IRNode.expressionStatement(IRNode.call("__btrc_native_" + symbol + "_retain", [owner])),
+			IRNode.expressionStatement(IRNode.call("__btrc_unique_" + symbol + "_begin_borrow", [owner])),
+			IRNode.variableDeclaration(nativeType, "native", IRNode.fieldAccess(owner, "value", true))
+		];
+		IRNode call = self.dispatchCall(imported, method, IRNode.variable("native"), arguments, statements);
+		bool returnsValue = resultType != "void";
+		if (returnsValue) { statements.push(IRNode.variableDeclaration(resultType, "result", IRNode.cast(resultType, call))); }
+		else { statements.push(IRNode.expressionStatement(call)); }
+		statements.push(IRNode.expressionStatement(IRNode.call("__btrc_unique_" + symbol + "_end_borrow", [owner])));
+		if (returnsValue) { statements.push(IRNode.returnStatement(IRNode.variable("result"))); }
+		Vector<IRParam> cParameters = [IRParam("struct __btrc_native_" + symbol + "*", "self")];
+		cParameters.extend(parameters);
+		self.nativeUniqueFunction(module, "__btrc_unique_" + symbol + "_" + method.name + "_public", resultType, cParameters, statements);
+	}
+
 	private void emitUniqueResource(FeNativeImportedDeclaration imported, IRModule module, string symbol = "", string releaseSymbol = "") {
 		var resource = imported.resource;
 		if (resource == null) { throw "unique native resource requires its resource binding"; }

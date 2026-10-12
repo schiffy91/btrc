@@ -328,6 +328,23 @@ class NativeCallbackTable:
 
 
 @dataclass(frozen=True)
+class NativeDispatchTable:
+    """An SDK-owned function table that BTRC calls through its object's unique owner.
+
+    `table` is the object field holding the table pointer. `context` names the
+    object field passed at `context-index`; empty passes the object itself.
+    `release` names the slot final owner cleanup runs once instead of a
+    top-level release function.
+    """
+
+    table: str
+    context_index: int
+    methods: tuple[tuple[str, str], ...]
+    context: str = ""
+    release: str = ""
+
+
+@dataclass(frozen=True)
 class NativeResourceBinding:
     """Missing ownership facts for one header-declared native resource."""
 
@@ -345,6 +362,7 @@ class NativeResourceBinding:
     owner: str = ""
     methods: tuple[str, ...] = ()
     table: NativeCallbackTable | None = None
+    dispatch: NativeDispatchTable | None = None
 
 
 @dataclass(frozen=True)
@@ -1742,6 +1760,7 @@ class PackageManifestValidator:
                         "type-tag",
                         "storage",
                         "table",
+                        "dispatch",
                     }
                 ),
                 location,
@@ -1767,7 +1786,19 @@ class PackageManifestValidator:
                         f"{location}: status release requires unique and matching release-consumption/cleanup-status: always/discard or success-or-indeterminate/abort"
                     )
             retain, release = value.get("retain", ""), value.get("release")
-            for operation in (release,) if ownership == "unique" else (retain, release):
+            dispatch = self._dispatch_table(value, location, ownership, storage) if "dispatch" in value else None
+            if dispatch is not None and dispatch.release:
+                # The table's own release slot is the destructor.
+                if "release" in value or consumption:
+                    raise ValueError(f"{location}: a dispatch release slot replaces the resource release function")
+                release = ""
+            for operation in (
+                ()
+                if dispatch is not None and dispatch.release
+                else (release,)
+                if ownership == "unique"
+                else (retain, release)
+            ):
                 if (
                     not isinstance(operation, str)
                     or operation not in symbols
@@ -1775,7 +1806,7 @@ class PackageManifestValidator:
                 ):
                     raise ValueError(f"{location}: retain/release must name selected functions")
                 operations.add(operation)
-            if retain == release:
+            if retain == release and release:
                 raise ValueError(f"{location}: lifetime operations must be distinct")
             query, tag = value.get("type-query", ""), value.get("type-tag", "")
             if "type-query" in value or "type-tag" in value:
@@ -1784,14 +1815,65 @@ class PackageManifestValidator:
                         f"{location}: type-query/type-tag require distinct selected functions on a reference-counted resource"
                     )
             table = self._callback_table(value, symbols, location, ownership, storage) if "table" in value else None
+            if table is not None and dispatch is not None:
+                raise ValueError(f"{location}: a resource either implements a table or dispatches through one")
             resources.append(
                 NativeResourceBinding(
-                    name, ownership, retain, release, consumption, cleanup, query, tag, storage, table=table
+                    name,
+                    ownership,
+                    retain,
+                    release,
+                    consumption,
+                    cleanup,
+                    query,
+                    tag,
+                    storage,
+                    table=table,
+                    dispatch=dispatch,
                 )
             )
         if operations.intersection(values):
             raise ValueError(f"{context}: lifetime operations must be distinct from resource types")
         return tuple(resources)
+
+    def _dispatch_table(self, value, location, ownership, storage):
+        dispatch = value["dispatch"]
+        location = f"{location}.dispatch"
+        if ownership != "unique" or storage or not isinstance(dispatch, dict):
+            raise ValueError(f"{location} requires a unique pointer resource and a dispatch declaration")
+        self._reject_unknown(
+            dispatch,
+            frozenset({"table", "context", "context-index", "executor", "failure", "methods", "release"}),
+            location,
+        )
+        for key in ("table", "methods", "executor", "failure"):
+            if key not in dispatch:
+                raise ValueError(f"{location} requires table, methods, executor and failure")
+        table = self._identifier(dispatch["table"], f"{location}.table")
+        index = dispatch.get("context-index", 0)
+        if type(index) is not int or index < 0 or index > 999999999:
+            raise ValueError(f"{location}.context-index must be a nonnegative native parameter index")
+        if dispatch["executor"] != "caller":
+            raise ValueError(f"{location}.executor currently requires caller")
+        if dispatch["failure"] != "abort":
+            raise ValueError(f"{location}.failure currently requires abort")
+        methods = dispatch["methods"]
+        if not isinstance(methods, dict) or not methods:
+            raise ValueError(f"{location}.methods must map BTRC method names to table slots")
+        projected = tuple(
+            (self._identifier(method, f"{location}.methods"), self._identifier(slot, f"{location}.methods.{method}"))
+            for method, slot in sorted(methods.items())
+        )
+        if any(method in {"close", "isOpen"} for method, _ in projected):
+            raise ValueError(f"{location}.methods cannot shadow resource operations")
+        context = self._identifier(dispatch["context"], f"{location}.context") if "context" in dispatch else ""
+        release = self._identifier(dispatch["release"], f"{location}.release") if "release" in dispatch else ""
+        slots = [slot for _, slot in projected] + ([release] if release else [])
+        if len(set(slots)) != len(slots):
+            raise ValueError(f"{location}: method and release slots must be distinct")
+        if context and context == table:
+            raise ValueError(f"{location}: the context and table fields must be distinct")
+        return NativeDispatchTable(table, index, projected, context, release)
 
     def _callback_table(self, value, symbols, location, ownership, storage):
         table = value["table"]

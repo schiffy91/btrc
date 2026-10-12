@@ -13,6 +13,23 @@ It extends the contracts already recorded in
 and does not replace them. Where this document says "the existing X", X is
 implemented in both compilers today and documented there.
 
+**Implementation status (2026-10-12).**
+- Step 1 (schema v2) is implemented in both compilers and the reader.
+- Step 2's first slice is implemented in both compilers: the `dispatch`
+  subtable, `_project_dispatch_tables`/`projectDispatchTables`, and M1
+  resource dispatch with the reload, null checks and release slot
+  (package-manifest.md, "SDK-owned dispatch tables"). Its `Codec` fixture
+  covers decode and reset, a table swap, alias plus `close()` running
+  `destroy` once, 1,000 iterations with a live count of 0, null-table and
+  null-slot aborts, a call after close, and `-O2` with ASan/UBSan
+  (`src/tests/python/test_native_dispatch_tables.py`, both compilers).
+- Step 2 still owes: three-part `"<R>.<method>.<parameter>"` and two-part
+  `"<R>.<method>"` binding-map names (results stay scalar until then),
+  private dispatch records with the slot-read rejection and verifier rule 1,
+  the direct-cycle rule, R3 entry pinning with the `pthread_t` plus generation
+  check for the existing table holder (rule 3), the loopback fixture and the
+  Linux sysroot variant of `native_project`.
+
 ## 1. One model: three relations, three mechanisms, two rules
 
 ### Relations
