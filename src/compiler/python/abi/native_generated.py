@@ -266,6 +266,7 @@ class NativeField:
     is_anonymous: bool = False
     is_bitfield: bool = False
     width_bits: str = ""
+    callback_parameters: list[NativeParameterSemantics] = _dc_field(default_factory=list)
 
 
 # --- Union type aliases for sum types ---

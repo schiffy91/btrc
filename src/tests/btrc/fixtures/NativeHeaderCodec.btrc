@@ -1,4 +1,5 @@
 import Library.FileSystem;
+import Library.Strings;
 import Library.Vector;
 
 import ../../../compiler/btrc/frontend/NativeImports.btrc;
@@ -74,7 +75,15 @@ int main(int argc, char** argv) {
 		for nativeInterface in header.interfaces { printf("interface %s %s %d %s\n", nativeInterface.name, nativeInterface.identity, (int)nativeInterface.complete, nativeInterface.superclass); }
 		for record in header.records {
 			printf("%s %s %s\n", record.identity, record.sizeBits, record.alignmentBitsString);
-			for field in record.fields { printf("%s %s %s\n", field.name, field.offsetBits, field.widthBits); }
+			for field in record.fields {
+				string slots = "";
+				if (field.callbackParameters.len > 0) {
+					Vector<string> names = [];
+					for parameter in field.callbackParameters { names.push(parameter.name); }
+					slots = " (" + Strings.join(names, ",") + ")";
+				}
+				printf("%s %s %s%s\n", field.name, field.offsetBits, field.widthBits, slots);
+			}
 		}
 		for declaration in header.exports {
 			if (declaration.kind == NNK_NATIVE_POINTER_CONSTANT) { printf("pointer %s %d %s\n", declaration.name, declaration.pointerBits, declaration.decimalValue); }

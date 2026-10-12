@@ -3539,6 +3539,7 @@ class NativeDeclarationImporter:
             signature = signature.underlying
         if not isinstance(signature, NativeFunctionType):
             return None
+        self._require_qualified_convention(signature)
         if self._call_nullability(native) == "nonnull":
             raise NativeImportError("nested native non-null contracts require native-type lowering")
         if signature.variadic:
@@ -3578,6 +3579,12 @@ class NativeDeclarationImporter:
                 native,
             )
         return self._type(native)
+
+    @staticmethod
+    def _require_qualified_convention(function) -> None:
+        """Only the C convention is qualified; the reader reports the others."""
+        if function.calling_convention != "c":
+            raise NativeImportError(f"native calling convention '{function.calling_convention}' is not supported")
 
     def _without_spelling_wrappers(self, native):
         while isinstance(native, NativeQualifiedType):
@@ -3636,6 +3643,7 @@ class NativeDeclarationImporter:
             pointee = self._without_spelling_wrappers(native.pointee)
             if isinstance(pointee, NativeFunctionType):
                 function = pointee
+                self._require_qualified_convention(function)
                 if function.variadic:
                     raise NativeImportError("variadic native callbacks require adapter lowering")
                 projected = ast.TypeExpr(
@@ -4233,6 +4241,7 @@ class NativeDeclarationImporter:
             if declaration.name in self._resource_operations:
                 return
             signature = declaration.signature
+            self._require_qualified_convention(signature)
             # Emit calls through the included header's source spelling. The C
             # compiler owns SDK asm labels (including Darwin's pthread aliases);
             # redeclaring or calling the linker spelling would discard that ABI.
@@ -4868,7 +4877,10 @@ class NativeDeclarationImporter:
 class NativeHeaderCodec:
     """Own the checked boundary from experimental Clang JSON to shared types."""
 
-    SCHEMA = "btrc.native-declarations.experimental"
+    SCHEMA = "btrc.native-declarations.v2"
+    # The reader reports every calling convention by name; the importer, not
+    # the codec, decides which ones it has qualified.
+    _CONVENTION = re.compile(r"[a-z][a-z0-9_]*\Z")
     _QUALIFIERS = frozenset({"const", "volatile", "restrict", "nullability"})
     _DECIMAL = re.compile(r"(?:0|[1-9][0-9]*)\Z")
     _SIGNED_DECIMAL = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
@@ -4927,6 +4939,35 @@ class NativeHeaderCodec:
         if not isinstance(value, list):
             raise NativeImportError("expected native array")
         return value
+
+    @classmethod
+    def _convention(cls, value):
+        value = cls._text(value)
+        if cls._CONVENTION.fullmatch(value) is None:
+            raise NativeImportError(f"unsupported native calling convention spelling: {value}")
+        return value
+
+    @classmethod
+    def _parameter_semantics(cls, value):
+        cls._object(value, {"name", "cf_consumed", "ns_consumed", "no_escape"})
+        return NativeParameterSemantics(
+            name=cls._text(value["name"], empty=True),
+            cf_consumed=cls._boolean(value["cf_consumed"]),
+            ns_consumed=cls._boolean(value["ns_consumed"]),
+            no_escape=cls._boolean(value["no_escape"]),
+        )
+
+    @staticmethod
+    def _callback_signature(native):
+        """The function a field's type points to, through aliases and qualifiers."""
+        while isinstance(native, (NativeAlias, NativeQualifiedType)):
+            native = native.underlying
+        if not isinstance(native, NativePointer):
+            return None
+        pointee = native.pointee
+        while isinstance(pointee, (NativeAlias, NativeQualifiedType)):
+            pointee = pointee.underlying
+        return pointee if isinstance(pointee, NativeFunctionType) else None
 
     @classmethod
     def _choice(cls, value, choices):
@@ -5113,7 +5154,7 @@ class NativeHeaderCodec:
                 return_type=self._type(value["return_type"]),
                 parameters=[self._type(parameter) for parameter in self._array(value["parameters"])],
                 variadic=self._boolean(value["variadic"]),
-                calling_convention=self._choice(value["calling_convention"], {"c"}),
+                calling_convention=self._convention(value["calling_convention"]),
                 qualifiers=qualifiers,
             )
         if kind == "array":
@@ -5210,17 +5251,9 @@ class NativeHeaderCodec:
                 trivially_destructible=self._boolean(value["trivially_destructible"]),
             )
         if kind in {"function", "objc_method", "cxx_method"}:
-            parameters = []
-            for parameter in self._array(value["parameter_semantics"]):
-                self._object(parameter, {"name", "cf_consumed", "ns_consumed", "no_escape"})
-                parameters.append(
-                    NativeParameterSemantics(
-                        name=self._text(parameter["name"], empty=True),
-                        cf_consumed=self._boolean(parameter["cf_consumed"]),
-                        ns_consumed=self._boolean(parameter["ns_consumed"]),
-                        no_escape=self._boolean(parameter["no_escape"]),
-                    )
-                )
+            parameters = [
+                self._parameter_semantics(parameter) for parameter in self._array(value["parameter_semantics"])
+            ]
             if not isinstance(native_type, NativeFunctionType) or len(parameters) != len(native_type.parameters):
                 raise NativeImportError("native function semantics do not match its signature")
             if kind == "cxx_method":
@@ -5343,19 +5376,25 @@ class NativeHeaderCodec:
             raise NativeImportError("native record alignment must be positive")
         fields = []
         for entry in self._array(value["fields"]):
-            self._object(entry, {"name", "type", "offset_bits", "anonymous"}, {"width_bits"})
+            self._object(entry, {"name", "type", "offset_bits", "anonymous", "callback_parameters"}, {"width_bits"})
             offset = self._decimal(entry["offset_bits"])
             width = self._decimal(entry["width_bits"]) if "width_bits" in entry else "0"
             if self._layout_integer(offset) + self._layout_integer(width) > size_value:
                 raise NativeImportError("native field extends beyond its record")
+            field_type = self._type(entry["type"])
+            slots = [self._parameter_semantics(item) for item in self._array(entry["callback_parameters"])]
+            signature = self._callback_signature(field_type)
+            if len(slots) != (len(signature.parameters) if signature is not None else 0):
+                raise NativeImportError("native callback parameters do not match the field's function type")
             fields.append(
                 NativeField(
                     name=self._text(entry["name"], empty=True),
-                    field_type=self._type(entry["type"]),
+                    field_type=field_type,
                     offset_bits=offset,
                     is_anonymous=self._boolean(entry["anonymous"]),
                     is_bitfield="width_bits" in entry,
                     width_bits=width,
+                    callback_parameters=slots,
                 )
             )
         record_kind = self._choice(value["kind"], {"struct", "union"})
