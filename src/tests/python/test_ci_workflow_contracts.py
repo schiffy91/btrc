@@ -1420,3 +1420,101 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
         "$(filter-out $(GUI_SHARD_X11_ONLY),$(NATIVE_GUI_TESTS)),$(NATIVE_GUI_TESTS))"
     ) in makefile
     assert "test_native_linux_providers.py" in makefile
+
+
+@pytest.mark.parametrize("job_name", ["tests", "native-gui"])
+def test_macos_reader_is_rooted_and_observed_through_job_failure(job_name: str) -> None:
+    job = _job(_workflow("macos.yml"), job_name)
+    build = _step_containing(job, "nix build .#btrc-native-header")
+    assert '--out-link "$RUNNER_TEMP/btrc-native-header-root"' in build
+    assert "--no-link" not in build
+    assert 'test -x "$reader"' in build and 'test "$exported" = "$reader"' in build
+    pre = _step_containing(job, "--phase pre")
+    post = _step_containing(job, "--phase post")
+    for step in (pre, post):
+        assert "/usr/bin/python3 -B -m tools.qualification.toolchain" in step
+        assert '--reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader' in step
+        assert "timeout-minutes: 2" in step and "nix develop" not in step
+    assert "if: always()" in post
+    upload = _step_containing(job, "path: build/native-reader/")
+    assert "if: always()" in upload and UPLOAD_ARTIFACT in upload
+    assert "matrix.shard" in upload if job_name == "tests" else "native-reader-macos-native-gui" in upload
+    assert job.index("--phase pre") < job.index("make NIX=") < job.index("--phase post")
+    assert "nix-store --delete" not in job and "--gc" not in job
+
+
+@pytest.mark.parametrize("optional_argument", ["", " -e"])
+@pytest.mark.parametrize("missing", ["reader", "interpreter", "backend", "closure", "root", None])
+def test_reader_evidence_distinguishes_missing_launch_dependencies(
+    tmp_path: Path, missing: str | None, optional_argument: str
+) -> None:
+    from types import SimpleNamespace
+
+    from tools.qualification.toolchain import NativeReaderProbe
+
+    store = tmp_path / "store"
+    (store / "bin").mkdir(parents=True)
+    interpreter = tmp_path / "bash"
+    interpreter.write_text("interpreter bytes")
+    interpreter.chmod(0o755)
+    reader = store / "bin/btrc-native-header"
+    reader.write_text(f"#! {interpreter}{optional_argument}\nexec wrapped\n")
+    reader.chmod(0o755)
+    backend = store / "bin/.btrc-native-header-wrapped"
+    backend.write_text("native bytes")
+    backend.chmod(0o755)
+    dependency = tmp_path / "dependency"
+    dependency.mkdir()
+    root = tmp_path / "root"
+    root.symlink_to(store)
+    commands = []
+
+    def query(command, **kwargs):
+        commands.append(command)
+        assert command == ["nix-store", "--query", "--requisites", str(store)]
+        assert kwargs["timeout"] == 30 and kwargs["check"] is False
+        return SimpleNamespace(returncode=0, stdout=f"{store}\n{dependency}\n", stderr="")
+
+    evidence = tmp_path / "evidence"
+    probe = NativeReaderProbe(root, evidence, query)
+    assert probe.capture("pre") == 0
+    before = json.loads((evidence / "pre.json").read_text())
+    assert before["files"]["interpreter"]["path"] == str(interpreter)
+    assert before["interpreter_arguments"] == (["-e"] if optional_argument else [])
+    removed = {"reader": reader, "interpreter": interpreter, "backend": backend, "closure": dependency, "root": root}
+    if missing is not None:
+        path = removed[missing]
+        if missing == "closure":
+            path.rmdir()
+        else:
+            path.unlink()
+    assert probe.capture("post") == (0 if missing is None else 1)
+    report = json.loads((evidence / "post.json").read_text())
+    assert len(commands) == 2 and report["store"] == str(store)
+    if missing in ("reader", "interpreter", "backend"):
+        assert report["files"][missing]["exists"] is False
+    elif missing == "closure":
+        assert report["closure"][str(dependency)] is False
+    elif missing == "root":
+        assert report["root"]["exists"] is False
+    else:
+        assert report["usable"] and report["unchanged"]
+
+
+def test_reader_post_evidence_preserves_admitted_closure_when_query_fails(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from tools.qualification.toolchain import NativeReaderProbe
+
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    lost = tmp_path / "lost-store-path"
+    (evidence / "pre.json").write_text(json.dumps({"store": str(lost), "closure": {str(lost): True}}))
+
+    def query(command, **kwargs):
+        return SimpleNamespace(returncode=1, stdout="", stderr="path is not valid")
+
+    assert NativeReaderProbe(tmp_path / "absent-root", evidence, query).capture("post") == 1
+    report = json.loads((evidence / "post.json").read_text())
+    assert report["closure"] == {str(lost): False}
+    assert report["query"]["returncode"] == 1 and report["query"]["stderr"] == "path is not valid"

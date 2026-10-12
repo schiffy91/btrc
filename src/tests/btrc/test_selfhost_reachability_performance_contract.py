@@ -27,10 +27,11 @@ def test_structured_reachability_uses_exact_map_membership() -> None:
     )
     parameter_collector = optimizer[parameter_start:parameter_end]
 
-    assert "names.has(node.callee)" in collector
+    callee = '(domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "")'
+    assert f"names.has({callee})" in collector
     assert "names.has(node.name)" in collector
     assert "scanTextForNames" not in collector
-    assert "names.has(node.callee)" in global_collector
+    assert f"names.has({callee})" in global_collector
     assert "names.has(node.name)" in global_collector
     assert "scanTextForNames" not in global_collector
     assert "names.has(node.name)" in parameter_collector

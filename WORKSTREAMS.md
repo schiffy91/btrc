@@ -1563,3 +1563,339 @@ outer GUI grouping, all ledger assertions, explicit child argv and deadlines.
 Original hosted unit evidence is retained; focused qualification passed with
 exact two baseline failures and candidate84 PASS, zero skips/errors. See report.
 Ordinary checkout/index, PLAN and workflow source remain untouched.
+## 2026-10-09 D29 compact tagged IR payloads
+
+Packet: CX-HARMONIZE-COMPACT-IR-PAYLOADS. Integrator-assigned writer:
+performance_review, branch `codex/compact-ir-payloads-6f`, exact base
+`6f1b81d937745ee3a3fbc1be803ffcf1b7e52ba9`. Own the following model and
+necessary IR consumers, focused semantic tests and report; existing checkout/index
+and central PLAN remain unchanged. The retained current-product census is the
+allocation baseline; the proposed layout is not a measured improvement.
+
+- `src/compiler/btrc/ir/Emitter.btrc`
+- `src/compiler/btrc/ir/Model.btrc`
+- `src/compiler/btrc/ir/gpu/Pipeline.btrc`
+- `src/compiler/btrc/ir/lowering/Aggregates.btrc`
+- `src/compiler/btrc/ir/lowering/Assignments.btrc`
+- `src/compiler/btrc/ir/lowering/Callables.btrc`
+- `src/compiler/btrc/ir/lowering/Calls.btrc`
+- `src/compiler/btrc/ir/lowering/Concurrency.btrc`
+- `src/compiler/btrc/ir/lowering/Context.btrc`
+- `src/compiler/btrc/ir/lowering/ControlFlow.btrc`
+- `src/compiler/btrc/ir/lowering/Declarations.btrc`
+- `src/compiler/btrc/ir/lowering/Expressions.btrc`
+- `src/compiler/btrc/ir/lowering/Functions.btrc`
+- `src/compiler/btrc/ir/lowering/Statements.btrc`
+- `src/compiler/btrc/ir/lowering/Strings.btrc`
+- `src/compiler/btrc/ir/lowering/Types.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/Calls.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/CycleBoundaries.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`
+- `src/compiler/btrc/ir/lowering/ownership/ManagedTypes.btrc`
+- `src/compiler/btrc/ir/optimization/Cleanup.btrc`
+- `src/compiler/btrc/ir/optimization/Optimizer.btrc`
+- `src/compiler/btrc/ir/optimization/Realtime.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Safety.btrc`
+- `src/compiler/btrc/ir/runtime/References.btrc`
+- `src/compiler/btrc/pipeline/ModuleUnits.btrc`
+- `src/tests/btrc/test_structured_ir_contract.py`
+- `src/tests/btrc/test_ir_payload_semantics.py`
+- `docs/workstreams/compact-ir-payloads.md`
+
+The parent explicitly transfers the overlapping frozen compiler packet paths
+for this unpublished follow-up. Preserve tagged IR identity, all semantic
+fields/defaults, structured traversal order and managed ownership; no rich-enum
+owner, raw managed union, generated-file edits or retained-graph pruning.
+Full product parity, actual allocator sizes and paired measurements remain
+required. Root owns execution allocation and publication.
+
+Parent-approved compact-IR claim extension (2026-10-09):
+- `src/tests/btrc/fixtures/LazyIrListDriver.btrc`
+- `src/tests/btrc/test_runtime_type_providers.py`
+- `src/tests/btrc/test_lazy_node_lists.py`
+Preserve all existing lazy/default/shared-empty and runtime-provider oracles;
+use valid structural writer kinds and retain payload-free NONE readers.
+
+## 2026-10-09 D29 setjmp flow retention
+
+Packet: CX-HARMONIZE-SETJMP-FLOW-ROOTS. Writer: root, branch
+`codex/setjmp-flow-roots-6f`, exact base `6f1b81d937745ee3a3fbc1be803ffcf1b7e52ba9`.
+Owned paths:
+- `src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc`
+- `src/compiler/btrc/ir/optimization/setjmp/Safety.btrc`
+- `src/compiler/btrc/pipeline/ModuleUnits.btrc`
+- `src/compiler/python/ir/lowering/exceptions.py`
+- `src/compiler/python/application/modules.py`
+- `src/tests/python/test_module_units.py`
+- `src/tests/btrc/test_setjmp_qualifier_state_contract.py`
+- `src/tests/btrc/fixtures/SetjmpFlowRootsDriver.btrc`
+- `docs/workstreams/setjmp-flow-roots.md`
+and this claim only. Prepared through an isolated index; preserve the ordinary
+checkout/index and other packet refs. Compact IR overlaps the compiler files
+on a separate branch; reconcile the disjoint behavioral change after both
+components qualify. Solve and export every function summary and dependency as
+before; retain per-node flow only for functions whose final safety pass uses
+it. Do not replace absent flows with fabricated empty facts. Root policy must
+be fixed for the solver lifetime and reset on invalidation/new generations.
+Python summary access must remain independent of retained flow contexts.
+Current exact-tree hosted baseline has 131 related checks passing, with eight
+explicit native-adapter environment skips. Focused lifetime, incremental and
+continuation behavior, source parity, current-product memory/instruction cost
+and combined-tree gates remain required. No performance saving claimed.
+
+## 2026-10-09 D29 combined compact IR and flow roots
+
+Packet: CX-HARMONIZE-COMPACT-IR-FLOW-ROOTS. Integrator-assigned writer:
+performance_review, isolated ref `codex/compact-ir-flow-roots-6f`.
+Compose the exact compact61 and flow266 parents while preserving both claims
+above and their standalone evidence. Own the two source resolutions in
+`src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc` and
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`, the
+existing `src/tests/btrc/fixtures/SetjmpFlowRootsDriver.btrc` array-bound
+behavioral proof, and `docs/workstreams/compact-ir-flow-roots.md`. Other
+merged files retain their reviewed parent bytes. Keep the compact guarded
+payload traversal and the flow policy's declaration arraySize reachability.
+No performance improvement or combined qualification is claimed by this merge.
+## 2026-10-09 D29 typed native pointer constants
+
+Packet: CX-HARMONIZE-NATIVE-POINTER-CONSTANTS. Base
+`5aa232ad27854b7f45a2a42f75cbf0cbab589578`, branch
+`codex/native-pointer-constants`. Integrator-assigned owners:
+platform_review owns `src/language/native_abi.asdl`,
+`tools/NativeHeaderReader.cpp`, generator-produced
+`src/compiler/python/abi/native_generated.py`,
+`src/compiler/btrc/generated/native_abi/Models.btrc`, this claim and
+`docs/workstreams/native-pointer-constants.md`; performance_review owns
+`src/compiler/python/frontend/native_imports.py`,
+`src/compiler/btrc/frontend/NativeImports.btrc`,
+`src/compiler/btrc/frontend/Models.btrc`,
+`src/compiler/python/analyzer/expressions.py` and
+`src/compiler/btrc/analyzer/Models.btrc` and malformed-codec coverage in
+`src/tests/python/test_native_header_reader.py` and
+`src/tests/btrc/fixtures/NativeHeaderCodec.btrc`; execution_review owns
+`src/tests/python/test_native_macro_constants.py`.
+Use an isolated index and owned source mirrors; preserve ordinary checkout/index.
+The fresh current-equivalent Toolhelp baseline rejects INVALID_HANDLE_VALUE in
+both frontends for Windows x64 and ARM64 before C emission. Add an explicit
+native pointer constant, preserving SDK type, qualifiers, target-width value
+identity and SDK symbol spelling; reject storage mutation/addressing and
+nonconstant/effectful/non-sentinel expressions. No provider, public API,
+worker-pool, runtime or emitter changes. Generated data changes only through
+the existing generator in a separate derived commit after allocation.
+Reader/reference focused qualification precedes a fresh selfhost build; all
+paired native macro tests and unchanged four genuine Toolhelp projections
+remain required. No native Windows provider or historical codec repair is claimed.
+
+Follow-up on the same packet after `de4009d9`: root assigns platform_review the
+existing reader's generic neutral type-sugar normalization and performance_review
+the existing `test_native_header_reader.py` regression owner. Actual reference
+qualification passed99 macro/codec cases, then Toolhelp x64 rejected a function
+signature wrapper. Authenticated raw SDK documents for x64/ARM64 show all six
+functions have neutral qualified wrappers, matching parameter counts and C
+calling convention. Preserve meaningful qualifiers, typedef identity and the
+existing strict bare-function codec contract; no SDK special case or convention
+relaxation. A fresh reader build and reference/paired qualification remain required.
+
+Follow-up on `b04309d8`: root assigns performance_review the existing
+`src/tests/python/test_native_macro_constants.py` owner, this claim handoff and
+`docs/workstreams/native-pointer-constants.md` for a test-only diagnostic contract
+repair. Fresh paired qualification passed154 cases and rejected the remaining
+const-pointer program in both frontends, but the test incorrectly demanded
+identical wording across their existing qualifier validators. Preserve all six
+invalid programs and absent outputs, require exact frontend-specific const-loss
+messages and an ordinary same-type const-pointer control in that existing row,
+and retain exact cross-frontend equality for the other five rows. No production
+source or reader changes. Execution_review owns the same-binary reuse qualifier
+with full155 cases and all four actual Toolhelp projections; no new build or
+execution is authorized by this source checkpoint. Ordinary checkout/index stay
+unchanged through an isolated index and `codex/` packet ref.
+
+## 2026-10-09 D29 Windows process thread count
+
+Packet CX-HARMONIZE-WINDOWS-PROCESS-THREADS, base `3e02deba`, isolated branch
+`codex/windows-process-threads`. Root assigns performance_review the new
+`src/stdlib/BackgroundJobs/Windows/ProcessThreadsProvider.btrc`,
+`src/stdlib/BackgroundJobs/Windows/ProcessThreads.h`, the public comment in
+`src/stdlib/BackgroundJobs/ProcessThreads.btrc`, this claim and
+`docs/workstreams/windows-process-threads.md`. Behavioral follow-up owns
+`src/tests/python/test_background_jobs_runtime.py` and WindowsProcessThreads
+fixture/probe/fault-control files under `src/tests/native/background_jobs/`.
+The provider/native bindings in `src/stdlib/BackgroundJobs/btrc.toml` are reserved
+for a final fragment commit; no manifest edit is in this initial source draft.
+
+Preserve public count()/-1 and all Windows worker-pool bytes. Use genuine Toolhelp
+SDK types and declarations: validate dwSize before reading owner PID, reset size
+for every enumeration call, filter this PID, capture enumeration error before
+closing, and attempt exactly one CloseHandle for every acquired snapshot. Fail
+on overflow, malformed records, enumeration errors or close failure. Qualification
+requires real Windows x64/ARM64 programs through both frontends, held-thread and
+foreign-PID behavior, and targeted native failure/cleanup controls. WindowsMain
+SDK process composition is explicitly outside this packet. No build, tests or
+publication until root allocates; pointer importer acceptance remains prerequisite.
+
+
+### Native execution-owner follow-up on `25b5b572`
+
+Root assigns performance_review only the existing
+`src/tests/python/test_background_jobs_runtime.py` execution adapter, this claim
+and `docs/workstreams/windows-process-threads.md` on the isolated
+`codex/windows-process-threads-native-owner` ref. Reuse the shared toolchain
+process runner and Windows native executor instead of adding a process wrapper.
+Preserve the provider, manifest, native fixture/probe/header bytes and original
+180-second compile / 90-second native bounds. The frozen 25b5 projection packet
+remains immutable; later native qualification authenticates its successful
+receipt and unchanged C/plan/header artifacts independently of this driver-only
+follow-up. No generation, tests, builds or dispatch under this source assignment.
+
+### Native VFS path follow-up on `80414b46`
+
+Root assigns execution_review the existing test driver, this claim and the
+Windows process-thread workstream report on `codex/windows-process-threads-vfs`.
+Actual native x64 and ARM64 attempts both stop at the first unchanged generated
+C include before native execution. Qualify relocated VFS keys against the
+explicit Windows compiler working directory, preserving all projected C,
+headers, strict flags, native assertions and original bounds. A bounded actual
+Windows negative/positive header lookup must precede the original native matrix.
+No compiler, SDK, manifest or provider edits; no publication until root allocates.
+
+### Windows quoted-include VFS follow-up on `61ffac92`
+
+Root assigns performance_review the existing
+`src/tests/python/test_background_jobs_runtime.py`, this claim and
+`docs/workstreams/windows-process-threads.md` on
+`codex/windows-process-threads-vfs-includer`. Preserve all provider, native
+fixture, header, manifest and generated projection bytes. The actual failed
+Windows lookup is diagnosed against exact LLVM21.1.0/22.1.8 header-search
+semantics before changing only the test adapter's authenticated virtual keys.
+Retain both failed native attempts and require actual old/new header lookup
+before the original four native runtime cells. No publication without root
+allocation. No compiler/SDK/provider edits or local native builds.
+
+
+## 2026-10-09 D29 measured memory and Windows integration
+
+Root owns private `codex/integrate-memory-windows-36b` from qualified main
+`36b647f0`. Compose measured compact IR/safety-rooted flow source `c8221ae4`
+(report `0b309bb9`) with Windows provider/native-pointer prerequisites
+`3e480fcd`. Independent Linux product RSS/parity and real Windows x64/ARM64
+ProcessThreads results qualify the components only. Production paths merge
+without conflicts; claim history and reports retain both parents' evidence.
+Root owns PLAN and the combined qualification/publication. Combined source
+`3694ce58` now passes the fresh MacOSMain build, generated/lint/format checks,
+200 focused cases with zero skips, the strict native flow driver and all four
+paired Windows projections. Independent audit `216b3812` verifies exact input,
+output and process closure. Full final hosted gates and actual final-tree native
+coverage remain required before a main landing; component evidence keeps its scope.
+
+
+## 2026-10-12 D29 macOS reader lifetime qualification
+
+Root assigned platform_review the two macOS workflow reader owners, existing
+workflow contract tests, tools/qualification/toolchain.py and its report. Source
+`ad46f269` retains the normal Nix out-link through teardown and records launch
+prerequisites before/after tests through independent host Python. Production
+compiler/provider bytes are unchanged from focused-qualified `3694ce58`.
+
+Execution_review independently reviewed the source and recipes. Baseline91 and
+candidate106 workflow/toolchain tests pass with zero skips; the first wrong-Bash
+recipe failure stays retained. Real reader observations `6de6df8e` pass for the
+existing warm out-link and retained original package, including both47-path
+closures. The disposable-root trace establishes protection/release; its original
+receipt remains failed solely at its diagnostic-wording classifier. This does
+not establish the historical ENOENT cause. Root owns the final documentation,
+draft publication and complete final-tree gate matrix. The iOS tooling port
+remains separate until D8 runtime admission.
+
+
+## 2026-10-12 compact IR test-consumer repair
+
+Root assigns execution_review `codex/compact-ir-test-consumers` from5be08004:
+`src/tests/native/objective_c/ObjectiveCEmitter.btrc`,
+`src/tests/python/test_cycle_boundaries.py`, this claim, and
+`docs/workstreams/compact-ir-test-consumers.md`. Migrate the existing test-only
+IR construction/projections and source-contract spelling to compact payloads.
+Keep all original invalid-IR modes, parity/lifetime cases, strict native flags,
+assertions and deadlines. No compiler/generated/runtime/workflow owner changes.
+Actual PR70 Linux unit run38183975817 supplies the baseline:160 shared fixture
+setup errors and one stale source-contract failure. Focused execution and final
+CI remain required; source-only checks are not acceptance.
+
+
+## 2026-10-12 compact reachability contract test alignment
+
+Root assigns platform_review `src/tests/btrc/test_selfhost_reachability_performance_contract.py`,
+`src/tests/btrc/test_selfhost_type_reachability_performance_contract.py`, this claim
+and `docs/workstreams/compact-reachability-contracts.md` on private
+`codex/compact-reachability-contracts`, based on frozen `5be08004`. Actual PR70
+Linux shard reported two stale field-spelling assertions after compact typed
+payload integration. Preserve exact membership and single type-field scanning,
+all negative guards and existing native semantic tests. No production compiler,
+runtime, workflow or generated changes; no publication under this assignment.
+
+
+## 2026-10-12 Disappeared CoreAudio object reproduction
+
+Packet CX-COREAUDIO-DISAPPEARED-OBJECT; writer execution_review. Private branch
+`codex/coreaudio-disappeared-object-repro`, base `5be08004`. Owned paths:
+`src/tests/native/audio/ResourceFaults.c`,
+`src/tests/native/audio/CoreAudioResourcesConformance.btrc`,
+`docs/workstreams/coreaudio-disappeared-object.md`, and this claim only.
+Add the SDK BadObject response to the existing missing/replaced identity
+cleanup fixture. Preserve all original cases/assertions and production bytes.
+Actual paired plain/sanitized qualification needs separate reviewed allocation;
+this source-only reproduction does not establish the Player native cause.
+
+
+## 2026-10-12 Disappeared CoreAudio object candidate
+
+Packet CX-COREAUDIO-DISAPPEARED-OBJECT-FIX; writer execution_review. Private
+branch `codex/coreaudio-disappeared-object`, descendant of test-only `e15b6944`.
+Owned paths: `src/stdlib/Audio/MacOS/MacOSAudioDevice.btrc`,
+`docs/workstreams/coreaudio-disappeared-object.md`, and this claim only.
+Map the SDK invalid AudioObject status to the existing not-found outcome.
+Preserve original cleanup order/retries and all reproduction fixture bytes.
+The separate raw-status diagnostic is excluded; no Player causal claim or
+behavioral acceptance precedes allocated baseline/candidate qualification.
+
+
+## 2026-10-12 CoreAudio bad-object native binding
+
+Packet CX-COREAUDIO-BAD-OBJECT-BINDING; writer platform_review. Private branch
+`codex/coreaudio-disappeared-object-binding`, base `442cf4f7`. Owned paths:
+`src/stdlib/Audio/btrc.toml`, the existing
+`docs/workstreams/coreaudio-disappeared-object.md`, and this claim only.
+The provider's new SDK constant requires explicit native selection. Record this
+claim/report first; add only that symbol in a final integrator-data fragment.
+Do not change generated lock/symbols, compiler/runtime, mapping, cleanup or tests.
+The prior strict-import failure stays retained; no behavioral acceptance claimed.
+
+
+## 2026-10-12 Qualified CoreAudio and test-repair composition
+
+Root assigns execution_review private `codex/qualified-coreaudio-test-repairs`
+from exact `5be08004`: compose the existing owned paths above from qualified
+`f89822fa` and `224fba1d`, preserving both claims and exact donor bytes. No UI2,
+compiler, runtime, generated, CI or harness changes. This is preparation for
+final-tree qualification; prior focused evidence is scoped in the three reports.
+Keep the Audio native selection as the final `fragment:` commit.
+
+
+## 2026-10-12 LSP feature/validation contention test
+
+Execution_review owns `src/tests/lsp/test_server_hardening.py`, this claim and
+`docs/workstreams/lsp-contention.md` on `codex/lsp-contention-5be`, from frozen
+5be08004. Preserve the real-analysis/cache contract and five-second completion
+bound while observing actual lock contention and retiring the worker on every
+assertion path. No LSP/compiler production, workflow or harness changes. The
+actual hosted timeout remains retained; focused tests do not replace final CI.
+
+
+## 2026-10-12 PR70 qualified repair follow-up
+
+CX-HARMONIZE-02 carries the qualified compact-IR test, CoreAudio and LSP
+contention repairs on its existing draft branch. Donor test/provider bytes are
+preserved exactly; the Audio SDK selection remains the final fragment. Full
+final-tree CI is required. This does not authorize compiler/runtime/generated/CI
+edits or main integration under the current Codex role. UI2 and diagnostic
+Player fixtures remain separate.

@@ -93,12 +93,12 @@ class RealtimeIRVerifier {
 
 	private void validateNode(IRNode? node, string path, Map<string, bool> visiting) {
 		if (node == null) { return; }
-		if (node.kind == IRK_OBJECTIVE_C_MESSAGE || node.kind == IRK_OBJECTIVE_C_BLOCK || node.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL || node.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY || (node.kind == IRK_CAST && node.bridge != "")) { self.fail("Objective-C operation", path); }
+		if (node.kind == IRK_OBJECTIVE_C_MESSAGE || node.kind == IRK_OBJECTIVE_C_BLOCK || node.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL || node.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY || (node.kind == IRK_CAST && ((IRConversionPayload)node.payload).bridge != "")) { self.fail("Objective-C operation", path); }
 		if (node.kind == IRK_CXX_NEW || node.kind == IRK_CXX_DELETE || node.kind == IRK_CXX_EXCEPTION_BOUNDARY) { self.fail("C++ lifetime operation", path); }
 		if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE) {
 			self.fail("unbounded loop", path);
 		}
-		if (node.kind == IRK_FOR && !node.realtimeBounded) {
+		if (node.kind == IRK_FOR && !((IRControlPayload)node.payload).realtimeBounded) {
 			self.fail("uncertified for loop", path);
 		}
 		if (node.kind == IRK_LITERAL && (node.text.startsWith("\"") || node.text.startsWith("L\"") || node.text.startsWith("u\"") || node.text.startsWith("U\"") || node.text.startsWith("u8\""))) {
@@ -108,48 +108,49 @@ class RealtimeIRVerifier {
 			self.fail("function value '" + node.name + "'", path);
 		}
 		if (node.kind == IRK_CALL) {
-			if (node.callee == "") {
-				if (node.realtimeProvenance != "typed-realtime-function") { self.fail("indirect call", path); }
-			} else if (node.realtimeProvenance == "typed-realtime-function") {
-				self.fail("typed-callable provenance on direct call '" + node.callee + "'", path);
+			if (((IRCallPayload)node.payload).callee == "") {
+				if (((IRCallPayload)node.payload).realtimeProvenance != "typed-realtime-function") { self.fail("indirect call", path); }
+			} else if (((IRCallPayload)node.payload).realtimeProvenance == "typed-realtime-function") {
+				self.fail("typed-callable provenance on direct call '" + ((IRCallPayload)node.payload).callee + "'", path);
 			}
-			if (node.callee != "" && node.realtimeProvenance != "" && (!self.intrinsicTargets.has(node.callee) || self.intrinsicTargets.get(node.callee) != node.realtimeProvenance)) {
-				self.fail("invalid intrinsic provenance '" + node.realtimeProvenance + "' for '" + node.callee + "'", path);
+			if (((IRCallPayload)node.payload).callee != "" && ((IRCallPayload)node.payload).realtimeProvenance != "" && (!self.intrinsicTargets.has(((IRCallPayload)node.payload).callee) || self.intrinsicTargets.get(((IRCallPayload)node.payload).callee) != ((IRCallPayload)node.payload).realtimeProvenance)) {
+				self.fail("invalid intrinsic provenance '" + ((IRCallPayload)node.payload).realtimeProvenance + "' for '" + ((IRCallPayload)node.payload).callee + "'", path);
 			}
 			RealtimeUnitProof? pending = self.pending;
-			if (node.callee != "" && !self.functions.has(node.callee) && pending != null) {
-				if (!self.safeExternals.has(node.callee) && node.realtimeProvenance == "") {
+			if (((IRCallPayload)node.payload).callee != "" && !self.functions.has(((IRCallPayload)node.payload).callee) && pending != null) {
+				if (!self.safeExternals.has(((IRCallPayload)node.payload).callee) && ((IRCallPayload)node.payload).realtimeProvenance == "") {
 					pending.starts.push(self.pendingStart);
-					pending.callees.push(node.callee);
+					pending.callees.push(((IRCallPayload)node.payload).callee);
 					pending.paths.push(path);
 				}
-			} else if (node.callee != "" && !self.functions.has(node.callee)) {
-				if (!self.safeExternals.has(node.callee) && node.realtimeProvenance == "") {
-					self.fail("external/runtime call '" + node.callee + "'", path);
+			} else if (((IRCallPayload)node.payload).callee != "" && !self.functions.has(((IRCallPayload)node.payload).callee)) {
+				if (!self.safeExternals.has(((IRCallPayload)node.payload).callee) && ((IRCallPayload)node.payload).realtimeProvenance == "") {
+					self.fail("external/runtime call '" + ((IRCallPayload)node.payload).callee + "'", path);
 				}
-			} else if (node.callee != "") {
-				IRFunction target = self.functions.get(node.callee);
+			} else if (((IRCallPayload)node.payload).callee != "") {
+				IRFunction target = self.functions.get(((IRCallPayload)node.payload).callee);
 				self.validateFunction(target, path + " -> " + target.name, visiting);
 			}
 		}
+		int domain = node.payloadDomain();
 		self.validateNode(node.left, path, visiting);
 		self.validateNode(node.right, path, visiting);
-		self.validateNode(node.operand, path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), path, visiting);
 		self.validateNode(node.expr, path, visiting);
-		self.validateNode(node.obj, path, visiting);
-		self.validateNode(node.index, path, visiting);
-		self.validateNode(node.condition, path, visiting);
-		self.validateNode(node.trueExpr, path, visiting);
-		self.validateNode(node.falseExpr, path, visiting);
-		self.validateNode(node.arraySize, path, visiting);
-		self.validateNode(node.init, path, visiting);
-		self.validateNode(node.value, path, visiting);
-		self.validateNode(node.target, path, visiting);
-		self.validateNode(node.thenBlock, path, visiting);
-		self.validateNode(node.elseBlock, path, visiting);
-		self.validateNode(node.body, path, visiting);
-		self.validateNode(node.update, path, visiting);
-		self.validateNode(node.result, path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), path, visiting);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), path, visiting);
 		int index = 0;
 		while (index < node.args().len) {
 			self.validateNode(node.args().get(index), path, visiting);

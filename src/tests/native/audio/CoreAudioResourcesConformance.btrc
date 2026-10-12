@@ -113,6 +113,7 @@ int main() {
 	retryRollback();
 	replaced(5);
 	replaced(6);
+	replaced(14);
 	externallyChanged();
 	for (int index = 0; index < 20; index++) { aggregate(0); }
 	aggregate(8);

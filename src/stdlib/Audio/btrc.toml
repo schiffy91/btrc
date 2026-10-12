@@ -61,7 +61,7 @@ symbols = [
 	"CFArrayCreateMutable", "CFArrayAppendValue", "kCFTypeArrayCallBacks",
 	"kAudioSubDeviceUIDKey", "kAudioSubDeviceDriftCompensationKey", "kAudioAggregateDeviceUIDKey", "kAudioAggregateDeviceNameKey",
 	"kAudioAggregateDeviceSubDeviceListKey", "kAudioAggregateDeviceMainSubDeviceKey", "kAudioAggregateDeviceIsPrivateKey", "kAudioAggregateDeviceIsStackedKey",
-	"kAudio_ParamError", "kAudioHardwareBadDeviceError", "kAudioUnitErr_FormatNotSupported", "kAudioDeviceUnsupportedFormatError",
+	"kAudio_ParamError", "kAudioHardwareBadDeviceError", "kAudioHardwareBadObjectError", "kAudioUnitErr_FormatNotSupported", "kAudioDeviceUnsupportedFormatError",
 	"kAudioHardwareUnsupportedOperationError", "kAudioUnitErr_Unauthorized", "kAudioDevicePermissionsError",
 	"kAudioUnitErr_CannotDoInCurrentContext", "kAudioHardwareIllegalOperationError", "kAudioHardwareNotRunningError",
 	"kAudioUnitErr_FailedInitialization", "kAudioUnitErr_Uninitialized",

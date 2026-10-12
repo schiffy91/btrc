@@ -263,15 +263,20 @@ jobs:
 
       # Without its reader the dev shell would quietly skip every native
       # import case, so build it as its own step and require the shell to
-      # export exactly that build.
+      # export exactly that build. Its out-link roots the closure through job teardown.
       - name: Build the native header reader
         run: |
           test "$(uname -s)" = Darwin
           test "$(uname -m)" = arm64
-          reader="$(nix build .#btrc-native-header --no-link --print-out-paths --print-build-logs)/bin/btrc-native-header"
+          reader="$(nix build .#btrc-native-header --out-link "$RUNNER_TEMP/btrc-native-header-root" --print-out-paths --print-build-logs)/bin/btrc-native-header"
           test -x "$reader"
           exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
           test "$exported" = "$reader"
+
+      - name: Record native reader prerequisites
+        timeout-minutes: 2
+        run: |
+          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
 
       - name: Require clang from default_c_compiler()
         run: |
@@ -294,6 +299,21 @@ jobs:
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
           PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
+
+      - name: Recheck native reader prerequisites
+        if: always()
+        timeout-minutes: 2
+        run: |
+          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
+
+      - name: Retain native reader evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-reader-macos-tests-${{ matrix.shard }}
+          path: build/native-reader/
+          if-no-files-found: warn
+          retention-days: 14
 
       # The bootstrap shard's boundary-check writes build/boundary-report.json;
       # the release bundle ingests it.
@@ -374,15 +394,35 @@ jobs:
         run: |
           test "$(uname -s)" = Darwin
           test "$(uname -m)" = arm64
-          reader="$(nix build .#btrc-native-header --no-link --print-out-paths --print-build-logs)/bin/btrc-native-header"
+          reader="$(nix build .#btrc-native-header --out-link "$RUNNER_TEMP/btrc-native-header-root" --print-out-paths --print-build-logs)/bin/btrc-native-header"
           test -x "$reader"
           exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
           test "$exported" = "$reader"
+
+      - name: Record native reader prerequisites
+        timeout-minutes: 2
+        run: |
+          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
 
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui
         env:
           # One AppKit worker avoids starvation between valid successive lease holders.
           PYTEST_ADDOPTS: --dist=loadgroup --junitxml=build/junit/native-gui.xml
+
+      - name: Recheck native reader prerequisites
+        if: always()
+        timeout-minutes: 2
+        run: |
+          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
+
+      - name: Retain native reader evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-reader-macos-native-gui
+          path: build/native-reader/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Retain the JUnit results
         if: always()

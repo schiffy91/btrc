@@ -22,8 +22,13 @@ def test_type_reachability_scans_each_type_field_once() -> None:
     assert "while (index < length)" in scanner
     assert "names.has(identifier)" in scanner
     assert "names.keys()" not in scanner
-    assert "scanTextForKnownNames(node.cType" in collector
-    assert "scanTextForKnownNames(node.targetType" in collector
+    c_type = '(domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : "")'
+    target_type = (
+        "(domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType"
+        ' : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : "")'
+    )
+    assert collector.count(f"self.scanTextForKnownNames({c_type}, names, out);") == 1
+    assert collector.count(f"self.scanTextForKnownNames({target_type}, names, out);") == 1
     assert "scanTextForNames" not in collector
     assert "node.text" not in collector
     assert "node.callee" not in collector

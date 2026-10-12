@@ -111,10 +111,12 @@ class RuntimeReferenceCollector {
 	}
 
 	private void collectStructuredHeaders(IRNode node) {
-		if (node.callee == "setjmp") { self.structuredHeaders.put("setjmp.h", true); }
-		if (node.callee.startsWith("atomic_")) { self.structuredHeaders.put("stdatomic.h", true); }
-		if (node.callee.startsWith("btrc_gpu_") && !self.definedFunctions.has(node.callee)) {
-			self.structuredHeaders.put("btrc_gpu_compute_internal.h", true);
+		if (node.kind == IRK_CALL) {
+			if (((IRCallPayload)node.payload).callee == "setjmp") { self.structuredHeaders.put("setjmp.h", true); }
+			if (((IRCallPayload)node.payload).callee.startsWith("atomic_")) { self.structuredHeaders.put("stdatomic.h", true); }
+			if (((IRCallPayload)node.payload).callee.startsWith("btrc_gpu_") && !self.definedFunctions.has(((IRCallPayload)node.payload).callee)) {
+				self.structuredHeaders.put("btrc_gpu_compute_internal.h", true);
+			}
 		}
 		if (node.kind == IRK_VAR && (node.name.startsWith("memory_order_") || node.name.startsWith("ATOMIC_"))) {
 			self.structuredHeaders.put("stdatomic.h", true);
@@ -158,22 +160,31 @@ class RuntimeReferenceCollector {
 
 	private void collectNode(IRNode? node, Map<string, bool> used) {
 		if (node == null) { return; }
-		if (node.callee != "" && !used.has(node.callee) && self.catalog.has(node.callee)) {
-			used.put(node.callee, true);
-		}
-		if (node.helperRef != "" && !used.has(node.helperRef) && self.catalog.has(node.helperRef)) {
-			used.put(node.helperRef, true);
+		int domain = node.payloadDomain();
+		if (domain == IR_PAYLOAD_CALL) {
+			if (((IRCallPayload)node.payload).callee != "" && !used.has(((IRCallPayload)node.payload).callee) && self.catalog.has(((IRCallPayload)node.payload).callee)) {
+				used.put(((IRCallPayload)node.payload).callee, true);
+			}
+			if (((IRCallPayload)node.payload).helperRef != "" && !used.has(((IRCallPayload)node.payload).helperRef) && self.catalog.has(((IRCallPayload)node.payload).helperRef)) {
+				used.put(((IRCallPayload)node.payload).helperRef, true);
+			}
 		}
 		if (node.kind == IRK_FUNCTION_REF && !used.has(node.name) && self.catalog.has(node.name)) {
 			used.put(node.name, true);
 		}
-		self.collectTypeProviderReferences(node.cType, used);
-		self.collectTypeProviderReferences(node.targetType, used);
-		if (node.params != null) {
-			for (int index = 0; index < node.params.len; index++) { self.collectTypeProviderReferences(node.params.get(index).cType, used); }
+		if (domain == IR_PAYLOAD_DECLARATION) { self.collectTypeProviderReferences(((IRDeclarationPayload)node.payload).cType, used); }
+		if (domain == IR_PAYLOAD_CONVERSION_AGGREGATE) { self.collectTypeProviderReferences(((IRConversionPayload)node.payload).targetType, used); }
+		if (domain == IR_PAYLOAD_NATIVE) {
+			self.collectTypeProviderReferences(((IRNativePayload)node.payload).targetType, used);
+			if (((IRNativePayload)node.payload).params != null) {
+				for (int index = 0; index < ((IRNativePayload)node.payload).params.len; index++) { self.collectTypeProviderReferences(((IRNativePayload)node.payload).params.get(index).cType, used); }
+			}
 		}
-		if (node.cleanupSlot != null) {
-			self.collectTypeProviderReferences(node.cleanupSlot.cType, used);
+		if (domain == IR_PAYLOAD_CALL && ((IRCallPayload)node.payload).cleanupSlot != null) {
+			self.collectTypeProviderReferences(((IRCallPayload)node.payload).cleanupSlot.cType, used);
+		}
+		if (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).cleanupSlot != null) {
+			self.collectTypeProviderReferences(((IRDeclarationPayload)node.payload).cleanupSlot.cType, used);
 		}
 		if (node.kind == IRK_VAR) {
 			self.collectObjectProviderReference(node.name, used);
@@ -182,22 +193,22 @@ class RuntimeReferenceCollector {
 
 		self.collectNode(node.left, used);
 		self.collectNode(node.right, used);
-		self.collectNode(node.operand, used);
+		self.collectNode(domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null, used);
 		self.collectNode(node.expr, used);
-		self.collectNode(node.obj, used);
-		self.collectNode(node.index, used);
-		self.collectNode(node.condition, used);
-		self.collectNode(node.trueExpr, used);
-		self.collectNode(node.falseExpr, used);
-		self.collectNode(node.init, used);
-		self.collectNode(node.value, used);
-		self.collectNode(node.target, used);
-		self.collectNode(node.thenBlock, used);
-		self.collectNode(node.elseBlock, used);
-		self.collectNode(node.body, used);
-		self.collectNode(node.update, used);
-		self.collectNode(node.result, used);
-		self.collectNode(node.arraySize, used);
+		self.collectNode(domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null, used);
+		self.collectNode(domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null, used);
+		self.collectNode(domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null, used);
+		self.collectNode(domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null, used);
+		self.collectNode(domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null, used);
+		self.collectNode(domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null, used);
+		self.collectNode(domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null, used);
+		self.collectNode(domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null, used);
+		self.collectNode(domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null, used);
+		self.collectNode(domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null, used);
+		self.collectNode(domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null, used);
+		self.collectNode(domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null, used);
+		self.collectNode(domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null, used);
+		self.collectNode(domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null, used);
 
 		int argumentIndex = 0;
 		while (argumentIndex < node.args().len) {

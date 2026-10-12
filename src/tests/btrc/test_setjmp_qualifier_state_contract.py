@@ -1,6 +1,7 @@
 """Structural ownership contract for selfhost setjmp analysis and safety."""
 
 import re
+import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
@@ -52,3 +53,10 @@ def test_setjmp_safety_has_one_explicit_module_operation() -> None:
     assert apply.index("self.validateGlobals(module);") < apply.index("bool hasSetjmp")
     assert apply.index("self.effectAnalysis.analyze(module, roots)") < apply.index("self.scanBlock(")
     assert apply.index("self.scanBlock(") < apply.index("self.validateFunction(")
+
+
+def test_retained_flow_roots_preserve_all_summaries_across_incremental_rounds(selfhost_driver) -> None:
+    driver = REPO / "src/tests/btrc/fixtures/SetjmpFlowRootsDriver.btrc"
+    result = subprocess.run([str(selfhost_driver(driver))], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "ok\n"

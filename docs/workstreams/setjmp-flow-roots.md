@@ -1,7 +1,8 @@
 # Retain setjmp flow only for safety consumers
 
-Status: focused reference and self-host behavior qualified; product parity and
-performance acceptance open.
+Status: standalone focused reference/self-host behavior qualified. The composed
+compact-IR/flow candidate also has qualified Linux product parity and RSS
+evidence; final combined-tree gates and final performance targets remain open.
 Candidate `266cadd7` is based on `6f1b81d9`.
 
 Module-unit solving previously retained each function's complete per-node flow
@@ -50,6 +51,11 @@ and all nine process groups reaped and absent. Evidence:
 audit SHA-256
 `fc780562e8911244ba789b77f3e7b224ede96b16a88b13a810f00f2d96ad01c0`.
 
-Generated ownership inspection, remaining worker/continuation coverage,
-current-product output parity and the final combined gate matrix remain required. Per-function flow construction remains; the change removes retention,
-not analysis work. No measured memory or instruction saving is claimed.
+The composed candidate preserves all 422 Linux product C/header files and the
+ordered link plan across eight compilations, including two discarded warmups.
+Its three measured samples per role reduce median RSS by 32.9597%, but this
+comparison does not isolate the flow change from compact IR. See
+[the combined report](compact-ir-flow-roots.md) for authenticated inputs,
+remaining target gap and unavailable instruction-counter scope. Per-function
+flow construction remains; this change removes retention, not analysis work.
+The final combined gate matrix remains required before integration.

@@ -295,30 +295,37 @@ class ConcurrencyLowerer {
 			IRNode stmt = statements.get(i);
 			if (stmt.kind == IRK_RETURN) {
 				IRNode? value = null;
-				if (stmt.value != null) { value = stmt.value; }
+				if (((IRValuePayload)stmt.payload).value != null) { value = ((IRValuePayload)stmt.payload).value; }
 				IRNode boxed = self.boxThreadResult(value, retType);
 				out.push(IRNode.returnStatement(boxed));
 			} else {
 				if (stmt.kind == IRK_IF) {
-					if (stmt.thenBlock != null) {
-						stmt.thenBlock.stmtsStorage = self.rewriteThreadStatements(stmt.thenBlock.stmts(), retType);
+					if (((IRControlPayload)stmt.payload).thenBlock != null) {
+						IRNode thenBlock = ((IRControlPayload)stmt.payload).thenBlock;
+						thenBlock.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
+						((IRControlPayload)thenBlock.payload).stmtsStorage = self.rewriteThreadStatements(thenBlock.stmts(), retType);
 					}
-					if (stmt.elseBlock != null) {
-						stmt.elseBlock.stmtsStorage = self.rewriteThreadStatements(stmt.elseBlock.stmts(), retType);
+					if (((IRControlPayload)stmt.payload).elseBlock != null) {
+						IRNode elseBlock = ((IRControlPayload)stmt.payload).elseBlock;
+						elseBlock.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
+						((IRControlPayload)elseBlock.payload).stmtsStorage = self.rewriteThreadStatements(elseBlock.stmts(), retType);
 					}
 				} else if (stmt.kind == IRK_WHILE || stmt.kind == IRK_DO_WHILE || stmt.kind == IRK_FOR) {
-					if (stmt.body != null) {
-						stmt.body.stmtsStorage = self.rewriteThreadStatements(stmt.body.stmts(), retType);
+					if (((IRControlPayload)stmt.payload).body != null) {
+						IRNode loopBody = ((IRControlPayload)stmt.payload).body;
+						loopBody.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
+						((IRControlPayload)loopBody.payload).stmtsStorage = self.rewriteThreadStatements(loopBody.stmts(), retType);
 					}
 				} else if (stmt.kind == IRK_SWITCH) {
 					int caseIndex = 0;
 					while (caseIndex < stmt.args().len) {
 						IRNode caseNode = stmt.args().get(caseIndex);
-						caseNode.stmtsStorage = self.rewriteThreadStatements(caseNode.stmts(), retType);
+						caseNode.requirePayload(IR_PAYLOAD_CONTROL_SEQUENCE);
+						((IRControlPayload)caseNode.payload).stmtsStorage = self.rewriteThreadStatements(caseNode.stmts(), retType);
 						caseIndex = caseIndex + 1;
 					}
 				} else if (stmt.kind == IRK_BLOCK) {
-					stmt.stmtsStorage = self.rewriteThreadStatements(stmt.stmts(), retType);
+					((IRControlPayload)stmt.payload).stmtsStorage = self.rewriteThreadStatements(stmt.stmts(), retType);
 				}
 				out.push(stmt);
 			}
@@ -362,7 +369,7 @@ class ConcurrencyLowerer {
 		}
 		IRNode call = IRNode.call(callee, callArgs);
 		if (self.runtimeHelpers.intrinsicRealtimeEffect("Atomic", method) == "safe") {
-			call.realtimeProvenance = self.runtimeHelpers.intrinsicProvenance("Atomic", method);
+			((IRCallPayload)call.payload).realtimeProvenance = self.runtimeHelpers.intrinsicProvenance("Atomic", method);
 		}
 		return call;
 	}

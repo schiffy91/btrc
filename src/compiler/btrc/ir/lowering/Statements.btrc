@@ -137,7 +137,7 @@ class StatementLowerer {
 				if (owned.get(binding) && self.managedValues.isManaged(self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
 					self.context.borrowedLocalBindings.remove(sourceName);
 					string runtimeType = self.managedValues.runtimeType(self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
-					self.managedLifetime.registerManaged(sourceName, self.context.sourceCName(sourceName), runtimeType, bindingType, declaration.cType);
+					self.managedLifetime.registerManaged(sourceName, self.context.sourceCName(sourceName), runtimeType, bindingType, ((IRDeclarationPayload)declaration.payload).cType);
 					self.managedLifetime.maybeRegisterCleanup(declaration.name, runtimeType, stmts);
 				} else if (self.managedValues.isManaged(self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
 					self.context.borrowedLocalBindings.put(sourceName, true);
@@ -447,11 +447,11 @@ class StatementLowerer {
 				}
 				if (node.type != null) { varTypes.put(node.name, node.type); }
 				IRNode arrayDecl = IRNode.arrayDeclaration(baseC, node.name, localArraySize, ainit);
-				arrayDecl.isStatic = node.type.isStatic;
-				arrayDecl.isExtern = node.type.isExtern;
-				arrayDecl.isVolatile = node.type.isVolatile;
+				((IRDeclarationPayload)arrayDecl.payload).isStatic = node.type.isStatic;
+				((IRDeclarationPayload)arrayDecl.payload).isExtern = node.type.isExtern;
+				((IRDeclarationPayload)arrayDecl.payload).isVolatile = node.type.isVolatile;
 				Node arrayStorageType = self.cTypes.resolveBodyType(node.type, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
-				arrayDecl.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(arrayStorageType, self.analyzed.typedefTable);
+				((IRDeclarationPayload)arrayDecl.payload).effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(arrayStorageType, self.analyzed.typedefTable);
 				if (aggregatePlan != null) {
 					AggregateDeclarationPlan concretePlan = aggregatePlan;
 					concretePlan.emitBefore(out);
@@ -549,10 +549,10 @@ class StatementLowerer {
 			string bindingCName = self.context.sourceCName(node.name);
 			IRNode vdecl = IRNode.variableDeclaration(ct, bindingCName, init);
 			if (node.type != null) {
-				vdecl.isStatic = node.type.isStatic;
-				vdecl.isExtern = node.type.isExtern;
-				vdecl.isVolatile = node.type.isVolatile;
-				vdecl.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(declType, self.analyzed.typedefTable);
+				((IRDeclarationPayload)vdecl.payload).isStatic = node.type.isStatic;
+				((IRDeclarationPayload)vdecl.payload).isExtern = node.type.isExtern;
+				((IRDeclarationPayload)vdecl.payload).isVolatile = node.type.isVolatile;
+				((IRDeclarationPayload)vdecl.payload).effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(declType, self.analyzed.typedefTable);
 			}
 			self.context.recordLocal(vdecl);
 			out.push(vdecl);
@@ -605,7 +605,7 @@ class StatementLowerer {
 				if (node.initializer != null && !initializerOwned) {
 					out.push(IRNode.expressionStatement(self.managedLifetime.retainValue(IRNode.variable(bindingCName), managedSlotType)));
 				}
-				self.managedLifetime.registerManaged(node.name, bindingCName, runtimeType, managedSlotType, vdecl.cType);
+				self.managedLifetime.registerManaged(node.name, bindingCName, runtimeType, managedSlotType, ((IRDeclarationPayload)vdecl.payload).cType);
 				self.managedLifetime.maybeRegisterCleanup(bindingCName, runtimeType, out);
 			}
 			Node? resolvedDeclType = SemanticTypeSystem.resolveTypedefType(declType, self.analyzed.typedefTable);
@@ -814,7 +814,7 @@ class StatementLowerer {
 			Vector<IRNode> targs = [];
 			targs.push(e);
 			IRNode throwCall = IRNode.call("__btrc_throw", targs);
-			throwCall.neverReturns = true;
+			((IRCallPayload)throwCall.payload).neverReturns = true;
 			out.push(IRNode.expressionStatement(throwCall));
 			return;
 		}
@@ -1207,7 +1207,7 @@ class StatementLowerer {
 			 * structured branches terminate. Materialize the impossible edge. */
 			Vector<IRNode> abortArgs = [];
 			IRNode abortCall = IRNode.call("abort", abortArgs);
-			abortCall.neverReturns = true;
+			((IRCallPayload)abortCall.payload).neverReturns = true;
 			out.push(IRNode.expressionStatement(abortCall));
 		}
 
@@ -1233,7 +1233,7 @@ class StatementLowerer {
 				Vector<IRNode> targs = [];
 				targs.push(IRNode.cast("const char*", IRNode.variable(errorName)));
 				IRNode rethrowCall = IRNode.call("__btrc_throw", targs);
-				rethrowCall.neverReturns = true;
+				((IRCallPayload)rethrowCall.payload).neverReturns = true;
 				IRNode rethrow = IRNode.expressionStatement(rethrowCall);
 				if (pendingName == "") {
 					out.push(rethrow);
@@ -1435,7 +1435,7 @@ class StatementLowerer {
 			callableFlow.join(loopExits);
 		}
 		IRNode lowered = self.controlFlow.materializeFor(ForPlan(init, cond, update, loweredBody.body));
-		lowered.realtimeBounded = self.analyzed.realtimeBoundedLoopKeys.has(AstIdentity.key(node));
+		((IRControlPayload)lowered.payload).realtimeBounded = self.analyzed.realtimeBoundedLoopKeys.has(AstIdentity.key(node));
 		if (declarationScope) {
 			Vector<IRNode> scopedStatements = prefix;
 			scopedStatements.push(lowered);

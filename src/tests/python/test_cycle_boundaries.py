@@ -174,7 +174,7 @@ def test_self_hosted_cycle_boundary_mirrors_edge_and_return_contracts() -> None:
     rewriter = source[source.index("private void rewriteReturns") : source.index("private void forceBoundary")]
 
     for helper in EDGE_RELEASE_HELPERS:
-        assert f'node.callee == "{helper}"' in detector
+        assert f'((IRCallPayload)node.payload).callee : "") == "{helper}"' in detector
     # Return temporaries come from the per-function, collision-free allocator
     # that mirrors IROptimizer._next_cycle_return_name.
     assert "self.nextReturnName()" in rewriter
@@ -184,5 +184,5 @@ def test_self_hosted_cycle_boundary_mirrors_edge_and_return_contracts() -> None:
     assert "self.collectDeclaredNames(definition.body)" in boundary
     assert "self.isMaterializedReturn" in rewriter
     assert "isCycleReturnTemp = true" in rewriter
-    assert rewriter.index("statement.value != null") < rewriter.index("self.forcedFlush()")
+    assert rewriter.index("((IRValuePayload)statement.payload).value != null") < rewriter.index("self.forcedFlush()")
     assert rewriter.index("IRNode.variableDeclaration(") < rewriter.index("self.forcedFlush()")

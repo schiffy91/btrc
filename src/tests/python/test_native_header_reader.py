@@ -9,7 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.abi.native_generated import NativeCxxClass, NativeCxxMethod, NativeObjectiveCMethod
+from src.compiler.python.abi.native_generated import (
+    NativeCxxClass,
+    NativeCxxMethod,
+    NativeObjectiveCMethod,
+    NativePointerConstant,
+)
 from src.compiler.python.frontend.native_imports import (
     NativeDeclarationImporter,
     NativeHeaderCodec,
@@ -78,7 +83,9 @@ def assert_codec_parity(codec_probe, tmp_path, source):
         lines.append(f"{record.identity} {record.size_bits} {record.alignment_bits}")
         lines.extend(f"{field.name} {field.offset_bits} {field.width_bits}" for field in record.fields)
     for declaration in header.exports:
-        if isinstance(declaration, NativeObjectiveCMethod):
+        if isinstance(declaration, NativePointerConstant):
+            lines.append(f"pointer {declaration.name} {declaration.pointer_bits} {declaration.decimal_value}")
+        elif isinstance(declaration, NativeObjectiveCMethod):
             lines.append(
                 f"method {declaration.name} {declaration.identity} {declaration.receiver} {declaration.owner} {int(declaration.protocol_owner)} {int(declaration.optional)}"
             )
@@ -1465,3 +1472,136 @@ def test_package_binding_describes_a_real_sdk_header_request(reader, tmp_path):
     assert tuple(declarations) == binding.symbols
     assert declarations["kCFStringEncodingUTF8"]["value"] == "134217984"
     assert underlying(declarations["CFStringGetLength"]["type"]["return_type"])["bits"] == 64
+
+
+@pytest.mark.parametrize("target,bits", [("i686-w64-windows-gnu", 32), ("x86_64-w64-windows-gnu", 64)])
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        None,
+        "non_pointer",
+        "function_pointer",
+        "unsupported_width",
+        "boolean_width",
+        "negative",
+        "leading_zero",
+        "overflow",
+        "missing_width",
+    ],
+)
+def test_pointer_constant_codec_identity(reader, codec_probe, tmp_path, target, bits, corruption):
+    extracted = read(
+        reader,
+        tmp_path,
+        "typedef const unsigned char *PointerAlias;\n#define POINTER_SENTINEL ((PointerAlias)-1)\n",
+        ["POINTER_SENTINEL"],
+        "-x",
+        "c",
+        "-target",
+        target,
+    )
+    assert extracted.returncode == 0, extracted.stderr
+    document = json.loads(extracted.stdout)
+    (declaration,) = document["declarations"]
+    assert declaration["kind"] == "pointer_constant"
+    assert declaration["pointer_bits"] == bits
+    assert declaration["value"] == str((1 << bits) - 1)
+    assert declaration["type"]["kind"] == "typedef"
+    assert declaration["type"]["name"] == "PointerAlias"
+    pointer = underlying(declaration["type"])
+    assert pointer["kind"] == "pointer"
+    assert underlying(pointer["pointee"])["const"] is True
+    if corruption == "non_pointer":
+        declaration["type"] = pointer["pointee"]
+    elif corruption == "function_pointer":
+        pointer["pointee"] = {
+            "kind": "function",
+            "const": False,
+            "volatile": False,
+            "restrict": False,
+            "nullability": "unannotated",
+            "return_type": pointer["pointee"],
+            "parameters": [],
+            "variadic": False,
+            "calling_convention": "c",
+        }
+    elif corruption == "unsupported_width":
+        declaration["pointer_bits"] = 128
+    elif corruption == "boolean_width":
+        declaration["pointer_bits"] = True
+    elif corruption == "negative":
+        declaration["value"] = "-1"
+    elif corruption == "leading_zero":
+        declaration["value"] = "00"
+    elif corruption == "overflow":
+        declaration["value"] = str(1 << bits)
+    elif corruption == "missing_width":
+        del declaration["pointer_bits"]
+    encoded = json.dumps(document)
+    if corruption is None:
+        assert_codec_parity(codec_probe, tmp_path, encoded)
+    else:
+        with pytest.raises(NativeImportError):
+            NativeHeaderCodec().decode(encoded)
+        rejected = probe_document(codec_probe, tmp_path, encoded)
+        assert rejected.returncode != 0 and "native header:" in rejected.stderr
+
+
+@pytest.mark.parametrize("target", ["x86_64-w64-windows-gnu", "aarch64-w64-windows-gnu"])
+def test_native_function_signature_sugar_preserves_abi(reader, codec_probe, tmp_path, target):
+    source = """typedef const unsigned char* ReadOnlyBytes;
+ReadOnlyBytes _Nullable __stdcall inspectBytes(const __typeof__(unsigned char)* bytes,
+                                    volatile unsigned char* restrict scratch);
+"""
+    result = read_batch(
+        reader,
+        tmp_path,
+        source,
+        [{"id": "signature", "symbols": ["inspectBytes"]}],
+        f"--target={target}",
+    )
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    selected = json.loads(result.stdout)["results"][0]
+    assert selected["id"] == "signature" and selected["errors"] == []
+    document = selected["document"]
+    assert document["target"] == target
+    assert len(document["declarations"]) == 1
+    function = document["declarations"][0]
+    assert function["kind"] == "function" and function["name"] == "inspectBytes"
+    signature = function["type"]
+    # The SDK's ignored Windows64 spelling is sugar, not an extra semantic layer.
+    # The original reader fails here with a neutral qualified wrapper.
+    assert signature["kind"] == "function"
+    assert signature["calling_convention"] == "c" and signature["variadic"] is False
+    assert len(signature["parameters"]) == len(function["parameter_semantics"]) == 2
+    assert [p["name"] for p in function["parameter_semantics"]] == ["bytes", "scratch"]
+    returned = signature["return_type"]
+    assert returned["kind"] == "qualified" and returned["nullability"] == "nullable"
+    returned = returned["underlying"]
+    assert returned["kind"] == "typedef" and returned["name"] == "ReadOnlyBytes"
+    assert returned["underlying"]["kind"] == "pointer"
+    assert returned["underlying"]["pointee"]["const"] is True
+    first, second = signature["parameters"]
+    assert first["kind"] == "pointer"
+    qualified = first["pointee"]
+    # Non-neutral typeof sugar must keep its qualifier wrapper; don't erase all sugar.
+    assert qualified["kind"] == "qualified" and qualified["const"] is True
+    assert underlying(qualified)["name"] == "unsigned char"
+    assert second["kind"] == "pointer" and second["restrict"] is True
+    assert underlying(second["pointee"])["volatile"] is True
+    assert_codec_parity(codec_probe, tmp_path, json.dumps(document))
+
+
+@pytest.mark.parametrize("convention", ["__stdcall", "__fastcall"])
+def test_native_function_nondefault_calling_convention_is_rejected(reader, tmp_path, convention):
+    result = read(
+        reader,
+        tmp_path,
+        f"int {convention} transform(int value);",
+        ["transform"],
+        "--target=i686-w64-windows-gnu",
+    )
+    assert result.returncode == 1
+    assert "Unsupported calling convention:" in result.stderr
+    assert not result.stdout

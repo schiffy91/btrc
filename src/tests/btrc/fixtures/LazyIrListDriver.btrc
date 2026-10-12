@@ -8,15 +8,19 @@ import ../../../compiler/btrc/ir/Model.btrc;
  * answered, which must stop the program with an internal compiler error
  * rather than fill the shared empty that every unwritten field reads. */
 int main(int argc, char** argv) {
-	IRNode first = IRNode();
+	IRNode first = IRNode(IRK_BLOCK);
 	IRNode second = IRNode();
 
 	/* Unwritten fields read as empty and allocate nothing. */
 	assert(first.args().len == 0);
 	assert(first.argsStorage == null);
 	assert(first.stmts().len == 0);
-	assert(first.stmtsStorage == null);
+	assert(((IRControlPayload)first.payload).stmtsStorage == null);
 	assert(first.fieldNames().len == 0);
+	assert(second.args().len == 0);
+	assert(second.stmts().len == 0);
+	assert(second.fieldNames().len == 0);
+	assert(second.payload == null);
 
 	/* A write allocates on the written node only. */
 	first.argsMut().push(second);
@@ -27,7 +31,7 @@ int main(int argc, char** argv) {
 	assert(second.args().len == 0);
 	assert(second.stmts().len == 0);
 	assert(second.argsStorage == null);
-	assert(second.stmtsStorage == null);
+	assert(second.payload == null);
 
 	if (argc > 1 && argv[1] != NULL) {
 		second.stmts().push(first);

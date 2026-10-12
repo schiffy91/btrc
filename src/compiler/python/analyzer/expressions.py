@@ -909,7 +909,7 @@ class ExpressionAnalyzer:
         return isinstance(origin, NativeHeaderSource) and origin.read_only
 
     def _is_native_constant(self, target) -> bool:
-        """An imported enumerator or integer macro is a compile-time value, not storage."""
+        """An imported constant is a value, not addressable storage."""
         if not isinstance(target, Identifier):
             return False
         symbol = self.session.scope.lookup(target.name)
@@ -919,7 +919,7 @@ class ExpressionAnalyzer:
         return (
             isinstance(declaration, VarDeclStmt)
             and isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
-            and declaration.initializer is not None
+            and (declaration.initializer is not None or declaration.source_file.value_only)
         )
 
     def validate_mutable_target(self, target, line, col) -> bool:

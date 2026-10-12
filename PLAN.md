@@ -2,7 +2,7 @@
 
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-09**. Read [AGENTS.md](AGENTS.md) first for architecture and
+Updated **2026-10-12**. Read [AGENTS.md](AGENTS.md) first for architecture and
 development rules.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
@@ -16,7 +16,9 @@ batch evidence. The frozen [reference](docs/design/plan-reference.md) and every
 `ref:N` line citation remain unchanged. This document has no effort or calendar
 estimates: order follows demonstrated dependencies and payoff.
 
-## Goals versus status (2026-10-09)
+<a id="goals-versus-status-2026-10-08"></a>
+
+## Goals versus status (2026-10-12)
 
 The owner's goals are a fast compiler across real build workloads and a usable
 standard library with native GUI on macOS, Linux, Windows, iOS/iPadOS and
@@ -29,17 +31,79 @@ they do not by themselves demonstrate faster compilation or delivered GUI featur
 **Overall:** the compiler is substantially implemented and has broad correctness
 evidence. Final performance acceptance is open. Desktop GUI shells and selected
 features work, while the complete desktop library and Windows/mobile providers
-remain incomplete. The Windows ARM64 slice and consolidated plan are on main `cbd3ddcd`;
-the broader compiler and GUI candidate is not yet qualified. There is no
+remain incomplete. The qualified compiler and desktop GUI integration is on main
+`36b647f0` after PR68 merged on October 9 at 08:31 UTC. The measured compact-IR/flow
+memory improvement and new Windows process/thread provider are separate candidates
+with focused combined qualification passed and final hosted gates outstanding. There is no
 defensible overall percentage complete: the remaining items have different scope
 and several acceptance measurements are missing.
 
+### Delivery checkpoint (October 12, Europe/London)
+
+GitHub main remains `36b647f0`, the exact tree qualified before PR68 merged.
+The local clone hub's older `cf28fe74` is not GitHub main. Automatic post-merge
+Linux, Windows x64, Windows ARM64 and Android workflows passed. Mac post-merge
+qualification retains two failures: Clang O0 initially stopped in the upstream
+pytest-timeout dependency's debugger test before C11 execution; eight WebGPU
+cases in the unit shard failed before native execution because the configured
+header reader could no longer be started. The unit shard otherwise passed
+10,142 cases and skipped 227 expected cases. The reader was legitimately built
+and checked during setup; its later missing launch prerequisite remains unknown.
+
+The single accepted Clang O0 retry passed the original C11 tests in job
+`114596824910` (run `37905525576`, attempt 2). That workflow remains failed
+because the separate unit-shard reader failure is retained. The separate
+reader-lifetime repair `ad46f269` retains both jobs' Nix outputs through teardown
+and captures wrapper/interpreter/backend/closure evidence before and after tests.
+Independent review caught and corrected the actual wrapper's `bash -e` shebang
+handling. The 91 baseline and 106 candidate workflow/toolchain checks now pass.
+The first test attempt retained a wrong-shell environment failure; the corrected
+attempt uses the original authenticated Nix Bash. Real pre/post observations of
+two retained readers also pass, including each reader's 47 dependency paths.
+A disposable path was protected while rooted and deleted after removing its root.
+That runner's result remains failed because its text classifier expected different
+Nix wording; independent audit establishes the recorded protection/release behavior.
+The original reader's disappearance mechanism remains unknown; final hosted
+qualification of this repair is still required.
+
+Combined memory/Windows source `3694ce58` passes generated/lint/format gates,
+a fresh Mac self-host build, 200 focused cases with zero skips, the strict native
+flow driver and four Windows SDK projections. Both frontends produce identical
+C and ordered plans for both Windows targets. Independent audit `216b3812`
+verifies process and input closure. Projections do not establish Windows native
+execution; the component's four actual Windows cells remain separately scoped.
+Full final hosted qualification and main integration of this combined tree remain.
+
+The measured memory improvement is 32.96%, but the worst Linux candidate remains
+about 685 MiB above 1.5 GiB. The reviewed phase-RSS diagnostic was published once
+at `b4efe229` and manually dispatched once: run `38182812913` is in progress.
+It locates remaining peak retention using authenticated existing compiler inputs
+and fresh plain/observed output parity. It is not a final benchmark acceptance run.
+
+Current Linux BTRSmith replay `37905070491` completed successfully, including
+album/Settings, Library and actual installed-app smoke steps. Independent audit
+`e759a38b` is clear: 24 agent/audio, 40 album and six Settings cases, 15 paired
+plan comparisons, two 600-frame Library runs and two installed-app smoke runs.
+All 18 captures were reviewed and 104 process receipts closed. This qualifies
+those selected journeys, not the complete MVP or physical desktop input. The Player No-folder diagnostic passed catalog and
+arrangement readiness, then timed out waiting for the song at stage 1; close
+remained RETRYABLE_FAILURE. No speaker stimulus ran. Reviewed failure-only
+snapshot `58bcd266` is ready to distinguish timeline, media and audio readiness
+without changing deadlines; it has not run.
+
+The iOS host-tooling port `af50005b` passes 28 original tests, the same 28 on the
+current-tree port and four workflow contracts, with independent audit clear.
+It remains separate because publishing those paths activates simulator jobs,
+and oldest-installed selection does not establish D8's oldest-installable runtime.
+Historical 50-case C fixture evidence does not establish current BTRC providers.
+
 ### Goal 1: fast compilation and bounded memory
 
-The measurements below are the historical `65057cb` record, retained in
+Except for the explicitly identified Linux memory comparison, the measurements
+below are the historical `65057cb` record, retained in
 [the performance baseline](#recorded-performance-and-coverage-baseline).
-They are not current-source measurements. Ratios describe that record's distance
-from the target, not a measured regression or a forecast. Stages 5–13 define the
+Historical ratios describe that record's distance from the target, not a measured
+regression or a forecast. Linux RSS does not replace Mac footprint acceptance. Stages 5–13 define the
 remaining implementation and measurement work; their intermediate milestones do
 not replace the final objectives.
 
@@ -51,7 +115,7 @@ not replace the final objectives.
 | No-op / touch | Stage 11 no-op optimization target ≤1 s; final runbook no-op/touch acceptance ≤5 s | 2.92 / 2.91 s | Historical runbook limit met, Stage 11 no-op target missed; current product-Make result unqualified |
 | Cold release | ≤30 s | Final acceptance outstanding | Unproven |
 | Warm batch of ten product programs | ≤30 s | Final acceptance outstanding | Unproven |
-| Compiler peak footprint | ≤1.5 GiB | 2.966 GiB; aggregate build memory 4.828 GiB | Historical compiler peak roughly 2× the limit; current footprint unqualified |
+| Compiler peak footprint | ≤1.5 GiB | Current scoped Linux product comparison: median RSS 3.23 → 2.17 GiB (−32.96%); worst candidate 2,329,120,768 bytes. Historical Mac footprint 2.966 GiB | Worst Linux candidate remains 718,508,032 bytes (about 685 MiB) above the limit; combined integration and final Mac footprint acceptance remain open |
 | Self-compilation and full corpus | Median wall time and RSS within 5% of Stage 5 baselines, or an explained tradeoff | Current baseline/acceptance round outstanding | Unproven |
 | Parallel workers and module builds | 1/2/4/8-worker wall/RSS sweep; module release ≤110% of whole-program | Current acceptance outstanding | Unproven |
 
@@ -62,7 +126,31 @@ must prove that a body edit analyzes and lowers exactly one changed source group
 and does not lower unchanged groups; passing intermediate timing budgets does
 not close that requirement.
 
-**Next measurable outcomes:** qualify the current compiler/BTRSmith pin, capture
+**Current measurement status (October 9, 08:47 UTC):** Corrected comparison
+[37901757750](https://github.com/schiffy91/btrsmith/actions/runs/37901757750)
+completed successfully on workflow `5f3103a2`. Baseline compiler `6f1b81d9`
+and candidate `c8221ae4` used authenticated GCC 15.2 binaries on unchanged
+product `dbe8df0e`. After two discarded warmups, three paired samples give
+median peak RSS 3,470,024,704 → 2,326,315,008 bytes: 1,143,709,696 bytes saved
+(32.9597%). The worst candidate is 2,329,120,768 bytes, still 718,508,032 bytes
+above 1.5 GiB. Median elapsed time is 124.184 → 115.342 seconds (7.12% lower),
+reported as an observation on the shared Linux host; instruction counters are
+unavailable and this is not final speed acceptance.
+
+All original 45 correctness checks and the native incremental-flow driver pass.
+All eight compilations preserve the 422 C/header outputs and complete ordered
+build plan under the original comparator. Independent audit `4bb27c36` verifies
+the full 215,216,793-byte artifact, all 33,295 members, authenticated sources,
+tools, reused binaries and process receipts. Report `0b309bb9` records the result.
+Combined source `3694ce58` composes this work with current main and the
+native-qualified Windows provider. Its fresh self-host and all 200 affected checks,
+native flow driver, four SDK projections and generated/lint/format gates pass;
+full final hosted qualification is still outstanding. Reviewed phase-RSS diagnostic `b4efe229` is running in hosted run `38182812913`
+to identify the remaining peak before another ownership optimization is attempted.
+The failed preceding comparison and its receipt-label repair remain retained.
+Mac quiet admission and the full final workload matrix remain open.
+
+**Earlier measurement preparation and retained evidence:** qualify the current compiler/BTRSmith pin, capture
 the quiet workload matrix, isolate the repeated Linux peak-memory regression,
 and measure the reduced changed-group work before the next optimization claims. The local
 Mac memory diagnostic was cancelled before any sample because the quiet check
@@ -441,9 +529,53 @@ source/tool inputs unchanged. This is allocation attribution, not quiet timing
 or final memory acceptance. The [current IR census](docs/workstreams/current-ir-node-census.md)
 records exact evidence and the next implementation: a compact fat-tagged core
 with optional typed payloads, modeled at roughly 510 MiB reduction including new
-allocation/edge costs. The compact representation and every production consumer are now drafted;
-parser/receiver audits find no old field accesses, but semantic/native tests
-and the estimated memory saving remain unqualified. Independent retention
+allocation/edge costs. The compact representation and every production consumer
+are implemented on a separate candidate; parser/receiver audits find no old
+field accesses. Executable qualification first exposed a fixture nullability
+warning, retained as attempt one. After a test-only replacement correction, all
+three authentic old-layout native drivers pass. Candidate `5d092d0f` then fails
+all four reference model cases before C emission: boolean payload selections
+are inferred as integers and repeated nullable list projections do not narrow.
+Model-only correction `043cfdaf` keeps the tests unchanged and uses checked
+nullable locals plus typed short-circuit boolean selections. It now passes all
+four reference-fronted native Model cases with zero failures/errors/skips,
+authenticating the three existing baseline passes without rerunning them.
+The cases prove defaults, shared metadata/statement-vector identity, child
+replacement, derived destruction, a payload ownership cycle and exact canonical
+ordering. Independent audit verifies all inputs, generated outputs and process
+closure. Generated C uses the concrete payload ARC metadata and payload receiver
+for cast-store ownership. This qualifies the model through the reference frontend;
+the complete compact compiler, paired self-host tests, actual allocator sizes,
+current-product output parity and memory/instruction savings remain open. The
+first full MacOSMain build of `043cfdaf` fails during reference compilation:
+boolean payload ternaries in the setjmp safety owner and C emitter infer integers
+inside `&&`, while repeated nullable projections in the optimizer and emitter
+produce warnings. No C compiler build or any of the 37 selected paired checks
+runs. The attempt finishes in 46.51 seconds, with source/tool inputs unchanged
+and all owned process groups closed. Four-consumer correction `61d60799`
+preserves the Model and tests and fixes boolean selections and nullable narrowing.
+Its fresh MacOSMain compiler now builds with the original strict Clang 21 O2
+settings and passes all 37 focused cases: eight paired Model executions,
+17 structured-IR cases, eight runtime-provider cases and four lazy-list cases.
+No failures, errors or skips occur. Independent audit verifies source/tool and
+binary identity, the inherited Model proof and all six closed process groups.
+The failed attempt remains retained. Current BTRSmith output parity now passes;
+paired memory/instruction measurements remain open. The first current-product paired
+attempt stops at the original 180-second quiet deadline before either compiler
+executes. Background CPU, guests, simulators, backup and workspace probes all
+pass; a VS Code Codex app-server matches the unchanged agent-process refusal.
+Its observed low CPU and absent descendants do not prove that it has no active
+work. The process and quiet rules are unchanged. Independent audit verifies all
+101 inputs and zero compiler samples. A separate correctness-only compile now
+passes for exact compiler `61d60799` and product `dbe8df0e`: all 461 groups are
+lowered with zero reuse, and all 423 C/header names and contents plus the complete
+ordered link plan match the authenticated original `6f1b81d9` output. It uses
+only the existing output-root and authenticated unit-digest normalization. No
+measurement wrapper runs. Independent audit verifies 108 recipe pins, 115 inputs,
+unchanged source/tools/outputs and three closed process groups. Result SHA-256:
+`3035088ec253993273c09fe63b1b96756dfdd2cfbe253a02b1f8ad737d6dafc1`.
+This proves emitted-output compatibility, not native application execution or a
+speed/memory gain. Independent retention
 candidate `266cadd7` keeps per-node setjmp facts only for fixed safety roots while
 solving and exporting every function summary. The original `6f1b81d9` baseline edit passes;
 the candidate passes the same production incremental edit and six added cases,
@@ -457,7 +589,38 @@ Independent audit verifies exact inputs and all nine closed process groups.
 Current-product output parity, remaining worker coverage, generated ownership
 inspection and original performance gates remain. See
 [flow retention](docs/workstreams/setjmp-flow-roots.md).
-Product speed and memory targets stay open.
+Combined source `c8221ae4` preserves the compact domain-guarded array-bound
+traversal, immutable safety roots and complete summary/dependency computation.
+Independent source review is clear. Its native flow driver exercises actual
+module-unit root selection for direct, call-argument and array-bound-only setjmp
+nodes, plus exclusion of an ordinary function. The fresh combined MacOSMain
+compiler now passes strict Clang 21 O2 construction, all 37 compact checks,
+all seven reference flow checks and the actual self-hosted native flow driver.
+There are no failures, errors or skips. Independent audit verifies 78 inputs,
+4,507 source files, 4,860 workspace artifacts and all 11 closed process groups.
+Result SHA-256: `5914461928bb9fd595f77b088fc4578220398345f6c2da7427cb720108549ce9`;
+audit SHA-256: `457ae6be1e60b5c7c44c7d7bffb2b7c544222754bc72d2db5a4b4cd78249ffc2`.
+The production incremental-edit case through that same btrcc now also passes:
+only the changed source group and affected consumer are lowered, and incremental,
+clean and whole-program outputs agree. Its subsequent direct current-product
+compile lowers all 461 groups with zero reuse and preserves exact names/content
+for all 423 C/header files and the full ordered plan against the authenticated
+6f baseline. Independent audit verifies 133 recipe pins, 143 inputs, 235 edit
+artifacts and all five closed process groups. Result SHA-256:
+`51f67e69af607fc8bcc3962541a962f5d3016fa0965b560d11f14cde8818881a`;
+audit SHA-256: `f36ce4f988d7d3b2e456f574b661dea79187d953ef114f49172c2490432d896a`.
+The combined candidate has 45 focused passes plus the native flow driver and
+current-product emitted-output parity. Full compiler/platform qualification and
+native product execution remain separate. A paired Linux current-product
+comparison is prepared and independently reviewed as private BTRSmith workflow
+`4f7e7c17`, with matched Linux-built baseline/candidate compilers, original
+eight-run order and exact Linux output/plan parity. It requires the same 45
+focused cases and native driver on Linux before sampling. It is not published
+or dispatched. The exact compiler source `c8221ae4` is now published on
+`codex/compact-ir-flow-roots-6f`; source publication triggers no additional CI.
+The private workflow will report Linux RSS/instructions where available, not
+replace Mac footprint acceptance. The same VS Code app-server still blocks Mac quiet admission; no
+unchanged retry was launched. Product speed and memory targets stay open.
 
 Both October 9 diagnostic runs are now terminal failures, with narrower
 progress retained. BTRSmith `37864640752`, exact dbe8/f75, passes all four
@@ -496,6 +659,224 @@ callback and no close request after one semantic dispatch; the actual counters
 are not captured, so a resize-settlement explanation is still a hypothesis.
 Source/tool/binary closure passes. All three artifacts remain retained; provider,
 assertions, four native cells, classifier and deadlines are unchanged.
+R4 retains the original resize request and all pressure assertions, adding a
+bounded real SDL event-pump prerequisite: actual size 180 by 110, exactly one
+pending semantic record and neither callback delivered. The five-second native
+settlement bound fits inside the unchanged 30-second case bound. Baseline
+`dc73ce96` and candidate `fbb9e27a` carry the identical fixture change; classifier
+changes only move six expected source coordinates. Reviewed diagnostic
+`d6242d3e` starts automatic run `37874567498`, which passes. Independent review
+authenticates the complete artifact, all four exact semantic baseline failures
+and all four candidate native passes, with zero skips. Source, tool and binary
+identities are unchanged; all eight process leaders are reaped and the container
+is absent. This qualifies the Window component against compiler `f75c737b`.
+Coordinated quit across multiple dirty Linux windows is the next provider change:
+one cancelled member must preserve every window, draft and live work ingress.
+Capture occurs when SDL's event pump dequeues QUIT. Reviewed Linux source
+`32b361b2` now coordinates group authorization across dirty and clean windows,
+keeps every window alive when a peer cancels, seals publication/work ingress
+before releasing retained identities and supports retryable/reentrant cleanup.
+Four native fixtures cover initial cancellation, revised/saving/stale decisions,
+registration and membership changes, cleanup reentry and a real trylock failure.
+The late-reply and already-authorized CANCEL branches are explicit. The planned
+qualification compares fixture-only baseline `647363f9` with the candidate using
+current compiler `5aa232ad`: one exact native failing predicate on the baseline,
+then 28 candidate cells across both frontends/plain/sanitized, including existing
+Window/Executor/Lifecycle regressions. The independently reviewed hosted recipe
+is committed as `e6f076e5`; 23 synthetic classifier controls pass, and retained
+real reference output supports its generated-expression matching. These are
+preparation checks only. The workflow is not published or dispatched, and no
+compiler or native execution has qualified the new group-quit source. Complete Linux GUI
+and final combined-tree qualification remain open.
+
+The qualified CI repair assembly is now published as PR68 head `5aa232ad`:
+Windows ARM64 `37873882639`, Android `37873882709`, Windows `37873882883`,
+macOS `37873882641` and Linux `37873882738`. Windows, Windows ARM64 and Android
+workflows pass. Linux now completes successfully, including unit/self-host tests,
+both corpora, bootstrap, all eight GCC/Clang C11 configurations, X11, Wayland,
+benchmark guards and x64/ARM64 release bundles. Release also supplies the selected
+lint, formatting, generated-source and extension checks; its scoped static-job
+skip does not omit those gates. Independent final Linux audit is clear: all 18
+artifact ZIP digests match, every skip is expected and enforced, and GUI JUnit
+identities agree. Boundary coverage is 287/311, with the established 24 managed
+behavior exclusions; GUI skips include one real-desktop hardware case. Audit
+SHA-256: `414810d8b7af251dba590c0ec6eb95be6196eefe351d53439f8a6df03422c1e1`.
+Both Mac
+release bundles, self-host tests, bootstrap, both corpora and Clang O0/O2 pass;
+Mac unit finished with two nested-test configuration failures; the focused
+repair now reproduces both failures and passes all 84 affected ledger/coordination
+checks. Hosted qualification is pending. Dedicated macOS native GUI run `37877458498` has
+completed successfully on exact `5aa232ad`: 353 passes, 169 expected platform
+skips and no failures/errors. Its independent source, artifact and skip audit is
+clear; two Linux tray rows remain explicitly uncovered. The memory candidates
+and new UI2 provider work remain separate. Main stays `cbd3ddcd`; Mac unit and
+its final evidence audit are still required before integration. BTRSmith's
+reviewed `2c9e5b43` live revision fixture now has a peer-cleared current-compiler
+qualification workflow `16d69500`, pinned to exact `5aa232ad`. All original
+acceptance commands and limits remain unchanged. The earlier `db9bc814`/`f75`
+recipe remains retained and unpublished. Exact product source `2c9e5b43` is
+published privately on `codex/live-agent-revision-recovery`, whose tree contains
+no workflows. Workflow `16d69500` was published once by fast-forward to
+`codex/linux-current-compiler-3974`; automatic push run `37883596677` started at
+04:22 UTC October 9. Source/environment preparation passed; the original paired
+live agent acceptance is running at the latest 05:19 UTC check. Audio failure
+journeys and installed-product checks remain pending. No duplicate dispatch was
+made. After Mac unit finished, private paired Linux memory workflow `4f7e7c17`
+was published once; automatic run `37885703276` began at 04:49 UTC. It compares
+baseline `6f1b81d9` with compact/flow candidate `c8221ae4` against exact product
+`dbe8df0e`, with unchanged qualification and measurement bounds. Source and
+workflow publication are verified. Both canonical Linux compilers built, and all
+45 focused checks plus the actual native flow driver passed. The run then failed
+at product-tool admission: the product environment omitted the SDK reader,
+target and sysroot exported by the compiler environment. No product compilation,
+warmup or measurement ran. The authenticated failure audit is `84366846d2d3497ad286db8dac3e397a419ee472e9806037c255b9524953ffe3`;
+its binary addendum `f44cea16441bcf308aabc060209604fd52ff268db429c3f995bea632b9be5d84`
+verifies both actual binaries and generated C. A minimal environment-composition
+repair passes eight shell checks and is committed as `59108aad`, with the other
+15 embedded helpers unchanged. It was published once by normal fast-forward at
+06:31 UTC after the Linux product replay finished. Automatic push run
+[37893971479](https://github.com/schiffy91/btrsmith/actions/runs/37893971479),
+job `113700966212`, is building both canonical Linux compilers serially at the
+06:49 UTC check. No manual
+duplicate dispatch occurred; actual measurements remain pending.
+
+That terminal run released a hosted slot. Qualified Mac test-helper `a29ab3e3`
+was published once by normal fast-forward to PR68 at 05:32 UTC, preserving the
+84-pass test bytes and ordinary checkout. Automatic workflows are Linux
+`37889064844`, macOS `37889064858`, Windows `37889064843`, Windows ARM64
+`37889064907` and Android `37889064913`; no manual duplicate dispatch occurred.
+At the 06:49 UTC job-level check, all Windows x64/ARM64 and Android jobs have
+passed. Linux release bundles, X11/Wayland GUI, bootstrap, benchmark guards, all
+eight C11 cells and both corpora have passed; selfhost/unit test shards remain
+running. macOS both release bundles, selfhost checks, bootstrap, both corpora and
+Clang O0/O2 have passed; its unit shard remains running. Dedicated final-head
+native-GUI qualification remains required. Windows/Android exact-tree logs are independently audited: Windows has 39
+pytest passes and three expected POSIX skips, extension 79 passes/six explicit
+Windows skips, and a successful native bootstrap. Android has 56 actual emulator
+fixture executions across API 29/36; ARM64 remains compile-only. Audit:
+`153fdfbd73f7738fdd6a9e61a101832caf730eb2a3efe65d1854319b4c5946df`.
+The Windows release ZIP payload has not been downloaded locally; its in-job
+checksum/smoke and upload digest are retained. This does not close other lanes.
+The top-level queued labels do not imply that all jobs are idle. PR68's description
+now matches current head `a29ab3e3` and its actual qualification scope. This PR68
+wave and memory comparison `37893971479` now occupy both hosted slots. Required
+final-head GUI qualification is now part of that same PR68 wave: Linux
+37896628801 and macOS 37896651788 were each manually dispatched once with
+focus=native-gui on unchanged a29ab3e3. Each manual dispatch has its own run-ID
+concurrency group, so it does not cancel or restart the remaining PR test jobs.
+Original job selection, deadlines and skip gates stay unchanged; there is no
+additional private product/provider qualification wave. BTRSmith
+replay `37883596677` completed successfully, including its original paired live-agent
+and audio-failure journeys, installed-product check and final source closure/upload;
+independent scoped audit
+`3a9c9028479681a60b949698da6868e0f3ebf4788674c384e4df7711905035dd`
+confirms 24 native executions: 12 agent scenarios across both frontends/Clang/GCC,
+and 12 audio/scanner scenarios including four intentional terminal aborts. Four
+audio plan comparisons and the current-compiler derivation/install-layout check
+pass. It authenticates 847 product and 4,506 compiler Git blobs and four successful
+stage leader receipts. The installed app was not launched in this run. Artifact
+review extracts 31 small members with CRC/SHA checks, not the full ZIP or all
+binaries; the remote owner records group cleanup but no final empty-group
+assertion. These limits remain explicit. It covers product `2c9e5b43` with compiler
+`5aa232ad`, whose production compiler inputs match `a29ab3e3`; the newer album
+repair is separately qualified below. Native Linux quit `e6f076e5` remains queued.
+Main integration and any measured compiler improvement remain unclaimed.
+
+The current product review also found a concrete Library source defect against
+PRD lines 53–55: `CatalogAlbumMerge.related` permits unknown years, two-year
+release differences and small edit distances, while `AlbumName.mergeKey` folds
+accents. These can silently combine distinct releases. The next product
+implementation must use the existing conservative identity rules (same artist,
+same known year, approved formatting only), preserve recordings/arrangements,
+and refresh old derived memberships from authoritative sources. Existing songs
+do not retain their original per-song year, so a migration must not invent it
+from a merged survivor; failed or unavailable roots must preserve current data
+and expose unresolved state. A new fixture-only baseline now proves the defect
+through actual SQLite publication and the current-equivalent compiler: safe title
+formatting consolidates to one album, then distinct 2006/2007 releases incorrectly
+remain one instead of two. The native process aborts at that exact generated
+count assertion. Baseline audit `6d7c8d0a9f6f6ecd5807f7cce996872fcf2675ea4d7c7c6749f89d6547e5135b`
+authenticates all sources, compiler/tool inputs, generated C/plan/binary and six
+closed groups. Earlier attempts stopped before compilation because of an archive
+mode expectation and an incorrect Make owner; both are retained, and an actual
+same-shell dry run confirmed `tests/Makefile` before the successful reproduction.
+
+The production repair is now committed as `2a15e4c` after independent source
+review. It removes fuzzy consolidation, preserves full legacy album rows in
+recoverable storage, moves unverified old memberships away from canonical IDs,
+and invalidates cached summaries for authoritative refresh. Unknown-year titles
+retain authored formatting; failed/offline sources retain their records. Obsolete
+schema9 rekeying and schema10 display cleanup are retired before preservation,
+while version transitions and earlier migration/rollback/pagination oracles remain.
+There is no new UI-badge claim: source-summary staleness is explicit in the record.
+
+The complete AlbumReconciliation native fixture now passes through both current-
+compiler frontends, followed by the original LinkPlanParity check. Each execution
+reaches all 14 policy observations, both schema11 refresh orders and the schema9
+migration journey before its completion marker. Both generated mains contain 98
+actual assertion sites. Result SHA-256:
+`a253d4f1c06fdd165a3d219ce1f563e665fe61a50406e2bb34ffb8352eb862dc`;
+independent audit `86cc0b0d6f56d13b4497cf56bf5f62a827b3ca41b5caf37284e5161e47e2c5a1`
+verifies 23 pins, 847 product files, 4,502 compiler files, 154 generated files,
+original SDK/tools, 24 logs and 12 closed process groups. This repairs the
+reproduced album-grouping defect in the native fixture; full product acceptance
+still requires the surrounding catalog/format regressions and application journeys.
+
+The next regression selection preserves nine original programs and their compiler
+matrix: Clang/GCC through both frontends for eight programs, and PSARC's native/
+Clang/GCC through both, for 38 native executions plus nine plan comparisons.
+PSARC retains its actual fixture setup/cleanup owner. The bounded recipe passed
+independent review. Attempt 1 passed eight native checks, then stopped after
+Make successfully linked the next SQLite fixture and deleted its generated C/plan
+intermediates. This was evidence-retention failure, not a native test failure; two
+fixture nullability warnings are retained. Audit:
+`22ed3c5f14ebdb548f87d7bc87655365592afb300379185938ec8f82a353655d`.
+The reviewed one-line recipe correction names those generated files as explicit
+Make goals, preserving the original rules, flags, time limits and full matrix.
+Fresh `btrsmith-album-regressions-2a15e4c-attempt-2` passed all 38 native
+executions and all nine original LinkPlanParity comparisons at 06:33 UTC. Result
+`01fbf18a9393cf5462689bfcb9a9f382980c2ea7dd1fea2bf69829f85ad4c430`
+and independent audit
+`b725a253d24b1f2a9316100ad8ed37c1b51b843c3ea8779a52183bf32b3a44e0`
+authenticate 18 frontend builds, 84 closed commands, 168 logs, source/tool identity
+and 9,137 generated files. PSARC retains its original three-binary fail-fast loop;
+its inner programs do not have separate process receipts. Existing nullable fixture
+warnings remain recorded. This proves the scoped macOS regressions, not full
+product/GUI acceptance or raw generated-C equality. Before launch, exactly ten historical generated C files were archived
+with verified bytes, modes, timestamps and recovery instructions, reclaiming
+644,300,800 allocated bytes and leaving about 80.75 GB free. Current sources,
+binaries, readers, logs, audits and qualification inputs remain unchanged. Archive
+audit: `01511ab42812e61da63228d67e27bacc536ee0000a3542af3d617b642442fa41`.
+A second verified, reversible archive preserves 3,574 historical generated C files
+and 19 old executable copies, reclaiming another 442,339,328 bytes. Its full
+roundtrip and protected-input audit is
+`148c91d26c01390ce5e12271a7ed6ee851ae00edd64e881933bebd8612e3e709`;
+18,146 protected entries and nine original receipts are unchanged. Sources, current
+binaries and evidence remain retained. Local free space is still only about 80.37 GB
+after the next checks, so disk margin remains a throughput constraint.
+
+A separate source review found that `SettingsScreen` attaches its only Back button
+to the sidebar, then hides that sidebar below 900 pixels. The existing compact
+Settings test calls `activate()` and does not establish user reachability. The next
+product slice will preserve the existing navigation/draft owners while making Back
+reachable in compact layouts and checking native ancestor visibility and hit testing.
+This is a source-confirmed defect. Typed AppKit baseline fixture `bb91b409` and
+final binding/Make fragment `1b577467` preserve the original Settings assertions
+and check native ancestor visibility, converted bounds and hit testing. Independent
+source review passed, but the first actual reference build failed on a private
+`GUI/MacOS/MacOSView` import before any native execution. Its final inventory audit
+also reports product-source drift; both causes are under review rather than treated
+as an accepted baseline. Result:
+`f7c2ebb37f4c2adfddc59b2655e06ddc2b90156f8349127a192879162e5b003c`.
+The inventory difference is isolated to canonical btrc.lock manifest hashes;
+all other product paths and compiler inputs are unchanged. A test-owned AppKit
+discovery method now avoids private provider imports while preserving typed
+visibility/hit-test/event assertions. Canonical metadata-only resolution has
+refreshed the lock and proved idempotence; actual retry remains pending.
+Production SettingsScreen remains unchanged. Correct fixture admission and an
+actual failing baseline precede the stable-header repair and paired qualification.
+The fixture scope is synthetic AppKit reachability and compositor capture, not
+physical input.
 
 
 A fresh compiler measurement preparation preserves the byte-identical reviewed
@@ -633,10 +1014,10 @@ provider. The detailed feature acceptance remains in Stages 22–37 and the
 
 | Platform | Demonstrated capability | Missing product capability / next demonstrable result |
 |---|---|---|
-| macOS | AppKit shell and selected controls; shell endurance journeys pass. Native quit and affected application lifecycle now pass all 88 executions through both compilers, plain and sanitized, after three production repairs | The recorded provider composition is independently qualified against f75c737b but not merged. Complete narrow provider/control integration, remaining activation, services, accessibility and final combined-tree qualification. Earlier shell and real text-editing evidence remains separately scoped. |
-| Linux | SDL shell; 100 focused Linux ARM64 provider cases pass with 100 counterfactual rows classified; repaired Wayland candidate passes dedicated checks | The assembled PR68 tree passes X11 (324 passes, 199 expected skips) and Wayland (322 passes, 199 expected skips). Physical desktop coverage, UI2 and remaining features/accessibility stay open. Wayland remains configured report-only until its required main acceptance. |
-| Windows | Actual ARM64 compiler build, three-stage bootstrap fixed point, compiled sample execution and MSVC ABI/wgpu adapter smoke pass at `110a514c`; all hosted workflows pass and PR53 landed on main `49f136ec` | Qualify SDK/OS service providers and demonstrate a native shell with button, editable field, events and safe teardown. These compiler/ABI passes do not establish a complete GUI provider. |
-| iOS/iPadOS | Local simulator fixture host passes 50 cases | Qualify hosted and minimum-OS execution; demonstrate app-private file persistence and checked UIKit lifecycle/button/text-field providers. Host passes do not prove those providers. |
+| macOS | Main `36b647f0` includes the qualified AppKit integration; final dedicated native GUI has 353 passes and 169 expected skips. Separate UI2 quit/application lifecycle repairs pass all 88 executions through both compilers, plain and sanitized | The newer UI2 provider composition qualified against `f75c737b` remains separate and unmerged. Complete its integration, remaining activation, controls, services, accessibility and final combined-tree qualification. |
+| Linux | Main `36b647f0` includes the qualified SDL shell/provider integration. Final native-GUI, X11 and Wayland gates pass; X11 has 324 passes/199 expected skips and Wayland 322/199 | Physical desktop coverage, UI2, remaining features and accessibility stay open. Headless X11/Wayland results do not establish physical desktop input. |
+| Windows | ARM64 compiler/bootstrap/sample and MSVC ABI/wgpu smoke are on main. Separate process/thread provider `3e480fcd` passes all four original native cells through both compilers on matching x64 and ARM64 hardware | Integrate the provider after combined gates, qualify remaining OS services and demonstrate a native shell with button, editable field, events and safe teardown. Process/thread passes do not establish a complete GUI provider. |
+| iOS/iPadOS | Historical iOS 26.4 simulator host passes 50 handwritten strict-C11 fixtures. The 11-path host-tooling port passes 28 original, 28 current-tree and four workflow checks; simulator publication is held for D8 runtime admission | Run current-tree and oldest-installable-runtime qualification; demonstrate compiler-generated app-private persistence and checked UIKit lifecycle/button/text-field providers. The historical C host fixtures do not prove those providers. |
 | Android | NativeActivity fixture host and lifecycle repair pass 56 combined executions | Add general in-process callback-safe provider execution; demonstrate app-private persistence and native lifecycle/button/text-field providers through checked JNI/Looper ownership. |
 
 The main-based canonical PLAN candidate `f01ec0ff` passes Linux, Windows and
@@ -1087,7 +1468,45 @@ frontend and library smoke checks through both compilers, followed by completed
 screen journeys as their library providers land. Hardware, listening and release
 account requirements remain explicit where automated tests cannot prove them.
 
-**Current working capability:** product `5bb466b7` with immutable compiler
+**Current product evidence (updated October 11):** album identity repair
+`2a15e4c1` passes 38 actual Mac native regressions and nine original compiler-plan
+comparisons. Settings Back repair `f077985b`, recorded in `3608cb65`, passes both
+compilers at widths 480, 540 and 1100, original plan equality and visual review
+of all 18 captures. The baseline really failed on the hidden compact button;
+the repair places the same button in the persistent header. Earlier scoped Linux
+agent/audio/scanner qualification has 24 native passes and four plan comparisons,
+plus product derivation/install-layout checks; that run did not launch the
+installed app.
+
+The current Linux replay completed successfully as
+[37905070491](https://github.com/schiffy91/btrsmith/actions/runs/37905070491),
+workflow `a01ab210`, product `3608cb65` and compiler `a29ab3e3` (the tree merged
+into main). It includes the latest album and Settings source, both original
+Library journeys and installed-application smokes. It was published once, with
+no duplicate manual dispatch. Independent artifact and visual audit `e759a38b` is clear for the selected journeys; full MVP acceptance remains open.
+Native Linux Settings activation remains distinct from the Mac mouse-event/hit-test proof.
+
+The native Player speaker button has a source-proven missing connection to the
+existing mute/restore command. Its attempted real-library regression builds and
+links, but fails at stage 0 with `Timed out waiting for the catalog`, before any
+speaker stimulus. Cleanup reports `RETRYABLE_FAILURE` and the original completion
+assertion aborts. Independent audit `85e9bc02` verifies all inputs and seven closed
+process groups. The private catalog snapshot admits full-library refresh through
+its configured root. The supported No-folder diagnostic subsequently passed catalog
+readiness and opening the arrangement, then timed out waiting for the song at stage 1.
+Audit `b0f75dd1` verifies exact retained binary/input identity and four closed groups;
+close again reports RETRYABLE_FAILURE. Reviewed fixture `58bcd266` adds failure-only
+observations of existing model, guarded errors, audio and presentation/clock state,
+preserving the original readiness checks, assertions and deadlines. It has not run.
+Neither diagnostic closes full-library refresh or cleanup acceptance. User originals
+remain unchanged; no speaker regression pass or repair is claimed.
+
+Remote BTRSmith main remains `adb3276f`, pinned to compiler `05ec9cb7`; the
+current working product still locks `cdf9d952` and uses explicit current-compiler
+overrides for these checks. A qualified lock update, complete MVP journeys and
+final timing acceptance remain open.
+
+**Earlier macOS library evidence:** product `5bb466b7` with immutable compiler
 `3974d47b` passes the original macOS library journey through both frontends:
 one album scanned, one cell rendered, 600 presented frames and completed
 teardown. Both executable signatures and final source/lock checks pass. The
@@ -1282,12 +1701,49 @@ reachability requirement without changing the current dependency pin.
 
 ### Integration status in service of the goals
 
-Latest live check on October 8: macOS unit retry `113416271573` and explicit
-native-GUI retry `113422566478` both reached their test steps on actual hosted
-runners. Both hosted capacity slots remain occupied; no third wave is dispatched.
+**Current checkpoint, October 9:** main remains `cbd3ddcd`; broader integration
+PR68 is on exact head `5aa232ad`. Linux, Windows, Windows ARM64 and Android
+workflows pass. Both Mac release bundles, self-host tests, bootstrap, corpora and
+Clang O0/O2 pass. Independent audit of those eight completed Mac jobs is clear:
+self-host reports 5,845 passes/46 expected platform skips, each corpus 1,019 passes,
+each Clang cell 2,038 passes and bootstrap one pass. All nine artifact ZIP digests,
+both 255-file bundle manifests and 253 source payloads per bundle match; actual
+Mach-O architectures and hosted relocation/strict-C11 execution are verified.
+Boundary coverage stays 287/311 with 24 explicit exclusions. Audit
+`pr68-5aa-macos-completed-audit/audit.json` has SHA-256
+`8e4ab2ae3e75e7c5b430f2079321e538990a225a1e15bf16477c735569a2ed3f`.
+Dedicated native-GUI run `37877458498` is now successful and independently
+audited: 353 passes, 169 expected platform skips, all 522 test identities matched,
+and no failures/errors/xfails/xpasses. The 169 skips comprise 167 declared
+counterpart cases and two explicitly uncovered Linux tray rows; the counterpart
+labels do not independently re-prove another runner. Hosted ARM64 Darwin evidence
+does not supply physical Mac input evidence. Audit
+`pr68-5aa-macos-native-gui-audit/audit.json` has SHA-256
+`365ed15d7bfe78b7aae41458cdd0c34e0a6642e5b2437366df8f26cb962eff0f`.
+Mac unit completed at 04:46 UTC with 10,148 passes, 227 expected skips and two
+failures. Both nested serial tests disable xdist but inherit the workflow's
+`PYTEST_ADDOPTS=--dist=loadgroup`, causing pytest usage errors before their ledger
+exists. The final log/skip audit authenticates exact `5aa232ad` and these two
+failures; no unit JUnit was advertised. Audit SHA-256:
+`fdd04b1a0fd71dfdcf2195653d6a1eef81249dc4e8f666ed4f85442df7a03d36`.
+Repair `5594563d` removes inherited child options while retaining explicit child
+arguments and the outer GUI grouping. Its focused gate reproduces the exact two
+baseline failures and passes all 84 candidate ledger/coordination cases without
+skips. Eight owned groups close; inputs and logs match. Independent audit:
+`2c837e02ed890b32a0771e3366f7422eba967ef1098a24c9ea87298a908177a3`.
+Report-only follow-up `a29ab3e3` preserves those test bytes and is ready for a
+normal PR68 fast-forward from `5aa232ad`; publication completed once at 05:32 UTC.
+Automatic qualification is now running on exact `a29ab3e3`, with run identities
+recorded above. No final combined-tree merge is claimed. The separate compact/flow candidate
+has passed its fresh build, 45 focused checks, native flow driver and exact
+current-product 423-file/ordered-plan parity. Paired Linux measurement is now
+attempted as `37885703276`: both builds and correctness passed, but missing
+product SDK exports stopped admission before any measurement. Its reviewed
+environment repair, actual samples and full integration matrix remain pending.
+The latest compiler and native component outcomes are recorded under the goals
+above; test passes do not close the outstanding product performance or MVP targets.
 
-
-**Current checkpoint, October 8:** main is `cbd3ddcdb25b9c7519f2babc3dce38647b3a0212`,
+**Historical checkpoint, October 8:** main is `cbd3ddcdb25b9c7519f2babc3dce38647b3a0212`,
 which merged the consolidated plan and qualified Mac test-coordination repair
 through PR69. The final PR head passed 36 selected checks; all four post-merge
 Linux, macOS, Windows and Windows ARM64 workflows now pass. This does not merge
@@ -1631,7 +2087,24 @@ that could strand cancellation; repair and failure fixtures are in progress.
 These source checkpoints have formatting/static checks only. Compilation,
 complete provider wiring, native acceptance and atomic landing remain open.
 
-### Outcome execution register
+#### Current iOS runtime admission (October 9)
+
+The historical local 50-case proof used iOS 26.4 and handwritten strict-C11
+host fixtures, not compiler-generated BTRC provider acceptance. The retained hosted
+attempt ran zero fixtures after launch-identity timeouts on iOS 27. Neither
+establishes the minimum runtime. The exact 11-path host port onto main `36b647f0`
+is source-reviewed; focused 28-test and workflow qualification is being prepared. D8 permits iOS17 when installable under exact Xcode27A266a, otherwise the
+oldest installable runtime with the iOS17.0 deployment target compile-checked.
+The live Apple catalog advertises actual17.0/build21A328 and later17.x; official
+Xcode27 support includes iOS17+ simulators. Therefore absence from the installed
+inventory is not proof of uninstallability. Versioned acquisition/import under
+the existing toolchain is the next bounded admission, separate from the11-path
+host-adapter integration and the existing hosted launch defect. No SDK payload,
+installation, boot, new account or settings change has occurred. Audit1da45900
+retains exact policy, catalog bytes and tool help; local capacity does not admit
+the7.56GB asset plus extraction under the required floor.
+
+## Outcome execution register
 
 This register connects the goals to the next deliverable. Owners below are
 responsible roles, not claims that a builder is currently running. The October 7
@@ -1645,13 +2118,42 @@ changes; historical test totals alone do not advance its status.
 
 | Outcome | Current state / evidence | Responsible role | Next acceptance and actual blocker |
 |---|---|---|---|
-| Current compiler speed and memory matrix | Token candidate `71352c50` reduces the focused Linux heavy-stdlib reported peak by 8.241%. Combined lifetime candidate `92691bee` passes 164 focused checks. Whole-product targets remain unqualified | Performance owner; main session runs quiet measurements | Private current-product Linux RSS comparison `37771609277` failed during image-layer commit before compiler execution or samples. Mac quiet admission has no completed paired round. Stage 4/pin, Stage 5 and final product matrix remain open. |
+| Current compiler speed and memory matrix | Linux product comparison `37901757750` is independently accepted: median RSS −32.96%, 3.23 → 2.17 GiB; all 45 checks, native flow driver and eight output/plan comparisons pass | Performance owner; main session runs quiet measurements | Worst candidate remains about 685 MiB above 1.5 GiB. Qualify the combined source, use the held phase-RSS observation to identify remaining ownership, and complete the original speed/footprint matrix. |
 | Faster incremental edits | Current tuple/instance repair proves one changed group for inventory-preserving edits and three for genuinely new shared tuple shapes, across both frontends/release/debug with strict native outputs and clean-versus-incremental equality | Incremental compiler owner | Finish current combined gates, then measure edit median/p95 and memory. Full consulted-fact/analysis reuse and Stage 9 counters remain open. Work counts are not speed results. |
-| Useful desktop library improvement | Linux components pass 100 native cases plus 100 counterfactual rows; all 11 inherited-interface regressions pass. Wayland at its recorded source passes. X11 repair run `37763215278` is independently qualified: 324 pass, 199 expected skips, zero failures/errors | Provider repair owner; main integrator qualifies | The assembled PR68 tree now passes the original X11 and Wayland gates with classified skips. Finish Mac integration gates, then integrate; preserve physical-desktop coverage and remaining UI2 acceptance. |
+| Useful desktop library improvement | Final source `a29ab3e3` passes Linux native-GUI, X11 and Wayland plus Mac native GUI; the identical tree is merged at main `36b647f0` | Provider repair owner; main integrator qualifies | Physical-desktop coverage and remaining UI2/features/accessibility stay open; preserve declared host limits. |
 | UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
-| Windows and mobile application-facing services | Windows ARM64 compiler/bootstrap/sample/MSVC ABI/wgpu slice is on current main `cbd3ddcd`; mobile fixture-host results remain separate from complete providers | Platform slice owners | Prove Windows SDK/service operations and native shell; iOS/Android persistence and button/text-field/lifecycle providers. Each waits only for its own ABI/host/ownership prerequisites. |
-| BTRSmith macOS/Linux MVP on the current stack | Product8f73b7d5/f75c737b passes eight Mac window-close cases and plan parity. Repaired dbe8df0e now passes the original full three-client agent-channel fixture through both compilers on macOS, with actual generated child-path and native-result review clear | BTRSmith owner and integrator | Linux dbe8 now passes all four channel and standalone cells and both reference live-app journeys; first self-host/Clang live settings command returns code 1 with its protocol stdout missing from the failure log. Preserve that response and fix the demonstrated cause, then complete remaining self-host live, audio, installed-product and compiler-pin acceptance. Component passes do not close the full MVP. |
-| One qualified implementation on main | Main stays cbd3ddcd. PR68 6f passes Windows/ARM64/Android and every selected Linux job except unit. Dedicated Mac GUI now passes 353 cases with 169 classified skips; Mac bootstrap/ARM64 bundle/self-host tests pass. The two unit assertions have qualified local repairs; Mac unit additionally needs the prepared grouping opt-in, and x64 release preparation timed out | Main integrator | Qualify unit grouping and release-shell changes, integrate their exact reviewed sources, then finish final combined tests/bootstrap/C11/static/generated/extension/hygiene, skip audit and native evidence before merging. Two independent product/provider diagnostic waves are active. |
+| Windows and mobile application-facing services | Windows source `3e480fcd` passes all four original process/thread native cells on real x64/ARM64 in `37904145886`, independently audited `b957d11d`. Historical Android and iOS fixture results remain scoped | Platform slice owners | Fresh combined compiler/provider gates are required. Mobile widgets/lifecycle/persistence and oldest-installable iOS runtime remain open. Reviewed acquisition packet is held; no runtime acquired. |
+| BTRSmith macOS/Linux MVP on the current stack | Mac album/Settings fixes are qualified; latest Linux run `37905070491` completed successfully and includes installed-app launches, with independent artifact/visual audit `e759a38b` clear for the selected journeys. No-folder Player diagnostic passes catalog readiness then times out waiting for song | BTRSmith owner and integrator | Identify and repair Player readiness/cleanup and native mute, then complete broader screen/audio journeys, timing budgets and the actual compiler pin. |
+| One qualified implementation on main | PR68 is merged at `36b647f0` after final standard/dedicated gates; eight included PRs reconciled. Next combined source `3694ce58` passes fresh build, 200 focused cases, native driver, four SDK projections and static checks | Main integrator | Repair retained post-merge Mac reader-lifetime/setup failures and complete the next exact-tree hosted/native matrix. Other UI2/iOS/design branches remain separately unqualified. |
+
+**October 9, 08:47 UTC integration update:** [PR68](https://github.com/schiffy91/btrc/pull/68)
+merged at `36b647f079ed7338e51b119a11046eb222dd4877` at 08:31:45 UTC.
+Its tree `2bd979a7` exactly equals qualified head `a29ab3e3`. All standard
+selected matrices passed; dedicated Linux `37896628801` has native-GUI
+321 passes/201 expected skips, X11 324/199 and Wayland 322/199. Dedicated Mac
+`37896651788` has 353 passes/169 expected skips. There are no failures, errors
+or unexpected skips and all JUnit identities match their ledgers. Independent
+audits are `83d02f71`, `6c367770` and `805d4392`. Across the declared host scopes,
+522 of 523 distinct cases pass; the physical Linux desktop case remains unrun.
+This does not claim physical-input, device or complete application acceptance.
+
+GitHub automatically marked PR35 and PR60–66 merged because their exact heads
+are ancestors of the integration. No branch was deleted. PR67 retains its
+claim-only documentation, PR51/52 their HTTP/Windows-services design changes,
+and PR34 its iOS host tooling; none is qualified merely by inclusion in this
+inventory. The next compiler source `12fd0423` merges the accepted memory
+candidate/report and Windows provider with main; production/test files merge
+without conflicts and independent prerequisite review is clear. Fresh combined
+self-host, affected paired checks, generated checks and the full final matrix
+remain mandatory.
+
+At the 08:47 UTC check, automatic post-merge Android is successful, Windows
+ARM64 is running, and Linux/Mac/Windows standard workflows are queued. The two
+active hosted waves are those post-merge checks and current BTRSmith Linux replay
+`37905070491`; no duplicate dispatch or restart is scheduled. The separately
+reviewed iOS acquisition packet preserves the 100 GB initial Stage 23 admission,
+80 GB operation/final floor, known 7,559,529,352-byte image and unknown extraction
+space. No runtime has been downloaded, imported or booted.
 
 For usable-library status, use the existing native catalog and platform inventory
 as the source of operation IDs and denominators. Each delivery report records
@@ -1813,7 +2315,7 @@ do not repeat a failed access request.
 
 ## Navigation
 
-- [Goals versus status](#goals-versus-status-2026-10-08)
+- [Goals versus status](#goals-versus-status-2026-10-09)
 - [Current status](#current-status-2026-10-07) and [immediate execution order](#immediate-execution-order)
 - [Branch disposition](#branch-disposition-2026-10-07) and [open issue accounting](#open-issue-accounting)
 - [Provider implementation queue](#provider-implementation-queue)
@@ -2721,10 +3223,134 @@ an unwired fixture. Old passing counts do not validate a newly ported tree.
 
 | Platform | Next concrete checkpoint | Actual dependency and evidence |
 |---|---|---|
-| Windows | Recheck the smallest real SDK import, then Toolhelp/process thread count | Historical SDK reads succeeded but both compilers rejected a qualified function type in eight architecture/frontend cases. Recheck with current compilers; request the narrow paired codec repair if still failing. Preserve ABI qualifiers. Use real x64/ARM64 execution. |
+| Windows | Wire and qualify the actual Toolhelp/process thread-count provider | Candidate `3e02deba` passes all 155 paired checks and all four genuine SDK imports through reference/selfhost for x64/ARM64, with exact paired C/plan equality. The original pointer and function-signature defects are repaired. Provider/fixture candidate `25b5b572` includes manifest wiring; actual checks pass generated-source validation and 17 contracts but expose unused enum-tag selections in native bindings. The provider selection is corrected in `e5ec3cf5`; the fixture selection remains under repair. Both-frontend fixture projection, strict Windows C build and real x64/ARM64 execution remain unqualified. |
 | iOS/iPadOS | App-private file create/write/read and relaunch persistence through both frontends | Actual iOS target/provider/cache selection, required nongeneric Foundation ownership/calls, filesystem seam and a real Xcode simulator host. Full UIKit widgets are not prerequisites for this service. |
 | Android | NativeActivity host execution, then app-private file create/write/read and relaunch persistence | NDK/SDK, correct target/provider selection, trusted host-derived roots, filesystem seam and emulator execution. Initial private roots need not wait for the complete Java UI/JNI stack. |
 | Each mobile GUI | Lifecycle, one native button and one editable field with events and safe teardown | Checked UIKit/main-executor adapters on iOS; checked JNI/Looper/callback ownership on Android. GPU embedding and richer collection controls are subsequent milestones. |
+
+The October 9 Toolhelp prerequisite uses the installed genuine Zig 0.16.0
+MinGW-w64 SDK (1,610 pinned headers), the selected reader and 273 Clang resource
+headers. The uninstrumented `6f1b81d9` compiler is authenticated to its successful
+build and exactly matches `5aa232ad` compiler/spec/runtime/stdlib/codegen inputs.
+All four imports terminate at the same pointer-macro rejection in 3.66 seconds;
+all six command groups close, source/tools stay unchanged, and no C compile, link
+or Windows process runs. Independent audit is clear for that limited finding:
+`windows-toolhelp-current-5aa/results/baseline1/independent-audit.json`, SHA-256
+`4192c100734175f01f17becdabd818606c48fd4855b65bb4927d68af7e66fde2`.
+The historical eight-case qualified-function rejection remains a separate record
+whose artifact locator has not been recovered; this fresh earlier rejection does
+not reproduce it. The next repair must preserve typed native semantics rather
+than skipping the sentinel check or inventing another provider ownership model.
+
+The typed pointer-constant repair is implemented in isolated candidate
+`414db329` on `codex/native-pointer-constants`, based on exact `5aa232ad`.
+Its shared ASDL, SDK reader and paired importers/analyzers preserve pointer type,
+target-width value identity, SDK spelling and value-only provenance. Unified
+catalog generation and checks pass with exactly two derived catalogs changed;
+all other 4,505 files remain exact. Generation audit SHA-256:
+`46c2b0b2c268340fb7e376df2741e74f8016b7b394adc1100f8b611c7c57711e`.
+
+The original locked Clang 21 build inputs were restored (71.8 MB); the updated
+reader builds, installs and passes unchanged fixup checks. Initial build attempt
+one compiled but failed because output was nested in its temporary build root;
+R2 separates the directories without disabling fixup. All six groups closed,
+source/tools remained exact, and the successful reader audit is
+`33cc979a9fbbf72bbaf4cbecda2153bb4da82b6999ba6e64aba7159ac0dcb681`.
+
+Reference attempt two passed 35 macro checks but 21 new direct-header checks
+stopped on the fixture's `#pragma once` warning, before their metadata assertions.
+Fixture-only commit `de4009d9` replaces that pragma with an include guard, retaining
+all declarations and strict diagnostics. Attempt three authenticates every one
+of the other 4,506 files as identical to the reader build. It passes all 99
+reference checks (56 macro and 43 codec), with no skips/errors/xfails/xpasses.
+The genuine x64 Toolhelp import now advances beyond the original pointer-macro
+rejection and fails at `native function semantics do not match its signature`.
+ARM64 was not reached in that attempt. Seven owned groups closed, all inputs
+and outputs matched. Independent attempt-three audit:
+`57720140e26c7323bc30b0c88783eef6d93eb79f61128b6e18e87ccc7dbc3375`.
+
+Actual SDK documents captured for both targets subsequently identify the defect:
+all six selected functions on each target have a neutral qualified wrapper over
+a function, with matching parameter counts and the default calling convention.
+This is current raw-document evidence, not a claim to recover the historical
+eight-case artifact. Raw-document audit:
+`69b7942b6462b1c3914a44cef89da3953d1188623295a012445d9a123028390d`.
+Candidate `b04309d8` removes only neutral Clang sugar in the reader; meaningful
+qualifiers, nullability, typedef identity and calling-convention rejection remain.
+The original Clang 21 recipe builds it successfully. Five exact restored inputs
+are protected by temporary task-local GC roots through qualification; no system
+settings or toolchain version change. Reader build audit:
+`4c8f1a259f5ebc6af8a007f8c23974797ea8e81d8b775d21ede4dd83cbb221a4`.
+
+The completed reference qualification reproduces both old-reader failures at the
+exact bare-function assertion, then passes all 103 candidate cases (58 reader/
+macro and 45 codec), with zero skips, errors, xfails or xpasses. Genuine x64 and
+ARM64 Toolhelp imports both produce C and correct target plans without diagnostics;
+the C preserves actual SDK types and sentinel names. All ten owned process groups
+close, with exact source, tools, SDK, readers and retained outputs. Result SHA-256:
+`fa626924fe4b313dc15585e2b19a84fd492160f3cb3edfb7dac2e65b523458a4`.
+Independent audit SHA-256: `bb63f5bd14688616daf520344941029e753e80e1f50dc0dacf20f77350c6f809`.
+The fresh MacOSMain self-hosted compiler now builds with the original Clang 21
+strict-C11/O2 recipe. Paired qualification executes all 155 selected cases:
+92 codec and 62 macro cases pass, while one const-discard diagnostic comparison
+fails. Both frontends reject the invalid conversion and publish no output;
+the reference compiler uses its established generic assignment diagnostic and
+the self-hosted compiler its established const-depth diagnostic. The four genuine
+SDK projections are not reached. Result SHA-256:
+`2516f6ed5cf6b8d9c518bcb90c71d8703ae5aee460665e3bc9f2f97b647be3b6`;
+independent audit `6fab672a4567a1a0b12f8572e431ec618d88e9e02b524be14f9005b603d46f7a`
+verifies exact inputs, all 155 identities, retained outputs and eight closed groups.
+The narrow fixture correction `3e02deba` now requires each frontend's exact
+established diagnostic and compares imported constants with ordinary same-type
+const pointers, retaining all six rejection and no-output checks. Production
+compiler bytes are unchanged. The corrected run authenticates and reuses the
+fresh binary, then passes all 155 paired checks and all four genuine SDK imports
+with empty diagnostics and byte-identical C/plans per target. Result SHA-256:
+`a32d159f2e60807cfed9d36073630fac1f0cd8ef41dff29742e684152eae503a`;
+independent audit `09b252f0e23e39c1115cbea02fe6e1810d3cc891aa35692b099d71dd9fd47948`
+verifies 79 static pins, nine tools, 183 dynamic inputs, exact three-file test/report
+delta, SDK/resource inventories, 22 logs and 11 closed groups. This establishes
+paired Windows SDK projection, not native Windows link/runtime behavior.
+
+The actual ProcessThreads provider and native fixtures are committed through
+`25b5b572` and independently source-reviewed. It uses genuine SDK declarations, checks returned record extent
+before owner-PID access, resets dwSize per call, filters the current PID, guards
+count overflow and attempts exactly one handle close while preserving enumeration
+errors. Public count()/minus-one behavior and Windows worker pools are unchanged.
+The final manifest fragment and real-thread/fault fixtures are present. They check
+three held threads and restoration, real foreign-process records, snapshot errors,
+short records and cleanup. Overflow remains structurally checked. The explicit
+driver preserves emitted C through two authenticated project-header VFS mappings;
+actual projection now runs, while VFS lookup, strict native build and Windows
+execution remain pending. Both bounded attempts pass generated-source validation
+and all 17 provider/manifest/index contracts. The first x64 reference projection
+rejects an unused `BtrcThreadEntryExtent` enum tag; source `e5ec3cf5` removes only
+that selected name while retaining the exact SDK offsetof/sizeof expression and
+constant. The fresh attempt reaches the fixture and rejects its unused
+`ProcessThreadFault` tag. Neither run reaches C/plan output; the other three
+projections remain unrun. The second attempt closes all eight process groups and
+leaves source/tools unchanged. First audit:
+`7ec99e4ff1a74750ec8d2d98deeedc5f7ca6009801526061310886a31945386b`.
+The remaining fixture selection is corrected in 0799ae3d, with no change to
+headers, enumerators, error cases or native assertions. Fresh attempt 3 passes
+generated-source validation, all 17 contracts and all four SDK projections with
+empty diagnostics and byte-identical paired C/plans. Result
+ad9b798d0af36b895b56a6b673ae3e783263b99e780afd6bfc03d6e18d2b0bff
+and independent audit
+30083d132418900e735b1c78e2b4857252401a6d7c51a71af9381f2b79662ae4
+verify 283 inputs, 4,514 source files, 4,618 workspace entries and 11 closed
+process groups. The emitted provider retains the SDK-derived extent, overflow
+guard and error-before-close order. Strict Windows build and native execution
+remain the next acceptance. The original 17+4 denominator and bounds are unchanged.
+A separate driver-only follow-up `bd50f377` reuses the established Job Object
+process runner and native executor for process cleanup, PE/hardware validation
+and retained raw results, preserving provider/fixture/header bytes and 180/90-second
+limits. Repository-config formatting and independent source review passed; actual
+native execution remains pending. The original
+WindowsMain SDK-scanning process-composition gap remains explicit; supported-host
+projection followed by actual Windows x64/ARM64 execution must be distinguished
+from claiming SDK scanning on a Windows-hosted compiler.
+
 
 Reuse the existing stdlib shell fixture as a small conformance app: window,
 button, editable field, scrolling, clipboard, visibility and teardown. Attach
@@ -3907,8 +4533,8 @@ Lane parallelism in this bucket depends on D6(c). Without it, one bounded contra
   - `qualification-signing-accounts`
   - `tooling-ios-physical-devices`
   - `tooling-android-physical-devices`
-- **Prerequisites (D8).**
-  - ≥150 GB free or an external SSD.
+- **Prerequisites (D2/D8).**
+  - ≥100 GB free before this stage, with no local Windows VM, as the current D2/D8 decisions require. The former 150 GB estimate included local VM provisioning and is superseded.
   - Android SDK licences accepted by you.
   - Re-check free disk before each download.
 - **Exit.**
