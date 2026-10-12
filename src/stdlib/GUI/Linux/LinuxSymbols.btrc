@@ -9,7 +9,7 @@ import Library.GUI.Linux.LinuxPainter;
  * centered in a square of `size` points at (x, y) top-left. */
 class LinuxSymbols {
 	class int symbol(string name) {
-		Vector<string> names = ["gearshape", "chevron.left", "chevron.right", "play.fill", "pause.fill", "stop.fill", "waveform", "folder", "paintbrush", "metronome", "repeat", "speaker.wave.2.fill", "speedometer", "line.3.horizontal.decrease", "xmark", "magnifyingglass", "tuningfork", "quote.bubble"];
+		Vector<string> names = ["gearshape", "chevron.left", "chevron.right", "play.fill", "pause.fill", "stop.fill", "waveform", "folder", "paintbrush", "metronome", "repeat", "speaker.wave.2.fill", "speedometer", "line.3.horizontal.decrease", "xmark", "magnifyingglass", "tuningfork", "quote.bubble", "speaker.slash.fill"];
 		if (name == null) { return -1; }
 		for (int index = 0; index < names.len; index++) { if (names.get(index).equals(name)) { return index; } }
 		return -1;
@@ -65,12 +65,16 @@ class LinuxSymbols {
 			LinuxSymbols.arc(painter, cx, cy, r * 0.65, 3.55, 6.05, stroke, color);
 			painter.triangle(cx + r * 0.85, cy - r * 0.15, cx + r * 0.35, cy - r * 0.15, cx + r * 0.6, cy - r * 0.6, color);
 			painter.triangle(cx - r * 0.85, cy + r * 0.15, cx - r * 0.35, cy + r * 0.15, cx - r * 0.6, cy + r * 0.6, color);
-		} else if (symbol == 11) {  // speaker.wave.2.fill
+		} else if (symbol == 11 || symbol == 18) {  // speaker.wave.2.fill / speaker.slash.fill
 			painter.fillRect(cx - r * 0.85, cy - r * 0.3, r * 0.4, r * 0.6, color, 1.0);
 			painter.triangle(cx - r * 0.5, cy - r * 0.3, cx - r * 0.05, cy - r * 0.75, cx - r * 0.05, cy + r * 0.75, color);
 			painter.fillRect(cx - r * 0.5, cy - r * 0.3, r * 0.45, r * 0.6, color, 0.0);
-			LinuxSymbols.arc(painter, cx - r * 0.05, cy, r * 0.4, -0.9, 0.9, stroke, color);
-			LinuxSymbols.arc(painter, cx - r * 0.05, cy, r * 0.75, -0.9, 0.9, stroke, color);
+			if (symbol == 11) {
+				LinuxSymbols.arc(painter, cx - r * 0.05, cy, r * 0.4, -0.9, 0.9, stroke, color);
+				LinuxSymbols.arc(painter, cx - r * 0.05, cy, r * 0.75, -0.9, 0.9, stroke, color);
+			} else {
+				painter.line(cx - r * 0.8, cy - r * 0.8, cx + r * 0.8, cy + r * 0.8, stroke, color);
+			}
 		} else if (symbol == 12) {  // speedometer
 			LinuxSymbols.arc(painter, cx, cy + r * 0.15, r * 0.8, 3.3, 6.1, stroke, color);
 			painter.line(cx, cy + r * 0.15, cx + r * 0.5, cy - r * 0.45, stroke, color);
