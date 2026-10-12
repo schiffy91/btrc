@@ -20,7 +20,7 @@ import Library.Vector;
 AudioDeviceStatus coreAudioStatus(OSStatus status) {
 	if (status == 0) { return AUDIO_DEVICE_OK; }
 	if (status == kAudio_ParamError) { return AUDIO_DEVICE_INVALID_ARGUMENT; }
-	if (status == kAudioHardwareBadDeviceError) { return AUDIO_DEVICE_NOT_FOUND; }
+	if (status == kAudioHardwareBadDeviceError || status == kAudioHardwareBadObjectError) { return AUDIO_DEVICE_NOT_FOUND; }
 	if (status == kAudioUnitErr_FormatNotSupported || status == kAudioDeviceUnsupportedFormatError || status == kAudioHardwareUnsupportedOperationError) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
 	if (status == kAudioUnitErr_Unauthorized || status == kAudioDevicePermissionsError) { return AUDIO_DEVICE_PERMISSION_DENIED; }
 	if (status == kAudioUnitErr_CannotDoInCurrentContext || status == kAudioHardwareIllegalOperationError) { return AUDIO_DEVICE_BUSY; }

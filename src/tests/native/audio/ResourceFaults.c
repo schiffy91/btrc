@@ -27,6 +27,7 @@ OSStatus resourceRead(AudioObjectID object, const AudioObjectPropertyAddress* ad
     (void)qualifier_size; (void)qualifier;
     assert(object == 11);
     if (scenario == 5) { return kAudioHardwareBadDeviceError; }
+    if (scenario == 14) { return kAudioHardwareBadObjectError; }
     switch (address->mSelector) {
         case kAudioDevicePropertyDeviceUID: {
             CFStringRef value = CFStringCreateWithCString(NULL, scenario == 6 ? "replaced" : "device-a", kCFStringEncodingUTF8);
