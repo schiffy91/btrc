@@ -1563,3 +1563,34 @@ outer GUI grouping, all ledger assertions, explicit child argv and deadlines.
 Original hosted unit evidence is retained; focused qualification passed with
 exact two baseline failures and candidate84 PASS, zero skips/errors. See report.
 Ordinary checkout/index, PLAN and workflow source remain untouched.
+
+
+## 2026-10-12 CX-LINUX-MUTED-SPEAKER: independent provider regression
+
+The harmonization parent owns `codex/linux-muted-speaker-36b` from exact
+`36b647f079ed7338e51b119a11046eb222dd4877`. Owned paths are
+`src/stdlib/GUI/Linux/LinuxSymbols.btrc`, new
+`src/tests/native/gui/linux/LinuxMutedSpeaker.btrc`, the appended
+`test_linux_muted_speaker` test in
+`src/tests/python/test_native_linux_providers.py`, and
+`docs/workstreams/linux-muted-speaker.md`. WORKSTREAMS changes only for this
+append-only claim. The eventual final fragment updates the existing
+`linux-native-reader-covered` node list in
+`src/tests/fixtures/expected-skips/{macos,macos-hosted}.json`; these are
+integrator-owned data, not held paths. No Linux skip allowance is proposed.
+
+This is the active successor preparation for the same parent's unpublished
+`773287e4523fe05cf03ba91e8b28f6b92cc069eb` donor; that ref and its evidence
+remain intact. It extracts the Linux glyph without the old fixture or a
+portable vocabulary change. PR72 continues to own LinuxGUIControls unchanged,
+and PR67 retains IButton. Supporting the existing SF Symbols spelling
+`speaker.slash.fill` on Linux uses the current IButton method; no public
+interface or portable-minimum guarantee changes.
+
+The focused native fixture must show the unchanged provider's actual
+unavailable-symbol failure after an audible-symbol control, then qualify
+audible/muted/restored rendered pixels, equal fit, silent setters, disabled
+activation refusal and exactly one queued SDL click through both frontends
+and sanitizer modes. Preserve the existing 180-second native bound, actual
+Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
+is not the final hosted gate or complete BTRSmith/Linux acceptance.
