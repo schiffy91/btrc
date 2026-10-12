@@ -203,7 +203,10 @@ def test_pointer_index_store_does_not_mark_pointer_object_modified():
         condition=_setjmp_condition(),
         then_block=IRBlock(stmts=[IRExprStmt(IRBinOp(pointee, "=", IRLiteral("1")))]),
     )
-    module = _module(pointer, branch)
+    # Addressed, so the pointer lives in memory and only a modification of
+    # the pointer object itself could qualify it.
+    alias = IRVarDecl(CType("int**"), "alias", IRAddressOf(IRVar("pointer")))
+    module = _module(pointer, alias, branch)
 
     ExceptionLowerer.apply_setjmp_volatility(module)
 
@@ -287,8 +290,12 @@ def test_static_shadow_blocks_outer_automatic_qualification():
         condition=_setjmp_condition(),
         then_block=IRBlock(stmts=[IRAssign(IRVar("value"), IRLiteral("1"))]),
     )
+    # Addressed, so the outer object lives in memory and only a modification
+    # through its own name could qualify it.
+    alias = IRVarDecl(CType("int*"), "alias", IRAddressOf(IRVar("value")))
     module = _module(
         outer,
+        alias,
         IRBlock(stmts=[shadow, branch]),
     )
 
