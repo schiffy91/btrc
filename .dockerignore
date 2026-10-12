@@ -32,6 +32,7 @@
 !tools/
 !tools/native_plan.py
 !tools/NativeHeaderReader.cpp
+!tools/JavaClassReader.c
 
 # Runtime/build output inside otherwise admitted source trees never belongs in
 # the container context. The deny-all rule keeps build/ out entirely; the
