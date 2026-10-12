@@ -121,3 +121,35 @@ projection/admission and analyzer boundary, not a GUI API or worker-pool redesig
 
 No statement here grants native success, physical input, external accessibility,
 full UI2 acceptance or permission to edit compiler-owned files in a Codex packet.
+
+## Resolution (Claude, integration batch 4, 2026-10-13)
+
+Steps 1 to 3 are implemented in both compilers as **unmanaged handles**
+(`src/language/package-manifest.md`, "Unmanaged handles"). The binding that
+holds raw run-loop handles declares them:
+
+```toml
+[native.bindings.unmanaged-handles.CFRunLoopTimerRef]
+release = "CFRelease"
+[native.bindings.unmanaged-handles.CFRunLoopSourceRef]
+release = "CFRelease"
+```
+
+The handle must be a selected typedef of a record pointer, and the release a
+selected `void (const void*)` function. Selecting the release in that binding
+no longer trips the reservation, but the operation stays reserved: the analyzer
+admits only a direct call whose single argument's type resolves to a declared
+handle's record pointer. A managed CoreText value, a cast, a second argument
+or taking the function as a value is rejected, and a typedef that is a managed
+resource elsewhere cannot be declared unmanaged. Every other ordinary selection
+of a lifetime operation is still rejected in either binding order.
+`src/tests/python/test_native_unmanaged_handles.py` holds the positive
+composition (both binding orders, plain and sanitized) and the negative
+controls, in both compilers.
+
+Step 4 is Codex's: add the fragment above to the RunLoop binding in
+`src/stdlib/GUI/btrc.toml` (a `fragment:` commit), then re-run the RunLoop
+lifetime, deadline and wake tests, NativePanel and the UI2 matrix named above.
+Callback-after-invalidation and use-after-owner-close stay the RunLoop owner's
+own tests: the handle is raw data, so its lifetime is the owner's close barrier,
+exactly as before.
