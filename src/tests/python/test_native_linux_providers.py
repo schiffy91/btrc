@@ -297,3 +297,22 @@ def test_linux_gui_unsupported_target(target, tmp_path):
     )
     assert result.returncode != 0
     assert "provider" in result.stderr.lower()
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.linux_gui
+def test_linux_muted_speaker(tmp_path, request, frontend, sanitized):
+    require_linux_reader()
+    if error := linux_display_error():
+        pytest.skip(error)
+    _build_and_run(
+        ROOT / "src/tests/native/gui/linux/LinuxMutedSpeaker.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        "PASS: linux muted speaker",
+        timeout=180,
+        data_root=request.getfixturevalue("gui_provider_root"),
+    )
