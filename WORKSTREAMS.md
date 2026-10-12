@@ -1879,3 +1879,23 @@ from exact `5be08004`: compose the existing owned paths above from qualified
 compiler, runtime, generated, CI or harness changes. This is preparation for
 final-tree qualification; prior focused evidence is scoped in the three reports.
 Keep the Audio native selection as the final `fragment:` commit.
+
+
+## 2026-10-12 LSP feature/validation contention test
+
+Execution_review owns `src/tests/lsp/test_server_hardening.py`, this claim and
+`docs/workstreams/lsp-contention.md` on `codex/lsp-contention-5be`, from frozen
+5be08004. Preserve the real-analysis/cache contract and five-second completion
+bound while observing actual lock contention and retiring the worker on every
+assertion path. No LSP/compiler production, workflow or harness changes. The
+actual hosted timeout remains retained; focused tests do not replace final CI.
+
+
+## 2026-10-12 PR70 qualified repair follow-up
+
+CX-HARMONIZE-02 carries the qualified compact-IR test, CoreAudio and LSP
+contention repairs on its existing draft branch. Donor test/provider bytes are
+preserved exactly; the Audio SDK selection remains the final fragment. Full
+final-tree CI is required. This does not authorize compiler/runtime/generated/CI
+edits or main integration under the current Codex role. UI2 and diagnostic
+Player fixtures remain separate.

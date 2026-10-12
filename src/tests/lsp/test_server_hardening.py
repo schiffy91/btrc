@@ -146,19 +146,62 @@ def test_live_empty_buffer_replaces_stale_nonempty_snapshot(monkeypatch):
 
 
 def test_uncached_feature_compute_serializes_with_validation(monkeypatch):
-    _install(monkeypatch, SAMPLE)
-    srv._analysis_cache.pop(URI, None)
+    server = BtrcLanguageServer(debounce_seconds=0)
+    # Real analysis and cache coverage remain outside the synchronization budget.
+    analyzed = server.analyzer.analyze(URI, SAMPLE)
+    assert analyzed.ast is not None and analyzed.analyzed is not None
+    lock = threading.Lock()
+    contended = threading.Event()
+    entered = threading.Event()
     done = threading.Event()
+    results = []
+    errors = []
+
+    class ObservedLock:
+        def __enter__(self):
+            if not lock.acquire(blocking=False):
+                contended.set()
+                assert lock.acquire(timeout=5), "validation lock was not released"
+            return self
+
+        def __exit__(self, *_exc):
+            lock.release()
+
+    def analyze(uri, source):
+        entered.set()
+        assert (uri, source) == (URI, SAMPLE)
+        assert lock.locked()
+        return analyzed
+
+    monkeypatch.setattr(server, "_validate_lock", ObservedLock())
+    monkeypatch.setattr(server.analyzer, "analyze", analyze)
 
     def compute():
-        srv_state._compute_uncached(URI, SAMPLE)
-        done.set()
+        try:
+            results.append(server._compute_uncached(URI, SAMPLE))
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            done.set()
 
-    with srv_state._validate_lock:  # a validation is "running"
-        t = threading.Thread(target=compute, daemon=True)
-        t.start()
-        assert not done.wait(0.15)  # blocked behind the pipeline lock
-    assert done.wait(5)  # released -> completes
+    worker = threading.Thread(target=compute)
+    try:
+        with lock:  # a validation owns the same real lock
+            worker.start()
+            assert contended.wait(5), "feature request did not contend for validation"
+            assert not entered.is_set()
+            assert not done.wait(0.15)
+        assert done.wait(5)
+    finally:
+        # Release the holder even on assertion failure, then retire the worker
+        # before monkeypatch restores either dependency.
+        worker.join(timeout=5)
+        assert not worker.is_alive(), "feature request worker did not retire"
+    assert not errors, errors
+    assert entered.is_set()
+    assert results == [analyzed]
+    assert server._analysis_cache[URI] is analyzed
+    assert server._good_analysis_cache[URI] is analyzed
 
 
 # --------------------------------------------------------------------------- #
