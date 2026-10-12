@@ -109,6 +109,21 @@
         "linux-devcontainer"
       ],
       "note": "The lifecycle simulator compiles the Android C host and executes its POSIX fork/thread/file path. It is a local lifetime regression, not Android emulator qualification."
+    },
+    {
+      "id": "linux-process-thread-read-errors",
+      "files": [
+        "src/tests/python/test_linux_process_threads.py"
+      ],
+      "nodes": [
+        "*::test_linux_process_thread_count_read_errors*"
+      ],
+      "reason": "^requires native Linux /proc/self/task and dirent errno$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "Real Linux ProcessThreads directory-read failure and closure, paired plain/sanitized native fixture."
     }
   ]
 }
