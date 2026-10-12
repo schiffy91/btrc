@@ -2,41 +2,174 @@
 
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-12**. Read [AGENTS.md](AGENTS.md) first for architecture and
-development rules.
+Updated **2026-10-12** for the owner's priorities, five-platform BTRSmith scope
+and execution handoff. Read [AGENTS.md](AGENTS.md) first for architecture and
+development rules. Detailed evidence below retains its original dates; this
+planning update does not assert new implementation or qualification results.
 
 This is the single active plan. It combines the former CLAUDE.md roadmap,
 CODEX.md provider queue, and PLAN.md compatibility index. Stage numbers, packet
 IDs, numeric budgets and acceptance criteria retain their meaning. CLAUDE.md and
-CODEX.md are entry points with compatibility anchors, not independent queues.
+CODEX.md are role entry points; any retained roadmap copies or compatibility
+anchors there are subordinate to this plan's current priorities, not independent
+queues.
 The original `CX-PLAN-01` plan-split introduction remains historical provenance;
 D29 governs the consolidated queue. [WORKSTREAMS.md](WORKSTREAMS.md) retains file claims and the coordination protocol;
 [the integration record](docs/design/claude-integration-record.md) retains dated
 batch evidence. The frozen [reference](docs/design/plan-reference.md) and every
 `ref:N` line citation remain unchanged. This document has no effort or calendar
-estimates: order follows demonstrated dependencies and payoff.
+estimates: order follows the owner's stack rank and demonstrated dependencies.
+
+## Owner priorities and execution handoff (2026-10-12)
+
+**Correctness, then cross-platform capability, then performance.** A correct
+compiler, usable standard library, native GUI and working BTRSmith across
+**macOS, Linux, Windows, iOS/iPadOS and Android** are the delivery priority, even
+while compilation is slow or memory use is high. All five platform families are
+in scope for BTRSmith as well as for the compiler and library. macOS/Linux MVP
+milestones remain useful evidence; they are not the end of the product scope.
+
+The owner approved the stack rank below and requested a plan that another capable
+agent can execute with judgment. This update supersedes older performance-first
+bucket ordering, fixed "next wave" assignments, and the macOS/Linux-only BTRSmith
+destination wherever they conflict. Existing stage numbers and packet IDs remain
+stable references, not a mandatory execution sequence. Architecture, correctness,
+parity, ownership, native-evidence requirements and acceptance thresholds remain
+in force. The frozen reference remains unchanged.
+
+This is an execution handoff, not an assignment to the agent that edited the
+document, a promise that this chat will execute it, or a claim that implementation
+is currently running. The executing agent or team must establish its actual role,
+current file claims and available authority. Historical session-specific grants
+do not automatically transfer to a new executor.
+
+### Approved stack rank
+
+| Rank | Outcome | What advances the goal |
+|---|---|---|
+| **1** | **Fix correctness defects that block platforms.** | Remove demonstrated compiler, runtime and interoperability blockers to native platform work. Examples include Windows ownership/callbacks, UIKit lifecycle integration and Android JNI/callback handling. Choose from current evidence; do not assume every historical blocker still exists or require all unrelated compiler work to finish first. |
+| **2** | **Make the core standard library usable everywhere.** | Deliver platform-native storage and persistence, Unicode paths, networking, asynchronous work and reliable resource cleanup on all five platform families. Use existing shared APIs and OS-appropriate semantics. A real operation through the provider advances this rank; a design or test host alone does not. |
+| **3** | **Deliver working native GUI on every platform.** | Deliver real windows/activities, controls, text editing, input/focus, events, rendering, accessibility and safe teardown using checked native bindings. Qualify the affected behavior through both compilers on the actual target. A fixture shell or one passing control remains a bounded milestone. |
+| **4** | **Make BTRSmith work on every platform.** | Prove platform-appropriate library import, browse/search, playback, settings, persistence and restart/shutdown journeys using the current qualified compiler and library. Desktop and mobile interaction may differ; preserve the intended user outcomes and document actual OS constraints. |
+| **5** | **Complete platform coverage and product qualification.** | Close the remaining standard-library and GUI feature matrix, packaging/installation, lifecycle/restoration, audio/GPU behavior, and required OS/device coverage. Distinguish implemented, target-tested, integrated and fully qualified capabilities. Partial demonstrations do not close a platform. |
+| **6** | **Meet compiler and application speed/memory targets.** | Optimize the real workload matrix against the retained budgets, including compiler edit median ≤5 s/p95 ≤8 s, cold transpilation ≤10 s and peak footprint ≤1.5 GiB. Keep all other compile, application, audio, latency and memory targets visible until their original acceptance passes. |
+
+**Integrate qualified changes throughout all six ranks.** Reconcile existing work
+and dependencies, qualify the actual combined tree and land through the authorized
+integrator. Do not postpone all integration until every platform is finished, or
+merge experiments and evidence-only branches mechanically. Report working branch
+capability separately from capability available on main and in a pinned product.
+
+### How the executing agent should choose work
+
+Use the rank to choose valuable outcomes, not to impose a waterfall. A platform
+provider can advance while another platform's compiler blocker is being repaired.
+Do not require all of rank 1 or every platform at rank 2 to finish before starting
+an independently feasible rank 3 or 4 slice. Prefer changes that remove a shared
+blocker or deliver a missing user-visible capability; avoid repeatedly polishing
+the most mature platform while Windows or mobile implementation stays untouched.
+
+At the start of an execution run, reconcile current source, claims and the relevant
+existing evidence. Then select a bounded deliverable and explain its rank, target
+platforms, dependency and observable success condition. The agent chooses the
+implementation approach, task decomposition, order within a rank, useful parallel
+work and test strategy within the existing architecture and gates. The examples
+here are leads to verify, not preassigned patches or an instruction to redo work.
+
+When a dependency blocks a slice, name the exact missing behavior, its evidence
+and the owner/action needed to unblock it. Pursue another valuable independent
+slice where possible. Do not substitute speculative wrappers, weaken shared
+contracts, or fill the wait with repeated broad audits. Respect current ownership
+and access constraints; make their effect on delivery explicit rather than
+silently consuming effort on peripheral work.
+
+Performance work moves ahead only when a demonstrated resource or timing problem
+prevents building, launching or functioning, or when it is necessary to repair a
+correctness defect. Merely missing an optimization target is not a prerequisite
+for unrelated platform implementation. An actual functional blocker should get
+the smallest sound repair that restores progress before broader optimization.
+Keep failed budgets and required deadlines visible; this ordering neither raises
+them nor converts failed acceptance into a pass. Functional delivery can advance
+while performance acceptance remains open, but full qualification cannot be
+claimed until its applicable criteria pass.
+
+### Communication and progress reporting
+
+**Over-communicate decisions, results and blockers in plain language.** The owner
+should not have to infer whether work is running, waiting, blocked or stopped.
+Communication should make the work reviewable without requiring permission for
+routine decisions that are already authorized.
+
+- Before a work unit, state the intended capability, affected platforms, why it
+  is the highest-value available work, and what result will prove it.
+- During active execution, give regular concise updates. Explain discoveries,
+  material changes of approach, unexpected failures, blocked dependencies and
+  work that has actually started or completed. Before a long build or gate,
+  explain what it establishes and how progress will be observed; report the
+  result when it ends. Avoid hours of unexplained silence, repetitive unchanged
+  status messages and extra polling solely to manufacture updates.
+- Before an expensive rerun or wider agent wave, explain the evidence gap it
+  resolves and why the existing results cannot answer it. Use judgment within
+  current authorization; this explanation is not a new approval ritual.
+- At each delivery or handoff, report **goal/rank → platform and capability →
+  previous state → result and evidence → integration state → remaining blocker
+  and next action**. Say explicitly when no product capability advanced.
+- Keep an executive view for all five platform families and BTRSmith. Show
+  working capabilities, missing capabilities and blockers; retain exact source
+  and evidence links in the underlying rows. Track performance actuals versus
+  targets separately so they do not take over the platform-delivery narrative.
+- State whether work is continuing and what is actually active. If execution
+  stops, record the reason and a concrete handoff. Never imply that an idle agent,
+  prepared script, draft PR or saved plan is actively implementing the product.
+
+### Evidence, quota and handoff discipline
+
+Use subagents when an independent implementation or targeted review will improve
+delivery. Choose the smallest useful team for the actual work; no fixed swarm,
+model switch or repeated plan review is required. One owner holds a shared file
+at a time. Reuse valid source-matched evidence, existing test hosts and qualified
+toolchains. Re-run what changed or remains unproved, and preserve every required
+final combined-tree and native gate. Independent review should resolve concrete
+risks in a patch or result rather than repeatedly inventorying the whole project.
+
+Test counts, generated reports, branches opened and hours spent are supporting
+information. The main progress measures are **capabilities delivered, platform
+blockers removed, and qualified changes landed**. Maintain implemented revision,
+tested revision/environment, merged revision and remaining acceptance separately;
+never promote simulator/emulator or hosted evidence into physical-device proof.
+
+Keep PLAN.md current as outcomes and blockers change, linking detailed evidence
+instead of copying entire logs. Preserve the existing stage/packet definitions,
+native catalog, denominators, numeric budgets and historical failure evidence.
+At handoff, leave the current branch/commit, changed paths, meaningful checks and
+failures, any genuinely live process, and the next bounded action. Another agent
+should be able to continue without repeating the investigation or assuming that
+the document's author will return to execute it.
+
+<a id="goals-versus-status-2026-10-08"></a>
 
 <a id="goals-versus-status-2026-10-08"></a>
 
 ## Goals versus status (2026-10-12)
 
-The owner's goals are a fast compiler across real build workloads and a usable
-standard library with native GUI on macOS, Linux, Windows, iOS/iPadOS and
-Android. BTRSmith is the real application used to prove the compiler and library.
-Report progress against those outcomes: measured benchmark versus target,
-working library features per platform, and completed application journeys.
+The owner's priority is correct cross-platform operation: the compiler, standard
+library, native GUI and BTRSmith on macOS, Linux, Windows, iOS/iPadOS and Android.
+Speed and memory targets remain required later outcomes under the
+[approved stack rank](#approved-stack-rank). The Goal 1/2/3 labels below retain
+their historical topic IDs; they are not priority order. Report working library
+features and completed application journeys per platform, alongside separately
+tracked benchmark actuals versus targets.
 Branch consolidation, test counts and environment repairs support those goals;
 they do not by themselves demonstrate faster compilation or delivered GUI features.
 
-**Overall:** the compiler is substantially implemented and has broad correctness
-evidence. Final performance acceptance is open. Desktop GUI shells and selected
-features work, while the complete desktop library and Windows/mobile providers
-remain incomplete. The qualified compiler and desktop GUI integration is on main
-`36b647f0` after PR68 merged on October 9 at 08:31 UTC. The measured compact-IR/flow
-memory improvement and new Windows process/thread provider are separate candidates
-with focused combined qualification passed and final hosted gates outstanding. There is no
-defensible overall percentage complete: the remaining items have different scope
-and several acceptance measurements are missing.
+**Overall, checked for this update:** main `36b647f0` contains the consolidated
+plan and the qualified compiler-reuse, native-build and GUI integration from
+[PR68](https://github.com/schiffy91/btrc/pull/68). This is not completion of the
+five-platform goals. Complete providers, BTRSmith journeys and final performance
+acceptance remain open. The detailed dated snapshots below preserve prior results
+and pending work; recheck changed source and claims before assigning execution.
+There is no defensible overall percentage complete across differently scoped
+capabilities and missing acceptance evidence.
 
 ### Delivery checkpoint (October 12, Europe/London)
 
@@ -1453,6 +1586,15 @@ work. Each claim needs an actual application-facing operation on that platform.
 
 ### Goal 3: prove the compiler and library in BTRSmith
 
+**Scope update, 2026-10-12:** BTRSmith must work and be qualified on macOS, Linux,
+Windows, iOS/iPadOS and Android. Earlier macOS/Linux MVP evidence and packet names
+remain intermediate milestones. Extend the existing journey and release matrix
+to all five platform families with appropriate desktop/mobile interactions and
+explicit OS constraints; do not treat Windows or mobile as optional follow-up.
+Application integration follows available qualified providers without waiting
+for compiler optimization targets. Full numeric acceptance remains required and
+is reported separately from functional progress.
+
 BTRSmith main was rechecked at `adb3276f`; its
 [pinned compiler](https://github.com/schiffy91/btrsmith/blob/adb3276f93cbeb7b0c2ab79ab34e366c9eef5f5c/flake.lock)
 remains `05ec9cb7`. The pin update and current application requalification are
@@ -2106,8 +2248,11 @@ the7.56GB asset plus extraction under the required floor.
 
 ## Outcome execution register
 
-This register connects the goals to the next deliverable. Owners below are
-responsible roles, not claims that a builder is currently running. The October 7
+This retained register connects earlier evidence to the goals. Its rows describe
+the dated October 7–9 state and must be reconciled with newer evidence when an
+executor takes up work; their ordering and old next actions do not override the
+[approved stack rank](#approved-stack-rank). Owners below are responsible roles,
+not claims that a builder is currently running. The October 7
 review used three read-only subagents (performance, platform/library and execution)
 plus the main integrator. The October 8 implementation wave has produced the
 reviewed token-lifetime candidate rebased at `71352c50`, the qualified Linux
@@ -2123,7 +2268,7 @@ changes; historical test totals alone do not advance its status.
 | Useful desktop library improvement | Final source `a29ab3e3` passes Linux native-GUI, X11 and Wayland plus Mac native GUI; the identical tree is merged at main `36b647f0` | Provider repair owner; main integrator qualifies | Physical-desktop coverage and remaining UI2/features/accessibility stay open; preserve declared host limits. |
 | UI2 events, executor and lifecycle on desktop | macOS source73f636e8 passes all 88 affected native cases: 48 lifecycle plus 40 focused, both compilers and sanitizers. Independent audit is clear; scope-exit, original error precedence and stopped-loop state defects are repaired | Application, text-field and range/selection owners | Integrate the exact qualified provider dependencies and narrow native manifest; complete remaining controls/platform capabilities and final combined-tree gates. The source is not yet merged. |
 | Windows and mobile application-facing services | Windows source `3e480fcd` passes all four original process/thread native cells on real x64/ARM64 in `37904145886`, independently audited `b957d11d`. Historical Android and iOS fixture results remain scoped | Platform slice owners | Fresh combined compiler/provider gates are required. Mobile widgets/lifecycle/persistence and oldest-installable iOS runtime remain open. Reviewed acquisition packet is held; no runtime acquired. |
-| BTRSmith macOS/Linux MVP on the current stack | Mac album/Settings fixes are qualified; latest Linux run `37905070491` completed successfully and includes installed-app launches, with independent artifact/visual audit `e759a38b` clear for the selected journeys. No-folder Player diagnostic passes catalog readiness then times out waiting for song | BTRSmith owner and integrator | Identify and repair Player readiness/cleanup and native mute, then complete broader screen/audio journeys, timing budgets and the actual compiler pin. |
+| BTRSmith on all five platforms (retained macOS/Linux milestone evidence) | Mac album/Settings fixes are qualified; latest Linux run `37905070491` completed successfully and includes installed-app launches, with independent artifact/visual audit `e759a38b` clear for the selected journeys. No-folder Player diagnostic passes catalog readiness then times out waiting for song | BTRSmith owner and integrator | Identify and repair Player readiness/cleanup and native mute, then complete broader screen/audio journeys, timing budgets and the actual compiler pin. |
 | One qualified implementation on main | PR68 is merged at `36b647f0` after final standard/dedicated gates; eight included PRs reconciled. Next combined source `3694ce58` passes fresh build, 200 focused cases, native driver, four SDK projections and static checks | Main integrator | Repair retained post-merge Mac reader-lifetime/setup failures and complete the next exact-tree hosted/native matrix. Other UI2/iOS/design branches remain separately unqualified. |
 
 **October 9, 08:47 UTC integration update:** [PR68](https://github.com/schiffy91/btrc/pull/68)
@@ -2315,7 +2460,9 @@ do not repeat a failed access request.
 
 ## Navigation
 
-- [Goals versus status](#goals-versus-status-2026-10-09)
+- [Owner priorities and execution handoff](#owner-priorities-and-execution-handoff-2026-10-12)
+- [Approved stack rank](#approved-stack-rank) and [communication expectations](#communication-and-progress-reporting)
+- [Goals versus retained status](#goals-versus-status-2026-10-09)
 - [Current status](#current-status-2026-10-07) and [immediate execution order](#immediate-execution-order)
 - [Branch disposition](#branch-disposition-2026-10-07) and [open issue accounting](#open-issue-accounting)
 - [Provider implementation queue](#provider-implementation-queue)
@@ -2820,47 +2967,52 @@ versioned; do not flatten retired or unavailable rows into passing rows.
 
 ## Immediate execution order
 
-This is the current continuation queue. Initial inventory and plan consolidation
-are done on the candidate branch; main publication and final implementation
-qualification remain open. Recheck changed heads, claims and host capacity rather
-than restarting completed work within Stages 1–4 or repeating entire audits.
+The [approved stack rank](#approved-stack-rank) is the active ordering. This
+section is a handoff procedure for an authorized executor, not a fixed assignment
+to this document's author or a claim that old runs remain active.
 
-1. **Finish the in-flight qualification and reconcile one candidate.** Retain
-   the running `3974d47b` Mac unit checks; repair the X11 diagnostic artifact
-   export and rerun it before choosing a provider or isolation change.
-   Independently land the consolidated plan after its own gates, then combine
-   the measured token-lifetime improvement and an evidence-backed GUI repair.
-   Record exact terminal results and qualify that complete source tree. Failed
-   checks remain explicit; focused checks do not replace final qualification.
-2. **Give performance and BTRSmith their own next action.** Identify and close the
-   remaining Stage 4/pin prerequisites for the D9 measurement copy. Qualify the
-   current application smoke and capture Stage 5's matrix at the next passing quiet
-   window. Prepare run manifests and analyze existing memory failures while the
-   host is busy. A pre-Stage-4 diagnostic is permitted as labelled evidence, not
-   final acceptance. Then implement the measured bottleneck and Stage B reuse with
-   paired correctness and before/after evidence; never silently refresh targets.
-3. **Run independent GUI delivery alongside permitted review/build work.** Continue
-   from the approved `CX-UIA-21` interface and qualified macOS component snapshots.
-   Complete host wiring and independent Linux provider work with actual native exits.
-   `CX-STDLIB-02` precedes `04` on LinuxGrid. Recover or reconstruct unavailable
-   patches; never wait indefinitely for an unverified bundle. UI2 still lands
-   atomically with macOS and Linux providers after their required acceptance.
-4. **Advance platform slices on their own prerequisites.** Review PR51/52 service
-   contracts; build small native Windows services on landed PR53; qualify PR34's hosted/iOS 17
-   cases and PR35's combined Android host. Follow each with its small service or
-   GUI operation. These gaps do not block independent Mac/Linux MVP validation.
-5. **Integrate, rerun and report outcomes.** For each changed packet reproduce the
-   defect, apply the owner-layer fix, review and run focused regressions. Use the
-   bounded batch gate and affected native checks, then the full matrix on the final
-   combined tree. Update the outcome register, catalog, issue evidence and branch
-   dispositions when each result lands. Report harmonized only under the completion
-   contract below, with product-roadmap and physical/account gaps still explicit.
+1. **Establish the actual starting point.** Check current main, relevant branch
+   heads, live claims and existing results for the selected outcome. Reconcile
+   old "running" and "next" notes before relying on them. Reuse completed work;
+   do not restart an inventory, broad audit or Stage 1 merely because a new agent
+   or model takes over.
+2. **Choose the highest-value feasible platform outcome.** Follow ranks 1–5,
+   explaining the rank, affected platforms and tangible result. Remove a blocking
+   correctness defect, or implement an independently ready stdlib, GUI or product
+   capability. Missing Windows/mobile capabilities deserve direct implementation
+   attention; unrelated Mac/Linux polish and optimization must not consume the
+   queue by default. Confirm actual prerequisites rather than treating historical
+   stage ordering as a blanket gate.
+3. **Implement and prove the bounded change.** Choose an appropriate decomposition
+   and useful independent review. Reproduce defects where applicable, fix their
+   actual owner, and verify meaningful behavior on the affected targets through
+   the required compiler/native matrix. Preserve shared contracts and existing
+   qualification requirements. Report a genuine dependency immediately and
+   continue another valuable independent slice where possible.
+4. **Integrate continuously and demonstrate the result.** Reconcile branch
+   dependencies, qualify the exact combined tree and land through the authorized
+   integrator. Advance the BTRSmith pin and affected application journeys as their
+   required providers qualify. Keep target-tested, merged and product-available
+   states distinct; do not call unmerged evidence delivered on main.
+5. **Report and choose again.** Update capabilities, blockers, revisions and
+   evidence against the stack rank. State what advanced, what did not, and why
+   the next action is useful. Performance-only work is rank 6, except for the
+   demonstrated functional-blocker rule in the owner update. Preserve every
+   numeric target and required final gate while making that scheduling choice.
 
-Use the [Ultracode recommendation](#ultracode-recommendation) for the bounded
-subagent rerun. Parallel assignment never overrides shared-file ownership, host
-locks, quiet measurement rules or CI concurrency limits.
+The executor determines the implementation path within these priorities and
+current authority. Use the [agent guidance](#ultracode-recommendation) to size
+independent work; parallelism never overrides file ownership, host constraints,
+required review or native evidence. A new plan edit is not itself an instruction
+to launch an implementation wave.
 
 ## Completion contract
+
+Completion of the owner's goal includes correct compiler/library operation, the
+required native GUI capabilities and BTRSmith journeys on all five platform
+families, followed by the retained full qualification and performance targets.
+An individual qualified platform slice may be integrated before that whole goal
+is complete. A macOS/Linux MVP alone does not satisfy the five-platform scope.
 
 A branch is integrated only after its intended behavior is present on main and
 its required checks pass there. A superseded branch needs a recorded replacement
@@ -3044,7 +3196,9 @@ resolutions do not claim whole-repository completion.
 ## Provider implementation queue
 
 All items below retain their original packet IDs and acceptance. Claims remain
-in WORKSTREAMS §3.3. D29 governs integration authority for this session.
+in WORKSTREAMS §3.3. Select work by the October 12 stack rank and actual technical
+prerequisites; old queue order and session-specific assignments are retained
+context. Establish the executing agent's current integration authority separately.
 
 ## Goal and ownership
 
@@ -3844,7 +3998,7 @@ D1–D26 were settled on 2026-09-30; D27/D28 and D29 amend them. Later WORKSTREA
 | D24 | **UI API choices** | • Host-owned event loop.<br>• Reuse `UIEventKind` / `UISemantics`.<br>• A shim keeps index-based `ISelect` until BTRSmith re-pins.<br>• Reproductions land with their fix, with no xfail. A reproduction written before its fix stays on a branch and is recorded as failing in the catalog.<br>• Directory name `GUI/IOS`.<br>• `Raster`/`View` are classified as legacy.<br>• A versioned change to `ui.snapshot` is allowed. |
 | D25 | **Product scope** | • **BTRSmith's PRD MVP stays macOS-only and unchanged.** The PRD gains a post-MVP cross-platform release section matching buckets 4–5: accessibility, Linux, Windows, iOS, iPadOS and Android.<br>• **The Player reference for #6** is `docs/product/PlayerScreenReference.png`, with deliberate deviations recorded in `PlayerConfiguration.md` and `UXConstants.md`. Correct musical geometry wins where the mock is wrong (HWW.md:51).<br>• **#13 (full-screen practice mode) is post-MVP.**<br>• **Skin art** outside Apple platforms: only owned or licensed assets ship; a platform without licensed art uses the procedural skin.<br>• **Mobile scope:** USB class-compliant audio input, yes. Plug-in hosting, no (a PRD exclusion). `btrsmithctl`/MCP stays desktop-only; mobile automation goes through the test channel.<br>• **The macOS MVP closure** stays in bucket 5 (D1). |
 | D26 | **Bucket-5 budgets, formats and CI cost** | • **P6 no-op:** ≤5 s (ref:3351), plus platform-parity's reference private-body edit row in the P6 table.<br>• **Linux:** ship via Nix first.<br>• **Android:** APK and AAB.<br>• **BTRSmith CI:** Linux hosted runners on every push and PR; macOS only for tagged releases; the self-hosted runner only on the D7 host, if it exists.<br>• **No binary-cache account.** Cache btrcc with `actions/cache`, keyed on `flake.lock` and the btrc revision.<br>• **Budget:** BTRSmith CI stays within the account's included monthly minutes. Cost per run is measured, and triggers are adjusted to fit. |
-| D27 | **Two builder agents (Claude and Codex); early UI work** | **Amended by D28 (2026-10-06):** D28’s independent-slice rule and D29’s unified plan govern the provider queue. Existing-interface repairs and per-platform slices do not wait on the Stays-gated shell or Stage 33/34 bullets. Codex creates no workflow file; Claude adds lane workflows.<br>**Status.** In force 2026-10-03: the owner asked for the Claude/Codex split and started Codex on it. The owner may strike any clause; work under a struck clause takes no new packets, and its in-flight packets finish or park. Stage 24's early start (the last clause's first bullet) was approved on 2026-10-03, when the owner asked for all the UI work, iOS, iPadOS and Android included, to run in parallel (WORKSTREAMS.md §7 Q2).<br>**Roles.** Claude (the main session) stays the integrator and the one contract owner D6(c) asks for. It alone changes the compilers, shared specs, generators, generated files, `src/runtime/**` (`c/`, `gpu/`, `windows/`), the native readers, editor tooling (`src/devex/**`, except a file a Codex packet names while no C-track packet holds it) and the hotspot files (Makefile, `flake.nix`, `flake.lock`, `nix/*`, `conftest.py`, `runner_capabilities.py`, `native_plan.py`, `budget_bench.py`, `ci.yml`, `macos.yml`, `windows.yml`, PLAN.md, AGENTS.md). It also applies the integrator-owned data (`btrc.toml` manifests, expected-skip manifests, denominators, `ci/tiers.toml`), which Codex changes only through `fragment:` commits. It approves and freezes every contract, merges every branch and pushes `main`. Codex (OpenAI) is a second builder. It owns stdlib platform providers and UI (`GUI`, `UI`, `Tray`, `App`, except their `btrc.toml`), OS-service providers that need no compiler change, test hosts, packaging and host tooling in `tools/` directories it owns, the lane workflows it creates, fixtures, examples, evidence harnesses and their docs, and the BTRSmith UI slices. It may draft UI contracts as the single designated writer chain. A draft becomes a contract only when Claude approves it under the standing design rule. Codex files a request for any compiler, spec or runtime change, and Claude turns it into a packet. Owner steps are `MAC-` packets, one command each.<br>**Mechanics.** `WORKSTREAMS.md` assigns the packets and their paths. Codex works on `codex/…` branches, claims a packet with a draft PR titled `[CX-…]` that carries a `Packet:` line, opens draft PRs to `main` only to get CI, and never merges. Claude integrates at most two Codex code branches per batch into `main-kn9jxh`. Docs-only branches do not count, and an atomic landing (UI2, UI3, a Stage 34 landing, a Stage 35 track milestone, the Windows FileSystem/Process landing) counts as one. Claude runs D5 and pushes per D4. The parity rule is unchanged.<br>**Amends D1.** D1 still orders Claude's work and the gate queue, except for the early starts named in the last clause. A Codex packet may run ahead of its bucket when its dependencies are met on `main`, or when it is planning or spike work, and it changes no file on Claude's list. Codex batches never displace a bucket 1–3 batch or a quiet window.<br>**Amends D6(c).** The bucket 3–4 platform lanes may be split between the two agents. There is still one contract owner (Claude), and one writer at a time per hotspot. IView, IWindow and `App.btrc` form one Codex writer chain.<br>**UI work that starts now:**<br>• UI0: the focused GUI gate, the catalog and drift test, the host matrix, the BTRSmith caller map and the headless Wayland/X11/AT-SPI tooling;<br>• the native-shell fixture and its macOS and Linux-SDL proofs;<br>• docs-only drafts of the UI2 and UI4–UI9 contracts;<br>• spikes that merge only a findings note: GTK4/WebGPU in plain C, Win32/UIKit/Android shell notes, the collection data model, accessibility bridges;<br>• the 100,000-row fixture generator.<br>**Starts as soon as its in-stage dependencies land,** without waiting for buckets 2–3 to close: the macOS and Linux-SDL halves of UI1–UI3 and the tray (Stages 31–33). UI2 and UI3 approvals are provisional for Windows, iOS and Android until `CL-UIA-22` re-checks them on the real shells. A change then is a versioned contract change, landed atomically with macOS and Linux. If D23 picks GTK4, `CX-UIA-29` ports the Linux UI2/UI3 core to GTK4 before the Linux UI4 work.<br>**Stays gated:**<br>• any portable-contract edit before its packet is approved; such edits land atomically with both reference providers;<br>• the btrc-hosted GTK4 spike and D23, which come after interop step 7 (`CL-P2-24`) and the GObject binding (step 8);<br>• the Windows, iOS and Android shells and UI tracks (Stages 23–29 first);<br>• Stage 34–37 provider work, which waits for the Stage 33 landing, the five shells and `CL-UIA-22`;<br>• BTRSmith screen migration, which waits for its btrc landing and pin bump;<br>• every compiler, spec and runtime change the last clause does not name;<br>• Mac, device and account evidence (D8).<br>**Codex stdlib code while bucket 2 runs:**<br>• no `#if`, `#ifdef` or `#undef` in `src/stdlib` until C4 lands; after that, only conditions valid on every target, and never `#undef`;<br>• no struct member spelled `T[] name` (write `T* name`);<br>• no `volatile T*`;<br>• import every btrc type spelled `struct X`, `union X` or `enum X`;<br>• no identifier that C3 reserves (`inline`, `restrict`, `va_arg`, `_Alignas`, …).<br>Codex stdlib branches are re-gated after C4, r09, r13, the C3 vocabulary commit and r15a.<br>**Claude may also start early** (each item an explicit amendment of D1):<br>• Stage 24 (`CL-P1-03`…`15`) and Stage 25's compiler packets (`CL-P1-16`…`20`), once C4 lands (`CL-C-06`). They interleave with C2/C3 by hotspot, never beside `CL-C-07` or `CL-C-23`, and `CL-P1-05` never beside `CL-C-25` or `CL-C-30`. Interop (`CL-P2-05`…`24`), the GObject binding (`CL-UIA-06`…`08`) and `CL-UIB-16` wait for bucket 2's close (`CL-C-40`);<br>• bucket-1 preparation that measures nothing: the runbook kit, the Stage B key and journal spec, never-merged floor spikes, reference attribution tooling and the host manifests (the x86_64 workflow waits for D7's probe);<br>• Stage 38 CI on runners that already exist: the macOS hardware skip tier, BTRSmith Linux CI and CI tiers;<br>• the BTRSmith UI2 subscriptions and Library.UI split (`CL-UIA-15`…`18`) once UI2 lands, because bucket 1 measures the D9 BTRSmith copy pinned by `CL-R-01`, never BTRSmith `main`. |
+| D27 | **Two builder agents (Claude and Codex); early UI work** | **Amended by D28 (2026-10-06):** D28’s independent-slice rule and D29’s unified plan govern the provider queue. Existing-interface repairs and per-platform slices do not wait on the Stays-gated shell or Stage 33/34 bullets. Codex creates no workflow file; Claude adds lane workflows.<br>**Status.** In force 2026-10-03: the owner asked for the Claude/Codex split and started Codex on it. The owner may strike any clause; work under a struck clause takes no new packets, and its in-flight packets finish or park. Stage 24's early start (the last clause's first bullet) was approved on 2026-10-03, when the owner asked for all the UI work, iOS, iPadOS and Android included, to run in parallel (WORKSTREAMS.md §7 Q2).<br>**Roles.** Claude (the main session) stays the integrator and the one contract owner D6(c) asks for. It alone changes the compilers, shared specs, generators, generated files, `src/runtime/**` (`c/`, `gpu/`, `windows/`), the native readers, editor tooling (`src/devex/**`, except a file a Codex packet names while no C-track packet holds it) and the hotspot files (Makefile, `flake.nix`, `flake.lock`, `nix/*`, `conftest.py`, `runner_capabilities.py`, `native_plan.py`, `budget_bench.py`, `ci.yml`, `macos.yml`, `windows.yml`, PLAN.md, AGENTS.md). It also applies the integrator-owned data (`btrc.toml` manifests, expected-skip manifests, denominators, `ci/tiers.toml`), which Codex changes only through `fragment:` commits. It approves and freezes every contract, merges every branch and pushes `main`. Codex (OpenAI) is a second builder. It owns stdlib platform providers and UI (`GUI`, `UI`, `Tray`, `App`, except their `btrc.toml`), OS-service providers that need no compiler change, test hosts, packaging and host tooling in `tools/` directories it owns, the lane workflows it creates, fixtures, examples, evidence harnesses and their docs, and the BTRSmith UI slices. It may draft UI contracts as the single designated writer chain. A draft becomes a contract only when Claude approves it under the standing design rule. Codex files a request for any compiler, spec or runtime change, and Claude turns it into a packet. Owner steps are `MAC-` packets, one command each.<br>**Mechanics.** `WORKSTREAMS.md` assigns the packets and their paths. Codex works on `codex/…` branches, claims a packet with a draft PR titled `[CX-…]` that carries a `Packet:` line, opens draft PRs to `main` only to get CI, and never merges. Claude integrates at most two Codex code branches per batch into `main-kn9jxh`. Docs-only branches do not count, and an atomic landing (UI2, UI3, a Stage 34 landing, a Stage 35 track milestone, the Windows FileSystem/Process landing) counts as one. Claude runs D5 and pushes per D4. The parity rule is unchanged.<br>**Amends D1.** D1 still orders Claude's work and the gate queue, except for the early starts named in the last clause. A Codex packet may run ahead of its bucket when its dependencies are met on `main`, or when it is planning or spike work, and it changes no file on Claude's list. Schedule eligible batches by the approved stack rank and actual dependencies; preserve active gate/measurement isolation.<br>**Amends D6(c).** The bucket 3–4 platform lanes may be split between the two agents. There is still one contract owner (Claude), and one writer at a time per hotspot. IView, IWindow and `App.btrc` form one Codex writer chain.<br>**UI work that starts now:**<br>• UI0: the focused GUI gate, the catalog and drift test, the host matrix, the BTRSmith caller map and the headless Wayland/X11/AT-SPI tooling;<br>• the native-shell fixture and its macOS and Linux-SDL proofs;<br>• docs-only drafts of the UI2 and UI4–UI9 contracts;<br>• spikes that merge only a findings note: GTK4/WebGPU in plain C, Win32/UIKit/Android shell notes, the collection data model, accessibility bridges;<br>• the 100,000-row fixture generator.<br>**Starts as soon as its in-stage dependencies land,** without waiting for buckets 2–3 to close: the macOS and Linux-SDL halves of UI1–UI3 and the tray (Stages 31–33). UI2 and UI3 approvals are provisional for Windows, iOS and Android until `CL-UIA-22` re-checks them on the real shells. A change then is a versioned contract change, landed atomically with macOS and Linux. If D23 picks GTK4, `CX-UIA-29` ports the Linux UI2/UI3 core to GTK4 before the Linux UI4 work.<br>**Stays gated:**<br>• any portable-contract edit before its packet is approved; such edits land atomically with both reference providers;<br>• the btrc-hosted GTK4 spike and D23, which come after interop step 7 (`CL-P2-24`) and the GObject binding (step 8);<br>• the Windows, iOS and Android shells and UI tracks (Stages 23–29 first);<br>• Stage 34–37 provider work, which waits for the Stage 33 landing, the five shells and `CL-UIA-22`;<br>• BTRSmith screen migration, which waits for its btrc landing and pin bump;<br>• every compiler, spec and runtime change the last clause does not name;<br>• Mac, device and account evidence (D8).<br>**Codex stdlib code while bucket 2 runs:**<br>• no `#if`, `#ifdef` or `#undef` in `src/stdlib` until C4 lands; after that, only conditions valid on every target, and never `#undef`;<br>• no struct member spelled `T[] name` (write `T* name`);<br>• no `volatile T*`;<br>• import every btrc type spelled `struct X`, `union X` or `enum X`;<br>• no identifier that C3 reserves (`inline`, `restrict`, `va_arg`, `_Alignas`, …).<br>Codex stdlib branches are re-gated after C4, r09, r13, the C3 vocabulary commit and r15a.<br>**Claude may also start early** (each item an explicit amendment of D1):<br>• Stage 24 (`CL-P1-03`…`15`) and Stage 25's compiler packets (`CL-P1-16`…`20`), once C4 lands (`CL-C-06`). They interleave with C2/C3 by hotspot, never beside `CL-C-07` or `CL-C-23`, and `CL-P1-05` never beside `CL-C-25` or `CL-C-30`. Interop (`CL-P2-05`…`24`), the GObject binding (`CL-UIA-06`…`08`) and `CL-UIB-16` wait for bucket 2's close (`CL-C-40`);<br>• bucket-1 preparation that measures nothing: the runbook kit, the Stage B key and journal spec, never-merged floor spikes, reference attribution tooling and the host manifests (the x86_64 workflow waits for D7's probe);<br>• Stage 38 CI on runners that already exist: the macOS hardware skip tier, BTRSmith Linux CI and CI tiers;<br>• the BTRSmith UI2 subscriptions and Library.UI split (`CL-UIA-15`…`18`) once UI2 lands, because bucket 1 measures the D9 BTRSmith copy pinned by `CL-R-01`, never BTRSmith `main`. |
 | D28 | **Independent stdlib slices** | **Owner-directed, 2026-10-06; storage/role amendment D29, 2026-10-07.** Existing-interface provider repairs with normal regression drivers do not wait for BTRSmith reconciliation, future UI contracts or all five shells. New platform slices wait for their own demonstrated prerequisites. Shared interface changes retain review and coordinated acceptance. A blocked slice does not stop independent work. Batch corrections and retain measured CI concurrency and required gates. The former separate CLAUDE/CODEX plan storage and Claude-only integration restriction are superseded by D29 for this session; unfinished implementation and native qualification remain open. |
 
 | D29 | **One plan; authorized integration** | **2026-10-07:** the owner requests consolidation and implementation/integration into main. PLAN.md owns both queues. This session may resolve and merge work after the required review and gates. D28’s independent-slice rule remains; its separate-file and Claude-only integration restrictions are superseded for this session. See the owner update at the top. |
@@ -3898,6 +4052,10 @@ Also lost, on 2026-09-30 during the Stage 1 reclaim: the regenerable test output
 
 ## Phase overview
 
+The buckets below organize the retained technical work. Their numbers and display
+order do not override the [approved stack rank](#approved-stack-rank), and finishing
+compiler optimization is not a prerequisite for independent platform delivery.
+
 | Stages | Bucket |
 |---|---|
 | 1–13 | 1 Compiler performance |
@@ -3913,9 +4071,12 @@ Also lost, on 2026-09-30 during the Stage 1 reclaim: the regenerable test output
 - quiet measurement windows
 - integration throughput: merges, regeneration, boundary re-captures and bisects across 10–20 agents
 
-**Where more lanes help (campaign scheduling, subject to active session capacity).** Implementation-bound stages (16–19, 25, 28, 34–36) do get shorter with more lanes. Each stage therefore has **one integrator sub-agent** running the scripted merge-batch procedure below. The main session stays coordinator and gate runner.
+**Where more lanes may help.** Independent implementation and review can improve delivery when dependencies, file ownership and current capacity permit it. The executing agent chooses a useful team and keeps one authorized integration owner when parallel writers are used; a dedicated integrator subagent is optional. Preserve the merge and gate procedure below without assuming fixed staffing.
 
-Stages are numbered in the order they start. Stage 10 and Stages 34–36 overlap other stages on purpose. Read-only planning work may start one bucket early (see Stages 22, 27 and 30).
+Stage numbers preserve the historical mapping. Actual starts follow the October
+12 priorities and demonstrated dependencies; platform implementation may overlap
+other stages. Planning is useful when it unblocks a concrete deliverable, not as
+a standing wave ahead of every bucket.
 
 ---
 
@@ -4937,6 +5098,12 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
   - Benchmarks: the core is serial, then 3 adapters.
 
 ### Stage 39: P5 journeys on installed products and the macOS MVP closure
+
+**October 12 scope clarification:** the historical heading and packet IDs remain
+for compatibility. The macOS MVP is an intermediate milestone; the BTRSmith
+installed-product/core-journey matrix includes macOS, Linux, Windows, iOS/iPadOS
+and Android. Adapt interactions to the OS without dropping core outcomes.
+
 - **Items.**
   - `btrsmith-macos-mvp-automatable`
   - `btrsmith-q-selfhost-matrix`
@@ -5008,6 +5175,11 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
   - Sanitizers never run alongside bootstrap.
 
 ### Stage 43: Final platform exits and the release candidate
+
+The final ledger covers the compiler, standard library, native GUI and BTRSmith
+on all five platform families under the October 12 scope. Missing Windows or
+mobile product evidence remains an open exit, even when desktop milestones pass.
+
 - **Items.**
   - `qualification-final-w2-exit`, `qualification-final-i2-exit`, `qualification-final-a2-exit`
   - `btrsmith-q-platform-release`
@@ -5028,7 +5200,7 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
 
 | Helps | Rule |
 |---|---|
-| Read-only swarms (audits, inventories, attribution, triage over logs) | No worktree. Waves of at most 10. Run them during gate windows, never during quiet rounds. Inventories of the next bucket may run early. |
+| Targeted read-only review or triage | Resolve a concrete question needed for delivery; reuse existing evidence. Choose the smallest useful team, avoid repeated whole-project audits, and respect measurement/resource constraints. |
 | Throwaway experiments | Instructions retired at `--jobs 1` (repeatable within about 0.3% under load) are valid **only for single-thread algorithmic cuts**. Allocator swaps, parallel analysis, arenas, ARC contention and the resident compiler go on a **quiet-window queue** (nightly, with your checklist). Save patches, never commits. |
 | Test authoring | Authors write new, disjoint test modules and may share one worktree with a pinned `BTRC_TEST_BTRCC`. A fixer always gets its own worktree. Expensive matrices go in opt-in tiers. |
 | Implementation lanes | Disjoint files only. **Every writer has its own worktree from the hub clone.** Lanes deliver unsigned branch commits, and never commit derived artifacts. |
@@ -5050,7 +5222,7 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
 | Authority | Only the main session pushes, after a green batch gate (D4). Agents close issues only under the standing approvals. No agent changes system settings (Spotlight, Time Machine), enters credentials, creates accounts or accepts agreements other than the Android SDK licences. Signing: agents commit unsigned, and the integrator signs when the 1Password agent is available, otherwise commits unsigned rather than stall. |
 | Duplicate items | Each pair runs as one unit:<br>• `platforms-p0-matrix-pin` and `tooling-p0-toolchain-matrix`<br>• `ui-0-product-journeys` and `btrsmith-ui0-callers`<br>• `ui-4/5/6/7/9-btrsmith-*` and the matching `btrsmith-ui-slice*`<br>• `ui-10-btrsmith-mobile` and `slice5`<br>• `ui-10-automation-diagnostics` and `qualification-p5-journey-drivers`<br>• `ui-6-stress-fixture` and `qualification-catalog-fixtures`<br>• `qualification-ci-btrsmith` and `btrsmith-q-ci`<br>• `tooling-audio-loopback-rig` and `qualification-p6-audio-latency-rig`<br>• `tooling-target-debuggers` inside `qualification-p7-devtools-targets`<br>• `platforms-p4-dependency-crossbuild` and `btrsmith-package-closure` |
 
-**Merge-batch procedure (one integrator sub-agent per stage):**
+**Merge-batch procedure (one authorized integration owner):**
 1. Fetch the lanes' unsigned branches from the hub, and rebase them in the stage's merge order.
 2. Apply the `btrc.toml` fragments. Run `make compiler-codegen-generate`, re-resolve the stdlib lock, and regenerate `btrc.symbols` and the LSP catalog.
 3. Re-capture boundary records with reasons, and update `source_count` and the fixture lists. Write the docs tables from the lanes' JSON. All of this goes in one merge commit.
@@ -5067,50 +5239,34 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
 | Owned paths | Each packet edits only its listed paths. Compiler sources, shared specs, generators, generated files, `src/runtime/**`, the native readers, editor tooling and the hotspot files above stay Claude's (WORKSTREAMS.md §3.3.1). |
 | `fragment:` and `derived:` commits | A branch ends with up to two special commits. `fragment: <what>` carries hand-written changes to integrator-owned data (`btrc.toml` exports and native rows, expected-skip rules, denominators, Makefile lines, `ci/tiers.toml`), which Claude re-applies. `derived: regenerate` carries `btrc.lock`, `btrc.symbols` and the LSP catalog, which Claude drops and regenerates. |
 | Compiler requests | A compiler, spec, runtime or hotspot change goes in the PR body as a `REQUEST(<target>)` block (WORKSTREAMS.md §3.6). Claude turns it into a packet in its next batch. |
-| Batch cap | At most two Codex code branches per integration batch; docs-only branches do not count, and an atomic landing counts as one. Codex batches never displace a bucket 1–3 batch or a quiet window. |
+| Batch cap | At most two Codex code branches per integration batch; docs-only branches do not count, and an atomic landing counts as one. Schedule eligible batches by the approved stack rank and actual dependencies; preserve active gate/measurement isolation. |
 | Evidence | Codex proves its work in a Linux container and on GitHub runners. Mac, device and account evidence is an owner (`MAC-`) packet, and stand-in evidence is labelled stand-in (D8). |
 
 ## Ultracode recommendation
 
-**Use the owner's requested independent rerun with bounded subagents, beginning
-at the current outcome register.** The October 7 review has one main integrator
-and three read-only specialists: performance, platforms/library and execution.
-"Ultracode" is the retained workflow name here; it is not proof that a particular
-model, plugin or CLI has been selected. Record the actual available tool/model
-when resolved; do not silently substitute one or claim a mode switch.
+Use the [owner priorities and execution handoff](#owner-priorities-and-execution-handoff-2026-10-12),
+not a fixed restart or staffing plan. "Ultracode" is the retained workflow name;
+it is not proof of a selected model, plugin or CLI. The executing agent can choose
+suitable available tools and independent subagents without assuming that the
+agent that wrote this plan will run them.
 
-This session exposes four agent slots total. The larger agent counts retained in
-stage designs describe work decomposition, not simultaneous runnable workers.
-Batch those roles within current capacity and preserve independent reviewers.
-Do not restart Stage 1, reimplement the landed daemon repair, or rerun completed
-contract drafting merely to populate a new wave.
+Size the team around concrete implementation and review needs. Give each writer
+an actual base revision, owned paths, bounded outcome and meaningful acceptance;
+keep one writer per hotspot and one authorized integration owner. Delegate
+independent work when it improves delivery, and avoid broad review waves merely
+to occupy slots. Current file claims, resource limits and batch rules still apply.
 
-| Wave | Main session | Up to three subagent roles | Exit |
-|---|---|---|---|
-| Review (performed October 7) | Reconcile supported findings and update PLAN | Performance; platform/library; execution review | Goals, evidence gaps, actual dependencies and stale instructions reviewed |
-| Bounded implementation pilot (next) | Integrate and schedule gates | UI2 interface writer; disjoint provider repair writer; reviewer/performance preparation | Reviewable current-source commits with narrow acceptance; elapsed work/wait/rework recorded |
-| Qualification | Own exact candidate and serialized gates | Read-only evidence analysis only when host rules permit; independent remote work within CI cap | Full required combined-tree gates and affected native checks; failures become bounded owner tasks |
-| Quiet performance round | Run the approved benchmark matrix | All agents paused as required by the quiet rule | Source-matched samples, instructions/footprint and goal deltas; missing samples stay unqualified |
-| Product acceptance | Coordinate qualified BTRSmith pin and screen journeys | Disjoint product/provider work as prerequisites become ready | Demonstrated MVP journeys and budgets; additional platform releases tracked separately |
+"Rerun everything" means complete the required validation of the final combined
+tree and resolve missing goal evidence. During development, reuse valid
+source-matched results and rerun affected or unproved checks. Explain expensive
+unchanged reruns, retain failures and never bypass required gates. Actual target,
+OS/device and account evidence must remain correctly scoped.
 
-A writer starts only with a base SHA, owned paths, exact deliverable and regression
-acceptance. One writer per hotspot; at most two code branches per integration
-batch under the existing protocol. Approved interfaces retain atomic provider
-landing. Use existing clones within the six-clone cap. The main session owns
-integration and resource scheduling; a second integrator must not race it.
-
-"Rerun everything" means independently review all goal areas and complete the
-required validation on the final combined tree. During development, reuse valid
-source-matched evidence and rerun checks affected by new changes or failures.
-Record the reason for an unchanged expensive rerun; never bypass a required final
-check. Platform qualification needs that platform, and a model switch does not
-turn unavailable hardware or native evidence into a pass.
-
-Measure this pilot before increasing fan-out. More independent implementation
-and review may shorten delivery; serial gates, quiet windows and hardware remain
-constraints. Neither agent count nor model quality has been established as the
-principal delay. Apply the progress-measurement categories above and size the
-next wave from accepted outcomes and measured waiting time.
+The useful outputs are working capabilities on the five platforms, removed
+blockers and qualified changes integrated into main. Report those changes and
+remaining gaps regularly. More agents, model switches, test totals and additional
+reports are not substitutes for those outcomes. Keep performance-only work at
+rank 6 unless a demonstrated functional blocker requires it earlier.
 
 ## Appendix: every mapped item → stage (286 items)
 
