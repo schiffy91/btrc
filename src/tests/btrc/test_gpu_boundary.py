@@ -1237,7 +1237,7 @@ def test_borrowed_fixed_array_gpu_input_projection_is_exception_safe(
         "assert(drops == 2); return 0; }"
     )
     generated = _lower_source(semantic_btrcc, tmp_path, source)
-    run_start = generated.index("int Holder_run(Holder* self) {")
+    run_start = generated.index("int Holder_run(Holder* volatile self) {")
     run_end = generated.index("\nint main(", run_start)
     run_body = generated[run_start:run_end]
     holder_end = generated.index("\n}", run_start) + 2
@@ -1512,7 +1512,7 @@ def test_borrowed_auto_property_gpu_output_is_pinned_before_rhs_effect(
         "assert(drops == 3); return 0; }"
     )
     generated = _lower_source(semantic_btrcc, tmp_path, source)
-    run_start = generated.index("int Holder_run(Holder* self) {")
+    run_start = generated.index("int Holder_run(Holder* volatile self) {")
     run_end = generated.index("\nint main(", run_start)
     run_body = generated[run_start:run_end]
     holder_end = generated.index("\n}", run_start) + 2

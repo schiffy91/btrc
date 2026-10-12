@@ -240,14 +240,18 @@ def test_selfhost_static_shadow_blocks_outer_qualification(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
+    # The outer object's address is taken, so only a misresolved write through
+    # the static shadow could qualify it, and qualifier safety would then reject
+    # the address it already gave away.
     source = """
         int main() {
             int value = 0;
+            int* outer = &value;
             {
                 static int value = 0;
                 try { value = 1; throw "done"; } catch (string error) {}
             }
-            return value;
+            return *outer;
         }
     """
 
@@ -256,6 +260,7 @@ def test_selfhost_static_shadow_blocks_outer_qualification(
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
     assert "volatile int value = 0;" not in emitted
+    assert re.search(r"^\s*int value = 0;", emitted, re.MULTILINE)
     assert re.search(r"static int value(?:_\d+)? = 0;", emitted)
     strict_build_and_run(
         generated,
