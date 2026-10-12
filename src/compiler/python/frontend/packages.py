@@ -23,7 +23,7 @@ from contextlib import suppress
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 
-from ..abi.generated import GeneratedTargetRow
+from ..abi.generated import TARGET_ENVIRONMENTS, TARGET_ROWS, GeneratedTargetRow
 from ..abi.hosted import TargetRepository, TargetSelectionError
 
 
@@ -54,10 +54,11 @@ _OBJECTIVE_C_SYMBOL = re.compile(
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
-# Manifest os/arch predicates name the compiler-host vocabulary until the
-# provider filters of platform-target-contract.md §5 widen them.
-_PREDICATE_OPERATING_SYSTEMS = frozenset(row.operating_system for row in TargetRepository.compiler_host_rows())
-_PREDICATE_ARCHITECTURES = frozenset(row.architecture for row in TargetRepository.compiler_host_rows())
+# Manifest os/arch/env predicates range over every targets.toml row
+# (platform-target-contract.md §5).
+_PREDICATE_OPERATING_SYSTEMS = frozenset(row.operating_system for row in TARGET_ROWS)
+_PREDICATE_ARCHITECTURES = frozenset(row.architecture for row in TARGET_ROWS)
+_PREDICATE_ENVIRONMENTS = frozenset(TARGET_ENVIRONMENTS)
 _SOURCE_STANDARDS = MappingProxyType(
     {
         "c": frozenset({"c11"}),
@@ -212,6 +213,37 @@ class PackageTarget:
         return self.row.label
 
 
+@dataclass(frozen=True)
+class TargetSelector:
+    """One manifest os/arch/env predicate over the rows of targets.toml.
+
+    An empty value array matches every value, so the empty selector selects
+    every row. Two selectors overlap when some row satisfies both.
+    """
+
+    operating_systems: tuple[str, ...] = ()
+    architectures: tuple[str, ...] = ()
+    environments: tuple[str, ...] = ()
+
+    def selects(self, operating_system: str, architecture: str, environment: str) -> bool:
+        return (
+            (not self.operating_systems or operating_system in self.operating_systems)
+            and (not self.architectures or architecture in self.architectures)
+            and (not self.environments or environment in self.environments)
+        )
+
+    def selected_for(self, target: PackageTarget) -> bool:
+        return self.selects(target.operating_system, target.architecture, target.environment or "")
+
+    def rows(self) -> tuple[GeneratedTargetRow, ...]:
+        return tuple(
+            row for row in TARGET_ROWS if self.selects(row.operating_system, row.architecture, row.environment)
+        )
+
+    def overlaps(self, other: TargetSelector) -> bool:
+        return any(other.selects(row.operating_system, row.architecture, row.environment) for row in self.rows())
+
+
 @dataclass(frozen=True, order=True)
 class NativeDeclaration:
     """One validated native manifest declaration before target filtering."""
@@ -225,11 +257,14 @@ class NativeDeclaration:
     operating_systems: tuple[str, ...] = ()
     architectures: tuple[str, ...] = ()
     modules: tuple[str, ...] = ()
+    environments: tuple[str, ...] = ()
+
+    @property
+    def selector(self) -> TargetSelector:
+        return TargetSelector(self.operating_systems, self.architectures, self.environments)
 
     def selected_for(self, target: PackageTarget) -> bool:
-        return (not self.operating_systems or target.operating_system in self.operating_systems) and (
-            not self.architectures or target.architecture in self.architectures
-        )
+        return self.selector.selected_for(target)
 
     def same_identity(self, other: NativeDeclaration) -> bool:
         """Whether two declarations would emit the same native plan record."""
@@ -243,6 +278,7 @@ class NativeDeclaration:
             self.standard,
             self.operating_systems,
             self.architectures,
+            self.environments,
         ) == (
             other.kind,
             other.package,
@@ -252,6 +288,7 @@ class NativeDeclaration:
             other.standard,
             other.operating_systems,
             other.architectures,
+            other.environments,
         )
 
 
@@ -263,26 +300,17 @@ class ModuleProvider:
     implementation: str
     operating_systems: tuple[str, ...]
     architectures: tuple[str, ...]
+    environments: tuple[str, ...] = ()
+
+    @property
+    def selector(self) -> TargetSelector:
+        return TargetSelector(self.operating_systems, self.architectures, self.environments)
 
     def selected_for(self, target: PackageTarget) -> bool:
-        return (not self.operating_systems or target.operating_system in self.operating_systems) and (
-            not self.architectures or target.architecture in self.architectures
-        )
+        return self.selector.selected_for(target)
 
     def overlaps(self, other: ModuleProvider) -> bool:
-        return (
-            self.module == other.module
-            and (
-                not self.operating_systems
-                or not other.operating_systems
-                or bool(set(self.operating_systems) & set(other.operating_systems))
-            )
-            and (
-                not self.architectures
-                or not other.architectures
-                or bool(set(self.architectures) & set(other.architectures))
-            )
-        )
+        return self.module == other.module and self.selector.overlaps(other.selector)
 
 
 @dataclass(frozen=True)
@@ -447,26 +475,20 @@ class NativeBinding:
     record_snapshots: tuple[NativeRecordSnapshotBinding, ...] = ()
     initializers: tuple[NativeInitializerBinding, ...] = ()
     copied_inputs: tuple[tuple[str, str, str], ...] = ()
+    environments: tuple[str, ...] = ()
+
+    @property
+    def selector(self) -> TargetSelector:
+        return TargetSelector(self.operating_systems, self.architectures, self.environments)
 
     def selected_for(self, target: PackageTarget) -> bool:
-        return (not self.operating_systems or target.operating_system in self.operating_systems) and (
-            not self.architectures or target.architecture in self.architectures
-        )
+        return self.selector.selected_for(target)
 
     def overlaps(self, other: NativeBinding) -> bool:
         return (
             self.module == other.module
             and bool(set(self.symbols) & set(other.symbols))
-            and (
-                not self.operating_systems
-                or not other.operating_systems
-                or bool(set(self.operating_systems) & set(other.operating_systems))
-            )
-            and (
-                not self.architectures
-                or not other.architectures
-                or bool(set(self.architectures) & set(other.architectures))
-            )
+            and self.selector.overlaps(other.selector)
         )
 
 
@@ -1177,6 +1199,25 @@ class PackageManifestValidator:
             raise ValueError(f"{context}.{field} contains unsupported value {invalid[0]!r}")
         return tuple(sorted(value))
 
+    @classmethod
+    def _target_selector(cls, entry: Mapping, context: str) -> TargetSelector:
+        return TargetSelector(
+            cls._target_values(entry, "os", _PREDICATE_OPERATING_SYSTEMS, context),
+            cls._target_values(entry, "arch", _PREDICATE_ARCHITECTURES, context),
+            cls._target_values(entry, "env", _PREDICATE_ENVIRONMENTS, context),
+        )
+
+    @staticmethod
+    def _require_platform_directories(modules: Iterable[str], selector: TargetSelector, context: str) -> None:
+        """A module under a platform directory selects exactly that platform."""
+        for module in modules:
+            for segment in module.split(".")[:-1]:
+                platform = segment.lower()
+                if platform in _PREDICATE_OPERATING_SYSTEMS and selector.operating_systems != (platform,):
+                    raise ValueError(
+                        f'{context}: module {module!r} lives under {segment}/ and must select os = ["{platform}"]'
+                    )
+
     @staticmethod
     def _inside_path(root: str, relative, context: str, *, directory: bool) -> str:
         if not isinstance(relative, str) or not relative or os.path.isabs(relative):
@@ -1252,7 +1293,7 @@ class PackageManifestValidator:
         root = os.path.dirname(path)
         for entry in entries:
             context = f"package manifest {path!r} package.providers"
-            self._reject_unknown(entry, frozenset({"module", "implementation", "os", "arch"}), context)
+            self._reject_unknown(entry, frozenset({"module", "implementation", "os", "arch", "env"}), context)
             paths = []
             for field in ("module", "implementation"):
                 value = entry.get(field)
@@ -1261,10 +1302,13 @@ class PackageManifestValidator:
                 paths.append(self._module_paths(root, {"modules": [value]}, context)[0])
             if paths[0] == paths[1]:
                 raise ValueError(f"{context} cannot select its own module as implementation")
+            selector = self._target_selector(entry, context)
+            self._require_platform_directories((entry["implementation"],), selector, context)
             provider = ModuleProvider(
                 *paths,
-                self._target_values(entry, "os", _PREDICATE_OPERATING_SYSTEMS, context),
-                self._target_values(entry, "arch", _PREDICATE_ARCHITECTURES, context),
+                selector.operating_systems,
+                selector.architectures,
+                selector.environments,
             )
             if any(provider.overlaps(previous) for previous in providers):
                 raise ValueError(f"{context} overlaps a provider for the same module and target")
@@ -1326,10 +1370,12 @@ class PackageManifestValidator:
                 raise ValueError(f"package manifest {path!r} native.{field} must be an array of tables")
             for index, entry in enumerate(entries):
                 context = f"package manifest {path!r} native.{field}[{index}]"
-                operating_systems = self._target_values(entry, "os", _PREDICATE_OPERATING_SYSTEMS, context)
-                architectures = self._target_values(entry, "arch", _PREDICATE_ARCHITECTURES, context)
+                selector = self._target_selector(entry, context)
+                operating_systems = selector.operating_systems
+                architectures = selector.architectures
                 modules = self._module_paths(root, entry, context)
-                predicate_fields = frozenset({"os", "arch", "modules"})
+                self._require_platform_directories(entry.get("modules", []), selector, context)
+                predicate_fields = frozenset({"os", "arch", "env", "modules"})
                 if field == "sources":
                     self._reject_unknown(
                         entry,
@@ -1352,6 +1398,7 @@ class PackageManifestValidator:
                         operating_systems=operating_systems,
                         architectures=architectures,
                         modules=modules,
+                        environments=selector.environments,
                     )
                 elif field in {"headers", "include-directories"}:
                     self._reject_unknown(entry, predicate_fields | {"path"}, context)
@@ -1369,6 +1416,7 @@ class PackageManifestValidator:
                         operating_systems=operating_systems,
                         architectures=architectures,
                         modules=modules,
+                        environments=selector.environments,
                     )
                 elif field == "defines":
                     self._reject_unknown(entry, predicate_fields | {"name", "value"}, context)
@@ -1384,6 +1432,7 @@ class PackageManifestValidator:
                         operating_systems=operating_systems,
                         architectures=architectures,
                         modules=modules,
+                        environments=selector.environments,
                     )
                 else:
                     self._reject_unknown(entry, predicate_fields | {"name"}, context)
@@ -1397,6 +1446,7 @@ class PackageManifestValidator:
                         operating_systems=operating_systems,
                         architectures=architectures,
                         modules=modules,
+                        environments=selector.environments,
                     )
                 if any(declaration.same_identity(existing) for existing in declarations):
                     raise ValueError(f"{context} duplicates an earlier native declaration")
@@ -2216,6 +2266,7 @@ class PackageManifestValidator:
                         "standard",
                         "os",
                         "arch",
+                        "env",
                         "read-only-borrows",
                         "realtime-safe",
                         "owned-records",
@@ -2249,6 +2300,8 @@ class PackageManifestValidator:
             if not isinstance(module, str) or _MODULE_NAME.fullmatch(module) is None:
                 raise ValueError(f"{context}.module must be a dotted module name")
             (module_path,) = self._module_paths(root, {"modules": [module]}, context)
+            selector = self._target_selector(entry, context)
+            self._require_platform_directories((module,), selector, context)
             header = self._inside_path(root, entry.get("header"), f"{context}.header", directory=False)
             symbols = entry.get("symbols")
             if (
@@ -2421,8 +2474,8 @@ class PackageManifestValidator:
                 language,
                 standard,
                 tuple(sorted(symbols)),
-                self._target_values(entry, "os", _PREDICATE_OPERATING_SYSTEMS, context),
-                self._target_values(entry, "arch", _PREDICATE_ARCHITECTURES, context),
+                selector.operating_systems,
+                selector.architectures,
                 tuple(sorted(borrows)),
                 tuple(sorted(realtime)),
                 tuple(sorted(records)),
@@ -2496,6 +2549,7 @@ class PackageManifestValidator:
             )
             if binding.static_globals and (language != "c" or not resources):
                 raise ValueError(f"{context}: static-globals requires declared C resources")
+            binding = replace(binding, environments=selector.environments)
             if any(binding.overlaps(previous) for previous in bindings):
                 raise ValueError(f"{context} overlaps a native binding for the same module and target")
             bindings.append(binding)
@@ -2508,6 +2562,7 @@ class PackageManifestValidator:
                     binding.symbols,
                     binding.operating_systems,
                     binding.architectures,
+                    binding.environments,
                 ),
             )
         )

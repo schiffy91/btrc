@@ -187,6 +187,89 @@ def test_source_provider_validation_is_fail_closed(tmp_path, package_compile, mo
     assert expected[mode] in diagnostic
 
 
+_ROW_PROVIDERS = (
+    ("Android/Provider", 'os = ["android"]\n', 55),
+    ("IOS/Device", 'os = ["ios"]\nenv = [""]\n', 66),
+    ("IOS/Simulator", 'os = ["ios"]\nenv = ["simulator"]\n', 77),
+    ("Windows/Msvc", 'os = ["windows"]\nenv = ["msvc"]\n', 88),
+    ("Windows/Gnu", 'os = ["windows"]\nenv = ["gnu"]\n', 99),
+)
+
+
+def _row_provider_project(tmp_path):
+    source, provider = _export_project(tmp_path)
+    declarations = []
+    for path, selector, value in _ROW_PROVIDERS:
+        (provider / f"src/{path}.btrc").parent.mkdir(parents=True, exist_ok=True)
+        (provider / f"src/{path}.btrc").write_text(f"int providerValue() {{ return {value}; }}\n")
+        declarations.append(
+            f'[[package.providers]]\nmodule = "GUI"\nimplementation = "{path.replace("/", ".")}"\n{selector}'
+        )
+    manifest = provider / "btrc.toml"
+    manifest.write_text(manifest.read_text() + "\n".join(declarations))
+    (provider / "src/GUI.btrc").write_text("int publicValue() { return providerValue(); }\n")
+    source.write_text("import widgets.GUI;\nint main() { return publicValue(); }\n")
+    return source, provider
+
+
+@pytest.mark.parametrize(
+    "target, expected",
+    [
+        ("android-aarch64", 55),
+        ("android-x86_64", 55),
+        ("ios-aarch64", 66),
+        ("ios-aarch64-simulator", 77),
+        ("windows-aarch64-msvc", 88),
+        ("windows-x86_64", 99),
+    ],
+)
+def test_source_provider_selection_covers_mobile_and_environment_rows(tmp_path, package_compile, target, expected):
+    source, _ = _row_provider_project(tmp_path)
+    successful, diagnostic, emitted = package_compile(source, target=target)
+    assert successful, diagnostic
+    selected = {value for _, _, value in _ROW_PROVIDERS if f"return {value};" in emitted}
+    assert selected == {expected}, emitted
+
+
+def test_source_provider_reports_a_row_without_a_provider(tmp_path, package_compile):
+    source, _ = _row_provider_project(tmp_path)
+    successful, diagnostic, _ = package_compile(source, target="linux-x86_64")
+    assert not successful and "no provider" in diagnostic
+
+
+@pytest.mark.parametrize(
+    "selector, diagnostic",
+    [
+        ('os = ["ios"]\nenv = ["desktop"]\n', "unsupported value 'desktop'"),
+        ('os = ["handheld"]\n', "unsupported value 'handheld'"),
+        ('os = ["macos"]\n', 'lives under Android/ and must select os = ["android"]'),
+        ("", 'lives under Android/ and must select os = ["android"]'),
+        ('os = ["android", "linux"]\n', 'lives under Android/ and must select os = ["android"]'),
+    ],
+)
+def test_provider_selectors_are_fail_closed(tmp_path, package_compile, selector, diagnostic):
+    source, provider = _export_project(tmp_path)
+    (provider / "src/Android").mkdir()
+    (provider / "src/Android/Provider.btrc").write_text("int providerValue() { return 1; }\n")
+    (provider / "src/GUI.btrc").write_text("int publicValue() { return providerValue(); }\n")
+    source.write_text("import widgets.GUI;\nint main() { return publicValue(); }\n")
+    manifest = provider / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text() + f'[[package.providers]]\nmodule = "GUI"\nimplementation = "Android.Provider"\n{selector}'
+    )
+    successful, message, _ = package_compile(source, target="android-aarch64")
+    assert not successful
+    assert diagnostic in message
+
+
+def test_environment_selectors_overlap_only_on_shared_rows(tmp_path, package_compile):
+    source, provider = _row_provider_project(tmp_path)
+    manifest = provider / "btrc.toml"
+    manifest.write_text(manifest.read_text().replace('env = ["simulator"]', "env = []"))
+    successful, diagnostic, _ = package_compile(source, target="ios-aarch64")
+    assert not successful and "overlaps" in diagnostic
+
+
 @pytest.mark.parametrize(
     "route", ["package", "relative", "include", "glob", "symlink", "extensionless", "already-loaded", "loose", "nested"]
 )

@@ -156,6 +156,8 @@ pitch = "glyph.bitmap.pitch"
 [[native.pkg-config]]
 name = "freetype2"
 modules = ["FreeType.FreeTypeFace"]
+# pkg-config resolves on the desktop hosts only.
+os = ["linux", "macos", "windows"]
 
 [[native.bindings]]
 module = "MacOS.MacOSDirectoryPicker"

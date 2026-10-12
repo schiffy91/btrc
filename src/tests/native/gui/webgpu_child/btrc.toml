@@ -33,3 +33,5 @@ standard = "c11"
 [[native.pkg-config]]
 name = "wgpu-native"
 modules = ["CompletionProbe"]
+# pkg-config resolves on the desktop hosts only.
+os = ["linux", "macos", "windows"]

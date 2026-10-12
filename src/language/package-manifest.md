@@ -81,9 +81,10 @@ generated import text or caller-side OS branch is introduced. This also applies
 when `GUI` is the compilation entrypoint. The compiler's normalized target—not
 the build host—selects the dependency.
 
-`os` and `arch` use the existing closed target sets below; omitted or empty
+`os`, `arch` and `env` use the closed target sets below; omitted or empty
 selectors match all values. Declarations for the same canonical module must be
-disjoint, even on inactive targets. Self-selection, missing modules, escaping
+disjoint: no row of `targets.toml` may satisfy two of them, even when that row
+is not the current target. Self-selection, missing modules, escaping
 paths and unknown fields are errors. Importing a configured module without a
 matching provider is an error, not a fallback to another OS. Only selected
 implementation source is parsed; inactive files must exist but may be unfinished.
@@ -111,9 +112,20 @@ relative to the declaring manifest.  Every dependency directory must contain
 a version-1 `btrc.toml` whose package name matches the resolved graph identity.
 
 The native tables contain data, never arbitrary `cflags`, `ldflags`, commands,
-or shell text.  Each entry may have `os` and `arch` string arrays.  An omitted
-or empty array matches every value.  Supported operating systems are `linux`,
-`macos`, and `windows`; supported architectures are `x86_64` and `aarch64`.
+or shell text.  Each entry may have `os`, `arch` and `env` string arrays.  An
+omitted or empty array matches every value.  The accepted values are the
+operating systems, architectures and environments of the rows in
+`src/language/targets.toml`: today `android`, `ios`, `linux`, `macos` and
+`windows`; `aarch64` and `x86_64`; and `""`, `gnu`, `msvc` and `simulator`.
+`env = [""]` selects the empty environment, so `os = ["ios"], env = [""]`
+selects the iOS device row alone and `env = ["simulator"]` the simulator row.
+
+A module that lives under a platform directory (`MacOS`, `IOS`, `Linux`,
+`Android` or `Windows`, matched case-insensitively against the operating
+systems above) selects exactly that platform. Provider implementations, the
+`modules` of native tables and the `module` of a native binding are checked:
+`implementation = "Android.Provider"` requires `os = ["android"]`, and an
+omitted `os` is an error, as is any other value.
 
 ```toml
 [[native.sources]]
