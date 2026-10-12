@@ -14,34 +14,6 @@ from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 PROBES = ROOT / "src/tests/native/gui/ui2/probes/macos"
-RANGE_PROVIDER_BINDINGS = """
-# Integrator fragment, append alongside retained NSSlider AppKit declarations.
-[[native.bindings]]
-module = "MacOS.MacOSSlider"
-header = "MacOS/Range.h"
-language = "objective-c"
-standard = "c11"
-symbols = ["+[BTRCMacOSRange range]", "-[BTRCMacOSRange setEventSink:]", "-[BTRCMacOSRange eventSink]", "-[BTRCMacOSRange invalidateTracking]", "-[BTRCMacOSRange projectValue:]", "-[NSView superview]", "-[BTRCMacOSRangeEvents rangeBegin]", "-[BTRCMacOSRangeEvents rangePreview:]", "-[BTRCMacOSRangeEvents rangeEnd:released:]", "-[BTRCMacOSRangeEvents rangeAdjust:count:]", "-[BTRCMacOSRangeEvents rangeAssistive:]", "-[BTRCMacOSRangeEvents rangeEscape]"]
-os = ["macos"]
-
-[native.bindings.callbacks."-[BTRCMacOSRange setEventSink:].eventSink"]
-interface = "IAppKitRangeEvents"
-lifetime = "stored"
-failure = "abort"
-executor = "caller"
-unregister = "-[BTRCMacOSRange setEventSink:]"
-slot-getter = "-[BTRCMacOSRange eventSink]"
-methods = ["-[BTRCMacOSRangeEvents rangeBegin]", "-[BTRCMacOSRangeEvents rangePreview:]", "-[BTRCMacOSRangeEvents rangeEnd:released:]", "-[BTRCMacOSRangeEvents rangeAdjust:count:]", "-[BTRCMacOSRangeEvents rangeAssistive:]", "-[BTRCMacOSRangeEvents rangeEscape]"]
-activation-failure = "abort"
-cancellation = "entry-barrier"
-
-[[native.sources]]
-path = "MacOS/Range.m"
-language = "objective-c"
-standard = "c11"
-modules = ["MacOS.MacOSSlider"]
-os = ["macos"]
-"""
 
 
 @pytest.mark.macos_gui
@@ -59,10 +31,6 @@ def test_native_range(native_project, native_compile, gui_provider_root, sanitiz
     source.write_text((PROBES / f"{fixture}.btrc").read_text())
     data_root = root / "provider-data"
     shutil.copytree(gui_provider_root, data_root, symlinks=True)
-    manifest = data_root / "stdlib/GUI/btrc.toml"
-    manifest.write_text(
-        manifest.read_text().replace("exports = [", 'exports = ["ControlEventQueue", ', 1) + RANGE_PROVIDER_BINDINGS
-    )
     (root / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "ui2MacOSRange"\n')
     probe = "RangeProbe" if fixture == "NativeRangeEvents" else "RunLoopProbe"
     shutil.copyfile(PROBES / f"{probe}.btrc", source.parent / f"{probe}.btrc")

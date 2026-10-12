@@ -13,38 +13,6 @@ from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 PROBES = ROOT / "src/tests/native/gui/ui2/probes/macos"
-SELECTION_PROVIDER_BINDINGS = """
-[[native.bindings]]
-module = "MacOS.MacOSSelect"
-header = "MacOS/Select.h"
-language = "objective-c"
-standard = "c11"
-os = ["macos"]
-symbols = [
-    "+[BTRCMacOSSelect selection]",
-    "-[BTRCMacOSSelect setSemanticEvents:]", "-[BTRCMacOSSelect semanticEvents]",
-    "-[BTRCMacOSSelect cancelMenu]", "-[NSView superview]",
-    "-[BTRCMacOSSelectEvents shouldBegin]", "-[BTRCMacOSSelectEvents opened]",
-    "-[BTRCMacOSSelectEvents candidate:]", "-[BTRCMacOSSelectEvents accepted:]",
-    "-[BTRCMacOSSelectEvents ended:]"
-]
-[native.bindings.callbacks."-[BTRCMacOSSelect setSemanticEvents:].events"]
-interface = "IAppKitSelectionEvents"
-lifetime = "stored"
-failure = "abort"
-executor = "caller"
-unregister = "-[BTRCMacOSSelect setSemanticEvents:]"
-slot-getter = "-[BTRCMacOSSelect semanticEvents]"
-methods = ["-[BTRCMacOSSelectEvents shouldBegin]", "-[BTRCMacOSSelectEvents opened]", "-[BTRCMacOSSelectEvents candidate:]", "-[BTRCMacOSSelectEvents accepted:]", "-[BTRCMacOSSelectEvents ended:]"]
-activation-failure = "abort"
-cancellation = "entry-barrier"
-[[native.sources]]
-path = "MacOS/Select.m"
-language = "objective-c"
-standard = "c11"
-modules = ["MacOS.MacOSSelect"]
-os = ["macos"]
-"""
 
 SELECTION_PROBE_BINDINGS = """
 # Test package fragment; GUI already supplies AppKit. No framework row here.
@@ -99,10 +67,6 @@ def test_native_selection_state(native_project, native_compile, gui_provider_roo
         bindings = SELECTION_PROBE_BINDINGS
     data_root = root / "provider-data"
     shutil.copytree(gui_provider_root, data_root, symlinks=True)
-    manifest = data_root / "stdlib/GUI/btrc.toml"
-    manifest.write_text(
-        manifest.read_text().replace("exports = [", 'exports = ["ControlEventQueue", ', 1) + SELECTION_PROVIDER_BINDINGS
-    )
     (root / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "ui2MacOSSelection"\n' + bindings)
     plan = root / "Selection.link.json"
     compiled = native_compile(source, data_root=data_root, plan_path=plan)

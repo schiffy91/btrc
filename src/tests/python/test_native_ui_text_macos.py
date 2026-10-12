@@ -27,38 +27,6 @@ TEXT_PROBE_SYMBOLS = [
     "+[UI2TextProbe editorUnchanged:]",
     "+[UI2TextProbe close]",
 ]
-TEXT_PROVIDER_BINDINGS = """
-[[native.bindings]]
-module = "MacOS.MacOSTextField"
-header = "MacOS/Text.h"
-language = "objective-c"
-standard = "c11"
-os = ["macos"]
-symbols = [
-    "+[BTRCMacOSTextField fieldWithText:]",
-    "-[BTRCMacOSTextField setSemanticEvents:]", "-[BTRCMacOSTextField semanticEvents]",
-    "-[BTRCMacOSTextField liveText]", "-[BTRCMacOSTextField composing]",
-    "-[BTRCMacOSTextField replaceText:]", "-[BTRCMacOSTextField discardCompositionKeepingText:]",
-    "-[BTRCMacOSTextEvents shouldBegin]", "-[BTRCMacOSTextEvents changed]",
-    "-[BTRCMacOSTextEvents ended]", "-[BTRCMacOSTextEvents command:]"
-]
-[native.bindings.callbacks."-[BTRCMacOSTextField setSemanticEvents:].events"]
-interface = "IAppKitTextEvents"
-lifetime = "stored"
-failure = "abort"
-executor = "caller"
-unregister = "-[BTRCMacOSTextField setSemanticEvents:]"
-slot-getter = "-[BTRCMacOSTextField semanticEvents]"
-methods = ["-[BTRCMacOSTextEvents shouldBegin]", "-[BTRCMacOSTextEvents changed]", "-[BTRCMacOSTextEvents ended]", "-[BTRCMacOSTextEvents command:]"]
-activation-failure = "abort"
-cancellation = "entry-barrier"
-[[native.sources]]
-path = "MacOS/Text.m"
-language = "objective-c"
-standard = "c11"
-modules = ["MacOS.MacOSTextField"]
-os = ["macos"]
-"""
 
 
 @pytest.mark.macos_gui
@@ -73,9 +41,6 @@ def test_native_text_state(native_project, native_compile, gui_provider_root, sa
     # White-box queue accounting remains private to the fixture's data root.
     data_root = root / "provider-data"
     shutil.copytree(gui_provider_root, data_root, symlinks=True)
-    manifest = data_root / "stdlib/GUI/btrc.toml"
-    text = manifest.read_text()
-    manifest.write_text(text.replace("exports = [", 'exports = ["ControlEventQueue", ', 1) + TEXT_PROVIDER_BINDINGS)
     (root / "btrc.toml").write_text(
         'manifest-version = 1\n[package]\nname = "ui2MacOSText"\n'
         '[[native.bindings]]\nmodule = "TextProbe"\nheader = "TextProbe.h"\n'

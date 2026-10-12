@@ -23,3 +23,7 @@ Full range parity is not claimed. Queue/terminal-pressure exhaustion, mid-drag h
 `REQUEST(expected skip data)`: review actual current-tree collections and ledgers for the newly composed platform and sanitizer rows before changing expected-skip manifests or denominators in a final integrator fragment. Their current `5be08004` bytes remain unchanged; no skip is pre-authorized by this source composition.
 
 Shared App key vocabulary and accessibility remain the precise requests in `linux-ui2-range.md`; this composition does not expand that public API or weaken the approved UI2 contract.
+
+## Composed test-manifest correction
+
+The original Text, Range and Selection drivers appended provider fragments to a private GUI data root. The composed production manifest now supplies every one of those exact declarations; appending again creates duplicate Text.m, Range.m and Select.m units, and repeats the private ControlEventQueue export. The corrected drivers consume the existing gui_provider_root manifest without adding provider declarations. Each test-owned probe package, callback contract, native assertion, matrix row and deadline stays unchanged. Existing manifest-owner validation establishes setup only; compiler projection and native acceptance on this final composition are still required.
