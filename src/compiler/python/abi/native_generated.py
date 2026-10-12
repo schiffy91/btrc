@@ -145,6 +145,52 @@ class NativeRecordDeclaration:
 
 
 @dataclass(kw_only=True)
+class NativeJavaClass:
+    name: str = ""
+    identity: str = ""
+    binary_name: str = ""
+    super_name: Optional[str] = None
+    super_interfaces: list[str] = _dc_field(default_factory=list)
+    interface_class: bool = False
+    abstract_class: bool = False
+    complete: bool = False
+    source_file: str = _dc_field(default=None, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    column: int = 0
+
+
+@dataclass(kw_only=True)
+class NativeJavaMethod:
+    name: str = ""
+    identity: str = ""
+    owner: str = ""
+    method_name: str = ""
+    descriptor: str = ""
+    signature: native_type
+    static_member: bool = False
+    constructor: bool = False
+    native_method: bool = False
+    source_file: str = _dc_field(default=None, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    column: int = 0
+
+
+@dataclass(kw_only=True)
+class NativeJavaField:
+    name: str = ""
+    identity: str = ""
+    owner: str = ""
+    field_name: str = ""
+    descriptor: str = ""
+    value_type: native_type
+    static_member: bool = False
+    read_only: bool = False
+    source_file: str = _dc_field(default=None, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    column: int = 0
+
+
+@dataclass(kw_only=True)
 class NativeBuiltin:
     name: str = ""
     bits: int = 0
@@ -224,6 +270,19 @@ class NativeObjectiveCBlock:
 
 
 @dataclass(kw_only=True)
+class NativeJavaObject:
+    name: str = ""
+    binary_name: str = ""
+    qualifiers: NativeQualifiers
+
+
+@dataclass(kw_only=True)
+class NativeJavaArray:
+    element: native_type
+    qualifiers: NativeQualifiers
+
+
+@dataclass(kw_only=True)
 class NativeQualifiers:
     is_const: bool = False
     is_volatile: bool = False
@@ -271,8 +330,8 @@ class NativeField:
 
 # --- Union type aliases for sum types ---
 
-native_declaration = Union[NativeFunction, NativeObjectiveCMethod, NativeCxxClass, NativeCxxMethod, NativeTypedef, NativeConstant, NativeStringConstant, NativePointerConstant, NativeGlobal, NativeRecordDeclaration]
-native_type = Union[NativeBuiltin, NativePointer, NativeAlias, NativeRecordType, NativeEnumType, NativeFunctionType, NativeArrayType, NativeQualifiedType, NativeObjectiveCObject, NativeObjectiveCBlock]
+native_declaration = Union[NativeFunction, NativeObjectiveCMethod, NativeCxxClass, NativeCxxMethod, NativeTypedef, NativeConstant, NativeStringConstant, NativePointerConstant, NativeGlobal, NativeRecordDeclaration, NativeJavaClass, NativeJavaMethod, NativeJavaField]
+native_type = Union[NativeBuiltin, NativePointer, NativeAlias, NativeRecordType, NativeEnumType, NativeFunctionType, NativeArrayType, NativeQualifiedType, NativeObjectiveCObject, NativeObjectiveCBlock, NativeJavaObject, NativeJavaArray]
 
 
 # --- Product type aliases ---

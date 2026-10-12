@@ -1042,7 +1042,7 @@ public:
 		for (auto& record : records) { layouts.push_back(std::move(record.second)); }
 		llvm::json::Array interfaceDeclarations;
 		for (auto& interface : selectedInterfaces) { interfaceDeclarations.push_back(std::move(interface.second)); }
-		return llvm::json::Object{{"schema", "btrc.native-declarations.v2"}, {"target", target}, {"clang", clang::getClangFullVersion()}, {"big_endian", bigEndian}, {"character_bits", static_cast<int64_t>(characterBits)}, {"declarations", std::move(exports)}, {"records", std::move(layouts)}, {"interfaces", std::move(interfaceDeclarations)}};
+		return llvm::json::Object{{"schema", "btrc.native-declarations.v3"}, {"target", target}, {"clang", clang::getClangFullVersion()}, {"big_endian", bigEndian}, {"character_bits", static_cast<int64_t>(characterBits)}, {"declarations", std::move(exports)}, {"records", std::move(layouts)}, {"interfaces", std::move(interfaceDeclarations)}};
 	}
 
 	bool publish() {

@@ -6,6 +6,21 @@ import ../../../compiler/btrc/frontend/NativeImports.btrc;
 import ../../../compiler/btrc/generated/native_abi/Models.btrc;
 
 class NativeHeaderProbe {
+	/* A compact spelling of a Java member's type, matched by the reference test. */
+	public string describe(NativeNode value) {
+		string spelling = "";
+		if (value.kind == NNK_NATIVE_BUILTIN) { spelling = value.name; }
+		else if (value.kind == NNK_NATIVE_JAVA_OBJECT) { spelling = "L" + value.binaryName + ";"; }
+		else if (value.kind == NNK_NATIVE_JAVA_ARRAY) { spelling = "[" + self.describe(value.element); }
+		else if (value.kind == NNK_NATIVE_FUNCTION_TYPE) {
+			Vector<string> parameters = [];
+			for parameter in value.parameters { parameters.push(self.describe(parameter)); }
+			spelling = "(" + Strings.join(parameters, ",") + ")" + self.describe(value.returnType) + "@" + value.callingConvention;
+		} else { spelling = "other"; }
+		if (value.qualifiers.nullability.equals("nullable")) { spelling = spelling + "?"; }
+		return spelling;
+	}
+
 	public NativeNode underlying(NativeNode value) {
 		while (value.kind == NNK_NATIVE_ALIAS || value.kind == NNK_NATIVE_QUALIFIED_TYPE) { value = value.underlying; }
 		return value;
@@ -70,7 +85,8 @@ int main(int argc, char** argv) {
 	if (argc != 2) { return 2; }
 	try {
 		NativeNode header = FeNativeHeaderCodec().decode(FileSystem.readText(argv[1]));
-		NativeHeaderProbe().verify(header);
+		var probe = NativeHeaderProbe();
+		probe.verify(header);
 		printf("%s %d %d\n", header.targetTriple, header.exports.len, header.records.len);
 		for nativeInterface in header.interfaces { printf("interface %s %s %d %s\n", nativeInterface.name, nativeInterface.identity, (int)nativeInterface.complete, nativeInterface.superclass); }
 		for record in header.records {
@@ -89,6 +105,15 @@ int main(int argc, char** argv) {
 			if (declaration.kind == NNK_NATIVE_POINTER_CONSTANT) { printf("pointer %s %d %s\n", declaration.name, declaration.pointerBits, declaration.decimalValue); }
 			else if (declaration.kind == NNK_NATIVE_OBJECTIVE_C_METHOD) { printf("method %s %s %s %s %d %d\n", declaration.name, declaration.identity, declaration.receiver, declaration.owner, (int)declaration.protocolOwner, (int)declaration.optional); }
 			else if (declaration.kind == NNK_NATIVE_CXX_CLASS) { printf("cxxclass %s %d %d %d %d\n", declaration.name, (int)declaration.defaultConstructor, (int)declaration.publicDestructor, (int)declaration.triviallyCopyable, (int)declaration.triviallyDestructible); }
+			else if (declaration.kind == NNK_NATIVE_JAVA_CLASS) {
+				string superName = "-";
+				if (declaration.superName != null) { superName = declaration.superName; }
+				string interfaces = "-";
+				if (declaration.superInterfaces.len > 0) { interfaces = Strings.join(declaration.superInterfaces, ","); }
+				printf("javaclass %s %s %s %s %s %d %d %d\n", declaration.name, declaration.identity, declaration.binaryName, superName, interfaces, (int)declaration.interfaceClass, (int)declaration.abstractClass, (int)declaration.complete);
+			}
+			else if (declaration.kind == NNK_NATIVE_JAVA_METHOD) { printf("javamethod %s %s %s %s %s %d %d %d %s\n", declaration.name, declaration.identity, declaration.owner, declaration.methodName, declaration.descriptor, (int)declaration.staticMember, (int)declaration.constructor, (int)declaration.nativeMethod, probe.describe(declaration.signature)); }
+			else if (declaration.kind == NNK_NATIVE_JAVA_FIELD) { printf("javafield %s %s %s %s %s %d %d %s\n", declaration.name, declaration.identity, declaration.owner, declaration.fieldName, declaration.descriptor, (int)declaration.staticMember, (int)declaration.readOnly, probe.describe(declaration.valueType)); }
 			else if (declaration.kind == NNK_NATIVE_CXX_METHOD) { printf("cxxmethod %s %s %s %s %s %d %d\n", declaration.name, declaration.identity, declaration.receiver, declaration.owner, declaration.methodName, (int)declaration.constMethod, declaration.parameterSemantics.len); }
 		}
 		return 0;
