@@ -1184,7 +1184,7 @@ class FeManifestBlock {
 		for key in self.fields.keys() {
 			if (!key.startsWith("resources.")) { continue; }
 			var parts = Strings.split(key, ".");
-			if (parts.len >= 4 && parts.get(2) == "table") {
+			if (parts.len >= 4 && (parts.get(2) == "table" || parts.get(2) == "dispatch")) {
 				if (binding.language == "c++" || !self.identifier(parts.get(1)) || !binding.symbols.contains(parts.get(1))) { FePackageFailure.fail("callback tables require a selected C resource"); }
 				names.put(parts.get(1), true);
 				continue;
@@ -1219,8 +1219,12 @@ class FeManifestBlock {
 				if (ownership != "unique" || !((consumption == "always" && cleanup == "discard") || (consumption == "success-or-indeterminate" && cleanup == "abort"))) { FePackageFailure.fail("status release requires unique and matching release-consumption/cleanup-status: always/discard or success-or-indeterminate/abort"); }
 			}
 			string retainFunction = ownership == "unique" ? "" : self.requiredText(prefix + "retain");
-			string releaseFunction = self.requiredText(prefix + "release");
-			if (retainFunction == releaseFunction) { FePackageFailure.fail("resource lifetime operations must be distinct"); }
+			FeNativeDispatchTable? dispatch = self.hasKeyPrefix(prefix + "dispatch.") ? self.dispatchTable(prefix + "dispatch.", ownership, storage) : null;
+			bool releaseSlot = dispatch != null && !dispatch.releaseSlot.isEmpty();
+			/* A dispatch release slot is the destructor in place of a release function. */
+			if (releaseSlot && (self.fields.has(prefix + "release") || !consumption.isEmpty())) { FePackageFailure.fail("a dispatch release slot replaces the resource release function"); }
+			string releaseFunction = releaseSlot ? "" : self.requiredText(prefix + "release");
+			if (retainFunction == releaseFunction && !releaseFunction.isEmpty()) { FePackageFailure.fail("resource lifetime operations must be distinct"); }
 			for operation in [retainFunction, releaseFunction] {
 				if (ownership == "unique" && operation.isEmpty()) { continue; }
 				if (!self.identifier(operation) || !binding.symbols.contains(operation)) { FePackageFailure.fail("resource retain/release must name selected functions"); }
@@ -1234,6 +1238,8 @@ class FeManifestBlock {
 			}
 			var resource = FeNativeResourceBinding(name, ownership, retainFunction, releaseFunction, consumption, cleanup, query, tag, storage);
 			if (self.hasKeyPrefix(prefix + "table.")) { resource.table = self.callbackTable(binding, prefix + "table.", ownership, storage); }
+			if (resource.table != null && dispatch != null) { FePackageFailure.fail("a resource either implements a table or dispatches through one"); }
+			resource.dispatch = dispatch;
 			binding.resources.put(name, resource);
 		}
 		binding.ownedResults = self.stringArray("owned-results");
@@ -1265,6 +1271,62 @@ class FeManifestBlock {
 	private bool hasKeyPrefix(string prefix) {
 		for key in self.fields.keys() { if (key.startsWith(prefix)) { return true; } }
 		return false;
+	}
+
+	private FeNativeDispatchTable dispatchTable(string prefix, string ownership, string storage) {
+		if (ownership != "unique" || !storage.isEmpty()) { FePackageFailure.fail("dispatch requires a unique pointer resource and a dispatch declaration"); }
+		Vector<string> known = ["table", "context", "context-index", "executor", "failure", "release"];
+		Map<string, string> methods = {};
+		for key in self.fields.keys() {
+			if (!key.startsWith(prefix)) { continue; }
+			string field = key.substring(prefix.length(), key.length() - prefix.length());
+			if (field.startsWith("methods.")) {
+				string method = field.substring(8, field.length() - 8);
+				if (!self.identifier(method)) { FePackageFailure.fail("dispatch methods must map BTRC method names to table slots"); }
+				methods.put(method, self.requiredText(key));
+				continue;
+			}
+			if (!known.contains(field)) { FePackageFailure.fail(f"unexpected dispatch field '{field}'"); }
+		}
+		for required in ["table", "executor", "failure"] { if (!self.fields.has(prefix + required)) { FePackageFailure.fail("dispatch requires table, methods, executor and failure"); } }
+		if (methods.len == 0) { FePackageFailure.fail("dispatch methods must map BTRC method names to table slots"); }
+		string tableField = self.requiredText(prefix + "table");
+		if (!self.identifier(tableField)) { FePackageFailure.fail("dispatch fields require identifiers"); }
+		int contextIndex = 0;
+		if (self.fields.has(prefix + "context-index")) {
+			string raw = self.fields.get(prefix + "context-index").trim();
+			if (raw.isEmpty() || raw.length() > 9) { FePackageFailure.fail("dispatch context-index must be a nonnegative native parameter index"); }
+			for character in raw { if (character < '0' || character > '9') { FePackageFailure.fail("dispatch context-index must be a nonnegative native parameter index"); } }
+			contextIndex = Strings.toInt(raw);
+		}
+		if (self.requiredText(prefix + "executor") != "caller") { FePackageFailure.fail("dispatch executor currently requires caller"); }
+		if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail("dispatch failure currently requires abort"); }
+		var dispatch = FeNativeDispatchTable(tableField, contextIndex);
+		Vector<string> slots = [];
+		Vector<string> methodNames = methods.keys();
+		methodNames.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for method in methodNames {
+			string slot = methods.get(method);
+			if (!self.identifier(slot)) { FePackageFailure.fail("dispatch methods must map BTRC method names to table slots"); }
+			if (method == "close" || method == "isOpen") { FePackageFailure.fail("dispatch methods cannot shadow resource operations"); }
+			dispatch.methodNames.push(method); dispatch.methodSlots.push(slot); slots.push(slot);
+		}
+		if (self.fields.has(prefix + "context")) {
+			dispatch.context = self.requiredText(prefix + "context");
+			if (!self.identifier(dispatch.context)) { FePackageFailure.fail("dispatch fields require identifiers"); }
+			if (dispatch.context == tableField) { FePackageFailure.fail("dispatch context and table fields must be distinct"); }
+		}
+		if (self.fields.has(prefix + "release")) {
+			dispatch.releaseSlot = self.requiredText(prefix + "release");
+			if (!self.identifier(dispatch.releaseSlot)) { FePackageFailure.fail("dispatch fields require identifiers"); }
+			slots.push(dispatch.releaseSlot);
+		}
+		Map<string, bool> seen = {};
+		for slot in slots {
+			if (seen.has(slot)) { FePackageFailure.fail("dispatch method and release slots must be distinct"); }
+			seen.put(slot, true);
+		}
+		return dispatch;
 	}
 
 	private FeNativeCallbackTable callbackTable(FeNativeBinding binding, string prefix, string ownership, string storage) {
@@ -1775,16 +1837,20 @@ class FePackageManifestParser {
 					string name = table.substring(26, table.length() - 26);
 					/* A unique resource may carry its callback table and that table's
 					 * method map as sub-tables of the same resource declaration. */
-					bool subTable = name.endsWith(".table") || name.endsWith(".table.methods");
+					bool subTable = name.endsWith(".table") || name.endsWith(".table.methods") || name.endsWith(".dispatch") || name.endsWith(".dispatch.methods");
 					if (name.endsWith(".table.methods")) { name = name.substring(0, name.length() - 14); }
 					else if (name.endsWith(".table")) { name = name.substring(0, name.length() - 6); }
+					else if (name.endsWith(".dispatch.methods")) { name = name.substring(0, name.length() - 17); }
+					else if (name.endsWith(".dispatch")) { name = name.substring(0, name.length() - 9); }
 					/* C++ classes are selected by their quoted scoped name. */
 					name = TOML.unquote(name);
 					bool selectedName = !name.isEmpty();
 					for component in Strings.split(name, "::") { if (!self.identifier(component)) { selectedName = false; } }
 					if (block == null || !block.isBinding() || !selectedName) { FePackageFailure.fail("resources requires a preceding native binding and a typedef name"); }
 					if (!subTable) { block.declareResource(name); }
-					section = "native.bindings.resources." + name + (table.endsWith(".table.methods") ? ".table.methods" : table.endsWith(".table") ? ".table" : "");
+					string subsection = "";
+					for suffix in [".table.methods", ".table", ".dispatch.methods", ".dispatch"] { if (subsection.isEmpty() && table.endsWith(suffix)) { subsection = suffix; } }
+					section = "native.bindings.resources." + name + subsection;
 					continue;
 				}
 				if (table.equals("native.bindings.object-fields") || table.equals("native.bindings.borrowed-results") || table.equals("native.bindings.resource-parameters") || table.equals("native.bindings.resource-results")) {

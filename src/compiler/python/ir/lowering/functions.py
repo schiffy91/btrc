@@ -1639,7 +1639,15 @@ class FunctionLowerer:
     def emit_resource_lifetime(self, declaration):
         resource = declaration.source_file.resource
         if resource.ownership == "unique":
-            self._emit_unique_resource(declaration)
+            dispatch = resource.dispatch
+            release = self._emit_dispatch_release(declaration) if dispatch is not None and dispatch.release else None
+            self._emit_unique_resource(declaration, release_symbol=release)
+            if dispatch is not None:
+                for method in declaration.members:
+                    if method.name not in {"close", "isOpen"}:
+                        self._emit_dispatch_method(
+                            declaration, method, declaration.source_file.methods[method.name].dispatch_method
+                        )
             return
         module = self._session.module
         forward = IRStructForward(name=f"__btrc_native_{declaration.name}")
@@ -1717,6 +1725,74 @@ class FunctionLowerer:
         guard = self._native_null_guard(IRLiteral("NULL"), f"Native resource synchronization: {function} failed")
         guard.condition = IRBinOp(IRCall(function, arguments), "!=", IRLiteral("0"))
         return guard
+
+    def _dispatch_call(self, declaration, method, native, arguments):
+        """Reload the object's table and slot, check both, and call through the slot.
+
+        The object owns its table, so nothing is cached between calls: an SDK
+        that swaps tables is honored on the next call (M1 dispatch).
+        """
+        resource = declaration.source_file.resource
+        dispatch = resource.dispatch
+        what = f"{declaration.name}.{method.name or 'release'}"
+        table = IRVar("table")
+        slot = IRFieldAccess(table, method.slot, arrow=True)
+        context = IRFieldAccess(native, dispatch.context, arrow=True) if dispatch.context else native
+        arguments = [*arguments[: dispatch.context_index], context, *arguments[dispatch.context_index :]]
+        return [
+            IRVarDecl(CType(method.table_type), "table", init=IRFieldAccess(native, dispatch.table, arrow=True)),
+            self._native_null_guard(table, f"Native dispatch {what}: null function table"),
+            self._native_null_guard(slot, f"Native dispatch {what}: null table slot {method.slot}"),
+        ], IRCall(slot, arguments)
+
+    def _emit_dispatch_release(self, declaration):
+        """Final owner cleanup runs the table's release slot exactly once."""
+        resource = declaration.source_file.resource
+        method = declaration.source_file.methods[""].dispatch_method
+        name = f"__btrc_dispatch_{declaration.name}_release"
+        native_type = declaration.source_file.type_spelling or resource.name
+        native = IRVar("native")
+        statements, call = self._dispatch_call(declaration, method, native, [])
+        self._native_unique_function(
+            name, "void", [IRParam(CType(native_type), "native")], [*statements, IRExprStmt(call)]
+        )
+        return name
+
+    def _emit_dispatch_method(self, declaration, member, method):
+        """A dispatched slot borrows the unique owner for exactly the native call."""
+        resource = declaration.source_file.resource
+        symbol = declaration.name
+        owner = IRVar("self")
+        native = IRVar("native")
+        native_type = declaration.source_file.type_spelling or resource.name
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in member.params]
+        result_type = CType(self._types.render(member.return_type))
+        statements, call = self._dispatch_call(
+            declaration,
+            method,
+            native,
+            [
+                IRCast(CType(spelling), IRVar(parameter.name))
+                for parameter, spelling in zip(parameters, method.native_parameters, strict=True)
+            ],
+        )
+        returns_value = result_type.text != "void"
+        body = [
+            self._native_null_guard(owner, f"Native dispatch {symbol}.{method.name}: null receiver"),
+            IRExprStmt(IRCall(f"__btrc_native_{symbol}_retain", [owner])),
+            IRExprStmt(IRCall(f"__btrc_unique_{symbol}_begin_borrow", [owner])),
+            IRVarDecl(CType(native_type), "native", init=IRFieldAccess(owner, "value", arrow=True)),
+            *statements,
+            IRVarDecl(result_type, "result", init=IRCast(result_type, call)) if returns_value else IRExprStmt(call),
+            IRExprStmt(IRCall(f"__btrc_unique_{symbol}_end_borrow", [owner])),
+            *([IRReturn(IRVar("result"))] if returns_value else []),
+        ]
+        self._native_unique_function(
+            f"__btrc_unique_{symbol}_{method.name}_public",
+            result_type.text,
+            [IRParam(CType(f"struct __btrc_native_{symbol}*"), "self"), *parameters],
+            body,
+        )
 
     def _emit_unique_resource(self, declaration, symbol=None, release_symbol=None):
         resource = declaration.source_file.resource

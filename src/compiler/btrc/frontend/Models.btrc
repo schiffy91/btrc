@@ -382,8 +382,27 @@ class FeNativeCallbackTable {
 	public string identity() { return f"{self.name}:{self.interfaceName}:{self.context}:{self.contextIndex}:{self.label}:{self.reopen}:{self.releaseField}:" + Strings.join(self.methodNames, ",") + ":" + Strings.join(self.methodFields, ","); }
 }
 
+/* An SDK-owned function table that BTRC calls through its object's unique
+ * owner. `table` is the object field holding the table pointer; `context`
+ * names the object field passed at `contextIndex`, empty passing the object
+ * itself; `releaseSlot` names the slot final owner cleanup runs once. */
+class FeNativeDispatchTable {
+	public string table;
+	public int contextIndex;
+	public Vector<string> methodNames = [];
+	public Vector<string> methodSlots = [];
+	public string context = "";
+	public string releaseSlot = "";
+	public FeNativeDispatchTable(string table, int contextIndex) {
+		self.table = table; self.contextIndex = contextIndex;
+	}
+
+	public string identity() { return f"{self.table}:{self.contextIndex}:{self.context}:{self.releaseSlot}:" + Strings.join(self.methodNames, ",") + ":" + Strings.join(self.methodSlots, ","); }
+}
+
 class FeNativeResourceBinding {
 	public FeNativeCallbackTable? table = null;
+	public FeNativeDispatchTable? dispatch = null;
 	public string alias = "";
 	public string constructor = "";
 	public string owner = "";
@@ -412,6 +431,8 @@ class FeNativeResourceBinding {
 		FeNativeCallbackTable? table = self.table;
 		string tableIdentity = "";
 		if (table != null) { tableIdentity = table.identity(); }
+		FeNativeDispatchTable? dispatch = self.dispatch;
+		if (dispatch != null) { tableIdentity = tableIdentity + ":dispatch:" + dispatch.identity(); }
 		return f"{self.name}:{self.ownership}:{self.retainFunction}:{self.releaseFunction}:{self.releaseConsumption}:{self.cleanupStatus}:{self.typeQuery}:{self.typeTag}:{self.storage}:{self.alias}:{self.constructor}:{self.owner}:" + Strings.join(self.methods, ",") + ":" + tableIdentity;
 	}
 }
@@ -693,8 +714,26 @@ class FeNativeCallbackTableProjection {
 	}
 }
 
+/* One mapped slot of an SDK-owned function table, called through its object's
+ * owner. `names`, `parameters` and `nativeParameters` cover the slot's
+ * arguments other than the one at the dispatch context index. */
+class FeNativeDispatchMethod {
+	public string name;
+	public string slot;
+	public Vector<string> names = [];
+	public Vector<Node> parameters = [];
+	public Node returnType;
+	public Vector<string> nativeParameters = [];
+	public string nativeReturn;
+	public string tableType;
+	public FeNativeDispatchMethod(string name, string slot, Node returnType, string nativeReturn, string tableType) {
+		self.name = name; self.slot = slot; self.returnType = returnType; self.nativeReturn = nativeReturn; self.tableType = tableType;
+	}
+}
+
 class FeNativeCallContract {
 	public FeNativeCallbackTableProjection? callbackTable = null;
+	public FeNativeDispatchMethod? dispatchMethod = null;
 	public FeNativeCxxProjection? cxxMethod = null;
 	public FeNativeCopiedInput? copiedInput = null;
 	public FeNativeRecordSnapshot? recordSnapshot = null;

@@ -634,6 +634,25 @@ class NativeCxxProjection:
 
 
 @dataclass(frozen=True)
+class NativeDispatchMethod:
+    """One mapped slot of an SDK-owned function table, called through its object's owner.
+
+    `names`, `parameters` and `native_parameters` cover the slot's arguments
+    other than the one at the dispatch context index; `native_parameters`
+    spells them in C for the adapter.
+    """
+
+    name: str
+    slot: str
+    names: tuple[str, ...]
+    parameters: tuple[ast.TypeExpr, ...]
+    return_type: ast.TypeExpr
+    native_parameters: tuple[str, ...]
+    native_return: str
+    table_type: str
+
+
+@dataclass(frozen=True)
 class NativeCallContract:
     """Checks at a native call boundary, including calls through function values."""
 
@@ -660,6 +679,7 @@ class NativeCallContract:
     cxx_method: NativeCxxProjection | None = None
     callback_table: NativeCallbackTableProjection | None = None
     transparent_parameters: tuple[bool, ...] = ()
+    dispatch_method: NativeDispatchMethod | None = None
 
     @property
     def returns_owned(self):
@@ -934,6 +954,7 @@ class NativeDeclarationImporter:
                     self._import(declaration)
                 self._project_realtime_callbacks(binding)
                 self._project_callback_tables(binding)
+                self._project_dispatch_tables(binding)
                 self._project_record_snapshots(binding)
                 if self._variadic_calls:
                     raise NativeImportError("variadic-calls names an unknown function or parameter")
@@ -1117,6 +1138,17 @@ class NativeDeclarationImporter:
                             *snapshot.guard[:1],
                             *[path for _, path in snapshot.strings],
                             *snapshot.byte_span[1:],
+                        )
+                    }
+                    # A dispatched slot's path reads its table's layout without
+                    # exporting the table itself.
+                    | {
+                        f"{resource.name}.{resource.dispatch.table}.{slot}"
+                        for resource in binding.resources
+                        if resource.dispatch is not None
+                        for slot in (
+                            *(slot for _, slot in resource.dispatch.methods),
+                            *((resource.dispatch.release,) if resource.dispatch.release else ()),
                         )
                     }
                 )
@@ -1763,6 +1795,130 @@ class NativeDeclarationImporter:
                 callback_table=projection,
             )
             self._add(table.name, factory, ("callback-table-factory", resource.name), call_contract=contract)
+
+    def _dispatch_context(self, resource, record, signature, what):
+        """The argument at context-index takes the context field, or the object itself."""
+        dispatch = resource.dispatch
+        if dispatch.context_index >= len(signature.parameters):
+            raise NativeImportError(f"resource {resource.name}: dispatch context-index is outside {what}")
+        argument = signature.parameters[dispatch.context_index]
+        if dispatch.context:
+            self._table_context_argument(argument, what)
+        elif not self._dispatch_receiver(argument, record):
+            raise NativeImportError(f"resource {resource.name}: {what} must take the object at context-index")
+
+    def _dispatch_receiver(self, native, record):
+        """A slot's receiver argument takes a pointer to the dispatching object."""
+        pointer = self._unqualified_native(native)
+        pointee = self._unqualified_native(pointer.pointee) if isinstance(pointer, NativePointer) else None
+        return isinstance(pointee, NativeRecordType) and pointee.identity == record.identity
+
+    def _project_dispatch_tables(self, binding):
+        """Project each mapped slot of an SDK-owned table as a method of its unique owner.
+
+        The object owns its table: every call reloads the table pointer and the
+        slot and checks both for null, so a table swapped by the SDK is honored
+        and nothing is cached (native-interop-ownership.md section 2.1).
+        """
+        for resource in binding.resources:
+            dispatch = resource.dispatch
+            if dispatch is None:
+                continue
+            pointer = self._resource_types[resource.name]
+            record = self._unqualified_native(pointer.pointee)
+            layout = self._layouts.get(record.identity) if isinstance(record, NativeRecordType) else None
+            if resource.storage or layout is None or layout.record_kind != "struct":
+                raise NativeImportError(
+                    f"resource {resource.name}: dispatch requires a unique pointer resource over a complete SDK struct"
+                )
+            fields = {field.name: field for field in layout.fields}
+            table_field = fields.get(dispatch.table)
+            table_pointer = self._unqualified_native(table_field.field_type) if table_field else None
+            table_record = (
+                self._unqualified_native(table_pointer.pointee) if isinstance(table_pointer, NativePointer) else None
+            )
+            table_layout = (
+                self._layouts.get(table_record.identity) if isinstance(table_record, NativeRecordType) else None
+            )
+            if table_layout is None or table_layout.record_kind != "struct":
+                raise NativeImportError(
+                    f"resource {resource.name}: dispatch table {dispatch.table} must point to a complete SDK struct"
+                )
+            if dispatch.context:
+                if dispatch.context not in fields:
+                    raise NativeImportError(
+                        f"resource {resource.name}: dispatch context {dispatch.context} is not a field"
+                    )
+                self._table_context_argument(fields[dispatch.context].field_type, "dispatch context field")
+            table_type = self._realtime_native_spelling(table_field.field_type)
+            slots = {field.name: field for field in table_layout.fields}
+
+            methods = {}
+            for method, slot in dispatch.methods:
+                field = slots.get(slot)
+                if field is None:
+                    raise NativeImportError(f"resource {resource.name}: dispatch slot {slot} is not a table field")
+                signature = self._table_function_type(field.field_type, f"dispatch method {method}")
+                self._require_qualified_convention(signature)
+                self._dispatch_context(resource, record, signature, f"dispatch method {method}")
+                result = self._unqualified_native(signature.return_type)
+                if not (isinstance(result, NativeBuiltin) and result.name == "void") and not self._realtime_scalar(
+                    signature.return_type
+                ):
+                    raise NativeImportError("dispatch methods require scalar or void results")
+                names = self._parameter_names(field.callback_parameters) if field.callback_parameters else ()
+                kept = [index for index in range(len(signature.parameters)) if index != dispatch.context_index]
+                parameters = []
+                for index in kept:
+                    try:
+                        parameters.append(self._realtime_parameter(signature.parameters[index]))
+                    except NativeImportError as error:
+                        raise NativeImportError(
+                            "dispatch method arguments require SDK scalar or POD data-pointer types"
+                        ) from error
+                methods[method] = NativeDispatchMethod(
+                    method,
+                    slot,
+                    tuple(names[index] if names else f"argument{index}" for index in kept),
+                    tuple(parameters),
+                    self._call_type(signature.return_type),
+                    tuple(self._realtime_native_spelling(signature.parameters[index]) for index in kept),
+                    self._realtime_native_spelling(signature.return_type),
+                    table_type,
+                )
+            if dispatch.release:
+                field = slots.get(dispatch.release)
+                if field is None:
+                    raise NativeImportError(
+                        f"resource {resource.name}: dispatch release slot {dispatch.release} is not a table field"
+                    )
+                signature = self._table_function_type(field.field_type, "dispatch release")
+                self._require_qualified_convention(signature)
+                result = self._unqualified_native(signature.return_type)
+                if len(signature.parameters) != 1 or not isinstance(result, NativeBuiltin) or result.name != "void":
+                    raise NativeImportError("dispatch release requires one object argument and a void result")
+                self._dispatch_context(resource, record, signature, "dispatch release")
+                methods[""] = NativeDispatchMethod(
+                    "", dispatch.release, (), (), ast.TypeExpr(base="void"), (), "void", table_type
+                )
+            declaration = self._declarations[(str(self._origin), resource.name)]
+            for method in methods.values():
+                if not method.name:
+                    continue
+                declaration.members.append(
+                    ast.MethodDecl(
+                        name=method.name,
+                        return_type=method.return_type,
+                        params=[
+                            ast.Param(type=value, name=name)
+                            for name, value in zip(method.names, method.parameters, strict=True)
+                        ],
+                        access="public",
+                    )
+                )
+            declaration.source_file.methods.update(
+                {name: NativeCallContract(dispatch_method=method) for name, method in methods.items()}
+            )
 
     def _project_callbacks(self, declaration):
         projections = []
@@ -2556,9 +2712,15 @@ class NativeDeclarationImporter:
                 raise NativeImportError("unique resource records and completion payloads require owning projections")
             close_type = ast.TypeExpr(base="void")
             resource_identity = self._type_identity(pointer)
-            for operation in (
-                (resource.release,) if resource.ownership == "unique" else (resource.retain, resource.release)
-            ):
+            if resource.dispatch is not None and resource.dispatch.release:
+                # The table's release slot is the destructor; it is checked with
+                # the table when the dispatched methods are projected.
+                operations = ()
+            elif resource.ownership == "unique":
+                operations = (resource.release,)
+            else:
+                operations = (resource.retain, resource.release)
+            for operation in operations:
                 function = exports.get(operation)
                 if (
                     not isinstance(function, NativeFunction)

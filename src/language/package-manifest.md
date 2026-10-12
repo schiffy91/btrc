@@ -1589,6 +1589,53 @@ shadow `close`/`isOpen`, the factory and interface names must not collide with
 selected symbols, and inline-storage or reference-counted resources are
 rejected. No userdata, function pointer or table layout reaches provider code.
 
+### SDK-owned dispatch tables
+
+The opposite direction of a callback table: the SDK object owns a table of
+function pointers, and BTRC calls through it. Declare `dispatch` under a unique
+pointer resource over a complete SDK struct; the header remains the signature
+authority (interop step 2 in
+[native-interop-ownership.md](../../docs/design/native-interop-ownership.md)).
+
+```toml
+[native.bindings.resources.Codec]
+ownership = "unique"
+
+[native.bindings.resources.Codec.dispatch]
+table = "vtbl"            # object field holding the table pointer
+context-index = 0         # slot parameter that receives the object
+executor = "caller"
+failure = "abort"
+release = "destroy"       # optional slot; replaces the top-level release
+
+[native.bindings.resources.Codec.dispatch.methods]
+decode = "decode"
+reset = "reset"
+```
+
+Each mapped slot becomes a public method of the resource, without the
+parameter at `context-index` (`int decode(uint8_t* input, int length)`);
+parameter names come from the slot's own declaration. Without `context`, that
+parameter must be a pointer to the object itself; `context = "field"` passes
+the named object field instead, which must be an unqualified `void*`. The
+remaining arguments must be SDK scalars or POD data pointers and the result a
+scalar or void.
+
+Every call borrows the unique owner, reloads the table pointer and the slot,
+aborts with a diagnostic when either is null, calls, and ends the borrow. The
+object owns its table: BTRC never copies, caches, retains or frees the table or
+a slot, so a table the SDK swaps between calls is honored on the next call.
+Calling on a closed owner aborts before the SDK runs, and closing through any
+alias during the call aborts, exactly as for every unique resource.
+
+`release` names a `void (*)(T*)` slot that final owner cleanup runs exactly
+once, through the same reload and null check; it cannot be combined with the
+resource's top-level `release` or `consume` keys. A resource either implements
+a table (`table`) or dispatches through one (`dispatch`). `executor` currently
+requires `caller` and `failure` requires `abort`; method names cannot shadow
+`close`/`isOpen`, and each slot is mapped at most once. The reader reads each
+slot's layout by record path, so the table record need not be exported.
+
 ### Opaque C++ owners
 
 A `language = "c++"` binding publishes SDK classes as opaque owners and
