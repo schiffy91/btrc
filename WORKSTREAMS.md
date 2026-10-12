@@ -211,6 +211,16 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-12 Android ProcessThreads prerequisite (Codex).** Private packet
+`codex/android-process-threads-prerequisite-36b` starts at exact `36b647f0`.
+Owned changes are this claim and `docs/workstreams/android-process-threads.md`.
+The compiler-import dependencies are explicitly named: `src/stdlib/BackgroundJobs/ProcessThreads.btrc`,
+`src/stdlib/BackgroundJobs/Linux/ProcessThreadsProvider.btrc`, and
+`src/stdlib/BackgroundJobs/btrc.toml`; all remain unchanged. Canonical metadata
+proof found a missing Android provider and rejection of Android OS selectors.
+Paired compiler provider-filter work is REQUEST(CL-P1-14), not implemented here.
+No compiler/runtime/generated/workflow changes, native claims or publication.
+
 **2026-10-09 D29 unit GUI scheduling claim:** the parent integrator owns
 `.github/workflows/macos.yml`, its existing workflow-contract assertions and
 `docs/workstreams/macos-unit-gui-scheduling.md` on
