@@ -211,6 +211,23 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-12 Linux ProcessThreads read-error successor (Codex).**
+Private `codex/linux-process-threads-read-errors`, exact base `36b647f0`.
+Explicit compiler-import claim: `src/stdlib/BackgroundJobs/Linux/ProcessThreadsProvider.btrc`.
+Also owns new `src/tests/python/test_linux_process_threads.py`, the four
+`BackgroundJobsProcessThreads.btrc`, `ProcessThreadFaultControl.h`,
+`ProcessThreadFaults.h`, `ProcessThreadFaults.c` fixtures under
+`src/tests/native/background_jobs/`, this append-only claim and
+`docs/workstreams/linux-process-threads-errno.md`. The old unpublished errno
+packet/ref remains preserved; this successor moves its regression into a dedicated
+module. `test_background_jobs_runtime.py` is read-only support and remains
+byte-identical to main, respecting the existing PR67/PR70 claims.
+Fragment (not held): Linux-only test classification in the three existing
+macos, macos-hosted and windows expected-skip manifests, final commit only.
+No API/native manifest/compiler/runtime/generated/workflow/harness changes.
+WORKSTREAMS §3.4 fresh binary, bootstrap and host-entry qualification still apply.
+No native result or hosted qualification is claimed by this source preparation.
+
 **2026-10-09 D29 unit GUI scheduling claim:** the parent integrator owns
 `.github/workflows/macos.yml`, its existing workflow-contract assertions and
 `docs/workstreams/macos-unit-gui-scheduling.md` on

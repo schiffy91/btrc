@@ -308,6 +308,21 @@
         "linux-devcontainer"
       ],
       "note": "The Linux btrc shard checks refusal at a 16 MiB hard stack limit and successful startup at 64 MiB. Only the launcher child changes its resource limits; macOS uses a separate compiler stack."
+    },
+    {
+      "id": "linux-process-thread-read-errors",
+      "files": [
+        "src/tests/python/test_linux_process_threads.py"
+      ],
+      "nodes": [
+        "*::test_linux_process_thread_count_read_errors*"
+      ],
+      "reason": "^requires native Linux /proc/self/task and dirent errno$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "Real Linux ProcessThreads directory-read failure and closure, paired plain/sanitized native fixture."
     }
   ]
 }
