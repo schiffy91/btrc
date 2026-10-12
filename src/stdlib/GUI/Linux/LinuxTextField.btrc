@@ -111,6 +111,8 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		if (raw == null) { return; }
 		string pasted = "";
 		try { pasted = Strings.copy(raw); } finally { SDL_free((void*)raw); }
+		/* SDL returns an allocated empty string on read failure. */
+		if (pasted.isEmpty()) { return; }
 		if (!Bytes.fromString(pasted).isNulFreeUtf8()) { return; }
 		self.replaceSelection(pasted.replace("\n", " ").replace("\r", ""));
 	}
