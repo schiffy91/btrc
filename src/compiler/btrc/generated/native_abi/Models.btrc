@@ -111,6 +111,7 @@ class NativeNode {
 	public bool isAnonymous;
 	public bool isBitfield;
 	public string widthBits;
+	public Vector<NativeNode> callbackParameters;
 
 	public NativeNode() {
 		self.kind = NNK_NONE;
@@ -179,5 +180,6 @@ class NativeNode {
 		self.isAnonymous = false;
 		self.isBitfield = false;
 		self.widthBits = "";
+		self.callbackParameters = [];
 	}
 }

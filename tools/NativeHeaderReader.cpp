@@ -1,5 +1,6 @@
 #include <llvm/ADT/ScopeExit.h>
 #include <llvm/ADT/StringExtras.h>
+#include <cctype>
 #include <chrono>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <fstream>
@@ -34,6 +35,7 @@
 #include <clang/AST/ASTConsumer.h>
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Attr.h>
+#include <clang/AST/TypeLoc.h>
 #include <clang/AST/RecursiveASTVisitor.h>
 #include <clang/AST/RecordLayout.h>
 #include <clang/Basic/TargetInfo.h>
@@ -655,8 +657,9 @@ class NativeHeaderReader {
 			result["kind"] = "function";
 			result["return_type"] = type(function->getReturnType());
 			result["variadic"] = function->isVariadic();
-			if (function->getCallConv() != clang::CC_C) { errors.push_back("Unsupported calling convention: " + value.getAsString()); }
-			result["calling_convention"] = "c";
+			// Reported, not judged: each importer admits only the conventions it
+			// has qualified (today only `c`).
+			result["calling_convention"] = callingConvention(function->getCallConv());
 			llvm::json::Array parameters;
 			for (auto parameter : function->param_types()) { parameters.push_back(type(parameter)); }
 			result["parameters"] = std::move(parameters);
@@ -677,6 +680,61 @@ class NativeHeaderReader {
 		return result;
 	}
 
+	static std::string callingConvention(clang::CallingConv convention) {
+		switch (convention) {
+		case clang::CC_C: return "c";
+		case clang::CC_X86StdCall: return "x86_stdcall";
+		case clang::CC_X86FastCall: return "x86_fastcall";
+		case clang::CC_X86ThisCall: return "x86_thiscall";
+		case clang::CC_X86VectorCall: return "x86_vectorcall";
+		case clang::CC_Win64: return "win64";
+		case clang::CC_X86_64SysV: return "x86_64_sysv";
+		case clang::CC_AAPCS: return "aapcs";
+		case clang::CC_AAPCS_VFP: return "aapcs_vfp";
+		default: break;
+		}
+		std::string name = clang::FunctionType::getNameForCallConv(convention).str();
+		for (char& character : name) {
+			if (!std::isalnum(static_cast<unsigned char>(character))) { character = '_'; }
+		}
+		return name;
+	}
+
+	// One entry per slot parameter of a function-pointer field, named from the
+	// field's own prototype spelling (through typedefs), or none at all.
+	llvm::json::Array callbackParameters(const clang::FieldDecl* field) {
+		const auto* pointer = field->getType().getCanonicalType()->getAs<clang::PointerType>();
+		const auto* prototype = pointer ? pointer->getPointeeType()->getAs<clang::FunctionProtoType>() : nullptr;
+		if (!prototype) { return {}; }
+		clang::TypeLoc location = field->getTypeSourceInfo() ? field->getTypeSourceInfo()->getTypeLoc() : clang::TypeLoc();
+		clang::FunctionProtoTypeLoc function;
+		for (int depth = 0; depth < 64 && !location.isNull(); ++depth) {
+			location = location.getUnqualifiedLoc();
+			if (auto alias = location.getAs<clang::TypedefTypeLoc>()) {
+				const auto* info = alias.getTypedefNameDecl()->getTypeSourceInfo();
+				location = info ? info->getTypeLoc() : clang::TypeLoc();
+				continue;
+			}
+			if (auto found = location.getAs<clang::FunctionProtoTypeLoc>()) {
+				function = found;
+				break;
+			}
+			location = location.getNextTypeLoc();
+		}
+		if (function) {
+			auto declared = function.getParams();
+			bool complete = declared.size() == prototype->getNumParams();
+			for (const auto* parameter : declared) { complete = complete && parameter != nullptr; }
+			if (complete) { return parameters(declared); }
+		}
+		llvm::json::Array result;
+		for (unsigned index = 0; index < prototype->getNumParams(); ++index) {
+			auto information = prototype->getExtParameterInfo(index);
+			result.push_back(llvm::json::Object{{"name", ""}, {"cf_consumed", false}, {"ns_consumed", information.isConsumed()}, {"no_escape", information.isNoEscape()}});
+		}
+		return result;
+	}
+
 	void readRecords() {
 		while (!pendingRecords.empty()) {
 			auto next = pendingRecords.extract(pendingRecords.begin());
@@ -686,7 +744,7 @@ class NativeHeaderReader {
 			llvm::json::Array fields;
 			unsigned index = 0;
 			for (const auto* field : record->fields()) {
-				llvm::json::Object entry{{"name", field->getNameAsString()}, {"type", type(field->getType())}, {"offset_bits", std::to_string(layout.getFieldOffset(index++))}, {"anonymous", field->isAnonymousStructOrUnion()}};
+				llvm::json::Object entry{{"name", field->getNameAsString()}, {"type", type(field->getType())}, {"offset_bits", std::to_string(layout.getFieldOffset(index++))}, {"anonymous", field->isAnonymousStructOrUnion()}, {"callback_parameters", callbackParameters(field)}};
 				if (field->isBitField()) { entry["width_bits"] = std::to_string(field->getBitWidthValue()); }
 				fields.push_back(std::move(entry));
 			}
@@ -984,7 +1042,7 @@ public:
 		for (auto& record : records) { layouts.push_back(std::move(record.second)); }
 		llvm::json::Array interfaceDeclarations;
 		for (auto& interface : selectedInterfaces) { interfaceDeclarations.push_back(std::move(interface.second)); }
-		return llvm::json::Object{{"schema", "btrc.native-declarations.experimental"}, {"target", target}, {"clang", clang::getClangFullVersion()}, {"big_endian", bigEndian}, {"character_bits", static_cast<int64_t>(characterBits)}, {"declarations", std::move(exports)}, {"records", std::move(layouts)}, {"interfaces", std::move(interfaceDeclarations)}};
+		return llvm::json::Object{{"schema", "btrc.native-declarations.v2"}, {"target", target}, {"clang", clang::getClangFullVersion()}, {"big_endian", bigEndian}, {"character_bits", static_cast<int64_t>(characterBits)}, {"declarations", std::move(exports)}, {"records", std::move(layouts)}, {"interfaces", std::move(interfaceDeclarations)}};
 	}
 
 	bool publish() {

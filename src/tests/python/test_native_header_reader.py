@@ -81,7 +81,11 @@ def assert_codec_parity(codec_probe, tmp_path, source):
     )
     for record in header.records:
         lines.append(f"{record.identity} {record.size_bits} {record.alignment_bits}")
-        lines.extend(f"{field.name} {field.offset_bits} {field.width_bits}" for field in record.fields)
+        lines.extend(
+            f"{field.name} {field.offset_bits} {field.width_bits}"
+            + (f" ({','.join(slot.name for slot in field.callback_parameters)})" if field.callback_parameters else "")
+            for field in record.fields
+        )
     for declaration in header.exports:
         if isinstance(declaration, NativePointerConstant):
             lines.append(f"pointer {declaration.name} {declaration.pointer_bits} {declaration.decimal_value}")
@@ -840,6 +844,8 @@ def test_native_semantic_model_has_compiled_frontend_parity(reader, codec_probe,
         "missing_semantics",
         "unsupported_kind",
         "calling_convention",
+        "callback_parameters",
+        "missing_callback_parameters",
         "nullability",
         "ownership",
         "nul",
@@ -881,7 +887,14 @@ def test_native_semantic_decoders_reject_invalid_metadata(reader, codec_probe, t
     elif mutation == "unsupported_kind":
         exported["type"]["kind"] = "cpp_member"
     elif mutation == "calling_convention":
-        exported["type"]["calling_convention"] = "unknown"
+        exported["type"]["calling_convention"] = "Unknown-Convention"
+    elif mutation == "callback_parameters":
+        # A scalar field has no slot, so any callback parameter is extra.
+        record["fields"][0]["callback_parameters"] = [
+            {"name": "value", "cf_consumed": False, "ns_consumed": False, "no_escape": False}
+        ]
+    elif mutation == "missing_callback_parameters":
+        del record["fields"][0]["callback_parameters"]
     elif mutation == "nullability":
         exported["type"]["nullability"] = "guessed"
     elif mutation == "ownership":
@@ -1593,8 +1606,42 @@ ReadOnlyBytes _Nullable __stdcall inspectBytes(const __typeof__(unsigned char)* 
     assert_codec_parity(codec_probe, tmp_path, json.dumps(document))
 
 
-@pytest.mark.parametrize("convention", ["__stdcall", "__fastcall"])
-def test_native_function_nondefault_calling_convention_is_rejected(reader, tmp_path, convention):
+def test_function_pointer_fields_carry_their_slot_parameters(reader, codec_probe, tmp_path):
+    """Each function-pointer field names its slot parameters from its own
+    prototype spelling, through a typedef; any other field has none."""
+    result = read(
+        reader,
+        tmp_path,
+        """
+        typedef void (*Notify)(void *context, int code);
+        struct Table {
+            int (*decode)(void *self, const unsigned char *input, unsigned long length);
+            Notify notify;
+            void (*reset)(void *, int);
+            void (**visit)(void);
+            int count;
+        };
+        struct Table table_make(void);
+        """,
+        ["table_make"],
+    )
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    record = next(item for item in document["records"] if item["name"] == "Table")
+    slots = {field["name"]: [entry["name"] for entry in field["callback_parameters"]] for field in record["fields"]}
+    assert slots == {
+        "decode": ["self", "input", "length"],
+        "notify": ["context", "code"],
+        "reset": ["", ""],
+        "visit": [],
+        "count": [],
+    }
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+
+
+@pytest.mark.parametrize(("convention", "reported"), [("__stdcall", "x86_stdcall"), ("__fastcall", "x86_fastcall")])
+def test_native_function_nondefault_calling_convention_is_reported(reader, tmp_path, convention, reported):
+    """The reader reports each convention; the importers admit only `c`."""
     result = read(
         reader,
         tmp_path,
@@ -1602,6 +1649,11 @@ def test_native_function_nondefault_calling_convention_is_rejected(reader, tmp_p
         ["transform"],
         "--target=i686-w64-windows-gnu",
     )
-    assert result.returncode == 1
-    assert "Unsupported calling convention:" in result.stderr
-    assert not result.stdout
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    signature = next(item for item in document["declarations"] if item["name"] == "transform")["type"]
+    assert signature["calling_convention"] == reported
+    header = NativeHeaderCodec().decode(result.stdout)
+    importer = NativeDeclarationImporter()
+    with pytest.raises(NativeImportError, match=f"native calling convention '{reported}' is not supported"):
+        importer._require_qualified_convention(header.exports[0].signature)

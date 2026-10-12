@@ -50,5 +50,6 @@ module NativeAbi {
                                        string size_bits, string alignment_bits,
                                        native_field* fields, bool transparent_union)
     native_field = NativeField(identifier name, native_type field_type, string offset_bits,
-                               bool is_anonymous, bool is_bitfield, string width_bits)
+                               bool is_anonymous, bool is_bitfield, string width_bits,
+                               native_parameter* callback_parameters)
 }
