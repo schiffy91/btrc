@@ -1341,6 +1341,39 @@ type. Hidden members cannot be read, written or called, and nonempty positional
 initialization of records with hidden fields is rejected. Existing checked owned
 record callback projections are unchanged.
 
+### Unmanaged handles
+
+A lifetime operation stays reserved across every binding of a program: no
+ordinary call or function value can reach a managed resource's retain or
+release, whichever binding is resolved first. Some providers still hold raw
+SDK handles in plain data and release them with the same function. A Core
+Foundation run-loop timer, for example, is created, invalidated and released
+with `CFRelease` by the UI owner, while other bindings manage CF objects
+through `CFRelease`. Declare such a handle typedef in its own binding:
+
+```toml
+[[native.bindings]]
+module = "MacOS.MacOSRunLoop"
+header = "RunLoop.h"
+language = "c"
+standard = "c11"
+symbols = ["CFRunLoopTimerRef", "CFRunLoopTimerCreate", "CFRunLoopTimerInvalidate", "CFRelease"]
+
+[native.bindings.unmanaged-handles.CFRunLoopTimerRef]
+release = "CFRelease"
+```
+
+The handle must be a selected typedef of a pointer to an SDK record and must not
+be a managed resource in any binding of the program. The release must be a
+selected function taking one pointer and returning void. The program may then
+call the release with exactly one argument whose type is that handle, with no
+cast: `CFRelease(state.timer)`. Any other call, a function value, a managed
+value or a cast argument fails with "'CFRelease()' may release only a declared
+unmanaged handle passed directly", and the operation remains unavailable as an
+ordinary declaration. A handle has one release program-wide. The compiler does
+not track the handle: a double release or use after release remains the
+provider's responsibility, exactly as for any raw SDK handle.
+
 ### Unique C resources
 
 A selected SDK record-pointer typedef, record typedef, or struct tag with a void destructor can instead declare

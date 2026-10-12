@@ -370,6 +370,9 @@ class DeclarationIndex:
 
     class_table: dict[str, ClassInfo] = field(default_factory=dict)
     native_lifetime_operations: set[str] = field(default_factory=set)
+    # Lifetime operations a program may call directly, each with its declared
+    # unmanaged handle typedefs (package-manifest.md, unmanaged-handles).
+    native_unmanaged_releases: dict[str, set[str]] = field(default_factory=dict)
     function_table: dict[str, FunctionDecl] = field(default_factory=dict)
     typedef_table: dict[str, TypeExpr] = field(default_factory=dict)
     struct_table: dict[str, StructDecl] = field(default_factory=dict)

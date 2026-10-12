@@ -230,6 +230,9 @@ class FeNativeRecordSnapshotBinding {
 }
 
 class FeNativeBinding {
+	/* Raw record-pointer handles released directly by one selected lifetime
+	 * operation, beside managed resources sharing that name. */
+	public Map<string, string> unmanagedHandles = {};
 	public Map<string, FeNativeCopiedInputBinding> copiedInputs = {};
 	public Map<string, FeNativeInitializerBinding> initializers = {};
 	public Vector<FeNativeRecordSnapshotBinding> recordSnapshots = [];
@@ -415,6 +418,7 @@ class FeManifestBlock {
 	private Map<string, bool> callbackNames = {};
 	private Map<string, bool> callbackOperationNames = {};
 	private Map<string, bool> stringViewNames = {};
+	private Map<string, bool> unmanagedHandleNames = {};
 	private Map<string, bool> ownedOutputNames = {};
 	private Map<string, bool> outputOffsetNames = {};
 	private Map<string, bool> copiedResultNames = {};
@@ -480,6 +484,11 @@ class FeManifestBlock {
 		self.variadicCallNames.put(name, true);
 	}
 
+	public void declareUnmanagedHandle(string name) {
+		if (self.unmanagedHandleNames.has(name)) { FePackageFailure.fail(f"duplicate unmanaged-handles table '{name}'"); }
+		self.unmanagedHandleNames.put(name, true);
+	}
+
 	public void declareStringView(string name) {
 		if (self.stringViewNames.has(name)) { FePackageFailure.fail(f"duplicate string-view table '{name}'"); }
 		self.stringViewNames.put(name, true);
@@ -503,6 +512,7 @@ class FeManifestBlock {
 			if (key.startsWith("copied-results.") || key.startsWith("initializers.") || key.startsWith("copied-inputs.")) { return true; }
 			if (key.startsWith("variadic-calls.")) { return true; }
 			if (key.startsWith("string-views.")) { return true; }
+			if (key.startsWith("unmanaged-handles.")) { return true; }
 			if (key == "main-thread-globals") { return true; }
 			if (key.startsWith("callbacks.")) { return true; }
 			if (key.startsWith("resources.") || key.startsWith("borrowed-results.") || key.startsWith("resource-parameters.") || key.startsWith("resource-results.") || key == "owned-results" || key == "borrowed-parameters" || key == "static-globals") { return true; }
@@ -1197,6 +1207,34 @@ class FeManifestBlock {
 		}
 	}
 
+	/* Raw handles whose selected lifetime operation BTRC may call directly: a
+	 * Core Foundation run-loop timer held in plain data is released with
+	 * CFRelease while other bindings manage CF objects through it. Only a call
+	 * passing exactly such a handle is admitted; the operation stays reserved
+	 * everywhere else. */
+	private void finishUnmanagedHandles(FeNativeBinding binding) {
+		for key in self.fields.keys() {
+			if (!key.startsWith("unmanaged-handles.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 3 || parts.get(2) != "release") { FePackageFailure.fail(f"{self.context()}.{key} is not an unmanaged-handles field"); }
+			string handle = parts.get(1);
+			string releaseName = self.requiredText(key);
+			if (!binding.symbols.contains(handle) || binding.resources.has(handle) || !binding.symbols.contains(releaseName) || releaseName == handle) {
+				FePackageFailure.fail(f"{self.context()}.unmanaged-handles.{handle} requires a selected record-pointer typedef that is not a resource and a selected release");
+			}
+			binding.unmanagedHandles.put(handle, releaseName);
+		}
+		for name in self.unmanagedHandleNames.keys() {
+			if (!binding.unmanagedHandles.has(name)) { FePackageFailure.fail(f"{self.context()}.unmanaged-handles.{name} must declare its release"); }
+		}
+		if (binding.unmanagedHandles.len > 0 && binding.language != "c") { FePackageFailure.fail(f"{self.context()}.unmanaged-handles requires a C binding"); }
+		for handle in binding.unmanagedHandles.keys() {
+			string releaseName = binding.unmanagedHandles.get(handle);
+			if (binding.ownedResults.contains(releaseName)) { FePackageFailure.fail("resource lifetime operations are reserved"); }
+			for parameter in binding.borrowedParameters { if (Strings.split(parameter, ".").get(0) == releaseName) { FePackageFailure.fail("resource lifetime operations are reserved"); } }
+		}
+	}
+
 	private void finishResources(FeNativeBinding binding) {
 		Map<string, bool> names = self.resourceNames;
 		Map<string, bool> operations = {};
@@ -1534,6 +1572,7 @@ class FeManifestBlock {
 		var binding = FeNativeBinding(packageName, modules.get(0), header, language, standard, symbols, selector.operatingSystems, selector.architectures);
 		binding.environments = selector.environments;
 		self.finishResources(binding);
+		self.finishUnmanagedHandles(binding);
 		self.finishOwnedOutputs(binding);
 		self.finishInitializers(binding);
 		self.finishCopiedResults(binding);
@@ -1853,6 +1892,14 @@ class FePackageManifestParser {
 					section = callbackPrefix + name;
 					continue;
 				}
+				string unmanagedPrefix = "native.bindings.unmanaged-handles.";
+				if (table.startsWith(unmanagedPrefix)) {
+					string name = table.substring(unmanagedPrefix.length(), table.length() - unmanagedPrefix.length());
+					if (block == null || !block.isBinding() || !self.identifier(name)) { FePackageFailure.fail("unmanaged-handles requires a preceding native binding and a typedef name"); }
+					block.declareUnmanagedHandle(name);
+					section = table;
+					continue;
+				}
 				if (table.startsWith("native.bindings.resources.")) {
 					string name = table.substring(26, table.length() - 26);
 					/* A unique resource may carry its callback table and that table's
@@ -1920,7 +1967,7 @@ class FePackageManifestParser {
 			} else if (section.equals("dependencies")) {
 				dependencies.push(self.dependency(key, raw));
 			} else {
-				string prefix = section.startsWith("native.bindings.copied-results.") || section.startsWith("native.bindings.resources.") || section.startsWith("native.bindings.callbacks.") || section.startsWith("native.bindings.string-views.") || section.startsWith("native.bindings.owned-outputs.") || section.startsWith("native.bindings.output-offsets.") || section.startsWith("native.bindings.variadic-calls.") ? section.substring(16, section.length() - 16) + "." : section.equals("native.bindings.object-fields") ? "object-fields." : section.equals("native.bindings.borrowed-results") ? "borrowed-results." : section.equals("native.bindings.resource-parameters") ? "resource-parameters." : section.equals("native.bindings.resource-results") ? "resource-results." : "";
+				string prefix = section.startsWith("native.bindings.copied-results.") || section.startsWith("native.bindings.resources.") || section.startsWith("native.bindings.callbacks.") || section.startsWith("native.bindings.string-views.") || section.startsWith("native.bindings.owned-outputs.") || section.startsWith("native.bindings.output-offsets.") || section.startsWith("native.bindings.variadic-calls.") || section.startsWith("native.bindings.unmanaged-handles.") ? section.substring(16, section.length() - 16) + "." : section.equals("native.bindings.object-fields") ? "object-fields." : section.equals("native.bindings.borrowed-results") ? "borrowed-results." : section.equals("native.bindings.resource-parameters") ? "resource-parameters." : section.equals("native.bindings.resource-results") ? "resource-results." : "";
 				if (section.startsWith("native.bindings.record-snapshots.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.initializers.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.copied-inputs.")) { prefix = section.substring(16, section.length() - 16) + "."; }
