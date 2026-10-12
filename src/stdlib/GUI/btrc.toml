@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["ActionMailbox", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Raster", "TextRun"]
+exports = ["ControlEvents", "ActionMailbox", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Raster", "TextRun"]
 
 [[package.providers]]
 module = "GUI"
@@ -33,7 +33,7 @@ symbols = [
 	"SDL_Window", "SDL_Init", "SDL_GetError", "SDL_IsMainThread", "SDL_CreateWindow", "SDL_DestroyWindow", "SDL_ShowWindow", "SDL_HideWindow",
 	"SDL_SetWindowTitle", "SDL_SetWindowSize", "SDL_GetWindowSize", "SDL_GetWindowSizeInPixels", "SDL_SetWindowMinimumSize",
 	"SDL_GetWindowID", "SDL_GetWindowPixelDensity", "SDL_GetWindowFlags", "SDL_GetWindowProperties", "SDL_GetPointerProperty", "SDL_GetNumberProperty",
-	"SDL_Rect", "SDL_StartTextInput", "SDL_StopTextInput", "SDL_TextInputActive", "SDL_SetTextInputArea", "SDL_GetModState",
+	"SDL_Rect", "SDL_StartTextInput", "SDL_StopTextInput", "SDL_TextInputActive", "SDL_ClearComposition", "SDL_SetTextInputArea", "SDL_GetModState",
 	"SDL_ShowSimpleMessageBox", "SDL_SetClipboardText", "SDL_HasClipboardText", "SDL_GetClipboardText", "SDL_free", "SDL_GetTicksNS",
 	"SDL_Cursor", "SDL_CreateSystemCursor", "SDL_SetCursor", "SDL_DestroyCursor",
 	"BtrcSdlEvent", "btrcSdlPollEvent", "btrcSdlWaitEvent", "btrcSdlPushWake",
@@ -42,14 +42,14 @@ symbols = [
 	"SDLK_BACKSPACE", "SDLK_DELETE", "SDLK_DOWN", "SDLK_END", "SDLK_ESCAPE", "SDLK_HOME",
 	"SDLK_KP_ENTER", "SDLK_LALT", "SDLK_LEFT", "SDLK_LSHIFT", "SDLK_RALT", "SDLK_RETURN",
 	"SDLK_RIGHT", "SDLK_RSHIFT", "SDLK_SPACE", "SDLK_TAB", "SDLK_UP", "SDL_EVENT_KEY_DOWN",
-	"SDL_EVENT_KEY_UP", "SDL_EVENT_MOUSE_BUTTON_DOWN", "SDL_EVENT_MOUSE_BUTTON_UP", "SDL_EVENT_MOUSE_MOTION", "SDL_EVENT_MOUSE_WHEEL", "SDL_EVENT_QUIT",
+	"SDL_EVENT_KEY_UP", "SDL_EVENT_TEXT_EDITING", "SDL_EVENT_MOUSE_BUTTON_DOWN", "SDL_EVENT_MOUSE_BUTTON_UP", "SDL_EVENT_MOUSE_MOTION", "SDL_EVENT_MOUSE_WHEEL", "SDL_EVENT_QUIT",
 	"SDL_EVENT_TEXT_INPUT", "SDL_EVENT_WINDOW_CLOSE_REQUESTED", "SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED", "SDL_EVENT_WINDOW_EXPOSED", "SDL_EVENT_WINDOW_FOCUS_GAINED", "SDL_EVENT_WINDOW_FOCUS_LOST",
-	"SDL_EVENT_WINDOW_HIDDEN", "SDL_EVENT_WINDOW_MINIMIZED", "SDL_EVENT_WINDOW_MOUSE_ENTER", "SDL_EVENT_WINDOW_MOUSE_LEAVE", "SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED", "SDL_EVENT_WINDOW_RESIZED",
+	"SDL_EVENT_WINDOW_HIDDEN", "SDL_EVENT_WINDOW_MINIMIZED", "SDL_EVENT_WINDOW_RESTORED", "SDL_EVENT_WINDOW_MOUSE_ENTER", "SDL_EVENT_WINDOW_MOUSE_LEAVE", "SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED", "SDL_EVENT_WINDOW_RESIZED",
 	"SDL_EVENT_WINDOW_SHOWN", "SDL_INIT_EVENTS", "SDL_INIT_VIDEO", "SDL_KMOD_ALT", "SDL_KMOD_CTRL", "SDL_KMOD_GUI",
 	"SDL_KMOD_SHIFT", "SDL_MESSAGEBOX_INFORMATION", "SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER", "SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER", "SDL_PROP_WINDOW_X11_DISPLAY_POINTER", "SDL_PROP_WINDOW_X11_WINDOW_NUMBER",
 	"SDL_SCANCODE_A", "SDL_SCANCODE_C", "SDL_SCANCODE_D", "SDL_SCANCODE_LEFTBRACKET", "SDL_SCANCODE_Q", "SDL_SCANCODE_RIGHTBRACKET",
 	"SDL_SCANCODE_S", "SDL_SCANCODE_V", "SDL_SCANCODE_W", "SDL_SCANCODE_X", "SDL_SCANCODE_Z", "SDL_SYSTEM_CURSOR_DEFAULT",
-	"SDL_SYSTEM_CURSOR_TEXT", "SDL_WINDOW_HIDDEN", "SDL_WINDOW_HIGH_PIXEL_DENSITY", "SDL_WINDOW_RESIZABLE",
+	"SDL_SYSTEM_CURSOR_TEXT", "SDL_WINDOW_HIDDEN", "SDL_WINDOW_HIGH_PIXEL_DENSITY", "SDL_WINDOW_MINIMIZED", "SDL_WINDOW_RESIZABLE",
 	"SDLK_A", "SDLK_C", "SDLK_V", "SDL_KMOD_LCTRL", "SDL_SCANCODE_BACKSPACE", "SDL_SCANCODE_END",
 	"SDL_SCANCODE_LEFT"
 ]
@@ -496,7 +496,9 @@ symbols = [
 	"-[NSScrollView setDocumentView:]", "-[NSScrollView documentView]", "-[NSScrollView contentView]",
 	"-[NSScrollView frame]", "-[NSScrollView setFrame:]", "-[NSScrollView tile]",
 	"-[NSScrollView reflectScrolledClipView:]", "-[NSScrollView removeFromSuperview]",
-	"-[NSClipView bounds]", "-[NSClipView scrollToPoint:]"
+	"-[NSClipView bounds]", "-[NSClipView scrollToPoint:]",
+	"-[NSClipView setPostsBoundsChangedNotifications:]", "-[NSClipView setPostsFrameChangedNotifications:]",
+	"-[NSView setPostsFrameChangedNotifications:]"
 ]
 os = ["macos"]
 
@@ -537,7 +539,7 @@ release = "wgpuSurfaceRelease"
 
 [[native.frameworks]]
 name = "QuartzCore"
-modules = ["MacOS.MetalLayer", "MacOS.MacOSPanel"]
+modules = ["MacOS.MacOSRunLoop", "MacOS.MetalLayer", "MacOS.MacOSPanel"]
 os = ["macos"]
 
 [[native.pkg-config]]
@@ -547,7 +549,7 @@ os = ["macos"]
 
 [[native.frameworks]]
 name = "CoreFoundation"
-modules = ["MacOS.MacOSSystemText"]
+modules = ["MacOS.MacOSRunLoop", "MacOS.MacOSSystemText"]
 os = ["macos"]
 
 [[native.frameworks]]
@@ -699,4 +701,185 @@ symbols = [
 	"-[NSSlider setAllowsTickMarkValuesOnly:]", "-[NSSlider closestTickMarkValueToValue:]", "-[NSSlider setContinuous:]",
 	"-[NSSlider doubleValue]", "-[NSSlider setDoubleValue:]", "-[NSSlider setEnabled:]", "-[NSSlider isEnabled]", "-[NSView setToolTip:]", "-[NSView toolTip]"
 ]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSScrollView"
+header = "MacOS/Scroll.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[BTRCMacOSScrollNotifications boundsChanged]", "+[BTRCMacOSScrollNotifications frameChanged]", "+[BTRCMacOSScrollNotifications didLiveScroll]"]
+os = ["macos"]
+
+[[native.sources]]
+path = "MacOS/Scroll.m"
+language = "objective-c"
+standard = "c11"
+modules = ["MacOS.MacOSScrollView"]
+os = ["macos"]
+
+# Typed Window notification identities reuse the existing AppKit callback owner.
+# MacOSRunLoop imports the existing notification adapter.
+[[native.bindings]]
+module = "MacOS.MacOSWindow"
+header = "MacOS/Window.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = [
+	"+[BTRCMacOSWindowNotifications resized]",
+	"+[BTRCMacOSWindowNotifications backingChanged]",
+	"+[BTRCMacOSWindowNotifications screenChanged]",
+	"+[BTRCMacOSWindowNotifications becameKey]",
+	"+[BTRCMacOSWindowNotifications resignedKey]",
+	"+[BTRCMacOSWindowNotifications minimized]",
+	"+[BTRCMacOSWindowNotifications restored]",
+	"+[BTRCMacOSWindowNotifications occlusionChanged]",
+	"+[BTRCMacOSWindowNotifications sheetBegan]",
+	"+[BTRCMacOSWindowNotifications sheetEnded]",
+	"+[BTRCMacOSWindowNotifications applicationActive]",
+	"+[BTRCMacOSWindowNotifications applicationInactive]",
+	"+[BTRCMacOSWindowNotifications applicationHidden]",
+	"+[BTRCMacOSWindowNotifications applicationShown]",
+	"+[NSApplication sharedApplication]",
+	"-[NSApplication isActive]",
+	"-[NSWindow backingScaleFactor]",
+	"-[NSWindow isMiniaturized]",
+	"-[NSWindow occlusionState]",
+	"NSWindowOcclusionStateVisible",
+	"-[NSWindow attachedSheet]",
+]
+
+[[native.sources]]
+path = "MacOS/Window.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+modules = ["MacOS.MacOSWindow"]
+
+[[native.bindings]]
+module = "MacOS.MacOSRunLoop"
+header = "MacOS/RunLoop.h"
+language = "c"
+standard = "c11"
+symbols = ["CFRunLoopSourceContext", "CFRunLoopSourceRef", "CFRunLoopRef", "CFRunLoopGetMain", "CFRunLoopSourceCreate", "CFRunLoopSourceSignal", "CFRunLoopSourceInvalidate", "CFRunLoopWakeUp", "CFRunLoopAddSource", "CFRunLoopAddCommonMode", "CFRelease", "kCFRunLoopCommonModes", "btrcMacOSTrackingRunLoopMode", "CFRunLoopTimerContext", "CFRunLoopTimerRef", "CFRunLoopTimerCreate", "CFRunLoopAddTimer", "CFRunLoopTimerInvalidate", "CFAbsoluteTimeGetCurrent", "CACurrentMediaTime"]
+os = ["macos"]
+
+[[native.sources]]
+path = "MacOS/RunLoop.m"
+language = "objective-c"
+standard = "c11"
+modules = ["MacOS.MacOSRunLoop"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSControlEvents"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSThread isMainThread]"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSContainer"
+header = "MacOS/Container.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[BTRCMacOSContainerOrder childCount:arranged:]", "+[BTRCMacOSContainerOrder childAt:inParent:arranged:]", "+[BTRCMacOSContainerOrder moveChild:inParent:toIndex:arranged:]"]
+os = ["macos"]
+
+[[native.sources]]
+path = "MacOS/Container.m"
+language = "objective-c"
+standard = "c11"
+modules = ["MacOS.MacOSContainer"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSTextField"
+header = "MacOS/Text.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = [
+    "+[BTRCMacOSTextField fieldWithText:]",
+    "-[BTRCMacOSTextField setSemanticEvents:]", "-[BTRCMacOSTextField semanticEvents]",
+    "-[BTRCMacOSTextField liveText]", "-[BTRCMacOSTextField composing]",
+    "-[BTRCMacOSTextField replaceText:]", "-[BTRCMacOSTextField discardCompositionKeepingText:]",
+    "-[BTRCMacOSTextEvents shouldBegin]", "-[BTRCMacOSTextEvents changed]",
+    "-[BTRCMacOSTextEvents ended]", "-[BTRCMacOSTextEvents command:]"
+]
+[native.bindings.callbacks."-[BTRCMacOSTextField setSemanticEvents:].events"]
+interface = "IAppKitTextEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[BTRCMacOSTextField setSemanticEvents:]"
+slot-getter = "-[BTRCMacOSTextField semanticEvents]"
+methods = ["-[BTRCMacOSTextEvents shouldBegin]", "-[BTRCMacOSTextEvents changed]", "-[BTRCMacOSTextEvents ended]", "-[BTRCMacOSTextEvents command:]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.sources]]
+path = "MacOS/Text.m"
+language = "objective-c"
+standard = "c11"
+modules = ["MacOS.MacOSTextField"]
+os = ["macos"]
+
+# Integrator fragment, append alongside retained NSSlider AppKit declarations.
+[[native.bindings]]
+module = "MacOS.MacOSSlider"
+header = "MacOS/Range.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[BTRCMacOSRange range]", "-[BTRCMacOSRange setEventSink:]", "-[BTRCMacOSRange eventSink]", "-[BTRCMacOSRange invalidateTracking]", "-[BTRCMacOSRange projectValue:]", "-[NSView superview]", "-[BTRCMacOSRangeEvents rangeBegin]", "-[BTRCMacOSRangeEvents rangePreview:]", "-[BTRCMacOSRangeEvents rangeEnd:released:]", "-[BTRCMacOSRangeEvents rangeAdjust:count:]", "-[BTRCMacOSRangeEvents rangeAssistive:]", "-[BTRCMacOSRangeEvents rangeEscape]"]
+os = ["macos"]
+
+[native.bindings.callbacks."-[BTRCMacOSRange setEventSink:].eventSink"]
+interface = "IAppKitRangeEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[BTRCMacOSRange setEventSink:]"
+slot-getter = "-[BTRCMacOSRange eventSink]"
+methods = ["-[BTRCMacOSRangeEvents rangeBegin]", "-[BTRCMacOSRangeEvents rangePreview:]", "-[BTRCMacOSRangeEvents rangeEnd:released:]", "-[BTRCMacOSRangeEvents rangeAdjust:count:]", "-[BTRCMacOSRangeEvents rangeAssistive:]", "-[BTRCMacOSRangeEvents rangeEscape]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.sources]]
+path = "MacOS/Range.m"
+language = "objective-c"
+standard = "c11"
+modules = ["MacOS.MacOSSlider"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSSelect"
+header = "MacOS/Select.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = [
+    "+[BTRCMacOSSelect selection]",
+    "-[BTRCMacOSSelect setSemanticEvents:]", "-[BTRCMacOSSelect semanticEvents]",
+    "-[BTRCMacOSSelect cancelMenu]", "-[NSView superview]",
+    "-[BTRCMacOSSelectEvents shouldBegin]", "-[BTRCMacOSSelectEvents opened]",
+    "-[BTRCMacOSSelectEvents candidate:]", "-[BTRCMacOSSelectEvents accepted:]",
+    "-[BTRCMacOSSelectEvents ended:]"
+]
+[native.bindings.callbacks."-[BTRCMacOSSelect setSemanticEvents:].events"]
+interface = "IAppKitSelectionEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[BTRCMacOSSelect setSemanticEvents:]"
+slot-getter = "-[BTRCMacOSSelect semanticEvents]"
+methods = ["-[BTRCMacOSSelectEvents shouldBegin]", "-[BTRCMacOSSelectEvents opened]", "-[BTRCMacOSSelectEvents candidate:]", "-[BTRCMacOSSelectEvents accepted:]", "-[BTRCMacOSSelectEvents ended:]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.sources]]
+path = "MacOS/Select.m"
+language = "objective-c"
+standard = "c11"
+modules = ["MacOS.MacOSSelect"]
 os = ["macos"]
