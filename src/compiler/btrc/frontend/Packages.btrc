@@ -110,6 +110,48 @@ class FePackageTarget {
 	public string label() { return self.known() ? self.row().label : ""; }
 }
 
+/* One manifest os/arch/env predicate over the rows of targets.toml. An empty
+ * value array matches every value, so the empty selector selects every row;
+ * two selectors overlap when some row satisfies both. */
+class FeTargetSelector {
+	public Vector<string> operatingSystems;
+	public Vector<string> architectures;
+	public Vector<string> environments;
+
+	public FeTargetSelector(Vector<string> operatingSystems, Vector<string> architectures, Vector<string> environments) {
+		self.operatingSystems = operatingSystems;
+		self.architectures = architectures;
+		self.environments = environments;
+	}
+
+	private bool admits(Vector<string> values, string value) { return values.len == 0 || values.contains(value); }
+
+	public bool selects(string operatingSystem, string architecture, string environment) { return self.admits(self.operatingSystems, operatingSystem) && self.admits(self.architectures, architecture) && self.admits(self.environments, environment); }
+
+	public bool selectedFor(FePackageTarget target) { return self.selects(target.operatingSystem, target.architecture, target.environment); }
+
+	public Vector<GeneratedTargetRow> rows() {
+		Vector<GeneratedTargetRow> selected = [];
+		for row in GeneratedHostedAbiData().targetRows() { if (self.selects(row.operatingSystem, row.architecture, row.environment)) { selected.push(row); } }
+		return selected;
+	}
+
+	public bool overlaps(FeTargetSelector other) {
+		for row in self.rows() { if (other.selects(row.operatingSystem, row.architecture, row.environment)) { return true; } }
+		return false;
+	}
+
+	/* The values a manifest predicate may name: those of the target rows. */
+	class Vector<string> rowValues(string field) {
+		Vector<string> values = [];
+		for row in GeneratedHostedAbiData().targetRows() {
+			string value = field == "os" ? row.operatingSystem : (field == "arch" ? row.architecture : row.environment);
+			if (!values.contains(value)) { values.push(value); }
+		}
+		return values;
+	}
+}
+
 class FeNativeDeclaration {
 	public string kind;
 	public string packageName;
@@ -120,6 +162,7 @@ class FeNativeDeclaration {
 	public Vector<string> operatingSystems;
 	public Vector<string> architectures;
 	public Vector<string> modules;
+	public Vector<string> environments = [];
 
 	public FeNativeDeclaration(string kind, string packageName, string value, string detail, string language, string standard, Vector<string> operatingSystems, Vector<string> architectures, Vector<string> modules) {
 		self.kind = kind;
@@ -133,16 +176,7 @@ class FeNativeDeclaration {
 		self.modules = modules;
 	}
 
-	private bool contains(Vector<string> values, string expected) {
-		int index = 0;
-		while (index < values.len) {
-			if (values.get(index).equals(expected)) { return true; }
-			index++;
-		}
-		return false;
-	}
-
-	public bool selectedFor(FePackageTarget target) { return (self.operatingSystems.len == 0 || self.contains(self.operatingSystems, target.operatingSystem)) && (self.architectures.len == 0 || self.contains(self.architectures, target.architecture)); }
+	public bool selectedFor(FePackageTarget target) { return FeTargetSelector(self.operatingSystems, self.architectures, self.environments).selectedFor(target); }
 
 	private bool sameValues(Vector<string> left, Vector<string> right) {
 		if (left.len != right.len) { return false; }
@@ -154,7 +188,7 @@ class FeNativeDeclaration {
 		return true;
 	}
 
-	public bool sameIdentity(FeNativeDeclaration other) { return self.kind.equals(other.kind) && self.packageName.equals(other.packageName) && self.value.equals(other.value) && self.detail.equals(other.detail) && self.language.equals(other.language) && self.standard.equals(other.standard) && self.sameValues(self.operatingSystems, other.operatingSystems) && self.sameValues(self.architectures, other.architectures); }
+	public bool sameIdentity(FeNativeDeclaration other) { return self.kind.equals(other.kind) && self.packageName.equals(other.packageName) && self.value.equals(other.value) && self.detail.equals(other.detail) && self.language.equals(other.language) && self.standard.equals(other.standard) && self.sameValues(self.operatingSystems, other.operatingSystems) && self.sameValues(self.architectures, other.architectures) && self.sameValues(self.environments, other.environments); }
 
 	public string sortKey() { return self.packageName + "\x1f" + self.kind + "\x1f" + self.value + "\x1f" + self.detail + "\x1f" + self.language; }
 }
@@ -213,6 +247,7 @@ class FeNativeBinding {
 	public Vector<string> symbols;
 	public Vector<string> operatingSystems;
 	public Vector<string> architectures;
+	public Vector<string> environments = [];
 	public Vector<string> readOnlyBorrows;
 	public Vector<string> realtimeSafe;
 	public Vector<string> ownedRecords;
@@ -259,17 +294,13 @@ class FeNativeBinding {
 		return false;
 	}
 
-	private bool targetsOverlap(Vector<string> left, Vector<string> right) { return left.len == 0 || right.len == 0 || self.intersects(left, right); }
+	public FeTargetSelector selector() { return FeTargetSelector(self.operatingSystems, self.architectures, self.environments); }
 
-	public bool selectedFor(FePackageTarget target) {
-		Vector<string> operatingSystem = [target.operatingSystem];
-		Vector<string> architecture = [target.architecture];
-		return self.targetsOverlap(self.operatingSystems, operatingSystem) && self.targetsOverlap(self.architectures, architecture);
-	}
+	public bool selectedFor(FePackageTarget target) { return self.selector().selectedFor(target); }
 
-	public bool overlaps(FeNativeBinding other) { return self.module.equals(other.module) && self.intersects(self.symbols, other.symbols) && self.targetsOverlap(self.operatingSystems, other.operatingSystems) && self.targetsOverlap(self.architectures, other.architectures); }
+	public bool overlaps(FeNativeBinding other) { return self.module.equals(other.module) && self.intersects(self.symbols, other.symbols) && self.selector().overlaps(other.selector()); }
 
-	public string sortKey() { return self.packageName + "\x1f" + self.module + "\x1f" + self.header + "\x1f" + Strings.join(self.symbols, ",") + "\x1f" + Strings.join(self.operatingSystems, ",") + "\x1f" + Strings.join(self.architectures, ","); }
+	public string sortKey() { return self.packageName + "\x1f" + self.module + "\x1f" + self.header + "\x1f" + Strings.join(self.symbols, ",") + "\x1f" + Strings.join(self.operatingSystems, ",") + "\x1f" + Strings.join(self.architectures, ",") + "\x1f" + Strings.join(self.environments, ","); }
 }
 
 class FeNativeInitializerBinding {
@@ -293,29 +324,21 @@ class FeModuleProvider {
 	public string implementation;
 	public Vector<string> operatingSystems;
 	public Vector<string> architectures;
+	public Vector<string> environments;
 
-	public FeModuleProvider(string module, string implementation, Vector<string> operatingSystems, Vector<string> architectures) {
+	public FeModuleProvider(string module, string implementation, FeTargetSelector selector) {
 		self.module = module;
 		self.implementation = implementation;
-		self.operatingSystems = operatingSystems;
-		self.architectures = architectures;
+		self.operatingSystems = selector.operatingSystems;
+		self.architectures = selector.architectures;
+		self.environments = selector.environments;
 	}
 
-	private bool overlapsValues(Vector<string> left, Vector<string> right) {
-		if (left.len == 0 || right.len == 0) { return true; }
-		for first in left { for second in right { if (first == second) { return true; } } }
-		return false;
-	}
+	public FeTargetSelector selector() { return FeTargetSelector(self.operatingSystems, self.architectures, self.environments); }
 
-	public bool overlaps(FeModuleProvider other) { return self.module == other.module && self.overlapsValues(self.operatingSystems, other.operatingSystems) && self.overlapsValues(self.architectures, other.architectures); }
+	public bool overlaps(FeModuleProvider other) { return self.module == other.module && self.selector().overlaps(other.selector()); }
 
-	public bool selectedFor(FePackageTarget target) {
-		bool osMatches = self.operatingSystems.len == 0;
-		bool archMatches = self.architectures.len == 0;
-		for os in self.operatingSystems { if (os == target.operatingSystem) { osMatches = true; } }
-		for arch in self.architectures { if (arch == target.architecture) { archMatches = true; } }
-		return osMatches && archMatches;
-	}
+	public bool selectedFor(FePackageTarget target) { return self.selector().selectedFor(target); }
 }
 
 class FeManifestDependency {
@@ -472,7 +495,7 @@ class FeManifestBlock {
 	private string context() { return f"package manifest '{self.manifestPath}' {self.tableName}"; }
 
 	private bool allowedField(string key) {
-		if (self.isProvider()) { return key == "module" || key == "implementation" || key == "os" || key == "arch"; }
+		if (self.isProvider()) { return key == "module" || key == "implementation" || key == "os" || key == "arch" || key == "env"; }
 		if (self.isBinding()) {
 			if (key.startsWith("record-snapshots.")) { return true; }
 			if (key.startsWith("owned-outputs.")) { return true; }
@@ -483,9 +506,9 @@ class FeManifestBlock {
 			if (key == "main-thread-globals") { return true; }
 			if (key.startsWith("callbacks.")) { return true; }
 			if (key.startsWith("resources.") || key.startsWith("borrowed-results.") || key.startsWith("resource-parameters.") || key.startsWith("resource-results.") || key == "owned-results" || key == "borrowed-parameters" || key == "static-globals") { return true; }
-			return key.equals("module") || key.equals("header") || key.equals("symbols") || key.equals("language") || key.equals("standard") || key.equals("os") || key.equals("arch") || key.equals("read-only-borrows") || key.equals("realtime-safe") || key.equals("owned-records") || key.equals("record-inputs") || key.equals("record-outputs") || key.equals("owned-output-fields") || key.equals("null-output-fields") || key.startsWith("object-fields.");
+			return key.equals("module") || key.equals("header") || key.equals("symbols") || key.equals("language") || key.equals("standard") || key.equals("os") || key.equals("arch") || key.equals("env") || key.equals("read-only-borrows") || key.equals("realtime-safe") || key.equals("owned-records") || key.equals("record-inputs") || key.equals("record-outputs") || key.equals("owned-output-fields") || key.equals("null-output-fields") || key.startsWith("object-fields.");
 		}
-		if (key.equals("os") || key.equals("arch") || key.equals("modules")) { return true; }
+		if (key.equals("os") || key.equals("arch") || key.equals("env") || key.equals("modules")) { return true; }
 		if (self.tableName.equals("native.sources")) {
 			return key.equals("path") || key.equals("language") || key.equals("standard");
 		}
@@ -623,6 +646,25 @@ class FeManifestBlock {
 		return values;
 	}
 
+	private FeTargetSelector targetSelector() { return FeTargetSelector(self.targetArray("os", FeTargetSelector.rowValues("os")), self.targetArray("arch", FeTargetSelector.rowValues("arch")), self.targetArray("env", FeTargetSelector.rowValues("env"))); }
+
+	/* A module under a platform directory selects exactly that platform. */
+	private void requirePlatformDirectories(Vector<string> modules, FeTargetSelector selector) {
+		Vector<string> platforms = FeTargetSelector.rowValues("os");
+		for module in modules {
+			Vector<string> segments = Strings.split(module, ".");
+			int index = 0;
+			while (index < segments.len - 1) {
+				string segment = segments.get(index);
+				string platform = segment.toLower();
+				if (platforms.contains(platform) && (selector.operatingSystems.len != 1 || selector.operatingSystems.get(0) != platform)) {
+					FePackageFailure.fail(self.context() + ": module '" + module + "' lives under " + segment + "/ and must select os = [\"" + platform + "\"]");
+				}
+				index++;
+			}
+		}
+	}
+
 	private bool moduleName(string value) {
 		Vector<string> segments = Strings.split(value, ".");
 		if (segments.len == 0) { return false; }
@@ -729,9 +771,10 @@ class FeManifestBlock {
 		string module = self.modulePaths(root, "module").get(0);
 		string implementation = self.modulePaths(root, "implementation").get(0);
 		if (module == implementation) { FePackageFailure.fail(f"{self.context()} cannot select its own module as implementation"); }
-		Vector<string> operatingSystemValues = ["linux", "macos", "windows"];
-		Vector<string> architectureValues = ["x86_64", "aarch64"];
-		return FeModuleProvider(module, implementation, self.targetArray("os", operatingSystemValues), self.targetArray("arch", architectureValues));
+		FeTargetSelector selector = self.targetSelector();
+		Vector<string> implementations = [self.requiredText("implementation")];
+		self.requirePlatformDirectories(implementations, selector);
+		return FeModuleProvider(module, implementation, selector);
 	}
 
 	private bool nativeSymbol(string symbol, string language) {
@@ -1396,6 +1439,9 @@ class FeManifestBlock {
 		self.validateFields();
 		if (!self.moduleName(self.requiredText("module"))) { FePackageFailure.fail(f"{self.context()}.module must be a dotted module name"); }
 		Vector<string> modules = self.modulePaths(root);
+		FeTargetSelector selector = self.targetSelector();
+		Vector<string> boundModules = [self.requiredText("module")];
+		self.requirePlatformDirectories(boundModules, selector);
 		string header = self.packagePath(root, "header", false);
 		Vector<string> symbols = self.stringArray("symbols");
 		if (symbols.len == 0) { FePackageFailure.fail(f"{self.context()}.symbols must be a non-empty array of qualified native names"); }
@@ -1403,9 +1449,8 @@ class FeManifestBlock {
 		for symbol in symbols { if (!self.nativeSymbol(symbol, language)) { FePackageFailure.fail(f"{self.context()}.symbols must be a non-empty array of qualified native names"); } }
 		string standard = self.requiredText("standard");
 		self.validateLanguage(language, standard);
-		Vector<string> operatingSystemValues = ["linux", "macos", "windows"];
-		Vector<string> architectureValues = ["x86_64", "aarch64"];
-		var binding = FeNativeBinding(packageName, modules.get(0), header, language, standard, symbols, self.targetArray("os", operatingSystemValues), self.targetArray("arch", architectureValues));
+		var binding = FeNativeBinding(packageName, modules.get(0), header, language, standard, symbols, selector.operatingSystems, selector.architectures);
+		binding.environments = selector.environments;
 		self.finishResources(binding);
 		self.finishOwnedOutputs(binding);
 		self.finishInitializers(binding);
@@ -1483,24 +1528,29 @@ class FeManifestBlock {
 		return binding;
 	}
 
+	private FeNativeDeclaration selected(FeNativeDeclaration declaration, FeTargetSelector selector) {
+		declaration.environments = selector.environments;
+		return declaration;
+	}
+
 	public FeNativeDeclaration finish(string root, string packageName) {
 		self.validateFields();
-		Vector<string> operatingSystemValues = ["linux", "macos", "windows"];
-		Vector<string> architectureValues = ["x86_64", "aarch64"];
-		Vector<string> operatingSystems = self.targetArray("os", operatingSystemValues);
-		Vector<string> architectures = self.targetArray("arch", architectureValues);
+		FeTargetSelector selector = self.targetSelector();
+		Vector<string> operatingSystems = selector.operatingSystems;
+		Vector<string> architectures = selector.architectures;
 		Vector<string> modules = self.modulePaths(root);
+		self.requirePlatformDirectories(self.stringArray("modules"), selector);
 		if (self.tableName.equals("native.sources")) {
 			string language = self.requiredText("language");
 			string standard = self.requiredText("standard");
 			self.validateLanguage(language, standard);
-			return FeNativeDeclaration("source", packageName, self.packagePath(root, "path", false), "", language, standard, operatingSystems, architectures, modules);
+			return self.selected(FeNativeDeclaration("source", packageName, self.packagePath(root, "path", false), "", language, standard, operatingSystems, architectures, modules), selector);
 		}
 		if (self.tableName.equals("native.headers")) {
-			return FeNativeDeclaration("header", packageName, self.packagePath(root, "path", false), "", "", "", operatingSystems, architectures, modules);
+			return self.selected(FeNativeDeclaration("header", packageName, self.packagePath(root, "path", false), "", "", "", operatingSystems, architectures, modules), selector);
 		}
 		if (self.tableName.equals("native.include-directories")) {
-			return FeNativeDeclaration("include-directory", packageName, self.packagePath(root, "path", true), "", "", "", operatingSystems, architectures, modules);
+			return self.selected(FeNativeDeclaration("include-directory", packageName, self.packagePath(root, "path", true), "", "", "", operatingSystems, architectures, modules), selector);
 		}
 		if (self.tableName.equals("native.defines")) {
 			string name = self.requiredText("name");
@@ -1508,14 +1558,14 @@ class FeManifestBlock {
 				FePackageFailure.fail(f"{self.context()}.name must be an ASCII identifier");
 			}
 			string value = self.requiredText("value", true);
-			return FeNativeDeclaration("define", packageName, name, value, "", "", operatingSystems, architectures, modules);
+			return self.selected(FeNativeDeclaration("define", packageName, name, value, "", "", operatingSystems, architectures, modules), selector);
 		}
 		string name = self.requiredText("name");
 		if (!self.nativeName(name)) {
 			FePackageFailure.fail(f"{self.context()}.name contains unsupported characters");
 		}
 		string kind = self.tableName.equals("native.frameworks") ? "framework" : "pkg-config";
-		return FeNativeDeclaration(kind, packageName, name, "", "", "", operatingSystems, architectures, modules);
+		return self.selected(FeNativeDeclaration(kind, packageName, name, "", "", "", operatingSystems, architectures, modules), selector);
 	}
 }
 

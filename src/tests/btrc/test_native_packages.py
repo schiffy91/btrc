@@ -291,6 +291,34 @@ def _assert_strict_c_program(generated: Path, output: Path, compiler: str) -> No
     assert executed.returncode == 0, executed.stderr
 
 
+def test_native_binding_environments_select_rows_with_frontend_parity(semantic_btrcc: Path, tmp_path: Path):
+    device = _BINDING + 'os = ["ios"]\nenv = [""]\n'
+    simulator = _BINDING + 'os = ["ios"]\nenv = ["simulator"]\n'
+    source = _binding_source(tmp_path, device + simulator)
+    for result in (_reference(source, tmp_path / "reference.c"), _selfhost(semantic_btrcc, source)):
+        assert result.returncode == 0, result.stderr
+    _manifest(tmp_path, "bindings", native=device + _BINDING + 'os = ["ios"]\n')
+    for result in (_reference(source, tmp_path / "reference.c"), _selfhost(semantic_btrcc, source)):
+        assert result.returncode != 0
+        assert "overlaps a native binding" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("selector", "accepted"),
+    [('os = ["linux"]\n', True), ('os = ["macos"]\n', False), ("", False), ('os = ["linux", "android"]\n', False)],
+)
+def test_native_binding_platform_directory_has_frontend_parity(
+    semantic_btrcc: Path, tmp_path: Path, selector: str, accepted: bool
+):
+    source = _binding_source(tmp_path, _BINDING.replace('module = "Api"', 'module = "Linux.Api"') + selector)
+    (tmp_path / "src/Linux").mkdir()
+    (tmp_path / "src/Linux/Api.btrc").write_text("// Linux wrapper module.\n", encoding="utf-8")
+    for result in (_reference(source, tmp_path / "reference.c"), _selfhost(semantic_btrcc, source)):
+        assert (result.returncode == 0) == accepted, result.stderr
+        if not accepted:
+            assert 'lives under Linux/ and must select os = ["linux"]' in result.stderr
+
+
 @pytest.mark.parametrize("legacy_manifest", (False, True), ids=("no-manifest", "legacy-manifest"))
 def test_empty_native_plan_preserves_explicit_target_with_frontend_parity(
     semantic_btrcc: Path,
