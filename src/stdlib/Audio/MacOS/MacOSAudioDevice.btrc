@@ -19,6 +19,8 @@ import Library.Vector;
 
 AudioDeviceStatus coreAudioStatus(OSStatus status) {
 	if (status == 0) { return AUDIO_DEVICE_OK; }
+	fprintf(stderr, "DIAGNOSTIC: CoreAudio raw OSStatus decimal=%d hex=0x%08x\n", (int)status, (unsigned int)status);
+	fflush(stderr);
 	if (status == kAudio_ParamError) { return AUDIO_DEVICE_INVALID_ARGUMENT; }
 	if (status == kAudioHardwareBadDeviceError) { return AUDIO_DEVICE_NOT_FOUND; }
 	if (status == kAudioUnitErr_FormatNotSupported || status == kAudioDeviceUnsupportedFormatError || status == kAudioHardwareUnsupportedOperationError) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
@@ -953,21 +955,26 @@ class CoreAudioSessionResources implements IAudioSessionBackend {
 	public AudioDeviceStatus close() {
 		if (self._unit != null) {
 			var closed = self._unit.close();
+			if (closed != AUDIO_DEVICE_OK) { fprintf(stderr, "DIAGNOSTIC: CoreAudioSessionResources unit close status=%d\n", (int)closed); fflush(stderr); }
 			if (closed != AUDIO_DEVICE_OK) { return closed; }
 			self._unit = null;
 		}
 		if (self._aggregate != null) {
 			var closed = self._aggregate.close();
+			if (closed != AUDIO_DEVICE_OK) { fprintf(stderr, "DIAGNOSTIC: CoreAudioSessionResources aggregate close status=%d\n", (int)closed); fflush(stderr); }
 			if (closed != AUDIO_DEVICE_OK) { return closed; }
 			self._aggregate = null;
 		}
 		if (self._aggregateConfiguration != null) {
 			var closed = self._aggregateConfiguration.close();
+			if (closed != AUDIO_DEVICE_OK) { fprintf(stderr, "DIAGNOSTIC: CoreAudioSessionResources aggregateConfiguration close status=%d\n", (int)closed); fflush(stderr); }
 			if (closed != AUDIO_DEVICE_OK) { return closed; }
 			self._aggregateConfiguration = null;
 		}
 		var inputStatus = self._input == null ? AUDIO_DEVICE_OK : self._input.close();
 		var outputStatus = self._output == null ? AUDIO_DEVICE_OK : self._output.close();
+		if (inputStatus != AUDIO_DEVICE_OK) { fprintf(stderr, "DIAGNOSTIC: CoreAudioSessionResources input close status=%d\n", (int)inputStatus); fflush(stderr); }
+		if (outputStatus != AUDIO_DEVICE_OK) { fprintf(stderr, "DIAGNOSTIC: CoreAudioSessionResources output close status=%d\n", (int)outputStatus); fflush(stderr); }
 		if (inputStatus != AUDIO_DEVICE_OK) { return inputStatus; }
 		if (outputStatus != AUDIO_DEVICE_OK) { return outputStatus; }
 		self._input = null;
