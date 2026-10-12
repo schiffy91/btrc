@@ -13,9 +13,19 @@ import Library.Strings;
 #include <stdlib.h>
 
 class Platform {
-	/* The C compiler's target, not the transpiling host: 0 = other, 1 = Apple,
-	 * 2 = Linux, 3 = Windows. Fixed at C compile time, so no probe or cache. */
+	/* The C compiler's target, not the transpiling host: 0 = other, 1 = macOS,
+	 * 2 = Linux, 3 = Windows, 4 = iOS (device or simulator), 5 = Android.
+	 * Fixed at C compile time, so no probe or cache. */
 	class bool isWindows() { return __btrc_target_platform() == 3; }
+
+	class bool isIOS() { return __btrc_target_platform() == 4; }
+
+	class bool isAndroid() { return __btrc_target_platform() == 5; }
+
+	/* macOS or iOS: the Darwin kernel and Apple's frameworks. */
+	class bool isApple() { return __btrc_target_platform() == 1 || __btrc_target_platform() == 4; }
+
+	class bool isMobile() { return Platform.isIOS() || Platform.isAndroid(); }
 
 	class bool isUnix() { return !Platform.isWindows(); }
 

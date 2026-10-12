@@ -412,10 +412,10 @@ title = "Per-user state/cache/config directories"
 regression = ["src/tests/python/test_application_directories_contract.py::test_application_directory_platform_policies_are_bounded_and_normalized", "src/tests/runner.py::test_btrc_file"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns FS_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns FS_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
-ios-device = { parity = "adapted", implementation = "missing", owner = "I1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; iOS needs NSFileManager Application Support/Caches in the app container" }
-ios-simulator = { parity = "adapted", implementation = "missing", owner = "I1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; iOS needs NSFileManager Application Support/Caches in the app container" }
-android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; Android needs Context.getFilesDir/getCacheDir via JNI" }
-android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; Android needs Context.getFilesDir/getCacheDir via JNI" }
+ios-device = { parity = "adapted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "platform code 4 resolves HOME/Library/Application Support and Caches: HOME is the app sandbox container on iOS; simulator spawn verified 2026-10-12, installed-app container pending" }
+ios-simulator = { parity = "adapted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "platform code 4 resolves HOME/Library/Application Support and Caches: HOME is the app sandbox container on iOS; simulator spawn verified 2026-10-12, installed-app container pending" }
+android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "platform code 5 returns FS_UNSUPPORTED; Android needs Context.getFilesDir/getCacheDir via JNI" }
+android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "platform code 5 returns FS_UNSUPPORTED; Android needs Context.getFilesDir/getCacheDir via JNI" }
 
 [[rows]]
 kind = "operation"
@@ -945,10 +945,10 @@ title = "Platform probes and Environment variables"
 regression = ["src/tests/runner.py::test_btrc_file"]
 windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "geteuid is a compat sentinel 0 (btrc_win_compat.h); getpid/getcwd/getenv from MinGW; isWindows via _WIN32" }
 windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "geteuid is a compat sentinel 0 (btrc_win_compat.h); getpid/getcwd/getenv from MinGW; isWindows via _WIN32" }
-ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "getpid/geteuid/getcwd/getenv in iOS libc; __APPLE__ reports platform 1 (no iOS distinction)" }
-ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "getpid/geteuid/getcwd/getenv in iOS libc; __APPLE__ reports platform 1 (no iOS distinction)" }
-android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "bionic provides getpid/geteuid/getcwd/getenv; __linux__ reports platform 2 (Linux, no Android distinction)" }
-android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "bionic provides getpid/geteuid/getcwd/getenv; __linux__ reports platform 2 (Linux, no Android distinction)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "getpid/geteuid/getcwd/getenv in iOS libc; platform code 4 (isIOS, isApple, isMobile), checked per triple by test_target_probes and on the iOS 26.4 simulator" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "getpid/geteuid/getcwd/getenv in iOS libc; platform code 4 (isIOS, isApple, isMobile), checked per triple by test_target_probes and on the iOS 26.4 simulator" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "bionic provides getpid/geteuid/getcwd/getenv; __ANDROID__ reports platform code 5 (isAndroid, isMobile), checked per triple by test_target_probes" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "bionic provides getpid/geteuid/getcwd/getenv; __ANDROID__ reports platform code 5 (isAndroid, isMobile), checked per triple by test_target_probes" }
 
 [[rows]]
 kind = "operation"

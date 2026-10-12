@@ -169,8 +169,12 @@ static inline unsigned int __btrc_hash_str(const char* s) {
 static inline int __btrc_target_platform(void) {
 #if defined(BTRC_TARGET_PLATFORM_OVERRIDE)
     return BTRC_TARGET_PLATFORM_OVERRIDE;
+#elif defined(__APPLE__) && defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__)
+    return 4;
 #elif defined(__APPLE__)
     return 1;
+#elif defined(__ANDROID__)
+    return 5;
 #elif defined(__linux__)
     return 2;
 #elif defined(_WIN32)

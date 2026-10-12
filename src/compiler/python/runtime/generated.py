@@ -4972,8 +4972,10 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         c_source=(
             'static inline int __btrc_target_platform(void) {\n#if defined(BTRC_TARGET'
             '_PLATFORM_OVERRIDE)\n    return BTRC_TARGET_PLATFORM_OVERRIDE;\n#elif defi'
-            'ned(__APPLE__)\n    return 1;\n#elif defined(__linux__)\n    return 2;\n#eli'
-            'f defined(_WIN32)\n    return 3;\n#else\n    return 0;\n#endif\n}'
+            'ned(__APPLE__) && defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__'
+            ')\n    return 4;\n#elif defined(__APPLE__)\n    return 1;\n#elif defined(__A'
+            'NDROID__)\n    return 5;\n#elif defined(__linux__)\n    return 2;\n#elif def'
+            'ined(_WIN32)\n    return 3;\n#else\n    return 0;\n#endif\n}'
         ),
         depends_on=(),
         required_headers=(),

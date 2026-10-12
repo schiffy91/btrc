@@ -157,7 +157,10 @@ class ApplicationDirectoryResolver {
 		int maximumBytes = limits.maximumPathBytes();
 		if (maximumBytes <= 0 || maximumBytes > 1048576) { return self.rejected(FS_INVALID_ARGUMENT, 0, "Application directory path limits must be between 1 and 1048576 bytes."); }
 		int platform = __btrc_target_platform();
-		if (platform == 1) { return self.resolveMacOS(maximumBytes); }
+		/* iOS: HOME is the app's sandbox container, whose Library holds the
+		 * same Application Support and Caches roots. Android needs its JNI
+		 * context provider, so it stays unsupported here. */
+		if (platform == 1 || platform == 4) { return self.resolveMacOS(maximumBytes); }
 		if (platform == 2) { return self.resolveLinux(maximumBytes); }
 		return self.rejected(FS_UNSUPPORTED, 0, "Application directories are not supported on this platform.");
 	}
