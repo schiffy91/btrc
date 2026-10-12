@@ -3,16 +3,67 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
+
+
+@pytest.mark.parametrize("no_dce", [False, True], ids=["demanded", "eager-no-dce"])
+def test_generic_members_reached_from_lifecycle_and_other_members(
+    semantic_btrcc: Path, tmp_path: Path, no_dce: bool
+) -> None:
+    """Lifecycle and transitive calls retain their bodies; no-DCE retains all.
+
+    Both frontends must execute the same constructor/member/destructor chain.
+    The ordinary unused member distinguishes output reachability from the
+    explicit eager inspection path; it does not count body materializations.
+    """
+    source = """#include <assert.h>
+
+int demandAlive = 0;
+
+class DemandBox<T> {
+    public T value;
+    public DemandBox(T supplied) {
+        demandAlive++;
+        self.assign(supplied);
+    }
+    public void assign(T supplied) { self.value = supplied; }
+    public T read() { return self.next(); }
+    public T next() { return self.value; }
+    public int dormant() { return 917; }
+    public void finish() { demandAlive--; }
+    public void __del__() { self.finish(); }
+}
+
+int main() {
+    DemandBox<int> box = new DemandBox<int>(42);
+    assert(demandAlive == 1 && box.read() == 42);
+    delete box;
+    assert(demandAlive == 0);
+    return 0;
+}
+"""
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source, no_dce=no_dce)
+    reference, reference_c = compile_reference_source(tmp_path, source, no_dce=no_dce)
+    for completed in (selfhost, reference):
+        assert completed.returncode == 0, completed.stderr
+        assert completed.stderr == ""
+    for generated in (selfhost_c, reference_c):
+        text = generated.read_text()
+        for name in ("assign", "read", "next", "finish"):
+            assert re.search(rf"\bbtrc_DemandBox_int_{name}\([^;\n]*\)\s*\{{", text), name
+        dormant = re.search(r"\bbtrc_DemandBox_int_dormant\([^;\n]*\)\s*\{", text)
+        assert bool(dormant) == no_dce
+        strict_build_and_run(generated, generated.with_suffix(".native"), optimization="-O2")
 
 
 def _compile_reference(tmp_path: Path, fixture: Path) -> tuple[subprocess.CompletedProcess[str], Path]:

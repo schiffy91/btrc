@@ -141,6 +141,82 @@ def _lowered(build: _Build, groups: int) -> None:
     assert build.lowered == groups, build.lowered
 
 
+_MEMBER_DEMAND_PROGRAM = {
+    "Lib.btrc": """class DemandBox<T> {
+    public T value;
+    public DemandBox(T value) { self.value = value; }
+    public T first() { return self.value; }
+    public T second() { return self.third(); }
+    public T third() { return self.value + 1; }
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+static int mentionedButUnreachable(DemandBox<int> box) {
+    return box.first() + box.second();
+}
+
+int total() {
+    DemandBox<int> box = new DemandBox<int>(41);
+    return box.first();
+}
+""",
+    "Main.btrc": """import ./Use.btrc;
+
+int main() { return total() > 0 ? 0 : 1; }
+""",
+}
+
+
+@pytest.mark.parametrize("change", ["add-demand", "remove-demand", "member-body"])
+def test_generic_member_demand_edits_preserve_exact_reuse(compiler: str, change: str, tmp_path, request):
+    """Changing demand rebuilds its provider once; a private body edit only it.
+
+    All names and specializations are already mentioned in the cold program.
+    The unreachable static function therefore keeps mentioned-name discovery
+    stable without making its members executable roots. A newly reached second
+    member also reaches third, exercising transitive demand in the same group.
+    These are semantic/reuse controls, not evidence that bodies lower lazily.
+    """
+    source = tmp_path.resolve() / "program"
+    source.mkdir()
+    files = dict(_MEMBER_DEMAND_PROGRAM)
+    if change == "remove-demand":
+        files["Use.btrc"] = files["Use.btrc"].replace("return box.first();", "return box.second();")
+    for name, text in files.items():
+        (source / name).write_text(text)
+    command = _command(compiler, request)
+    output = tmp_path.resolve() / "out"
+    cache = tmp_path.resolve() / "cache"
+    cold = _build(command, source, output, cache, "--no-stdlib")
+    _lowered(cold, 3)
+    warm = _build(command, source, output, cache, "--no-stdlib")
+    _lowered(warm, 0)
+    assert warm.units == cold.units
+    assert warm.diagnostics == cold.diagnostics == []
+
+    if change == "member-body":
+        changed = source / "Lib.btrc"
+        changed.write_text(changed.read_text().replace("return self.value;", "return self.value + 2;", 1))
+        expected_lowered = 1
+    else:
+        changed = source / "Use.btrc"
+        old, new = ("first", "second") if change == "add-demand" else ("second", "first")
+        changed.write_text(changed.read_text().replace(f"return box.{old}();", f"return box.{new}();", 1))
+        expected_lowered = 2
+    incremental = _build(command, source, output, cache, "--no-stdlib")
+    _lowered(incremental, expected_lowered)
+    clean = _build(command, source, output, tmp_path.resolve() / "fresh-cache", "--no-stdlib")
+    _lowered(clean, 3)
+    assert incremental.units == clean.units
+    assert incremental.diagnostics == clean.diagnostics == []
+    assert incremental.units != cold.units
+    repeated = _build(command, source, output, cache, "--no-stdlib")
+    _lowered(repeated, 0)
+    assert repeated.units == clean.units
+    assert repeated.diagnostics == []
+
+
 _GPU_PROGRAM = {
     "Kernel.btrc": """@gpu float[] twice(float[] a) {
 	int i = gpu_id();
