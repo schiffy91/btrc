@@ -1,0 +1,136 @@
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IButton;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.GUICaptureLayer;
+import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.LinuxWindow;
+import Library.Callback;
+import Library.Image;
+import Library.Vector;
+import Library.Console;
+
+#include <assert.h>
+#include <stdio.h>
+
+class Counter implements IButtonAction {
+	public int count = 0;
+	public void invoke() { self.count++; }
+}
+
+class Journey implements IApplicationWork {
+	private int _step = 0;
+	private unsigned int _window;
+	private IView _root;
+	private IButton _button;
+	private Counter _counter;
+	public bool passed = false;
+
+	public Journey(unsigned int window, IView root, IButton button, Counter counter) {
+		self._window = window;
+		self._root = root;
+		self._button = button;
+		self._counter = counter;
+	}
+
+	private void symbols() {
+		var blank = GUI.capture(self._root, new Vector<GUICaptureLayer>());
+		assert(blank.width > 0 && blank.height > 0);
+		self._button.setSystemSymbol("speaker.wave.2.fill");
+		double width = self._button.fittingWidth();
+		double height = self._button.fittingHeight();
+		assert(width > 0.0 && height > 0.0);
+		var audible = GUI.capture(self._root, new Vector<GUICaptureLayer>());
+		assert(audible.width == blank.width && audible.height == blank.height);
+		int audiblePixels = 0;
+		for (int y = blank.height * 16 / 320; y < blank.height * 64 / 320; y++) {
+			for (int x = blank.width * 20 / 480; x < blank.width * 100 / 480; x++) {
+				if (!audible.pixel(x, y).equals(blank.pixel(x, y))) { audiblePixels++; }
+			}
+		}
+		assert(audiblePixels > 0);
+		fprintf(stderr, "OBSERVED: audible speaker draws\n");
+		fflush(stderr);
+		string symbolError = "";
+		try { self._button.setSystemSymbol("speaker.slash.fill"); }
+		catch (string error) { symbolError = error; }
+		if (!symbolError.isEmpty()) {
+			fprintf(stderr, "OBSERVED: muted speaker rejected: %s\n", symbolError);
+			fflush(stderr);
+		}
+		assert(symbolError.isEmpty());
+		assert(self._button.fittingWidth() == width && self._button.fittingHeight() == height);
+		var muted = GUI.capture(self._root, new Vector<GUICaptureLayer>());
+		self._button.setSystemSymbol("speaker.wave.2.fill");
+		assert(self._button.fittingWidth() == width && self._button.fittingHeight() == height);
+		var restored = GUI.capture(self._root, new Vector<GUICaptureLayer>());
+		assert(muted.width == blank.width && muted.height == blank.height);
+		assert(restored.width == blank.width && restored.height == blank.height);
+		int mutedPixels = 0;
+		int changedPixels = 0;
+		for (int y = blank.height * 16 / 320; y < blank.height * 64 / 320; y++) {
+			for (int x = blank.width * 20 / 480; x < blank.width * 100 / 480; x++) {
+				var before = blank.pixel(x, y);
+				var wave = audible.pixel(x, y);
+				var slash = muted.pixel(x, y);
+				if (!slash.equals(before)) { mutedPixels++; }
+				if (!slash.equals(wave)) { changedPixels++; }
+				assert(wave.equals(restored.pixel(x, y)));
+			}
+		}
+		assert(mutedPixels > 0 && changedPixels > 0);
+		self._button.setSystemSymbol("speaker.slash.fill");
+		assert(self._counter.count == 0);
+		self._button.setEnabled(false);
+		assert(!self._button.activate());
+		self._button.setEnabled(true);
+		assert(self._counter.count == 0);
+	}
+
+	public void run() {
+		self._step++;
+		if (self._step == 2) {
+			self.symbols();
+		} else if (self._step == 4) {
+			/* A later turn detects queued setter or disabled-activation callbacks. */
+			assert(self._counter.count == 0);
+			btrcSdlPushPointerMotion(self._window, 60.0f, 30.0f);
+			btrcSdlPushPointerButton(self._window, 60.0f, 30.0f, 1u, 1, 1u);
+			btrcSdlPushPointerButton(self._window, 60.0f, 30.0f, 1u, 0, 1u);
+		} else if (self._step == 6) {
+			assert(self._counter.count == 1);
+			self.passed = true;
+			GUI.requestQuit();
+			return;
+		}
+		GUI.post(self);
+	}
+}
+
+int main() {
+	GUI.initialize(64);
+	var window = GUI.createWindow("BTRC Linux muted speaker", 480.0, 320.0);
+	ILinuxWindow? native = (ILinuxWindow?)window;
+	assert(native != null);
+	var root = GUI.createPanel(RGBA(30, 30, 34, 255), 0.0);
+	var button = GUI.createButton("");
+	button.setBordered(false);
+	button.setFont(24.0);
+	button.setCentered(true);
+	var counter = Counter();
+	var scope = CallbackScope();
+	button.onAction(counter, scope);
+	root.attach(button);
+	window.attachRoot(root);
+	button.arrange(20.0, 16.0, 80.0, 48.0);
+	window.show();
+	unsigned int windowId = native == null ? 0u : native.nativeId();
+	var journey = Journey(windowId, root, button, counter);
+	GUI.post(journey);
+	GUI.run();
+	assert(journey.passed && counter.count == 1);
+	assert(!root.isOpen());
+	Console.log("PASS: linux muted speaker");
+	return 0;
+}
