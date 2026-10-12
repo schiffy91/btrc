@@ -378,7 +378,7 @@ int main() {
         ('context = "context"', 'context = "missing"', "context must identify one"),
         ("context-index = 1", "context-index = 9", "context-index is outside"),
         ("context-index = 1", "context-index = 0", "context must be an unqualified void pointer"),
-        ('lifetime = "call"', 'lifetime = "stored"', "stored callbacks currently require Objective-C blocks"),
+        ('lifetime = "call"', 'lifetime = "stored"', "callback.unregister"),
         ('failure = "abort"', 'failure = "ignore"', "failure currently requires abort"),
         ('executor = "caller"', 'executor = "worker"', "executor currently requires caller"),
         ('interface = "IVisitor"', 'interface = "VisitNow"', "interface conflicts"),

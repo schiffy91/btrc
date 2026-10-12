@@ -253,8 +253,9 @@ compilation. SDK signature changes are checked when compiling.
 `abort` is currently the only supported failure policy: a BTRC exception runs
 its local cleanup and terminates at the callback boundary, without unwinding
 through native frames. `caller` is the only supported executor. This adapter is
-not realtime-safe. C stored registrations, broader executor ownership/destruction
-and direct capturing-lambda conversion remain unfinished. One-shot requests and
+not realtime-safe. Stored C registrations use the mapping in "Stored C
+registrations" below; broader executor ownership/destruction and direct
+capturing-lambda conversion remain unfinished. One-shot requests and
 Objective-C delegates use the mappings below. Use table form as above for
 both compilers; self-hosted inline-table parsing remains limited.
 
@@ -322,6 +323,66 @@ receiver lease, caller-thread guard and terminal failure boundary apply to C and
 Objective-C callbacks; this does not support storing or copying a block beyond
 the call. The binding author must establish synchronous lifetime from the API's
 documented contract; absence of `noescape` is not proof of either lifetime.
+
+### Stored C registrations
+
+A C SDK may keep a callback and its context until a matching unregister call
+returns: a Win32 window subclass (`SetWindowSubclass`/`RemoveWindowSubclass`),
+an Android looper file descriptor. Declare the context words, the unregister
+function and the integer statuses that mean success:
+
+```toml
+[native.bindings.callbacks."SetWindowSubclass.pfnSubclass"]
+interface = "IWindowSubclass"
+context = ["uIdSubclass", "dwRefData"]
+context-index = [4, 5]
+lifetime = "stored"
+executor = "caller"
+failure = "abort"
+registration-status = "nonzero"
+activation-failure = "unpublished"
+unregister = "RemoveWindowSubclass"
+unregister-status = "nonzero"
+captured-handles = ["hWnd"]
+cancellation = "entry-barrier"
+```
+
+Import `Library.Callback`. The call becomes
+`ICallbackRegistration SetWindowSubclass(HWND hWnd, IWindowSubclass pfnSubclass,
+CallbackScope scope)`: the context words disappear, the receiver implements
+`LRESULT invoke(HWND argument0, UINT argument1, WPARAM argument2, LPARAM
+argument3)`, and the registration is the same managed `CallbackContext` that
+stored Objective-C blocks return.
+
+- **Context words.** Every named registration parameter and callback position
+  carries the registration's context: an unqualified `void*` or an unqualified,
+  non-enum integer exactly as wide as a pointer on the selected target
+  (`uintptr_t`, `DWORD_PTR`, `LONG_PTR`). Different typedefs of the same integer
+  are allowed. Because the compiler chooses the context, each live
+  registration is distinct to the SDK, so a Win32 subclass id can never collide
+  and silently replace another registration's data.
+- **Unregister.** Each unregister parameter repeats the registration parameter
+  of the same name and type: the callback parameter receives the same
+  generated function, a context word the same context, and every other
+  parameter the value the registration captured. Captured parameters must be
+  listed in `captured-handles` and be scalars or opaque handles.
+- **Statuses.** `registration-status` and `unregister-status` take `nonzero`
+  (Win32 `BOOL`), `positive`, `nonnegative` or `zero` (`OSStatus`) and are
+  required exactly when the function returns an integer. A failed registration
+  follows `activation-failure`: `unpublished` releases everything and throws,
+  `abort` terminates. A failed unregister reports a retryable cancellation
+  failure and keeps the registration.
+- **Payloads.** Callback arguments are scalars, enums or opaque handles: a
+  pointer to an SDK record reached only through pointers, such as `HWND`,
+  borrowed for the call. Data pointers and unique resources are still rejected.
+
+Deliveries are admitted only on the creating thread, run under the shared
+callback gate and abort at the boundary on an exception. `scope.cancel()`
+closes admission, calls the unregister function, drains admitted calls and
+then releases the receiver; a cancel from inside a delivery stays pending
+until that delivery returns. The SDK's claim on the context is released only
+after the drain. `cancellation = "self-removal"` (Android's looper, where a
+callback unregisters itself by its result) is not implemented yet.
 
 ### Stored Objective-C blocks (foundation in progress)
 
@@ -415,8 +476,8 @@ The activation-failure policy and cancellation guarantee are mandatory, not infe
 The compiler roots and activates context before calling the factory, publishes
 the cancellation token before resolving inline cancellation, and reserves the
 unregister method for generated lifecycle code across bindings. A `noescape`
-parameter, incompatible token/cancellation signature, missing facts, stored C
-callback or unsupported executor fails compilation. Callback exceptions and
+parameter, incompatible token/cancellation signature, missing facts or
+unsupported executor fails compilation. Callback exceptions and
 wrong-thread native delivery terminate before unwinding a foreign frame.
 
 The independent application/component owner must cancel its scope and observe

@@ -412,6 +412,11 @@ class NativeCallbackBinding:
     field: str = ""
     realtime: NativeRealtimeCallbackBinding | None = None
     scope: str = ""
+    # Stored C registrations: the integer statuses that mean success, and the
+    # registration arguments the unregister call receives again.
+    registration_status: str = ""
+    unregister_status: str = ""
+    captured_handles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1544,6 +1549,9 @@ class PackageManifestValidator:
                         "invocation",
                         "operations",
                         "scope",
+                        "registration-status",
+                        "unregister-status",
+                        "captured-handles",
                     }
                 ),
                 location,
@@ -1610,7 +1618,8 @@ class PackageManifestValidator:
             callback_field = self._identifier(value["field"], f"{location}.field") if "field" in value else ""
             if callback_field and (language != "c" or (lifetime != "one-shot" and realtime is None)):
                 raise ValueError(f"{location}.field requires a C one-shot callback")
-            if len(indices) > 1 and not callback_field:
+            stored_c = lifetime == "stored" and language == "c" and realtime is None
+            if len(indices) > 1 and not callback_field and not stored_c:
                 raise ValueError(f"{location}: multiple context slots require a callback field")
             owned_arguments = value.get("owned-arguments", [])
             if "owned-arguments" in value and (language != "c" or lifetime != "one-shot"):
@@ -1654,8 +1663,8 @@ class PackageManifestValidator:
                         f"{location}: delegate cancellation requires its setter and activation-failure abort"
                     )
             if lifetime == "stored":
-                if language != "objective-c" and realtime is None:
-                    raise ValueError(f"{location}: stored callbacks currently require Objective-C blocks")
+                if language not in {"objective-c", "c"} and realtime is None:
+                    raise ValueError(f"{location}: stored callbacks require C functions or Objective-C blocks")
                 if not isinstance(unregister, str) or unregister not in symbols:
                     raise ValueError(f"{location}.unregister must name a selected native method")
                 if not isinstance(activation_failure, str) or activation_failure not in {"unpublished", "abort"}:
@@ -1673,6 +1682,30 @@ class PackageManifestValidator:
                 key in value for key in ("unregister", "activation-failure", "cancellation")
             ):
                 raise ValueError(f"{location}: cancellation facts require a stored callback")
+            statuses = {"nonzero", "positive", "nonnegative", "zero"}
+            registration_status = value.get("registration-status", "")
+            unregister_status = value.get("unregister-status", "")
+            captured_handles = value.get("captured-handles", [])
+            if not stored_c and any(
+                key in value for key in ("registration-status", "unregister-status", "captured-handles")
+            ):
+                raise ValueError(f"{location}: registration and unregister facts require a stored C registration")
+            if stored_c:
+                if (registration_status and registration_status not in statuses) or (
+                    unregister_status and unregister_status not in statuses
+                ):
+                    raise ValueError(f"{location}: statuses require nonzero, positive, nonnegative or zero")
+                if (
+                    not isinstance(captured_handles, list)
+                    or len(set(captured_handles)) != len(captured_handles)
+                    or any(
+                        not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)
+                        for name in captured_handles
+                    )
+                ):
+                    raise ValueError(f"{location}.captured-handles must list distinct registration parameters")
+                if not has_context:
+                    raise ValueError(f"{location}: a stored C registration requires its context slots")
             if value.get("failure") != "abort":
                 raise ValueError(f"{location}.failure currently requires abort")
             if value.get("executor") != "caller" and realtime is None:
@@ -1698,6 +1731,9 @@ class PackageManifestValidator:
                     callback_field,
                     realtime,
                     scope,
+                    registration_status,
+                    unregister_status,
+                    tuple(captured_handles),
                 )
             )
         return tuple(callbacks)
