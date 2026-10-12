@@ -202,6 +202,9 @@ class Analyzed {
 	private Map<string, FeNativeImportedDeclaration> nativeClassIndex;
 	private Map<string, Node> nativeOwnedFunctions = {};
 	public Map<string, bool> nativeLifetimeOperations = {};
+	/* Lifetime operations a program may call directly, each with its declared
+	 * unmanaged handle typedefs (package-manifest.md, unmanaged-handles). */
+	public Map<string, Map<string, bool>> nativeUnmanagedReleases = {};
 	/* Native globals by name, first declaration first, exactly as the linear
 	 * scans they replace answered: any declaration for read-only-ness, the first
 	 * uninitialised typed one for ownership, and whether an Objective-C one exists. */
@@ -223,6 +226,7 @@ class Analyzed {
 		self.nativeDeclarations = declarations;
 		self.nativeClassIndex = {};
 		self.nativeLifetimeOperations = {};
+		self.nativeUnmanagedReleases = {};
 		self.nativeOwnedFunctions = {};
 		self.nativeGlobalAnyIndex = {};
 		self.nativeTypedGlobalIndex = {};
@@ -270,6 +274,10 @@ class Analyzed {
 			if (imported.declaration.kind == NK_FUNCTION_DECL && contract != null && contract.returnsOwned() && !imported.coalesced) { self.nativeOwnedFunctions.put(imported.declaration.name, imported.declaration); }
 			var resource = imported.resource;
 			if (resource != null) { self.nativeLifetimeOperations.put(resource.retainFunction, true); self.nativeLifetimeOperations.put(resource.releaseFunction, true); }
+			if (imported.declaration.kind == NK_TYPEDEF_DECL && !imported.unmanagedRelease.isEmpty()) {
+				if (!self.nativeUnmanagedReleases.has(imported.unmanagedRelease)) { self.nativeUnmanagedReleases.put(imported.unmanagedRelease, {}); }
+				self.nativeUnmanagedReleases.get(imported.unmanagedRelease).put(imported.declaration.alias, true);
+			}
 			if (imported.declaration.kind == NK_CLASS_DECL && !self.nativeClassIndex.has(imported.declaration.name)) { self.nativeClassIndex.put(imported.declaration.name, imported); }
 		}
 	}

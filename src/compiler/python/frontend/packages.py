@@ -495,6 +495,9 @@ class NativeBinding:
     initializers: tuple[NativeInitializerBinding, ...] = ()
     copied_inputs: tuple[tuple[str, str, str], ...] = ()
     environments: tuple[str, ...] = ()
+    # Raw record-pointer handles (typedef, release) that one selected lifetime
+    # operation releases directly, beside managed resources sharing that name.
+    unmanaged_handles: tuple[tuple[str, str], ...] = ()
 
     @property
     def selector(self) -> TargetSelector:
@@ -1472,6 +1475,40 @@ class PackageManifestValidator:
                 declarations.append(declaration)
         return tuple(sorted(declarations))
 
+    def _unmanaged_handle_bindings(self, value, symbols, resources, context, language):
+        """Raw handles whose selected lifetime operation BTRC may call directly.
+
+        A Core Foundation run-loop timer held in plain data is released with
+        CFRelease while other bindings manage CF objects through the same
+        function. Only a call passing exactly such a handle is admitted; the
+        operation stays reserved everywhere else.
+        """
+        location = f"{context}.unmanaged-handles"
+        if not isinstance(value, dict):
+            raise ValueError(f"{location} must map selected handle typedefs to their release")
+        if value and language != "c":
+            raise ValueError(f"{location} requires a C binding")
+        managed = {resource.name for resource in resources}
+        handles = []
+        for handle, facts in sorted(value.items()):
+            where = f"{location}.{handle}"
+            if not isinstance(facts, dict):
+                raise ValueError(f"{where} must declare its release")
+            self._reject_unknown(facts, frozenset({"release"}), where)
+            release = facts.get("release")
+            if (
+                handle not in symbols
+                or handle in managed
+                or not isinstance(release, str)
+                or release not in symbols
+                or release == handle
+            ):
+                raise ValueError(
+                    f"{where} requires a selected record-pointer typedef that is not a resource and a selected release"
+                )
+            handles.append((handle, release))
+        return tuple(handles)
+
     def _callback_bindings(self, values, symbols, context, language) -> tuple[NativeCallbackBinding, ...]:
         if not isinstance(values, dict):
             raise ValueError(f"{context}.callbacks must map function.parameter names to callback facts")
@@ -2416,6 +2453,7 @@ class PackageManifestValidator:
                         "record-outputs",
                         "owned-output-fields",
                         "null-output-fields",
+                        "unmanaged-handles",
                     }
                 ),
                 context,
@@ -2513,6 +2551,9 @@ class PackageManifestValidator:
             if (records and language not in {"c", "c++"}) or ((inputs or object_fields) and language != "c"):
                 raise ValueError(f"{context}: record input projections currently require a C binding")
             resources = self._resource_bindings(entry.get("resources", {}), symbols, context, language)
+            unmanaged_handles = self._unmanaged_handle_bindings(
+                entry.get("unmanaged-handles", {}), symbols, resources, context, language
+            )
             owned_results = self._resource_functions(entry.get("owned-results", []), symbols, context, "owned-results")
             borrowed_parameters = self._resource_functions(
                 entry.get("borrowed-parameters", []), symbols, context, "borrowed-parameters", parameters=True
@@ -2581,6 +2622,11 @@ class PackageManifestValidator:
                     value.split(".")[0] in operations for value in borrowed_parameters
                 ):
                     raise ValueError(f"{context}: resource lifetime operations are reserved")
+            releases = {release for _, release in unmanaged_handles}
+            if releases.intersection(owned_results) or any(
+                value.split(".")[0] in releases for value in borrowed_parameters
+            ):
+                raise ValueError(f"{context}: resource lifetime operations are reserved")
             main_thread_globals = entry.get("main-thread-globals", [])
             if (
                 not isinstance(main_thread_globals, list)
@@ -2673,7 +2719,7 @@ class PackageManifestValidator:
             )
             if binding.static_globals and (language != "c" or not resources):
                 raise ValueError(f"{context}: static-globals requires declared C resources")
-            binding = replace(binding, environments=selector.environments)
+            binding = replace(binding, environments=selector.environments, unmanaged_handles=unmanaged_handles)
             if any(binding.overlaps(previous) for previous in bindings):
                 raise ValueError(f"{context} overlaps a native binding for the same module and target")
             bindings.append(binding)

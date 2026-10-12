@@ -957,8 +957,46 @@ class CallAnalyzer:
             )
         self._validate_callable_target(expr)
 
+    def _validate_unmanaged_release_call(self, expr):
+        """A reserved lifetime operation releases only a declared unmanaged handle passed directly.
+
+        The argument has one positional value, no cast, and a type that
+        resolves to the same record pointer as one of the operation's handle
+        typedefs.
+        """
+        name = expr.callee.name
+        argument = expr.args[0] if len(expr.args) == 1 and not any(expr.arg_names or []) else None
+        value_type = self.type_of(argument) if argument is not None and not isinstance(argument, CastExpr) else None
+        admitted = False
+        if value_type is not None and not value_type.generic_args and not value_type.is_array:
+            resolved = self._resolved_handle_type(value_type)
+            admitted = any(
+                (resolved.base, resolved.pointer_depth) == (declared.base, declared.pointer_depth)
+                for declared in (
+                    self._resolved_handle_type(TypeExpr(base=handle))
+                    for handle in self.index.native_unmanaged_releases[name]
+                )
+            )
+        if not admitted:
+            self.session.error(
+                f"'{name}()' may release only a declared unmanaged handle passed directly", expr.line, expr.col
+            )
+
+    def _resolved_handle_type(self, value_type):
+        """Follow typedef aliases to the spelled record pointer."""
+        seen = set()
+        while (
+            not value_type.pointer_depth and value_type.base in self.index.typedef_table and value_type.base not in seen
+        ):
+            seen.add(value_type.base)
+            value_type = self.index.typedef_table[value_type.base]
+        return value_type
+
     def _validate_identifier_call(self, expr):
         name = expr.callee.name
+        if name in self.index.native_unmanaged_releases:
+            self._validate_unmanaged_release_call(expr)
+            return
         if name in self.index.native_lifetime_operations:
             self.session.error(
                 "Native resource lifetime operations are reserved for managed cleanup", expr.line, expr.col

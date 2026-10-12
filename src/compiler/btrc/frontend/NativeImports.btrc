@@ -132,6 +132,9 @@ class FeNativeDeclarationImporter {
 	private Map<string, FeNativeOutputOffsetBinding> outputOffsets = {};
 	private Map<string, FeNativeCopiedResultBinding> copiedResults = {};
 	private Map<string, bool> resourceOperations = {};
+	private Map<string, bool> bindingOperations = {};
+	private Map<string, string> unmanagedHandles = {};
+	private Map<string, string> unmanagedOwners = {};
 	private Map<string, bool> ownedResults = {};
 	private Map<string, string> borrowedResults = {};
 	private Map<string, bool> resourceBorrows = {};
@@ -1343,6 +1346,42 @@ class FeNativeDeclarationImporter {
 		return result;
 	}
 
+	/* A raw record-pointer handle released directly by one selected lifetime
+	 * operation. The release joins the reserved operations, so it is never an
+	 * ordinary call; the analyzer admits only a call passing such a handle. */
+	private void prepareUnmanagedHandles(FeNativeBinding binding) {
+		for name in binding.resources.keys() {
+			var resource = binding.resources.get(name);
+			if (!resource.retainFunction.isEmpty()) { self.bindingOperations.put(resource.retainFunction, true); }
+			if (!resource.releaseFunction.isEmpty()) { self.bindingOperations.put(resource.releaseFunction, true); }
+		}
+		for handle in binding.unmanagedHandles.keys() {
+			string releaseName = binding.unmanagedHandles.get(handle);
+			self.unmanagedHandles.put(handle, releaseName);
+			bool handleRecord = false;
+			if (self.callbackExports.has(handle) && self.callbackExports.get(handle).kind == NNK_NATIVE_TYPEDEF) {
+				NativeNode pointer = self.unqualifiedNative(self.callbackExports.get(handle).underlying);
+				handleRecord = pointer.kind == NNK_NATIVE_POINTER && self.unqualifiedNative(pointer.pointee).kind == NNK_NATIVE_RECORD_TYPE;
+			}
+			if (!handleRecord) { self.fail(f"unmanaged-handles.{handle} requires a selected record-pointer typedef that is not a resource"); }
+			bool valid = false;
+			if (self.callbackExports.has(releaseName)) {
+				NativeNode releaser = self.callbackExports.get(releaseName);
+				if (releaser.kind == NNK_NATIVE_FUNCTION && releaser.signature.parameters.len == 1 && !releaser.signature.variadic && self.unqualifiedNative(releaser.signature.parameters.get(0)).kind == NNK_NATIVE_POINTER && releaser.returnedOwnership == "unspecified") {
+					NativeNode result = self.unqualifiedNative(releaser.signature.returnType);
+					valid = result.kind == NNK_NATIVE_BUILTIN && result.name == "void";
+					for parameter in releaser.parameterSemantics { if (parameter.nsConsumed) { valid = false; } }
+					if (valid) { self.requireQualifiedConvention(releaser.signature); }
+				}
+			}
+			if (!valid) { self.fail(f"unmanaged-handles.{handle}: release {releaseName} must take one pointer and return void"); }
+			if (self.unmanagedOwners.has(handle) && self.unmanagedOwners.get(handle) != releaseName) { self.fail(f"unmanaged handle '{handle}' declares releases {self.unmanagedOwners.get(handle)} and {releaseName}"); }
+			self.unmanagedOwners.put(handle, releaseName);
+			self.resourceOperations.put(releaseName, true);
+			self.bindingOperations.put(releaseName, true);
+		}
+	}
+
 	private void prepareResources(FeNativeBinding binding, NativeNode header) {
 		self.copiedInputs = {}; self.resourceInitializers = {}; self.attachedResources = {};
 		for name in binding.copiedInputs.keys() { self.copiedInputs.put(name, binding.copiedInputs.get(name)); }
@@ -2123,7 +2162,13 @@ class FeNativeDeclarationImporter {
 		Node imported = Node();
 		FeNativeCallContract? contract = null;
 		if (declaration.kind == NNK_NATIVE_FUNCTION) {
-			if (self.resourceOperations.has(declaration.name)) { return; }
+			if (self.resourceOperations.has(declaration.name)) {
+				/* Only the binding that declares the operation hides it; an
+				 * ordinary selection elsewhere is the reserved conflict,
+				 * whichever binding is resolved first. */
+				if (!self.bindingOperations.has(declaration.name)) { self.fail("resource lifetime operations are reserved across native bindings"); }
+				return;
+			}
 			var callContract = FeNativeCallContract();
 			callContract.realtimeSafe = self.realtime.has(declaration.name);
 			self.realtime.remove(declaration.name);
@@ -2321,6 +2366,16 @@ class FeNativeDeclarationImporter {
 		} else if (declaration.kind == NNK_NATIVE_TYPEDEF) {
 			if (self.resources.has(declaration.name)) { return; }
 			self.alias(declaration.name, declaration.underlying);
+			if (self.unmanagedHandles.has(declaration.name)) {
+				bool marked = false;
+				for imported in self.declarations {
+					if (imported.module == self.module && imported.declaration.kind == NK_TYPEDEF_DECL && imported.declaration.alias == declaration.name) {
+						imported.unmanagedRelease = self.unmanagedHandles.get(declaration.name);
+						marked = true;
+					}
+				}
+				if (!marked) { self.fail(f"unmanaged-handles.{declaration.name} requires a selected record-pointer typedef that is not a resource"); }
+			}
 			return;
 		} else if (declaration.kind == NNK_NATIVE_RECORD_DECLARATION) {
 			if (self.resources.has(declaration.name)) { return; }
@@ -3492,8 +3547,11 @@ class FeNativeDeclarationImporter {
 			NativeNode decoded = FeNativeHeaderCodec().decode(self.pendingResponses.get(index), target);
 			self.callbackExports = {};
 			for declaration in decoded.exports { self.callbackExports.put(declaration.name, declaration); }
+			self.bindingOperations = {};
+			self.unmanagedHandles = {};
 			if (self.language == "c++") { self.importCxxBinding(binding, decoded); continue; }
 			self.prepareResources(binding, decoded);
+			self.prepareUnmanagedHandles(binding);
 			self.prepareResourceConversions(binding, decoded);
 			self.callbacks = {};
 			self.mainThreadGlobals = {};
@@ -3527,9 +3585,19 @@ class FeNativeDeclarationImporter {
 		self.pendingResponses = [];
 		BtrccPhaseTimer.mark("n-import");
 		for imported in self.declarations { if (self.resourceOperations.has(imported.declaration.name)) { self.fail("resource lifetime operations are reserved across native bindings"); } }
+		for handle in self.unmanagedOwners.keys() {
+			for imported in self.declarations {
+				if (imported.declaration.kind == NK_CLASS_DECL && imported.declaration.name == handle && imported.resource != null) { self.fail(f"unmanaged handle '{handle}' is a managed resource in {imported.module}"); }
+			}
+		}
 		self.projectRecordInputs(bindings);
 		self.validateRecordCallbacks();
 		self.coalesce();
+		/* One handle has one release program-wide; every import of its typedef
+		 * carries the mark the analyzer admits calls by. */
+		for imported in self.declarations {
+			if (imported.declaration.kind == NK_TYPEDEF_DECL && self.unmanagedOwners.has(imported.declaration.alias)) { imported.unmanagedRelease = self.unmanagedOwners.get(imported.declaration.alias); }
+		}
 		self.validateSelectorStorage();
 		self.declarations.extend(self.inputClasses);
 		return self.declarations;

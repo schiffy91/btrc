@@ -201,6 +201,42 @@ class CallValidator {
 		}
 	}
 
+	/* A reserved lifetime operation releases only a declared unmanaged handle
+	 * passed directly: one positional argument, no cast, whose type resolves to
+	 * the same record pointer as one of the operation's handle typedefs. */
+	private void validateUnmanagedReleaseCall(Node call, string name, Map<string, Node> vars) {
+		Map<string, bool> handles = self.state.analyzed.nativeUnmanagedReleases.get(name);
+		bool named = false;
+		for argumentName in call.argNames() { if (argumentName != "") { named = true; } }
+		bool admitted = false;
+		if (call.args().len == 1 && !named) {
+			Node argument = call.args().get(0);
+			Node? valueType = argument.kind == NK_CAST_EXPR ? null : self.types.inferType(argument, vars);
+			if (valueType != null && valueType.genericArgs().len == 0 && !valueType.isArray) {
+				Node resolved = self.resolvedHandleType(valueType);
+				for handle in handles.keys() {
+					Node declared = Node();
+					declared.kind = NK_TYPE_EXPR;
+					declared.base = handle;
+					Node handleType = self.resolvedHandleType(declared);
+					if (resolved.base == handleType.base && resolved.pointerDepth == handleType.pointerDepth) { admitted = true; }
+				}
+			}
+		}
+		if (!admitted) { TypeValidator.fail(f"'{name}()' may release only a declared unmanaged handle passed directly", call); }
+	}
+
+	/* Follow typedef aliases to the spelled record pointer. */
+	private Node resolvedHandleType(Node valueType) {
+		Node current = valueType;
+		Map<string, bool> seen = {};
+		while (current.pointerDepth == 0 && self.state.analyzed.typedefTable.has(current.base) && !seen.has(current.base)) {
+			seen.put(current.base, true);
+			current = self.state.analyzed.typedefTable.get(current.base);
+		}
+		return current;
+	}
+
 	public void validateCall(Node call, Map<string, Node> vars) {
 		self.borrows.validateConditionalRawProjectionCall(call,  vars);
 		self.validateSourceMacroCall(call,  vars);
@@ -221,6 +257,10 @@ class CallValidator {
 		if (callee == null) { return; }
 		if (callee.kind == NK_IDENTIFIER) {
 			string name = callee.name;
+			if (self.state.analyzed.nativeUnmanagedReleases.has(name)) {
+				self.validateUnmanagedReleaseCall(call, name, vars);
+				return;
+			}
 			if (self.state.analyzed.nativeLifetimeOperations.has(name)) { TypeValidator.fail("Native resource lifetime operations are reserved for managed cleanup", call); }
 			if (self.validateCallableValueCall(call, name, vars)) { return; }
 			if (self.validateGpuBuiltinCall(call, vars)) { return; }

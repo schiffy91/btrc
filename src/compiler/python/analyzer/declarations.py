@@ -1276,6 +1276,9 @@ class DeclarationRegistry:
                 )
                 self.index.declared_type_names.add(declaration.alias)
                 self.index.typedef_table[declaration.alias] = declaration.original
+                release = getattr(declaration.source_file, "unmanaged_release", "")
+                if release:
+                    self.index.native_unmanaged_releases.setdefault(release, set()).add(declaration.alias)
             elif isinstance(declaration, VarDeclStmt):
                 top_level.register_global(declaration)
         inheritance.resolve(pre_resolved_classes)

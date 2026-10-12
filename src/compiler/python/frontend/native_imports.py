@@ -773,6 +773,7 @@ class NativeHeaderSource(str):
         private_fields=False,
         invocation="",
         value_only=False,
+        unmanaged_release="",
     ):
         value = super().__new__(cls, module)
         value.header = header
@@ -790,6 +791,7 @@ class NativeHeaderSource(str):
         value.private_fields = private_fields
         value.invocation = invocation
         value.value_only = value_only
+        value.unmanaged_release = unmanaged_release
         return value
 
     def __getnewargs__(self):
@@ -810,6 +812,7 @@ class NativeHeaderSource(str):
             self.private_fields,
             self.invocation,
             self.value_only,
+            self.unmanaged_release,
         )
 
 
@@ -854,6 +857,9 @@ class NativeDeclarationImporter:
         self._resource_types = {}
         self._resource_records = {}
         self._resource_operations = set()
+        self._binding_operations = set()
+        self._unmanaged_handles = {}
+        self._unmanaged_owners = {}
         self._callback_operations = set()
         self._callback_exports = {}
         self._owned_results = set()
@@ -961,10 +967,13 @@ class NativeDeclarationImporter:
                 fingerprint.update(len(encoded).to_bytes(8, "big"))
                 fingerprint.update(encoded)
                 self._callback_exports = {declaration.name: declaration for declaration in header.exports}
+                self._binding_operations = set()
+                self._unmanaged_handles = {}
                 if binding.language == "c++":
                     self._import_cxx_binding(binding, header)
                     continue
                 self._prepare_resources(binding, header)
+                self._prepare_unmanaged_handles(binding, header)
                 self._prepare_resource_conversions(binding, header)
                 self._merge_interfaces(header.interfaces)
                 self._layouts = {record.identity: record for record in header.records}
@@ -1023,8 +1032,17 @@ class NativeDeclarationImporter:
         try:
             if any(name in self._resource_operations for _, name in self._declarations):
                 raise NativeImportError("resource lifetime operations are reserved across native bindings")
+            for handle in sorted(self._unmanaged_owners):
+                for (origin, name), declaration in self._declarations.items():
+                    if name == handle and getattr(declaration.source_file, "resource", None) is not None:
+                        raise NativeImportError(f"unmanaged handle '{handle}' is a managed resource in {origin}")
             self._project_record_inputs(plan)
             self._coalesce()
+            # One handle has one release program-wide; every import of its
+            # typedef carries the mark the analyzer admits calls by.
+            for (_, name), declaration in self._declarations.items():
+                if name in self._unmanaged_owners and isinstance(declaration, ast.TypedefDecl):
+                    declaration.source_file.unmanaged_release = self._unmanaged_owners[name][0]
             self._validate_selector_storage()
         except NativeImportError as error:
             raise IncludeResolutionError(str(error)) from error
@@ -2712,6 +2730,49 @@ class NativeDeclarationImporter:
         )
         self._cxx_value_class(name, fields)
         return NativeRecordInput(name, selected.name, fields, by_value=True)
+
+    def _prepare_unmanaged_handles(self, binding, header):
+        """A raw record-pointer handle released directly by one selected lifetime operation.
+
+        The release joins the reserved operations, so it is never an ordinary
+        call; the analyzer admits only a call passing exactly such a handle.
+        """
+        self._binding_operations = {
+            operation
+            for resource in binding.resources
+            for operation in (resource.retain, resource.release)
+            if operation
+        }
+        self._unmanaged_handles = dict(binding.unmanaged_handles)
+        exports = {declaration.name: declaration for declaration in header.exports}
+        for handle, release in binding.unmanaged_handles:
+            typedef = exports.get(handle)
+            pointer = self._unqualified_native(typedef.underlying) if isinstance(typedef, NativeTypedef) else None
+            record = self._unqualified_native(pointer.pointee) if isinstance(pointer, NativePointer) else None
+            if not isinstance(record, NativeRecordType):
+                raise NativeImportError(
+                    f"unmanaged-handles.{handle} requires a selected record-pointer typedef that is not a resource"
+                )
+            function = exports.get(release)
+            if (
+                not isinstance(function, NativeFunction)
+                or len(function.signature.parameters) != 1
+                or function.signature.variadic
+                or not isinstance(self._unqualified_native(function.signature.parameters[0]), NativePointer)
+                or not isinstance(self._unqualified_native(function.signature.return_type), NativeBuiltin)
+                or self._unqualified_native(function.signature.return_type).name != "void"
+                or function.returned_ownership != "unspecified"
+                or any(parameter.ns_consumed for parameter in function.parameter_semantics)
+            ):
+                raise NativeImportError(
+                    f"unmanaged-handles.{handle}: release {release} must take one pointer and return void"
+                )
+            self._require_qualified_convention(function.signature)
+            owner = self._unmanaged_owners.setdefault(handle, (release, binding.module))
+            if owner[0] != release:
+                raise NativeImportError(f"unmanaged handle '{handle}' declares releases {owner[0]} and {release}")
+            self._resource_operations.add(release)
+            self._binding_operations.add(release)
 
     def _prepare_resources(self, binding, header):
         self._resources = {resource.name: resource for resource in binding.resources}
@@ -4468,6 +4529,11 @@ class NativeDeclarationImporter:
         contract = None
         if isinstance(declaration, NativeFunction):
             if declaration.name in self._resource_operations:
+                # Only the binding that declares the operation hides it; an
+                # ordinary selection elsewhere is the reserved conflict,
+                # whichever binding is resolved first.
+                if declaration.name not in self._binding_operations:
+                    raise NativeImportError("resource lifetime operations are reserved across native bindings")
                 return
             signature = declaration.signature
             self._require_qualified_convention(signature)
@@ -4797,6 +4863,14 @@ class NativeDeclarationImporter:
                     qualifiers=NativeQualifiers(nullability="unannotated"),
                 )
             )
+            release = self._unmanaged_handles.get(declaration.name)
+            if release:
+                imported = self._declarations.get((str(self._origin), declaration.name))
+                if not isinstance(imported, ast.TypedefDecl):
+                    raise NativeImportError(
+                        f"unmanaged-handles.{declaration.name} requires a selected record-pointer typedef that is not a resource"
+                    )
+                imported.source_file.unmanaged_release = release
             return
         elif isinstance(declaration, NativeRecordDeclaration):
             if declaration.name in self._resources:

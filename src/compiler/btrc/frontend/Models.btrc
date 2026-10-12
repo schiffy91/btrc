@@ -801,6 +801,8 @@ class FeNativeCallContract {
 /* SDK provenance is attached to the actual imported node, never inferred from
  * its spelling, line number, or a user-controlled source marker. */
 class FeNativeImportedDeclaration {
+	/* The lifetime operation that releases this unmanaged handle typedef. */
+	public string unmanagedRelease = "";
 	public string invocation = "";
 	public string resourceQueryType = "";
 	public bool privateFields = false;
