@@ -1806,3 +1806,17 @@ receipt remains failed solely at its diagnostic-wording classifier. This does
 not establish the historical ENOENT cause. Root owns the final documentation,
 draft publication and complete final-tree gate matrix. The iOS tooling port
 remains separate until D8 runtime admission.
+
+
+## 2026-10-12 compact IR test-consumer repair
+
+Root assigns execution_review `codex/compact-ir-test-consumers` from5be08004:
+`src/tests/native/objective_c/ObjectiveCEmitter.btrc`,
+`src/tests/python/test_cycle_boundaries.py`, this claim, and
+`docs/workstreams/compact-ir-test-consumers.md`. Migrate the existing test-only
+IR construction/projections and source-contract spelling to compact payloads.
+Keep all original invalid-IR modes, parity/lifetime cases, strict native flags,
+assertions and deadlines. No compiler/generated/runtime/workflow owner changes.
+Actual PR70 Linux unit run38183975817 supplies the baseline:160 shared fixture
+setup errors and one stale source-contract failure. Focused execution and final
+CI remain required; source-only checks are not acceptance.
