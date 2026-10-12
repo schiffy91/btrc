@@ -1563,3 +1563,18 @@ outer GUI grouping, all ledger assertions, explicit child argv and deadlines.
 Original hosted unit evidence is retained; focused qualification passed with
 exact two baseline failures and candidate84 PASS, zero skips/errors. See report.
 Ordinary checkout/index, PLAN and workflow source remain untouched.
+
+
+### 2026-10-12 CX-LINUX-IMAGE-LIFETIME extraction claim
+
+Codex platform_review owns `src/stdlib/GUI/Linux/LinuxImageView.btrc`,
+`src/tests/native/gui/linux/LinuxGUIControls.btrc` and
+`docs/workstreams/linux-image-handle-lifetime.md` on
+`codex/linux-image-lifetime-36b`, based on exact `36b647f079ed7338e51b119a11046eb222dd4877`.
+This is the same Codex writer extracting two exact reviewed blobs from the held
+UI2 composition `bac92b20830e5adde31c638a7dd95cb917da8721`, not a competing writer.
+The donor remains untouched. WORKSTREAMS changes only by this appended claim.
+The existing image-handle contract and original native driver remain unchanged;
+no manifest, generated, compiler, runtime, workflow or Make changes are owned.
+Test-only baseline and candidate four-cell Linux native qualification are pending.
+Publication is held for hosted capacity and parent review.
