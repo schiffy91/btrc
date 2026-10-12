@@ -1806,3 +1806,16 @@ receipt remains failed solely at its diagnostic-wording classifier. This does
 not establish the historical ENOENT cause. Root owns the final documentation,
 draft publication and complete final-tree gate matrix. The iOS tooling port
 remains separate until D8 runtime admission.
+
+
+## 2026-10-12 Disappeared CoreAudio object reproduction
+
+Packet CX-COREAUDIO-DISAPPEARED-OBJECT; writer execution_review. Private branch
+`codex/coreaudio-disappeared-object-repro`, base `5be08004`. Owned paths:
+`src/tests/native/audio/ResourceFaults.c`,
+`src/tests/native/audio/CoreAudioResourcesConformance.btrc`,
+`docs/workstreams/coreaudio-disappeared-object.md`, and this claim only.
+Add the SDK BadObject response to the existing missing/replaced identity
+cleanup fixture. Preserve all original cases/assertions and production bytes.
+Actual paired plain/sanitized qualification needs separate reviewed allocation;
+this source-only reproduction does not establish the Player native cause.
