@@ -1819,3 +1819,15 @@ Add the SDK BadObject response to the existing missing/replaced identity
 cleanup fixture. Preserve all original cases/assertions and production bytes.
 Actual paired plain/sanitized qualification needs separate reviewed allocation;
 this source-only reproduction does not establish the Player native cause.
+
+
+## 2026-10-12 Disappeared CoreAudio object candidate
+
+Packet CX-COREAUDIO-DISAPPEARED-OBJECT-FIX; writer execution_review. Private
+branch `codex/coreaudio-disappeared-object`, descendant of test-only `e15b6944`.
+Owned paths: `src/stdlib/Audio/MacOS/MacOSAudioDevice.btrc`,
+`docs/workstreams/coreaudio-disappeared-object.md`, and this claim only.
+Map the SDK invalid AudioObject status to the existing not-found outcome.
+Preserve original cleanup order/retries and all reproduction fixture bytes.
+The separate raw-status diagnostic is excluded; no Player causal claim or
+behavioral acceptance precedes allocated baseline/candidate qualification.
