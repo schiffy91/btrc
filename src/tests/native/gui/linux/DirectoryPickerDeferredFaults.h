@@ -1,15 +1,11 @@
 #ifndef DIRECTORY_PICKER_DEFERRED_FAULTS_H
 #define DIRECTORY_PICKER_DEFERRED_FAULTS_H
 
-#include <SDL3/SDL.h>
-#include <stdlib.h>
-
-void pickerDeferredShow(SDL_FileDialogType type, SDL_DialogFileCallback callback,
-                        void* userdata, SDL_PropertiesID properties);
-void pickerObservedFree(void* memory);
-
-/* Only the generated program receives this header. The companion C unit
- * forwards every free unchanged and calls the production dialog callback. */
+/* Only the generated program receives these renames. Do not include system
+ * headers here: its feature-test macros must precede their first inclusion.
+ * The actual SDL/libc headers declare the renamed functions with their exact
+ * signatures and attributes. The companion C unit forwards every free and
+ * invokes the production dialog callback without these renames. */
 #define SDL_ShowFileDialogWithProperties pickerDeferredShow
 #define free pickerObservedFree
 
