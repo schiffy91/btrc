@@ -172,13 +172,13 @@ class ProcessWorkerState {
 		return false;
 	}
 
-	/* A reaped child's usage. macOS reports peak resident memory in bytes,
-	 * linux in KiB. */
+	/* A reaped child's usage. Darwin (macOS and iOS) reports peak resident
+	 * memory in bytes, linux in KiB. */
 	class WorkerUsage usageOf(struct rusage* used) {
 		long long user = (long long)used->ru_utime.tv_sec * 1000000LL + (long long)used->ru_utime.tv_usec;
 		long long system = (long long)used->ru_stime.tv_sec * 1000000LL + (long long)used->ru_stime.tv_usec;
 		long long resident = (long long)used->ru_maxrss;
-		if (__btrc_target_platform() == 1) { resident = resident / 1024LL; }
+		if (__btrc_target_platform() == 1 || __btrc_target_platform() == 4) { resident = resident / 1024LL; }
 		return WorkerUsage(user, system, resident);
 	}
 
