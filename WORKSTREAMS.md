@@ -228,6 +228,32 @@ No API/native manifest/compiler/runtime/generated/workflow/harness changes.
 WORKSTREAMS §3.4 fresh binary, bootstrap and host-entry qualification still apply.
 No native result or hosted qualification is claimed by this source preparation.
 
+**2026-10-12 combined native prerequisite publication (Codex).**
+`codex/native-prerequisites-36b` is a docs-only child of main `36b647f0`.
+Owned paths are this append-only claim and the two reports named by the retained
+claims below. Those reports preserve exact donor bytes and identify their own
+historical evidence bases; no UI2 provider ancestry or implementation is imported.
+This packet requests compiler-owned prerequisites only, without qualification or
+PLAN changes. Publication remains integrator-owned.
+
+**2026-10-12 Android ProcessThreads prerequisite (Codex).** Private packet
+`codex/android-process-threads-prerequisite-36b` starts at exact `36b647f0`.
+Owned changes are this claim and `docs/workstreams/android-process-threads.md`.
+The compiler-import dependencies are explicitly named: `src/stdlib/BackgroundJobs/ProcessThreads.btrc`,
+`src/stdlib/BackgroundJobs/Linux/ProcessThreadsProvider.btrc`, and
+`src/stdlib/BackgroundJobs/btrc.toml`; all remain unchanged. Canonical metadata
+proof found a missing Android provider and rejection of Android OS selectors.
+Paired compiler provider-filter work is REQUEST(CL-P1-14), not implemented here.
+No compiler/runtime/generated/workflow changes, native claims or publication.
+
+**2026-10-12 UI2 CF ownership request (Codex).** Private packet
+`codex/ui2-cf-ownership-request-bac92` owns only this claim and
+`docs/workstreams/ui2-cf-ownership-request.md`, based on exact `bac92b20`.
+The actual 42-pass/2-PACKAGE-failure diagnostic and its independent audit
+remain immutable. Compiler-owned resource/borrow/callback admission is requested;
+no provider/fixture/manifest/compiler/runtime/generated files are changed.
+No destructor alias, raw-pointer escape or lifetime-guard relaxation is admitted.
+
 **2026-10-09 D29 unit GUI scheduling claim:** the parent integrator owns
 `.github/workflows/macos.yml`, its existing workflow-contract assertions and
 `docs/workstreams/macos-unit-gui-scheduling.md` on
