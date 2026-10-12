@@ -1057,6 +1057,42 @@ def test_java_class_documents_have_compiled_codec_parity(codec_probe, tmp_path):
     assert declarations["java.lang.Object"].super_name is None
 
 
+def test_java_class_reader_documents_have_compiled_codec_parity(codec_probe, tmp_path):
+    """tools/JavaClassReader.c output decodes identically through both compilers' codecs."""
+    configured = os.environ.get("BTRC_JAVA_CLASS_READER")
+    if not configured or not os.access(configured, os.X_OK):
+        pytest.skip("requires BTRC_JAVA_CLASS_READER (nix build .#btrc-java-class-reader; the dev shell exports it)")
+    from src.tests.python.test_java_class_reader import assembled_fixture, write_directory
+
+    classes = write_directory(tmp_path / "classes", assembled_fixture())
+    widget = "dev.btrc.fixture.Widget"
+    symbols = [
+        widget,
+        f"{widget}.<init>(Ljava/lang/String;[I)V",
+        f"{widget}.add(II)I",
+        f"{widget}.describe(Ljava/lang/Object;[[Ljava/lang/String;ZBCSJFD)Ljava/lang/String;",
+        f"{widget}.many(I)[Ldev/btrc/fixture/Widget;",
+        f"{widget}.LIMIT:I",
+        f"{widget}.grid:[[I",
+        "dev.btrc.fixture.Shape.area()D",
+        "dev.btrc.fixture.Widget$Inner.value:I",
+    ]
+    result = subprocess.run(
+        [configured, "--target=aarch64-unknown-linux-android29", f"--classpath={classes}"]
+        + [f"--symbol={symbol}" for symbol in symbols],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+    declarations = {entry.name: entry for entry in NativeHeaderCodec().decode(result.stdout).exports}
+    assert describe(declarations[f"{widget}.many(I)[Ldev/btrc/fixture/Widget;"].signature) == (
+        "(jint)[Ldev/btrc/fixture/Widget;??@java"
+    )
+    assert declarations["dev.btrc.fixture.Shape"].interface_class
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
