@@ -1806,3 +1806,76 @@ receipt remains failed solely at its diagnostic-wording classifier. This does
 not establish the historical ENOENT cause. Root owns the final documentation,
 draft publication and complete final-tree gate matrix. The iOS tooling port
 remains separate until D8 runtime admission.
+
+
+## 2026-10-12 compact IR test-consumer repair
+
+Root assigns execution_review `codex/compact-ir-test-consumers` from5be08004:
+`src/tests/native/objective_c/ObjectiveCEmitter.btrc`,
+`src/tests/python/test_cycle_boundaries.py`, this claim, and
+`docs/workstreams/compact-ir-test-consumers.md`. Migrate the existing test-only
+IR construction/projections and source-contract spelling to compact payloads.
+Keep all original invalid-IR modes, parity/lifetime cases, strict native flags,
+assertions and deadlines. No compiler/generated/runtime/workflow owner changes.
+Actual PR70 Linux unit run38183975817 supplies the baseline:160 shared fixture
+setup errors and one stale source-contract failure. Focused execution and final
+CI remain required; source-only checks are not acceptance.
+
+
+## 2026-10-12 compact reachability contract test alignment
+
+Root assigns platform_review `src/tests/btrc/test_selfhost_reachability_performance_contract.py`,
+`src/tests/btrc/test_selfhost_type_reachability_performance_contract.py`, this claim
+and `docs/workstreams/compact-reachability-contracts.md` on private
+`codex/compact-reachability-contracts`, based on frozen `5be08004`. Actual PR70
+Linux shard reported two stale field-spelling assertions after compact typed
+payload integration. Preserve exact membership and single type-field scanning,
+all negative guards and existing native semantic tests. No production compiler,
+runtime, workflow or generated changes; no publication under this assignment.
+
+
+## 2026-10-12 Disappeared CoreAudio object reproduction
+
+Packet CX-COREAUDIO-DISAPPEARED-OBJECT; writer execution_review. Private branch
+`codex/coreaudio-disappeared-object-repro`, base `5be08004`. Owned paths:
+`src/tests/native/audio/ResourceFaults.c`,
+`src/tests/native/audio/CoreAudioResourcesConformance.btrc`,
+`docs/workstreams/coreaudio-disappeared-object.md`, and this claim only.
+Add the SDK BadObject response to the existing missing/replaced identity
+cleanup fixture. Preserve all original cases/assertions and production bytes.
+Actual paired plain/sanitized qualification needs separate reviewed allocation;
+this source-only reproduction does not establish the Player native cause.
+
+
+## 2026-10-12 Disappeared CoreAudio object candidate
+
+Packet CX-COREAUDIO-DISAPPEARED-OBJECT-FIX; writer execution_review. Private
+branch `codex/coreaudio-disappeared-object`, descendant of test-only `e15b6944`.
+Owned paths: `src/stdlib/Audio/MacOS/MacOSAudioDevice.btrc`,
+`docs/workstreams/coreaudio-disappeared-object.md`, and this claim only.
+Map the SDK invalid AudioObject status to the existing not-found outcome.
+Preserve original cleanup order/retries and all reproduction fixture bytes.
+The separate raw-status diagnostic is excluded; no Player causal claim or
+behavioral acceptance precedes allocated baseline/candidate qualification.
+
+
+## 2026-10-12 CoreAudio bad-object native binding
+
+Packet CX-COREAUDIO-BAD-OBJECT-BINDING; writer platform_review. Private branch
+`codex/coreaudio-disappeared-object-binding`, base `442cf4f7`. Owned paths:
+`src/stdlib/Audio/btrc.toml`, the existing
+`docs/workstreams/coreaudio-disappeared-object.md`, and this claim only.
+The provider's new SDK constant requires explicit native selection. Record this
+claim/report first; add only that symbol in a final integrator-data fragment.
+Do not change generated lock/symbols, compiler/runtime, mapping, cleanup or tests.
+The prior strict-import failure stays retained; no behavioral acceptance claimed.
+
+
+## 2026-10-12 Qualified CoreAudio and test-repair composition
+
+Root assigns execution_review private `codex/qualified-coreaudio-test-repairs`
+from exact `5be08004`: compose the existing owned paths above from qualified
+`f89822fa` and `224fba1d`, preserving both claims and exact donor bytes. No UI2,
+compiler, runtime, generated, CI or harness changes. This is preparation for
+final-tree qualification; prior focused evidence is scoped in the three reports.
+Keep the Audio native selection as the final `fragment:` commit.
