@@ -1814,3 +1814,8 @@ remains separate until D8 runtime admission.
 - Own only the composed GUI shared/provider sources, BackgroundJobs completion owner/README, their existing native/Python fixtures and UI catalog/docs, plus the qualified four stale test-owner repairs. Exact path and donor inventory is retained in the isolated `ui2-current-5be` review packet.
 - Donors: Mac `73f636e8`, Text `88db78e5`, Range/Selection `209fe7f7`, Linux `32b361b2` + range `77d134b2`; test repair `f89822fa`. Preserve current Windows test methods, leases and all compiler/runtime/generated/toolchain/CI owners.
 - Only `src/stdlib/GUI/btrc.toml` changes as integrator data, in the final `fragment:` commit. Generated metadata and skip-data requests remain explicit in `docs/workstreams/ui2-current-composition.md`. No native/build/CI qualification is claimed.
+
+
+### CX-UI2-CURRENT driver integration correction
+
+Codex platform_review owns the existing three Mac UI2 text/range/selection Python drivers, this claim and docs/workstreams/ui2-current-composition.md on codex/ui2-composed-driver-fix. Remove obsolete donor-only provider fragment appends because the composed production GUI manifest owns those exact declarations. Preserve all probe manifests, native assertions, matrix rows and deadlines. Reapply the exact reviewed GUI manifest in a final fragment commit; no provider, compiler, generated or workflow changes. Source/metadata validation only; current native qualification remains pending.
