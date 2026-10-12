@@ -121,6 +121,9 @@
         '';
       in {
         BTRC_NATIVE_HEADER_READER = "${self.packages.${pkgs.stdenv.hostPlatform.system}.btrc-native-header}/bin/btrc-native-header";
+        # Java bindings read class files through their own reader, never
+        # through the header reader (docs/design/native-interop-ownership.md 2.3).
+        BTRC_JAVA_CLASS_READER = "${self.packages.${pkgs.stdenv.hostPlatform.system}.btrc-java-class-reader}/bin/btrc-java-class-reader";
         BTRC_NATIVE_SYSROOT = if isDarwin then "${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk" else "${linuxSysroot}";
         BTRC_NATIVE_TARGET = if isDarwin then "${if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "x86_64"}-apple-macosx${lib.versions.pad 3 pkgs.stdenv.hostPlatform.darwinMinVersion}"
           else "${if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64" else "x86_64"}-unknown-linux-gnu";
@@ -493,6 +496,25 @@
             runHook postInstall
           '';
         };
+        # The Java class-file reader: strict C11 and zlib, which inflates jar
+        # entries. It needs no JVM and no LLVM.
+        javaClassReader = pkgs.stdenv.mkDerivation {
+          pname = "btrc-java-class-reader";
+          version = "0";
+          src = ./tools/JavaClassReader.c;
+          dontUnpack = true;
+          buildInputs = [ pkgs.zlib ];
+          buildPhase = ''
+            runHook preBuild
+            $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 "$src" -lz -o btrc-java-class-reader
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            install -Dm755 btrc-java-class-reader "$out/bin/btrc-java-class-reader"
+            runHook postInstall
+          '';
+        };
         # wgpu-native dlopens the Vulkan loader; on NixOS that lives under the
         # driver prefix, which the library's own runpath must name.
         wgpuNativeLibrary = if isDarwin then pkgs.wgpu-native else pkgs.runCommand "wgpu-native-driver-runpath" {
@@ -569,6 +591,7 @@
         btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;
         btrc-native-header = nativeHeaderReader;
+        btrc-java-class-reader = javaClassReader;
         wgpu-native = nativeWebGpu;
         btrc-vscode-extension = btrc-vscode;
         inherit btrc;
