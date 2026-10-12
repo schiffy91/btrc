@@ -1530,3 +1530,15 @@ Focused qualification passed: original15 baseline and candidate109 checks,
 zero failures/errors/skips, exact collection/JUnit, all8 owned groups closed and
 source/tools unchanged. See the owned report. No compiler repair, hosted unit
 pass or Nix garbage-collection cause is claimed.
+
+
+## 2026-10-12 CoreAudio cleanup status diagnostic
+
+Packet CX-COREAUDIO-CLOSE-STATUS; writer execution_review. Private branch
+`codex/coreaudio-close-status-diagnostic`, base `6f1b81d9`. Owned paths:
+`src/stdlib/Audio/MacOS/MacOSAudioDevice.btrc`,
+`docs/workstreams/coreaudio-close-status.md`, and this claim only.
+Diagnostic logging of existing returned statuses; no cleanup/mapping repair,
+new native calls, retries, or compiler/runtime/generated changes. Preserve
+ordinary checkout/index and original failure evidence. Reference-only replay
+requires separate allocation and review; no product qualification claimed.
