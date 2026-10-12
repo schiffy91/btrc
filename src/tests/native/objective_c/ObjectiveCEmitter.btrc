@@ -90,11 +90,10 @@ IRModule contextModule(string mode) {
 	releaseDefinition.isStatic = true;
 	releaseDefinition.body = IRNode.block([IRNode.expressionStatement(IRNode.call("contextReleased", noArguments))]);
 	module.functions.push(releaseDefinition);
-	var block = IRNode();
-	block.kind = IRK_OBJECTIVE_C_BLOCK;
-	block.targetType = "int";
-	block.params = noParameters;
-	block.body = IRNode.block([IRNode.returnStatement(IRNode.objectiveCMessage(IRNode.variable("context"), "value", noArguments))]);
+	var block = IRNode(IRK_OBJECTIVE_C_BLOCK);
+	((IRNativePayload)block.payload).targetType = "int";
+	((IRNativePayload)block.payload).params = noParameters;
+	((IRNativePayload)block.payload).body = IRNode.block([IRNode.returnStatement(IRNode.objectiveCMessage(IRNode.variable("context"), "value", noArguments))]);
 	var install = IRFunction();
 	install.name = "installNativeContext";
 	install.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([
@@ -123,8 +122,8 @@ IRModule contextModule(string mode) {
 	else if (mode == "class-protocol-list") { context.protocols = null; }
 	else if (mode == "class-cleanup") {
 		var slot = IRNode.variableDeclaration("void*", "unregistered", null);
-		slot.isVolatile = true;
-		slot.cleanupSlot = IRCleanupSlot(1, "unregistered", "void*", "takeContext");
+		((IRDeclarationPayload)slot.payload).isVolatile = true;
+		((IRDeclarationPayload)slot.payload).cleanupSlot = IRCleanupSlot(1, "unregistered", "void*", "takeContext");
 		configure.body = IRNode.block([slot]);
 	}
 	return module;
@@ -161,11 +160,10 @@ int main(int argc, char** argv) {
 	definition.returnType = "unsigned long";
 	definition.params = [IRParam("int", "fail")];
 	Vector<IRNode> noArguments = [];
-	var block = IRNode();
-	block.kind = IRK_OBJECTIVE_C_BLOCK;
-	block.targetType = "int";
-	block.params = [IRParam("int", "delta")];
-	block.body = IRNode.block([
+	var block = IRNode(IRK_OBJECTIVE_C_BLOCK);
+	((IRNativePayload)block.payload).targetType = "int";
+	((IRNativePayload)block.payload).params = [IRParam("int", "delta")];
+	((IRNativePayload)block.payload).body = IRNode.block([
 		IRNode.ifStatement(IRNode.binary(IRNode.variable("fail"), "==", IRNode.variable("delta")), IRNode.block([
 		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("value"), "substringFromIndex:", [IRNode.literal("999")]))
 	]), null),
@@ -173,11 +171,10 @@ int main(int argc, char** argv) {
 		IRNode.returnStatement(IRNode.binary(IRNode.variable("delta"), "+", IRNode.cast("int", IRNode.objectiveCMessage(IRNode.variable("value"), "length", noArguments))))
 	]);
 	Vector<IRParam> noParameters = [];
-	var notification = IRNode();
-	notification.kind = IRK_OBJECTIVE_C_BLOCK;
-	notification.targetType = "void";
-	notification.params = noParameters;
-	notification.body = IRNode.block([
+	var notification = IRNode(IRK_OBJECTIVE_C_BLOCK);
+	((IRNativePayload)notification.payload).targetType = "void";
+	((IRNativePayload)notification.payload).params = noParameters;
+	((IRNativePayload)notification.payload).body = IRNode.block([
 		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("held"), "recordDelivery", noArguments)),
 		IRNode.returnStatement(null)
 	]);
@@ -195,8 +192,8 @@ int main(int argc, char** argv) {
 		IRNode.objectiveCMessage(IRNode.variable("value"), "compare:options:", [IRNode.variable("value"), IRNode.literal("0")])
 	))
 	]));
-	var boundary = IRNode.objectiveCExceptionBoundary(pool.body, IRNode.block([IRNode.returnStatement(IRNode.literal("999"))]));
-	pool.body = IRNode.block([boundary]);
+	var boundary = IRNode.objectiveCExceptionBoundary(((IRNativePayload)pool.payload).body, IRNode.block([IRNode.returnStatement(IRNode.literal("999"))]));
+	((IRNativePayload)pool.payload).body = IRNode.block([boundary]);
 	definition.body = IRNode.block([pool]);
 	module.functions.push(definition);
 	if (IRStatementSequence(definition.body.stmts()).mayFallThrough()) { throw "adapter return flow was lost"; }
@@ -221,20 +218,20 @@ int main(int argc, char** argv) {
 		else if (mode == "language") { module.language = "swift"; }
 		else if (mode == "arity") { message.name = "stringWithUTF8String"; }
 		else if (mode == "identifier") { message.name = "invalid];:"; }
-		else if (mode == "pool") { pool.body = IRNode.literal("0"); }
-		else if (mode == "failure") { boundary.elseBlock = IRNode.literal("0"); }
+		else if (mode == "pool") { ((IRNativePayload)pool.payload).body = IRNode.literal("0"); }
+		else if (mode == "failure") { ((IRNativePayload)boundary.payload).elseBlock = IRNode.literal("0"); }
 		else if (mode == "realtime") { definition.isRealtime = true; }
 		else if (mode.startsWith("block-")) {
-			block.body = IRNode.block([IRNode.returnStatement(IRNode.variable("delta"))]);
+			((IRNativePayload)block.payload).body = IRNode.block([IRNode.returnStatement(IRNode.variable("delta"))]);
 			definition.body = IRNode.block([IRNode.expressionStatement(block)]);
 			if (mode == "block-c") { module.language = "c"; }
 			else if (mode == "block-realtime") { definition.isRealtime = true; }
-			else if (mode == "block-body") { block.body = IRNode.literal("0"); }
-			else if (mode == "block-name") { block.params.get(0).name = "delta);"; }
-			else if (mode == "block-duplicate") { block.params.push(IRParam("int", "delta")); }
-			else if (mode == "block-void") { block.params.get(0).cType = "void"; }
-			else if (mode == "block-result") { block.targetType = ""; }
-			else if (mode == "block-params") { block.params = null; }
+			else if (mode == "block-body") { ((IRNativePayload)block.payload).body = IRNode.literal("0"); }
+			else if (mode == "block-name") { ((IRNativePayload)block.payload).params.get(0).name = "delta);"; }
+			else if (mode == "block-duplicate") { ((IRNativePayload)block.payload).params.push(IRParam("int", "delta")); }
+			else if (mode == "block-void") { ((IRNativePayload)block.payload).params.get(0).cType = "void"; }
+			else if (mode == "block-result") { ((IRNativePayload)block.payload).targetType = ""; }
+			else if (mode == "block-params") { ((IRNativePayload)block.payload).params = null; }
 		}
 	}
 	RealtimeIRVerifier(module).validate(module);

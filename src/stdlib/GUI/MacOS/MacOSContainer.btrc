@@ -2,6 +2,9 @@ import Library.Callback;
 import Library.Vector;
 import Library.Console;
 import Library.GUI.IContainer;
+import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSViewInput;
 
@@ -15,6 +18,16 @@ interface IMacOSContainerLayout {
 	void forgetChild(NSView child);
 }
 
+interface IMacOSContainerPlacement { void restore(); bool matches(); }
+
+/* Layout-specific ownership is captured before mutation. Plain layouts use
+ * physical subview order; stacks additionally own arranged order, and grids
+ * retain the exact cell rather than using a mutable next-insertion cursor. */
+interface IMacOSOrderedContainerLayout extends IMacOSContainerLayout {
+	bool arrangedOrder();
+	IMacOSContainerPlacement? placement(NSView child);
+}
+
 class MacOSContainerChild {
 	public IView view;
 	public bool translatesAutoresizing;
@@ -22,8 +35,20 @@ class MacOSContainerChild {
 	public bool failed = false;
 	public bool pinned = false;
 	public unsigned long autoresizingMask = 0UL;
+	public NSView? snapshot;
+	public IMacOSContainerPlacement? placement;
 
 	public MacOSContainerChild(IView view, bool translatesAutoresizing) { self.view = view; self.translatesAutoresizing = translatesAutoresizing; }
+}
+
+class MacOSContainerStep {
+	public ContainerEditKind kind;
+	public MacOSContainerChild child;
+	public int index;
+	public int previous;
+	public MacOSContainerStep(ContainerEditKind kind, MacOSContainerChild child, int index, int previous) {
+		self.kind = kind; self.child = child; self.index = index; self.previous = previous;
+	}
 }
 
 /* A native grouping view with BTRC-owned children, not an OS-handle registry.
@@ -38,23 +63,83 @@ class MacOSContainer implements IContainer, IMacOSView {
 	private Vector<MacOSViewInput> _inputs = [];
 	private bool _mutating = false;
 	private string _closeFailure = "";
+	private MacOSViewState? _interaction;
+	private bool _inherited = false;
+	private bool _lostEligibility = false;
+	private WindowExposure _exposure = WINDOW_EXPOSURE_UNKNOWN;
+	private ControlEventQueue? _windowEvents;
+	private bool _routePending = false;
+	private long long _treeRevision = 1LL;
+	private bool _quarantined = false;
+	private Vector<MacOSContainerChild> _uncertain = [];
 
-	public MacOSContainer(IMacOSContainerLayout? layout = null) {
+	public MacOSContainer(IMacOSContainerLayout? layout = null, MacOSControlContext? context = null) {
 		self.requireMainThread();
 		self._layout = layout;
 		self._view = layout == null ? NSView.new() : layout.nativeView();
 		if (self._view == null) { throw "Cannot create native container"; }
+		var semanticContext = context;
+		if (semanticContext == null) { semanticContext = MacOSControlContext.defaultContext(); }
+		self._interaction = MacOSViewState(semanticContext);
 	}
 
 	private void requireMainThread() {
 		if (!NSThread.isMainThread()) { throw "Native containers require the main thread"; }
 	}
 
+	public MacOSViewState interactionOwner() {
+		self.requireMainThread(); var state = self._interaction;
+		if (state == null) { throw "Native container interaction state is unavailable"; }
+		return state;
+	}
+
+	public ViewInteractionState interactionState() {
+		self.requireMainThread();
+		if (self._view == null || self._closing) { throw "Native container is closed"; }
+		return self.interactionOwner().interactionState();
+	}
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { self.nativeView(); return self.interactionOwner().onInteractionStateChanged(handler, owner); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) {
+		var view = self.nativeView(); var state = self.interactionOwner();
+		self._inherited = inherited; self._exposure = exposure; self._windowEvents = events;
+		if (state.update(!view.isHidden(), true, inherited, self._attached, exposure, false)) { self._lostEligibility = true; }
+		self._routePending = true;
+		bool eligible = state.interactionState().effectiveEligible;
+		for child in self._children { if (!child.closing) { self.projection(child.view).markInteraction(eligible, exposure, events); } }
+	}
+
+	public void settleInteraction() {
+		self.requireMainThread();
+		if (self._lostEligibility) { self._lostEligibility = false; MacOSViewInput.detached(self._inputs); }
+		for child in self._children { if (!child.closing && child.view.isOpen()) { self.projection(child.view).settleInteraction(); } }
+	}
+
+	public void publishInteraction() {
+		self.requireMainThread(); if (self._closing) { return; }
+		var state = self.interactionOwner();
+		if (self._routePending) {
+			if (self._windowEvents == null) { state.rebindDetached(); } else { state.rebind(self._windowEvents); }
+			self._routePending = false;
+		}
+		state.publish();
+		for child in self._children { if (!child.closing && child.view.isOpen()) { self.projection(child.view).publishInteraction(); } }
+	}
+
+	private void refreshInteraction() {
+		self.markInteraction(self._inherited, self._exposure, self._windowEvents);
+		self.settleInteraction(); self.publishInteraction();
+	}
+
 	public NSView nativeView() {
 		self.requireMainThread();
-		if (self._view == null) { throw "Native container is closed"; }
+		var view = self._view;
+		if (view == null) { throw "Native container is closed"; }
 		if (self._closing) { throw "Native container shutdown has started"; }
-		return self._view;
+		var interaction = self._interaction;
+		if (interaction != null && (!interaction.isOpen() || interaction.faulted())) { throw "Native container is quarantined"; }
+		return view;
 	}
 
 	private IMacOSView projection(IView child) {
@@ -65,16 +150,10 @@ class MacOSContainer implements IContainer, IMacOSView {
 	}
 
 	private NSView mutationView() {
+		self.interactionOwner().context().requireMutationAllowed();
 		var view = self.nativeView();
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		return view;
-	}
-
-	private int childIndex(IView child) {
-		for (int index = 0; index < self._children.len; index++) {
-			if (self._children.get(index).view == child) { return index; }
-		}
-		throw "View does not belong to this container";
 	}
 
 	public bool isOpen() { self.requireMainThread(); return self._view != null && !self._closing; }
@@ -87,43 +166,242 @@ class MacOSContainer implements IContainer, IMacOSView {
 		return self._children.get(index).view;
 	}
 
-	public void attach(IView child) {
-		var parent = self.mutationView();
-		self._mutating = true;
-		try { self.attachChild(child, parent); } catch (string error) { self._mutating = false; throw error; }
-		self._mutating = false;
+	public long long treeRevision() { self.requireMainThread(); return self._treeRevision; }
+
+	private bool arrangedOrder() {
+		IMacOSOrderedContainerLayout? layout = (IMacOSOrderedContainerLayout?)self._layout;
+		return layout != null && layout.arrangedOrder();
 	}
 
-	private void attachChild(IView child, NSView parent) {
-		var childParent = self._layout == null ? parent : self._layout.childParent();
-		var native = self.projection(child);
-		var childView = native.nativeView();
-		MacOSView.validateAttachment(childView, childParent);
-		// Retain before publishing to AppKit, so allocation cannot fail after
-		// native attachment has transferred the child's lifecycle to this tree.
-		var entry = MacOSContainerChild(child, childView.translatesAutoresizingMaskIntoConstraints());
-		self._children.push(entry);
-		bool attached = false;
-		try {
-			native.attachTo(childParent);
-			attached = true;
-			if (self._layout != null) { self._layout.arrangeChild(childView); }
-			MacOSContainer.pinTop(entry, childView, childParent);
-		} catch (string error) {
-			if (attached) {
-				try { self.detachChild(entry, parent); }
-				catch (string rollback) { entry.failed = true; self._closing = true; self._closeFailure = rollback; throw rollback; }
-			}
-			if (childView.superview() == childParent) {
-				entry.failed = true;
-				self._closeFailure = error;
-				self._closing = true;
-			} else {
-				self._children.pop();
-			}
-			throw error;
-		}
+	private NSView childParent(NSView view) { return self._layout == null ? view : self._layout.childParent(); }
+
+	private int entryIndex(Vector<MacOSContainerChild> entries, IView child) {
+		for (int index = 0; index < entries.len; index++) { if (entries.get(index).view == child) { return index; } }
+		return -1;
 	}
+
+	private NSView capturedView(MacOSContainerChild entry) {
+		var native = entry.snapshot; if (native == null) { throw "Native child snapshot is unavailable"; } return native;
+	}
+
+	private MacOSContainerChild snapshotChild(IView child, MacOSContainerChild? previous = null) {
+		var native = self.projection(child); self.interactionOwner().requireSameContext(native.interactionOwner());
+		var view = native.nativeView();
+		var entry = MacOSContainerChild(child, view.translatesAutoresizingMaskIntoConstraints()); entry.snapshot = view;
+		if (previous != null) {
+			entry.translatesAutoresizing = previous.translatesAutoresizing; entry.pinned = previous.pinned; entry.autoresizingMask = previous.autoresizingMask;
+		}
+		IMacOSOrderedContainerLayout? layout = (IMacOSOrderedContainerLayout?)self._layout;
+		if (layout != null) { entry.placement = layout.placement(view); }
+		return entry;
+	}
+
+	private ContainerBatchResult batchResult() {
+		var result = ContainerBatchResult(); result.kind = CONTAINER_BATCH_REJECTED; result.treeRevision = self._treeRevision;
+		result.failedStep = -1; result.error = ""; result.detached = []; result.retained = [];
+		for child in self._children { result.retained.push(child.view); }
+		return result;
+	}
+
+	private Vector<MacOSContainerChild> nativeOrder(Vector<MacOSContainerChild> known, NSView parent) {
+		Vector<MacOSContainerChild> actual = [];
+		/* Arranged order is a layout fact, not a complete native ownership
+		 * inventory. An unknown unarranged Stack subview must quarantine too. */
+		int physicalCount = BTRCMacOSContainerOrder.childCount(parent, false);
+		if (physicalCount > known.len) { throw "Native container contains unowned physical children"; }
+		for (int index = 0; index < physicalCount; index++) {
+			var physical = BTRCMacOSContainerOrder.childAt(index, parent, false);
+			bool owned = false;
+			for entry in known { if (self.capturedView(entry) == physical) { owned = true; } }
+			if (!owned) { throw "Native container contains an unknown physical child"; }
+		}
+		int count = BTRCMacOSContainerOrder.childCount(parent, self.arrangedOrder());
+		if (count > known.len) { throw "Native container contains unowned children"; }
+		for (int index = 0; index < count; index++) {
+			var child = BTRCMacOSContainerOrder.childAt(index, parent, self.arrangedOrder());
+			if (child == null) { throw "Native child membership cannot be reconciled"; }
+			MacOSContainerChild? owner = null;
+			for entry in known { if (self.capturedView(entry) == child) { owner = entry; } }
+			if (owner == null || self.entryIndex(actual, owner.view) >= 0 || child.superview() != parent) { throw "Native child membership cannot be reconciled"; }
+			actual.push(owner);
+		}
+		for entry in known {
+			var child = self.capturedView(entry); var nativeParent = child.superview();
+			int index = self.entryIndex(actual, entry.view);
+			if (nativeParent != null && (nativeParent != parent || index < 0)) { throw "Native child has unknown parent or layout ownership"; }
+			if (index >= 0 && entry.placement != null && !entry.placement.matches()) { throw "Native child placement cannot be reconciled"; }
+		}
+		return actual;
+	}
+
+	private bool sameOrder(Vector<MacOSContainerChild> first, Vector<MacOSContainerChild> second) {
+		if (first.len != second.len) { return false; }
+		for (int index = 0; index < first.len; index++) { if (first.get(index).view != second.get(index).view) { return false; } }
+		return true;
+	}
+
+	private void insertNative(MacOSContainerChild entry, NSView parent, int index) {
+		var child = self.capturedView(entry);
+		var nativeParent = child.superview();
+		if (nativeParent != null && nativeParent != parent) { throw "Native insertion found a foreign parent"; }
+		if (nativeParent == null) { parent.addSubview(child); }
+		if (entry.placement != null) { entry.placement.restore(); }
+		else if (self._layout != null) { self._layout.arrangeChild(child); }
+		if (!entry.pinned) { MacOSContainer.pinTop(entry, child, parent); }
+		BTRCMacOSContainerOrder.moveChild(child, parent, index, self.arrangedOrder());
+	}
+
+	private void removeNative(MacOSContainerChild entry, NSView parent) {
+		var child = self.capturedView(entry); var nativeParent = child.superview();
+		if (nativeParent != null && nativeParent != parent) { throw "Native removal found a foreign parent"; }
+		if (self._layout != null) { self._layout.forgetChild(child); }
+		if (nativeParent != null) { child.removeFromSuperview(); }
+		if (entry.pinned) { child.setAutoresizingMask(entry.autoresizingMask); entry.pinned = false; }
+		child.setTranslatesAutoresizingMaskIntoConstraints(entry.translatesAutoresizing);
+	}
+
+	private void nativeStep(MacOSContainerStep step, NSView parent, bool inverse) {
+		if (step.kind == CONTAINER_EDIT_MOVE) {
+			int index = step.index; if (inverse) { index = step.previous; }
+			BTRCMacOSContainerOrder.moveChild(self.capturedView(step.child), parent, index, self.arrangedOrder());
+		} else if ((step.kind == CONTAINER_EDIT_INSERT && !inverse) || (step.kind == CONTAINER_EDIT_DETACH && inverse)) {
+			int index = step.index; if (inverse) { index = step.previous; }
+			self.insertNative(step.child, parent, index);
+		} else { self.removeNative(step.child, parent); }
+	}
+
+	private void reconcileOwners(Vector<MacOSContainerChild> known, Vector<MacOSContainerChild> actual, NSView parent, ContainerBatchResult result) {
+		result.retained = []; result.detached = [];
+		for entry in known {
+			var native = self.projection(entry.view);
+			if (self.entryIndex(actual, entry.view) >= 0) { native.reconcileAttachment(parent); }
+			else { native.reconcileAttachment(null); result.detached.push(entry.view); }
+		}
+		for entry in actual { result.retained.push(entry.view); }
+	}
+
+	private void publishForest(Vector<MacOSContainerChild> known) {
+		/* All final attached and detached nodes are marked before any capture
+		 * settlement; route migration and callbacks happen after that phase. */
+		self.markInteraction(self._inherited, self._exposure, self._windowEvents);
+		for entry in known { if (self.entryIndex(self._children, entry.view) < 0) { self.projection(entry.view).markInteraction(false, WINDOW_EXPOSURE_UNKNOWN, null); } }
+		self.settleInteraction();
+		for entry in known { if (self.entryIndex(self._children, entry.view) < 0) { self.projection(entry.view).settleInteraction(); } }
+		self.publishInteraction();
+		for entry in known { if (self.entryIndex(self._children, entry.view) < 0) { self.projection(entry.view).publishInteraction(); } }
+	}
+
+	public ContainerBatchResult applyBatch(long long expectedTreeRevision, Vector<ContainerEdit> edits) {
+		self.requireMainThread();
+		var result = self.batchResult();
+		Vector<MacOSContainerChild> original = []; Vector<MacOSContainerChild> proposed = []; Vector<MacOSContainerChild> known = [];
+		Vector<MacOSContainerStep> steps = [];
+		NSView? parent = null;
+		try {
+			var view = self.mutationView(); parent = self.childParent(view);
+			if (expectedTreeRevision != self._treeRevision) { throw "Container tree revision does not match"; }
+			if (self._treeRevision == 9223372036854775807LL) { throw "Container tree revisions exhausted"; }
+			if (edits == null) { throw "Container edits are missing"; }
+			for previous in self._children { var entry = self.snapshotChild(previous.view, previous); original.push(entry); proposed.push(entry); known.push(entry); }
+			for (int index = 0; index < edits.len; index++) {
+				result.failedStep = index; var edit = edits.get(index);
+				if (edit == null || edit.child == null) { throw "Container edit has no child"; }
+				int position = self.entryIndex(proposed, edit.child);
+				MacOSContainerChild? entry = null;
+				if (edit.kind == CONTAINER_EDIT_INSERT) {
+					if (position >= 0 || edit.index < 0 || edit.index > proposed.len) { throw "Container INSERT requires a detached child and valid index"; }
+					int existing = self.entryIndex(known, edit.child);
+					if (existing >= 0) { entry = known.get(existing); }
+					else { entry = self.snapshotChild(edit.child); MacOSView.validateAttachment(self.capturedView(entry), parent); known.push(entry); }
+					proposed.insert(edit.index, entry);
+				} else if (edit.kind == CONTAINER_EDIT_MOVE || edit.kind == CONTAINER_EDIT_DETACH) {
+					if (position < 0) { throw "Container edit child is not a direct member"; }
+					entry = proposed.get(position);
+					if (edit.kind == CONTAINER_EDIT_MOVE && (edit.index < 0 || edit.index >= proposed.len)) { throw "Container MOVE index is out of bounds"; }
+					proposed.remove(position);
+					if (edit.kind == CONTAINER_EDIT_MOVE) { proposed.insert(edit.index, entry); }
+				} else { throw "Unknown container edit kind"; }
+				if (entry == null) { throw "Container edit has no retained owner"; }
+				steps.push(MacOSContainerStep(edit.kind, entry, edit.index, position));
+			}
+		} catch (string error) { result.error = error; return result; }
+		if (parent == null) { result.error = "Container native parent is unavailable"; return result; }
+		var context = self.interactionOwner().context();
+		context.beginMutation(); self._mutating = true;
+		int attempted = -1;
+		try {
+			if (!self.sameOrder(self.nativeOrder(known, parent), original)) { throw "Native order differs from the committed container snapshot"; }
+			/* Eligibility for every actual DETACH is sealed before the first
+			 * native action. MOVE never visits this path. */
+			for step in steps { if (step.kind == CONTAINER_EDIT_DETACH) { self.projection(step.child.view).markInteraction(false, WINDOW_EXPOSURE_UNKNOWN, self._windowEvents); } }
+			for step in steps { if (step.kind == CONTAINER_EDIT_DETACH) { self.projection(step.child.view).settleInteraction(); } }
+			for (int index = 0; index < steps.len; index++) {
+				attempted = index; self.nativeStep(steps.get(index), parent, false); context.requireMutationHealthy();
+			}
+			var actual = self.nativeOrder(known, parent);
+			if (!self.sameOrder(actual, proposed)) { throw "Native container did not produce the complete requested order"; }
+			self.reconcileOwners(known, actual, parent, result);
+			self._children = actual; self._treeRevision++;
+			result.kind = CONTAINER_BATCH_COMMITTED; result.treeRevision = self._treeRevision; result.failedStep = -1;
+		} catch (string error) {
+			result.failedStep = attempted; result.error = error;
+			string rollbackError = "";
+			for (int index = attempted; index >= 0; index--) {
+				try { self.nativeStep(steps.get(index), parent, true); }
+				catch (string failure) { if (rollbackError.isEmpty()) { rollbackError = failure; } }
+			}
+			try {
+				var actual = self.nativeOrder(known, parent); self.reconcileOwners(known, actual, parent, result);
+				self._children = actual;
+				if (self.sameOrder(actual, original)) { result.kind = CONTAINER_BATCH_ROLLED_BACK; }
+				else { result.kind = CONTAINER_BATCH_FAILED_CONSISTENT; self._treeRevision++; result.treeRevision = self._treeRevision; }
+			} catch (string failure) {
+				self._quarantined = true; self._uncertain = known;
+				result.kind = CONTAINER_BATCH_FAILED_QUARANTINED; result.retained = []; result.detached = [];
+				for entry in known { result.retained.push(entry.view); }
+				result.error = f"{error}; reconciliation failed: {failure}";
+			}
+			if (!rollbackError.isEmpty()) { result.error = f"{result.error}; rollback failed: {rollbackError}"; }
+		}
+		try {
+			if (result.kind == CONTAINER_BATCH_FAILED_CONSISTENT || result.kind == CONTAINER_BATCH_FAILED_QUARANTINED) { self.quarantineInteraction(result.error); }
+			else { self.publishForest(known); }
+		} catch (string error) {
+			/* Publication follows a known native outcome. Never mislabel that
+			 * later delivery failure as a successful rollback. */
+			result.error = f"{result.error}; interaction publication failed: {error}";
+			try { self.quarantineInteraction(error); } catch (string failure) { result.error = f"{result.error}; quarantine failed: {failure}"; }
+			if (!self._quarantined) {
+				if (self._treeRevision == expectedTreeRevision) { self._treeRevision++; }
+				result.treeRevision = self._treeRevision; result.kind = CONTAINER_BATCH_FAILED_CONSISTENT;
+			}
+		}
+		self._mutating = false;
+		context.endMutation();
+		return result;
+	}
+
+	private void requireCommitted(ContainerBatchResult result) {
+		if (result.kind == CONTAINER_BATCH_COMMITTED) { return; }
+		string kind = "REJECTED";
+		if (result.kind == CONTAINER_BATCH_ROLLED_BACK) { kind = "ROLLED_BACK"; }
+		else if (result.kind == CONTAINER_BATCH_FAILED_CONSISTENT) { kind = "FAILED_CONSISTENT"; }
+		else if (result.kind == CONTAINER_BATCH_FAILED_QUARANTINED) { kind = "FAILED_QUARANTINED"; }
+		throw f"Container batch {kind}: {result.error}";
+	}
+
+	public void insert(IView child, int index) {
+		var edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_INSERT; edit.child = child; edit.index = index;
+		self.requireCommitted(self.applyBatch(self.treeRevision(), [edit]));
+	}
+
+	public void move(IView child, int destinationIndex) {
+		var edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_MOVE; edit.child = child; edit.index = destinationIndex;
+		self.requireCommitted(self.applyBatch(self.treeRevision(), [edit]));
+	}
+
+	public void attach(IView child) { self.insert(child, self.childCount()); }
+
 
 	/* arrange() converts the top-left contract to an origin once. A child the
 	 * layout left frame-positioned keeps that top distance when its parent
@@ -140,28 +418,25 @@ class MacOSContainer implements IContainer, IMacOSView {
 		var childParent = self._layout == null ? parent : self._layout.childParent();
 		var native = self.projection(entry.view);
 		var child = native.nativeView();
+		var actualParent = child.superview();
+		if (actualParent != null && actualParent != childParent) { throw "Closing child has unknown native ownership"; }
 		if (self._layout != null) { self._layout.forgetChild(child); }
-		native.detachFrom(childParent);
+		if (child.superview() == childParent) { native.detachFrom(childParent); }
+		else { native.reconcileAttachment(null); }
 		if (entry.pinned) { child.setAutoresizingMask(entry.autoresizingMask); entry.pinned = false; }
 		child.setTranslatesAutoresizingMaskIntoConstraints(entry.translatesAutoresizing);
 	}
 
 	public IView detach(IView child) {
-		var parent = self.mutationView();
-		int index = self.childIndex(child);
-		self._mutating = true;
-		try {
-			self.detachChild(self._children.get(index), parent);
-			self._children.remove(index);
-		} catch (string error) {
-			self._mutating = false;
-			self._children.get(index).failed = true;
-			self._closeFailure = error;
-			self._closing = true;
-			throw error;
-		}
-		self._mutating = false;
-		return child;
+		var edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_DETACH; edit.child = child; edit.index = 0;
+		self.requireCommitted(self.applyBatch(self.treeRevision(), [edit])); return child;
+	}
+
+	public void reconcileAttachment(NSView? parent) {
+		var view = self.nativeView();
+		if (self._mutating) { throw "Cannot reconcile a mutating container attachment"; }
+		if (view.superview() != parent) { throw "Native attachment reconciliation does not match the container parent"; }
+		self._attached = parent != null;
 	}
 
 	public void attachTo(NSView parent) {
@@ -181,14 +456,15 @@ class MacOSContainer implements IContainer, IMacOSView {
 	public void detachFrom(NSView parent) {
 		var view = self.mutationView();
 		if (!self._attached) { throw "View has no container attachment"; }
-		self.cancelPointerCapture();
 		self._mutating = true;
-		try { MacOSView.detachNative(view, parent); } catch (string error) {
-			self._mutating = false;
-			throw error;
-		}
-		self._mutating = false;
-		self._attached = false;
+		try {
+			self.markInteraction(false, WINDOW_EXPOSURE_UNKNOWN, null);
+			self.settleInteraction();
+			MacOSView.detachNative(view, parent);
+			self._attached = false;
+			self.publishInteraction();
+		} catch (string error) { self.quarantineInteraction(error); throw error; }
+		finally { self._mutating = false; }
 	}
 
 	public double fittingWidth() { return self.nativeView().fittingSize().width; }
@@ -199,23 +475,53 @@ class MacOSContainer implements IContainer, IMacOSView {
 
 	public bool isVisible() { return !self.nativeView().isHidden(); }
 
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs); }
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs, self.interactionOwner().context()); }
 
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs); }
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs, self.interactionOwner().context()); }
 
 	public void cancelPointerCapture() {
 		MacOSViewInput.detached(self._inputs);
 		for child in self._children { if (!child.closing) { self.projection(child.view).cancelPointerCapture(); } }
 	}
 
-	public void setVisible(bool visible) { self.nativeView().setHidden(!visible); }
+	private void quarantineInteraction(string failure) {
+		var state = self.interactionOwner(); var view = self._view;
+		if (view == null || self._closing) { return; }
+		if (!state.isOpen()) { self._input.cancel(); return; }
+		state.update(!view.isHidden(), true, false, self._attached, self._exposure, true);
+		/* Every child is marked before cancellation can enter user code. The
+		 * tree and native owners remain inspectable until explicit close. */
+		for child in self._children { if (!child.closing) { self.projection(child.view).markInteraction(false, self._exposure, self._windowEvents); } }
+		try { self._input.cancel(); self.settleInteraction(); state.publish(); }
+		catch (string cleanup) { throw f"Native interaction failed: {failure}; quarantine failed: {cleanup}"; }
+	}
+
+	public void setVisible(bool visible) {
+		var view = self.mutationView();
+		if (view.isHidden() == !visible) { return; }
+		var state = self.interactionOwner();
+		self._mutating = true;
+		try {
+			if (state.update(visible, true, self._inherited, self._attached, self._exposure, false)) { self._lostEligibility = true; }
+			bool eligible = state.interactionState().effectiveEligible;
+			for child in self._children { if (!child.closing) { self.projection(child.view).markInteraction(eligible, self._exposure, self._windowEvents); } }
+			self.settleInteraction();
+			view.setHidden(!visible);
+			self.publishInteraction();
+		} catch (string error) { self.quarantineInteraction(error); throw error; }
+		finally { self._mutating = false; }
+	}
 
 	public CallbackCancellation close() {
 		self.requireMainThread();
-		if (self._view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		var view = self._view;
+		if (view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		var interaction = self._interaction;
+		if (interaction == null) { view.removeFromSuperview(); self._view = null; return CALLBACK_CANCELLATION_COMPLETE; }
+		if (interaction.context().mutating()) { throw "Cannot close a container during native mutation"; }
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
-		if (!self._closing) { self._closing = true; self._input.cancel(); }
+		if (!self._closing) { self._closing = true; self.interactionOwner().close(); self._input.cancel(); }
 		return self.pollClose();
 	}
 
@@ -227,6 +533,18 @@ class MacOSContainer implements IContainer, IMacOSView {
 		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		var input = self._input.pollCompletion();
 		if (input != CALLBACK_CANCELLATION_COMPLETE) { return input; }
+		var semantic = self.interactionOwner().pollClose();
+		if (semantic != CALLBACK_CANCELLATION_COMPLETE) { return semantic; }
+		if (self._quarantined) {
+			try {
+				var parent = self.childParent(view); var actual = self.nativeOrder(self._uncertain, parent);
+				var ownership = self.batchResult(); self.reconcileOwners(self._uncertain, actual, parent, ownership);
+				/* Quarantine retained every possibly owned child. Explicit close
+				 * drains attached and detached owners only after membership is
+				 * provable again; a still-unknown tree stays pending/retryable. */
+				self._children = self._uncertain; self._uncertain = []; self._quarantined = false;
+			} catch (string error) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		}
 		self._mutating = true;
 		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		try {

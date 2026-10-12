@@ -1,0 +1,102 @@
+import Library.BackgroundJobs;
+import Library.Callback;
+import Library.OwnedBuffer;
+
+#include <assert.h>
+#include <sched.h>
+
+/* Raw atomic storage belongs to the owner, never to a worker-side receiver.
+ * 0 ready, 1 calls, 2 hold next true, 3 entered, 4 release, 5 job count. */
+void completionWake(void* context, bool ready) {
+	Atomic<int>* state = (Atomic<int>*)context;
+	state[0].store(ready ? 1 : 0, MemoryOrder.RELEASE);
+	state[1].fetchAdd(1, MemoryOrder.ACQ_REL);
+	if (ready && state[2].load(MemoryOrder.ACQUIRE) != 0) {
+		state[3].store(1, MemoryOrder.RELEASE);
+		while (state[4].load(MemoryOrder.ACQUIRE) == 0) { sched_yield(); }
+		state[2].store(0, MemoryOrder.RELEASE);
+	}
+}
+
+class ReadyWork extends BackgroundJobWork {
+	public Atomic<int>* state;
+
+	public ReadyWork(Atomic<int>* state) { self.state = state; }
+}
+
+BackgroundJobCompletionKind completeReadyWork(BackgroundJobWork work, BackgroundJobCancellation cancellation) {
+	((ReadyWork)work).state[5].fetchAdd(1, MemoryOrder.ACQ_REL);
+	return BACKGROUND_JOB_COMPLETED;
+}
+
+int main() {
+	AtomicBuffer<int> storage = AtomicBuffer(6);
+	assert(storage.opened());
+	Atomic<int>* state = storage.borrow();
+	for (int i = 0; i < 6; i++) { state[i].init(0); }
+	var opened = BackgroundJobExecutor.open(1, 2);
+	assert(opened.kind == BACKGROUND_JOBS_OPENED && opened.executor != null);
+	BackgroundJobExecutor executor = opened.executor;
+	var scope = CallbackScope();
+	var registration = executor.subscribeCompletionReady(completionWake, (void*)state, scope);
+	assert(state[0].load(MemoryOrder.ACQUIRE) == 0);
+	assert(state[1].load(MemoryOrder.ACQUIRE) == 1);
+	bool duplicateRejected = false;
+	try { executor.subscribeCompletionReady(completionWake, (void*)state, scope); }
+	catch (string error) { duplicateRejected = true; }
+	assert(duplicateRejected);
+	state[2].store(1, MemoryOrder.RELEASE);
+	var generation = BackgroundJobGeneration(1ULL);
+	assert(executor.submit(generation, ReadyWork(state), completeReadyWork).kind == BACKGROUND_JOB_SUBMITTED);
+	while (state[3].load(MemoryOrder.ACQUIRE) == 0) { sched_yield(); }
+	/* Cancellation cannot retire a context while a native wake is in flight. */
+	assert(registration.cancel() == CALLBACK_CANCELLATION_PENDING);
+	assert(!registration.isOpen());
+	state[4].store(1, MemoryOrder.RELEASE);
+	while (registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING) { sched_yield(); }
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(state[0].load(MemoryOrder.ACQUIRE) == 0);
+	int retiredCalls = state[1].load(MemoryOrder.ACQUIRE);
+	assert(executor.submit(generation, ReadyWork(state), completeReadyWork).kind == BACKGROUND_JOB_SUBMITTED);
+	while (state[5].load(MemoryOrder.ACQUIRE) < 2) { sched_yield(); }
+	assert(state[1].load(MemoryOrder.ACQUIRE) == retiredCalls);
+	/* The first terminal slot already exists: late registration replays ready. */
+	var replacement = executor.subscribeCompletionReady(completionWake, (void*)state, scope);
+	assert(state[0].load(MemoryOrder.ACQUIRE) == 1);
+	assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(replacement.isOpen());
+	var first = executor.awaitCompletion();
+	assert(first.kind == BACKGROUND_JOB_POLL_READY && first.completion != null);
+	assert(first.completion.kind == BACKGROUND_JOB_COMPLETED);
+	var second = executor.awaitCompletion();
+	assert(second.kind == BACKGROUND_JOB_POLL_READY && second.completion != null);
+	assert(first.completion.ticket.sequence() != second.completion.ticket.sequence());
+	assert(state[0].load(MemoryOrder.ACQUIRE) == 0);
+	assert(executor.poll().kind == BACKGROUND_JOB_POLL_EMPTY);
+	/* Both slots are terminal before the first drain: readiness stays level. */
+	int before = state[1].load(MemoryOrder.ACQUIRE);
+	assert(executor.submit(generation, ReadyWork(state), completeReadyWork).kind == BACKGROUND_JOB_SUBMITTED);
+	assert(executor.submit(generation, ReadyWork(state), completeReadyWork).kind == BACKGROUND_JOB_SUBMITTED);
+	while (state[1].load(MemoryOrder.ACQUIRE) < before + 2) { sched_yield(); }
+	assert(executor.awaitCompletion().kind == BACKGROUND_JOB_POLL_READY);
+	assert(state[0].load(MemoryOrder.ACQUIRE) == 1);
+	assert(executor.awaitCompletion().kind == BACKGROUND_JOB_POLL_READY);
+	assert(state[0].load(MemoryOrder.ACQUIRE) == 0);
+	/* An old completed alias stays complete while its replacement is busy. */
+	state[2].store(1, MemoryOrder.RELEASE);
+	state[3].store(0, MemoryOrder.RELEASE);
+	state[4].store(0, MemoryOrder.RELEASE);
+	assert(executor.submit(generation, ReadyWork(state), completeReadyWork).kind == BACKGROUND_JOB_SUBMITTED);
+	while (state[3].load(MemoryOrder.ACQUIRE) == 0) { sched_yield(); }
+	assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	state[4].store(1, MemoryOrder.RELEASE);
+	assert(executor.awaitCompletion().kind == BACKGROUND_JOB_POLL_READY);
+
+	assert(executor.close(BACKGROUND_JOBS_DRAIN).kind == BACKGROUND_JOBS_CLOSED);
+	assert(!replacement.isOpen());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	storage.close();
+	print("PASS: completion-ready subscription");
+	return 0;
+}

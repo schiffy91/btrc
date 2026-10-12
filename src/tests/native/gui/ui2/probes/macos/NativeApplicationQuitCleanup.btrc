@@ -1,0 +1,38 @@
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.MacOS.MacOSApplication;
+
+import ./ApplicationQuitFaults.btrc;
+#include <assert.h>
+
+class QuitCleanupPublication implements IApplicationPublicationHandler {
+	public void deliver(ApplicationPublication publication) { assert(false); }
+}
+
+int main() {
+	IApplication application = MacOSApplication(8);
+	var scope = CallbackScope();
+	var first = application.createPublisher(2, QuitCleanupPublication(), scope);
+	var second = application.createPublisher(2, QuitCleanupPublication(), scope);
+	var firstRegistration = first.registration; var secondRegistration = second.registration;
+	assert(first.kind == APPLICATION_PUBLISHER_CREATED && second.kind == APPLICATION_PUBLISHER_CREATED);
+	if (firstRegistration == null || secondRegistration == null) { throw "Cleanup fixture requires both real publisher registrations"; }
+	assert(ui2ArmQuitPublisherFault());
+	try {
+		application.requestQuit();
+		assert(ui2QuitPublisherFaultCount() == 1);
+		/* These public states authenticate which actual owner hit the fault:
+		 * an unrelated try-lock cannot satisfy both prerequisite states. */
+		assert(firstRegistration.pollCompletion() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
+		assert(secondRegistration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(application.pollClose() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
+		assert(ui2QuitPublisherFaultCount() == 2);
+	} finally { ui2DisarmQuitPublisherFault(); }
+	assert(application.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(firstRegistration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(secondRegistration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(ui2QuitPublisherFaultCount() == 2);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	print("UI2 application quit retries native publisher cleanup without reopening ingress");
+	return 0;
+}

@@ -657,6 +657,12 @@ The CE rules for selection (CE:153–185), the slider range (CE:189–234) and t
   - CANCEL resolves CANCELLED; the save may still persist, but it cannot authorize close.
   - SAVE with a higher `documentRevision` reports an edit made during the save. The transaction records it and issues no new attempt.
   - Any other call is a programmer error.
+- **`decide` in coordinated AUTHORIZED (D29 integrator clarification, 2026-10-08).**
+  - While a native quit group holds authorization, the document owner must report every newer document revision before returning control to the UI executor. Only the document owner supplies this revision; widget or window-state revisions are not substitutes.
+  - CANCEL at a nonstale revision resolves CANCELLED and cancels the group.
+  - SAVE at a strictly newer revision revokes the previous authorization, enters SAVING and issues a fresh positive attempt.
+  - DISCARD at a strictly newer revision explicitly authorizes that revision.
+  - SAVE or DISCARD at the unchanged revision is a programmer error; the provider does not re-prompt for an unchanged authorization.
 - **Stale and late calls.** A lower revision returns `STALE_REVISION` and changes nothing. A call after the transaction has resolved returns `NOT_PENDING`.
 - **`completeSave`.**
   - A wrong attempt returns `STALE_ATTEMPT`.
@@ -669,6 +675,9 @@ The CE rules for selection (CE:153–185), the slider range (CE:189–234) and t
 - **Native quit** (`applicationShouldTerminate`, `SDL_EVENT_QUIT`):
   - It opens one transaction with `WINDOW_CLOSE_APPLICATION_QUIT` for each window that has a handler.
   - In this group mode, an AUTHORIZED transaction holds without closing until every window has authorized and its revision revalidates. Only then does the coordinator call `requestQuit`.
+  - **D29 integrator clarification (2026-10-08):** windows with no handler also remain open until the group commits; this is the group exception to ordinary no-handler close. New windows or changed handlers invalidate the affected membership/handler snapshot; cancelling a pending handler cancels the group.
+  - Before committing, the provider revalidates live window membership, handler and transaction identities, and the highest owner-reported document revisions. It then consumes the authorizations and calls irreversible `requestQuit` without a callback or event pump between validation and commit. The group retains its window, transaction and registration/receiver identities through ingress sealing, so reference release cannot invoke user destructors inside that segment.
+  - Direct `IApplication.requestQuit` remains irreversible and bypasses this decision phase. Pending native-quit decisions leave ordinary work and publication ingress available; a cancelled native quit does not discard their queued work.
   - Any CANCELLED leaves every window open.
 - **No new public id.** An application-initiated coordinated quit command is UI3 (CX-UIA-24).
 - **UI2's E46 entry paths** are native window close, native application quit and `IWindow.requestClose`, each with two windows. Back and tab navigation are UI3.

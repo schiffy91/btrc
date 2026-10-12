@@ -1,6 +1,30 @@
 import Library.Callback;
 import Library.App;
 
+enum WindowExposure {
+	WINDOW_EXPOSURE_EXPOSED,
+	WINDOW_EXPOSURE_NOT_EXPOSED,
+	WINDOW_EXPOSURE_UNKNOWN
+};
+
+enum WindowExposureReason {
+	WINDOW_EXPOSURE_REASON_NONE,
+	WINDOW_EXPOSURE_REASON_HIDDEN,
+	WINDOW_EXPOSURE_REASON_MINIMIZED,
+	WINDOW_EXPOSURE_REASON_OCCLUDED
+};
+
+class ViewInteractionState {
+	public bool localVisible;
+	public bool localEnabled;
+	public bool inheritedEligible;
+	public bool effectiveEligible;
+	public bool layoutParticipating;
+	public WindowExposure exposure;
+	public bool faulted;
+	public long long stateRevision;
+}
+
 /* Synchronous native input. True consumes the event; false leaves normal
  * platform dispatch intact. Coordinates are view-local top-left logical points.
  * A consumed press captures its matching drag/release, including outside the
@@ -18,8 +42,14 @@ interface IViewScrollHandler { bool scroll(AppScrollEvent event); }
  * An attached view must be detached before an alias can close it; its owning
  * container closes it during subtree shutdown. close() starts shutdown once;
  * Pending retains ownership and requires pollClose() on the UI executor.
- * Polling never starts shutdown or retries a failed native operation. */
+ * Polling never starts shutdown or retries a failed native operation.
+ * Hiding preserves the local flag but ends effective input eligibility; no
+ * subscription replays initial state. State revisions let a subscriber discard
+ * observations no newer than its getter snapshot. Occlusion alone does not
+ * cancel editing. COMPLETE forbids further callback entry. */
 interface IView {
+	ViewInteractionState interactionState();
+	ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner);
 	bool isOpen();
 	double fittingWidth();
 	double fittingHeight();
@@ -31,3 +61,5 @@ interface IView {
 	CallbackCancellation close();
 	CallbackCancellation pollClose();
 }
+
+interface IViewInteractionStateHandler { void interactionChanged(ViewInteractionState state); }

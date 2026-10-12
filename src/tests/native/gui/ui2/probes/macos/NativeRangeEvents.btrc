@@ -1,0 +1,145 @@
+import Library.Callback;
+import Library.Vector;
+import Library.Math;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.ISlider;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSSlider;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.MacOS.MacOSRunLoop;
+import Library.UI.Element;
+
+import ./RangeProbe.btrc;
+#include <assert.h>
+
+class RangeReceiver implements ISliderControlEventHandler {
+	public Vector<SliderControlEvent> events = [];
+	public void sliderEvent(SliderControlEvent event) { self.events.push(event); }
+}
+
+class RangeIntervention implements IUI2RangeIntervention {
+	private MacOSSlider _slider;
+	private int _mode;
+	public bool entered = false;
+	public RangeIntervention(MacOSSlider slider, int mode) { self._slider = slider; self._mode = mode; }
+
+	public void rangeAction() {
+		assert(!self.entered); self.entered = true;
+		if (self._mode == 0) { self._slider.setValue(self._slider.value()); }
+		else if (self._mode == 1) { self._slider.setValue(2.0); }
+		else if (self._mode == 2) { UI2RangeProbe.escape(self._slider.nativeView()); }
+		else { self._slider.setVisible(false); }
+	}
+}
+
+class RangeDelivery {
+	class void deliver(RangeReceiver receiver, SliderControlEvent event) { receiver.sliderEvent(event); }
+
+	class void interruption(NSView parent, int mode) {
+		var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(16, signal);
+		var slider = MacOSSlider(0.0, 10.0, 10, context); slider.attachTo(parent); slider.arrange(20.0, 20.0, 300.0, 30.0);
+		slider.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction(); slider.setValue(4.0);
+		var scope = CallbackScope(); var commit = RangeReceiver(); var cancel = RangeReceiver();
+		slider.onCommit(commit, scope); slider.onCancel(cancel, scope);
+		var intervention = RangeIntervention(slider, mode); var nativeScope = CallbackScope();
+		var maybeProbe = UI2RangeProbe.probe();
+		if (maybeProbe == null) { throw "Range fixture failed to allocate its native probe"; }
+		UI2RangeProbe probe = maybeProbe;
+		probe.setEvents(intervention, nativeScope);
+		probe.dragWithEvents(slider.nativeView(), 0.75);
+		assert(intervention.entered && commit.events.len == 0 && cancel.events.len == 0);
+		RangeDelivery.drain(context);
+		if (mode == 0) { assert(commit.events.len == 1 && cancel.events.len == 0 && slider.value() > 4.0); }
+		else if (mode == 1) {
+			assert(commit.events.len == 0 && cancel.events.len == 1 && slider.value() == 2.0);
+			assert(cancel.events.get(0).context.origin == CONTROL_ORIGIN_MODEL && cancel.events.get(0).cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT);
+			assert(UI2RangeProbe.projected(slider.nativeView()) == 2.0); // Late native up cannot overwrite the new model.
+		} else if (mode == 2) {
+			assert(commit.events.len == 0 && cancel.events.len == 1 && slider.value() == 4.0);
+			assert(cancel.events.get(0).context.origin == CONTROL_ORIGIN_USER && cancel.events.get(0).cancelReason == CONTROL_CANCEL_ESCAPE);
+		} else {
+			assert(commit.events.len == 0 && cancel.events.len == 0 && slider.value() == 4.0);
+			assert(context.detachedEvents.retired(CONTROL_EVENT_INELIGIBLE) == 1LL); // The one captured SYSTEM terminal.
+		}
+		assert(nativeScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		slider.detachFrom(parent); assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+		context.close(); assert(signal.requestClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void pressure(NSView parent) {
+		var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(4, signal);
+		var slider = MacOSSlider(0.0, 10.0, 10, context); slider.attachTo(parent); slider.arrange(20.0, 20.0, 300.0, 30.0);
+		slider.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction();
+		var scope = CallbackScope(); var receiver = RangeReceiver(); slider.onPreview(receiver, scope);
+		var state = slider.interactionOwner();
+		var fill = new ControlEventChannel<RangeReceiver, SliderControlEvent>(context.detachedEvents, state, receiver, RangeDelivery.deliver, scope);
+		for (int count = 0; count < 4; count++) { assert(fill.publish(SliderControlEvent(), state.generation(), 0LL, 0LL)); }
+		assert(context.detachedEvents.pendingCount() == 4);
+		UI2RangeProbe.drag(slider.nativeView(), 0.9);
+		assert(slider.value() == 0.0 && UI2RangeProbe.projected(slider.nativeView()) == 0.0);
+		assert(receiver.events.len == 0 && context.detachedEvents.pendingCount() == 4);
+		bool failed = false;
+		try { context.dispatchOne(context.detachedEvents); }
+		catch (string error) { failed = error == "Native slider cannot admit input while its preview queue is full"; }
+		assert(failed); // Explicit failed-source policy, never silent input loss.
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		slider.detachFrom(parent); assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+		context.close(); assert(signal.requestClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void drain(MacOSControlContext context) { for (int count = 0; count < 64; count++) { if (!context.dispatchOne(context.detachedEvents)) { return; } } throw "Range fixture failed to drain bounded events"; }
+}
+
+int main() {
+	var maybeParent = UI2RangeProbe.open();
+	if (maybeParent == null) { throw "Range fixture failed to open its native window"; }
+	NSView parent = maybeParent;
+	var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(16, signal);
+	var slider = MacOSSlider(0.0, 10.0, 10, context); slider.attachTo(parent);
+	slider.arrange(20.0, 20.0, 300.0, 30.0);
+	slider.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); slider.settleInteraction(); slider.publishInteraction();
+	assert(slider.interactionState().effectiveEligible);
+	var scope = CallbackScope(); var preview = RangeReceiver(); var commit = RangeReceiver(); var cancel = RangeReceiver();
+	slider.onPreview(preview, scope); slider.onCommit(commit, scope); slider.onCancel(cancel, scope);
+	// Real native key delivery captures intent without calling our receiver.
+	UI2RangeProbe.key(slider.nativeView(), 0xf703, false);
+	assert(commit.events.len == 0 && slider.value() == 1.0);
+	RangeDelivery.drain(context); assert(commit.events.len == 1);
+	var first = commit.events.get(0);
+	assert(first.phase == CONTROL_PHASE_COMMIT && first.context.origin == CONTROL_ORIGIN_USER);
+	assert(first.input == SLIDER_INPUT_RELATIVE_ADJUSTMENT && first.adjustment == UI_RANGE_ADJUST_SMALL_INCREMENT && first.count == 1);
+	assert(first.value == 1.0 && preview.events.len == 0 && cancel.events.len == 0);
+	UI2RangeProbe.key(slider.nativeView(), 0xf703, true); UI2RangeProbe.key(slider.nativeView(), 0xf703, true);
+	assert(commit.events.len == 1); RangeDelivery.drain(context); assert(commit.events.len == 3);
+	assert(commit.events.get(1).context.interaction < commit.events.get(2).context.interaction);
+	slider.setValue(10.0); assert(UI2RangeProbe.increment(slider.nativeView()));
+	RangeDelivery.drain(context); assert(commit.events.len == 4);
+	assert(commit.events.get(3).value == 10.0 && commit.events.get(3).adjustment == UI_RANGE_ADJUST_SMALL_INCREMENT);
+	assert(UI2RangeProbe.decrement(slider.nativeView())); RangeDelivery.drain(context); assert(slider.value() == 9.0);
+	UI2RangeProbe.assistive(slider.nativeView(), 4.25); assert(commit.events.len == 5);
+	RangeDelivery.drain(context); assert(commit.events.len == 6 && slider.value() == 4.0);
+	assert(commit.events.get(5).input == SLIDER_INPUT_ABSOLUTE_ASSISTIVE);
+	// Real NSSliderCell tracking ends in one pointer commit; previews coalesce.
+	UI2RangeProbe.drag(slider.nativeView(), 0.75);
+	assert(commit.events.len == 6); RangeDelivery.drain(context);
+	assert(commit.events.len == 7 && commit.events.get(6).input == SLIDER_INPUT_ABSOLUTE_POINTER);
+	assert(preview.events.len >= 1 && preview.events.len <= 2 && cancel.events.len == 0);
+	assert(slider.value() > 4.0 && Math.absDouble(UI2RangeProbe.projected(slider.nativeView()) - slider.value()) < 0.000001);
+	// Delivery rechecks eligibility: an accepted commit retires without a
+	// fabricated second cancel when the control is hidden before service.
+	UI2RangeProbe.key(slider.nativeView(), 0xf703, false); slider.setVisible(false);
+	RangeDelivery.drain(context); assert(commit.events.len == 7 && cancel.events.len == 0);
+	slider.setVisible(true); slider.setRange(2.0, 2.0, 0.0);
+	UI2RangeProbe.key(slider.nativeView(), 0xf703, false); RangeDelivery.drain(context);
+	assert(commit.events.len == 7 && slider.value() == 2.0);
+	assert(first.value == 1.0 && first.count == 1); // Prior event remains owning.
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	slider.detachFrom(parent); assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+	context.close(); assert(signal.requestClose() == CALLBACK_CANCELLATION_COMPLETE);
+	for (int mode = 0; mode < 4; mode++) { RangeDelivery.interruption(parent, mode); }
+	RangeDelivery.pressure(parent); UI2RangeProbe.close();
+	print("PASS: native slider captures ordered intents and pointer terminals");
+	return 0;
+}

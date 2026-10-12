@@ -1,0 +1,137 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.ISelect;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSSelect;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./SelectProbe.btrc;
+#include <assert.h>
+
+class SelectionReceiver implements ISelectionControlEventHandler {
+	public Vector<SelectionControlEvent> events = [];
+	private UI2SelectProbe _probe;
+	public SelectionReceiver(UI2SelectProbe probe) { self._probe = probe; }
+
+	public void selectionEvent(SelectionControlEvent event) {
+		assert(!self._probe.inside()); // Native tracking cannot enter the application receiver.
+		self.events.push(event);
+	}
+}
+
+class SelectionInput {
+	class SelectModel model() {
+		var model = SelectModel(); model.options = []; model.selectedKey = "alpha";
+		model.availability = SELECT_AVAILABILITY_READY; model.statusText = "";
+		var first = SelectOption(); first.key = "alpha"; first.title = "Alpha"; first.enabled = true;
+		var second = SelectOption(); second.key = "beta"; second.title = "Beta"; second.enabled = true;
+		var third = SelectOption(); third.key = "gamma"; third.title = "Gamma"; third.enabled = true;
+		model.options.push(first); model.options.push(second); model.options.push(third); return model;
+	}
+
+	class void drain(MacOSControlContext context) {
+		for (int count = 0; count < 64; count++) { if (!context.dispatchOne(context.detachedEvents)) { return; } }
+		throw "Select fixture failed to drain bounded semantic events";
+	}
+
+	class void tracked(UI2SelectProbe probe) { assert(!probe.inside() && !probe.timedOut() && probe.opened() == 1 && probe.highlights() == 1); }
+
+	class void pressure() {
+		// A refused native capture latches a sticky context failure. Isolate
+		// this deliberate failure from the normal input acceptance journeys.
+		var probe = UI2SelectProbe.create(); var parent = probe.parent();
+		var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(1, signal);
+		var select = MacOSSelect(context); select.setOptions(SelectionInput.model()); select.attachTo(parent);
+		select.arrange(20.0, 20.0, 240.0, 30.0);
+		select.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); select.settleInteraction(); select.publishInteraction();
+		var scope = CallbackScope(); var changes = SelectionReceiver(probe); var commits = SelectionReceiver(probe);
+		select.onChanged(changes, scope); select.onCommit(commits, scope);
+		probe.journey(select.nativeView(), 0, 0); SelectionInput.tracked(probe);
+		assert(select.selectedKey() == "beta" && commits.events.len == 0);
+		probe.journey(select.nativeView(), 0, 0);
+		assert(!probe.timedOut() && probe.opened() == 0 && probe.actions() == 0 && select.selectedKey() == "beta");
+		bool failed = false;
+		try { context.dispatchOne(context.detachedEvents); } catch (string error) { failed = error == "Native selection cannot admit input while its semantic queue is full"; }
+		assert(failed && changes.events.len == 0 && commits.events.len == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		select.detachFrom(parent); assert(select.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(context.terminalPool.available() == 16384);
+		context.close(); assert(signal.requestClose() == CALLBACK_CANCELLATION_COMPLETE); probe.close();
+	}
+}
+
+/* A scoped test observer of actual NSMenu highlight. It exercises public model
+ * mutation while AppKit tracks; it never calls the provider's capture methods. */
+class SelectionMutation implements IUI2SelectTrackingReceiver {
+	private MacOSSelect _select;
+	public int mode = 0;
+	public int calls = 0;
+	public SelectionMutation(MacOSSelect select) { self._select = select; }
+
+	public void highlighted() {
+		self.calls++;
+		if (self.mode == 1) { var model = self._select.optionsState(); model.selectedKey = "gamma"; self._select.setOptions(model); }
+		if (self.mode == 2) { self._select.setEnabled(false); }
+	}
+}
+
+int main() {
+	var probe = UI2SelectProbe.create(); var parent = probe.parent();
+	var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(16, signal);
+	var select = MacOSSelect(context); select.setOptions(SelectionInput.model()); select.attachTo(parent);
+	select.arrange(20.0, 20.0, 240.0, 30.0);
+	select.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); select.settleInteraction(); select.publishInteraction();
+	assert(select.interactionState().effectiveEligible);
+	var scope = CallbackScope(); var nativeScope = CallbackScope();
+	var change = SelectionReceiver(probe); var commit = SelectionReceiver(probe); var cancel = SelectionReceiver(probe);
+	select.onChanged(change, scope); select.onCommit(commit, scope); select.onCancel(cancel, scope);
+	var mutation = SelectionMutation(select); probe.setTrackingReceiver(mutation, nativeScope);
+	// Each journey enters a real native popup through a different public input path.
+	for (int mode = 0; mode < 3; mode++) {
+		select.setSelectedKey("alpha"); change.events.clear(); commit.events.clear(); cancel.events.clear();
+		probe.journey(select.nativeView(), mode, 0); SelectionInput.tracked(probe);
+		assert(probe.actions() == 1 && commit.events.len == 0 && change.events.len == 0 && cancel.events.len == 0);
+		assert(select.selectedKey() == "beta");
+		SelectionInput.drain(context);
+		assert(commit.events.len == 1 && change.events.len >= 1 && cancel.events.len == 0);
+		var accepted = commit.events.get(0); var candidate = change.events.get(change.events.len - 1);
+		assert(accepted.phase == CONTROL_PHASE_COMMIT && accepted.context.origin == CONTROL_ORIGIN_USER);
+		assert(accepted.context.interaction == candidate.context.interaction && accepted.context.sequence > candidate.context.sequence);
+	}
+	// Accepting the already-selected native key must not manufacture USER COMMIT.
+	change.events.clear(); commit.events.clear(); cancel.events.clear();
+	probe.journey(select.nativeView(), 0, 0); SelectionInput.tracked(probe); SelectionInput.drain(context);
+	assert(select.selectedKey() == "beta" && commit.events.len == 0 && cancel.events.len == 0);
+	// Escape is delivered to the actual tracking menu, not directly to a capture hook.
+	select.setSelectedKey("alpha"); change.events.clear();
+	probe.journey(select.nativeView(), 0, 1); SelectionInput.tracked(probe);
+	assert(commit.events.len == 0 && cancel.events.len == 0 && probe.actions() == 0);
+	SelectionInput.drain(context); assert(select.selectedKey() == "alpha" && cancel.events.len == 1);
+	assert(cancel.events.get(0).context.origin == CONTROL_ORIGIN_USER && cancel.events.get(0).cancelReason == CONTROL_CANCEL_ESCAPE);
+	// Model replacement during a real highlight cancels once, with the old interaction.
+	change.events.clear(); cancel.events.clear(); mutation.mode = 1;
+	probe.journey(select.nativeView(), 0, 2); SelectionInput.tracked(probe); SelectionInput.drain(context);
+	assert(select.selectedKey() == "gamma" && commit.events.len == 0 && cancel.events.len == 1);
+	assert(cancel.events.get(0).context.origin == CONTROL_ORIGIN_MODEL && cancel.events.get(0).cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT);
+	// Effective eligibility is rechecked even for the captured terminal: no replay.
+	select.setSelectedKey("alpha"); change.events.clear(); cancel.events.clear(); mutation.mode = 2;
+	probe.journey(select.nativeView(), 0, 2); SelectionInput.tracked(probe); SelectionInput.drain(context);
+	assert(!select.interactionState().effectiveEligible && commit.events.len == 0 && cancel.events.len == 0);
+	select.setEnabled(true); mutation.mode = 0; SelectionInput.drain(context);
+	assert(commit.events.len == 0 && cancel.events.len == 0);
+	// Printable native type-selection needs the same admission/terminal ownership.
+	select.setSelectedKey("alpha"); probe.printable(select.nativeView());
+	assert(!probe.timedOut() && commit.events.len == 0); SelectionInput.drain(context);
+	assert(select.selectedKey() == "beta" && commit.events.len == 1);
+	assert(commit.events.get(0).context.origin == CONTROL_ORIGIN_USER);
+	assert(nativeScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	select.detachFrom(parent); assert(select.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(context.terminalPool.available() == 16384);
+	context.close(); assert(signal.requestClose() == CALLBACK_CANCELLATION_COMPLETE); probe.close();
+	SelectionInput.pressure();
+	print("PASS: native popup input preserves ordered selection and cancellation ownership"); return 0;
+}

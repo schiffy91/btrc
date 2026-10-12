@@ -16,6 +16,78 @@ import Library.GUI.ISelect;
 import Library.GUI.IScrollView;
 import Library.GUI.IGrid;
 
+enum WorkSuspensionPolicy {
+	WORK_SUSPENSION_CANCEL,
+	WORK_SUSPENSION_DEFER,
+	WORK_SUSPENSION_REPLACE
+};
+
+enum PublishOutcome {
+	PUBLISH_ACCEPTED,
+	PUBLISH_REPLACED,
+	PUBLISH_FULL,
+	PUBLISH_CLOSED,
+	PUBLISH_STALE,
+	PUBLISH_CANCELLED,
+	PUBLISH_INVALID,
+	PUBLISH_RESOURCE_FAILED,
+	PUBLISH_WAKE_FAILED
+};
+
+enum PublishCancelOutcome {
+	PUBLISH_CANCEL_REQUESTED,
+	PUBLISH_CANCEL_ALREADY_TERMINAL,
+	PUBLISH_CANCEL_STALE,
+	PUBLISH_CANCEL_CLOSED
+};
+
+class ApplicationPublication {
+	public long long generation;
+	public long long sequence;
+	public long long replacementKey;
+	public long long payload;
+}
+
+enum ApplicationPublisherOutcomeKind {
+	APPLICATION_PUBLISHER_CREATED,
+	APPLICATION_PUBLISHER_BUDGET_EXHAUSTED,
+	APPLICATION_PUBLISHER_CLOSED,
+	APPLICATION_PUBLISHER_RESOURCE_FAILED
+};
+
+class ApplicationPublisherOutcome {
+	public ApplicationPublisherOutcomeKind kind;
+	public IApplicationPublisher? publisher;
+	public ICallbackRegistration? registration;
+}
+
+enum ScheduleOutcomeKind {
+	SCHEDULE_ACCEPTED,
+	SCHEDULE_REPLACED,
+	SCHEDULE_FULL,
+	SCHEDULE_CLOSED,
+	SCHEDULE_CANCELLED
+};
+
+class ScheduleOutcome {
+	public ScheduleOutcomeKind kind;
+	public ICallbackRegistration? registration;
+}
+
+enum ApplicationHostAttachOutcomeKind {
+	APPLICATION_HOST_ATTACHED,
+	APPLICATION_HOST_ALREADY_ATTACHED,
+	APPLICATION_HOST_APPLICATION_RUNNING,
+	APPLICATION_HOST_APPLICATION_CLOSED,
+	APPLICATION_HOST_ATTACH_FAILED
+};
+
+class ApplicationHostAttachOutcome {
+	public ApplicationHostAttachOutcomeKind kind;
+	public IApplicationHostAttachment? attachment;
+	public string error;
+}
+
 /* UI-executor work, never inline. Worker-thread publication is a separate
  * capability; post() requires the application's creating UI thread. Accepted
  * work requires running the loop, even when quit abandons its domain delivery.
@@ -24,8 +96,15 @@ interface IApplicationWork { void run(); }
 
 /* The application owns windows and its UI executor. run() enters the native
  * loop and returns only after shutdown. requestQuit() is nonblocking: native
- * callbacks finish before owned windows are torn down. */
+ * callbacks finish before owned windows are torn down. Native quit coordinates
+ * window decisions before irreversible requestQuit. post defers during
+ * suspension; postAfter uses a monotonic deadline and fires once after resume.
+ * Close seals ingress, never joins workers or nests a pump. isRunning includes
+ * an attached host; run rejects an already host-attached application. */
 interface IApplication {
+	ApplicationPublisherOutcome createPublisher(int capacity, IApplicationPublicationHandler handler, CallbackScope owner);
+	ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey);
+	ApplicationHostAttachOutcome attachHost(IApplicationHost host, CallbackScope owner);
 	IWindow createWindow(string title, double width, double height);
 	/* View factories. Each view is owned by this application until closed
 	 * and is torn down with it; every provider implements the same set. */
@@ -54,4 +133,27 @@ interface IApplication {
 	void requestQuit();
 	CallbackCancellation close();
 	CallbackCancellation pollClose();
+}
+
+/* Any-thread ingress: plain identity records, never inline receiver delivery.
+ * The UI owner retains this publisher until producers and cancellation drain. */
+interface IApplicationPublisher {
+	PublishOutcome tryPublish(long long generation, long long sequence, WorkSuspensionPolicy suspension, long long replacementKey, long long payload);
+	PublishCancelOutcome requestCancel(long long generation, long long sequence);
+}
+
+interface IApplicationPublicationHandler { void deliver(ApplicationPublication publication); }
+
+/* Provisional host link. requestTurn is any-thread and coalesced; scheduleTurn
+ * runs on the UI executor, replaces the deadline, and uses zero to disarm. */
+interface IApplicationHost {
+	bool requestTurn();
+	void scheduleTurn(unsigned long long monotonicDeadlineNs);
+}
+
+/* One bounded nonblocking turn; no nested loop or exception escapes the host.
+ * Cancellation seals ingress and completes only after native delivery drains. */
+interface IApplicationHostAttachment extends ICallbackRegistration {
+	void serviceTurn();
+	void transition(ApplicationActivity activity);
 }

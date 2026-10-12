@@ -28,7 +28,7 @@ links = ["N03", "N20", "N49", "UI2", "UI4", "UI9", "E24", "E31", "E35", "E36"]
 implementation = "implemented"
 parity = "adapted"
 configuration = "AppKit native provider"
-note = "src/stdlib/GUI/MacOS/MacOSImageHandle.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: NativeGUI.btrc verifyImageHandles: worker-created 8x4 dimensions and open state match; two closes are safe, isOpen becomes false and rebinding the closed handle is rejected."
+note = "src/stdlib/GUI/MacOS/MacOSImageHandle.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: NativeGUI.btrc verifyImageHandles: worker-created 8x4 dimensions and open state match; two closes are safe, isOpen becomes false and rebinding the closed handle is rejected. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
@@ -36,7 +36,7 @@ regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_
 implementation = "implemented"
 parity = "adapted"
 configuration = "AppKit native provider"
-note = "src/stdlib/GUI/MacOS/MacOSImageHandle.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: NativeGUI.btrc verifyImageHandles: worker-created 8x4 dimensions and open state match; two closes are safe, isOpen becomes false and rebinding the closed handle is rejected."
+note = "src/stdlib/GUI/MacOS/MacOSImageHandle.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: NativeGUI.btrc verifyImageHandles: worker-created 8x4 dimensions and open state match; two closes are safe, isOpen becomes false and rebinding the closed handle is rejected. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
@@ -44,7 +44,7 @@ regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_
 implementation = "implemented"
 parity = "adapted"
 configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork."
+note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
@@ -52,26 +52,26 @@ regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_c
 implementation = "implemented"
 parity = "adapted"
 configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork."
+note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
 [operations.windows]
 implementation = "missing"
 parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
 [operations.android]
 implementation = "missing"
 parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
 

@@ -1,0 +1,115 @@
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.SDL;
+
+import ./ApplicationQuitProbe.btrc;
+#include <assert.h>
+
+class LinuxQuitFinalizerState {
+	public IApplicationPublisher? other;
+	public int workDestroyed = 0;
+	public int handlerDestroyed = 0;
+	public int calls = 0;
+}
+
+class LinuxQuitRejectedWork implements IApplicationWork {
+	public void run() { assert(false); }
+}
+
+class LinuxQuitIngressChecks {
+	class void closed(IApplication application, LinuxQuitFinalizerState state) {
+		application.requestQuit();
+		assert(application.close() == CALLBACK_CANCELLATION_PENDING);
+		var scheduled = application.schedule(LinuxQuitRejectedWork(), 0.0, WORK_SUSPENSION_DEFER, 0LL);
+		assert(scheduled.kind == SCHEDULE_CLOSED && scheduled.registration == null);
+		var other = state.other;
+		if (other == null) { throw "Finalizer requires the second publisher"; }
+		assert(other.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 99LL) == PUBLISH_CLOSED);
+		bool rejected = false;
+		try { application.createWindow("Must remain sealed", 120.0, 100.0); } catch (string error) { rejected = !error.isEmpty(); }
+		assert(rejected);
+	}
+}
+
+class LinuxQuitFinalizerPublication implements IApplicationPublicationHandler {
+	private IApplication _application;
+	private LinuxQuitFinalizerState _state;
+	public LinuxQuitFinalizerPublication(IApplication application, LinuxQuitFinalizerState state) { self._application = application; self._state = state; }
+
+	public void deliver(ApplicationPublication publication) { self._state.calls++; assert(false); }
+
+	public void __del__() { self._state.handlerDestroyed++; LinuxQuitIngressChecks.closed(self._application, self._state); }
+}
+
+class LinuxQuitUnusedPublication implements IApplicationPublicationHandler {
+	public void deliver(ApplicationPublication publication) { assert(false); }
+}
+
+class LinuxQuitFinalizerWork implements IApplicationWork {
+	private IApplication _application;
+	private LinuxQuitFinalizerState _state;
+	public LinuxQuitFinalizerWork(IApplication application, LinuxQuitFinalizerState state) { self._application = application; self._state = state; }
+
+	public void run() { self._state.calls++; assert(false); }
+
+	public void __del__() { self._state.workDestroyed++; LinuxQuitIngressChecks.closed(self._application, self._state); }
+}
+
+class LinuxQuitCleanupDecision implements IWindowCloseRequestHandler {
+	public IWindowCloseTransaction? transaction;
+	public void closeRequested(IWindowCloseTransaction transaction) { assert(self.transaction == null); self.transaction = transaction; }
+}
+
+void queueLinuxQuitFinalizer(IApplication application, LinuxQuitFinalizerState state) { application.postAfter(60.0, LinuxQuitFinalizerWork(application, state)); }
+
+void linuxQuitFinalizerCase(bool nativeQuit) {
+	var application = LinuxApplication(8); var scope = CallbackScope(); var state = LinuxQuitFinalizerState();
+	var first = application.createWindow("finalizer first", 200.0, 140.0);
+	var second = application.createWindow("finalizer second", 200.0, 140.0);
+	var a = LinuxQuitCleanupDecision(); var b = LinuxQuitCleanupDecision();
+	first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	/* The first publisher's last receiver release occurs before cancellation
+	 * visits the second publisher. Both admissions must already be sealed. */
+	var firstPublisher = application.createPublisher(2, LinuxQuitFinalizerPublication(application, state), scope);
+	var secondPublisher = application.createPublisher(2, LinuxQuitUnusedPublication(), scope);
+	assert(firstPublisher.kind == APPLICATION_PUBLISHER_CREATED && secondPublisher.kind == APPLICATION_PUBLISHER_CREATED);
+	var other = secondPublisher.publisher;
+	if (other == null) { throw "Missing second publisher"; }
+	state.other = other;
+	if (nativeQuit) {
+		assert(ui2PushApplicationQuit() == 1);
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while ((a.transaction == null || b.transaction == null) && SDL_GetTicksNS() < deadline) { application.pumpOnce(0); }
+		var firstTransaction = a.transaction; var secondTransaction = b.transaction;
+		if (firstTransaction == null || secondTransaction == null) { throw "Missing native quit decisions"; }
+		queueLinuxQuitFinalizer(application, state);
+		assert(other.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 73LL) == PUBLISH_ACCEPTED);
+		assert(firstTransaction.decide(WINDOW_CLOSE_DECISION_DISCARD, 1LL).state == WINDOW_CLOSE_AUTHORIZED);
+		assert(secondTransaction.decide(WINDOW_CLOSE_DECISION_DISCARD, 2LL).state == WINDOW_CLOSE_AUTHORIZED);
+		assert(first.isOpen() && second.isOpen() && state.workDestroyed == 0 && state.handlerDestroyed == 0);
+		application.pumpOnce(0);
+		assert(application.quitRequested());
+	} else {
+		queueLinuxQuitFinalizer(application, state);
+		assert(other.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 73LL) == PUBLISH_ACCEPTED);
+	}
+	var result = application.close();
+	unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+	while (result == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { result = application.pollClose(); }
+	assert(result == CALLBACK_CANCELLATION_COMPLETE);
+	assert(state.workDestroyed == 1 && state.handlerDestroyed == 1 && state.calls == 0);
+	assert(!first.isOpen() && !second.isOpen());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	state.other = null;
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	linuxQuitFinalizerCase(true);
+	linuxQuitFinalizerCase(false);
+	SDL_Quit();
+	print("PASS: UI2 Linux quit seals all ingress before reentrant finalizers");
+	return 0;
+}

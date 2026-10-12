@@ -1,3 +1,6 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.IView;
 import Library.Image;
 import Library.Callback;
 import Library.GUI.IImageView;
@@ -11,18 +14,20 @@ class MacOSImageView implements IImageView, IMacOSView {
 	private NSImageView? _imageView;
 	private MacOSView _view;
 
-	public MacOSImageView() {
+	public MacOSImageView(MacOSControlContext? context = null) {
 		if (!NSThread.isMainThread()) { throw "Native images require the main thread"; }
 		var view = NSImageView.new();
 		if (view == null) { throw "Cannot create native image view"; }
 		self._imageView = view;
-		self._view = MacOSView(view);
+		self._view = MacOSView(view, context);
 		view.setImageScaling(NSImageScaleProportionallyUpOrDown);
 	}
 
 	public NSView nativeView() { return self._view.nativeView(); }
 
 	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void reconcileAttachment(NSView? parent) { self._view.reconcileAttachment(parent); }
 
 	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
 
@@ -33,6 +38,18 @@ class MacOSImageView implements IImageView, IMacOSView {
 	public double fittingHeight() { return self._view.fittingHeight(); }
 
 	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public MacOSViewState interactionOwner() { return self._view.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._view.settleInteraction(); }
+
+	public void publishInteraction() { self._view.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
 
 	public bool isVisible() { return self._view.isVisible(); }
 

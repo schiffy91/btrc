@@ -352,19 +352,60 @@ def test_macos_panel_and_progress_controls(
             '[[native.sources]]\npath = "FactoryProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     if fixture_name in {"NativeApplication", "NativeWindowLoop"}:
+        application = fixture_name == "NativeApplication"
+        timer_interface = "IApplicationTimer" if application else "IAppKitDelayedWork"
+        declarations = (
+            "+ (void)occupyDelegate;\n+ (BOOL)ownsDelegate;\n+ (void)releaseDelegate;\n"
+            "+ (NSTimer*)timer:(void (^)(NSTimer*))block;\n"
+            if application
+            else ""
+        )
+        delegate = (
+            "#include <assert.h>\n@interface ApplicationForeignDelegate : NSObject <NSApplicationDelegate>\n@end\n"
+            "@implementation ApplicationForeignDelegate\n@end\nstatic ApplicationForeignDelegate *foreignDelegate;\n"
+            if application
+            else ""
+        )
+        methods = (
+            "+ (void)occupyDelegate { assert(NSApp.delegate == nil && foreignDelegate == nil); "
+            "foreignDelegate = [ApplicationForeignDelegate new]; NSApp.delegate = foreignDelegate; }\n"
+            "+ (BOOL)ownsDelegate { return foreignDelegate != nil && NSApp.delegate == foreignDelegate; }\n"
+            "+ (void)releaseDelegate { assert([self ownsDelegate]); NSApp.delegate = nil; "
+            "[foreignDelegate release]; foreignDelegate = nil; }\n"
+            "+ (NSTimer*)timer:(void (^)(NSTimer*))block { "
+            "return [NSTimer scheduledTimerWithTimeInterval:0.02 repeats:NO block:block]; }\n"
+            if application
+            else ""
+        )
+        symbols = (
+            '"+[ApplicationProbe occupyDelegate]", "+[ApplicationProbe ownsDelegate]", "+[ApplicationProbe releaseDelegate]", '
+            '"+[ApplicationProbe timer:]", "-[NSTimer isValid]", '
+            if application
+            else ""
+        )
+        timer_binding = (
+            '[native.bindings.callbacks."+[ApplicationProbe timer:].block"]\n'
+            'interface = "IApplicationTimer"\nlifetime = "stored"\nfailure = "abort"\nexecutor = "caller"\n'
+            'unregister = "-[NSTimer invalidate]"\nactivation-failure = "abort"\ncancellation = "entry-barrier"\n'
+            if application
+            else ""
+        )
         (root / "ApplicationProbe.h").write_text(
             "#import <AppKit/AppKit.h>\nNS_ASSUME_NONNULL_BEGIN\n@interface ApplicationProbe : NSObject\n"
             "+ (NSView*)newView;\n+ (NSInteger)liveViews;\n+ (BOOL)hasDelegate;\n+ (void)closeWindowNamed:(NSString*)title;\n"
-            "+ (NSTimer*)modalTimer:(void (^)(NSTimer*))block;\n+ (NSModalResponse)runAlert;\n@end\nNS_ASSUME_NONNULL_END\n"
+            + declarations
+            + "+ (NSTimer*)modalTimer:(void (^)(NSTimer*))block;\n+ (NSModalResponse)runAlert;\n@end\nNS_ASSUME_NONNULL_END\n"
         )
         (root / "ApplicationProbe.m").write_text(
             '#import "ApplicationProbe.h"\nstatic NSInteger liveViews;\n'
-            "@interface ApplicationView : NSView\n@end\n@implementation ApplicationView\n"
+            + delegate
+            + "@interface ApplicationView : NSView\n@end\n@implementation ApplicationView\n"
             "- (id)init { self = [super init]; if (self) liveViews++; return self; }\n"
             "- (void)dealloc { liveViews--; [super dealloc]; }\n@end\n"
             "@implementation ApplicationProbe\n+ (NSView*)newView { return [[ApplicationView alloc] init]; }\n"
             "+ (NSInteger)liveViews { return liveViews; }\n+ (BOOL)hasDelegate { return NSApp.delegate != nil; }\n"
-            "+ (void)closeWindowNamed:(NSString*)title { for (NSWindow *window in NSApp.windows) { "
+            + methods
+            + "+ (void)closeWindowNamed:(NSString*)title { for (NSWindow *window in NSApp.windows) { "
             "if ([window.title isEqualToString:title]) { [window performClose:nil]; return; } } "
             '[NSException raise:NSInternalInconsistencyException format:@"missing test window"]; }\n'
             "+ (NSTimer*)modalTimer:(void (^)(NSTimer*))block { NSTimer* timer = [NSTimer timerWithTimeInterval:0.02 repeats:NO block:block]; "
@@ -378,12 +419,14 @@ def test_macos_panel_and_progress_controls(
             manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "ApplicationProbe.h"\n'
             'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
             'symbols = ["+[ApplicationProbe newView]", "+[ApplicationProbe liveViews]", "+[ApplicationProbe hasDelegate]", "+[ApplicationProbe closeWindowNamed:]", '
-            '"+[ApplicationProbe modalTimer:]", "+[ApplicationProbe runAlert]", "NSModalResponseAbort", '
+            + symbols
+            + '"+[ApplicationProbe modalTimer:]", "+[ApplicationProbe runAlert]", "NSModalResponseAbort", '
             '"-[NSTimer invalidate]", "-[NSApplication terminate:]"]\n'
             '[native.bindings.callbacks."+[ApplicationProbe modalTimer:].block"]\n'
-            'interface = "IAppKitDelayedWork"\nlifetime = "stored"\nfailure = "abort"\nexecutor = "caller"\n'
+            f'interface = "{timer_interface}"\nlifetime = "stored"\nfailure = "abort"\nexecutor = "caller"\n'
             'unregister = "-[NSTimer invalidate]"\nactivation-failure = "abort"\ncancellation = "entry-barrier"\n'
-            '[[native.sources]]\npath = "ApplicationProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+            + timer_binding
+            + '[[native.sources]]\npath = "ApplicationProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     if fixture_name == "NativeContainers":
         (root / "ContainerProbe.h").write_text(

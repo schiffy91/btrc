@@ -1,0 +1,185 @@
+import Library.Callback;
+import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSViewInput;
+import Library.GUI.MacOS.MacOSControlEvents;
+
+import ./RunLoopProbe.btrc;
+import ./ContainerProbe.btrc;
+#include <assert.h>
+
+class BarrierInputReceiver implements IViewPointerHandler {
+	public MacOSControlContext context;
+	public MacOSViewInput? registration;
+	public bool closeContext;
+	public bool throwCancel = false;
+	public int pressed = 0;
+	public int cancelled = 0;
+	public int exited = 0;
+	public BarrierInputReceiver(MacOSControlContext context, bool closeContext) { self.context = context; self.closeContext = closeContext; }
+
+	public bool pointer(AppPointerEvent event) {
+		assert(!self.context.mutating() && self.context.isOpen());
+		if (event.action == APP_POINTER_PRESSED) { self.pressed++; return true; }
+		if (event.action == APP_POINTER_CANCELLED) {
+			self.cancelled++;
+			if (self.throwCancel) { throw "deferred cancel failure"; }
+			if (self.closeContext) { self.context.close(); }
+			else {
+				var registration = self.registration; assert(registration != null);
+				if (registration == null) { throw "Barrier fixture registration is missing"; }
+				assert(registration.cancel() == CALLBACK_CANCELLATION_PENDING);
+			}
+		}
+		if (event.action == APP_POINTER_EXITED) { self.exited++; }
+		return false;
+	}
+}
+
+class BarrierStateReceiver implements IViewInteractionStateHandler {
+	public int calls = 0;
+	public void interactionChanged(ViewInteractionState state) { self.calls++; assert(!state.localVisible); }
+}
+
+/* A native layout hook can synchronously settle capture during removal.
+ * It invokes the real provider registration; it never performs the container
+ * mutation or callback deferral on the provider's behalf. */
+class BarrierContainerLayout implements IMacOSContainerLayout {
+	private NSView _view;
+	public MacOSViewInput? input;
+	public BarrierContainerLayout() {
+		var view = UI2ContainerProbe.newPlainView();
+		if (view == null) { throw "Barrier fixture could not create its native layout"; }
+		self._view = view;
+	}
+
+	public NSView nativeView() { return self._view; }
+
+	public NSView childParent() { return self._view; }
+
+	public void arrangeChild(NSView child) {}
+
+	public void forgetChild(NSView child) { if (self.input != null) { self.input.detach(); } }
+}
+
+class ContainerBarrierCases {
+	class void queuedCancellation(bool duringMutation) {
+		var context = MacOSControlContext();
+		int available = context.terminalPool.available();
+		UI2ContainerProbe.openHost();
+		var view = UI2ContainerProbe.newInputView();
+		if (view == null) { throw "Barrier fixture could not create its native input view"; }
+		var firstReceiver = BarrierInputReceiver(context, false);
+		var secondReceiver = BarrierInputReceiver(context, false);
+		var first = MacOSViewInput(view, firstReceiver, null, context); firstReceiver.registration = first;
+		var second = MacOSViewInput(view, secondReceiver, null, context); secondReceiver.registration = second;
+		first.start(); second.start();
+		var pressed = UI2ContainerProbe.primaryDown(view);
+		if (pressed == null) { throw "Barrier fixture could not create its native pointer event"; }
+		assert(first.invoke(pressed) == null && second.invoke(pressed) == null);
+		assert(firstReceiver.pressed == 1 && secondReceiver.pressed == 1);
+		assert(context.terminalPool.available() == available - 2);
+		context.beginMutation(); first.detach(); second.detach();
+		assert(context.pendingInput() == 2 && firstReceiver.cancelled == 0 && secondReceiver.cancelled == 0);
+		if (!duringMutation) { context.endMutation(); }
+		assert(first.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(context.pendingInput() == 1 && context.terminalPool.available() == available - 1);
+		assert(firstReceiver.cancelled == 0 && firstReceiver.exited == 0 && secondReceiver.cancelled == 0);
+		assert(first.cancel() == CALLBACK_CANCELLATION_COMPLETE && context.pendingInput() == 1);
+		if (duringMutation) { context.endMutation(); }
+		assert(context.dispatchOne(context.detachedEvents));
+		assert(secondReceiver.cancelled == 1 && secondReceiver.exited == 0 && context.pendingInput() == 0);
+		assert(firstReceiver.cancelled == 0 && firstReceiver.exited == 0);
+		assert(second.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(context.terminalPool.available() == available && !context.dispatchOne(context.detachedEvents));
+		firstReceiver.registration = null; secondReceiver.registration = null;
+		UI2ContainerProbe.closeHost(); context.close();
+	}
+
+	class void input(bool closeContext) {
+		var context = MacOSControlContext();
+		int available = context.terminalPool.available();
+		UI2ContainerProbe.openHost();
+		var view = UI2ContainerProbe.newInputView();
+		if (view == null) { throw "Barrier fixture could not create its native input view"; }
+		var receiver = BarrierInputReceiver(context, closeContext);
+		var input = MacOSViewInput(view, receiver, null, context);
+		receiver.registration = input;
+		assert(context.terminalPool.available() == available - 1);
+		var pressed = UI2ContainerProbe.primaryDown(view);
+		if (pressed == null) { throw "Barrier fixture could not create its native pointer event"; }
+		assert(input.invoke(pressed) == null && receiver.pressed == 1);
+		context.beginMutation();
+		input.detach();
+		assert(receiver.cancelled == 0 && receiver.exited == 0);
+		context.endMutation();
+		assert(receiver.cancelled == 0 && context.pendingInput() == 1);
+		assert(context.dispatchOne(context.detachedEvents));
+		assert(receiver.cancelled == 1 && receiver.exited == 0);
+		assert(input.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(context.terminalPool.available() == available);
+		receiver.registration = null;
+		UI2ContainerProbe.closeHost(); context.close();
+	}
+
+	class void throwingTerminal() {
+		var context = MacOSControlContext();
+		var host = UI2ContainerProbe.openHost();
+		if (host == null) { throw "Barrier fixture could not open its native host"; }
+		var layout = BarrierContainerLayout();
+		var parent = MacOSContainer(layout, context);
+		parent.attachTo(host);
+		var child = MacOSView(null, context); parent.attach(child); child.arrange(0.0, 0.0, 100.0, 100.0);
+		var receiver = BarrierInputReceiver(context, false); receiver.throwCancel = true;
+		var input = MacOSViewInput(child.nativeView(), receiver, null, context); receiver.registration = input; layout.input = input;
+		var pressed = UI2ContainerProbe.primaryDown(child.nativeView());
+		if (pressed == null) { throw "Barrier fixture could not create its native pointer event"; }
+		assert(input.invoke(pressed) == null && receiver.pressed == 1);
+		long long revision = parent.treeRevision();
+		var edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_DETACH; edit.child = child; edit.index = 0;
+		var result = parent.applyBatch(revision, [edit]);
+		assert(result.kind == CONTAINER_BATCH_COMMITTED && result.treeRevision == revision + 1LL);
+		assert(parent.childCount() == 0 && result.detached.len == 1 && result.detached.get(0) == child);
+		assert(child.isOpen() && child.nativeView().superview() == null);
+		assert(receiver.cancelled == 0 && context.pendingInput() == 1);
+		bool failed = false;
+		try { context.dispatchOne(context.detachedEvents); } catch (string error) { failed = error == "deferred cancel failure"; }
+		assert(failed && receiver.cancelled == 1 && receiver.exited == 0 && context.pendingInput() == 0);
+		assert(parent.treeRevision() == result.treeRevision && parent.childCount() == 0);
+		assert(input.cancel() == CALLBACK_CANCELLATION_COMPLETE); receiver.registration = null; layout.input = null;
+		assert(child.close() == CALLBACK_CANCELLATION_COMPLETE); parent.detachFrom(host);
+		assert(parent.close() == CALLBACK_CANCELLATION_COMPLETE); UI2ContainerProbe.closeHost(); context.close();
+	}
+
+	class void semantic() {
+		var context = MacOSControlContext();
+		var state = MacOSViewState(context);
+		var receiver = BarrierStateReceiver();
+		var scope = CallbackScope();
+		state.onInteractionStateChanged(receiver, scope);
+		state.update(false, true, false, false, WINDOW_EXPOSURE_UNKNOWN, false); state.publish();
+		assert(context.detachedEvents.pendingCount() == 1);
+		context.beginMutation();
+		assert(!context.dispatchOne(context.detachedEvents));
+		assert(receiver.calls == 0 && context.detachedEvents.pendingCount() == 1);
+		context.endMutation();
+		assert(context.dispatchOne(context.detachedEvents) && receiver.calls == 1);
+		assert(context.detachedEvents.pendingCount() == 0);
+		assert(state.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+	}
+}
+
+int main() {
+	ui2InitializeAppKit();
+	ContainerBarrierCases.queuedCancellation(true);
+	ContainerBarrierCases.queuedCancellation(false);
+	ContainerBarrierCases.semantic();
+	ContainerBarrierCases.throwingTerminal();
+	ContainerBarrierCases.input(true);
+	ContainerBarrierCases.input(false);
+	print("UI2 container barriers defer terminal input and seal reentrant receiver admission");
+	return 0;
+}

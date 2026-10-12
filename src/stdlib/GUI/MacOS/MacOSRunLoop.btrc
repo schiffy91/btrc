@@ -1,38 +1,252 @@
 import Library.Callback;
+import Library.Console;
+import Library.Vector;
 import Library.GUI.MacOS.AppKitText;
 
-/* A coalesced wakeup, not the work queue or its cancellation owner. The
- * application keeps the subscription scope outside the receiver graph. */
-class MacOSRunLoopSignal {
-	private NSNotificationQueue? _queue;
-	private NSNotification? _notification;
-	private bool _subscribed = false;
+/* Only this fixed POD storage is touched by worker wake calls. The UI owner
+ * keeps it alive until all borrowed signal references have retired. Closing
+ * invalidates the native source but does not reclaim this storage. */
+struct MacOSRunLoopWakeState {
+	pthread_mutex_t mutex;
+	CFRunLoopSourceRef source;
+	CFRunLoopRef loop;
+	/* Timer state is UI-only; workers signal only source under mutex. */
+	CFRunLoopTimerRef timer;
+	unsigned long long deadline;
+	bool failed;
+	int slot;
+	bool closed;
+};
 
-	public MacOSRunLoopSignal() {
+/* CF's opaque context carries an index, never a managed receiver pointer.
+ * Native perform runs on the main loop; CallbackContext owns entry pinning,
+ * cancellation and receiver release using the existing scope protocol. */
+class MacOSRunLoopDispatch {
+	private NSNotification? _notification;
+	private CallbackContext<IAppKitNotificationObserver, MacOSRunLoopDispatch>? _callback;
+	private bool _sealed = false;
+
+	public MacOSRunLoopDispatch(NSNotification notification) { self._notification = notification; }
+
+	public void subscribe(IAppKitNotificationObserver receiver, CallbackScope scope) {
+		var callback = new CallbackContext<IAppKitNotificationObserver, MacOSRunLoopDispatch>(receiver, MacOSRunLoopDispatch.unregister);
+		callback.activate(scope);
+		self._callback = callback;
+		callback.publish(self);
+	}
+
+	class bool unregister(MacOSRunLoopDispatch dispatch) { dispatch._sealed = true; return true; }
+
+	public void deliver() {
+		var callback = self._callback;
+		var notification = self._notification;
+		if (self._sealed || callback == null || notification == null) { return; }
+		var receiver = callback.enter();
+		if (receiver == null) { return; }
+		try { receiver.invoke(notification); }
+		finally { callback.leave(); callback.pollCompletion(); }
+	}
+
+	public CallbackCancellation cancel() {
+		var callback = self._callback;
+		if (callback != null) {
+			var state = callback.cancel();
+			if (state != CALLBACK_CANCELLATION_COMPLETE) { return state; }
+		}
+		return self.pollCompletion();
+	}
+
+	public CallbackCancellation pollCompletion() {
+		var callback = self._callback;
+		if (callback != null) {
+			var state = callback.pollCompletion();
+			if (state != CALLBACK_CANCELLATION_COMPLETE) { return state; }
+		}
+		self._callback = null;
+		self._notification = null;
+		return CALLBACK_CANCELLATION_COMPLETE;
+	}
+}
+
+/* A bounded UI-thread registry roots callback contexts while CF can enter.
+ * Empty slots are reused only after source invalidation and callback drain.
+ * No worker looks up, retains or releases any registry entry. */
+class MacOSRunLoopRegistry {
+	class Vector<MacOSRunLoopDispatch?>? _slots;
+
+	class Vector<MacOSRunLoopDispatch?> slots() {
+		if (!NSThread.isMainThread()) { throw "Native run-loop registry requires the main thread"; }
+		var slots = MacOSRunLoopRegistry._slots;
+		if (slots == null) { slots = []; MacOSRunLoopRegistry._slots = slots; }
+		return slots;
+	}
+
+	class int add(MacOSRunLoopDispatch dispatch) {
+		for (int index = 0; index < MacOSRunLoopRegistry.slots().len; index++) {
+			if (MacOSRunLoopRegistry.slots().get(index) == null) { MacOSRunLoopRegistry.slots().set(index, dispatch); return index; }
+		}
+		if (MacOSRunLoopRegistry.slots().len >= 256) { throw "Native run-loop source capacity exceeded"; }
+		int index = MacOSRunLoopRegistry.slots().len;
+		MacOSRunLoopRegistry.slots().push(dispatch);
+		return index;
+	}
+
+	class void remove(int slot) { MacOSRunLoopRegistry.slots().set(slot, null); }
+
+	class unsigned long long nowNs() { return (unsigned long long)(CACurrentMediaTime() * 1000000000.0); }
+
+	/* A single native timer is armed only for a real deadline. It wakes the
+	 * source after its own callback returns; no timer polls an empty queue. */
+	class bool armTimer(struct MacOSRunLoopWakeState* state) {
+		unsigned long long now = MacOSRunLoopRegistry.nowNs();
+		double delay = 0.0;
+		if (state->deadline > now) { delay = (double)(state->deadline - now) / 1000000000.0; }
+		CFRunLoopTimerContext context = {0};
+		context.info = state;
+		state->timer = CFRunLoopTimerCreate(null, CFAbsoluteTimeGetCurrent() + delay, 0.0, 0UL, 0L, MacOSRunLoopRegistry.timerFired, &context);
+		if (state->timer == null) { return false; }
+		CFRunLoopAddTimer(state->loop, state->timer, kCFRunLoopCommonModes);
+		return true;
+	}
+
+	class void disarmTimer(struct MacOSRunLoopWakeState* state) {
+		if (state->timer != null) {
+			CFRunLoopTimerInvalidate(state->timer);
+			CFRelease(state->timer);
+			state->timer = null;
+		}
+	}
+
+	class void timerFired(CFRunLoopTimerRef timer, void* raw) {
+		struct MacOSRunLoopWakeState* state = (struct MacOSRunLoopWakeState*)raw;
+		if (state->timer != timer) { return; }
+		MacOSRunLoopRegistry.disarmTimer(state);
+		if (state->closed || state->deadline == 0ULL) { return; }
+		/* The native alarm is only a wake hint. The monotonic clock remains
+		 * authoritative even if civil time changes after arming. */
+		if (MacOSRunLoopRegistry.nowNs() < state->deadline) {
+			if (MacOSRunLoopRegistry.armTimer(state)) { return; }
+			state->failed = true;
+		}
+		state->deadline = 0ULL;
+		CFRunLoopSourceSignal(state->source);
+		CFRunLoopWakeUp(state->loop);
+	}
+
+	class void perform(void* raw) {
+		if (!NSThread.isMainThread()) { Console.fatal("Native run-loop delivery requires the main thread"); }
+		struct MacOSRunLoopWakeState* state = (struct MacOSRunLoopWakeState*)raw;
+		var dispatch = MacOSRunLoopRegistry.slots().get(state->slot);
+		if (dispatch == null) { return; }
+		try { dispatch.deliver(); }
+		catch (string error) { Console.fatal(f"Native run-loop callback failed: {error}"); }
+	}
+}
+
+/* A coalesced version-0 CF wake source, independent of domain work queues.
+ * Default and AppKit tracking modes share the same source. wake() may run on
+ * a worker, but construction, subscription, close and final release are UI-only. */
+class MacOSRunLoopSignal {
+	private struct MacOSRunLoopWakeState* _state = null;
+	private OwnedClosure<CFunction<void, void*>>? _closure;
+	private MacOSRunLoopDispatch? _dispatch;
+	private bool _subscribed = false;
+	private bool _registered = false;
+
+	public MacOSRunLoopSignal(bool registered = true) {
 		self.requireMainThread();
 		var sender = NSObject.new();
 		if (sender == null) { throw "Cannot create native run-loop wake identity"; }
-		self._notification = NSNotification.notificationWithName(AppKitText.nativeValue("BTRC.GUI.RunLoopReady"), sender);
-		self._queue = NSNotificationQueue.defaultQueue();
+		var notification = NSNotification.notificationWithName(AppKitText.nativeValue("BTRC.GUI.RunLoopReady"), sender);
+		var dispatch = MacOSRunLoopDispatch(notification);
+		int slot = MacOSRunLoopRegistry.add(dispatch);
+		struct MacOSRunLoopWakeState* state = (struct MacOSRunLoopWakeState*)calloc(1, sizeof(struct MacOSRunLoopWakeState));
+		if (state == null) { MacOSRunLoopRegistry.remove(slot); throw "Cannot allocate native run-loop wake state"; }
+		if (pthread_mutex_init(&state->mutex, null) != 0) { free(state); MacOSRunLoopRegistry.remove(slot); throw "Cannot initialize native run-loop wake synchronization"; }
+		state->slot = slot;
+		state->loop = CFRunLoopGetMain();
+		self._state = state;
+		self._dispatch = dispatch;
+		var closure = new OwnedClosure<CFunction<void, void*>>(MacOSRunLoopRegistry.perform, state, MacOSRunLoopSignal.destroyState);
+		self._closure = closure;
+		CFRunLoopSourceContext context = {0};
+		context.info = closure.context();
+		context.perform = closure.invokePointer();
+		state->source = CFRunLoopSourceCreate(null, 0L, &context);
+		if (state->source == null) { self.close(); throw "Cannot create native run-loop wake source"; }
+		if (registered) { self.registerSource(); }
 	}
 
-	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native run-loop signals require the main thread"; } }
+	/* Application-owned signals stage their native registration until attach.
+	 * CFSourceSignal may mark this same owned source before registration; adding
+	 * it preserves that pending readiness without another source or timer. */
+	private void registerSource() {
+		struct MacOSRunLoopWakeState* state = self._state;
+		if (state == null || state->closed || state->source == null) { throw "Native run-loop signal is closed"; }
+		if (self._registered) { return; }
+		CFRunLoopAddCommonMode(state->loop, btrcMacOSTrackingRunLoopMode());
+		CFRunLoopAddSource(state->loop, state->source, kCFRunLoopCommonModes);
+		self._registered = true;
+	}
+
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native run-loop signal ownership requires the main thread"; } }
+
+	class void destroyState(void* raw) {
+		struct MacOSRunLoopWakeState* state = (struct MacOSRunLoopWakeState*)raw;
+		if (state == null) { return; }
+		if (!state->closed || state->slot >= 0) { Console.fatal("Native run-loop source released before callback drain"); }
+		if (pthread_mutex_destroy(&state->mutex) != 0) { Console.fatal("Native run-loop signal released during worker wake"); }
+		free(state);
+	}
 
 	public void subscribe(IAppKitNotificationObserver receiver, CallbackScope scope) {
 		self.requireMainThread();
-		var notification = self._notification;
-		if (notification == null) { throw "Native run-loop signal is closed"; }
+		var dispatch = self._dispatch;
+		if (dispatch == null) { throw "Native run-loop signal is closed"; }
 		if (self._subscribed) { throw "Native run-loop signal already has a subscriber"; }
-		NSNotificationCenter.defaultCenter().addObserverForName(notification.name(), notification.object(), null, receiver, scope);
+		/* Admission can fail before registration. No native operation below
+		 * invokes the receiver; the UI thread owns source closure/registration. */
+		dispatch.subscribe(receiver, scope);
+		self.registerSource();
 		self._subscribed = true;
 	}
 
-	public void wake() {
-		self.requireMainThread();
-		var queue = self._queue;
-		var notification = self._notification;
-		if (queue != null && notification != null) { queue.enqueueNotification(notification, NSPostASAP); }
+	/* Source invalidation and signalling share the same short native mutex.
+	 * CF signalling never invokes the callback inline and never waits for UI
+	 * work. Closed aliases remain callable while their owner retains storage. */
+	private int signalSource() {
+		struct MacOSRunLoopWakeState* state = self._state;
+		if (state == null) { return 0; }
+		if (pthread_mutex_lock(&state->mutex) != 0) { return -1; }
+		bool open = !state->closed && state->source != null;
+		if (open) { CFRunLoopSourceSignal(state->source); CFRunLoopWakeUp(state->loop); }
+		pthread_mutex_unlock(&state->mutex);
+		return open ? 1 : 0;
 	}
+
+	class unsigned long long monotonicNowNs() { return MacOSRunLoopRegistry.nowNs(); }
+
+	public bool failed() { self.requireMainThread(); return self._state != null && self._state->failed; }
+
+	public void scheduleTurn(unsigned long long monotonicDeadlineNs) {
+		self.requireMainThread();
+		struct MacOSRunLoopWakeState* state = self._state;
+		if (state == null || state->closed) { throw "Native run-loop signal is closed"; }
+		if (!self._registered && monotonicDeadlineNs != 0ULL) { throw "Attach native dispatch before scheduling its timer"; }
+		if (state->deadline == monotonicDeadlineNs) { return; }
+		MacOSRunLoopRegistry.disarmTimer(state);
+		state->deadline = monotonicDeadlineNs;
+		if (monotonicDeadlineNs != 0ULL && !MacOSRunLoopRegistry.armTimer(state)) {
+			state->failed = true;
+			state->deadline = 0ULL;
+			self.wake();
+			throw "Cannot arm native run-loop deadline";
+		}
+	}
+
+	public bool tryWake() { return self.signalSource() == 1; }
+
+	public void wake() { if (self.signalSource() < 0) { throw "Cannot signal native run-loop wake synchronization"; } }
 
 	/* Stop a running AppKit loop. stop: is observed only after an NSEvent, not
 	 * after a timer or notification callback, so an application-defined event
@@ -50,15 +264,54 @@ class MacOSRunLoopSignal {
 		return true;
 	}
 
-	public void close() {
+	/* UI2 callers use requestClose/pollClose so a callback may initiate close
+	 * without waiting for itself. Native ingress closes before receiver drain. */
+	public CallbackCancellation requestClose() {
 		self.requireMainThread();
-		var queue = self._queue;
-		var notification = self._notification;
-		if (queue == null) { return; }
-		if (notification != null) { queue.dequeueNotificationsMatching(notification, NSNotificationCoalescingOnName | NSNotificationCoalescingOnSender); }
-		self._queue = null;
-		self._notification = null;
+		struct MacOSRunLoopWakeState* state = self._state;
+		if (state == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (state->closed) { return self.pollClose(); }
+		if (pthread_mutex_lock(&state->mutex) != 0) { throw "Cannot close native run-loop wake synchronization"; }
+		state->closed = true;
+		self._registered = false;
+		MacOSRunLoopRegistry.disarmTimer(state);
+		state->deadline = 0ULL;
+		if (state->source != null) {
+			CFRunLoopSourceInvalidate(state->source);
+			CFRelease(state->source);
+			state->source = null;
+		}
+		pthread_mutex_unlock(&state->mutex);
+		var dispatch = self._dispatch;
+		if (dispatch != null) { dispatch.cancel(); }
+		return self.pollClose();
 	}
 
-	public void __del__() { self.close(); }
+	public CallbackCancellation pollClose() {
+		self.requireMainThread();
+		struct MacOSRunLoopWakeState* state = self._state;
+		if (state == null || state->slot < 0) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!state->closed) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var dispatch = self._dispatch;
+		if (dispatch != null) {
+			var result = dispatch.pollCompletion();
+			if (result != CALLBACK_CANCELLATION_COMPLETE) { return result; }
+		}
+		MacOSRunLoopRegistry.remove(state->slot);
+		state->slot = -1;
+		self._dispatch = null;
+		return CALLBACK_CANCELLATION_COMPLETE;
+	}
+
+	/* Compatibility for existing owners that have already drained their scope. */
+	public void close() {
+		if (self.requestClose() != CALLBACK_CANCELLATION_COMPLETE) { throw "Native run-loop callbacks must drain before closing"; }
+	}
+
+	public void __del__() {
+		self.close();
+		var closure = self._closure;
+		if (closure != null) { closure.close(); }
+		self._state = null;
+	}
 }

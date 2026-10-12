@@ -1,3 +1,6 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.IView;
 import Library.Math;
 import Library.Callback;
 import Library.GUI.ILevelIndicator;
@@ -9,13 +12,13 @@ class MacOSLevelIndicator implements ILevelIndicator, IMacOSView {
 	private NSLevelIndicator? _indicator;
 	private MacOSView _view;
 
-	public MacOSLevelIndicator(double warning, double critical) {
+	public MacOSLevelIndicator(double warning, double critical, MacOSControlContext? context = null) {
 		if (!NSThread.isMainThread()) { throw "Native level indicators require the main thread"; }
 		if (!Math.isFinite(warning) || !Math.isFinite(critical) || warning < 0.0 || critical > 1.0 || warning > critical) { throw "Invalid native level thresholds"; }
 		var indicator = NSLevelIndicator.new();
 		if (indicator == null) { throw "Cannot create native level indicator"; }
 		self._indicator = indicator;
-		self._view = MacOSView(indicator);
+		self._view = MacOSView(indicator, context);
 		indicator.setLevelIndicatorStyle(NSLevelIndicatorStyleContinuousCapacity);
 		indicator.setEditable(false);
 		indicator.setMinValue(0.0);
@@ -35,6 +38,8 @@ class MacOSLevelIndicator implements ILevelIndicator, IMacOSView {
 
 	public void attachTo(NSView parent) { self._view.attachTo(parent); }
 
+	public void reconcileAttachment(NSView? parent) { self._view.reconcileAttachment(parent); }
+
 	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
 
 	public bool isOpen() { return self._view.isOpen(); }
@@ -44,6 +49,18 @@ class MacOSLevelIndicator implements ILevelIndicator, IMacOSView {
 	public double fittingHeight() { return self._view.fittingHeight(); }
 
 	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public MacOSViewState interactionOwner() { return self._view.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._view.settleInteraction(); }
+
+	public void publishInteraction() { self._view.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
 
 	public bool isVisible() { return self._view.isVisible(); }
 

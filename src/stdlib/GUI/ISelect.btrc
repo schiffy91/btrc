@@ -1,3 +1,5 @@
+import Library.Callback;
+import Library.GUI.ControlEvents;
 import Library.GUI.IView;
 import Library.Vector;
 
@@ -7,10 +9,19 @@ class SelectTypography {
 	class double maximumSize() { return 20.0; }
 }
 
-/* Selection uses an index so duplicate titles remain distinct. An empty list
- * selects -1. Replacing items and publishing selection do not synthesize input.
+/* Selection is keyed by an owning model snapshot; keys remain stable across
+ * reordering and titles need not be unique. Index methods are the D24 shim over
+ * that snapshot. An empty list selects -1. Model setters never synthesize USER
+ * events; replacement ends an active interaction with one MODEL cancel.
  * Fonts above SelectTypography.maximumSize() points are rejected. */
 interface ISelect extends IView {
+	void setOptions(SelectModel model);
+	SelectModel optionsState();
+	string? selectedKey();
+	void setSelectedKey(string? key);
+	ICallbackRegistration onChanged(ISelectionControlEventHandler handler, CallbackScope owner);
+	ICallbackRegistration onCommit(ISelectionControlEventHandler handler, CallbackScope owner);
+	ICallbackRegistration onCancel(ISelectionControlEventHandler handler, CallbackScope owner);
 	void setItems(Vector<string> titles, int selectedIndex);
 	int itemCount();
 	int selectedIndex();
@@ -22,3 +33,5 @@ interface ISelect extends IView {
 	void setFont(double size);
 	bool isEnabled();
 }
+
+interface ISelectionControlEventHandler { void selectionEvent(SelectionControlEvent event); }

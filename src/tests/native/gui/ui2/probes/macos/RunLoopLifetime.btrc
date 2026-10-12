@@ -1,0 +1,70 @@
+import Library.Callback;
+import Library.OwnedBuffer;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./RunLoopProbe.btrc;
+#include <assert.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+class ClosingReceiver implements IAppKitNotificationObserver {
+	public int calls = 0;
+	private MacOSRunLoopSignal _signal;
+	private CallbackScope _scope;
+
+	public ClosingReceiver(MacOSRunLoopSignal signal, CallbackScope scope) { self._signal = signal; self._scope = scope; }
+
+	public void invoke(NSNotification notification) {
+		self.calls++;
+		assert(self._scope.cancel() == CALLBACK_CANCELLATION_PENDING);
+		assert(self._signal.requestClose() == CALLBACK_CANCELLATION_PENDING);
+	}
+}
+
+int main() {
+	/* Force failure in the real CF factory after registry/POD acquisition.
+	 * Repetition catches leaked registry reservations before successful reuse. */
+	for (int cycle = 0; cycle < 300; cycle++) {
+		assert(setenv("BTRC_TEST_RUN_LOOP_FAIL_SOURCE", "1", 1) == 0);
+		bool failed = false;
+		try { var impossible = MacOSRunLoopSignal(); impossible.close(); }
+		catch (string error) { failed = error.equals("Cannot create native run-loop wake source"); }
+		assert(failed && getenv("BTRC_TEST_RUN_LOOP_FAIL_SOURCE") == null);
+	}
+	/* Cancellation from inside the native-delivered receiver must stay pending
+	 * until that receiver leaves, then permit slot reuse without stale entry. */
+	for (int cycle = 0; cycle < 300; cycle++) {
+		var signal = MacOSRunLoopSignal();
+		var scope = CallbackScope();
+		var receiver = ClosingReceiver(signal, scope);
+		signal.subscribe(receiver, scope);
+		signal.wake();
+		ui2RunLoopTurn(cycle % 2 != 0, 0.1);
+		assert(receiver.calls == 1);
+		assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(signal.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!signal.tryWake());
+	}
+	/* A real worker races native source invalidation. The UI retains the signal
+	 * until join; its closed alias remains safe and never delivers a receiver. */
+	for (int cycle = 0; cycle < 100; cycle++) {
+		var signal = MacOSRunLoopSignal();
+		AtomicBuffer<bool> storage = AtomicBuffer(2);
+		assert(storage.opened());
+		Atomic<bool>* race = storage.borrow();
+		race[0].init(false);
+		race[1].init(false);
+		Thread<int> worker = spawn(() => {
+				race[0].store(true, MemoryOrder.RELEASE);
+				while (!race[1].load(MemoryOrder.ACQUIRE)) { signal.tryWake(); }
+				return signal.tryWake() ? 1 : 0;
+			});
+		while (!race[0].load(MemoryOrder.ACQUIRE)) { usleep(10); }
+		assert(signal.requestClose() == CALLBACK_CANCELLATION_COMPLETE);
+		race[1].store(true, MemoryOrder.RELEASE);
+		assert(worker.join() == 0);
+		storage.close();
+	}
+	print("UI2 wake cancellation, worker close, native allocation failure and slot reuse drain");
+	return 0;
+}

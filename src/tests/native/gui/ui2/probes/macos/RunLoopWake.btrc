@@ -1,0 +1,44 @@
+import Library.Callback;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./RunLoopProbe.btrc;
+#include <assert.h>
+#include <unistd.h>
+
+class RunLoopReceiver implements IAppKitNotificationObserver {
+	public int calls = 0;
+	public bool mainThread = false;
+
+	public void invoke(NSNotification notification) {
+		self.mainThread = ui2RunLoopIsMainThread();
+		self.calls++;
+	}
+}
+
+int main() {
+	/* Exercise both idle default dispatch and a native tracking-mode turn.
+	 * No timer polls the publisher and no fixture source forwards its wake. */
+	for (int tracking = 0; tracking < 2; tracking++) {
+		var signal = MacOSRunLoopSignal();
+		var receiver = RunLoopReceiver();
+		var scope = CallbackScope();
+		signal.subscribe(receiver, scope);
+		Thread<int> worker = spawn(() => {
+				usleep(10000);
+				try { signal.wake(); }
+				catch (string error) { return 1; }
+				return 0;
+			});
+		assert(receiver.calls == 0);
+		ui2RunLoopTurn(tracking != 0, 1.0);
+		assert(worker.join() == 0);
+		assert(receiver.calls == 1 && receiver.mainThread);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		signal.wake();
+		ui2RunLoopTurn(tracking != 0, 0.01);
+		assert(receiver.calls == 1);
+		signal.close();
+	}
+	print("UI2 worker wakes idle default and tracking run-loop modes without polling");
+	return 0;
+}

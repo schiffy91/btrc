@@ -240,7 +240,7 @@ links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "
 implementation = "implemented"
 parity = "equivalent"
 configuration = "AppKit native provider"
-note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeGUI.btrc verifyActions: callbacks are deferred, deliver [1,2,1], respect cancellation and finish callback-scope cleanup."
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeGUI.btrc verifyActions: callbacks are deferred, deliver [1,2,1], respect cancellation and finish callback-scope cleanup. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
@@ -248,7 +248,7 @@ regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_
 implementation = "implemented"
 parity = "equivalent"
 configuration = "AppKit native provider"
-note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeGUI.btrc verifyActions: callbacks are deferred, deliver [1,2,1], respect cancellation and finish callback-scope cleanup."
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeGUI.btrc verifyActions: callbacks are deferred, deliver [1,2,1], respect cancellation and finish callback-scope cleanup. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
@@ -256,7 +256,7 @@ regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_
 implementation = "custom"
 parity = "adapted"
 configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc Journey: synthetic pointer press/release invokes the registered counter exactly once at step 4."
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc Journey: synthetic pointer press/release invokes the registered counter exactly once at step 4. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
@@ -264,26 +264,26 @@ regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_c
 implementation = "custom"
 parity = "adapted"
 configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc Journey: synthetic pointer press/release invokes the registered counter exactly once at step 4."
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc Journey: synthetic pointer press/release invokes the registered counter exactly once at step 4. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
 [operations.windows]
 implementation = "missing"
 parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
 [operations.android]
 implementation = "missing"
 parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
 
@@ -401,7 +401,7 @@ links = ["N05", "N11", "N34", "UI2", "UI3", "UI4", "UI7", "E06", "E13", "E15", "
 implementation = "implemented"
 parity = "equivalent"
 configuration = "AppKit native provider"
-note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders."
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeButtons-ordered native button actions-True]"]
@@ -409,7 +409,7 @@ regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_
 implementation = "implemented"
 parity = "equivalent"
 configuration = "AppKit native provider"
-note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders."
+note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: NativeButtons.btrc ButtonInput.click: disabled activation returns false without enqueueing; enabled activation yields ordered senders. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
@@ -417,32 +417,32 @@ regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_
 implementation = "custom"
 parity = "adapted"
 configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
 run = "cx-uia-04-source"
 [operations.linux.selfhost]
 implementation = "custom"
 parity = "adapted"
 configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
+note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
 run = "cx-uia-04-source"
 [operations.windows]
 implementation = "missing"
 parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
 [operations.android]
 implementation = "missing"
 parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
+note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
 

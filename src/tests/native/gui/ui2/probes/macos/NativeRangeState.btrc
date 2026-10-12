@@ -1,0 +1,76 @@
+import Library.Callback;
+import Library.Math;
+import Library.GUI.ControlEvents;
+import Library.GUI.ISlider;
+import Library.GUI.MacOS.MacOSSlider;
+
+import ./RunLoopProbe.btrc;
+#include <assert.h>
+#include <math.h>
+#include <float.h>
+
+class RangeAssertions {
+	class SliderRange range(double minimum, double maximum, double step) {
+		var range = SliderRange(); range.minimum = minimum; range.maximum = maximum; range.step = step; return range;
+	}
+
+	class void same(double actual, double expected) { assert(Math.absDouble(actual - expected) < 0.00000001); }
+
+	class void unchanged(ISlider slider, SliderRange before, double value) {
+		var after = slider.range();
+		assert(after.minimum == before.minimum && after.maximum == before.maximum && after.step == before.step);
+		assert(slider.value() == value);
+	}
+}
+
+int main() {
+	ui2InitializeAppKit();
+	// Logical interval count is independent of native tick density.
+	for (int intervals = 999; intervals <= 1001; intervals++) {
+		var native = MacOSSlider(0.0, 1001.0, intervals); ISlider slider = native;
+		var range = slider.range(); assert(range.minimum == 0.0 && range.maximum == 1001.0);
+		RangeAssertions.same(range.step, 1001.0 / (double)intervals);
+		assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+	bool underflowRejected = false;
+	double tiny = DBL_MIN / 4503599627370496.0;
+	assert(tiny > 0.0 && tiny / 2.0 == 0.0);
+	try { var invalid = MacOSSlider(0.0, tiny, 2); invalid.close(); }
+	catch (string error) { underflowRejected = !error.isEmpty(); }
+	assert(underflowRejected);
+	var native = MacOSSlider(0.0, 10.0); ISlider slider = native;
+	slider.setRange(0.0, 10.0, 3.0);
+	slider.setValue(1.5); assert(slider.value() == 3.0); // Ties go upward.
+	slider.setValue(9.6); assert(slider.value() == 10.0); // Extra maximum endpoint.
+	slider.setValue(9.5); assert(slider.value() == 10.0);
+	slider.setValue(9.4); assert(slider.value() == 9.0);
+	var retained = slider.range(); retained.step = 7.0;
+	assert(slider.range().step == 3.0); // Owning snapshot, not mutable authority.
+	slider.setRangeValue(RangeAssertions.range(-5.0, 5.0, 0.0), -1.25);
+	assert(slider.value() == -1.25 && slider.range().step == 0.0);
+	var before = slider.range(); double beforeValue = slider.value(); bool rejected = false;
+	try { slider.setRangeValue(RangeAssertions.range(0.0, 4.0, 1.0), 5.0); }
+	catch (string error) { rejected = !error.isEmpty(); }
+	assert(rejected); RangeAssertions.unchanged(slider, before, beforeValue);
+	rejected = false;
+	try { slider.setRange(5.0, -5.0, 1.0); } catch (string error) { rejected = !error.isEmpty(); }
+	assert(rejected); RangeAssertions.unchanged(slider, before, beforeValue);
+	rejected = false;
+	try { slider.setRange(0.0, 10.0, -1.0); } catch (string error) { rejected = !error.isEmpty(); }
+	assert(rejected); RangeAssertions.unchanged(slider, before, beforeValue);
+	rejected = false;
+	try { slider.setRange(-1.0e308, 1.0e308, 0.0); } catch (string error) { rejected = !error.isEmpty(); }
+	assert(rejected); RangeAssertions.unchanged(slider, before, beforeValue);
+	rejected = false;
+	try { slider.setRange(1.0e16, 1.0e16 + 100.0, 0.1); } catch (string error) { rejected = !error.isEmpty(); }
+	assert(rejected); RangeAssertions.unchanged(slider, before, beforeValue);
+	rejected = false;
+	try { slider.setValue((double)NAN); } catch (string error) { rejected = !error.isEmpty(); }
+	assert(rejected); RangeAssertions.unchanged(slider, before, beforeValue);
+	slider.setRange(2.0, 2.0, 0.0); assert(slider.value() == 2.0);
+	slider.setRangeValue(RangeAssertions.range(-10.0, 10.0, 4.0), 0.0); assert(slider.value() == 2.0);
+	slider.setRange(-1.0, 1.0, 0.0); assert(slider.value() == 1.0);
+	assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+	print("PASS: native slider authoritative range and validation");
+	return 0;
+}

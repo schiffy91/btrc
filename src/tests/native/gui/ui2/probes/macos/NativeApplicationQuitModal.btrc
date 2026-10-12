@@ -1,0 +1,78 @@
+import Library.Callback;
+import Library.Timer;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.ITextField;
+import Library.GUI.MacOS.MacOSApplication;
+
+import ./ApplicationQuitProbe.btrc;
+import ./ApplicationQuitModal.btrc;
+#include <assert.h>
+
+class ModalQuitDecision implements IWindowCloseRequestHandler {
+	public int calls = 0;
+	public IWindowCloseTransaction? transaction = null;
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		assert(self.calls == 0 && transaction.state() == WINDOW_CLOSE_AWAITING_DECISION);
+		self.calls++; self.transaction = transaction;
+	}
+}
+
+class ModalQuitJourney implements IApplicationWork {
+	private IApplication _application;
+	private IWindow _first;
+	private IWindow _second;
+	private ModalQuitDecision _firstDecision;
+	private ModalQuitDecision _secondDecision;
+	private Timer _deadline = Timer();
+	private int _step = 0;
+	public bool observed = false;
+	public ModalQuitJourney(IApplication application, IWindow first, IWindow second, ModalQuitDecision firstDecision, ModalQuitDecision secondDecision) {
+		self._application = application; self._first = first; self._second = second;
+		self._firstDecision = firstDecision; self._secondDecision = secondDecision; self._deadline.start();
+	}
+
+	public void run() {
+		assert(self._deadline.elapsed() < 10.0f);
+		assert(self._first.isOpen() && self._second.isOpen() && self._first.root() != null && self._second.root() != null);
+		if (self._step == 0) {
+			/* The native timer only calls terminate. There is no direct-quit
+			 * fallback to hide a blocked outer application receiver. */
+			assert(ui2RunNativeQuitModal());
+			assert(self._firstDecision.calls == 0 && self._secondDecision.calls == 0);
+			assert(self._first.isOpen() && self._second.isOpen()); self._step = 1;
+		} else {
+			var first = self._firstDecision.transaction; var second = self._secondDecision.transaction;
+			if (first != null && second != null) {
+				if (self._step == 1) {
+					assert(first.decide(WINDOW_CLOSE_DECISION_DISCARD, 1LL).state == WINDOW_CLOSE_AUTHORIZED);
+					assert(second.decide(WINDOW_CLOSE_DECISION_CANCEL, 2LL).state == WINDOW_CLOSE_CANCELLED); self._step = 2;
+				} else if (first.state() == WINDOW_CLOSE_CANCELLED) {
+					assert(self._firstDecision.calls == 1 && self._secondDecision.calls == 1);
+					assert(self._first.isOpen() && self._second.isOpen());
+					self.observed = true; self._application.requestQuit(); return;
+				}
+			}
+		}
+		self._application.postAfter(0.001, self);
+	}
+}
+
+int main() {
+	IApplication application = MacOSApplication(32);
+	var first = application.createWindow("UI2 native quit modal", 240.0, 140.0);
+	var second = application.createWindow("UI2 native quit modal peer", 240.0, 140.0);
+	var firstRoot = application.createContainer(); var secondRoot = application.createContainer();
+	var firstField = application.createTextField("modal draft", "Modal"); var secondField = application.createTextField("peer draft", "Peer");
+	firstRoot.attach(firstField); secondRoot.attach(secondField); first.attachRoot(firstRoot); second.attachRoot(secondRoot); first.show(); second.show();
+	var scope = CallbackScope(); var firstDecision = ModalQuitDecision(); var secondDecision = ModalQuitDecision();
+	first.onCloseRequested(firstDecision, scope); second.onCloseRequested(secondDecision, scope);
+	var journey = ModalQuitJourney(application, first, second, firstDecision, secondDecision); application.post(journey); application.run();
+	assert(journey.observed && ui2NativeApplicationQuitRequests() == 1);
+	assert(first.root() == null && second.root() == null && !firstField.isOpen() && !secondField.isOpen());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	print("UI2 native quit unwinds modal receivers before deferred cancellable decisions");
+	return 0;
+}

@@ -1,0 +1,2 @@
+extern bool ui2RequestNativeApplicationQuit();
+extern int ui2NativeApplicationQuitRequests();

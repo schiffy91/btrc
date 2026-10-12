@@ -1,0 +1,87 @@
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSExecutor;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class CountWork implements IApplicationWork {
+	public int calls = 0;
+	public void run() { self.calls++; }
+}
+
+class RepostingWork implements IApplicationWork {
+	public int calls = 0;
+	private MacOSWorkQueue _queue;
+	public RepostingWork(MacOSWorkQueue queue) { self._queue = queue; }
+
+	public void run() { self.calls++; if (self.calls < 3) { self._queue.post(self); } }
+}
+
+class QueueHostWake implements IControlEventWake {
+	public int requests = 0;
+	public bool fail = false;
+	public bool requestTurn() { self.requests++; if (self.fail) { throw "Work host wake failed"; } return true; }
+}
+
+class HostWakeQueue {
+	class void run(MacOSRunLoopSignal signal) {
+		var wake = QueueHostWake(); var queue = MacOSWorkQueue(2, signal, wake);
+		var work = CountWork(); var result = queue.schedule(work, 10.0, WORK_SUSPENSION_DEFER, 0LL);
+		var registration = result.registration;
+		if (registration == null) { throw "Host wake fixture work was not accepted"; }
+		assert(wake.requests == 1 && work.calls == 0);
+		assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE && wake.requests == 2);
+		assert(queue.nextDeadline() == 0ULL);
+		wake.fail = true;
+		result = queue.schedule(work, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+		assert(result.kind == SCHEDULE_ACCEPTED && queue.failed());
+		assert(work.calls == 0 && queue.retired(CONTROL_EVENT_FAILED) == 1LL);
+		assert(queue.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+int main() {
+	var signal = MacOSRunLoopSignal();
+	HostWakeQueue.run(signal);
+	var queue = MacOSWorkQueue(2, signal);
+	var first = CountWork();
+	var second = CountWork();
+	var later = CountWork();
+	var delayed = queue.schedule(later, 10.0, WORK_SUSPENSION_DEFER, 0LL);
+	assert(delayed.kind == SCHEDULE_ACCEPTED && delayed.registration != null);
+	queue.post(first);
+	assert(queue.schedule(second, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_FULL);
+	assert(first.calls == 0 && later.calls == 0);
+	var registration = delayed.registration;
+	if (registration == null) { throw "Accepted delayed work has no registration"; }
+	assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	queue.post(second);
+	long long round = queue.beginRound();
+	assert(queue.serviceOne(round) && queue.serviceOne(round) && !queue.serviceOne(round));
+	assert(first.calls == 1 && second.calls == 1 && later.calls == 0);
+
+	var repeat = RepostingWork(queue);
+	queue.post(repeat);
+	for (int expected = 1; expected <= 3; expected++) {
+		round = queue.beginRound();
+		assert(queue.serviceOne(round));
+		assert(!queue.serviceOne(round));
+		assert(repeat.calls == expected);
+	}
+	queue.suspend(true);
+	assert(queue.schedule(first, 0.0, WORK_SUSPENSION_CANCEL, 0LL).kind == SCHEDULE_CANCELLED);
+	assert(queue.schedule(first, 0.0, WORK_SUSPENSION_REPLACE, 7LL).kind == SCHEDULE_ACCEPTED);
+	assert(queue.schedule(second, 0.0, WORK_SUSPENSION_REPLACE, 7LL).kind == SCHEDULE_REPLACED);
+	assert(!queue.serviceOne(queue.beginRound()));
+	queue.suspend(false);
+	assert(queue.serviceOne(queue.beginRound()));
+	assert(first.calls == 1 && second.calls == 2);
+	assert(queue.retired(CONTROL_EVENT_SUPERSEDED) == 1LL);
+	assert(queue.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(queue.schedule(first, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_CLOSED);
+	signal.close();
+	print("UI2 scheduled work shares capacity, preserves rounds and applies suspension policy");
+	return 0;
+}

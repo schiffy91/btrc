@@ -21,7 +21,12 @@ class GUIProvider {
 
 	class IApplication createApplication(int workCapacity) { return MacOSApplication(workCapacity); }
 
-	class DirectoryPickerOutcome chooseDirectory(IApplication application, DirectoryPickerRequest request) { return MacOSDirectoryPicker().chooseDirectory(request); }
+	class DirectoryPickerOutcome chooseDirectory(IApplication application, DirectoryPickerRequest request) {
+		var native = (MacOSApplication?)application;
+		if (native == null) { throw "Directory picker belongs to another GUI application"; }
+		native.requireNoCloseDecision();
+		return MacOSDirectoryPicker().chooseDirectory(request);
+	}
 
 	/* Conversion may run on a worker; it needs no initialized application. */
 	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { return MacOSImageHandle.create(pixels, maximumPixels); }

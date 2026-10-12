@@ -1,0 +1,268 @@
+import Library.Callback;
+import Library.App;
+import Library.GUI.IApplication;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSContainer;
+
+import ./ApplicationHostProbe.btrc;
+#include <assert.h>
+
+/* Test-host requestTurn only records a plain atomic wake. It never services
+ * application work on the producer's stack or owns an application receiver. */
+class PublicTestHost implements IApplicationHost {
+	private Atomic<int> _requests;
+	public unsigned long long deadline = 0ULL;
+	public PublicTestHost() { self._requests.init(0); }
+
+	public bool requestTurn() { self._requests.fetchAdd(1, MemoryOrder.RELAXED); return true; }
+
+	public void scheduleTurn(unsigned long long deadline) { self.deadline = deadline; }
+
+	public int requests() { return self._requests.load(MemoryOrder.ACQUIRE); }
+}
+
+class PublicFailingHost implements IApplicationHost {
+	public int requests = 0;
+	public bool throwWake = false;
+	public bool throwDeadline = false;
+	public bool requestTurn() { self.requests++; if (self.throwWake) { throw "Host wake failure"; } return self.throwDeadline; }
+
+	public void scheduleTurn(unsigned long long deadline) { if (self.throwDeadline) { throw "Host deadline failure"; } }
+}
+
+class PublicCountWork implements IApplicationWork {
+	public int calls = 0;
+	public void run() { self.calls++; }
+}
+
+class PublicRepostingWork implements IApplicationWork {
+	private IApplication _application;
+	private IApplicationHostAttachment _attachment;
+	public int calls = 0;
+	public PublicRepostingWork(IApplication application, IApplicationHostAttachment attachment) { self._application = application; self._attachment = attachment; }
+
+	public void run() {
+		self.calls++;
+		if (self.calls == 1) {
+			self._application.post(self);
+			self._attachment.serviceTurn();
+			assert(self.calls == 1);
+		}
+	}
+}
+
+class PublicPublicationReceiver implements IApplicationPublicationHandler {
+	public int calls = 0;
+	public long long payload = 0LL;
+	public void deliver(ApplicationPublication publication) { self.calls++; self.payload = publication.payload; }
+}
+
+class PublicStateReceiver implements IViewInteractionStateHandler {
+	public int calls = 0;
+	public bool visible = true;
+	public void interactionChanged(ViewInteractionState state) { self.calls++; self.visible = state.localVisible; }
+}
+
+class PublicWindowStateReceiver implements IWindowStateHandler {
+	public int calls = 0;
+	public void stateChanged(WindowState state) { self.calls++; }
+}
+
+class PublicWindowCloseReceiver implements IWindowCloseRequestHandler {
+	public int calls = 0;
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		self.calls++;
+		assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 0LL).kind == WINDOW_CLOSE_OUTCOME_APPLIED);
+	}
+}
+
+class PublicClosingWork implements IApplicationWork {
+	private IApplication _application;
+	public bool returned = false;
+	public PublicClosingWork(IApplication application) { self._application = application; }
+
+	public void run() { assert(self._application.close() == CALLBACK_CANCELLATION_PENDING); self.returned = true; }
+}
+
+class PublicNativeReentry implements IViewPointerHandler, IWindowKeyHandler {
+	private IApplication _application;
+	private IApplicationHostAttachment _attachment;
+	private PublicCountWork _work;
+	public int calls = 0;
+	public PublicNativeReentry(IApplication application, IApplicationHostAttachment attachment, PublicCountWork work) { self._application = application; self._attachment = attachment; self._work = work; }
+
+	private void entered() {
+		self.calls++; self._application.post(self._work);
+		self._attachment.serviceTurn(); assert(self._work.calls == 0);
+		assert(self._application.close() == CALLBACK_CANCELLATION_PENDING);
+		assert(self._attachment.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
+	}
+
+	public bool pointer(AppPointerEvent event) { if (event.action == APP_POINTER_PRESSED) { self.entered(); return true; } return false; }
+
+	public bool key(AppKeyboardEvent event) { self.entered(); return true; }
+}
+
+class PublicNativeCallbackCases {
+	class void run() {
+		for (int kind = 0; kind < 2; kind++) {
+			IApplication application = MacOSApplication(2); var host = PublicTestHost(); var scope = CallbackScope();
+			var attached = application.attachHost(host, scope); var attachment = attached.attachment;
+			if (attachment == null) { throw "Native callback fixture did not attach"; }
+			var window = application.createWindow("UI2 host input guard", 160.0, 100.0);
+			var view = application.createContainer(); window.attachRoot(view); view.arrange(0.0, 0.0, 160.0, 100.0); window.show();
+			var work = PublicCountWork(); var receiver = PublicNativeReentry(application, attachment, work);
+			if (kind == 0) { view.onPointer(receiver, scope); } else { window.onKey(receiver, scope); }
+			assert(ui2DispatchHostInput(kind)); assert(receiver.calls == 1 && work.calls == 0);
+			assert(application.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+			assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+			assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && ui2HostDelegateUnchanged());
+		}
+	}
+}
+
+class PublicAttachmentFailures {
+	class void run() {
+		for (int throwing = 0; throwing < 2; throwing++) {
+			IApplication application = MacOSApplication(2);
+			var work = PublicCountWork(); application.post(work);
+			var owner = CallbackScope(); var rejected = PublicFailingHost(); rejected.throwWake = throwing != 0;
+			assert(application.attachHost(rejected, owner).kind == APPLICATION_HOST_ATTACH_FAILED);
+			assert(!application.isRunning() && work.calls == 0 && ui2HostDelegateUnchanged());
+			var closed = CallbackScope(); assert(closed.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+			var host = PublicTestHost();
+			assert(application.attachHost(host, closed).kind == APPLICATION_HOST_ATTACH_FAILED);
+			assert(host.requests() == 0 && !application.isRunning());
+			var attached = application.attachHost(host, owner); var attachment = attached.attachment;
+			if (attachment == null) { throw "Retry did not publish a host attachment"; }
+			assert(attached.kind == APPLICATION_HOST_ATTACHED);
+			attachment.serviceTurn(); assert(work.calls == 1);
+			assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+			assert(application.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !application.isRunning());
+			assert(ui2HostDelegateUnchanged());
+		}
+		IApplication failed = MacOSApplication(2);
+		var owner = CallbackScope(); var host = PublicFailingHost(); host.throwDeadline = true;
+		var attached = failed.attachHost(host, owner); var attachment = attached.attachment;
+		if (attachment == null) { throw "Deadline failure fixture did not attach"; }
+		var work = PublicCountWork(); failed.post(work);
+		attachment.serviceTurn();
+		assert(work.calls == 1 && failed.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_FAILED);
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && owner.pendingCount() == 0);
+		assert(attachment.cancel() == CALLBACK_CANCELLATION_FAILED && attachment.pollCompletion() == CALLBACK_CANCELLATION_FAILED);
+		assert(ui2HostDelegateUnchanged());
+	}
+}
+
+int main() {
+	ui2InstallHostDelegate();
+	PublicAttachmentFailures.run();
+	PublicNativeCallbackCases.run();
+	var independent = MacOSContainer();
+	IApplication application = MacOSApplication(2);
+	assert(ui2HostDelegateUnchanged() && !application.isRunning());
+	var host = PublicTestHost();
+	var scope = CallbackScope();
+	var attached = application.attachHost(host, scope);
+	assert(attached.kind == APPLICATION_HOST_ATTACHED);
+	var attachment = attached.attachment;
+	if (attachment == null) { throw "Successful public host attachment has no registration"; }
+	assert(application.isRunning() && ui2HostDelegateUnchanged());
+	assert(application.attachHost(host, scope).kind == APPLICATION_HOST_ALREADY_ATTACHED);
+	bool runRejected = false;
+	try { application.run(); } catch (string error) { runRejected = true; }
+	assert(runRejected && attachment.isOpen());
+
+	var first = PublicCountWork(); var later = PublicCountWork();
+	var delayed = application.schedule(later, 10.0, WORK_SUSPENSION_DEFER, 0LL);
+	assert(delayed.kind == SCHEDULE_ACCEPTED);
+	var delayedRegistration = delayed.registration;
+	if (delayedRegistration == null) { throw "Accepted public scheduled work has no registration"; }
+	application.post(first);
+	assert(application.schedule(first, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_FULL);
+	assert(first.calls == 0 && later.calls == 0);
+	attachment.serviceTurn();
+	assert(first.calls == 1 && later.calls == 0 && host.deadline > 0ULL);
+	assert(delayedRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	attachment.serviceTurn();
+	assert(host.deadline == 0ULL && later.calls == 0);
+
+	var repeat = PublicRepostingWork(application, attachment);
+	application.post(repeat); attachment.serviceTurn();
+	assert(repeat.calls == 1);
+	attachment.serviceTurn(); assert(repeat.calls == 2);
+
+	attachment.transition(APPLICATION_ACTIVITY_SUSPENDED);
+	assert(application.schedule(first, 0.0, WORK_SUSPENSION_CANCEL, 0LL).kind == SCHEDULE_CANCELLED);
+	assert(application.schedule(first, 0.0, WORK_SUSPENSION_REPLACE, 7LL).kind == SCHEDULE_ACCEPTED);
+	assert(application.schedule(later, 0.0, WORK_SUSPENSION_REPLACE, 7LL).kind == SCHEDULE_REPLACED);
+	attachment.serviceTurn(); assert(first.calls == 1 && later.calls == 0);
+	attachment.transition(APPLICATION_ACTIVITY_ACTIVE);
+	attachment.serviceTurn(); attachment.serviceTurn();
+	assert(first.calls == 1 && later.calls == 1);
+
+	var receiver = PublicPublicationReceiver();
+	var publication = application.createPublisher(2, receiver, scope);
+	assert(publication.kind == APPLICATION_PUBLISHER_CREATED);
+	var publisher = publication.publisher;
+	var publisherRegistration = publication.registration;
+	if (publisher == null || publisherRegistration == null) { throw "Created public publisher has no owned route"; }
+	IApplicationPublisher workerPublisher = publisher;
+	int previousRequests = host.requests();
+	Thread<int> producer = spawn(() => { return workerPublisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 37LL) == PUBLISH_ACCEPTED ? 0 : 1; });
+	assert(producer.join() == 0 && receiver.calls == 0 && host.requests() > previousRequests);
+	attachment.serviceTurn();
+	assert(receiver.calls == 1 && receiver.payload == 37LL);
+	assert(publisherRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+
+	/* The real public factory must share the application's semantic context.
+	 * No fixture reaches into a queue or invokes the observer itself. */
+	var view = application.createContainer();
+	bool foreignRejected = false;
+	try { view.attach(independent); } catch (string error) { foreignRejected = true; }
+	assert(foreignRejected && view.childCount() == 0 && independent.isOpen());
+	var stateReceiver = PublicStateReceiver();
+	view.onInteractionStateChanged(stateReceiver, scope);
+	view.setVisible(false);
+	assert(stateReceiver.calls == 0);
+	attachment.serviceTurn();
+	assert(stateReceiver.calls == 1 && !stateReceiver.visible);
+
+	var window = application.createWindow("UI2 attached host state", 160.0, 100.0);
+	view.setVisible(true); window.attachRoot(view); window.show();
+	attachment.transition(APPLICATION_ACTIVITY_SUSPENDED);
+	var suspended = window.state();
+	assert(suspended.applicationActivity == APPLICATION_ACTIVITY_SUSPENDED && !suspended.presentable);
+	assert(!view.interactionState().effectiveEligible);
+	attachment.transition(APPLICATION_ACTIVITY_ACTIVE);
+	assert(window.state().applicationActivity == APPLICATION_ACTIVITY_ACTIVE);
+	assert(view.interactionState().effectiveEligible);
+
+	/* One state observation precedes one terminal record in the real window
+	 * queue. A bounded turn must wake the host for the residual terminal. */
+	attachment.serviceTurn();
+	var windowStates = PublicWindowStateReceiver(); var windowClose = PublicWindowCloseReceiver();
+	window.onStateChanged(windowStates, scope); window.onCloseRequested(windowClose, scope);
+	window.setContentSize(170.0, 110.0);
+	assert(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_PENDING);
+	int beforeResidual = host.requests();
+	attachment.serviceTurn();
+	assert(windowStates.calls == 1 && windowClose.calls == 0 && host.requests() > beforeResidual);
+	attachment.serviceTurn(); assert(windowClose.calls == 1 && window.isOpen());
+
+	var closing = PublicClosingWork(application);
+	application.post(closing); attachment.serviceTurn();
+	assert(closing.returned);
+	assert(application.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && !application.isRunning());
+	assert(!view.isOpen() && ui2HostDelegateUnchanged());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(application.attachHost(host, scope).kind == APPLICATION_HOST_APPLICATION_CLOSED);
+	assert(independent.isOpen() && independent.close() == CALLBACK_CANCELLATION_COMPLETE);
+	ui2RestoreHostDelegate();
+	print("UI2 public application host shares bounded work, worker ingress and native view delivery");
+	return 0;
+}

@@ -1,0 +1,166 @@
+import Library.Callback;
+import Library.Timer;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.ITextField;
+import Library.GUI.IContainer;
+import Library.GUI.MacOS.MacOSApplication;
+
+import ./ApplicationQuitProbe.btrc;
+#include <assert.h>
+#include <stdio.h>
+
+class NativeQuitDecision implements IWindowCloseRequestHandler {
+	public int calls = 0;
+	public IWindowCloseTransaction? transaction = null;
+	public void closeRequested(IWindowCloseTransaction value) {
+		self.calls++;
+		assert(self.calls == 1 && self.transaction == null);
+		assert(value.state() == WINDOW_CLOSE_AWAITING_DECISION);
+		self.transaction = value;
+	}
+}
+
+class NativeQuitWork implements IApplicationWork {
+	public int calls = 0;
+	public void run() { self.calls++; }
+}
+
+class NativeQuitPublication implements IApplicationPublicationHandler {
+	public int calls = 0;
+	public void deliver(ApplicationPublication value) {
+		assert(value.generation == 1LL && value.sequence == 1LL && value.payload == 71LL);
+		self.calls++;
+	}
+}
+
+class NativeQuitJourney implements IApplicationWork {
+	private IApplication _application;
+	private IWindow _first;
+	private IWindow _second;
+	private ITextField _firstField;
+	private ITextField _secondField;
+	private NativeQuitDecision _firstDecision;
+	private NativeQuitDecision _secondDecision;
+	private NativeQuitWork _work;
+	private NativeQuitPublication _publication;
+	private IApplicationPublisher _publisher;
+	private Timer _deadline = Timer();
+	private int _step = 0;
+	public bool nativeReturned = false;
+	public bool cancellationObserved = false;
+
+	public NativeQuitJourney(IApplication application, IWindow first, IWindow second, ITextField firstField, ITextField secondField, NativeQuitDecision firstDecision, NativeQuitDecision secondDecision, NativeQuitWork work, NativeQuitPublication publication, IApplicationPublisher publisher) {
+		self._application = application; self._first = first; self._second = second;
+		self._firstField = firstField; self._secondField = secondField;
+		self._firstDecision = firstDecision; self._secondDecision = secondDecision;
+		self._work = work; self._publication = publication; self._publisher = publisher;
+		self._deadline.start();
+	}
+
+	private void requireDrafts() {
+		assert(self._first.isOpen() && self._second.isOpen());
+		assert(self._firstField.isOpen() && self._secondField.isOpen());
+		assert(self._firstField.text().equals("first retained draft"));
+		assert(self._secondField.text().equals("second retained draft"));
+	}
+
+	public void run() {
+		assert(self._deadline.elapsed() < 10.0f);
+		self.requireDrafts();
+		if (self._step == 0) {
+			assert(self._firstDecision.calls == 0 && self._secondDecision.calls == 0);
+			/* Queue this continuation before native capture. The old provider seals
+			 * it during terminate; the candidate must keep normal ingress alive. */
+			self._step = 1;
+			self._application.postAfter(0.001, self);
+			assert(ui2RequestNativeApplicationQuit());
+			self.nativeReturned = true;
+			assert(self._firstDecision.calls == 0 && self._secondDecision.calls == 0);
+			self.requireDrafts();
+			return;
+		}
+		var first = self._firstDecision.transaction;
+		var second = self._secondDecision.transaction;
+		if (first == null || second == null) { self._application.postAfter(0.001, self); return; }
+		if (self._step == 1) {
+			assert(self._firstDecision.calls == 1 && self._secondDecision.calls == 1);
+			assert(first.state() == WINDOW_CLOSE_AWAITING_DECISION && second.state() == WINDOW_CLOSE_AWAITING_DECISION);
+			/* Repeat while the group is pending, never after cancellation. */
+			assert(ui2RequestNativeApplicationQuit());
+			assert(self._firstDecision.transaction == first && self._secondDecision.transaction == second);
+			self._step = 2;
+			self._application.postAfter(0.001, self);
+			return;
+		}
+		if (self._step == 2) {
+			assert(self._firstDecision.calls == 1 && self._secondDecision.calls == 1);
+			var authorized = first.decide(WINDOW_CLOSE_DECISION_DISCARD, 17LL);
+			assert(authorized.kind == WINDOW_CLOSE_OUTCOME_APPLIED && authorized.state == WINDOW_CLOSE_AUTHORIZED);
+			self.requireDrafts();
+			self._application.post(self._work);
+			assert(self._publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 71LL) == PUBLISH_ACCEPTED);
+			var cancelled = second.decide(WINDOW_CLOSE_DECISION_CANCEL, 23LL);
+			assert(cancelled.kind == WINDOW_CLOSE_OUTCOME_APPLIED && cancelled.state == WINDOW_CLOSE_CANCELLED);
+			assert(self._work.calls == 0 && self._publication.calls == 0);
+			self.requireDrafts();
+			self._step = 3;
+			self._application.postAfter(0.001, self);
+			return;
+		}
+		if (first.state() != WINDOW_CLOSE_CANCELLED || self._work.calls == 0 || self._publication.calls == 0) {
+			self._application.postAfter(0.001, self); return;
+		}
+		assert(first.state() == WINDOW_CLOSE_CANCELLED && second.state() == WINDOW_CLOSE_CANCELLED);
+		assert(self._work.calls == 1 && self._publication.calls == 1);
+		assert(self._firstDecision.calls == 1 && self._secondDecision.calls == 1);
+		assert(ui2NativeApplicationQuitRequests() == 2);
+		self.requireDrafts();
+		self.cancellationObserved = true;
+		/* Only this explicit irreversible request may now destroy the drafts. */
+		self._application.requestQuit();
+		self.requireDrafts();
+	}
+}
+
+int main() {
+	IApplication application = MacOSApplication(32);
+	var first = application.createWindow("UI2 quit first", 300.0, 180.0);
+	var second = application.createWindow("UI2 quit second", 300.0, 180.0);
+	var firstRoot = application.createContainer();
+	var secondRoot = application.createContainer();
+	var firstField = application.createTextField("first retained draft", "First");
+	var secondField = application.createTextField("second retained draft", "Second");
+	firstRoot.attach(firstField); secondRoot.attach(secondField);
+	first.attachRoot(firstRoot); second.attachRoot(secondRoot);
+	firstField.arrange(10.0, 10.0, 260.0, firstField.fittingHeight());
+	secondField.arrange(10.0, 10.0, 260.0, secondField.fittingHeight());
+	first.show(); second.show();
+	var scope = CallbackScope();
+	var firstDecision = NativeQuitDecision();
+	var secondDecision = NativeQuitDecision();
+	first.onCloseRequested(firstDecision, scope);
+	second.onCloseRequested(secondDecision, scope);
+	var work = NativeQuitWork();
+	var publication = NativeQuitPublication();
+	var published = application.createPublisher(2, publication, scope);
+	var publisher = published.publisher;
+	assert(published.kind == APPLICATION_PUBLISHER_CREATED && publisher != null);
+	if (publisher == null) { throw "Native quit fixture requires publisher admission"; }
+	var journey = NativeQuitJourney(application, first, second, firstField, secondField, firstDecision, secondDecision, work, publication, publisher);
+	application.post(journey);
+	application.run();
+	fprintf(stderr, "Native quit result: requests=%d returned=%d firstDecisions=%d secondDecisions=%d cancelled=%d\n", ui2NativeApplicationQuitRequests(), journey.nativeReturned ? 1 : 0, firstDecision.calls, secondDecision.calls, journey.cancellationObserved ? 1 : 0);
+	assert(journey.nativeReturned && ui2NativeApplicationQuitRequests() > 0);
+	/* Exact old-source predicate: native quit returned without allowing the
+	 * dirty-window decisions and their cancellation to preserve both drafts. */
+	assert(journey.cancellationObserved);
+	assert(!application.isRunning() && !first.isOpen() && !second.isOpen());
+	assert(first.root() == null && second.root() == null);
+	assert(!firstRoot.isOpen() && !secondRoot.isOpen() && !firstField.isOpen() && !secondField.isOpen());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	print("UI2 native application quit preserves all dirty windows when one decision cancels");
+	return 0;
+}

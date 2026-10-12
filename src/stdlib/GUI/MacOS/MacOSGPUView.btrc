@@ -1,3 +1,6 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.IView;
 import Library.Callback;
 import Library.Console;
 import Library.GUI.IGPUView;
@@ -23,7 +26,7 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 	private bool _closeFailed = false;
 	private string _error = "";
 
-	public MacOSGPUView(bool capture) { self._view = MacOSView(self._target.nativeView()); self._capture = capture; }
+	public MacOSGPUView(bool capture, MacOSControlContext? context = null) { self._view = MacOSView(self._target.nativeView(), context); self._capture = capture; }
 
 	private void requireExecutor() { self._work.isOpen(); }
 
@@ -35,6 +38,8 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 
 	public void attachTo(NSView parent) { self.requireOpen(); self._view.attachTo(parent); }
 
+	public void reconcileAttachment(NSView? parent) { self.requireOpen(); self._view.reconcileAttachment(parent); }
+
 	public void detachFrom(NSView parent) { self.requireOpen(); self._view.detachFrom(parent); }
 
 	public bool isOpen() { self.requireExecutor(); return !self._closing && !self._closed; }
@@ -44,6 +49,18 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 	public double fittingHeight() { self.requireOpen(); return self._view.fittingHeight(); }
 
 	public void arrange(double x, double y, double width, double height) { self.requireOpen(); self._view.arrange(x, y, width, height); }
+
+	public MacOSViewState interactionOwner() { return self._view.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._view.settleInteraction(); }
+
+	public void publishInteraction() { self._view.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
 
 	public bool isVisible() { self.requireOpen(); return self._view.isVisible(); }
 

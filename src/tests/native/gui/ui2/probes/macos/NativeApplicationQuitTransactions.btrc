@@ -1,0 +1,258 @@
+import Library.Callback;
+import Library.Timer;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.ITextField;
+import Library.GUI.MacOS.MacOSApplication;
+
+import ./ApplicationQuitProbe.btrc;
+#include <assert.h>
+
+class QuitTransactionDecision implements IWindowCloseRequestHandler {
+	public int calls = 0;
+	public IWindowCloseTransaction? transaction = null;
+	public void closeRequested(IWindowCloseTransaction value) {
+		var previous = self.transaction;
+		assert(previous == null || previous.state() == WINDOW_CLOSE_CANCELLED);
+		assert(value.state() == WINDOW_CLOSE_AWAITING_DECISION);
+		self.calls++; self.transaction = value;
+	}
+}
+
+class QuitFinalizerState {
+	public int destroyed = 0;
+	public int workCalls = 0;
+	public int publicationCalls = 0;
+}
+
+class QuitRejectedWork implements IApplicationWork {
+	public void run() { assert(false); }
+}
+
+class QuitFinalizerPublication implements IApplicationPublicationHandler {
+	private QuitFinalizerState _state;
+	public QuitFinalizerPublication(QuitFinalizerState state) { self._state = state; }
+
+	public void deliver(ApplicationPublication publication) { self._state.publicationCalls++; }
+}
+
+/* This receiver has no outside owner once its posting callback unwinds. Its
+ * destructor must run only after both ordinary and producer ingress seal. */
+class QuitFinalizerWork implements IApplicationWork {
+	private IApplication _application;
+	private IApplicationPublisher _publisher;
+	private QuitFinalizerState _state;
+	public QuitFinalizerWork(IApplication application, IApplicationPublisher publisher, QuitFinalizerState state) { self._application = application; self._publisher = publisher; self._state = state; }
+
+	public void run() { self._state.workCalls++; assert(false); }
+
+	public void __del__() {
+		self._state.destroyed++;
+		self._application.requestQuit();
+		assert(self._application.close() == CALLBACK_CANCELLATION_PENDING);
+		var scheduled = self._application.schedule(QuitRejectedWork(), 0.0, WORK_SUSPENSION_DEFER, 0LL);
+		assert(scheduled.kind == SCHEDULE_CLOSED && scheduled.registration == null);
+		assert(self._publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 99LL) == PUBLISH_CLOSED);
+		bool rejected = false;
+		try { self._application.createWindow("Must not reopen during quit", 100.0, 100.0); }
+		catch (string error) { rejected = true; }
+		assert(rejected);
+	}
+}
+
+class QuitTransactionJourney implements IApplicationWork {
+	private IApplication _application;
+	private IWindow _first;
+	private IWindow _second;
+	private IWindow _clean;
+	private ITextField _firstField;
+	private ITextField _secondField;
+	private ITextField _cleanField;
+	private QuitTransactionDecision _firstDecision;
+	private QuitTransactionDecision _secondDecision;
+	private QuitTransactionDecision _cleanDecision = QuitTransactionDecision();
+	private QuitTransactionDecision _addedDecision = QuitTransactionDecision();
+	private CallbackScope _scope;
+	private ICallbackRegistration _secondRegistration;
+	private IApplicationPublisher _publisher;
+	private QuitFinalizerState _finalizers;
+	private IWindow? _added;
+	private ITextField? _addedField;
+	private Timer _deadline = Timer();
+	private int _step = 0;
+	public bool overlapObserved = false;
+	public bool staleSaveObserved = false;
+	public bool handlerCancellationObserved = false;
+	public bool allAuthorizedObserved = false;
+
+	public QuitTransactionJourney(IApplication application, IWindow first, IWindow second, IWindow clean, ITextField firstField, ITextField secondField, ITextField cleanField, QuitTransactionDecision firstDecision, QuitTransactionDecision secondDecision, CallbackScope scope, ICallbackRegistration secondRegistration, IApplicationPublisher publisher, QuitFinalizerState finalizers) {
+		self._application = application; self._first = first; self._second = second; self._clean = clean;
+		self._firstField = firstField; self._secondField = secondField; self._cleanField = cleanField;
+		self._firstDecision = firstDecision; self._secondDecision = secondDecision;
+		self._scope = scope; self._secondRegistration = secondRegistration; self._publisher = publisher; self._finalizers = finalizers;
+		self._deadline.start();
+	}
+
+	private void later(int step) { self._step = step; self._application.postAfter(0.001, self); }
+
+	private void retained() {
+		assert(self._first.isOpen() && self._second.isOpen() && self._clean.isOpen());
+		assert(self._first.root() != null && self._second.root() != null && self._clean.root() != null);
+		assert(self._firstField.text().equals("first saved draft") && self._secondField.text().equals("second saved draft"));
+		assert(self._cleanField.text().equals("clean retained draft"));
+		var added = self._added; var field = self._addedField;
+		if (added != null) { assert(added.isOpen() && added.root() != null && field != null); }
+		if (field != null) { assert(field.isOpen() && field.text().equals("new member draft")); }
+	}
+
+	public void run() {
+		assert(self._deadline.elapsed() < 10.0f); self.retained();
+		if (self._step == 0) {
+			var pending = self._first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST);
+			assert(pending.kind == WINDOW_CLOSE_REQUEST_PENDING && pending.transaction != null);
+			assert(self._firstDecision.calls == 0 && self._secondDecision.calls == 0);
+			self.later(1); return;
+		}
+		var first = self._firstDecision.transaction; var second = self._secondDecision.transaction;
+		if (first == null) { self.later(self._step); return; }
+		if (self._step == 1) {
+			assert(self._firstDecision.calls == 1 && self._secondDecision.calls == 0);
+			var save = first.decide(WINDOW_CLOSE_DECISION_SAVE, 10LL);
+			assert(save.state == WINDOW_CLOSE_SAVING && save.attempt > 0LL);
+			assert(ui2RequestNativeApplicationQuit());
+			/* Same receiver, no executor/native turn between capture and completion. */
+			var complete = first.completeSave(save.attempt, 10LL, true, "");
+			assert(complete.kind == WINDOW_CLOSE_OUTCOME_APPLIED && complete.state == WINDOW_CLOSE_AUTHORIZED);
+			assert(self._firstDecision.transaction == first && self._firstDecision.calls == 1 && self._secondDecision.calls == 0);
+			self.retained(); self.overlapObserved = true; self.later(2); return;
+		}
+		if (second == null) { self.later(self._step); return; }
+		if (self._step == 2) {
+			assert(self._firstDecision.calls == 1 && self._secondDecision.calls == 1);
+			assert(ui2RequestNativeApplicationQuit());
+			assert(self._firstDecision.transaction == first && self._secondDecision.transaction == second);
+			bool rejected = false;
+			try { first.decide(WINDOW_CLOSE_DECISION_DISCARD, 10LL); } catch (string error) { rejected = true; }
+			assert(rejected && first.state() == WINDOW_CLOSE_AUTHORIZED);
+			rejected = false;
+			try { first.decide(WINDOW_CLOSE_DECISION_SAVE, 10LL); } catch (string error) { rejected = true; }
+			assert(rejected && first.state() == WINDOW_CLOSE_AUTHORIZED);
+			assert(first.decide(WINDOW_CLOSE_DECISION_CANCEL, 9LL).kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+			var save = first.decide(WINDOW_CLOSE_DECISION_SAVE, 11LL);
+			assert(save.state == WINDOW_CLOSE_SAVING && save.attempt > 0LL);
+			assert(first.completeSave(save.attempt + 1LL, 11LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT);
+			assert(first.decide(WINDOW_CLOSE_DECISION_SAVE, 12LL).attempt == save.attempt);
+			var stale = first.completeSave(save.attempt, 11LL, true, "");
+			assert(stale.kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION && stale.state == WINDOW_CLOSE_AWAITING_DECISION);
+			var retry = first.decide(WINDOW_CLOSE_DECISION_SAVE, 12LL); assert(retry.attempt > save.attempt);
+			assert(first.completeSave(retry.attempt, 12LL, false, "actual save refusal").state == WINDOW_CLOSE_AWAITING_DECISION);
+			var finalSave = first.decide(WINDOW_CLOSE_DECISION_SAVE, 12LL); assert(finalSave.attempt > retry.attempt);
+			assert(first.completeSave(retry.attempt, 12LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT);
+			assert(first.completeSave(finalSave.attempt, 12LL, true, "").state == WINDOW_CLOSE_AUTHORIZED);
+			assert(first.decide(WINDOW_CLOSE_DECISION_DISCARD, 13LL).state == WINDOW_CLOSE_AUTHORIZED);
+			self.retained(); self.staleSaveObserved = true;
+			assert(first.decide(WINDOW_CLOSE_DECISION_CANCEL, 13LL).state == WINDOW_CLOSE_CANCELLED);
+			self.later(3); return;
+		}
+		if (self._step == 3) {
+			if (first.state() != WINDOW_CLOSE_CANCELLED) { self.later(3); return; }
+			assert(second.state() == WINDOW_CLOSE_CANCELLED); self.retained();
+			assert(ui2RequestNativeApplicationQuit()); self.later(4); return;
+		}
+		if (self._step == 4) {
+			if (self._firstDecision.calls < 2 || self._secondDecision.calls < 2) { self.later(4); return; }
+			assert(self._firstDecision.calls == 2 && self._secondDecision.calls == 2);
+			assert(first.decide(WINDOW_CLOSE_DECISION_DISCARD, 21LL).state == WINDOW_CLOSE_AUTHORIZED);
+			assert(self._secondRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+			self.later(5); return;
+		}
+		if (self._step == 5) {
+			if (first.state() != WINDOW_CLOSE_CANCELLED) { self.later(5); return; }
+			assert(second.state() == WINDOW_CLOSE_CANCELLED); self.retained(); self.handlerCancellationObserved = true;
+			self._secondRegistration = self._second.onCloseRequested(self._secondDecision, self._scope);
+			assert(ui2RequestNativeApplicationQuit()); self.later(6); return;
+		}
+		if (self._step == 6) {
+			if (self._firstDecision.calls < 3 || self._secondDecision.calls < 3) { self.later(6); return; }
+			assert(self._firstDecision.calls == 3 && self._secondDecision.calls == 3);
+			assert(first.decide(WINDOW_CLOSE_DECISION_DISCARD, 30LL).state == WINDOW_CLOSE_AUTHORIZED);
+			/* This window already has clean held authority. A new handler must
+			 * invalidate it and receive its own deferred decision before commit. */
+			self._clean.onCloseRequested(self._cleanDecision, self._scope);
+			assert(self._cleanDecision.calls == 0); self.later(7); return;
+		}
+		var clean = self._cleanDecision.transaction;
+		if (clean == null) { self.later(self._step); return; }
+		if (self._step == 7) {
+			assert(self._cleanDecision.calls == 1 && clean.state() == WINDOW_CLOSE_AWAITING_DECISION);
+			var added = self._application.createWindow("New quit member", 220.0, 120.0);
+			var root = self._application.createContainer(); var field = self._application.createTextField("new member draft", "New");
+			root.attach(field); added.attachRoot(root); added.show();
+			added.onCloseRequested(self._addedDecision, self._scope); self._added = added; self._addedField = field;
+			assert(self._addedDecision.calls == 0);
+			assert(first.decide(WINDOW_CLOSE_DECISION_DISCARD, 31LL).state == WINDOW_CLOSE_AUTHORIZED);
+			assert(second.decide(WINDOW_CLOSE_DECISION_DISCARD, 32LL).state == WINDOW_CLOSE_AUTHORIZED);
+			assert(clean.decide(WINDOW_CLOSE_DECISION_DISCARD, 33LL).state == WINDOW_CLOSE_AUTHORIZED);
+			self.retained();
+			self._application.postAfter(60.0, QuitFinalizerWork(self._application, self._publisher, self._finalizers));
+			self.later(8); return;
+		}
+		var addedTransaction = self._addedDecision.transaction;
+		if (addedTransaction == null) { self.later(8); return; }
+		assert(self._addedDecision.calls == 1 && self._finalizers.destroyed == 0);
+		assert(addedTransaction.decide(WINDOW_CLOSE_DECISION_DISCARD, 34LL).state == WINDOW_CLOSE_AUTHORIZED);
+		self.retained(); self.allAuthorizedObserved = true;
+		/* No forced requestQuit: only validated native group authority can stop run. */
+	}
+}
+
+void queueDirectCloseFinalizer(IApplication application, IApplicationPublisher publisher, QuitFinalizerState state) { application.postAfter(60.0, QuitFinalizerWork(application, publisher, state)); }
+
+void directCloseFinalizer() {
+	IApplication application = MacOSApplication(8);
+	var scope = CallbackScope(); var state = QuitFinalizerState();
+	var published = application.createPublisher(2, QuitFinalizerPublication(state), scope);
+	var publisher = published.publisher;
+	if (published.kind != APPLICATION_PUBLISHER_CREATED || publisher == null) { throw "Direct close fixture requires publisher"; }
+	queueDirectCloseFinalizer(application, publisher, state);
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(state.destroyed == 1 && state.workCalls == 0 && state.publicationCalls == 0);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+int main() {
+	directCloseFinalizer();
+	IApplication application = MacOSApplication(64);
+	var first = application.createWindow("Quit transaction first", 260.0, 150.0);
+	var second = application.createWindow("Quit transaction second", 260.0, 150.0);
+	var clean = application.createWindow("Quit clean member", 260.0, 150.0);
+	var firstRoot = application.createContainer(); var secondRoot = application.createContainer(); var cleanRoot = application.createContainer();
+	var firstField = application.createTextField("first saved draft", "First");
+	var secondField = application.createTextField("second saved draft", "Second");
+	var cleanField = application.createTextField("clean retained draft", "Clean");
+	firstRoot.attach(firstField); secondRoot.attach(secondField); cleanRoot.attach(cleanField);
+	first.attachRoot(firstRoot); second.attachRoot(secondRoot); clean.attachRoot(cleanRoot);
+	first.show(); second.show(); clean.show();
+	var scope = CallbackScope(); var firstDecision = QuitTransactionDecision(); var secondDecision = QuitTransactionDecision();
+	first.onCloseRequested(firstDecision, scope); var secondRegistration = second.onCloseRequested(secondDecision, scope);
+	var finalizers = QuitFinalizerState(); var published = application.createPublisher(2, QuitFinalizerPublication(finalizers), scope);
+	var publisher = published.publisher;
+	if (published.kind != APPLICATION_PUBLISHER_CREATED || publisher == null) { throw "Quit transaction fixture requires a publisher"; }
+	var journey = QuitTransactionJourney(application, first, second, clean, firstField, secondField, cleanField, firstDecision, secondDecision, scope, secondRegistration, publisher, finalizers);
+	application.post(journey); application.run();
+	assert(journey.overlapObserved && journey.staleSaveObserved && journey.handlerCancellationObserved && journey.allAuthorizedObserved);
+	assert(ui2NativeApplicationQuitRequests() == 4);
+	var consumed = firstDecision.transaction;
+	if (consumed == null) { throw "Final close authority is absent"; }
+	assert(consumed.state() == WINDOW_CLOSE_CLOSING);
+	assert(consumed.decide(WINDOW_CLOSE_DECISION_CANCEL, 99LL).kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	assert(consumed.completeSave(1LL, 99LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	assert(finalizers.destroyed == 1 && finalizers.workCalls == 0 && finalizers.publicationCalls == 0);
+	assert(first.root() == null && second.root() == null && clean.root() == null);
+	assert(!firstField.isOpen() && !secondField.isOpen() && !cleanField.isOpen());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	print("UI2 native application quit revalidates saves membership and sealed ingress");
+	return 0;
+}

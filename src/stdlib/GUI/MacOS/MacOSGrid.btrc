@@ -1,3 +1,5 @@
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.Math;
 import Library.Callback;
 import Library.Console;
@@ -10,7 +12,19 @@ import Library.GUI.MacOS.MacOSView;
  * containers. Cells own their attached subtrees as IGrid specifies: replacing
  * or clearing a cell detaches its old child, and closing the grid closes every
  * occupied cell. */
-class MacOSGridLayout implements IMacOSContainerLayout {
+class MacOSGridPlacement implements IMacOSContainerPlacement {
+	private NSGridView _grid;
+	private NSView _child;
+	private int _column;
+	private int _row;
+	public MacOSGridPlacement(NSGridView grid, NSView child, int column, int row) { self._grid = grid; self._child = child; self._column = column; self._row = row; }
+
+	public void restore() { self._grid.cellAtColumnIndex(self._column, self._row).setContentView(self._child); }
+
+	public bool matches() { return self._grid.cellAtColumnIndex(self._column, self._row).contentView() == self._child; }
+}
+
+class MacOSGridLayout implements IMacOSOrderedContainerLayout {
 	private NSGridView? _grid;
 	private int _column = 0;
 	private int _row = 0;
@@ -41,6 +55,18 @@ class MacOSGridLayout implements IMacOSContainerLayout {
 	public NSView nativeView() { return self.control(); }
 
 	public NSView childParent() { return self.control(); }
+
+	public bool arrangedOrder() { return false; }
+
+	public IMacOSContainerPlacement? placement(NSView child) {
+		var grid = self.control();
+		for (int row = 0; row < grid.numberOfRows(); row++) {
+			for (int column = 0; column < grid.numberOfColumns(); column++) {
+				if (grid.cellAtColumnIndex(column, row).contentView() == child) { return MacOSGridPlacement(grid, child, column, row); }
+			}
+		}
+		return MacOSGridPlacement(grid, child, self._column, self._row);
+	}
 
 	public void prepareCell(int column, int row) { self.nativeChild(column, row); self._column = column; self._row = row; }
 
@@ -123,11 +149,13 @@ class MacOSGrid implements IGrid, IMacOSView {
 	private MacOSContainer _container;
 	private MacOSGridLayout _layout;
 
-	public MacOSGrid(int columns, int rows, double columnSpacing = 0.0, double rowSpacing = 0.0) { self._layout = MacOSGridLayout(columns, rows, columnSpacing, rowSpacing); self._container = MacOSContainer(self._layout); }
+	public MacOSGrid(int columns, int rows, double columnSpacing = 0.0, double rowSpacing = 0.0, MacOSControlContext? context = null) { self._layout = MacOSGridLayout(columns, rows, columnSpacing, rowSpacing); self._container = MacOSContainer(self._layout, context); }
 
 	public NSView nativeView() { return self._container.nativeView(); }
 
 	public void attachTo(NSView parent) { self._container.attachTo(parent); }
+
+	public void reconcileAttachment(NSView? parent) { self._container.reconcileAttachment(parent); }
 
 	public void detachFrom(NSView parent) { self._container.detachFrom(parent); }
 
@@ -138,6 +166,18 @@ class MacOSGrid implements IGrid, IMacOSView {
 	public double fittingHeight() { return self._container.fittingHeight(); }
 
 	public void arrange(double x, double y, double width, double height) { self._container.arrange(x, y, width, height); }
+
+	public MacOSViewState interactionOwner() { return self._container.interactionOwner(); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._container.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._container.settleInteraction(); }
+
+	public void publishInteraction() { self._container.publishInteraction(); }
+
+	public ViewInteractionState interactionState() { return self._container.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._container.onInteractionStateChanged(handler, owner); }
 
 	public bool isVisible() { return self._container.isVisible(); }
 

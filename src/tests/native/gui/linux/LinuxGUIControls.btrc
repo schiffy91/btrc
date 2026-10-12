@@ -14,6 +14,7 @@ import Library.GUI.GUICaptureLayer;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.LinuxImageView;
 import Library.Callback;
 import Library.Image;
 import Library.Vector;
@@ -148,15 +149,21 @@ class Journey implements IApplicationWork {
 			assert(image.width > 0 && image.height > 0);
 			var pixel = image.pixel(image.width / 8, image.height * 3 / 4);
 			assert(pixel.red > 150 && pixel.green < 100 && pixel.blue < 100);
-			/* The worker-made handle is presented, then a closed handle draws nothing. */
+			/* Publication owns pixels beyond handle close; clearing releases presentation. */
 			var artwork = image.pixel(image.width * 220 / 480, image.height * 220 / 320);
 			assert(artwork.green > 150 && artwork.red < 100 && artwork.blue < 100);
+			var nativeArtwork = (ILinuxImageHandle?)self._artwork; assert(nativeArtwork != null);
+			int identity = nativeArtwork.identity(); assert(identity > 0);
 			self._artwork.close();
+			assert(nativeArtwork.identity() == identity);
 			assert(!self._artwork.isOpen());
 			var closed = GUI.capture(self._root, new Vector<GUICaptureLayer>()).pixel(image.width * 220 / 480, image.height * 220 / 320);
-			assert(closed.green < 100);
+			assert(closed.red == artwork.red && closed.green == artwork.green && closed.blue == artwork.blue && closed.alpha == artwork.alpha);
+			bool refused = false; try { self._image.setImageHandle(self._artwork); } catch (string error) { refused = true; } assert(refused);
 			self._image.setImageHandle(null);
 			assert(self._image.fittingWidth() == 0.0);
+			var cleared = GUI.capture(self._root, new Vector<GUICaptureLayer>()).pixel(image.width * 220 / 480, image.height * 220 / 320);
+			assert(cleared.green < 100);
 			self.passed = true;
 			GUI.requestQuit();
 			return;

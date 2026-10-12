@@ -1,0 +1,45 @@
+import Library.GUI.IApplication;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class CaptureFailureHost implements IApplicationHost {
+	public int requests = 0;
+	public int mode = 0;
+	public bool requestTurn() { self.requests++; if (self.mode == 2) { throw "Native host wake threw"; } return self.mode == 0; }
+
+	public void scheduleTurn(unsigned long long deadline) {}
+}
+
+int main() {
+	for (int mode = 0; mode < 3; mode++) {
+		var signal = MacOSRunLoopSignal();
+		var context = MacOSControlContext(2, signal);
+		var host = CaptureFailureHost(); host.mode = mode; context.wake.host = host;
+		context.beginMutation();
+		context.recordNativeFailure("First native capture failure");
+		context.recordNativeFailure("Later failure cannot replace the first diagnostic");
+		assert(host.requests == 1);
+		assert(!context.dispatchOne(context.detachedEvents));
+		context.endMutation();
+		for (int attempt = 0; attempt < 2; attempt++) {
+			bool surfaced = false;
+			try { context.dispatchOne(context.detachedEvents); }
+			catch (string error) { surfaced = error == "First native capture failure"; }
+			assert(surfaced);
+		}
+		/* Fault reporting must not seal the independent cleanup path. */
+		context.close(); assert(!context.isOpen()); signal.close();
+	}
+	var closedSignal = MacOSRunLoopSignal();
+	var failedContext = MacOSControlContext(2, closedSignal);
+	closedSignal.close();
+	failedContext.recordNativeFailure("Capture with a closed native source");
+	bool surfaced = false;
+	try { failedContext.dispatchOne(failedContext.detachedEvents); }
+	catch (string error) { surfaced = error == "Capture with a closed native source"; }
+	assert(surfaced); failedContext.close();
+	print("UI2 native capture failures surface after barriers without escaping native callbacks");
+	return 0;
+}

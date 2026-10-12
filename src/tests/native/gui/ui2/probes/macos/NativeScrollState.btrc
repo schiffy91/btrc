@@ -1,0 +1,170 @@
+import Library.Callback;
+import Library.Math;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.IScrollView;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSScrollView;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./RunLoopProbe.btrc;
+import ./ScrollProbe.btrc;
+#include <assert.h>
+#include <math.h>
+
+class ScrollReceiver implements IScrollControlEventHandler {
+	public Vector<ScrollControlEvent> events = [];
+	public MacOSScrollView? closing;
+	public void scrollEvent(ScrollControlEvent event) {
+		self.events.push(event);
+		var closing = self.closing;
+		if (closing != null) { assert(closing.close() == CALLBACK_CANCELLATION_PENDING); }
+	}
+}
+
+class ScrollPressureReceiver implements IViewInteractionStateHandler {
+	public void interactionChanged(ViewInteractionState state) {}
+}
+
+class ScrollBarrier {
+	class void deliver(ScrollReceiver receiver, ScrollControlEvent event) { receiver.scrollEvent(event); }
+}
+
+class ScrollAssertions {
+	class ScrollOffset offset(double x, double y) { var result = ScrollOffset(); result.x = x; result.y = y; return result; }
+
+	class void same(double actual, double expected) { assert(Math.absDouble(actual - expected) < 0.001); }
+
+	class void geometry(MacOSScrollView scroll, double x, double y) {
+		var offset = scroll.offset(); var rect = scroll.visibleRect();
+		ScrollAssertions.same(offset.x, x); ScrollAssertions.same(offset.y, y);
+		ScrollAssertions.same(rect.x, offset.x); ScrollAssertions.same(rect.y, offset.y);
+		assert(rect.width >= 0.0 && rect.height >= 0.0);
+	}
+}
+
+int main() {
+	ui2InitializeAppKit();
+	var signal = MacOSRunLoopSignal(); var context = MacOSControlContext(16, signal);
+	var scope = CallbackScope(); var scroll = MacOSScrollView(context);
+	var parent = MacOSContainer(null, context); parent.attach(scroll);
+	bool closeRejected = false;
+	try { scroll.close(); } catch (string error) { closeRejected = !error.isEmpty(); }
+	assert(closeRejected && scroll.isOpen() && parent.childAt(0) == scroll);
+	assert(parent.detach(scroll) == scroll && parent.close() == CALLBACK_CANCELLATION_COMPLETE);
+	UI2ScrollProbe.open(scroll.nativeControl());
+	scroll.arrange(0.0, 0.0, 240.0, 180.0); scroll.setContentSize(1000.0, 1200.0);
+	scroll.scrollToOffset(ScrollAssertions.offset(100.0, 200.0));
+	var receiver = ScrollReceiver(); var registration = scroll.onOffsetChanged(receiver, scope);
+	assert(receiver.events.len == 0 && !context.dispatchOne(context.detachedEvents));
+	ScrollAssertions.geometry(scroll, 100.0, 200.0);
+	scroll.scrollTo(230.0); // Compatibility must preserve horizontal position.
+	assert(receiver.events.len == 0 && context.dispatchOne(context.detachedEvents));
+	assert(receiver.events.len == 1 && receiver.events.get(0).context.origin == CONTROL_ORIGIN_MODEL);
+	ScrollAssertions.geometry(scroll, 100.0, 230.0);
+	var retained = receiver.events.get(0);
+	scroll.scrollToOffset(ScrollAssertions.offset(100.0, 230.0)); assert(!context.dispatchOne(context.detachedEvents));
+	bool invalid = false;
+	try { scroll.scrollToOffset(ScrollAssertions.offset((double)NAN, 99.0)); } catch (string error) { invalid = !error.isEmpty(); }
+	assert(invalid); ScrollAssertions.geometry(scroll, 100.0, 230.0);
+	invalid = false;
+	try { scroll.setContentSize(500.0, (double)INFINITY); } catch (string error) { invalid = !error.isEmpty(); }
+	assert(invalid && !context.dispatchOne(context.detachedEvents));
+	scroll.scrollToOffset(ScrollAssertions.offset(1.0e9, 1.0e9));
+	var viewport = scroll.nativeControl().contentView().bounds();
+	ScrollAssertions.geometry(scroll, 1000.0 - viewport.size.width, 1200.0 - viewport.size.height);
+	assert(context.dispatchOne(context.detachedEvents));
+	assert(retained.offset.x == 100.0 && retained.offset.y == 230.0); // Owning snapshot unchanged.
+	scroll.scrollToOffset(ScrollAssertions.offset(300.0, 400.0)); assert(context.dispatchOne(context.detachedEvents));
+	int before = receiver.events.len;
+	assert(UI2ScrollProbe.legacyWheel(scroll.nativeControl(), -1, -1));
+	assert(UI2ScrollProbe.liveNotifications() > 0 && UI2ScrollProbe.boundsBeforeLive() > 0);
+	assert(UI2ScrollProbe.startNotifications() == 0); // Actual unbracketed legacy wheel.
+	assert(receiver.events.len == before); // No inline callback from foreign notification.
+	assert(context.dispatchOne(context.detachedEvents));
+	assert(receiver.events.len == before + 1 && receiver.events.get(before).context.origin == CONTROL_ORIGIN_USER);
+	assert(!context.dispatchOne(context.detachedEvents)); // Earlier bounds did not emit SYSTEM.
+	before = receiver.events.len;
+	bool wheelCompleted = false; bool barrierBlocked = false; bool transactionRejected = false;
+	context.beginMutation();
+	try {
+		wheelCompleted = UI2ScrollProbe.legacyWheel(scroll.nativeControl(), -1, -1);
+		barrierBlocked = !context.dispatchOne(context.detachedEvents) && receiver.events.len == before;
+		try { context.requireMutationHealthy(); }
+		catch (string error) { transactionRejected = error == "Native input dispatch entered an active container transaction"; }
+	} finally { context.endMutation(); }
+	assert(wheelCompleted && UI2ScrollProbe.liveNotifications() > 0 && barrierBlocked && transactionRejected);
+	assert(context.dispatchOne(context.detachedEvents) && receiver.events.len == before + 1);
+	assert(receiver.events.get(before).context.origin == CONTROL_ORIGIN_USER);
+	var afterWheel = scroll.offset();
+	assert(afterWheel.x != 300.0 || afterWheel.y != 400.0);
+	before = receiver.events.len;
+	UI2ScrollProbe.resizeViewport(scroll.nativeControl(), 300.0, 220.0);
+	assert(receiver.events.len == before && context.dispatchOne(context.detachedEvents));
+	assert(receiver.events.get(before).context.origin == CONTROL_ORIGIN_SYSTEM);
+	ScrollAssertions.geometry(scroll, afterWheel.x, afterWheel.y);
+	scroll.setContentSize(30.0, 40.0); assert(context.dispatchOne(context.detachedEvents));
+	ScrollAssertions.geometry(scroll, 0.0, 0.0);
+	var small = scroll.visibleRect(); assert(small.width == 30.0 && small.height == 40.0);
+	assert(receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_SYSTEM);
+	scroll.setContentSize(1000.0, 1200.0); assert(context.dispatchOne(context.detachedEvents));
+	/* Ordered terminal from another source is a replacement barrier. */
+	var barrierReceiver = ScrollReceiver(); var state = scroll.interactionOwner();
+	var barrier = new ControlEventChannel<ScrollReceiver, ScrollControlEvent>(context.detachedEvents, MacOSStateObservation(state), barrierReceiver, ScrollBarrier.deliver, scope);
+	var ticket = barrier.beginInteraction(); assert(ticket != null);
+	if (ticket == null) { throw "Missing test terminal reservation"; }
+	before = receiver.events.len;
+	scroll.scrollToOffset(ScrollAssertions.offset(10.0, 20.0));
+	var terminalContext = ControlEventContext(); terminalContext.generation = state.generation();
+	terminalContext.interaction = 1LL; terminalContext.sequence = 1LL; terminalContext.modelRevision = 0LL; terminalContext.origin = CONTROL_ORIGIN_SYSTEM;
+	var terminal = ScrollControlEvent(); terminal.context = terminalContext;
+	terminal.offset = ScrollAssertions.offset(0.0, 0.0); terminal.visibleRect = ScrollRect();
+	barrier.publishTerminal(terminal, state.generation(), 1LL, ticket);
+	scroll.scrollToOffset(ScrollAssertions.offset(30.0, 40.0));
+	assert(context.dispatchOne(context.detachedEvents) && receiver.events.len == before + 1);
+	assert(receiver.events.get(before).offset.x == 10.0 && barrierReceiver.events.len == 0);
+	assert(context.dispatchOne(context.detachedEvents) && barrierReceiver.events.len == 1);
+	assert(context.dispatchOne(context.detachedEvents) && receiver.events.len == before + 2);
+	assert(receiver.events.get(before + 1).offset.x == 30.0);
+	assert(barrier.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	var migrated = context.createQueue();
+	scroll.scrollToOffset(ScrollAssertions.offset(20.0, 30.0));
+	scroll.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, migrated); scroll.settleInteraction(); scroll.publishInteraction();
+	assert(!context.dispatchOne(context.detachedEvents)); // Old generation retired on route migration.
+	before = receiver.events.len;
+	scroll.scrollToOffset(ScrollAssertions.offset(40.0, 50.0)); assert(context.dispatchOne(migrated));
+	assert(receiver.events.len == before + 1);
+	assert(receiver.events.get(before).context.generation == scroll.interactionOwner().generation());
+	assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	scroll.scrollToOffset(ScrollAssertions.offset(60.0, 70.0)); assert(!context.dispatchOne(migrated));
+	var finalReceiver = ScrollReceiver(); scroll.onOffsetChanged(finalReceiver, scope);
+	finalReceiver.closing = scroll; scroll.scrollToOffset(ScrollAssertions.offset(80.0, 90.0));
+	assert(context.dispatchOne(migrated)); assert(scroll.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	finalReceiver.closing = null;
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	UI2ScrollProbe.close(); migrated.close(); context.close(); signal.close();
+
+	/* A real native wheel hits a full shared queue. Capture returns normally;
+	 * the next service reports the fault, and ownership can still close. */
+	var pressure = MacOSControlContext(1); var pressureScope = CallbackScope();
+	var blocked = MacOSScrollView(pressure); UI2ScrollProbe.open(blocked.nativeControl());
+	blocked.arrange(0.0, 0.0, 240.0, 180.0); blocked.setContentSize(1000.0, 1200.0);
+	blocked.scrollToOffset(ScrollAssertions.offset(300.0, 400.0));
+	var pressureReceiver = ScrollReceiver(); blocked.onOffsetChanged(pressureReceiver, pressureScope);
+	var blocker = MacOSView(null, pressure);
+	blocker.onInteractionStateChanged(ScrollPressureReceiver(), pressureScope); blocker.setVisible(false);
+	assert(UI2ScrollProbe.legacyWheel(blocked.nativeControl(), -1, -1));
+	assert(UI2ScrollProbe.liveNotifications() > 0 && pressureReceiver.events.len == 0);
+	bool failed = false;
+	try { pressure.dispatchOne(pressure.detachedEvents); } catch (string error) { failed = !error.isEmpty(); }
+	assert(failed && pressureReceiver.events.len == 0);
+	assert(blocked.close() == CALLBACK_CANCELLATION_COMPLETE && blocker.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(pressureScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	UI2ScrollProbe.close(); pressure.close();
+	print("UI2 native scroll preserves two-axis geometry and queued MODEL USER SYSTEM origins");
+	return 0;
+}

@@ -1,0 +1,86 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.ITextField;
+import Library.GUI.IView;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.MacOSControlEvents;
+
+import ./TextProbe.btrc;
+#include <assert.h>
+#include <stdio.h>
+
+class NativeTextReceiver implements ITextControlEventHandler {
+	public Vector<TextControlEvent> events = [];
+	public void textEvent(TextControlEvent event) { self.events.push(event); }
+}
+
+class NativeTextAssertions {
+	class void drain(MacOSControlContext context) { while (context.dispatchOne(context.detachedEvents)) {} }
+}
+
+int main() {
+	var context = MacOSControlContext(16); var scope = CallbackScope();
+	var field = MacOSTextField("base", "", context);
+	var draft = NativeTextReceiver(); var commits = NativeTextReceiver(); var cancels = NativeTextReceiver();
+	field.onDraftChanged(draft, scope); field.onCommit(commits, scope); field.onCancel(cancels, scope);
+	assert(draft.events.len == 0 && commits.events.len == 0 && cancels.events.len == 0);
+	var parent = UI2TextProbe.open(); field.attachTo(parent); field.arrange(10.0, 10.0, 300.0, 30.0);
+	field.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, context.detachedEvents); field.settleInteraction(); field.publishInteraction();
+	assert(UI2TextProbe.begin(field.nativeControl()));
+	UI2TextProbe.insert(field.nativeControl(), AppKitText.nativeValue("draft"));
+	assert(field.text() == "draft" && commits.events.len == 0);
+	UI2TextProbe.rememberEditor(field.nativeControl()); field.setText("base");
+	assert(UI2TextProbe.editorUnchanged(field.nativeControl()) && field.text() == "draft");
+	NativeTextAssertions.drain(context);
+	assert(draft.events.len > 0 && draft.events.get(draft.events.len - 1).text == "draft");
+	var retainedDraft = draft.events.get(draft.events.len - 1);
+	UI2TextProbe.accept(field.nativeControl()); UI2TextProbe.blur();
+	assert(commits.events.len == 0); NativeTextAssertions.drain(context);
+	assert(commits.events.len == 1 && commits.events.get(0).text == "draft");
+	assert(commits.events.get(0).context.origin == CONTROL_ORIGIN_USER && !commits.events.get(0).composing);
+	assert(UI2TextProbe.begin(field.nativeControl()));
+	UI2TextProbe.insert(field.nativeControl(), AppKitText.nativeValue("model draft"));
+	NativeTextAssertions.drain(context); field.setText("replacement");
+	assert(cancels.events.len == 0 && field.text() == "replacement"); NativeTextAssertions.drain(context);
+	assert(cancels.events.len == 1 && cancels.events.get(0).context.origin == CONTROL_ORIGIN_MODEL);
+	assert(cancels.events.get(0).cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT);
+	assert(cancels.events.get(0).context.modelRevision == commits.events.get(0).context.modelRevision);
+	assert(commits.events.len == 1 && retainedDraft.text == "draft");
+	assert(UI2TextProbe.begin(field.nativeControl()));
+	UI2TextProbe.insert(field.nativeControl(), AppKitText.nativeValue("retained"));
+	UI2TextProbe.mark(field.nativeControl(), AppKitText.nativeValue("preedit"));
+	assert(UI2TextProbe.marked(field.nativeControl())); UI2TextProbe.rememberEditor(field.nativeControl());
+	field.text(); field.setText("replacement"); assert(UI2TextProbe.editorUnchanged(field.nativeControl()));
+	NativeTextAssertions.drain(context);
+	field.setEnabled(false); field.setEnabled(true); // Inspect the queued cancellation only after eligibility returns.
+	assert(cancels.events.len == 1); NativeTextAssertions.drain(context);
+	assert(cancels.events.len == 2 && cancels.events.get(1).text == "retained" && !cancels.events.get(1).composing);
+	assert(cancels.events.get(1).context.origin == CONTROL_ORIGIN_SYSTEM && cancels.events.get(1).cancelReason == CONTROL_CANCEL_ELIGIBILITY_LOSS);
+	assert(field.text() == "retained" && commits.events.len == 1);
+	assert(UI2TextProbe.begin(field.nativeControl())); UI2TextProbe.accept(field.nativeControl());
+	long long retired = context.detachedEvents.retired(CONTROL_EVENT_INELIGIBLE);
+	field.setEnabled(false); NativeTextAssertions.drain(context);
+	assert(commits.events.len == 1 && cancels.events.len == 2);
+	assert(context.detachedEvents.retired(CONTROL_EVENT_INELIGIBLE) == retired + 1LL);
+	field.setEnabled(true); assert(!context.dispatchOne(context.detachedEvents));
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	// A receiver may join an edit already admitted by the native begin hook.
+	assert(UI2TextProbe.begin(field.nativeControl()));
+	UI2TextProbe.insert(field.nativeControl(), AppKitText.nativeValue("late"));
+	var lateScope = CallbackScope(); var late = NativeTextReceiver();
+	field.onCommit(late, lateScope); UI2TextProbe.accept(field.nativeControl());
+	assert(late.events.len == 0); NativeTextAssertions.drain(context);
+	assert(late.events.len == 1 && late.events.get(0).text == "late");
+	assert(lateScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	field.detachFrom(parent);
+	field.interactionOwner().update(true, true, false, false, WINDOW_EXPOSURE_UNKNOWN, true);
+	bool quarantined = false;
+	try { field.setText("must not replace"); } catch (string error) { quarantined = error == "Native view is quarantined"; }
+	assert(quarantined && field.text() == "late");
+	assert(field.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(context.terminalPool.available() == 16384); context.close(); UI2TextProbe.close();
+	printf("UI2 native text preserves draft ownership and ordered terminal eligibility\n"); return 0;
+}

@@ -1,0 +1,113 @@
+import Library.Callback;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./RunLoopProbe.btrc;
+#include <assert.h>
+
+class FailingContainerConstruction implements IMacOSContainerLayout {
+	public NSView nativeView() { throw "injected container construction failure"; }
+
+	public NSView childParent() { throw "construction never published a native parent"; }
+
+	public void arrangeChild(NSView child) {}
+
+	public void forgetChild(NSView child) {}
+}
+
+class NativeTreeReceiver implements IViewInteractionStateHandler {
+	public IView first;
+	public IView second;
+	public int calls = 0;
+	public bool expected = true;
+	public NativeTreeReceiver(IView first, IView second) { self.first = first; self.second = second; }
+
+	public void interactionChanged(ViewInteractionState state) {
+		assert(state.effectiveEligible == self.expected);
+		assert(self.first.interactionState().effectiveEligible == self.expected);
+		assert(self.second.interactionState().effectiveEligible == self.expected);
+		self.calls++;
+	}
+}
+
+int main() {
+	ui2InitializeAppKit();
+	var signal = MacOSRunLoopSignal();
+	var context = MacOSControlContext(32, signal);
+	bool constructionFailed = false;
+	try { var unused = MacOSContainer(FailingContainerConstruction(), context); }
+	catch (string error) { constructionFailed = error == "injected container construction failure"; }
+	assert(constructionFailed);
+	var events = context.createQueue();
+	var scope = CallbackScope();
+	var host = MacOSView(null, context);
+	var root = MacOSContainer(null, context);
+	var branch = MacOSContainer(null, context);
+	var leaf = MacOSView(null, context);
+	var disabled = MacOSButton("Preserved preference", null, context);
+	disabled.setEnabled(false);
+	branch.attach(leaf); branch.attach(disabled); root.attach(branch);
+	var receiver = NativeTreeReceiver(branch, leaf);
+	root.onInteractionStateChanged(receiver, scope);
+	root.attachTo(host.nativeView());
+	root.markInteraction(true, WINDOW_EXPOSURE_EXPOSED, events);
+	root.settleInteraction(); root.publishInteraction();
+	assert(root.nativeView().superview() == host.nativeView());
+	assert(leaf.nativeView().superview() == branch.nativeView());
+	assert(leaf.interactionState().effectiveEligible);
+	assert(!disabled.interactionState().effectiveEligible && !disabled.isEnabled());
+	assert(receiver.calls == 0 && events.dispatchOne());
+	assert(receiver.calls == 1 && !events.dispatchOne());
+	var foreignContext = MacOSControlContext();
+	var foreignLeaf = MacOSView(null, foreignContext);
+	bool rejected = false;
+	try { root.attach(foreignLeaf); } catch (string error) { rejected = !error.isEmpty(); }
+	assert(rejected && root.childCount() == 1);
+	assert(foreignLeaf.nativeView().superview() == null && foreignLeaf.isOpen());
+	assert(!foreignLeaf.interactionState().effectiveEligible);
+	assert(foreignLeaf.close() == CALLBACK_CANCELLATION_COMPLETE);
+	foreignContext.close();
+	long long revision = leaf.interactionState().stateRevision;
+	receiver.expected = false;
+	root.setVisible(false);
+	assert(root.nativeView().isHidden());
+	assert(!branch.interactionState().effectiveEligible && !leaf.interactionState().effectiveEligible);
+	assert(leaf.interactionState().stateRevision > revision);
+	assert(events.dispatchOne() && receiver.calls == 2);
+	root.setVisible(false); assert(!events.dispatchOne());
+	receiver.expected = true;
+	root.setVisible(true);
+	assert(events.dispatchOne() && receiver.calls == 3);
+	assert(!disabled.isEnabled() && !disabled.interactionState().localEnabled);
+	assert(root.detach(branch) == branch);
+	assert(branch.nativeView().superview() == null);
+	assert(!branch.interactionState().effectiveEligible && !leaf.interactionState().effectiveEligible);
+	root.attach(branch);
+	assert(leaf.interactionState().effectiveEligible && !disabled.isEnabled());
+	receiver.expected = false;
+	root.detachFrom(host.nativeView());
+	assert(context.detachedEvents.dispatchOne() && receiver.calls == 4);
+	assert(root.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(!branch.isOpen() && !leaf.isOpen() && !disabled.isOpen());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(host.close() == CALLBACK_CANCELLATION_COMPLETE);
+	/* Existing direct constructors share the application's default context. */
+	var defaultRoot = MacOSContainer();
+	var defaultLeaf = MacOSView();
+	assert(defaultRoot.interactionOwner().events() == defaultLeaf.interactionOwner().events());
+	defaultRoot.attach(defaultLeaf);
+	assert(defaultRoot.close() == CALLBACK_CANCELLATION_COMPLETE && !defaultLeaf.isOpen());
+	var previousDefault = MacOSControlContext.defaultContext();
+	assert(previousDefault.isOpen());
+	previousDefault.close();
+	var nextDefault = MacOSControlContext.defaultContext();
+	assert(nextDefault != previousDefault && nextDefault.isOpen());
+	nextDefault.close();
+	events.close(); context.close(); signal.close();
+	print("UI2 native subtree state preserves disabled preference across hide and reattachment");
+	return 0;
+}

@@ -1,0 +1,87 @@
+import Library.Callback;
+import Library.Timer;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.ITextField;
+import Library.GUI.MacOS.MacOSApplication;
+
+import ./ApplicationQuitProbe.btrc;
+#include <assert.h>
+
+class EarlyQuitDecision implements IWindowCloseRequestHandler {
+	public int calls = 0;
+	public bool first = false;
+	public IWindowCloseTransaction? expected = null;
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		/* The second handler may enter only for the later independent request,
+		 * never for its already queued, cancelled group transaction. */
+		assert(self.first || (self.expected != null && transaction == self.expected));
+		assert(transaction.state() == WINDOW_CLOSE_AWAITING_DECISION);
+		self.calls++;
+		assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 7LL).state == WINDOW_CLOSE_CANCELLED);
+	}
+}
+
+class EarlyQuitJourney implements IApplicationWork {
+	private IApplication _application;
+	private IWindow _first;
+	private IWindow _second;
+	private EarlyQuitDecision _firstDecision;
+	private EarlyQuitDecision _secondDecision;
+	private Timer _deadline = Timer();
+	private int _step = 0;
+	public bool observed = false;
+	public EarlyQuitJourney(IApplication application, IWindow first, IWindow second, EarlyQuitDecision firstDecision, EarlyQuitDecision secondDecision) {
+		self._application = application; self._first = first; self._second = second;
+		self._firstDecision = firstDecision; self._secondDecision = secondDecision; self._deadline.start();
+	}
+
+	public void run() {
+		assert(self._deadline.elapsed() < 10.0f);
+		assert(self._first.isOpen() && self._second.isOpen());
+		assert(self._first.root() != null && self._second.root() != null);
+		if (self._step == 0) {
+			assert(ui2RequestNativeApplicationQuit());
+			assert(self._firstDecision.calls == 0 && self._secondDecision.calls == 0);
+			self._step = 1;
+		} else if (self._step == 1 && self._firstDecision.calls == 1) {
+			assert(self._secondDecision.calls == 0);
+			var next = self._second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST);
+			assert(next.kind == WINDOW_CLOSE_REQUEST_PENDING && next.transaction != null);
+			self._secondDecision.expected = next.transaction;
+			assert(self._secondDecision.calls == 0); self._step = 2;
+		} else if (self._step == 2 && self._secondDecision.calls == 1) {
+			assert(self._firstDecision.calls == 1);
+			var transaction = self._secondDecision.expected;
+			assert(transaction != null);
+			if (transaction == null) { throw "Independent close transaction is absent"; }
+			assert(transaction.state() == WINDOW_CLOSE_CANCELLED);
+			self.observed = true; self._application.requestQuit(); return;
+		}
+		self._application.postAfter(0.001, self);
+	}
+}
+
+int main() {
+	IApplication application = MacOSApplication(32);
+	var first = application.createWindow("Early quit first", 220.0, 120.0);
+	var second = application.createWindow("Early quit second", 220.0, 120.0);
+	var firstRoot = application.createContainer(); var secondRoot = application.createContainer();
+	var firstField = application.createTextField("first early draft", "First");
+	var secondField = application.createTextField("second early draft", "Second");
+	firstRoot.attach(firstField); secondRoot.attach(secondField); first.attachRoot(firstRoot); second.attachRoot(secondRoot);
+	first.show(); second.show();
+	var scope = CallbackScope(); var firstDecision = EarlyQuitDecision(); firstDecision.first = true;
+	var secondDecision = EarlyQuitDecision();
+	first.onCloseRequested(firstDecision, scope); var secondRegistration = second.onCloseRequested(secondDecision, scope);
+	var journey = EarlyQuitJourney(application, first, second, firstDecision, secondDecision);
+	application.post(journey); application.run();
+	assert(journey.observed && firstDecision.calls == 1 && secondDecision.calls == 1 && ui2NativeApplicationQuitRequests() == 1);
+	assert(first.root() == null && second.root() == null && !firstField.isOpen() && !secondField.isOpen());
+	assert(secondRegistration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	print("UI2 native quit cancellation suppresses queued decisions without cancelling handlers");
+	return 0;
+}

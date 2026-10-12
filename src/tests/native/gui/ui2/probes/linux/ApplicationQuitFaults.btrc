@@ -1,0 +1,3 @@
+extern bool ui2ArmQuitPublisherFault();
+extern void ui2DisarmQuitPublisherFault();
+extern int ui2QuitPublisherFaultCount();

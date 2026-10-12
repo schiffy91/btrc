@@ -1,0 +1,3 @@
+/* Test-only SelectProbe.h declarations use the existing Objective-C projection.
+ * The driver projects the stored UI2SelectTrackingReceiver through CallbackScope;
+ * the callback mutates only public control APIs while actual native tracking runs. */

@@ -1,0 +1,111 @@
+schema = "btrc.qualification.ledger/1"
+
+[runs.cx-uia-21-approved-contract]
+source = "approved contract at base; implementation qualification pending"
+btrc_revision = "87dd60d7c602448cdd1bcf78ab3134b772e3aed5"
+recorded_at = "2026-10-07T16:27:08.007710+00:00"
+
+[[operations]]
+id = "IWindowCloseTransaction.decide"
+owner = "IWindowCloseTransaction"
+links = ["UI2", "E46"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+
+[[operations]]
+id = "IWindowCloseTransaction.completeSave"
+owner = "IWindowCloseTransaction"
+links = ["UI2", "E46"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+
+[[operations]]
+id = "IWindowCloseTransaction.state"
+owner = "IWindowCloseTransaction"
+links = ["UI2", "E46"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"

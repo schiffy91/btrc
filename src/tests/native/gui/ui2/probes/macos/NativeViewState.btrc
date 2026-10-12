@@ -1,0 +1,66 @@
+import Library.Callback;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSControlEvents;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./RunLoopProbe.btrc;
+#include <assert.h>
+
+class NativeStateReceiver implements IViewInteractionStateHandler {
+	public int calls = 0;
+	public bool visible = true;
+	public MacOSView? closing;
+	public void interactionChanged(ViewInteractionState state) {
+		self.calls++; self.visible = state.localVisible;
+		if (self.closing != null) { assert(self.closing.close() == CALLBACK_CANCELLATION_PENDING); }
+	}
+}
+
+int main() {
+	ui2InitializeAppKit();
+	var signal = MacOSRunLoopSignal();
+	var context = MacOSControlContext(8, signal);
+	var scope = CallbackScope();
+	var receiver = NativeStateReceiver();
+	var view = MacOSView(null, context);
+	view.onInteractionStateChanged(receiver, scope);
+	var initial = view.interactionState();
+	assert(initial.localVisible && !initial.effectiveEligible && initial.stateRevision > 0LL);
+	assert(receiver.calls == 0);
+	view.setVisible(false);
+	assert(view.nativeView().isHidden());
+	assert(!view.interactionState().localVisible);
+	assert(view.interactionState().stateRevision > initial.stateRevision);
+	assert(receiver.calls == 0 && context.detachedEvents.dispatchOne());
+	assert(receiver.calls == 1 && !receiver.visible);
+	view.setVisible(false);
+	assert(!context.detachedEvents.dispatchOne());
+	view.setVisible(true);
+	assert(!view.nativeView().isHidden());
+	assert(context.detachedEvents.dispatchOne());
+	assert(receiver.calls == 2 && receiver.visible);
+	receiver.closing = view;
+	view.setVisible(false);
+	assert(context.detachedEvents.dispatchOne());
+	assert(view.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	receiver.closing = null;
+	var button = MacOSButton("Native enabled state", null, context);
+	var buttonReceiver = NativeStateReceiver();
+	button.onInteractionStateChanged(buttonReceiver, scope);
+	button.setEnabled(false);
+	assert(!button.isEnabled() && !button.interactionState().localEnabled);
+	assert(context.detachedEvents.dispatchOne());
+	button.setVisible(false); button.setVisible(true);
+	assert(!button.isEnabled() && !button.interactionState().localEnabled);
+	assert(context.detachedEvents.dispatchOne());
+	button.setEnabled(true);
+	assert(button.isEnabled() && button.interactionState().localEnabled);
+	assert(context.detachedEvents.dispatchOne());
+	assert(button.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	context.close(); signal.close();
+	print("UI2 native view visibility updates revisioned state without inline delivery");
+	return 0;
+}

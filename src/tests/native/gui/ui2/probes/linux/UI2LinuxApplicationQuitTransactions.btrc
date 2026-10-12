@@ -1,0 +1,158 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.SDL;
+
+import ./ApplicationQuitProbe.btrc;
+#include <assert.h>
+
+class LinuxQuitTransactionRequests implements IWindowCloseRequestHandler {
+	public Vector<IWindowCloseTransaction> requests = [];
+	public bool cancelImmediately = false;
+	public IWindowCloseTransaction? completeDuring;
+	public long long completeAttempt = 0LL;
+	public bool completedHeld = false;
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		self.requests.push(transaction);
+		var saving = self.completeDuring;
+		if (saving != null) { self.completedHeld = saving.completeSave(self.completeAttempt, 4LL, true, "").state == WINDOW_CLOSE_AUTHORIZED; }
+		if (self.cancelImmediately) { assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL).state == WINDOW_CLOSE_CANCELLED); }
+	}
+}
+
+class LinuxQuitTransactionChecks {
+	class void awaitRequests(LinuxApplication application, LinuxQuitTransactionRequests first, int firstCount, LinuxQuitTransactionRequests second, int secondCount) {
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while ((first.requests.len != firstCount || second.requests.len != secondCount) && SDL_GetTicksNS() < deadline) { application.pumpOnce(0); }
+		assert(first.requests.len == firstCount && second.requests.len == secondCount);
+	}
+
+	class void close(LinuxApplication application) {
+		application.requestQuit();
+		var result = application.close();
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (result == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { application.pumpOnce(0); result = application.pollClose(); }
+		assert(result == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void savedRevision() {
+		var application = LinuxApplication(8); var scope = CallbackScope();
+		var first = application.createWindow("existing save", 240.0, 160.0);
+		var second = application.createWindow("quit peer", 240.0, 160.0);
+		var draft = application.createTextField("newer retained draft", ""); first.attachRoot(draft);
+		var a = LinuxQuitTransactionRequests(); var b = LinuxQuitTransactionRequests();
+		first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+		var original = first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).transaction;
+		if (original == null) { throw "Missing original close transaction"; }
+		LinuxQuitTransactionChecks.awaitRequests(application, a, 1, b, 0);
+		var saving = original.decide(WINDOW_CLOSE_DECISION_SAVE, 4LL);
+		assert(saving.state == WINDOW_CLOSE_SAVING && saving.attempt > 0LL);
+		b.completeDuring = original; b.completeAttempt = saving.attempt;
+		assert(ui2PushApplicationQuit() == 1);
+		/* The second real close callback proves QUIT was dequeued before this
+		 * save completion. Queue insertion alone is not native capture. */
+		LinuxQuitTransactionChecks.awaitRequests(application, a, 1, b, 1);
+		assert(a.requests.get(0) == original && first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).transaction == original);
+		assert(b.completedHeld && original.state() == WINDOW_CLOSE_AUTHORIZED);
+		b.completeDuring = null;
+		assert(first.isOpen() && second.isOpen() && first.root() == draft);
+		bool sameSaveRejected = false; bool sameDiscardRejected = false;
+		try { original.decide(WINDOW_CLOSE_DECISION_SAVE, 4LL); } catch (string error) { sameSaveRejected = !error.isEmpty(); }
+		try { original.decide(WINDOW_CLOSE_DECISION_DISCARD, 4LL); } catch (string error) { sameDiscardRejected = !error.isEmpty(); }
+		assert(sameSaveRejected && sameDiscardRejected);
+		assert(original.decide(WINDOW_CLOSE_DECISION_DISCARD, 3LL).kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+		var newer = original.decide(WINDOW_CLOSE_DECISION_SAVE, 5LL);
+		assert(newer.state == WINDOW_CLOSE_SAVING && newer.attempt > saving.attempt);
+		assert(original.completeSave(saving.attempt, 4LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT);
+		assert(original.decide(WINDOW_CLOSE_DECISION_SAVE, 6LL).attempt == newer.attempt);
+		assert(original.completeSave(newer.attempt, 5LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+		assert(original.state() == WINDOW_CLOSE_AWAITING_DECISION && first.isOpen());
+		assert(original.decide(WINDOW_CLOSE_DECISION_DISCARD, 6LL).state == WINDOW_CLOSE_AUTHORIZED);
+		assert(original.decide(WINDOW_CLOSE_DECISION_CANCEL, 5LL).kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+		assert(original.state() == WINDOW_CLOSE_AUTHORIZED);
+		assert(original.decide(WINDOW_CLOSE_DECISION_CANCEL, 6LL).state == WINDOW_CLOSE_CANCELLED);
+		application.pumpOnce(0);
+		assert(original.state() == WINDOW_CLOSE_CANCELLED && b.requests.get(0).state() == WINDOW_CLOSE_CANCELLED && first.isOpen() && second.isOpen());
+		assert(original.completeSave(newer.attempt, 6LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+		assert(draft.text() == "newer retained draft" && first.root() == draft);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		LinuxQuitTransactionChecks.close(application);
+	}
+
+	class void earlyCancel() {
+		var application = LinuxApplication(8); var scope = CallbackScope();
+		var first = application.createWindow("early cancel", 240.0, 160.0);
+		var second = application.createWindow("retired queued decision", 240.0, 160.0);
+		var a = LinuxQuitTransactionRequests(); var b = LinuxQuitTransactionRequests(); a.cancelImmediately = true;
+		var firstRegistration = first.onCloseRequested(a, scope);
+		var secondRegistration = second.onCloseRequested(b, scope);
+		assert(ui2PushApplicationQuit() == 1);
+		LinuxQuitTransactionChecks.awaitRequests(application, a, 1, b, 0);
+		/* Give the original queued peer terminal a turn to retire. */
+		application.pumpOnce(0);
+		assert(a.requests.len == 1 && b.requests.len == 0 && first.isOpen() && second.isOpen());
+		assert(firstRegistration.isOpen() && secondRegistration.isOpen() && !application.quitRequested());
+		var independent = second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).transaction;
+		if (independent == null) { throw "Missing independent close transaction"; }
+		LinuxQuitTransactionChecks.awaitRequests(application, a, 1, b, 1);
+		assert(b.requests.get(0) == independent);
+		assert(independent.decide(WINDOW_CLOSE_DECISION_CANCEL, 2LL).state == WINDOW_CLOSE_CANCELLED);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		LinuxQuitTransactionChecks.close(application);
+	}
+
+	class void membership() {
+		var application = LinuxApplication(8); var scope = CallbackScope();
+		var first = application.createWindow("authorized member", 240.0, 160.0);
+		var second = application.createWindow("pending member", 240.0, 160.0);
+		var a = LinuxQuitTransactionRequests(); var b = LinuxQuitTransactionRequests();
+		var firstRegistration = first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+		assert(ui2PushApplicationQuit() == 1);
+		LinuxQuitTransactionChecks.awaitRequests(application, a, 1, b, 1);
+		assert(a.requests.get(0).decide(WINDOW_CLOSE_DECISION_DISCARD, 1LL).state == WINDOW_CLOSE_AUTHORIZED);
+		assert(firstRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		application.pumpOnce(0);
+		assert(a.requests.get(0).state() == WINDOW_CLOSE_CANCELLED && b.requests.get(0).state() == WINDOW_CLOSE_CANCELLED);
+		assert(first.isOpen() && second.isOpen() && !application.quitRequested());
+		var replacement = LinuxQuitTransactionRequests(); first.onCloseRequested(replacement, scope);
+		var clean = application.createWindow("clean becomes dirty", 240.0, 160.0);
+		assert(ui2PushApplicationQuit() == 1);
+		LinuxQuitTransactionChecks.awaitRequests(application, replacement, 1, b, 2);
+		assert(replacement.requests.get(0).decide(WINDOW_CLOSE_DECISION_DISCARD, 2LL).state == WINDOW_CLOSE_AUTHORIZED);
+		var cleanAuthority = clean.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).transaction;
+		if (cleanAuthority == null) { throw "Missing held clean authority"; }
+		assert(cleanAuthority.state() == WINDOW_CLOSE_AUTHORIZED && clean.isOpen());
+		var d = LinuxQuitTransactionRequests(); clean.onCloseRequested(d, scope);
+		var third = application.createWindow("new dirty member", 240.0, 160.0);
+		var c = LinuxQuitTransactionRequests(); third.onCloseRequested(c, scope);
+		assert(b.requests.get(1).decide(WINDOW_CLOSE_DECISION_DISCARD, 3LL).state == WINDOW_CLOSE_AUTHORIZED);
+		LinuxQuitTransactionChecks.awaitRequests(application, c, 1, d, 1);
+		assert(cleanAuthority.state() == WINDOW_CLOSE_CANCELLED && d.requests.get(0) != cleanAuthority);
+		assert(first.isOpen() && second.isOpen() && third.isOpen() && clean.isOpen() && !application.quitRequested());
+		assert(replacement.requests.len == 1 && b.requests.len == 2);
+		assert(c.requests.get(0).decide(WINDOW_CLOSE_DECISION_DISCARD, 4LL).state == WINDOW_CLOSE_AUTHORIZED);
+		assert(d.requests.get(0).decide(WINDOW_CLOSE_DECISION_DISCARD, 5LL).state == WINDOW_CLOSE_AUTHORIZED);
+		assert(first.isOpen() && second.isOpen() && third.isOpen() && clean.isOpen());
+		application.pumpOnce(0);
+		assert(application.quitRequested());
+		assert(replacement.requests.get(0).state() == WINDOW_CLOSE_CLOSING && b.requests.get(1).state() == WINDOW_CLOSE_CLOSING && c.requests.get(0).state() == WINDOW_CLOSE_CLOSING);
+		assert(replacement.requests.get(0).decide(WINDOW_CLOSE_DECISION_CANCEL, 2LL).kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+		assert(b.requests.get(1).completeSave(1LL, 3LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+		LinuxQuitTransactionChecks.close(application);
+		assert(!first.isOpen() && !second.isOpen() && !third.isOpen() && !clean.isOpen());
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	LinuxQuitTransactionChecks.savedRevision();
+	LinuxQuitTransactionChecks.earlyCancel();
+	LinuxQuitTransactionChecks.membership();
+	SDL_Quit();
+	print("PASS: UI2 Linux native quit revalidates save authority and membership");
+	return 0;
+}

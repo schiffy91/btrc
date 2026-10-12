@@ -1,0 +1,52 @@
+import Library.Callback;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./RunLoopProbe.btrc;
+#include <assert.h>
+#include <stdlib.h>
+
+class AttachmentWakeReceiver implements IAppKitNotificationObserver {
+	public int calls = 0;
+	public void invoke(NSNotification notification) { assert(ui2RunLoopIsMainThread()); self.calls++; }
+}
+
+int main() {
+	for (int tracking = 0; tracking < 2; tracking++) {
+		assert(setenv("BTRC_TEST_RUN_LOOP_TRACK_ADDS", "0", 1) == 0);
+		var signal = MacOSRunLoopSignal(false);
+		assert(atoi(getenv("BTRC_TEST_RUN_LOOP_TRACK_ADDS")) == 0);
+		var receiver = AttachmentWakeReceiver();
+		var cancelledScope = CallbackScope();
+		assert(cancelledScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		bool rejected = false;
+		try { signal.subscribe(receiver, cancelledScope); }
+		catch (string error) { rejected = true; }
+		assert(rejected && receiver.calls == 0);
+		assert(atoi(getenv("BTRC_TEST_RUN_LOOP_TRACK_ADDS")) == 0);
+		bool timerRejected = false;
+		try { signal.scheduleTurn(MacOSRunLoopSignal.monotonicNowNs() + 1000000ULL); }
+		catch (string error) { timerRejected = true; }
+		assert(timerRejected);
+		/* Real worker publication can predate attach. Registering the same
+		 * source must preserve its pending readiness, without a polling timer. */
+		Thread<int> worker = spawn(() => { return signal.tryWake() ? 0 : 1; });
+		assert(worker.join() == 0 && receiver.calls == 0);
+		var scope = CallbackScope();
+		signal.subscribe(receiver, scope);
+		assert(receiver.calls == 0 && atoi(getenv("BTRC_TEST_RUN_LOOP_TRACK_ADDS")) == 1);
+		rejected = false;
+		try { signal.subscribe(receiver, scope); }
+		catch (string error) { rejected = true; }
+		assert(rejected && atoi(getenv("BTRC_TEST_RUN_LOOP_TRACK_ADDS")) == 1);
+		assert(unsetenv("BTRC_TEST_RUN_LOOP_TRACK_ADDS") == 0);
+		ui2RunLoopTurn(tracking != 0, 1.0);
+		assert(receiver.calls == 1);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(signal.requestClose() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!signal.tryWake());
+		ui2RunLoopTurn(tracking != 0, 0.01);
+		assert(receiver.calls == 1);
+	}
+	print("UI2 staged native attachment preserves preattach readiness and rolls back failed admission");
+	return 0;
+}

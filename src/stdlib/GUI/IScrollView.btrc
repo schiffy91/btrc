@@ -1,10 +1,20 @@
+import Library.Callback;
+import Library.GUI.ControlEvents;
 import Library.GUI.IContainer;
 
 /* Child positions and scroll offsets count logical points from the document's
  * top-left. Native scrolling owns wheel tracking and clips the document.
- * Resizing preserves the offset, clamped to the new document extent. */
+ * Both axes clamp to the document. visibleRect intersects the full viewport
+ * with the document before safe-area/IME insets. scrollTo preserves x; the
+ * original double offset methods project the vertical axis. */
 interface IScrollView extends IContainer {
+	ScrollOffset offset();
+	ScrollRect visibleRect();
+	void scrollToOffset(ScrollOffset offset);
+	ICallbackRegistration onOffsetChanged(IScrollControlEventHandler handler, CallbackScope owner);
 	void setContentSize(double width, double height);
 	double scrollOffset();
 	void scrollTo(double offset);
 }
+
+interface IScrollControlEventHandler { void scrollEvent(ScrollControlEvent event); }

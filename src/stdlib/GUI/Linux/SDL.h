@@ -66,6 +66,12 @@ static inline void btrcSdlFlatten(const SDL_Event* source, BtrcSdlEvent* out) {
 		out->modifiers = (unsigned int)source->key.mod;
 		out->down = source->key.down ? 1 : 0;
 		out->repeat = source->key.repeat ? 1 : 0;
+	} else if (source->type == SDL_EVENT_TEXT_EDITING) {
+		out->window = source->edit.windowID;
+		out->text = source->edit.text;
+		out->data1 = source->edit.start;
+		out->data2 = source->edit.length;
+		for (int slot = 0; slot < 16; slot++) { if (source->edit.text == btrcSdlTextRing[slot]) { btrcSdlTextRingTaken++; break; } }
 	} else if (source->type == SDL_EVENT_TEXT_INPUT) {
 		out->window = source->text.windowID;
 		out->text = source->text.text;
@@ -88,12 +94,12 @@ static inline int btrcSdlWaitEvent(BtrcSdlEvent* out, int timeoutMilliseconds) {
 	return 1;
 }
 
-/* Wake a blocked wait from the UI thread's own scheduling decisions. */
-static inline void btrcSdlPushWake(void) {
+/* SDL owns this thread-safe native wake; rejection is never hidden. */
+static inline bool btrcSdlPushWake(void) {
 	SDL_Event event;
 	memset(&event, 0, sizeof(event));
 	event.type = SDL_EVENT_USER;
-	SDL_PushEvent(&event);
+	return SDL_PushEvent(&event);
 }
 
 /* One folder-dialog transaction. SDL may deliver the callback on another
@@ -219,4 +225,18 @@ static inline int btrcSdlPushText(unsigned int window, const char* text) {
 	if (!SDL_PushEvent(&event)) { return 0; }
 	btrcSdlTextRingPushed++;
 	return 1;
+}
+
+/* Real TEXT_EDITING ingress, sharing the same bounded synthetic-text lifetime
+ * as TEXT_INPUT; this helper does not implement provider composition policy. */
+static inline int btrcSdlPushEditing(unsigned int window, const char* text, int start, int length) {
+	size_t bytes = strlen(text);
+	if (bytes > 63u || btrcSdlTextRingPushed - btrcSdlTextRingTaken >= 16u) { return 0; }
+	char* slot = btrcSdlTextRing[btrcSdlTextRingPushed % 16u];
+	memcpy(slot, text, bytes); slot[bytes] = '\0';
+	SDL_Event event; memset(&event, 0, sizeof(event));
+	event.type = SDL_EVENT_TEXT_EDITING; event.edit.windowID = window;
+	event.edit.text = slot; event.edit.start = start; event.edit.length = length;
+	if (!SDL_PushEvent(&event)) { return 0; }
+	btrcSdlTextRingPushed++; return 1;
 }
