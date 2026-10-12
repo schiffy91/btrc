@@ -1,50 +1,54 @@
-# Disappeared CoreAudio object reproduction
+# CoreAudio cleanup for disappeared aggregate devices
 
-The existing resource fault provider gains scenario 14: its property read
-returns the SDK constant `kAudioHardwareBadObjectError`. The existing
-`replaced` case runs with that response after successful configuration and
-requires successful cleanup without another property write. Its original
-reset, identity-replacement and all other scenario assertions remain unchanged.
+A failed aggregate-audio setup retained resources whose later cleanup queried
+an aggregate that had already been destroyed. CoreAudio returned BadObject
+(`!obj`), which the provider classified as a generic failure. The existing
+missing-identity cleanup path therefore never ran, and Player's original
+complete-shutdown assertion failed even after its playback journey completed.
 
-The SDK distinguishes an invalid AudioObject ID (`!obj`) from BadDevice. The
-baseline `5be08004` status mapper recognizes only BadDevice as not found. This fixture
-isolates the missing-object cleanup contract without changing production
-mapping, native ownership, flags, providers or test driver selections.
+The provider now maps the SDK's `kAudioHardwareBadObjectError` to the existing
+`AUDIO_DEVICE_NOT_FOUND` outcome, alongside BadDevice. The Audio package selects
+the SDK constant explicitly. `CoreAudioDeviceConfiguration.close` already clears
+a missing object's pending restoration without writing to it. Cleanup order,
+retry policy, all other status mappings and fatal unknown-disposal behavior are
+unchanged. In particular, UnknownProperty (`who?`) is not remapped.
 
-In the test-only reproduction, only the two insertion lines are executable changes. Formatting and source
-preservation are checked; no compiler or native execution has occurred. The
-original four reference/self-host and plain/sanitized resource rows must run
-under their existing bounds. No behavioral RED is claimed yet, and this test
-alone cannot identify the real Player shutdown OSStatus. Raw-status diagnostic
-evidence remains a separate prerequisite for that causal claim.
+## Qualification
 
-## Minimal candidate
+The test-only `e15b6944` adds scenario 14 to the existing ResourceFaults provider
+and invokes the existing replaced-identity assertion. All four original
+reference/self-host and plain/sanitized resource cells compiled and executed,
+then failed the intended close-success/no-extra-writes assertion. There were no
+setup errors or skips. Independent audit `58e77bd9` retains that RED result.
 
-The production candidate maps `kAudioHardwareBadObjectError` alongside
-`kAudioHardwareBadDeviceError` to the existing `AUDIO_DEVICE_NOT_FOUND` result.
-The SDK describes BadObject as an ID that does not map to an AudioObject.
-`CoreAudioDeviceConfiguration.close` already owns the terminal missing-identity
-case and avoids restoring properties on that object; this change allows that
-existing behavior to handle the SDK's distinct invalid-object status.
+Candidate `d5430626` passes all 20 original CoreAudio SDK-fault cells: five
+fixtures through both frontends, plain and sanitized. The self-hosted compiler
+was freshly built from that exact tree. The original 240-second compile and
+30-second native limits, fault cases and fatal-disposal controls are retained.
+Result `64ad8214` and independent audit `a008421f` record zero failures, errors
+or skips, unchanged source/tools, and no remaining process groups. Full hosted acceptance remains required.
 
-Only this mapper condition changes. Cleanup order, retry behavior, all other
-status mappings and every fixture byte remain unchanged. The test-only
-`e15b6944` ref and raw-status diagnostic ref remain separate and intact. Source
-preservation and formatting are checked; no behavioral baseline/candidate run
-or Player root-cause proof is claimed. Native qualification must preserve the
-original four paired plain/sanitized resource rows and all fault scenarios.
+The causal Player replay uses original product `10ed2b66`, the historical
+reference compiler baseline `6f1b81d9`, and exactly the provider condition plus
+its native binding. It passes the original real-ready mute 37→0→37 sequence,
+both playing and paused part switches, all five captures, native exit zero and
+the original final close state COMPLETE. Result `a6b58d04` and independent audit
+`9ee94698` verify all seven process groups closed and private inputs unchanged.
+This proves the repair against the retained failing journey; it does not claim
+current-compiler/self-host Player, Linux, physical-device or full MVP acceptance.
 
+## Retained failures and remaining work
 
-## Required native binding fragment
+The raw-status diagnostic `907c2378` records the aggregate-configuration failure
+and three BadObject results. Its diagnostic logging is excluded from the repair.
+The first fixed-Player attempt failed before native execution because the SDK
+constant was not selected; result `e5f40992` and audit `11d3d709` remain intact.
+The first 20-cell recipe stopped before build/tests on an audit-state spelling
+mismatch; result `ff1d096c` and audit `c9333d7c` remain intact. Its corrected
+recipe normalizes the audit-state spelling while preserving result/hash checks.
 
-The causal Player replay failed during reference semantic projection, before
-native execution: `kAudioHardwareBadObjectError` was unresolved at the provider
-condition. Result `e5f40992` and independent audit `11d3d709` retain the failure,
-unchanged private inputs and six closed process groups. The SDK declaration
-exists, but the Audio package's explicit native selection omitted it.
-
-The final `fragment: select CoreAudio bad-object status` commit adds only
-`kAudioHardwareBadObjectError` beside the selected BadDevice constant in
-`src/stdlib/Audio/btrc.toml`. The mapper, tests, cleanup order and all assertions
-remain unchanged. Generated metadata belongs to the integrator and is untouched.
-Source/TOML checks only; corrected compiler/native qualification is pending.
+The current-compiler Player journey through both frontends, queued-action
+cancellation, Linux qualification, full final gates and integration remain open.
+The branch's last commit is the required native-binding `fragment:`; generated
+files are untouched. Evidence is retained in the corresponding immutable
+`~/.cache/btrc/plan-consolidation-2026-10-07/` attempt directories.
