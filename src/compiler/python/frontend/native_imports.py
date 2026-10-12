@@ -508,6 +508,17 @@ class NativeCallbackProjection:
     callback_context_indices: tuple[int, ...] = ()
     string_arguments: tuple[tuple[int, NativeStringViewProjection], ...] = ()
     realtime: NativeRealtimeRegistration | None = None
+    # Stored C registrations: every registration parameter that carries the
+    # context, the slots' representation ("pointer" or a pointer-width
+    # integer's C spelling), the success statuses, and how each unregister
+    # argument is supplied: ("callback",), ("context",) or ("captured", index).
+    registration_contexts: tuple[int, ...] = ()
+    context_spelling: str = ""
+    registration_status: str = ""
+    unregister_status: str = ""
+    unregister_arguments: tuple[tuple, ...] = ()
+    registration_result: ast.TypeExpr | None = None
+    unregister_result: ast.TypeExpr | None = None
 
     def is_context(self, index):
         return index == self.callback_context_index or index in self.callback_context_indices
@@ -716,6 +727,7 @@ class NativeCallContract:
             or (self.cxx_method and self.cxx_method.factory_result)
             or any(callback.one_shot for callback in self.callbacks)
             or any(getattr(callback, "realtime", None) is not None for callback in self.callbacks)
+            or any(getattr(callback, "registration_contexts", ()) for callback in self.callbacks)
         )
 
     def adapter_symbol(self, name):
@@ -860,6 +872,7 @@ class NativeDeclarationImporter:
         self._binding_operations = set()
         self._unmanaged_handles = {}
         self._unmanaged_owners = {}
+        self._pointer_bits = 64
         self._callback_operations = set()
         self._callback_exports = {}
         self._owned_results = set()
@@ -926,6 +939,7 @@ class NativeDeclarationImporter:
         # its aliases. The reader always receives, and reports, the row's
         # canonical cc1 triple.
         row = plan.target.row
+        self._pointer_bits = row.sizeof_pointer * 8
         if os.environ.get("BTRC_NATIVE_TARGET", "") not in (row.triple, *row.triple_aliases):
             raise IncludeResolutionError(f"native imports for {row.label} require BTRC_NATIVE_TARGET {row.triple}")
         target = row.triple
@@ -2040,10 +2054,12 @@ class NativeDeclarationImporter:
                     )
                 signature = self._unqualified_native(native.signature)
             else:
-                if not binding.field and names.count(binding.contexts[0]) != 1:
+                if not binding.field and any(names.count(context) != 1 for context in binding.contexts):
                     raise NativeImportError(f"callback {binding.parameter}: context must identify one native parameter")
                 context_index = -1 if binding.field else names.index(binding.contexts[0])
                 signature = self._unqualified_native(native.pointee) if isinstance(native, NativePointer) else None
+            stored_c = binding.lifetime == "stored" and not is_block
+            registration_contexts = tuple(names.index(context) for context in binding.contexts) if stored_c else ()
             if not isinstance(signature, NativeFunctionType) or signature.variadic:
                 raise NativeImportError(f"callback {binding.parameter}: expected a nonvariadic function pointer")
             if is_block:
@@ -2051,20 +2067,38 @@ class NativeDeclarationImporter:
                 callback_context_indices = (callback_context_index,)
             if not is_block and any(position >= len(signature.parameters) for position in callback_context_indices):
                 raise NativeImportError(f"callback {binding.parameter}: context-index is outside the native signature")
-            for context in (
+            context_slots = (
                 [
-                    *(record_contexts if binding.field else [declaration.signature.parameters[context_index]]),
+                    *(
+                        record_contexts
+                        if binding.field
+                        else [declaration.signature.parameters[position] for position in registration_contexts]
+                        if stored_c
+                        else [declaration.signature.parameters[context_index]]
+                    ),
                     *(signature.parameters[position] for position in callback_context_indices),
                 ]
                 if not is_block
-                else ()
-            ):
-                pointer = self._unqualified_native(context)
-                pointee = self._unqualified_native(pointer.pointee) if isinstance(pointer, NativePointer) else None
-                if not isinstance(pointee, NativeBuiltin) or pointee.name != "void" or pointee.qualifiers.is_const:
-                    raise NativeImportError(
-                        f"callback {binding.parameter}: context must be an unqualified void pointer"
-                    )
+                else []
+            )
+            context_spelling = ""
+            for context in context_slots:
+                if stored_c and self._pointer_width_integer(context):
+                    # Slots may spell different typedefs of one integer
+                    # (UINT_PTR, DWORD_PTR); conversions use the shared type.
+                    spelling = self._unqualified_native(context).name
+                else:
+                    pointer = self._unqualified_native(context)
+                    pointee = self._unqualified_native(pointer.pointee) if isinstance(pointer, NativePointer) else None
+                    if not isinstance(pointee, NativeBuiltin) or pointee.name != "void" or pointee.qualifiers.is_const:
+                        raise NativeImportError(
+                            f"callback {binding.parameter}: context must be an unqualified void pointer"
+                            + (" or a pointer-width integer" if stored_c else "")
+                        )
+                    spelling = "pointer"
+                if context_spelling and spelling != context_spelling:
+                    raise NativeImportError(f"callback {binding.parameter}: context slots must share one type")
+                context_spelling = spelling
             for position in binding.owned_arguments:
                 if position >= len(signature.parameters) or position in callback_context_indices:
                     raise NativeImportError("callback owned-arguments must identify resource payload parameters")
@@ -2074,7 +2108,15 @@ class NativeDeclarationImporter:
             string_arguments = []
             for position, parameter in enumerate(signature.parameters):
                 if position in callback_context_indices:
-                    projected.append(ast.TypeExpr(base="void", pointer_depth=1))
+                    projected.append(
+                        self._call_type(parameter, parameter=True)
+                        if context_spelling not in {"", "pointer"}
+                        else ast.TypeExpr(base="void", pointer_depth=1)
+                    )
+                    continue
+                if stored_c and self._opaque_handle(parameter):
+                    # Borrowed for the call: BTRC can neither dereference nor own it.
+                    projected.append(self._call_type(parameter, parameter=True))
                     continue
                 scalar = self._unqualified_native(parameter)
                 if isinstance(scalar, NativeRecordType) and scalar.identity in self._string_views:
@@ -2133,7 +2175,12 @@ class NativeDeclarationImporter:
                         raise NativeImportError("one-shot currently requires void native and callback results")
                 else:
                     self._require_completion_value(declaration.signature.return_type)
-            if binding.lifetime == "stored":
+            unregister_arguments = ()
+            if stored_c:
+                unregister, unregister_arguments = self._stored_c_unregister(
+                    declaration, binding, index, registration_contexts, names
+                )
+            elif binding.lifetime == "stored":
                 unregister = self._callback_exports.get(binding.unregister)
                 if not is_block or declaration.parameter_semantics[index].no_escape:
                     raise NativeImportError("stored callback requires an escaping Objective-C block")
@@ -2220,12 +2267,25 @@ class NativeDeclarationImporter:
                     context_fields=binding.contexts if binding.field else (),
                     callback_context_indices=callback_context_indices,
                     string_arguments=tuple(string_arguments),
+                    registration_contexts=registration_contexts,
+                    context_spelling=context_spelling if stored_c else "",
+                    registration_status=binding.registration_status,
+                    unregister_status=binding.unregister_status,
+                    unregister_arguments=unregister_arguments,
+                    registration_result=self._call_type(declaration.signature.return_type) if stored_c else None,
+                    unregister_result=self._call_type(unregister.signature.return_type) if stored_c else None,
                 )
             )
         occupied = [
             index
             for projection in projections
-            for index in (projection.parameter_index, projection.context_index)
+            for index in (
+                projection.parameter_index,
+                *(
+                    getattr(projection, "registration_contexts", ())
+                    or ((projection.context_index,) if projection.context_index >= 0 else ())
+                ),
+            )
             if index >= 0
         ]
         if len(set(occupied)) != len(occupied):
@@ -2233,6 +2293,85 @@ class NativeDeclarationImporter:
                 f"{declaration.name}: callback and context parameters must be distinct and unshared"
             )
         return tuple(projections)
+
+    def _pointer_width_integer(self, native):
+        """An unqualified, non-enum integer of the target's pointer width (uintptr_t, DWORD_PTR)."""
+        if native.qualifiers.is_const or native.qualifiers.is_volatile:
+            return False
+        scalar = self._unqualified_native(native)
+        return (
+            isinstance(scalar, NativeBuiltin)
+            and scalar.name not in {"bool", "_Bool", "char", "signed char", "unsigned char", "float", "double"}
+            and scalar.signedness in {"signed", "unsigned"}
+            and scalar.bits == self._pointer_bits
+        )
+
+    def _opaque_handle(self, native):
+        """A pointer to an SDK record reached only through pointers (HWND, ALooper*)."""
+        pointer = self._unqualified_native(native)
+        record = self._unqualified_native(pointer.pointee) if isinstance(pointer, NativePointer) else None
+        return isinstance(record, NativeRecordType) and (record.opaque or not record.complete)
+
+    def _stored_c_unregister(self, declaration, binding, index, registration_contexts, names):
+        """Check a stored C registration's unregister call and how each argument is supplied.
+
+        Each unregister parameter repeats the registration parameter of the
+        same name and type: the callback becomes the same generated function,
+        a context slot the same context, and any other parameter a value the
+        registration captures (`captured-handles`).
+        """
+        if declaration.parameter_semantics[index].no_escape:
+            raise NativeImportError("a stored C registration requires an escaping callback parameter")
+        unregister = self._callback_exports.get(binding.unregister)
+        if not isinstance(unregister, NativeFunction) or unregister.signature.variadic:
+            raise NativeImportError("stored C registration unregister requires a selected C function")
+        self._require_qualified_convention(unregister.signature)
+        for function, status, what in (
+            (declaration, binding.registration_status, "registration-status"),
+            (unregister, binding.unregister_status, "unregister-status"),
+        ):
+            result = self._unqualified_native(function.signature.return_type)
+            void = isinstance(result, NativeBuiltin) and result.name == "void"
+            integral = (
+                isinstance(result, (NativeBuiltin, NativeEnumType))
+                and not void
+                and (isinstance(result, NativeEnumType) or result.signedness in {"signed", "unsigned"})
+            )
+            if (void and status) or (integral and not status) or not (void or integral):
+                raise NativeImportError(
+                    f"{function.name}: {what} must describe an integral result, or be omitted for void"
+                )
+            if function.returned_ownership != "unspecified" or any(
+                parameter.cf_consumed or parameter.ns_consumed for parameter in function.parameter_semantics
+            ):
+                raise NativeImportError(f"{function.name}: stored C registrations require non-consuming functions")
+        unregister_names = self._parameter_names(unregister.parameter_semantics)
+        arguments = []
+        captured = set()
+        for position, name in enumerate(unregister_names):
+            if name not in names:
+                raise NativeImportError(f"unregister parameter {name} must repeat a registration parameter")
+            source = names.index(name)
+            if self._type_identity(unregister.signature.parameters[position]) != self._type_identity(
+                declaration.signature.parameters[source]
+            ):
+                raise NativeImportError(f"unregister parameter {name} must have its registration parameter's type")
+            if source == index:
+                arguments.append(("callback",))
+            elif source in registration_contexts:
+                arguments.append(("context",))
+            else:
+                if name not in binding.captured_handles:
+                    raise NativeImportError(f"unregister parameter {name} must be listed in captured-handles")
+                native = declaration.signature.parameters[source]
+                scalar = self._unqualified_native(native)
+                if not self._opaque_handle(native) and not isinstance(scalar, (NativeBuiltin, NativeEnumType)):
+                    raise NativeImportError(f"captured-handles.{name} must be a scalar or an opaque handle")
+                captured.add(name)
+                arguments.append(("captured", source))
+        if set(binding.captured_handles) != captured:
+            raise NativeImportError("captured-handles must name registration parameters the unregister call takes")
+        return unregister, tuple(arguments)
 
     def _project_action(self, declaration, binding, index):
         getter = self._callback_exports.get(binding.slot_getter)
@@ -4617,6 +4756,9 @@ class NativeDeclarationImporter:
                 raise NativeImportError("owned-outputs does not support callbacks or realtime calls")
             callback_parameters = {projection.parameter_index: projection for projection in callbacks}
             callback_contexts = {projection.context_index for projection in callbacks if projection.context_index >= 0}
+            callback_contexts.update(
+                position for projection in callbacks for position in getattr(projection, "registration_contexts", ())
+            )
             transparent = []
             for index, (native, _) in enumerate(
                 zip(signature.parameters, declaration.parameter_semantics, strict=True)
@@ -4733,6 +4875,34 @@ class NativeDeclarationImporter:
                 copied_input=copied_input,
                 transparent_parameters=tuple(transparent[index] for index in visible),
             )
+            if any(getattr(callback, "registration_contexts", ()) for callback in callbacks):
+                # A stored C registration returns its managed registration; the
+                # native status is consumed by the generated adapter.
+                if borrowed_owner is not None or resource_result or len(callbacks) != 1:
+                    raise NativeImportError("a stored C registration takes exactly one callback and no result mapping")
+                token = ast.TypeExpr(
+                    base="OwnedClosure",
+                    generic_args=[
+                        # CFunction<void, void*>, in the parser's exact callback spelling.
+                        ast.TypeExpr(
+                            base="__fn_ptr",
+                            generic_args=[ast.TypeExpr(base="void"), ast.TypeExpr(base="void", pointer_depth=1)],
+                        )
+                    ],
+                )
+                imported.return_type = ast.TypeExpr(
+                    base="CallbackContext", generic_args=[ast.TypeExpr(base=callbacks[0].interface), token]
+                )
+                scope_name = "scope"
+                while any(parameter.name == scope_name for parameter in imported.params):
+                    scope_name += "_"
+                imported.params.append(ast.Param(type=ast.TypeExpr(base="CallbackScope"), name=scope_name))
+                contract = replace(
+                    contract,
+                    nonnull_parameters=(*contract.nonnull_parameters, True),
+                    read_only_borrows=(*contract.read_only_borrows, False),
+                    resource_parameters=(*contract.resource_parameters, ""),
+                )
             if any(callback.one_shot for callback in callbacks):
                 if borrowed_owner is not None:
                     raise NativeImportError("borrowed-results does not support one-shot callback registration")

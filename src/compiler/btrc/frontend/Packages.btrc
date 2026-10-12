@@ -808,7 +808,7 @@ class FeManifestBlock {
 			if (parts.len == 5 && parts.get(3) == "operations" && self.identifier(parts.get(4)) && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string field = parts.get(3);
-			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
 			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
 		}
 		for name in self.callbackNames.keys() {
@@ -841,7 +841,7 @@ class FeManifestBlock {
 			string unregister = "";
 			string activationFailure = "";
 			if (lifetime == "stored") {
-				if (binding.language != "objective-c" && realtime == null) { FePackageFailure.fail("stored callbacks currently require Objective-C blocks"); }
+				if (binding.language != "objective-c" && binding.language != "c" && realtime == null) { FePackageFailure.fail("stored callbacks require C functions or Objective-C blocks"); }
 				unregister = self.requiredText(prefix + "unregister");
 				if (!binding.symbols.contains(unregister)) { FePackageFailure.fail("callback unregister must name a selected native method"); }
 				activationFailure = self.requiredText(prefix + "activation-failure");
@@ -872,7 +872,23 @@ class FeManifestBlock {
 				callback.field = self.requiredText(prefix + "field");
 				if (!self.identifier(callback.field) || binding.language != "c" || (lifetime != "one-shot" && realtime == null)) { FePackageFailure.fail("callback field requires a C one-shot callback and a field identifier"); }
 			}
-			if (contextIndices.len > 1 && callback.field.isEmpty()) { FePackageFailure.fail("multiple context slots require a callback field"); }
+			bool storedC = lifetime == "stored" && binding.language == "c" && realtime == null;
+			if (contextIndices.len > 1 && callback.field.isEmpty() && !storedC) { FePackageFailure.fail("multiple context slots require a callback field"); }
+			bool registrationFacts = self.fields.has(prefix + "registration-status") || self.fields.has(prefix + "unregister-status") || self.fields.has(prefix + "captured-handles");
+			if (registrationFacts && !storedC) { FePackageFailure.fail("registration and unregister facts require a stored C registration"); }
+			if (storedC) {
+				Vector<string> statuses = ["nonzero", "positive", "nonnegative", "zero"];
+				if (self.fields.has(prefix + "registration-status")) { callback.registrationStatus = self.requiredText(prefix + "registration-status"); }
+				if (self.fields.has(prefix + "unregister-status")) { callback.unregisterStatus = self.requiredText(prefix + "unregister-status"); }
+				if ((!callback.registrationStatus.isEmpty() && !statuses.contains(callback.registrationStatus)) || (!callback.unregisterStatus.isEmpty() && !statuses.contains(callback.unregisterStatus))) { FePackageFailure.fail("callback statuses require nonzero, positive, nonnegative or zero"); }
+				callback.capturedHandles = self.stringArray(prefix + "captured-handles");
+				Map<string, bool> captured = {};
+				for name in callback.capturedHandles {
+					if (!self.identifier(name) || captured.has(name)) { FePackageFailure.fail("callback captured-handles must list distinct registration parameters"); }
+					captured.put(name, true);
+				}
+				if (contexts.len == 0) { FePackageFailure.fail("a stored C registration requires its context slots"); }
+			}
 			if (self.fields.has(prefix + "owned-arguments") && (binding.language != "c" || lifetime != "one-shot")) { FePackageFailure.fail("owned-arguments requires a C one-shot callback"); }
 			callback.ownedArguments = self.indexArray(prefix + "owned-arguments");
 			bool action = self.fields.has(prefix + "action-setter") || self.fields.has(prefix + "action-getter");

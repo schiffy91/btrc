@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from src.compiler.python.abi.native_generated import NativeAlias, NativeEnumType, NativeQualifiedType
 from src.compiler.python.analyzer.storage import StorageModel
@@ -54,6 +54,7 @@ from src.compiler.python.ir.nodes import (
     IRStructField,
     IRStructForward,
     IRTernary,
+    IRUnaryOp,
     IRVar,
     IRVarDecl,
     IRWhile,
@@ -178,6 +179,9 @@ class FunctionLowerer:
             return
         if any(callback.one_shot for callback in contract.callbacks):
             self._emit_one_shot_c_adapter(declaration, contract)
+            return
+        if any(getattr(callback, "registration_contexts", ()) for callback in contract.callbacks):
+            self._emit_stored_c_adapter(declaration, contract)
             return
         if any(isinstance(callback, NativeInstantiatedProjection) for callback in contract.callbacks):
             self._emit_instantiated_adapter(declaration, contract)
@@ -3122,7 +3126,11 @@ class FunctionLowerer:
             for index, value in enumerate(value_types)
         ]
         context_index = callback.callback_context_index
-        context = IRCast(CType(self._types.render(context_type)), IRVar(parameters[context_index].name))
+        context_value = IRVar(parameters[context_index].name)
+        if getattr(callback, "context_spelling", "") not in {"", "pointer"}:
+            # A pointer-width integer slot holds the context pointer exactly.
+            context_value = IRCast(CType("uintptr_t"), context_value)
+        context = IRCast(CType(self._types.render(context_type)), context_value)
         receiver_type = context_type.generic_args[0]
         receiver_slot = IRVarDecl(
             CType(self._types.render(receiver_type)), "receiver", init=IRCall(f"{context_symbol}_enter", [context])
@@ -3350,6 +3358,247 @@ class FunctionLowerer:
         self._session.module.function_decls.append(IRFunctionDecl(name, result_c, parameters, is_static=True))
         self._session.module.function_defs.append(
             IRFunctionDef(name=name, return_type=result_c, params=parameters, is_static=True, body=IRBlock(body))
+        )
+
+    _STATUS_SUCCESS: ClassVar[dict[str, tuple[str, str]]] = {
+        "nonzero": ("!=", "0"),
+        "positive": (">", "0"),
+        "nonnegative": (">=", "0"),
+        "zero": ("==", "0"),
+    }
+
+    def _emit_stored_c_adapter(self, declaration, contract):
+        """Register a C callback the SDK stores until its unregister call returns.
+
+        A calloc'd holder records the context and every captured unregister
+        argument. The registration's token is an OwnedClosure over that holder:
+        its unregister calls the SDK with the same callback, context and
+        captured values; its destroy, run once the registration has drained,
+        drops the external context claim the SDK held and frees the holder.
+        Context slots carry the context itself, so each live registration is
+        distinct to the SDK (a Win32 subclass id, its reference data).
+        """
+        module = self._session.module
+        callback = contract.callbacks[0]
+        name = contract.adapter_symbol(declaration.name)
+        prefix = f"__btrc_native_{declaration.name}_stored"
+        context_type = declaration.return_type
+        context_c = CType(self._types.render(context_type))
+        context_symbol = context_c.text.removesuffix("*").strip()
+        token_type = context_type.generic_args[1]
+        token_c = CType(self._types.render(token_type))
+        token_symbol = token_c.text.removesuffix("*").strip()
+        invoke, _values = self._stored_context_invoker(prefix, callback, context_type, context_symbol)
+        integer_context = callback.context_spelling not in {"", "pointer"}
+
+        def context_argument(value):
+            raw = IRCast(CType("void*"), value)
+            if integer_context:
+                return IRCast(CType(callback.context_spelling), IRCast(CType("uintptr_t"), raw))
+            return raw
+
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in declaration.params]
+        native_count = len(parameters) - 1 + len(callback.registration_contexts)
+        visible = [index for index in range(native_count) if index not in callback.registration_contexts]
+        holder_type = CType(f"struct {prefix}_holder*")
+        captured = sorted(
+            {source for kind, *rest in callback.unregister_arguments if kind == "captured" for source in rest}
+        )
+        module.struct_defs.append(
+            IRStructDef(
+                name=f"{prefix}_holder",
+                fields=[
+                    IRStructField(CType("void*"), "context"),
+                    *(
+                        IRStructField(CType(parameters[visible.index(source)].c_type.text), f"captured{source}")
+                        for source in captured
+                    ),
+                ],
+            )
+        )
+        holder = IRVar("holder")
+        raw = IRVar("rawHolder")
+
+        def status_check(value, status):
+            if not status:
+                return []
+            operator, bound = self._STATUS_SUCCESS[status]
+            return [
+                IRIf(
+                    IRUnaryOp(op="!", operand=IRBinOp(value, operator, IRLiteral(bound))),
+                    IRBlock([IRReturn(IRLiteral("false"))]),
+                )
+            ]
+
+        # Destroy: the registration has drained; drop the SDK's claim and the holder.
+        stored_context = IRCast(context_c, IRFieldAccess(holder, "context", arrow=True))
+        module.function_defs.append(
+            IRFunctionDef(
+                name=f"{prefix}_destroy",
+                return_type=CType("void"),
+                params=[IRParam(CType("void*"), raw.name)],
+                is_static=True,
+                body=IRBlock(
+                    [
+                        IRVarDecl(holder_type, holder.name, init=IRCast(holder_type, raw)),
+                        IRIf(
+                            IRFieldAccess(holder, "context", arrow=True),
+                            IRBlock([IRExprStmt(self._lifetime.release_value(stored_context, context_type))]),
+                        ),
+                        IRExprStmt(IRCall("free", [holder])),
+                    ]
+                ),
+            )
+        )
+        module.function_decls.append(
+            IRFunctionDecl(f"{prefix}_destroy", CType("void"), [IRParam(CType("void*"), raw.name)], is_static=True)
+        )
+        # Native unregister: the same callback, context and captured values.
+        unregister = callback.unregister
+        unregister_arguments = []
+        for kind, *rest in callback.unregister_arguments:
+            if kind == "callback":
+                unregister_arguments.append(IRFunctionRef(invoke))
+            elif kind == "context":
+                unregister_arguments.append(context_argument(IRFieldAccess(holder, "context", arrow=True)))
+            else:
+                unregister_arguments.append(IRFieldAccess(holder, f"captured{rest[0]}", arrow=True))
+        unregister_call = IRCall(unregister.name, unregister_arguments)
+        self._session.module.native_external_names.add(unregister.name)
+        unregister_body = [IRVarDecl(holder_type, holder.name, init=IRCast(holder_type, raw))]
+        if callback.unregister_status:
+            result_c = CType(self._types.render(callback.unregister_result))
+            unregister_body.append(IRVarDecl(result_c, "status", init=unregister_call))
+            unregister_body.extend(status_check(IRVar("status"), callback.unregister_status))
+        else:
+            unregister_body.append(IRExprStmt(unregister_call))
+        unregister_body.append(IRReturn(IRLiteral("true")))
+        module.function_defs.append(
+            IRFunctionDef(
+                name=f"{prefix}_unregister",
+                return_type=CType("bool"),
+                params=[IRParam(CType("void*"), raw.name)],
+                is_static=True,
+                body=IRBlock(unregister_body),
+            )
+        )
+        module.function_decls.append(
+            IRFunctionDecl(f"{prefix}_unregister", CType("bool"), [IRParam(CType("void*"), raw.name)], is_static=True)
+        )
+        # The context's cancellation operation forwards to its token.
+        token = IRVar("token")
+        module.function_defs.append(
+            IRFunctionDef(
+                name=f"{prefix}_cancel",
+                return_type=CType("bool"),
+                params=[IRParam(token_c, token.name)],
+                is_static=True,
+                body=IRBlock([IRReturn(IRCall(f"{token_symbol}_unregister", [token]))]),
+            )
+        )
+        module.function_decls.append(
+            IRFunctionDecl(f"{prefix}_cancel", CType("bool"), [IRParam(token_c, token.name)], is_static=True)
+        )
+        # The registration adapter.
+        body = []
+        cleanup = self._native_cleanup_scope(parameters, body)
+        arguments = [IRVar(parameter.name) for parameter in parameters]
+        releases = []
+        for index, parameter in enumerate(declaration.params):
+            if contract.nonnull_parameters[index]:
+                body.append(
+                    self._native_null_guard(arguments[index], f"Native call {declaration.name}: null {parameter.name}")
+                )
+            if (
+                parameter.type.base in self._analyzed.class_table
+                or parameter.type.base in self._analyzed.interface_table
+            ):
+                arguments[index] = self._native_lease(
+                    index, parameter.type, arguments[index], parameters, body, releases
+                )
+        scope = arguments[-1]
+        receiver = arguments[visible.index(callback.parameter_index)]
+        self._session.require_helper("__btrc_safe_calloc")
+        body.append(
+            IRVarDecl(
+                holder_type,
+                holder.name,
+                init=IRCast(
+                    holder_type,
+                    IRCall("__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(CType(f"struct {prefix}_holder"))]),
+                ),
+            )
+        )
+        for source in captured:
+            body.append(
+                IRAssign(IRFieldAccess(holder, f"captured{source}", arrow=True), arguments[visible.index(source)])
+            )
+        token_slot = IRVarDecl(
+            token_c,
+            "registrationToken",
+            init=IRCall(
+                f"{token_symbol}_new",
+                [
+                    IRFunctionRef(f"{prefix}_destroy"),
+                    IRCast(CType("void*"), holder),
+                    IRFunctionRef(f"{prefix}_destroy"),
+                    IRFunctionRef(f"{prefix}_unregister"),
+                    IRCast(CType("void*"), holder),
+                ],
+            ),
+        )
+        body.extend([token_slot, IRExprStmt(self._lifetime.register_cleanup_slot(token_slot, token_type))])
+        context = IRVar("context")
+        context_slot = IRVarDecl(
+            context_c, context.name, init=IRCall(f"{context_symbol}_new", [receiver, IRFunctionRef(f"{prefix}_cancel")])
+        )
+        body.extend([context_slot, IRExprStmt(self._lifetime.register_cleanup_slot(context_slot, context_type))])
+        # The SDK holds one external claim from here until destroy.
+        body.extend(
+            [
+                IRExprStmt(self._lifetime.retain_value(context, context_type)),
+                IRAssign(IRFieldAccess(holder, "context", arrow=True), IRCast(CType("void*"), context)),
+                IRExprStmt(IRCall(f"{context_symbol}_activate", [context, scope])),
+            ]
+        )
+        native_arguments = {}
+        for position, index in enumerate(visible):
+            native_arguments[index] = arguments[position]
+        native_arguments[callback.parameter_index] = IRFunctionRef(invoke)
+        for index in callback.registration_contexts:
+            native_arguments[index] = context_argument(context)
+        registration = IRCall(declaration.name, [native_arguments[index] for index in range(native_count)])
+        if callback.registration_status:
+            operator, bound = self._STATUS_SUCCESS[callback.registration_status]
+            result_c = CType(self._types.render(callback.registration_result))
+            body.append(IRVarDecl(result_c, "registrationStatus", init=registration))
+            body.append(
+                IRIf(
+                    IRUnaryOp(op="!", operand=IRBinOp(IRVar("registrationStatus"), operator, IRLiteral(bound))),
+                    self._stored_activation_failure(
+                        callback, context_symbol, context, f"Stored callback {declaration.name}: registration failed"
+                    ),
+                )
+            )
+        else:
+            body.append(IRExprStmt(registration))
+        body.append(IRExprStmt(IRCall(f"{context_symbol}_publish", [context, IRVar(token_slot.name)])))
+        release_locals = []
+        token_release = self._lifetime.release_and_clear(
+            IRVar(token_slot.name), token_type, release_locals, token_c.text
+        )
+        body.extend(
+            [
+                *release_locals,
+                *[IRExprStmt(value) for value in token_release],
+                *releases,
+                *cleanup,
+                IRReturn(context),
+            ]
+        )
+        module.function_decls.append(IRFunctionDecl(name, context_c, parameters, is_static=True))
+        module.function_defs.append(
+            IRFunctionDef(name=name, return_type=context_c, params=parameters, is_static=True, body=IRBlock(body))
         )
 
     def _emit_one_shot_objective_c_adapter(self, declaration, method, contract, native):

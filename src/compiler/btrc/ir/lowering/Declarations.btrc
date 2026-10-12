@@ -203,6 +203,7 @@ class DeclarationLowerer {
 		if (name.equals(declaration.name)) { return; }
 		for callback in contract.callbacks { if (callback.realtime != null) { self.emitRealtimeCAdapter(declaration, contract, module); return; } }
 		for callback in contract.callbacks { if (callback.oneShot) { self.emitOneShotCAdapter(declaration, contract, module); return; } }
+		for callback in contract.callbacks { if (callback.registrationContexts.len > 0) { self.emitStoredCAdapter(declaration, contract, module); return; } }
 		if (contract.callbackTable != null) { self.emitCallbackTableAdapter(declaration, contract, module); return; }
 		var adapter = IRFunction();
 		adapter.name = name;
@@ -1924,7 +1925,10 @@ class DeclarationLowerer {
 			thunk.params.push(IRParam(parameterType, name));
 			parameterNames.put(name, true);
 		}
-		IRNode context = IRNode.cast(self.cTypes.lower(contextType), IRNode.variable(thunk.params.get(callback.callbackContextIndex).name));
+		IRNode contextValue = IRNode.variable(thunk.params.get(callback.callbackContextIndex).name);
+		/* A pointer-width integer slot holds the context pointer exactly. */
+		if (!callback.contextSpelling.isEmpty() && callback.contextSpelling != "pointer") { contextValue = IRNode.cast("uintptr_t", contextValue); }
+		IRNode context = IRNode.cast(self.cTypes.lower(contextType), contextValue);
 		Node receiverType = contextType.genericArgs().get(0);
 		IRNode receiver = IRNode.variable("receiver");
 		IRNode receiverSlot = IRNode.variableDeclaration(self.cTypes.lower(receiverType), "receiver", IRNode.call(contextSymbol + "_enter", [context]));
@@ -2058,6 +2062,164 @@ class DeclarationLowerer {
 		for (int index = releases.len - 1; index >= 0; index--) { body.extend(releases.get(index)); }
 		body.push(cleanup);
 		body.push(IRNode.returnStatement(result));
+		adapter.body = IRNode.block(body);
+		self.appendFunction(adapter, module);
+	}
+
+	/* The success test for a stored C registration's integer status. */
+	private IRNode storedStatusSucceeds(IRNode value, string status) {
+		string operation = status == "nonzero" ? "!=" : status == "positive" ? ">" : status == "nonnegative" ? ">=" : "==";
+		return IRNode.binary(value, operation, IRNode.literal("0"));
+	}
+
+	/* A context slot value: the context pointer itself, or that pointer as a
+	 * pointer-width integer. */
+	private IRNode storedContextArgument(FeNativeCallbackProjection callback, IRNode value) {
+		IRNode pointer = IRNode.cast("void*", value);
+		if (callback.contextSpelling.isEmpty() || callback.contextSpelling == "pointer") { return pointer; }
+		return IRNode.cast(callback.contextSpelling, IRNode.cast("uintptr_t", pointer));
+	}
+
+	/* Register a C callback the SDK stores until its unregister call returns.
+	 * A calloc'd holder records the context and every captured unregister
+	 * argument. The registration's token is an OwnedClosure over that holder:
+	 * its unregister calls the SDK with the same callback, context and captured
+	 * values; its destroy, run once the registration has drained, drops the
+	 * external context claim the SDK held and frees the holder. Context slots
+	 * carry the context itself, so each live registration is distinct to the
+	 * SDK (a Win32 subclass id, its reference data). */
+	private void emitStoredCAdapter(Node declaration, FeNativeCallContract contract, IRModule module) {
+		Vector<IRNode> noArguments = [];
+		FeNativeCallbackProjection callback = contract.callbacks.get(0);
+		string prefix = "__btrc_native_" + declaration.name + "_stored";
+		Node contextType = declaration.returnType;
+		string contextC = self.cTypes.lower(contextType);
+		string contextSymbol = TypeIdentity.mangleGenericSymbol(contextType.base, contextType.genericArgs());
+		Node tokenType = contextType.genericArgs().get(1);
+		string tokenC = self.cTypes.lower(tokenType);
+		string tokenSymbol = TypeIdentity.mangleGenericSymbol(tokenType.base, tokenType.genericArgs());
+		string invoke = self.emitStoredContextInvoker(prefix, callback, contextType, contextSymbol, module);
+		Vector<IRParam> parameters = [];
+		Map<string, bool> parameterNames = {};
+		for parameter in declaration.params() {
+			IRParam lowered = self.cTypes.lowerParameter(parameter);
+			parameters.push(lowered);
+			parameterNames.put(lowered.name, true);
+		}
+		int nativeCount = parameters.len - 1 + callback.registrationContexts.len;
+		Vector<int> visible = [];
+		for index in range(nativeCount) { if (!callback.registrationContexts.contains(index)) { visible.push(index); } }
+		string holderName = prefix + "_holder";
+		string holderType = "struct " + holderName + "*";
+		Vector<int> captured = [];
+		for argument in callback.unregisterArguments {
+			if (!argument.startsWith("captured:")) { continue; }
+			int source = Strings.toInt(argument.substring(9, argument.length() - 9));
+			if (!captured.contains(source)) { captured.push(source); }
+		}
+		var holderDefinition = IRStructDef();
+		holderDefinition.name = holderName;
+		holderDefinition.fields.push(IRStructField("void*", "context"));
+		for source in captured { holderDefinition.fields.push(IRStructField(parameters.get(visible.indexOf(source)).cType, f"captured{source}")); }
+		module.structDefs.push(holderDefinition);
+		IRNode holder = IRNode.variable("holder");
+		IRNode rawHolder = IRNode.variable("rawHolder");
+		/* Destroy: the registration has drained; drop the SDK's claim and the holder. */
+		var destroy = IRFunction();
+		destroy.name = prefix + "_destroy";
+		destroy.returnType = "void";
+		destroy.isStatic = true;
+		destroy.params = [IRParam("void*", "rawHolder")];
+		IRNode storedContext = IRNode.cast(contextC, IRNode.fieldAccess(holder, "context", true));
+		destroy.body = IRNode.block([
+			IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, rawHolder)),
+			IRNode.ifStatement(IRNode.fieldAccess(holder, "context", true), IRNode.block([IRNode.expressionStatement(self.managedLifetime.releaseValue(storedContext, contextType))]), null),
+			IRNode.expressionStatement(IRNode.call("free", [holder]))
+		]);
+		self.appendFunction(destroy, module);
+		/* Native unregister: the same callback, context and captured values. */
+		NativeNode? storedUnregister = callback.unregister;
+		if (storedUnregister == null) { throw "stored C registration requires its unregister function"; }
+		NativeNode nativeUnregister = storedUnregister;
+		Vector<IRNode> unregisterArguments = [];
+		for argument in callback.unregisterArguments {
+			if (argument == "callback") { unregisterArguments.push(IRNode.functionReference(invoke)); }
+			else if (argument == "context") { unregisterArguments.push(self.storedContextArgument(callback, IRNode.fieldAccess(holder, "context", true))); }
+			else { unregisterArguments.push(IRNode.fieldAccess(holder, "captured" + argument.substring(9, argument.length() - 9), true)); }
+		}
+		IRNode unregisterCall = IRNode.call(nativeUnregister.name, unregisterArguments);
+		var unregister = IRFunction();
+		unregister.name = prefix + "_unregister";
+		unregister.returnType = "bool";
+		unregister.isStatic = true;
+		unregister.params = [IRParam("void*", "rawHolder")];
+		Vector<IRNode> unregisterBody = [IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, rawHolder))];
+		Node? unregisterResult = callback.unregisterResult;
+		if (!callback.unregisterStatus.isEmpty() && unregisterResult != null) {
+			unregisterBody.push(IRNode.variableDeclaration(self.cTypes.lower(unregisterResult), "status", unregisterCall));
+			unregisterBody.push(IRNode.ifStatement(IRNode.unary("!", self.storedStatusSucceeds(IRNode.variable("status"), callback.unregisterStatus), true), IRNode.block([IRNode.returnStatement(IRNode.literal("false"))]), null));
+		} else { unregisterBody.push(IRNode.expressionStatement(unregisterCall)); }
+		unregisterBody.push(IRNode.returnStatement(IRNode.literal("true")));
+		unregister.body = IRNode.block(unregisterBody);
+		self.appendFunction(unregister, module);
+		/* The context's cancellation operation forwards to its token. */
+		var cancel = IRFunction();
+		cancel.name = prefix + "_cancel";
+		cancel.returnType = "bool";
+		cancel.isStatic = true;
+		cancel.params = [IRParam(tokenC, "token")];
+		cancel.body = IRNode.block([IRNode.returnStatement(IRNode.call(tokenSymbol + "_unregister", [IRNode.variable("token")]))]);
+		self.appendFunction(cancel, module);
+		/* The registration adapter. */
+		var adapter = IRFunction();
+		adapter.name = contract.adapterSymbol(declaration.name);
+		adapter.returnType = contextC;
+		adapter.isStatic = true;
+		adapter.params = parameters;
+		Vector<IRNode> body = [];
+		IRNode cleanup = self.nativeCleanupScope(parameterNames, body);
+		Vector<IRNode> arguments = [];
+		for parameter in parameters { arguments.push(IRNode.variable(parameter.name)); }
+		Vector<Vector<IRNode>> releases = [];
+		for index in range(declaration.params().len) {
+			Node parameter = declaration.params().get(index);
+			if (contract.nonnullParameters.get(index)) { body.push(self.nativeNullGuard(arguments.get(index), f"Native call {declaration.name}: null {parameter.name}", false)); }
+			if (self.analyzed.classTable.has(parameter.type.base) || self.analyzed.interfaceTable.has(parameter.type.base) || self.analyzed.genericClassTable.has(parameter.type.base)) { arguments.set(index, self.emitNativeLease(index, parameter.type, arguments.get(index), parameterNames, body, releases)); }
+		}
+		IRNode scope = arguments.get(arguments.len - 1);
+		IRNode receiver = arguments.get(visible.indexOf(callback.parameterIndex));
+		self.context.referenceHelper("__btrc_safe_calloc");
+		body.push(IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + holderName)]))));
+		for source in captured { body.push(IRNode.assignment(IRNode.fieldAccess(holder, f"captured{source}", true), arguments.get(visible.indexOf(source)))); }
+		IRNode token = IRNode.variable("registrationToken");
+		IRNode tokenSlot = IRNode.variableDeclaration(tokenC, "registrationToken", IRNode.call(tokenSymbol + "_new", [IRNode.functionReference(destroy.name), IRNode.cast("void*", holder), IRNode.functionReference(destroy.name), IRNode.functionReference(unregister.name), IRNode.cast("void*", holder)]));
+		body.push(tokenSlot);
+		body.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(tokenSlot, self.managedValues.runtimeType(tokenType))));
+		IRNode context = IRNode.variable("context");
+		IRNode contextSlot = IRNode.variableDeclaration(contextC, "context", IRNode.call(contextSymbol + "_new", [receiver, IRNode.functionReference(cancel.name)]));
+		body.push(contextSlot);
+		body.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(contextSlot, self.managedValues.runtimeType(contextType))));
+		/* The SDK holds one external claim from here until destroy. */
+		body.push(IRNode.expressionStatement(self.managedLifetime.retainValue(context, contextType)));
+		body.push(IRNode.assignment(IRNode.fieldAccess(holder, "context", true), IRNode.cast("void*", context)));
+		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_activate", [context, scope])));
+		Vector<IRNode> nativeArguments = [];
+		for index in range(nativeCount) {
+			if (index == callback.parameterIndex) { nativeArguments.push(IRNode.functionReference(invoke)); }
+			else if (callback.registrationContexts.contains(index)) { nativeArguments.push(self.storedContextArgument(callback, context)); }
+			else { nativeArguments.push(arguments.get(visible.indexOf(index))); }
+		}
+		IRNode registration = IRNode.call(declaration.name, nativeArguments);
+		Node? registrationResult = callback.registrationResult;
+		if (!callback.registrationStatus.isEmpty() && registrationResult != null) {
+			body.push(IRNode.variableDeclaration(self.cTypes.lower(registrationResult), "registrationStatus", registration));
+			body.push(IRNode.ifStatement(IRNode.unary("!", self.storedStatusSucceeds(IRNode.variable("registrationStatus"), callback.registrationStatus), true), self.storedActivationFailure(callback, contextSymbol, context, f"Stored callback {declaration.name}: registration failed"), null));
+		} else { body.push(IRNode.expressionStatement(registration)); }
+		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [context, token])));
+		self.releaseStoredLocal(token, tokenType, "releasedToken", body);
+		for (int index = releases.len - 1; index >= 0; index--) { body.extend(releases.get(index)); }
+		body.push(cleanup);
+		body.push(IRNode.returnStatement(context));
 		adapter.body = IRNode.block(body);
 		self.appendFunction(adapter, module);
 	}

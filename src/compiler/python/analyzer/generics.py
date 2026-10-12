@@ -175,6 +175,9 @@ class GenericAnalyzer:
                 dependencies = [(context, required)]
                 if contract.callbacks[0].one_shot:
                     dependencies = [(context, (*required, "complete"))]
+                elif getattr(contract.callbacks[0], "registration_contexts", ()):
+                    # A stored C registration's token owns its native holder.
+                    dependencies.append((context.generic_args[1], ("unregister", "close")))
                 elif (
                     contract.callbacks[0].unregister.signature.parameters
                     and not contract.callbacks[0].unregister.class_method

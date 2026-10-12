@@ -133,6 +133,7 @@ class FeNativeDeclarationImporter {
 	private Map<string, FeNativeCopiedResultBinding> copiedResults = {};
 	private Map<string, bool> resourceOperations = {};
 	private Map<string, bool> bindingOperations = {};
+	private int pointerBits = 64;
 	private Map<string, string> unmanagedHandles = {};
 	private Map<string, string> unmanagedOwners = {};
 	private Map<string, bool> ownedResults = {};
@@ -808,24 +809,55 @@ class FeNativeDeclarationImporter {
 				if (native.kind != NNK_NATIVE_POINTER) { self.fail("callback expected a nonvariadic function pointer"); }
 				signature = self.unqualifiedNative(native.pointee);
 			}
+			bool storedC = binding.lifetime == "stored" && !isBlock;
+			Vector<int> registrationContexts = [];
+			if (storedC) {
+				Vector<string> registrationNames = self.parameterNames(declaration);
+				for context in binding.contexts {
+					int found = -1;
+					for position in range(registrationNames.len) {
+						if (registrationNames.get(position) != context) { continue; }
+						if (found >= 0) { self.fail("callback context must identify one native parameter"); }
+						found = position;
+					}
+					if (found < 0) { self.fail("callback context must identify one native parameter"); }
+					registrationContexts.push(found);
+				}
+			}
 			if (index == contextIndex || occupied.has(index) || (contextIndex >= 0 && occupied.has(contextIndex))) { self.fail("callback and context parameters must be distinct and unshared"); }
 			occupied.put(index, true);
 			if (contextIndex >= 0) { occupied.put(contextIndex, true); }
+			for position in registrationContexts {
+				if (position == index || (position != contextIndex && occupied.has(position))) { self.fail("callback and context parameters must be distinct and unshared"); }
+				occupied.put(position, true);
+			}
 			if (signature.kind != NNK_NATIVE_FUNCTION_TYPE || signature.variadic) { self.fail("callback expected a nonvariadic function pointer"); }
 			if (isBlock) { callbackContextIndex = signature.parameters.len; callbackContextIndices = [callbackContextIndex]; }
+			string contextSpelling = "";
 			if (!isBlock) {
 				Vector<NativeNode> contexts = [];
-				if (binding.field.isEmpty()) { contexts.push(declaration.signature.parameters.get(contextIndex)); }
-				else { contexts.extend(recordContexts); }
+				if (!binding.field.isEmpty()) { contexts.extend(recordContexts); }
+				else if (storedC) { for position in registrationContexts { contexts.push(declaration.signature.parameters.get(position)); } }
+				else { contexts.push(declaration.signature.parameters.get(contextIndex)); }
 				for position in callbackContextIndices {
 					if (position < 0 || position >= signature.parameters.len) { self.fail("callback context-index is outside the native signature"); }
 					contexts.push(signature.parameters.get(position));
 				}
+				string slotMessage = storedC ? "callback context must be an unqualified void pointer or a pointer-width integer" : "callback context must be an unqualified void pointer";
 				for context in contexts {
-					NativeNode pointer = self.unqualifiedNative(context);
-					if (pointer.kind != NNK_NATIVE_POINTER) { self.fail("callback context must be an unqualified void pointer"); }
-					NativeNode pointee = self.unqualifiedNative(pointer.pointee);
-					if (pointee.kind != NNK_NATIVE_BUILTIN || pointee.name != "void" || pointee.qualifiers.isConst) { self.fail("callback context must be an unqualified void pointer"); }
+					string spelling = "pointer";
+					if (storedC && self.pointerWidthInteger(context)) {
+						/* Slots may spell different typedefs of one integer
+						 * (UINT_PTR, DWORD_PTR); conversions use the shared type. */
+						spelling = self.unqualifiedNative(context).name;
+					} else {
+						NativeNode pointer = self.unqualifiedNative(context);
+						if (pointer.kind != NNK_NATIVE_POINTER) { self.fail(slotMessage); }
+						NativeNode pointee = self.unqualifiedNative(pointer.pointee);
+						if (pointee.kind != NNK_NATIVE_BUILTIN || pointee.name != "void" || pointee.qualifiers.isConst) { self.fail(slotMessage); }
+					}
+					if (!contextSpelling.isEmpty() && spelling != contextSpelling) { self.fail("callback context slots must share one type"); }
+					contextSpelling = spelling;
 				}
 			}
 			NativeNode result = self.unqualifiedNative(signature.returnType);
@@ -847,7 +879,14 @@ class FeNativeDeclarationImporter {
 				projection.oneShot = true;
 				projection.activationFailure = binding.activationFailure;
 			}
-			if (binding.lifetime == "stored") {
+			if (storedC) {
+				projection.registrationContexts = registrationContexts;
+				projection.contextSpelling = contextSpelling;
+				projection.registrationStatus = binding.registrationStatus;
+				projection.unregisterStatus = binding.unregisterStatus;
+				projection.activationFailure = binding.activationFailure;
+				self.storedCUnregister(declaration, binding, index, registrationContexts, projection);
+			} else if (binding.lifetime == "stored") {
 				if (!isBlock || declaration.parameterSemantics.get(index).noEscape) { self.fail("stored callbacks require an escaping Objective-C block"); }
 				if (!self.callbackExports.has(binding.unregister)) { self.fail("stored callback unregister must be a selected instance method"); }
 				NativeNode unregister = self.callbackExports.get(binding.unregister);
@@ -879,12 +918,18 @@ class FeNativeDeclarationImporter {
 				Node parameter = self.node(NK_PARAM);
 				parameter.name = f"argument{method.params().len}";
 				if (callbackContextIndices.contains(position)) {
-					parameter.type = self.node(NK_TYPE_EXPR);
-					parameter.type.base = "void";
-					parameter.type.pointerDepth = 1;
+					if (!contextSpelling.isEmpty() && contextSpelling != "pointer") { parameter.type = self.callType(signature.parameters.get(position), true); }
+					else {
+						parameter.type = self.node(NK_TYPE_EXPR);
+						parameter.type.base = "void";
+						parameter.type.pointerDepth = 1;
+					}
 				} else {
 					NativeNode scalar = self.unqualifiedNative(signature.parameters.get(position));
-					if (scalar.kind == NNK_NATIVE_RECORD_TYPE && self.stringViews.has(scalar.identity)) {
+					if (storedC && self.opaqueHandle(signature.parameters.get(position))) {
+						/* Borrowed for the call: BTRC can neither dereference nor own it. */
+						parameter.type = self.callType(signature.parameters.get(position), true);
+					} else if (scalar.kind == NNK_NATIVE_RECORD_TYPE && self.stringViews.has(scalar.identity)) {
 						if (isBlock || binding.lifetime != "one-shot") { self.fail("string-views currently requires a C one-shot callback"); }
 						projection.stringArguments.put(position, self.stringViews.get(scalar.identity));
 						self.usedStringViews.put(scalar.identity, true);
@@ -919,6 +964,70 @@ class FeNativeDeclarationImporter {
 			projections.push(projection);
 		}
 		return projections;
+	}
+
+	/* An unqualified, non-enum integer of the target's pointer width (uintptr_t, DWORD_PTR). */
+	private bool pointerWidthInteger(NativeNode native) {
+		if (native.qualifiers.isConst || native.qualifiers.isVolatile) { return false; }
+		NativeNode scalar = self.unqualifiedNative(native);
+		return scalar.kind == NNK_NATIVE_BUILTIN && !["bool", "_Bool", "char", "signed char", "unsigned char", "float", "double"].contains(scalar.name) && (scalar.signedness == "signed" || scalar.signedness == "unsigned") && scalar.bits == self.pointerBits;
+	}
+
+	/* A pointer to an SDK record reached only through pointers (HWND, ALooper*). */
+	private bool opaqueHandle(NativeNode native) {
+		NativeNode pointer = self.unqualifiedNative(native);
+		if (pointer.kind != NNK_NATIVE_POINTER) { return false; }
+		NativeNode record = self.unqualifiedNative(pointer.pointee);
+		return record.kind == NNK_NATIVE_RECORD_TYPE && (record.opaque || !record.complete);
+	}
+
+	/* Check a stored C registration's unregister call and how each argument is
+	 * supplied. Each unregister parameter repeats the registration parameter of
+	 * the same name and type: the callback becomes the same generated function,
+	 * a context slot the same context, and any other parameter a value the
+	 * registration captures (`captured-handles`). */
+	private void storedCUnregister(NativeNode declaration, FeNativeCallbackBinding binding, int index, Vector<int> registrationContexts, FeNativeCallbackProjection projection) {
+		if (declaration.parameterSemantics.get(index).noEscape) { self.fail("a stored C registration requires an escaping callback parameter"); }
+		if (!self.callbackExports.has(binding.unregister) || self.callbackExports.get(binding.unregister).kind != NNK_NATIVE_FUNCTION || self.callbackExports.get(binding.unregister).signature.variadic) { self.fail("stored C registration unregister requires a selected C function"); }
+		NativeNode unregister = self.callbackExports.get(binding.unregister);
+		self.requireQualifiedConvention(unregister.signature);
+		Vector<NativeNode> functions = [declaration, unregister];
+		Vector<string> statuses = [binding.registrationStatus, binding.unregisterStatus];
+		Vector<string> keys = ["registration-status", "unregister-status"];
+		for position in range(2) {
+			NativeNode operation = functions.get(position);
+			NativeNode result = self.unqualifiedNative(operation.signature.returnType);
+			bool isVoid = result.kind == NNK_NATIVE_BUILTIN && result.name == "void";
+			bool integral = !isVoid && (result.kind == NNK_NATIVE_ENUM_TYPE || (result.kind == NNK_NATIVE_BUILTIN && (result.signedness == "signed" || result.signedness == "unsigned")));
+			string status = statuses.get(position);
+			if ((isVoid && !status.isEmpty()) || (integral && status.isEmpty()) || !(isVoid || integral)) { self.fail(f"{operation.name}: {keys.get(position)} must describe an integral result, or be omitted for void"); }
+			if (operation.returnedOwnership != "unspecified") { self.fail(f"{operation.name}: stored C registrations require non-consuming functions"); }
+			for parameter in operation.parameterSemantics { if (parameter.cfConsumed || parameter.nsConsumed) { self.fail(f"{operation.name}: stored C registrations require non-consuming functions"); } }
+		}
+		Vector<string> names = self.parameterNames(declaration);
+		Vector<string> unregisterNames = self.parameterNames(unregister);
+		Map<string, bool> captured = {};
+		for position in range(unregisterNames.len) {
+			string name = unregisterNames.get(position);
+			int source = -1;
+			for candidate in range(names.len) { if (names.get(candidate) == name) { source = candidate; } }
+			if (source < 0) { self.fail(f"unregister parameter {name} must repeat a registration parameter"); }
+			if (self.typeIdentity(unregister.signature.parameters.get(position)) != self.typeIdentity(declaration.signature.parameters.get(source))) { self.fail(f"unregister parameter {name} must have its registration parameter's type"); }
+			if (source == index) { projection.unregisterArguments.push("callback"); }
+			else if (registrationContexts.contains(source)) { projection.unregisterArguments.push("context"); }
+			else {
+				if (!binding.capturedHandles.contains(name)) { self.fail(f"unregister parameter {name} must be listed in captured-handles"); }
+				NativeNode native = declaration.signature.parameters.get(source);
+				NativeNode scalar = self.unqualifiedNative(native);
+				if (!self.opaqueHandle(native) && scalar.kind != NNK_NATIVE_BUILTIN && scalar.kind != NNK_NATIVE_ENUM_TYPE) { self.fail(f"captured-handles.{name} must be a scalar or an opaque handle"); }
+				captured.put(name, true);
+				projection.unregisterArguments.push(f"captured:{source}");
+			}
+		}
+		for name in binding.capturedHandles { if (!captured.has(name)) { self.fail("captured-handles must name registration parameters the unregister call takes"); } }
+		projection.unregister = unregister;
+		projection.registrationResult = self.callType(declaration.signature.returnType);
+		projection.unregisterResult = self.callType(unregister.signature.returnType);
 	}
 
 	private FeNativeCallbackProjection projectAction(NativeNode declaration, FeNativeCallbackBinding binding, int index) {
@@ -2219,6 +2328,7 @@ class FeNativeDeclarationImporter {
 			for callback in callContract.callbacks {
 				callbackParameters.put(callback.parameterIndex, callback);
 				if (callback.contextIndex >= 0) { callbackContexts.put(callback.contextIndex, true); }
+				for position in callback.registrationContexts { callbackContexts.put(position, true); }
 			}
 			for index in range(signature.parameters.len) {
 				if (callContract.ownedOutput != null && callContract.ownedOutput.hides(index)) { continue; }
@@ -2278,6 +2388,38 @@ class FeNativeDeclarationImporter {
 			if (ownedOutput != null) { imported.returnType = self.node(NK_TYPE_EXPR); imported.returnType.base = ownedOutput.resultName; }
 			var copiedResult = callContract.copiedResult;
 			if (copiedResult != null) { imported.returnType = self.node(NK_TYPE_EXPR); imported.returnType.base = copiedResult.kind == "string" ? "string" : "Bytes"; imported.returnType.isNullable = true; }
+			for callback in callContract.callbacks {
+				if (callback.registrationContexts.len == 0) { continue; }
+				/* A stored C registration returns its managed registration; the
+				 * native status is consumed by the generated adapter. */
+				if (!borrowedOwner.isEmpty() || !callContract.resourceResult.isEmpty() || callContract.callbacks.len != 1) { self.fail("a stored C registration takes exactly one callback and no result mapping"); }
+				Node receiver = self.node(NK_TYPE_EXPR);
+				receiver.base = callback.interfaceName;
+				Node voidResult = self.node(NK_TYPE_EXPR);
+				voidResult.base = "void";
+				Node voidPointer = self.node(NK_TYPE_EXPR);
+				voidPointer.base = "void";
+				voidPointer.pointerDepth = 1;
+				/* CFunction<void, void*>, in the parser's exact callback spelling. */
+				Node destroyType = self.node(NK_TYPE_EXPR);
+				destroyType.base = "__fn_ptr";
+				destroyType.genericArgsStorage = [voidResult, voidPointer];
+				Node token = self.node(NK_TYPE_EXPR);
+				token.base = "OwnedClosure";
+				token.genericArgsStorage = [destroyType];
+				imported.returnType = self.node(NK_TYPE_EXPR);
+				imported.returnType.base = "CallbackContext";
+				imported.returnType.genericArgsStorage = [receiver, token];
+				Node scope = self.node(NK_PARAM);
+				scope.name = "scope";
+				while (parameterNames.contains(scope.name)) { scope.name = scope.name + "_"; }
+				scope.type = self.node(NK_TYPE_EXPR);
+				scope.type.base = "CallbackScope";
+				imported.paramsMut().push(scope);
+				callContract.nonnullParameters.push(true);
+				callContract.readOnlyBorrows.push(false);
+				callContract.resourceParameters.push("");
+			}
 			for callback in callContract.callbacks {
 				if (!callback.oneShot) { continue; }
 				if (!borrowedOwner.isEmpty()) { self.fail("borrowed-results does not support one-shot callback registration"); }
@@ -3487,6 +3629,7 @@ class FeNativeDeclarationImporter {
 		 * its aliases. The reader always receives, and reports, the row's
 		 * canonical cc1 triple. */
 		GeneratedTargetRow row = plan.target.row();
+		self.pointerBits = row.sizeofPointer * 8;
 		string requested = Environment.get("BTRC_NATIVE_TARGET", "");
 		if (requested != row.triple && !row.tripleAliases.contains(requested)) { throw "native imports for " + row.label + " require BTRC_NATIVE_TARGET " + row.triple; }
 		string target = row.triple;

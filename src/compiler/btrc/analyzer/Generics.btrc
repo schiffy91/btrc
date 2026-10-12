@@ -416,7 +416,16 @@ class GenericSpecializer {
 						if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
 					}
 					var unregister = callback.unregister;
-					if (!callback.oneShot && unregister != null && unregister.signature.parameters.len > 0 && !unregister.classMethod) {
+					if (callback.registrationContexts.len > 0) {
+						/* A stored C registration's token owns its native holder. */
+						Node token = context.genericArgs().get(1);
+						if (!self.analyzed.genericClassTable.has(token.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(token.base))) { throw "Stored native callbacks require import Library.Callback"; }
+						for name in ["unregister", "close"] {
+							Node? method = self.analyzed.genericClassMethod(token.base, name);
+							if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
+						}
+						self.registerGenericInstanceWithUnresolved(token, self.analyzed, {});
+					} else if (!callback.oneShot && unregister != null && unregister.signature.parameters.len > 0 && !unregister.classMethod) {
 						Node token = context.genericArgs().get(1);
 						if (!self.analyzed.genericClassTable.has(token.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(token.base))) { throw "Stored native callbacks require import Library.Callback"; }
 						for name in ["publish", "source", "value"] {

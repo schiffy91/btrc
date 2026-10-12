@@ -453,6 +453,11 @@ class FeNativeCallbackBinding {
 	public FeNativeRealtimeCallbackBinding? realtime = null;
 	/* "process" for an adapter the SDK instantiates by class name. */
 	public string scope = "";
+	/* Stored C registrations: the integer statuses meaning success, and the
+	 * registration arguments the unregister call receives again. */
+	public string registrationStatus = "";
+	public string unregisterStatus = "";
+	public Vector<string> capturedHandles = [];
 	public string field = "";
 	public Vector<int> ownedArguments = [];
 	public Vector<string> methods = [];
@@ -546,6 +551,17 @@ class FeNativeCallbackProjection {
 	/* An adapter the SDK instantiates by class name (scope = "process"); it
 	 * answers `delegateMethods` of `delegateProtocol` for one receiver. */
 	public string instantiatedScope = "";
+	/* Stored C registrations: every registration parameter carrying the
+	 * context, the slots' representation ("pointer" or the shared integer
+	 * builtin), the success statuses, each unregister argument's source
+	 * ("callback", "context" or "captured:<index>"), and both native results. */
+	public Vector<int> registrationContexts = [];
+	public string contextSpelling = "";
+	public string registrationStatus = "";
+	public string unregisterStatus = "";
+	public Vector<string> unregisterArguments = [];
+	public Node? registrationResult = null;
+	public Node? unregisterResult = null;
 	public NativeNode? unregister = null;
 	public string activationFailure = "";
 	public Vector<string> nativeParameters = [];
@@ -775,7 +791,7 @@ class FeNativeCallContract {
 		if (!self.resourceResult.isEmpty() || self.recordOutput != null || self.ownedOutput != null || self.copiedResult != null) { return true; }
 		FeNativeCxxProjection? cxxMethod = self.cxxMethod;
 		if (cxxMethod != null && !cxxMethod.factoryResult.isEmpty()) { return true; }
-		for callback in self.callbacks { if (callback.oneShot || callback.realtime != null) { return true; } }
+		for callback in self.callbacks { if (callback.oneShot || callback.realtime != null || callback.registrationContexts.len > 0) { return true; } }
 		return false;
 	}
 
