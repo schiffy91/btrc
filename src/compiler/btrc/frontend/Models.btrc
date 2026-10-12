@@ -451,6 +451,8 @@ class FeNativeRealtimeCallbackBinding {
 
 class FeNativeCallbackBinding {
 	public FeNativeRealtimeCallbackBinding? realtime = null;
+	/* "process" for an adapter the SDK instantiates by class name. */
+	public string scope = "";
 	public string field = "";
 	public Vector<int> ownedArguments = [];
 	public Vector<string> methods = [];
@@ -541,6 +543,9 @@ class FeNativeCallbackProjection {
 	public NativeNode? actionGetter = null;
 	public string delegateProtocol = "";
 	public Vector<FeNativeCallbackProjection> delegateMethods = [];
+	/* An adapter the SDK instantiates by class name (scope = "process"); it
+	 * answers `delegateMethods` of `delegateProtocol` for one receiver. */
+	public string instantiatedScope = "";
 	public NativeNode? unregister = null;
 	public string activationFailure = "";
 	public Vector<string> nativeParameters = [];

@@ -354,14 +354,15 @@
     {
       "id": "apple-mobile-sdk",
       "files": [
-        "src/tests/btrc/test_native_import_targets.py"
+        "src/tests/btrc/test_native_import_targets.py",
+        "src/tests/python/test_native_uikit_application.py"
       ],
       "reason": "^the (iphoneos|iphonesimulator) SDK is Mac-bound \\(xcrun\\)$",
       "category": "platform",
       "covered_by": [
         "macos-hosted"
       ],
-      "note": "The iOS device and simulator SDKs ship only with Xcode; macos.yml's btrc shard imports their headers through both compilers."
+      "note": "The iOS device and simulator SDKs ship only with Xcode; macos.yml's unit and btrc shards import their headers, build the UIKit app and launch it on a simulator."
     }
   ]
 }

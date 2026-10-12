@@ -380,6 +380,22 @@ class GenericSpecializer {
 					if (constructor == null || fromRaw == null || !hostedAbi.compilerStdlibNode(constructor) || !hostedAbi.compilerStdlibNode(fromRaw)) { throw "Copied native bytes require authenticated import Library.Bytes"; }
 				}
 				for callback in contract.callbacks {
+					if (!callback.instantiatedScope.isEmpty()) {
+						/* An SDK-instantiated adapter enters its receiver through an
+						 * authenticated CallbackRoot. */
+						Node root = Node();
+						root.kind = NK_TYPE_EXPR;
+						root.base = "CallbackRoot";
+						root.genericArgsStorage = [member.params().get(callback.parameterIndex).type];
+						root.pointerDepth = 1;
+						if (!self.analyzed.genericClassTable.has(root.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(root.base))) { throw "Instantiated native adapters require import Library.Callback"; }
+						for name in ["isOpen", "enter", "leave"] {
+							Node? method = self.analyzed.genericClassMethod(root.base, name);
+							if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Instantiated native adapters require import Library.Callback"; }
+						}
+						self.registerGenericInstanceWithUnresolved(root, self.analyzed, {});
+						continue;
+					}
 					if (callback.unregister == null && !callback.oneShot) { continue; }
 					if (callback.realtime != null) {
 						Node? constructor = self.analyzed.classConstructor("CallbackState");

@@ -547,6 +547,30 @@ class NativeActionProjection:
 
 
 @dataclass(frozen=True)
+class NativeInstantiatedProjection:
+    """An adapter class the SDK instantiates by name, answering protocol methods for one receiver.
+
+    The entry function's class-name parameter becomes the receiver. With
+    `scope = "process"` the generated class is a permanent root: its first
+    `-init` claims the receiver for the rest of the process, and a second
+    instantiation aborts (native-interop-ownership.md section 2.2).
+    """
+
+    interface: str
+    parameter_index: int
+    protocol: str
+    scope: str
+    methods: tuple[NativeCallbackProjection, ...]
+    one_shot: bool = False
+    unregister: None = None
+    field: str = ""
+
+    @property
+    def context_index(self):
+        return -1
+
+
+@dataclass(frozen=True)
 class NativeOutputOffset:
     parameter_index: int
     input_index: int
@@ -867,6 +891,8 @@ class NativeDeclarationImporter:
             for operation in (
                 (callback.slot_getter, callback.action_setter, callback.action_getter, *callback.methods)
                 if callback.slot_getter
+                else callback.methods
+                if callback.lifetime == "instantiated"
                 else (callback.unregister,)
             )
             if operation
@@ -1935,6 +1961,9 @@ class NativeDeclarationImporter:
             binding = self._callbacks.pop(f"{declaration.name}.{name}", None)
             if binding is None:
                 continue
+            if binding.lifetime == "instantiated":
+                projections.append(self._project_instantiated(declaration, binding, index))
+                continue
             if binding.action_setter:
                 projections.append(self._project_action(declaration, binding, index))
                 continue
@@ -2293,13 +2322,26 @@ class NativeDeclarationImporter:
             or not self._objective_c_type(getter.signature.return_type, cancellation_token=True).is_nullable
         ):
             raise NativeImportError("delegate slot requires matching nullable id<Protocol> setter and getter")
+        protocol = argument.protocols[0]
+        methods = self._protocol_methods(binding, index, protocol)
+        return NativeDelegateProjection(
+            binding.interface, index, declaration, binding.activation_failure, getter, protocol, methods
+        )
+
+    def _protocol_methods(self, binding, index, protocol):
+        """Project the selected protocol methods into the binding's interface.
+
+        Every method must be a non-consuming instance requirement of
+        `protocol`; an empty `protocol` takes the first method's protocol.
+        """
         methods = []
         names = set()
-        protocol = argument.protocols[0]
         signatures = []
         identities = []
         for symbol in binding.methods:
             method = self._callback_exports.get(symbol)
+            if not protocol and isinstance(method, NativeObjectiveCMethod) and method.protocol_owner:
+                protocol = method.receiver
             if (
                 not isinstance(method, NativeObjectiveCMethod)
                 or not method.protocol_owner
@@ -2312,7 +2354,7 @@ class NativeDeclarationImporter:
                 or any(parameter.cf_consumed or parameter.ns_consumed for parameter in method.parameter_semantics)
             ):
                 raise NativeImportError(
-                    f"delegate method requires a non-consuming instance method of {protocol}: {symbol}"
+                    f"delegate method requires a non-consuming instance method of {protocol or 'one protocol'}: {symbol}"
                 )
             name = method.selector.split(":", 1)[0]
             if name in names:
@@ -2351,8 +2393,23 @@ class NativeDeclarationImporter:
             ast.InterfaceDecl(name=binding.interface, methods=signatures),
             ("delegate-interface", tuple(identities)),
         )
-        return NativeDelegateProjection(
-            binding.interface, index, declaration, binding.activation_failure, getter, protocol, tuple(methods)
+        return tuple(methods)
+
+    def _project_instantiated(self, declaration, binding, index):
+        """The class-name parameter of an entry function names a generated adapter class."""
+        argument = self._unqualified_native(declaration.signature.parameters[index])
+        if (
+            not isinstance(declaration, NativeFunction)
+            or not isinstance(argument, NativeObjectiveCObject)
+            or argument.name != "NSString"
+            or argument.protocols
+            or argument.class_object
+            or argument.type_arguments
+        ):
+            raise NativeImportError("instantiated adapters require an NSString class-name parameter of a C function")
+        methods = self._protocol_methods(binding, index, "")
+        return NativeInstantiatedProjection(
+            binding.interface, index, methods[0].native_method.receiver, binding.scope, methods
         )
 
     def _block_type_spelling(self, native):
@@ -4394,6 +4451,16 @@ class NativeDeclarationImporter:
     def _import(self, declaration):
         if declaration.name in self._callback_operations:
             return
+        if (
+            self._origin.language == "objective-c"
+            and isinstance(declaration, NativeFunction)
+            and any(
+                key.startswith(declaration.name + ".") and binding.lifetime == "instantiated"
+                for key, binding in self._callbacks.items()
+            )
+        ):
+            self._import_instantiated_entry(declaration)
+            return
         if self._origin.language == "objective-c" and not isinstance(
             declaration, (NativeObjectiveCMethod, NativeConstant, NativeStringConstant, NativeGlobal)
         ):
@@ -4752,6 +4819,58 @@ class NativeDeclarationImporter:
         )
         if isinstance(declaration, NativeFunction):
             self._import_resource_output(declaration, imported)
+
+    def _import_instantiated_entry(self, declaration):
+        """A C entry naming an SDK-instantiated adapter class, such as UIApplicationMain.
+
+        The class-name parameter becomes the receiver interface. The call runs
+        in the Objective-C adapter unit, where the generated class is named;
+        other arguments are C scalars and pointers or borrowed Objective-C
+        objects, and the result is a scalar or void.
+        """
+        signature = declaration.signature
+        self._require_qualified_convention(signature)
+        if (
+            signature.variadic
+            or declaration.returned_ownership != "unspecified"
+            or any(parameter.cf_consumed or parameter.ns_consumed for parameter in declaration.parameter_semantics)
+        ):
+            raise NativeImportError("instantiated entry functions require a non-variadic, non-consuming signature")
+        callbacks = self._project_callbacks(declaration)
+        if len(callbacks) != 1 or not isinstance(callbacks[0], NativeInstantiatedProjection):
+            raise NativeImportError("an instantiated entry function takes exactly one instantiated adapter")
+        callback = callbacks[0]
+        names = self._parameter_names(declaration.parameter_semantics)
+        parameters = []
+        nonnull = []
+        for index, native in enumerate(signature.parameters):
+            if index == callback.parameter_index:
+                projected = ast.TypeExpr(base=callback.interface)
+                nonnull.append(True)
+            else:
+                projected = (
+                    self._objective_c_type(native, parameter=True)
+                    if isinstance(self._unqualified_native(native), NativeObjectiveCObject)
+                    else self._call_type(native, parameter=True)
+                )
+                nonnull.append(self._call_nullability(native) == "nonnull")
+            parameters.append(ast.Param(type=projected, name=names[index]))
+        if isinstance(self._unqualified_native(signature.return_type), (NativeObjectiveCObject, NativePointer)):
+            raise NativeImportError("instantiated entry functions require a scalar or void result")
+        imported = ast.FunctionDecl(
+            name=declaration.name,
+            return_type=self._call_type(signature.return_type),
+            params=parameters,
+            body=None,
+        )
+        contract = NativeCallContract(
+            tuple(nonnull),
+            False,
+            tuple(False for _ in parameters),
+            resource_parameters=tuple("" for _ in parameters),
+            callbacks=callbacks,
+        )
+        self._add(declaration.name, imported, self._declaration_identity(declaration), call_contract=contract)
 
     def _objective_c_scalar(self, native):
         """Project scalar ABI values without leaking Objective-C SDK typedefs into C."""
