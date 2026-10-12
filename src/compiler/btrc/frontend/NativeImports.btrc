@@ -10,6 +10,7 @@ import Library.Result;
 import Library.Strings;
 import Library.Vector;
 
+import ../generated/hosted_abi/Tables.btrc;
 import ../generated/native_abi/Models.btrc;
 import ../generated/ast/Node.btrc;
 import ../syntax/Literals.btrc;
@@ -18,6 +19,79 @@ import ./Models.btrc;
 import ./Packages.btrc;
 import ./SourceIo.btrc;
 import ./Timing.btrc;
+
+/* Validate one target row's native sysroot from files alone. The process that
+ * starts a compile resolves the path; a compiler never runs a toolchain to
+ * discover it. The identity digests the file that names the SDK's version, so
+ * a different SDK at the same path is a different import. */
+class FeNativeSysroot {
+	private GeneratedTargetRow row;
+	private string path;
+
+	public FeNativeSysroot(GeneratedTargetRow row, string path) {
+		self.row = row;
+		self.path = path;
+	}
+
+	private void fail(string reason) { throw "native imports require a valid " + self.row.sysrootKind + " sysroot for " + self.row.label + ": " + reason; }
+
+	private string read(string relative) {
+		string file = PathTools.join(self.path, relative);
+		if (!FileSystem.isFile(file)) { self.fail(relative + " is missing"); }
+		return FeSourceFileReader().readRequired(file);
+	}
+
+	/* Dotted decimal components, or an empty vector when one is not a number. */
+	private Vector<int> version(string text) {
+		Vector<int> components = [];
+		for part in Strings.split(text, ".") {
+			if (part.isEmpty()) { return []; }
+			for index in range(part.length()) { if (!Strings.isDigit(part[index])) { return []; } }
+			components.push(Strings.toInt(part));
+		}
+		return components;
+	}
+
+	private bool older(Vector<int> found, Vector<int> minimum) {
+		for index in range(found.len < minimum.len ? found.len : minimum.len) {
+			if (found.get(index) != minimum.get(index)) { return found.get(index) < minimum.get(index); }
+		}
+		return found.len < minimum.len;
+	}
+
+	/* The sysroot's 64-hex identity, or an error naming what is wrong. */
+	public string validate() {
+		if (!FileSystem.isDir(self.path)) { throw "native imports require an explicit available BTRC_NATIVE_SYSROOT"; }
+		string kind = self.row.sysrootKind;
+		if (kind == "none") { return ""; }
+		string identityFile = "";
+		string content = "";
+		if (kind == "xcrun") {
+			identityFile = "SDKSettings.json";
+			content = self.read(identityFile);
+			JSONValue settings = JSONValue.parse(content);
+			if (settings.isError() || !settings.isObject()) { self.fail(identityFile + " is not JSON"); }
+			JSONValue canonical = settings.get("CanonicalName");
+			if (!canonical.isString() || !canonical.asString().startsWith(self.row.sysrootName)) { self.fail("its CanonicalName is not a " + self.row.sysrootName + " SDK"); }
+			JSONValue version = settings.get("Version");
+			Vector<int> found = version.isString() ? self.version(version.asString()) : [];
+			Vector<int> minimum = self.version(self.row.minimumVersion);
+			if (found.len == 0 || minimum.len == 0 || self.older(found, minimum)) { self.fail("its Version is older than " + self.row.minimumVersion); }
+		} else if (kind == "ndk") {
+			identityFile = "usr/include/android/api-level.h";
+			content = self.read(identityFile);
+			string library = PathTools.join(self.path, "usr/lib/" + self.row.architecture + "-linux-android/" + self.row.minimumVersion);
+			if (!FileSystem.isDir(library)) { self.fail("usr/lib/" + self.row.architecture + "-linux-android/" + self.row.minimumVersion + " is missing"); }
+		} else if (kind == "zig-mingw") {
+			self.read("include/any-windows-any/windows.h");
+			identityFile = "include/any-windows-any/_mingw_mac.h";
+			content = self.read(identityFile);
+		} else {
+			self.fail("this sysroot kind is validated only on its runner");
+		}
+		return SHA256.digest(kind + "\x1f" + identityFile + "\x1f" + content);
+	}
+}
 
 class FeNativeDeclarationImporter {
 	private SHA256 resolvedIdentity = SHA256();
@@ -2572,28 +2646,6 @@ class FeNativeDeclarationImporter {
 		return projected;
 	}
 
-	private bool matchesTarget(FePackageTarget target, string triple) {
-		if (target.operatingSystem.equals("linux")) {
-			return triple.equals(target.architecture + "-linux-gnu") || triple.equals(target.architecture + "-unknown-linux-gnu");
-		}
-		// Clang's normalized MinGW-w64 spelling; the reader reports that
-		// spelling, so an alias such as x86_64-w64-mingw32 cannot match.
-		if (target.operatingSystem.equals("windows")) { return triple.equals(target.architecture + "-w64-windows-gnu"); }
-		if (!target.operatingSystem.equals("macos")) { return false; }
-		string architecture = target.architecture.equals("aarch64") ? "arm64" : "x86_64";
-		string prefix = architecture + "-apple-macosx";
-		if (!triple.startsWith(prefix)) { return false; }
-		var components = Strings.split(triple.substring(prefix.length(), triple.length() - prefix.length()), ".");
-		if (components.len != 3) { return false; }
-		for component in components {
-			if (component.isEmpty()) { return false; }
-			for index in range(component.length()) {
-				if (!Strings.isDigit(component[index])) { return false; }
-			}
-		}
-		return true;
-	}
-
 	private NativeNode unqualifiedNative(NativeNode value) {
 		while (value.kind == NNK_NATIVE_ALIAS || value.kind == NNK_NATIVE_QUALIFIED_TYPE) { value = value.underlying; }
 		return value;
@@ -3150,9 +3202,13 @@ class FeNativeDeclarationImporter {
 		}
 		packages.sortBy((string left, string right) => Strings.lessThan(left, right));
 		for package in packages { arguments.push("--pkg-config=" + package); }
-		arguments.extend([binding.header, "--", "-x", binding.language, "-std=" + binding.standard, "--target=" + target, "-isysroot", sysroot]);
+		arguments.extend([binding.header, "--", "-x", binding.language, "-std=" + binding.standard, "--target=" + target]);
+		/* The NDK sysroot is a whole sysroot: clang then searches its usr/include
+		 * and per-architecture headers itself. */
+		if (plan.target.row().sysrootKind == "ndk") { arguments.push("--sysroot=" + sysroot); }
+		else { arguments.extend(["-isysroot", sysroot]); }
 		if (binding.language == "objective-c") {
-			if (plan.target.operatingSystem != "macos") { self.fail("Objective-C adapters currently require the macOS runtime"); }
+			if (!plan.target.row().objectiveC) { self.fail("Objective-C adapters require an Apple target"); }
 			arguments.extend(["-fblocks", "-fobjc-arc"]);
 		}
 		if (plan.target.operatingSystem.equals("linux")) { arguments.extend(["-isystem", PathTools.join(sysroot, "usr/include")]); }
@@ -3195,10 +3251,15 @@ class FeNativeDeclarationImporter {
 		string readerIdentity = PathTools.isAbsolute(reader) ? self.sourceFiles.binaryIdentity(reader) : "";
 		self.cacheable = !readerIdentity.isEmpty();
 		self.resolvedIdentity.appendText(readerIdentity);
-		string target = Environment.get("BTRC_NATIVE_TARGET", "");
+		/* The row names the triple; BTRC_NATIVE_TARGET must spell it or one of
+		 * its aliases. The reader always receives, and reports, the row's
+		 * canonical cc1 triple. */
+		GeneratedTargetRow row = plan.target.row();
+		string requested = Environment.get("BTRC_NATIVE_TARGET", "");
+		if (requested != row.triple && !row.tripleAliases.contains(requested)) { throw "native imports for " + row.label + " require BTRC_NATIVE_TARGET " + row.triple; }
+		string target = row.triple;
 		string sysroot = Environment.get("BTRC_NATIVE_SYSROOT", "");
-		if (!self.matchesTarget(plan.target, target)) { throw "native imports require an explicit matching macOS, Linux GNU or Windows MinGW BTRC_NATIVE_TARGET triple"; }
-		if (!FileSystem.isDir(sysroot)) { throw "native imports require an explicit available BTRC_NATIVE_SYSROOT"; }
+		self.resolvedIdentity.appendText("sysroot\x1f" + FeNativeSysroot(row, sysroot).validate());
 		Vector<Vector<string>> commands = [];
 		Map<string, Vector<int>> groups = {};
 		Map<string, Result<string, string>> responses = {};

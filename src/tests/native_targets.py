@@ -13,8 +13,11 @@ the reader resolves like any other, so a stub `.pc` stands in for it.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+
+from src.compiler.python.frontend.packages import PackageTarget
 
 TRIPLES = {
     "linux-x64": "x86_64-unknown-linux-gnu",
@@ -32,11 +35,38 @@ TRIPLES = {
 }
 
 
+def stub_sysroot(sysroot: Path, target: str) -> None:
+    """Write the files that identify `target`'s sysroot kind, and no SDK headers.
+
+    Both compilers validate a sysroot from its files (NativeSysroot): an
+    Apple SDK names itself in SDKSettings.json, and a MinGW sysroot has its
+    any-windows-any headers. The stubs satisfy that check; a binding header
+    that includes a real SDK header still fails, as it should.
+    """
+
+    row = PackageTarget.parse(target).row
+    if row.sysroot_kind == "xcrun":
+        settings = {"CanonicalName": f"{row.sysroot_name}{row.minimum_version}", "Version": row.minimum_version}
+        (sysroot / "SDKSettings.json").write_text(json.dumps(settings), encoding="utf-8")
+    elif row.sysroot_kind == "zig-mingw":
+        headers = sysroot / "include" / "any-windows-any"
+        headers.mkdir(parents=True, exist_ok=True)
+        (headers / "windows.h").write_text("/* stub */\n", encoding="utf-8")
+        (headers / "_mingw_mac.h").write_text("#define __MINGW64_VERSION_MAJOR 0\n", encoding="utf-8")
+    elif row.sysroot_kind == "ndk":
+        (sysroot / "usr" / "include" / "android").mkdir(parents=True, exist_ok=True)
+        (sysroot / "usr" / "include" / "android" / "api-level.h").write_text("/* stub */\n", encoding="utf-8")
+        (sysroot / "usr" / "lib" / f"{row.architecture}-linux-android" / row.minimum_version).mkdir(
+            parents=True, exist_ok=True
+        )
+
+
 def cross_target_environment(directory: Path, target: str, base: dict[str, str] | None = None) -> dict[str, str]:
     """`base` (the process environment by default) reading headers for `target`."""
 
     sysroot = directory / "native-sysroot"
     sysroot.mkdir(parents=True, exist_ok=True)
+    stub_sysroot(sysroot, target)
     packages = directory / "native-pkgconfig"
     packages.mkdir(parents=True, exist_ok=True)
     (packages / "native-package-proof.pc").write_text(

@@ -594,16 +594,17 @@ def test_platform_native_plans_are_reference_exact(
     ("target", "triple", "accepted"),
     [
         ("windows-arm64", "aarch64-w64-windows-gnu", True),
-        ("windows-x64", "x86_64-w64-mingw32", False),
+        ("windows-x64", "x86_64-w64-mingw32", True),
         ("windows-x64", "x86_64-pc-windows-msvc", False),
         ("windows-x64", "aarch64-w64-windows-gnu", False),
     ],
 )
-def test_windows_binding_target_is_the_exact_mingw_triple(
+def test_windows_binding_target_is_a_row_triple_or_alias(
     semantic_btrcc: Path, tmp_path: Path, target: str, triple: str, accepted: bool
 ) -> None:
-    """Clang reports a MinGW header read as `<arch>-w64-windows-gnu`, so only
-    that spelling for the requested architecture can match its document."""
+    """BTRC_NATIVE_TARGET names the selected row's triple or an alias of it;
+    the reader always receives, and reports, the canonical
+    `<arch>-w64-windows-gnu`, so both spellings produce one plan."""
 
     source = _binding_source(tmp_path / "project", _BINDING, imported=True)
     environment = {**cross_target_environment(tmp_path, target, _environment()), "BTRC_NATIVE_TARGET": triple}
@@ -615,10 +616,7 @@ def test_windows_binding_target_is_the_exact_mingw_triple(
     for result in (reference, selfhost):
         assert (result.returncode == 0) == accepted, result.stderr
         if not accepted:
-            assert (
-                "native imports require an explicit matching macOS, Linux GNU or Windows MinGW "
-                "BTRC_NATIVE_TARGET triple" in result.stderr
-            )
+            assert f"native imports for {PackageTarget.parse(target).label} require BTRC_NATIVE_TARGET" in result.stderr
     if accepted:
         assert selfhost_plan.read_bytes() == reference_plan.read_bytes()
 

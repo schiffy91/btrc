@@ -112,6 +112,80 @@ class NativeToolEnvironment:
         return {name: value for name, value in environment.items() if cls.relevant(name)}
 
 
+class NativeSysroot:
+    """Validate one target row's native sysroot from files alone.
+
+    The process that starts a compile resolves the path; a compiler never runs
+    a toolchain to discover it. The identity digests the file that names the
+    SDK's version, so a different SDK at the same path is a different import.
+    """
+
+    def __init__(self, row, path: str) -> None:
+        self.row = row
+        self.path = path
+
+    def _fail(self, reason: str) -> None:
+        raise IncludeResolutionError(
+            f"native imports require a valid {self.row.sysroot_kind} sysroot for {self.row.label}: {reason}"
+        )
+
+    @staticmethod
+    def _version(text: str) -> tuple[int, ...] | None:
+        parts = text.split(".")
+        return tuple(int(part) for part in parts) if all(part.isdigit() for part in parts) else None
+
+    def _read(self, relative: str) -> bytes:
+        try:
+            with open(os.path.join(self.path, relative), "rb") as handle:
+                return handle.read()
+        except OSError:
+            self._fail(f"{relative} is missing")
+        raise AssertionError("unreachable")
+
+    def validate(self) -> str:
+        """The sysroot's 64-hex identity, or an error naming what is wrong."""
+
+        if not os.path.isdir(self.path):
+            raise IncludeResolutionError("native imports require an explicit available BTRC_NATIVE_SYSROOT")
+        kind = self.row.sysroot_kind
+        if kind == "none":
+            return ""
+        if kind == "xcrun":
+            identity_file = "SDKSettings.json"
+            settings = self._read(identity_file)
+            try:
+                decoded = json.loads(settings)
+            except ValueError:
+                self._fail(f"{identity_file} is not JSON")
+            canonical = decoded.get("CanonicalName") if isinstance(decoded, dict) else None
+            version = decoded.get("Version") if isinstance(decoded, dict) else None
+            if not isinstance(canonical, str) or not canonical.startswith(self.row.sysroot_name):
+                self._fail(f"its CanonicalName is not a {self.row.sysroot_name} SDK")
+            found = self._version(version) if isinstance(version, str) else None
+            minimum = self._version(self.row.minimum_version)
+            if found is None or minimum is None or found < minimum:
+                self._fail(f"its Version is older than {self.row.minimum_version}")
+            content = settings
+        elif kind == "ndk":
+            identity_file = "usr/include/android/api-level.h"
+            content = self._read(identity_file)
+            library = os.path.join(
+                self.path, "usr", "lib", f"{self.row.architecture}-linux-android", self.row.minimum_version
+            )
+            if not os.path.isdir(library):
+                self._fail(f"usr/lib/{self.row.architecture}-linux-android/{self.row.minimum_version} is missing")
+        elif kind == "zig-mingw":
+            self._read("include/any-windows-any/windows.h")
+            identity_file = "include/any-windows-any/_mingw_mac.h"
+            content = self._read(identity_file)
+        else:
+            self._fail("this sysroot kind is validated only on its runner")
+        digest = hashlib.sha256()
+        digest.update(f"{kind}\0{identity_file}\0".encode())
+        digest.update(content)
+        return digest.hexdigest()
+
+
 class NativeImportError(ValueError):
     """The native reader returned unsupported or inconsistent semantics."""
 
@@ -796,24 +870,15 @@ class NativeDeclarationImporter:
                 separators=(",", ":"),
             ).encode("utf-8", errors="surrogatepass")
         )
-        target = os.environ.get("BTRC_NATIVE_TARGET", "")
+        # The row names the triple; BTRC_NATIVE_TARGET must spell it or one of
+        # its aliases. The reader always receives, and reports, the row's
+        # canonical cc1 triple.
+        row = plan.target.row
+        if os.environ.get("BTRC_NATIVE_TARGET", "") not in (row.triple, *row.triple_aliases):
+            raise IncludeResolutionError(f"native imports for {row.label} require BTRC_NATIVE_TARGET {row.triple}")
+        target = row.triple
         sysroot = os.environ.get("BTRC_NATIVE_SYSROOT", "")
-        architecture = plan.target.architecture
-        if plan.target.operating_system == "macos":
-            architecture = "arm64" if architecture == "aarch64" else "x86_64"
-            pattern = rf"{architecture}-apple-macosx[0-9]+\.[0-9]+\.[0-9]+"
-        elif plan.target.operating_system == "linux":
-            pattern = rf"{architecture}-(?:unknown-)?linux-gnu"
-        else:
-            # Clang's normalized MinGW-w64 spelling; the reader reports that
-            # spelling, so an alias such as x86_64-w64-mingw32 cannot match.
-            pattern = rf"{architecture}-w64-windows-gnu"
-        if not re.fullmatch(pattern, target):
-            raise IncludeResolutionError(
-                "native imports require an explicit matching macOS, Linux GNU or Windows MinGW BTRC_NATIVE_TARGET triple"
-            )
-        if not os.path.isdir(sysroot):
-            raise IncludeResolutionError("native imports require an explicit available BTRC_NATIVE_SYSROOT")
+        fingerprint.update(f"sysroot\0{NativeSysroot(row, sysroot).validate()}\0".encode())
         for binding, arguments, semantics in self._read_headers(
             plan, reader, target, sysroot, environment, use_cache=use_cache
         ):
@@ -1072,12 +1137,13 @@ class NativeDeclarationImporter:
             binding.language,
             f"-std={binding.standard}",
             f"--target={target}",
-            "-isysroot",
-            sysroot,
+            # The NDK sysroot is a whole sysroot: clang then searches its
+            # usr/include and per-architecture headers itself.
+            *((f"--sysroot={sysroot}",) if plan.target.row.sysroot_kind == "ndk" else ("-isysroot", sysroot)),
         ]
         if binding.language == "objective-c":
-            if plan.target.operating_system != "macos":
-                raise IncludeResolutionError("Objective-C adapters currently require the macOS runtime")
+            if not plan.target.row.objective_c:
+                raise IncludeResolutionError("Objective-C adapters require an Apple target")
             arguments.extend(("-fblocks", "-fobjc-arc"))
         if plan.target.operating_system == "linux":
             arguments.extend(("-isystem", os.path.join(sysroot, "usr", "include")))
