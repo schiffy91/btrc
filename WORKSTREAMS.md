@@ -211,6 +211,14 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-12 UI2 CF ownership request (Codex).** Private packet
+`codex/ui2-cf-ownership-request-bac92` owns only this claim and
+`docs/workstreams/ui2-cf-ownership-request.md`, based on exact `bac92b20`.
+The actual 42-pass/2-PACKAGE-failure diagnostic and its independent audit
+remain immutable. Compiler-owned resource/borrow/callback admission is requested;
+no provider/fixture/manifest/compiler/runtime/generated files are changed.
+No destructor alias, raw-pointer escape or lifetime-guard relaxation is admitted.
+
 **2026-10-09 D29 unit GUI scheduling claim:** the parent integrator owns
 `.github/workflows/macos.yml`, its existing workflow-contract assertions and
 `docs/workstreams/macos-unit-gui-scheduling.md` on
