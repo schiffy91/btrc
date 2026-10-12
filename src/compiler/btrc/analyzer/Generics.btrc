@@ -1319,13 +1319,17 @@ class GenericSpecializer {
 			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams());
 			for method in d.methods() {
 				SemanticTypeSystem.upgradeTypeGenericArgs(method.returnType, a, unresolved);
-				for parameter in method.params() { SemanticTypeSystem.upgradeTypeGenericArgs(parameter.type, a, unresolved); }
+				for parameter in method.params() {
+					SemanticTypeSystem.upgradeTypeGenericArgs(parameter.type, a, unresolved);
+					self.upgradeExprGenericArgs(parameter.default_, a, unresolved);
+				}
 			}
 		} else if (d.kind == NK_FUNCTION_DECL) {
 			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams());
 			int i = 0;
 			while (i < d.params().len) {
 				SemanticTypeSystem.upgradeTypeGenericArgs(d.params().get(i).type, a, unresolved);
+				self.upgradeExprGenericArgs(d.params().get(i).default_, a, unresolved);
 				i = i + 1;
 			}
 			SemanticTypeSystem.upgradeTypeGenericArgs(d.returnType, a, unresolved);
@@ -1343,11 +1347,15 @@ class GenericSpecializer {
 				Node mem = d.members().get(i);
 				if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
 					SemanticTypeSystem.upgradeTypeGenericArgs(mem.type, a, classParameters);
+					/* A field default is checked against the upgraded field type, as a
+					 * local initializer is against its upgraded declaration. */
+					if (mem.kind == NK_FIELD_DECL) { self.upgradeExprGenericArgs(mem.initializer, a, classParameters); }
 				} else if (mem.kind == NK_METHOD_DECL) {
 					Map<string, bool> unresolved = self.mergeTypeParameterSets(classParameters, mem.genericParams());
 					int p = 0;
 					while (p < mem.params().len) {
 						SemanticTypeSystem.upgradeTypeGenericArgs(mem.params().get(p).type, a, unresolved);
+						self.upgradeExprGenericArgs(mem.params().get(p).default_, a, unresolved);
 						p = p + 1;
 					}
 					SemanticTypeSystem.upgradeTypeGenericArgs(mem.returnType, a, unresolved);

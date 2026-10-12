@@ -1,0 +1,31 @@
+// Field defaults and parameter defaults that construct collections of class
+// references use the same pointer representation as their declared types.
+import Library.Map;
+import Library.Vector;
+
+class Slot {
+	public int key = 0;
+
+	public Slot(int key) { self.key = key; }
+}
+
+class Holder {
+	public Vector<Slot> slots = new Vector<Slot>();
+	public Map<string, Slot> named = new Map<string, Slot>();
+
+	public int measure(Vector<Slot> extra = new Vector<Slot> ()) { return self.slots.len + extra.len; }
+}
+
+int count(Vector<Slot> values = new Vector<Slot> ()) { return values.len; }
+
+int main() {
+	Holder holder = new Holder();
+	holder.slots.push(new Slot(4));
+	holder.named.put("four", holder.slots.get(0));
+	Vector<Slot> extra = [new Slot(5), new Slot(6)];
+	assert(count() == 0 && count(extra) == 2);
+	assert(holder.measure() == 1 && holder.measure(extra) == 3);
+	assert(holder.named.get("four").key == 4);
+	print("PASS");
+	return 0;
+}
