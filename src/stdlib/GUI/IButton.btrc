@@ -23,7 +23,7 @@ class ButtonTypography {
  * setSystemSymbol takes an SF Symbols name. The portable vocabulary every
  * provider draws is gearshape, chevron.left, chevron.right, play.fill,
  * pause.fill, stop.fill, waveform, folder, paintbrush, metronome, repeat,
- * speaker.wave.2.fill, speedometer, line.3.horizontal.decrease, xmark,
+ * speaker.wave.2.fill, speaker.slash.fill, speedometer, line.3.horizontal.decrease, xmark,
  * magnifyingglass, tuningfork and quote.bubble; a name the provider cannot
  * draw throws "Native button system symbol is unavailable". */
 interface IButton extends IView {

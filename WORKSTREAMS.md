@@ -1806,3 +1806,17 @@ receipt remains failed solely at its diagnostic-wording classifier. This does
 not establish the historical ENOENT cause. Root owns the final documentation,
 draft publication and complete final-tree gate matrix. The iOS tooling port
 remains separate until D8 runtime admission.
+
+
+## 2026-10-12 portable muted speaker symbol
+
+Root assigns platform_review the isolated `codex/linux-muted-speaker` packet from
+`5be08004`: `src/stdlib/GUI/IButton.btrc`,
+`src/stdlib/GUI/Linux/LinuxSymbols.btrc`, the existing
+`src/tests/native/gui/linux/LinuxGUIControls.btrc`, this claim and
+`docs/workstreams/linux-muted-speaker.md`. Append the missing portable muted
+speaker symbol without changing existing numeric identities. Reuse the speaker
+body and existing painter primitives. Existing Linux native controls coverage
+compares same-size composed pixels and action behavior; retain its two frontends,
+plain/sanitized matrix and 180-second bound. Source preparation only; no compiler,
+runtime, manifests, generated files, workflows, builds or publication.
