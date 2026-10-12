@@ -739,6 +739,12 @@ class FeNativeDeclarationImporter {
 				projections.push(self.projectAction(declaration, binding, index));
 				continue;
 			}
+			if (binding.lifetime == "instantiated") {
+				if (occupied.has(index)) { self.fail("callback parameters must be distinct"); }
+				occupied.put(index, true);
+				projections.push(self.projectInstantiated(declaration, binding, index));
+				continue;
+			}
 			if (binding.methods.len > 0) {
 				if (occupied.has(index)) { self.fail("callback parameters must be distinct"); }
 				occupied.put(index, true);
@@ -973,6 +979,27 @@ class FeNativeDeclarationImporter {
 		projection.activationFailure = binding.activationFailure;
 		projection.slotGetter = getter;
 		projection.delegateProtocol = argument.protocols.get(0);
+		self.protocolMethods(binding, index, projection);
+		return projection;
+	}
+
+	/* An SDK entry's class-name parameter names a generated adapter class the
+	 * SDK instantiates itself (UIApplicationMain's delegate). */
+	private FeNativeCallbackProjection projectInstantiated(NativeNode declaration, FeNativeCallbackBinding binding, int index) {
+		NativeNode argument = self.unqualifiedNative(declaration.signature.parameters.get(index));
+		if (declaration.kind != NNK_NATIVE_FUNCTION || argument.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || argument.name != "NSString" || argument.protocols.len > 0 || argument.classObject || argument.typeArguments.len > 0) { self.fail("instantiated adapters require an NSString class-name parameter of a C function"); }
+		Node voidType = self.node(NK_TYPE_EXPR);
+		voidType.base = "void";
+		var projection = FeNativeCallbackProjection(binding.interfaceName, index, -1, -1, voidType);
+		projection.instantiatedScope = binding.scope;
+		self.protocolMethods(binding, index, projection);
+		return projection;
+	}
+
+	/* Project the selected protocol methods into the binding's interface. Each
+	 * is a non-consuming instance requirement of the projection's protocol; an
+	 * empty protocol takes the first method's. */
+	private void protocolMethods(FeNativeCallbackBinding binding, int index, FeNativeCallbackProjection projection) {
 		Node projectedInterface = self.node(NK_INTERFACE_DECL);
 		projectedInterface.name = binding.interfaceName;
 		Map<string, bool> names = {};
@@ -980,6 +1007,7 @@ class FeNativeDeclarationImporter {
 		for symbol in binding.methods {
 			if (!self.callbackExports.has(symbol)) { self.fail(f"delegate method not selected: {symbol}"); }
 			NativeNode method = self.callbackExports.get(symbol);
+			if (projection.delegateProtocol.isEmpty() && method.kind == NNK_NATIVE_OBJECTIVE_C_METHOD && method.protocolOwner) { projection.delegateProtocol = method.receiver; }
 			if (method.kind != NNK_NATIVE_OBJECTIVE_C_METHOD || !method.protocolOwner || method.receiver != projection.delegateProtocol || method.classMethod || method.signature.variadic || method.consumesSelf || method.returnsInnerPointer || method.returnedOwnership != "unspecified") { self.fail(f"delegate method requires a non-consuming instance method of {projection.delegateProtocol}: {symbol}"); }
 			for parameter in method.parameterSemantics { if (parameter.cfConsumed || parameter.nsConsumed) { self.fail("delegate method parameters must not consume"); } }
 			string name = Strings.split(method.selector, ":").get(0);
@@ -1012,7 +1040,6 @@ class FeNativeDeclarationImporter {
 			identity = identity + ":" + name + ":" + self.typeIdentity(method.signature);
 		}
 		self.add(binding.interfaceName, projectedInterface, identity);
-		return projection;
 	}
 
 	private string blockTypeSpelling(NativeNode native) {
@@ -2037,6 +2064,46 @@ class FeNativeDeclarationImporter {
 		self.ownedOutputs.remove(selected); self.ownedOutputResources.remove(selected);
 	}
 
+	/* A C entry naming an SDK-instantiated adapter class, such as
+	 * UIApplicationMain. The class-name parameter becomes the receiver
+	 * interface; the call runs in the Objective-C adapter unit, where the
+	 * generated class is named. Other arguments are C scalars and pointers or
+	 * borrowed Objective-C objects, and the result is a scalar or void. */
+	private void importInstantiatedEntry(NativeNode declaration) {
+		NativeNode signature = declaration.signature;
+		self.requireQualifiedConvention(signature);
+		bool consuming = false;
+		for semantics in declaration.parameterSemantics { if (semantics.cfConsumed || semantics.nsConsumed) { consuming = true; } }
+		if (signature.variadic || declaration.returnedOwnership != "unspecified" || consuming) { self.fail("instantiated entry functions require a non-variadic, non-consuming signature"); }
+		var contract = FeNativeCallContract();
+		contract.callbacks = self.projectCallbacks(declaration);
+		if (contract.callbacks.len != 1 || contract.callbacks.get(0).instantiatedScope.isEmpty()) { self.fail("an instantiated entry function takes exactly one instantiated adapter"); }
+		FeNativeCallbackProjection callback = contract.callbacks.get(0);
+		Vector<string> parameterNames = self.parameterNames(declaration);
+		Node imported = self.node(NK_FUNCTION_DECL);
+		imported.name = declaration.name;
+		for index in range(signature.parameters.len) {
+			Node parameter = self.node(NK_PARAM);
+			parameter.name = parameterNames.get(index);
+			NativeNode native = signature.parameters.get(index);
+			if (index == callback.parameterIndex) {
+				parameter.type = self.node(NK_TYPE_EXPR);
+				parameter.type.base = callback.interfaceName;
+				contract.nonnullParameters.push(true);
+			} else {
+				parameter.type = self.unqualifiedNative(native).kind == NNK_NATIVE_OBJECTIVE_C_OBJECT ? self.objectiveCType(native, true) : self.callType(native, true);
+				contract.nonnullParameters.push(self.callNullability(native).equals("nonnull"));
+			}
+			contract.readOnlyBorrows.push(false);
+			contract.resourceParameters.push("");
+			imported.paramsMut().push(parameter);
+		}
+		NativeNode result = self.unqualifiedNative(signature.returnType);
+		if (result.kind == NNK_NATIVE_OBJECTIVE_C_OBJECT || result.kind == NNK_NATIVE_POINTER) { self.fail("instantiated entry functions require a scalar or void result"); }
+		imported.returnType = self.callType(signature.returnType);
+		self.add(declaration.name, imported, self.declarationIdentity(declaration), "", false, contract, null, false);
+	}
+
 	/* Only the C convention is qualified; the reader reports the others. */
 	private void requireQualifiedConvention(NativeNode signature) {
 		if (signature.callingConvention != "c") { self.fail("native calling convention '" + signature.callingConvention + "' is not supported"); }
@@ -2044,6 +2111,14 @@ class FeNativeDeclarationImporter {
 
 	private void importDeclaration(NativeNode declaration) {
 		if (self.callbackOperations.has(declaration.name)) { return; }
+		if (self.language == "objective-c" && declaration.kind == NNK_NATIVE_FUNCTION) {
+			for key in self.callbacks.keys() {
+				if (key.startsWith(declaration.name + ".") && self.callbacks.get(key).lifetime == "instantiated") {
+					self.importInstantiatedEntry(declaration);
+					return;
+				}
+			}
+		}
 		if (self.language == "objective-c" && declaration.kind != NNK_NATIVE_OBJECTIVE_C_METHOD && declaration.kind != NNK_NATIVE_CONSTANT && declaration.kind != NNK_NATIVE_STRING_CONSTANT && declaration.kind != NNK_NATIVE_GLOBAL) { self.fail("Objective-C header declarations require adapter lowering"); }
 		Node imported = Node();
 		FeNativeCallContract? contract = null;
@@ -3340,6 +3415,8 @@ class FeNativeDeclarationImporter {
 					self.callbackOperations.put(callback.slotGetter, true);
 					if (!callback.actionSetter.isEmpty()) { self.callbackOperations.put(callback.actionSetter, true); }
 					if (!callback.actionGetter.isEmpty()) { self.callbackOperations.put(callback.actionGetter, true); }
+					for method in callback.methods { self.callbackOperations.put(method, true); }
+				} else if (callback.lifetime == "instantiated") {
 					for method in callback.methods { self.callbackOperations.put(method, true); }
 				} else if (!callback.unregister.isEmpty()) { self.callbackOperations.put(callback.unregister, true); }
 				var realtime = callback.realtime;

@@ -627,6 +627,39 @@ class CallbackContext<TReceiver, TToken> implements ICallbackContext, ICallbackR
 	}
 }
 
+/* Process-lifetime storage for a generated adapter that the SDK instantiates
+ * by class name (lifetime = "instantiated", scope = "process"), such as the
+ * delegate UIApplicationMain creates. The SDK keeps that adapter for the rest
+ * of the process and never releases it, so there is no cancellation: the
+ * adapter's one external ARC claim is a declared permanent root. Entries are
+ * admitted only on the creating thread, as for caller-executor contexts. */
+class CallbackRoot<TReceiver> {
+	private TReceiver? _receiver;
+	private pthread_t _executor;
+
+	public CallbackRoot(TReceiver receiver) {
+		self._executor = pthread_self();
+		if (receiver == (TReceiver)null) { throw "Callback root requires a receiver"; }
+		self._receiver = receiver;
+	}
+
+	private void requireExecutor() {
+		if (pthread_equal(self._executor, pthread_self()) == 0) { throw "Callback root requires its creating thread"; }
+	}
+
+	public bool isOpen() {
+		self.requireExecutor();
+		return true;
+	}
+
+	public TReceiver? enter() {
+		self.requireExecutor();
+		return self._receiver;
+	}
+
+	public void leave() { self.requireExecutor(); }
+}
+
 /* A native value and its request need owning storage; language tuples are
  * shallow borrowed aggregates. All ownership here is ordinary class-field ARC. */
 class CallbackResult<TValue, TRequest> {

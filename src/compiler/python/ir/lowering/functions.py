@@ -13,6 +13,7 @@ from src.compiler.python.frontend.native_imports import (
     NativeActionProjection,
     NativeDelegateProjection,
     NativeHeaderSource,
+    NativeInstantiatedProjection,
 )
 from src.compiler.python.ir.nodes import (
     CType,
@@ -33,6 +34,7 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRFunctionPointerTypedef,
     IRFunctionRef,
+    IRGlobalDecl,
     IRIf,
     IRInclude,
     IRInitializerList,
@@ -176,6 +178,9 @@ class FunctionLowerer:
             return
         if any(callback.one_shot for callback in contract.callbacks):
             self._emit_one_shot_c_adapter(declaration, contract)
+            return
+        if any(isinstance(callback, NativeInstantiatedProjection) for callback in contract.callbacks):
+            self._emit_instantiated_adapter(declaration, contract)
             return
         if contract.callback_table is not None:
             self._emit_callback_table_adapter(declaration, contract)
@@ -3978,6 +3983,213 @@ class FunctionLowerer:
         module.function_decls.append(IRFunctionDecl(name, context_c, parameters, is_static=True))
         module.function_defs.append(
             IRFunctionDef(name=name, return_type=context_c, params=parameters, is_static=True, body=IRBlock(body))
+        )
+
+    def _emit_instantiated_adapter(self, declaration, contract):
+        """Name a generated adapter class to the SDK entry that instantiates it.
+
+        The C wrapper roots the receiver in a CallbackRoot and passes the root,
+        its retain function and one invoker per protocol method to the
+        Objective-C unit. There the adapter keeps them in file statics for the
+        generated class, takes the permanent external claim and calls the SDK
+        entry with that class's name. With scope = "process" the first `-init`
+        claims the root; a second instantiation or registration aborts.
+        """
+        module = self._session.module
+        native = self._objective_c_unit(declaration)
+        for info in self._analyzed.class_table.values():
+            if info.native_language != "objective-c":
+                continue
+            forward = IRStructForward(name=f"__btrc_native_{info.name}")
+            if forward not in native.struct_forwards:
+                native.struct_forwards.append(forward)
+                module.struct_forwards.append(forward)
+        callback = contract.callbacks[0]
+        prefix = f"__btrc_objc_{declaration.name}"
+        root_type = TypeExpr(
+            base="CallbackRoot", generic_args=[declaration.params[callback.parameter_index].type], pointer_depth=1
+        )
+        root_symbol = self._types.render(root_type).removesuffix("*").strip()
+        self._stored_context_lifetime(prefix, root_type, root_symbol)
+        lifetime_type = prefix + "_lifetime"
+        typedefs = [IRFunctionPointerTypedef(lifetime_type, CType("void"), [CType("void*")])]
+        invokers = []
+        invocation_types = []
+        callback_types = []
+        for index, projection in enumerate(callback.methods):
+            invocation_type = f"{prefix}_callback{index}"
+            invoke, value_types = self._stored_context_invoker(f"{prefix}_{index}", projection, root_type, root_symbol)
+            invokers.append(invoke)
+            invocation_types.append(invocation_type)
+            callback_types.append(value_types)
+            typedefs.append(
+                IRFunctionPointerTypedef(
+                    invocation_type,
+                    CType(self._types.render(self._native_callback_result(projection))),
+                    [CType(self._types.render(value)) for value in value_types],
+                )
+            )
+        for typedef in typedefs:
+            module.function_pointer_typedefs.append(typedef)
+            native.function_pointer_typedefs.append(typedef)
+        context = IRVar(prefix + "_context")
+        instances = IRVar(prefix + "_instances")
+        native.global_decls.extend(
+            [
+                IRGlobalDecl(CType("void*"), context.name, init=IRLiteral("NULL")),
+                IRGlobalDecl(CType("int"), instances.name, init=IRLiteral("0")),
+                *[
+                    IRGlobalDecl(CType(invocation_type), f"{prefix}_invoke{index}", init=IRLiteral("NULL"))
+                    for index, invocation_type in enumerate(invocation_types)
+                ],
+            ]
+        )
+
+        def reject():
+            return IRBlock([IRExprStmt(IRCall("abort", [], never_returns=True))])
+
+        holder = prefix + "Holder"
+        methods = [
+            IRObjectiveCMethod(
+                "init",
+                CType("instancetype"),
+                [],
+                IRBlock(
+                    [
+                        IRAssign(IRVar("self"), IRObjectiveCMessage(IRVar("super"), "init", [])),
+                        IRIf(IRBinOp(IRVar("self"), "==", IRLiteral("nil")), IRBlock([IRReturn(IRLiteral("nil"))])),
+                        IRIf(
+                            IRBinOp(
+                                IRBinOp(instances, "!=", IRLiteral("0")),
+                                "||",
+                                IRBinOp(context, "==", IRLiteral("NULL")),
+                            ),
+                            reject(),
+                        ),
+                        IRAssign(instances, IRLiteral("1")),
+                        IRReturn(IRVar("self")),
+                    ]
+                ),
+            )
+        ]
+        for index, (method, value_types) in enumerate(zip(callback.methods, callback_types)):
+            native_parameters = [
+                IRParam(CType(value), f"argument{position}") for position, value in enumerate(method.native_parameters)
+            ]
+            arguments = []
+            for parameter, value_type in zip(native_parameters, value_types):
+                value = IRVar(parameter.name)
+                info = self._analyzed.class_table.get(value_type.base)
+                if info is not None and info.native_language:
+                    value = IRCast(CType(self._types.render(value_type)), value, bridge="borrow")
+                arguments.append(value)
+            invocation = IRCall(IRVar(f"{prefix}_invoke{index}"), [*arguments, context])
+            methods.append(
+                IRObjectiveCMethod(
+                    method.native_method.selector,
+                    CType(method.native_return),
+                    native_parameters,
+                    IRBlock(
+                        [
+                            IRExprStmt(invocation)
+                            if self._types.render(method.return_type) == "void"
+                            else IRReturn(IRCast(CType(method.native_return), invocation))
+                        ]
+                    ),
+                )
+            )
+        native.objective_c_classes.append(
+            IRObjectiveCClass(name=holder, superclass="NSObject", methods=methods, protocols=[callback.protocol])
+        )
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in declaration.params]
+        result_type = CType(self._types.render(declaration.return_type))
+        returns = result_type.text != "void"
+        adapter_parameters = [
+            parameter for index, parameter in enumerate(parameters) if index != callback.parameter_index
+        ]
+        adapter_parameters.extend(
+            [
+                *[IRParam(CType(value), f"invoke{index}") for index, value in enumerate(invocation_types)],
+                IRParam(CType("void*"), "context"),
+                IRParam(CType(lifetime_type), "retainContext"),
+            ]
+        )
+        native_arguments = []
+        for index, (parameter, source) in enumerate(zip(parameters, declaration.params)):
+            if index == callback.parameter_index:
+                native_arguments.append(IRVar("className"))
+                continue
+            argument = IRVar(parameter.name)
+            info = self._analyzed.class_table.get(source.type.base)
+            native_arguments.append(
+                IRCast(self._objective_c_object_type(source.type.base), argument, bridge="borrow")
+                if info is not None and info.native_language
+                else argument
+            )
+        call = IRCall(declaration.name, native_arguments)
+        native_body = [
+            IRIf(IRBinOp(context, "!=", IRLiteral("NULL")), reject()),
+            IRExprStmt(IRCall(IRVar("retainContext"), [IRVar("context")])),
+            IRAssign(context, IRVar("context")),
+            *[IRAssign(IRVar(f"{prefix}_invoke{index}"), IRVar(f"invoke{index}")) for index in range(len(invokers))],
+            IRVarDecl(
+                CType("NSString*"),
+                "className",
+                init=IRCall("NSStringFromClass", [IRObjectiveCMessage(IRVar(holder), "class", [])]),
+            ),
+            IRReturn(call) if returns else IRExprStmt(call),
+        ]
+        native.function_defs.append(
+            IRFunctionDef(
+                name=prefix,
+                return_type=result_type,
+                params=adapter_parameters,
+                body=IRBlock(
+                    [
+                        IRObjectiveCAutoreleasePool(
+                            IRBlock([IRObjectiveCExceptionBoundary(IRBlock(native_body), reject())])
+                        )
+                    ]
+                ),
+            )
+        )
+        module.function_decls.append(IRFunctionDecl(prefix, result_type, adapter_parameters))
+        body = []
+        cleanup = self._native_cleanup_scope(parameters, body)
+        arguments = [IRVar(parameter.name) for parameter in parameters]
+        for index, nonnull in enumerate(contract.nonnull_parameters):
+            if nonnull:
+                body.append(
+                    self._native_null_guard(
+                        arguments[index], f"Native call {declaration.name}: null argument {parameters[index].name}"
+                    )
+                )
+        root_slot = IRVarDecl(
+            CType(self._types.render(root_type)),
+            "root",
+            init=IRCall(f"{root_symbol}_new", [arguments[callback.parameter_index]]),
+        )
+        body.extend([root_slot, IRExprStmt(self._lifetime.register_cleanup_slot(root_slot, root_type))])
+        adapter_arguments = [argument for index, argument in enumerate(arguments) if index != callback.parameter_index]
+        adapter_arguments.extend(
+            [
+                *[IRFunctionRef(invoke) for invoke in invokers],
+                IRCast(CType("void*"), IRVar(root_slot.name)),
+                IRFunctionRef(prefix + "_retain"),
+            ]
+        )
+        call = IRCall(prefix, adapter_arguments)
+        if returns:
+            body.append(IRVarDecl(result_type, "result", init=call))
+            body.extend(cleanup)
+            body.append(IRReturn(IRVar("result")))
+        else:
+            body.append(IRExprStmt(call))
+            body.extend(cleanup)
+        name = contract.adapter_symbol(declaration.name)
+        module.function_decls.append(IRFunctionDecl(name, result_type, parameters, is_static=True))
+        module.function_defs.append(
+            IRFunctionDef(name=name, return_type=result_type, params=parameters, body=IRBlock(body), is_static=True)
         )
 
     def _stored_activation_failure(self, callback, context_symbol, context, message):

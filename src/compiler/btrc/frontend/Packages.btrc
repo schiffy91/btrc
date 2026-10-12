@@ -798,7 +798,7 @@ class FeManifestBlock {
 			if (parts.len == 5 && parts.get(3) == "operations" && self.identifier(parts.get(4)) && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string field = parts.get(3);
-			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
 			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
 		}
 		for name in self.callbackNames.keys() {
@@ -816,7 +816,17 @@ class FeManifestBlock {
 			if (!self.identifier(interfaceName)) { FePackageFailure.fail("callback interface must be an identifier"); }
 			if (binding.symbols.contains(interfaceName)) { FePackageFailure.fail("callback interface conflicts with another imported name"); }
 			string lifetime = self.requiredText(prefix + "lifetime");
-			if (lifetime != "call" && lifetime != "stored" && lifetime != "one-shot") { FePackageFailure.fail("callback lifetime requires call, stored or one-shot"); }
+			if (lifetime != "call" && lifetime != "stored" && lifetime != "one-shot" && lifetime != "instantiated") { FePackageFailure.fail("callback lifetime requires call, stored, one-shot or instantiated"); }
+			string scope = self.fields.has(prefix + "scope") ? self.requiredText(prefix + "scope") : "";
+			if (lifetime == "instantiated") {
+				/* The SDK creates the adapter by class name (UIApplicationMain);
+				 * the binding only names the protocol methods it answers. */
+				if (binding.language != "objective-c" || hasContext) { FePackageFailure.fail("instantiated adapters require an Objective-C binding without context"); }
+				if (scope != "process") { FePackageFailure.fail("instantiated adapter scope currently requires process"); }
+				for field in ["unregister", "activation-failure", "cancellation", "slot-getter", "action-setter", "action-getter", "owned-arguments", "field"] {
+					if (self.fields.has(prefix + field)) { FePackageFailure.fail("instantiated adapters take only methods, scope, failure and executor"); }
+				}
+			} else if (self.fields.has(prefix + "scope")) { FePackageFailure.fail("callback scope requires an instantiated adapter"); }
 			var realtime = self.realtimeCallback(binding, prefix, lifetime, interfaceName);
 			string unregister = "";
 			string activationFailure = "";
@@ -832,7 +842,7 @@ class FeManifestBlock {
 				activationFailure = self.requiredText(prefix + "activation-failure");
 				if (activationFailure != "unpublished" && activationFailure != "abort") { FePackageFailure.fail("callback activation-failure requires unpublished or abort"); }
 				if (self.requiredText(prefix + "cancellation") != "abandon") { FePackageFailure.fail("one-shot cancellation requires abandon"); }
-			} else if (self.fields.has(prefix + "unregister") || self.fields.has(prefix + "activation-failure") || self.fields.has(prefix + "cancellation")) { FePackageFailure.fail("cancellation facts require a stored callback"); }
+			} else if (lifetime != "instantiated" && (self.fields.has(prefix + "unregister") || self.fields.has(prefix + "activation-failure") || self.fields.has(prefix + "cancellation"))) { FePackageFailure.fail("cancellation facts require a stored callback"); }
 			if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail("callback failure currently requires abort"); }
 			if (self.requiredText(prefix + "executor") != "caller" && realtime == null) { FePackageFailure.fail("callback executor currently requires caller"); }
 			string raw = self.fields.getOrDefault(prefix + "context-index", "").trim();
@@ -856,7 +866,17 @@ class FeManifestBlock {
 			if (self.fields.has(prefix + "owned-arguments") && (binding.language != "c" || lifetime != "one-shot")) { FePackageFailure.fail("owned-arguments requires a C one-shot callback"); }
 			callback.ownedArguments = self.indexArray(prefix + "owned-arguments");
 			bool action = self.fields.has(prefix + "action-setter") || self.fields.has(prefix + "action-getter");
-			if (self.fields.has(prefix + "methods") || self.fields.has(prefix + "slot-getter") || action) {
+			if (lifetime == "instantiated") {
+				callback.scope = scope;
+				callback.methods = self.stringArray(prefix + "methods");
+				if (callback.methods.len == 0) { FePackageFailure.fail("instantiated methods must name selected native methods"); }
+				Map<string, bool> seen = {};
+				for method in callback.methods {
+					if (!binding.symbols.contains(method)) { FePackageFailure.fail("instantiated methods must name selected native methods"); }
+					if (seen.has(method)) { FePackageFailure.fail("instantiated methods contains duplicate methods"); }
+					seen.put(method, true);
+				}
+			} else if (self.fields.has(prefix + "methods") || self.fields.has(prefix + "slot-getter") || action) {
 				if (lifetime != "stored" || binding.language != "objective-c" || hasContext) { FePackageFailure.fail("delegate methods require a stored Objective-C callback"); }
 				if (action) {
 					callback.actionSetter = self.requiredText(prefix + "action-setter");
