@@ -211,6 +211,20 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
 
 ### 3.3 Path ownership and the lock table
 
+**2026-10-12 Linux ProcessThreads errno packet (Codex).**
+Private `codex/linux-process-threads-errno-36b`, exact current-main base `36b647f0`.
+Explicit compiler-import ownership: `src/stdlib/BackgroundJobs/Linux/ProcessThreadsProvider.btrc`.
+Also owns `src/tests/python/test_background_jobs_runtime.py`, the new
+`BackgroundJobsProcessThreads.btrc`, `ProcessThreadFaultControl.h`,
+`ProcessThreadFaults.h`, and `ProcessThreadFaults.c` under
+`src/tests/native/background_jobs/`, this claim and
+`docs/workstreams/linux-process-threads-errno.md`. Only the final fragment owns
+platform skip rows in `src/tests/fixtures/expected-skips/{macos,macos-hosted,windows}.json`.
+`ProcessThreads.btrc` and BackgroundJobs native/provider manifest stay unchanged.
+No Android scope, compiler/runtime/generated/harness/workflow edits. Source-only
+until an allocated Linux native gate; WORKSTREAMS §3.4 own-binary/bootstrap/host-entry
+parity remains required for final qualification.
+
 **2026-10-09 D29 unit GUI scheduling claim:** the parent integrator owns
 `.github/workflows/macos.yml`, its existing workflow-contract assertions and
 `docs/workstreams/macos-unit-gui-scheduling.md` on
