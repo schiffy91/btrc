@@ -1806,3 +1806,15 @@ receipt remains failed solely at its diagnostic-wording classifier. This does
 not establish the historical ENOENT cause. Root owns the final documentation,
 draft publication and complete final-tree gate matrix. The iOS tooling port
 remains separate until D8 runtime admission.
+
+
+## 2026-10-12 compact reachability contract test alignment
+
+Root assigns platform_review `src/tests/btrc/test_selfhost_reachability_performance_contract.py`,
+`src/tests/btrc/test_selfhost_type_reachability_performance_contract.py`, this claim
+and `docs/workstreams/compact-reachability-contracts.md` on private
+`codex/compact-reachability-contracts`, based on frozen `5be08004`. Actual PR70
+Linux shard reported two stale field-spelling assertions after compact typed
+payload integration. Preserve exact membership and single type-field scanning,
+all negative guards and existing native semantic tests. No production compiler,
+runtime, workflow or generated changes; no publication under this assignment.
