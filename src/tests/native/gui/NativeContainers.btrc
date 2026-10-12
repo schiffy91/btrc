@@ -1,6 +1,8 @@
 import Library.Callback;
 import Library.GUI.IApplication;
 import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSControlEvents;
 import Library.GUI.IContainer;
 import Library.GUI.IWindow;
 import Library.GUI.ITextField;
@@ -69,6 +71,20 @@ class FailingView implements IMacOSView {
 	}
 
 	public NSView nativeView() { if (self._observeQuery) { self.verifyReentry(); } return self._view.nativeView(); }
+
+	public MacOSViewState interactionOwner() { return self._view.interactionOwner(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
+	public void markInteraction(bool inherited, WindowExposure exposure, ControlEventQueue? events) { self._view.markInteraction(inherited, exposure, events); }
+
+	public void settleInteraction() { self._view.settleInteraction(); }
+
+	public void publishInteraction() { self._view.publishInteraction(); }
+
+	public void reconcileAttachment(NSView? parent) { self._view.reconcileAttachment(parent); }
 
 	public void watchQuery() { self._observeQuery = true; }
 
