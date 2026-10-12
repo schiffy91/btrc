@@ -1806,3 +1806,11 @@ receipt remains failed solely at its diagnostic-wording classifier. This does
 not establish the historical ENOENT cause. Root owns the final documentation,
 draft publication and complete final-tree gate matrix. The iOS tooling port
 remains separate until D8 runtime admission.
+
+
+### CX-UI2-CURRENT: reviewed provider composition on current compiler
+
+- Agent: Codex execution_review. Private branch `codex/ui2-current-composition-5be`; base `5be08004`.
+- Own only the composed GUI shared/provider sources, BackgroundJobs completion owner/README, their existing native/Python fixtures and UI catalog/docs, plus the qualified four stale test-owner repairs. Exact path and donor inventory is retained in the isolated `ui2-current-5be` review packet.
+- Donors: Mac `73f636e8`, Text `88db78e5`, Range/Selection `209fe7f7`, Linux `32b361b2` + range `77d134b2`; test repair `f89822fa`. Preserve current Windows test methods, leases and all compiler/runtime/generated/toolchain/CI owners.
+- Only `src/stdlib/GUI/btrc.toml` changes as integrator data, in the final `fragment:` commit. Generated metadata and skip-data requests remain explicit in `docs/workstreams/ui2-current-composition.md`. No native/build/CI qualification is claimed.
