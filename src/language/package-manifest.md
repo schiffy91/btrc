@@ -727,6 +727,64 @@ Normal SDK delivery tests do not prove the `unpublished` guarantee for every
 native exception. Use terminal `abort` unless the stronger guarantee is known.
 Terminal behavior is a safety boundary, not successful recovery or cancellation.
 
+### SDK-instantiated Objective-C adapters
+
+Some SDK entries create their delegate themselves, from a class name:
+`UIApplicationMain` takes the application delegate's class name and
+instantiates it. Map that `NSString` class-name parameter to an ordinary BTRC
+interface; the compiler generates the named class (interop step 6 in
+[native-interop-ownership.md](../../docs/design/native-interop-ownership.md)):
+
+```toml
+[[native.bindings]]
+module = "UIKit"
+header = "UIKitBinding.h"
+language = "objective-c"
+standard = "c11"
+os = ["ios"]
+symbols = ["UIApplicationMain", "-[UIApplicationDelegate applicationDidFinishLaunching:]", "-[UIApplicationDelegate applicationDidBecomeActive:]"]
+
+[native.bindings.callbacks."UIApplicationMain.delegateClassName"]
+interface = "IApplicationDelegate"
+lifetime = "instantiated"
+scope = "process"
+failure = "abort"
+executor = "caller"
+methods = ["-[UIApplicationDelegate applicationDidFinishLaunching:]", "-[UIApplicationDelegate applicationDidBecomeActive:]"]
+
+[[native.frameworks]]
+name = "UIKit"
+os = ["ios"]
+
+[[native.frameworks]]
+name = "Foundation"   # the generated class and its name lookup link against Foundation
+os = ["ios"]
+```
+
+This imports `IApplicationDelegate` with one method per selected protocol
+method, named and typed as for stored delegates, and exposes
+`UIApplicationMain(int argc, char** argv, NSString? principalClassName,
+IApplicationDelegate delegateClassName)`. Import `Library.Callback`:
+
+```btrc
+int main(int argc, char** argv) { return UIApplicationMain(argc, argv, null, Application()); }
+```
+
+An Objective-C binding may select such a C entry only through this mapping;
+its other arguments are C scalars and pointers or borrowed Objective-C objects,
+and its result is a scalar or void. The selected methods must all be
+non-consuming instance requirements of one protocol.
+
+The entry roots the receiver in a `CallbackRoot` and passes the generated
+class's name. `scope = "process"` declares that the SDK keeps the instance for
+the rest of the process: the first `-init` claims the root, which is never
+released and stays outside leak accounting, and a second instantiation, or a
+second call of the entry, aborts. Deliveries are admitted only on the thread
+that called the entry; a wrong-thread delivery or a BTRC exception terminates
+at the native boundary. `executor` currently requires `caller` and `failure`
+requires `abort`; `scope = "instance"` (scene delegates), `terminal`,
+`superclass`/`overrides` and lightweight-generic payloads are later slices.
+
 ### Header selection
 
 ```toml

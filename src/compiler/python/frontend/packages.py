@@ -411,6 +411,7 @@ class NativeCallbackBinding:
     owned_arguments: tuple[int, ...] = ()
     field: str = ""
     realtime: NativeRealtimeCallbackBinding | None = None
+    scope: str = ""
 
 
 @dataclass(frozen=True)
@@ -1505,6 +1506,7 @@ class PackageManifestValidator:
                         "owner",
                         "invocation",
                         "operations",
+                        "scope",
                     }
                 ),
                 location,
@@ -1528,8 +1530,45 @@ class PackageManifestValidator:
             ):
                 raise ValueError(f"{location}: context/context-index require equally sized nonempty distinct slots")
             lifetime = value.get("lifetime")
-            if lifetime not in {"call", "stored", "one-shot"}:
-                raise ValueError(f"{location}.lifetime requires call, stored or one-shot")
+            if lifetime not in {"call", "stored", "one-shot", "instantiated"}:
+                raise ValueError(f"{location}.lifetime requires call, stored, one-shot or instantiated")
+            scope = value.get("scope", "")
+            if lifetime == "instantiated":
+                # The SDK creates the adapter by class name (UIApplicationMain);
+                # the binding only names the protocol methods it answers.
+                if language != "objective-c" or has_context:
+                    raise ValueError(
+                        f"{location}: instantiated adapters require an Objective-C binding without context"
+                    )
+                if scope != "process":
+                    raise ValueError(f"{location}.scope currently requires process")
+                if any(
+                    key in value
+                    for key in (
+                        "unregister",
+                        "activation-failure",
+                        "cancellation",
+                        "slot-getter",
+                        "action-setter",
+                        "action-getter",
+                        "owned-arguments",
+                        "field",
+                    )
+                ):
+                    raise ValueError(
+                        f"{location}: instantiated adapters take only methods, scope, failure and executor"
+                    )
+                methods = value.get("methods")
+                if (
+                    not isinstance(methods, list)
+                    or not methods
+                    or any(not isinstance(method, str) or method not in symbols for method in methods)
+                ):
+                    raise ValueError(f"{location}.methods must name selected native methods")
+                if len(set(methods)) != len(methods):
+                    raise ValueError(f"{location}.methods contains duplicate methods")
+            elif "scope" in value:
+                raise ValueError(f"{location}.scope requires an instantiated adapter")
             realtime = self._realtime_callback_binding(value, symbols, location, language, lifetime)
             callback_field = self._identifier(value["field"], f"{location}.field") if "field" in value else ""
             if callback_field and (language != "c" or (lifetime != "one-shot" and realtime is None)):
@@ -1552,7 +1591,7 @@ class PackageManifestValidator:
             action_setter = value.get("action-setter", "")
             action_getter = value.get("action-getter", "")
             action = "action-setter" in value or "action-getter" in value
-            if "methods" in value or "slot-getter" in value or action:
+            if lifetime != "instantiated" and ("methods" in value or "slot-getter" in value or action):
                 if lifetime != "stored" or language != "objective-c" or has_context:
                     raise ValueError(f"{location}: delegate methods require a stored Objective-C callback")
                 if action:
@@ -1593,7 +1632,9 @@ class PackageManifestValidator:
                     raise ValueError(f"{location}.activation-failure requires unpublished or abort")
                 if value.get("cancellation") != "abandon":
                     raise ValueError(f"{location}: one-shot cancellation requires abandon")
-            elif any(key in value for key in ("unregister", "activation-failure", "cancellation")):
+            elif lifetime != "instantiated" and any(
+                key in value for key in ("unregister", "activation-failure", "cancellation")
+            ):
                 raise ValueError(f"{location}: cancellation facts require a stored callback")
             if value.get("failure") != "abort":
                 raise ValueError(f"{location}.failure currently requires abort")
@@ -1619,6 +1660,7 @@ class PackageManifestValidator:
                     tuple(sorted(owned_arguments)),
                     callback_field,
                     realtime,
+                    scope,
                 )
             )
         return tuple(callbacks)

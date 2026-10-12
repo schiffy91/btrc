@@ -2517,6 +2517,181 @@ class DeclarationLowerer {
 		self.appendFunction(wrapper, module);
 	}
 
+	private IRNode abortStatement() {
+		Vector<IRNode> noArguments = [];
+		IRNode abortCall = IRNode.call("abort", noArguments);
+		((IRCallPayload)abortCall.payload).neverReturns = true;
+		return IRNode.expressionStatement(abortCall);
+	}
+
+	/* Name a generated adapter class to the SDK entry that instantiates it. The
+	 * C wrapper roots the receiver in a CallbackRoot and passes the root, its
+	 * retain function and one invoker per protocol method to the Objective-C
+	 * unit. There the adapter keeps them in file statics for the generated
+	 * class, takes the permanent external claim and calls the SDK entry with
+	 * that class's name. With scope = "process" the first `-init` claims the
+	 * root; a second instantiation or registration aborts. */
+	private void emitInstantiatedAdapter(FeNativeImportedDeclaration imported, FeNativeCallContract contract, IRModule module) {
+		Node declaration = imported.declaration;
+		IRModule native = self.objectiveCUnit(imported, module);
+		for other in self.analyzed.nativeDeclarations {
+			if (other.declaration.kind != NK_CLASS_DECL || other.language != "objective-c") { continue; }
+			string opaqueName = "__btrc_native_" + other.declaration.name;
+			bool declared = false;
+			for forward in native.structForwards { if (forward.name == opaqueName) { declared = true; } }
+			if (!declared) {
+				native.structForwards.push(IRStructForward(opaqueName));
+				module.structForwards.push(IRStructForward(opaqueName));
+			}
+		}
+		Vector<IRNode> noArguments = [];
+		Vector<IRParam> noParameters = [];
+		FeNativeCallbackProjection callback = contract.callbacks.get(0);
+		string prefix = "__btrc_objc_" + declaration.name;
+		Node rootType = Node();
+		rootType.kind = NK_TYPE_EXPR;
+		rootType.base = "CallbackRoot";
+		rootType.genericArgsStorage = [declaration.params().get(callback.parameterIndex).type];
+		rootType.pointerDepth = 1;
+		string rootSymbol = TypeIdentity.mangleGenericSymbol(rootType.base, rootType.genericArgs());
+		self.emitStoredContextLifetime(prefix, rootType, rootSymbol, module);
+		var lifetime = IRFunctionPointerTypedef(prefix + "_lifetime", "void");
+		lifetime.paramTypes = ["void*"];
+		Vector<IRFunctionPointerTypedef> definitions = [lifetime];
+		Vector<IRFunctionPointerTypedef> invocations = [];
+		Vector<string> invokers = [];
+		Vector<Vector<Node>> callbackTypes = [];
+		for index in range(callback.delegateMethods.len) {
+			var projection = callback.delegateMethods.get(index);
+			invokers.push(self.emitStoredContextInvoker(f"{prefix}_{index}", projection, rootType, rootSymbol, module));
+			var values = self.nativeCallbackTypes(projection);
+			callbackTypes.push(values);
+			var invocation = IRFunctionPointerTypedef(f"{prefix}_callback{index}", self.cTypes.lower(projection.returnType));
+			for value in values { invocation.paramTypes.push(self.cTypes.lower(value)); }
+			invocations.push(invocation);
+			definitions.push(invocation);
+		}
+		for definition in definitions {
+			module.functionPointerTypedefs.push(definition);
+			native.functionPointerTypedefs.push(definition);
+		}
+		IRNode context = IRNode.variable(prefix + "_context");
+		IRNode instances = IRNode.variable(prefix + "_instances");
+		var contextGlobal = IRGlobalDecl("void*", prefix + "_context");
+		contextGlobal.init = IRNode.literal("NULL");
+		var instancesGlobal = IRGlobalDecl("int", prefix + "_instances");
+		instancesGlobal.init = IRNode.literal("0");
+		native.globalDecls.push(contextGlobal);
+		native.globalDecls.push(instancesGlobal);
+		for index in range(invocations.len) {
+			var invokeGlobal = IRGlobalDecl(invocations.get(index).name, f"{prefix}_invoke{index}");
+			invokeGlobal.init = IRNode.literal("NULL");
+			native.globalDecls.push(invokeGlobal);
+		}
+		string holderName = prefix + "Holder";
+		var holder = IRObjectiveCClass(holderName, "NSObject");
+		holder.protocols = [callback.delegateProtocol];
+		holder.methods = [IRObjectiveCMethod("init", "instancetype", noParameters, IRNode.block([
+			IRNode.assignment(IRNode.variable("self"), IRNode.objectiveCMessage(IRNode.variable("super"), "init", noArguments)),
+			IRNode.ifStatement(IRNode.binary(IRNode.variable("self"), "==", IRNode.literal("nil")), IRNode.block([IRNode.returnStatement(IRNode.literal("nil"))]), null),
+			IRNode.ifStatement(IRNode.binary(IRNode.binary(instances, "!=", IRNode.literal("0")), "||", IRNode.binary(context, "==", IRNode.literal("NULL"))), IRNode.block([self.abortStatement()]), null),
+			IRNode.assignment(instances, IRNode.literal("1")),
+			IRNode.returnStatement(IRNode.variable("self"))
+		]))];
+		for index in range(callback.delegateMethods.len) {
+			var method = callback.delegateMethods.get(index);
+			var valueTypes = callbackTypes.get(index);
+			Vector<IRParam> parameters = [];
+			Vector<IRNode> arguments = [];
+			for position in range(method.nativeParameters.len) {
+				string name = f"argument{position}";
+				parameters.push(IRParam(method.nativeParameters.get(position), name));
+				Node valueType = valueTypes.get(position);
+				IRNode value = IRNode.variable(name);
+				if (self.managedValues.isNative(valueType)) { value = IRNode.cast(self.cTypes.lower(valueType), value, "borrow"); }
+				arguments.push(value);
+			}
+			arguments.push(context);
+			IRNode call = IRNode.indirectCall(IRNode.variable(f"{prefix}_invoke{index}"), arguments);
+			IRNode body = invocations.get(index).returnType == "void" ? IRNode.expressionStatement(call) : IRNode.returnStatement(IRNode.cast(method.nativeReturn, call));
+			var nativeMethod = method.nativeMethod;
+			if (nativeMethod == null) { throw "instantiated adapter method requires its native method"; }
+			holder.methods.push(IRObjectiveCMethod(nativeMethod.selector, method.nativeReturn, parameters, IRNode.block([body])));
+		}
+		native.objectiveCClasses.push(holder);
+		string resultType = self.cTypes.lower(declaration.returnType);
+		bool returns = resultType != "void";
+		Vector<IRParam> parameters = [];
+		for parameter in declaration.params() { parameters.push(self.cTypes.lowerParameter(parameter)); }
+		var adapter = IRFunction();
+		adapter.name = prefix;
+		adapter.returnType = resultType;
+		Vector<IRNode> nativeArguments = [];
+		for index in range(parameters.len) {
+			if (index == callback.parameterIndex) {
+				nativeArguments.push(IRNode.variable("className"));
+				continue;
+			}
+			IRParam parameter = parameters.get(index);
+			adapter.params.push(parameter);
+			Node valueType = declaration.params().get(index).type;
+			IRNode value = IRNode.variable(parameter.name);
+			nativeArguments.push(self.managedValues.isNative(valueType) ? IRNode.cast(self.objectiveCObjectType(valueType.base), value, "borrow") : value);
+		}
+
+		for index in range(invocations.len) { adapter.params.push(IRParam(invocations.get(index).name, f"invoke{index}")); }
+		adapter.params.extend([IRParam("void*", "context"), IRParam(lifetime.name, "retainContext")]);
+		IRNode call = IRNode.call(declaration.name, nativeArguments);
+		Vector<IRNode> nativeBody = [
+			IRNode.ifStatement(IRNode.binary(context, "!=", IRNode.literal("NULL")), IRNode.block([self.abortStatement()]), null),
+			IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("retainContext"), [IRNode.variable("context")])),
+			IRNode.assignment(context, IRNode.variable("context"))
+		];
+		for index in range(invokers.len) { nativeBody.push(IRNode.assignment(IRNode.variable(f"{prefix}_invoke{index}"), IRNode.variable(f"invoke{index}"))); }
+		nativeBody.push(IRNode.variableDeclaration("NSString*", "className", IRNode.call("NSStringFromClass", [IRNode.objectiveCMessage(IRNode.variable(holderName), "class", noArguments)])));
+		nativeBody.push(returns ? IRNode.returnStatement(call) : IRNode.expressionStatement(call));
+		adapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([
+			IRNode.objectiveCExceptionBoundary(IRNode.block(nativeBody), IRNode.block([self.abortStatement()]))
+		]))]);
+		native.functions.push(adapter);
+		var external = IRFunctionDecl(adapter.name, resultType, false);
+		external.params = adapter.params;
+		module.functionDecls.push(external);
+		var wrapper = IRFunction();
+		wrapper.name = contract.adapterSymbol(declaration.name);
+		wrapper.returnType = resultType;
+		wrapper.isStatic = true;
+		wrapper.params = parameters;
+		Map<string, bool> parameterNames = {};
+		for parameter in parameters { parameterNames.put(parameter.name, true); }
+		Vector<IRNode> body = [];
+		IRNode cleanup = self.nativeCleanupScope(parameterNames, body);
+		Vector<IRNode> arguments = [];
+		for index in range(parameters.len) {
+			IRNode argument = IRNode.variable(parameters.get(index).name);
+			arguments.push(argument);
+			if (contract.nonnullParameters.get(index)) { body.push(self.nativeNullGuard(argument, f"Native call {declaration.name}: null argument {parameters.get(index).name}")); }
+		}
+		IRNode rootSlot = IRNode.variableDeclaration(self.cTypes.lower(rootType), "root", IRNode.call(rootSymbol + "_new", [arguments.get(callback.parameterIndex)]));
+		body.push(rootSlot);
+		body.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(rootSlot, self.managedValues.runtimeType(rootType))));
+		Vector<IRNode> adapterArguments = [];
+		for index in range(arguments.len) { if (index != callback.parameterIndex) { adapterArguments.push(arguments.get(index)); } }
+		for invoke in invokers { adapterArguments.push(IRNode.functionReference(invoke)); }
+		adapterArguments.extend([IRNode.cast("void*", IRNode.variable("root")), IRNode.functionReference(prefix + "_retain")]);
+		IRNode nativeCall = IRNode.call(prefix, adapterArguments);
+		if (returns) {
+			body.push(IRNode.variableDeclaration(resultType, "result", nativeCall));
+			body.push(cleanup);
+			body.push(IRNode.returnStatement(IRNode.variable("result")));
+		} else {
+			body.push(IRNode.expressionStatement(nativeCall));
+			body.push(cleanup);
+		}
+		wrapper.body = IRNode.block(body);
+		self.appendFunction(wrapper, module);
+	}
+
 	private IRNode storedActivationFailure(FeNativeCallbackProjection callback, string contextSymbol, IRNode context, string message) {
 		if (callback.activationFailure == "abort") {
 			Vector<IRNode> noArguments = [];
@@ -2585,7 +2760,10 @@ class DeclarationLowerer {
 			nativeConstants.put(imported.declaration.name, true);
 		}
 		FeNativeCallContract? callContract = imported.callContract;
-		if (imported.declaration.kind == NK_FUNCTION_DECL && callContract != null && !nativeAdapters.has(imported.declaration.name)) {
+		if (imported.declaration.kind == NK_FUNCTION_DECL && callContract != null && !nativeAdapters.has(imported.declaration.name) && callContract.callbacks.len > 0 && !callContract.callbacks.get(0).instantiatedScope.isEmpty()) {
+			self.emitInstantiatedAdapter(imported, callContract, m);
+			nativeAdapters.put(imported.declaration.name, true);
+		} else if (imported.declaration.kind == NK_FUNCTION_DECL && callContract != null && !nativeAdapters.has(imported.declaration.name)) {
 			self.emitNativeAdapter(imported.declaration, callContract, m);
 			nativeAdapters.put(imported.declaration.name, true);
 		}

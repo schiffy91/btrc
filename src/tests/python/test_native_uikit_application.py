@@ -1,0 +1,279 @@
+"""A BTRC iOS application whose UIKit delegate the compiler generates (interop step 6).
+
+UIApplicationMain instantiates the application delegate from a class name. Both
+compilers project that parameter to an ordinary interface receiver and generate
+the named class (lifetime = "instantiated"). The app is built with Xcode's own
+clang for the iOS simulator; when a simulator is booted, it is installed and
+launched, and must report launch and activation through the BTRC receiver.
+Simulator evidence is not physical-device evidence (D8).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import plistlib
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from src.compiler.python.frontend.packages import PackageTarget
+
+REPO = Path(__file__).resolve().parents[3]
+XCRUN = Path("/usr/bin/xcrun")
+XCODE = Path("/Applications/Xcode.app/Contents/Developer")
+APPLE_ENVIRONMENT = {"DEVELOPER_DIR": str(XCODE), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(Path.home())}
+TARGET = "ios-aarch64-simulator"
+BUNDLE_IDENTIFIER = "dev.btrc.tests.uikit-application"
+
+MANIFEST = """manifest-version = 1
+[package]
+name = "uikitApplication"
+[[native.bindings]]
+module = "UIKit"
+header = "UIKitBinding.h"
+language = "objective-c"
+standard = "c11"
+os = ["ios"]
+symbols = ["UIApplicationMain", "-[UIApplicationDelegate applicationDidFinishLaunching:]", "-[UIApplicationDelegate applicationDidBecomeActive:]"]
+[native.bindings.callbacks."UIApplicationMain.delegateClassName"]
+interface = "IApplicationDelegate"
+lifetime = "instantiated"
+scope = "process"
+failure = "abort"
+executor = "caller"
+methods = ["-[UIApplicationDelegate applicationDidFinishLaunching:]", "-[UIApplicationDelegate applicationDidBecomeActive:]"]
+[[native.frameworks]]
+name = "UIKit"
+os = ["ios"]
+[[native.frameworks]]
+name = "Foundation"
+os = ["ios"]
+"""
+
+PROGRAM = """import Library.Callback;
+import ./UIKit.btrc;
+#include <stdio.h>
+#include <stdlib.h>
+class Application implements IApplicationDelegate {
+	private int launches = 0;
+	public void applicationDidFinishLaunching(UIApplication application) {
+		self.launches++;
+		printf("btrc-uikit launched\\n");
+		fflush(stdout);
+	}
+	public void applicationDidBecomeActive(UIApplication application) {
+		printf("btrc-uikit active after %d launch\\n", self.launches);
+		fflush(stdout);
+		exit(self.launches == 1 ? 0 : 3);
+	}
+}
+int main(int argc, char** argv) { return UIApplicationMain(argc, argv, null, Application()); }
+"""
+
+
+def _xcrun(*arguments: str, timeout: int = 300) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(XCRUN), *arguments], capture_output=True, text=True, timeout=timeout, check=False, env=APPLE_ENVIRONMENT
+    )
+
+
+def _sdk() -> str | None:
+    if not XCRUN.is_file() or not XCODE.is_dir():
+        return None
+    result = _xcrun("--sdk", "iphonesimulator", "--show-sdk-path", timeout=60)
+    path = result.stdout.strip()
+    return path if result.returncode == 0 and Path(path).is_dir() else None
+
+
+def _simulator() -> str:
+    """A booted iOS simulator, booting the newest available iPhone when none runs.
+
+    The device stays booted afterwards: another worker may be using it.
+    """
+    listed = _xcrun("simctl", "list", "devices", "available", "--json", timeout=60)
+    assert listed.returncode == 0, listed.stderr
+    runtimes = json.loads(listed.stdout).get("devices", {})
+    candidates = []
+    for runtime, devices in runtimes.items():
+        if ".iOS-" not in runtime:
+            continue
+        version = tuple(int(part) for part in runtime.rsplit(".iOS-", 1)[1].split("-") if part.isdigit())
+        for device in devices:
+            if device.get("state") == "Booted":
+                return device["udid"]
+            if device.get("name", "").startswith("iPhone"):
+                candidates.append((version, device["udid"]))
+    assert candidates, "no iPhone simulator is installed for the iphonesimulator SDK"
+    udid = max(candidates)[1]
+    _xcrun("simctl", "boot", udid, timeout=300)
+    status = _xcrun("simctl", "bootstatus", udid, "-b", timeout=600)
+    assert status.returncode == 0, status.stderr
+    return udid
+
+
+def _project(root: Path) -> Path:
+    (root / "src").mkdir(parents=True)
+    (root / "btrc.toml").write_text(MANIFEST, encoding="utf-8")
+    (root / "UIKitBinding.h").write_text("#import <UIKit/UIKit.h>\n", encoding="utf-8")
+    (root / "src/UIKit.btrc").write_text("// Native wrapper module.\n", encoding="utf-8")
+    source = root / "src/Main.btrc"
+    source.write_text(PROGRAM, encoding="utf-8")
+    return source
+
+
+def _transpile(frontend: str, source: Path, output: Path, plan: Path, sdk: str, btrcc: Path | None):
+    row = PackageTarget.parse(TARGET).row
+    environment = {
+        **APPLE_ENVIRONMENT,
+        **{key: value for key, value in os.environ.items() if key.startswith("BTRC_")},
+        "BTRC_NATIVE_TARGET": row.triple,
+        "BTRC_NATIVE_SYSROOT": sdk,
+        "BTRC_HOME": str(REPO / "src"),
+    }
+    environment["PATH"] = os.environ["PATH"]
+    if frontend == "reference":
+        command = [
+            sys.executable,
+            "-m",
+            "src.compiler.python.main",
+            "--target",
+            TARGET,
+            "--emit-link-plan",
+            str(plan),
+            str(source),
+            "-o",
+            str(output),
+        ]
+        result = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=600, env=environment)
+    else:
+        command = [str(btrcc), "--target", TARGET, "--emit-link-plan", str(plan), str(source)]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=600, env=environment)
+        if result.returncode == 0:
+            output.write_text(result.stdout, encoding="utf-8")
+    assert result.returncode == 0, result.stderr
+
+
+def _build_app(root: Path, generated: Path, plan_path: Path, sdk: str, identifier: str) -> Path:
+    """Compile the program and the plan's generated Objective-C units with Xcode's clang."""
+    row = PackageTarget.parse(TARGET).row
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    common = [*row.target_arguments, "-isysroot", sdk, "-O2", "-Wall", "-Wextra", "-Werror"]
+    objects = []
+    compiled = _xcrun(
+        "--sdk",
+        "iphonesimulator",
+        "clang",
+        *common,
+        "-std=c11",
+        "-pedantic-errors",
+        "-I",
+        str(root),
+        "-c",
+        str(generated),
+        "-o",
+        str(root / "Main.o"),
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    objects.append(root / "Main.o")
+    for unit in plan.get("generated-units", []):
+        assert unit["language"] == "objective-c", unit["language"]
+        unit_source = root / f"{unit['name']}.m"
+        unit_source.write_text(unit["source"], encoding="utf-8")
+        arc = ["-fobjc-arc"] if unit.get("memory-management") == "arc" else []
+        compiled = _xcrun(
+            "--sdk",
+            "iphonesimulator",
+            "clang",
+            *common,
+            "-x",
+            "objective-c",
+            "-std=c11",
+            *arc,
+            "-fobjc-exceptions",
+            "-fobjc-arc-exceptions",
+            "-I",
+            str(root),
+            "-c",
+            str(unit_source),
+            "-o",
+            str(root / f"{unit['name']}.o"),
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        objects.append(root / f"{unit['name']}.o")
+    bundle = root / "BTRCApplication.app"
+    bundle.mkdir()
+    frameworks = [
+        argument
+        for framework in plan.get("frameworks", [])
+        for argument in ("-framework", framework["name"] if isinstance(framework, dict) else framework)
+    ]
+    linked = _xcrun(
+        "--sdk",
+        "iphonesimulator",
+        "clang",
+        *row.target_arguments,
+        "-isysroot",
+        sdk,
+        *[str(path) for path in objects],
+        *frameworks,
+        "-o",
+        str(bundle / "BTRCApplication"),
+    )
+    assert linked.returncode == 0, linked.stderr
+    (bundle / "Info.plist").write_bytes(
+        plistlib.dumps(
+            {
+                "CFBundleIdentifier": identifier,
+                "CFBundleExecutable": "BTRCApplication",
+                "CFBundleName": "BTRCApplication",
+                "CFBundlePackageType": "APPL",
+                "CFBundleVersion": "1",
+                "CFBundleShortVersionString": "1.0",
+                "MinimumOSVersion": "17.0",
+                "CFBundleSupportedPlatforms": ["iPhoneSimulator"],
+                "UIDeviceFamily": [1, 2],
+                "LSRequiresIPhoneOS": True,
+            }
+        )
+    )
+    signed = _xcrun("codesign", "--force", "--sign", "-", str(bundle), timeout=120)
+    assert signed.returncode == 0, signed.stderr
+    return bundle
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_uikit_application_delegate_runs_through_btrc(frontend, tmp_path: Path, request) -> None:
+    sdk = _sdk()
+    if sdk is None:
+        pytest.skip("the iphonesimulator SDK is Mac-bound (xcrun)")
+    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+    root = tmp_path / "project"
+    source = _project(root)
+    generated = root / "Main.c"
+    plan = root / "Main.link.json"
+    _transpile(frontend, source, generated, plan, sdk, btrcc)
+    # One identifier per frontend: parallel workers share the booted simulator.
+    identifier = f"{BUNDLE_IDENTIFIER}.{frontend}"
+    bundle = _build_app(root, generated, plan, sdk, identifier)
+    device = _simulator()
+    installed = _xcrun("simctl", "install", device, str(bundle), timeout=300)
+    assert installed.returncode == 0, installed.stderr
+    try:
+        launched = _xcrun(
+            "simctl",
+            "launch",
+            "--console-pty",
+            "--terminate-running-process",
+            device,
+            identifier,
+            timeout=180,
+        )
+        output = launched.stdout + launched.stderr
+        print(f"{frontend} on {device}: {output!r}")
+        assert "btrc-uikit launched" in output, output
+        assert "btrc-uikit active after 1 launch" in output, output
+    finally:
+        _xcrun("simctl", "uninstall", device, identifier, timeout=120)

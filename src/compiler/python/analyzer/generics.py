@@ -15,7 +15,7 @@ from src.compiler.python.analyzer.program import (
     GenericTemplateDependency,
 )
 from src.compiler.python.analyzer.types import TypeIdentity, TypeShapeError
-from src.compiler.python.frontend.native_imports import NativeHeaderSource
+from src.compiler.python.frontend.native_imports import NativeHeaderSource, NativeInstantiatedProjection
 from src.compiler.python.frontend.sources import CompilerStdlibSource
 from src.compiler.python.syntax.ast.generated import AssignExpr, FunctionDecl, Identifier, LambdaExpr, TypeExpr
 
@@ -135,6 +135,11 @@ class GenericAnalyzer:
                         )
                     else:
                         self.record_class_method_use(TypeExpr(base="Bytes"), "fromRaw")
+                if contract and any(
+                    isinstance(callback, NativeInstantiatedProjection) for callback in contract.callbacks
+                ):
+                    self._collect_instantiated_root(contract.callbacks[0], method)
+                    continue
                 if not contract or not any(callback.unregister or callback.one_shot for callback in contract.callbacks):
                     continue
                 if getattr(contract.callbacks[0], "realtime", None) is not None:
@@ -196,6 +201,27 @@ class GenericAnalyzer:
                     self.collect_type_instances(value_type)
                     for name in methods:
                         self.record_class_method_use(value_type, name)
+
+    def _collect_instantiated_root(self, callback, method) -> None:
+        """An SDK-instantiated adapter enters its receiver through an authenticated CallbackRoot."""
+        root = TypeExpr(
+            base="CallbackRoot", generic_args=[method.params[callback.parameter_index].type], pointer_depth=1
+        )
+        methods = ("isOpen", "enter", "leave")
+        owner = self.index.class_table.get(root.base)
+        if (
+            owner is None
+            or not CompilerStdlibSource.authenticated(getattr(owner.constructor, "source_file", None))
+            or any(
+                not CompilerStdlibSource.authenticated(getattr(owner.methods.get(name), "source_file", None))
+                for name in methods
+            )
+        ):
+            self.session.error("Instantiated native adapters require import Library.Callback", method.line, method.col)
+            return
+        self.collect_type_instances(root)
+        for name in methods:
+            self.record_class_method_use(root, name)
 
     def close_generic_instance_graph(self) -> None:
         """Discover concrete generic types used by instantiated templates.

@@ -143,6 +143,13 @@ CALLBACKCONTEXT_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("close", "bool", "method", (), "close"),
 )
 
+# Generated from src/stdlib/callbackroot.btrc
+CALLBACKROOT_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
+    BuiltinMemberSpec("enter", "TReceiver?", "method", (), "enter"),
+    BuiltinMemberSpec("leave", "void", "method", (), "leave"),
+)
+
 # Generated from src/stdlib/callbackrequest.btrc
 CALLBACKREQUEST_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("activate", "void", "method", (("CallbackScope", "scope"),), "activate"),
@@ -360,6 +367,7 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
     ("CallbackToken", CALLBACKTOKEN_MEMBERS),
     ("CallbackContext", CALLBACKCONTEXT_MEMBERS),
+    ("CallbackRoot", CALLBACKROOT_MEMBERS),
     ("CallbackRequest", CALLBACKREQUEST_MEMBERS),
     ("CallbackRegistration", CALLBACKREGISTRATION_MEMBERS),
     ("FileSystemOutcome", FILESYSTEMOUTCOME_MEMBERS),

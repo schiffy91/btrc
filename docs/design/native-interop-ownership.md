@@ -29,6 +29,15 @@ implemented in both compilers today and documented there.
   the direct-cycle rule, R3 entry pinning with the `pthread_t` plus generation
   check for the existing table holder (rule 3), the loopback fixture and the
   Linux sysroot variant of `native_project`.
+- Step 6's first slice (UIKit lifecycle) is implemented in both compilers:
+  `lifetime = "instantiated"` with `scope = "process"` on an `NSString`
+  class-name parameter, as `UIApplicationMain` takes it. An Objective-C binding
+  may select such a C entry; the generated class answers the selected protocol
+  methods through a `CallbackRoot` (package-manifest.md, "SDK-instantiated
+  Objective-C adapters"). No class-reference IR node was needed:
+  `NSStringFromClass([Holder class])` names the class. Still owed for step 6:
+  `scope = "instance"` and `terminal`, `superclass`/`overrides`,
+  `error-outputs`, M3 downcasts and lightweight-generic erasure.
 
 ## 1. One model: three relations, three mechanisms, two rules
 
