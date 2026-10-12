@@ -1,0 +1,108 @@
+/* Clipboard reads through the actual focused editor and SDL event loop. */
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.ITextField;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+void key(unsigned int window, unsigned int scan, unsigned int value, unsigned int modifiers) {
+	btrcSdlPushKey(window, scan, value, modifiers, 1, 0);
+	btrcSdlPushKey(window, scan, value, modifiers, 0, 0);
+}
+
+void selectAlpha(LinuxApplication owner, unsigned int window, bool reversed) {
+	key(window, (unsigned int)SDL_SCANCODE_HOME, (unsigned int)SDLK_HOME, 0u);
+	for (int index = 0; index < 5; index++) {
+		key(window, (unsigned int)SDL_SCANCODE_RIGHT, (unsigned int)SDLK_RIGHT, reversed ? 0u : (unsigned int)SDL_KMOD_LSHIFT);
+	}
+	if (reversed) {
+		for (int index = 0; index < 5; index++) { key(window, (unsigned int)SDL_SCANCODE_LEFT, (unsigned int)SDLK_LEFT, (unsigned int)SDL_KMOD_LSHIFT); }
+	}
+	owner.pumpOnce(0);
+}
+
+void paste(LinuxApplication owner, unsigned int window, int mode) {
+	clipboardReadArm(mode);
+	key(window, (unsigned int)SDL_SCANCODE_V, (unsigned int)'v', (unsigned int)SDL_KMOD_LCTRL);
+	owner.pumpOnce(0);
+	int ownership = clipboardReadFinish(mode == 2 ? 0 : 1);
+	assert(ownership == 1);
+}
+
+void requireText(ITextField field, string expected, int cycle, string phase) {
+	if (!field.text().equals(expected)) {
+		fprintf(stderr, "clipboard mismatch: cycle=%d phase=%s expected=%s actual=%s\n", cycle, phase, expected, field.text());
+	}
+	assert(field.text().equals(expected));
+}
+
+void exercise(LinuxApplication owner, IWindow window, LinuxWindow native, int mode) {
+	var field = owner.createTextField("alpha beta", "");
+	window.attachRoot(field);
+	unsigned int id = native.nativeId();
+	btrcSdlPushPointerMotion(id, 12.0, 12.0);
+	btrcSdlPushPointerButton(id, 12.0, 12.0, 1u, 1, 1u);
+	btrcSdlPushPointerButton(id, 12.0, 12.0, 1u, 0, 1u);
+	owner.pumpOnce(0);
+	bool seeded = SDL_SetClipboardText("X");
+	assert(seeded);
+	for (int cycle = 0; cycle < 100; cycle++) {
+		bool reversed = cycle % 2 == 1;
+		field.setText("alpha beta");
+		selectAlpha(owner, id, reversed);
+		paste(owner, id, mode);
+		requireText(field, "alpha beta", cycle, "empty-read-preserves-text");
+		/* Extending the surviving selection exposes its caret AND anchor. */
+		key(id, (unsigned int)SDL_SCANCODE_RIGHT, (unsigned int)SDLK_RIGHT, (unsigned int)SDL_KMOD_LSHIFT);
+		int inserted = btrcSdlPushText(id, "|");
+		assert(inserted == 1);
+		owner.pumpOnce(0);
+		requireText(field, reversed ? "a| beta" : "|beta", cycle, "selection-direction");
+
+		field.setText("alpha beta");
+		selectAlpha(owner, id, reversed);
+		paste(owner, id, mode);
+		requireText(field, "alpha beta", cycle, "retry-preserves-selection");
+		/* No reselection: the actual SDK read succeeds despite a stale error. */
+		paste(owner, id, 3);
+		requireText(field, "X beta", cycle, "one-replacement");
+		inserted = btrcSdlPushText(id, "!");
+		assert(inserted == 1);
+		owner.pumpOnce(0);
+		requireText(field, "X! beta", cycle, "retry-caret");
+		owner.pumpOnce(0);
+		requireText(field, "X! beta", cycle, "no-second-replacement");
+	}
+	int complete = clipboardReadComplete();
+	assert(complete == 1);
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	int mode = atoi(argv[1]);
+	assert(mode >= 0 && mode <= 2);
+	bool initialized = SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS);
+	assert(initialized);
+	var owner = LinuxApplication(32);
+	var window = owner.createWindow("Linux clipboard read", 300.0, 100.0);
+	var native = owner.firstWindow();
+	assert(native != null);
+	if (native == null) { return 1; }
+	unsigned long long ready = SDL_GetTicksNS() + 10000000000ULL;
+	while (!native.pollDevice() && SDL_GetTicksNS() < ready) { owner.pumpOnce(10); }
+	bool deviceReady = native.pollDevice();
+	assert(deviceReady);
+	exercise(owner, window, native, mode);
+	var closing = owner.close();
+	unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
+	while (closing == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); closing = owner.pollClose(); }
+	assert(closing == CALLBACK_CANCELLATION_COMPLETE);
+	printf("PASS: Linux clipboard read mode=%d cycles=100 selection=1 caret=1 retry=1 ownership=1\n", mode);
+	return 0;
+}
