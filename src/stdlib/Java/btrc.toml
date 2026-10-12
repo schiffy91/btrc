@@ -1,0 +1,26 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_java"
+exports = ["JavaVirtualMachine"]
+
+# A host JVM's headers and HotSpot. Android's NDK sysroot supplies jni.h and
+# the application supplies its VM, so an Android target needs neither.
+[[native.pkg-config]]
+name = "btrc-jni"
+modules = ["JavaVirtualMachine"]
+os = ["linux", "macos"]
+
+[[native.sources]]
+path = "JavaRuntime.c"
+language = "c"
+standard = "c11"
+modules = ["JavaVirtualMachine"]
+
+[[native.bindings]]
+module = "JavaVirtualMachine"
+header = "JNI.h"
+language = "c"
+standard = "c11"
+symbols = ["btrcJavaAddOption", "btrcJavaCreateHost", "btrcJavaRunning", "btrcJavaLiveClaims", "btrcJavaAttachedThreads", "btrcJavaDestroy"]
+read-only-borrows = ["btrcJavaAddOption.option"]

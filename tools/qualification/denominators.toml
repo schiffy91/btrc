@@ -53,11 +53,11 @@ source = { ledger = "docs/design/native-ui-catalog.toml" }
 
 [[denominators]]
 kind = "operation"
-release = "p0-inventory-2026-10-02-native-worker"
+release = "p0-inventory-2026-10-13-java"
 platforms = ["windows", "ios", "android"]
 slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
 frontends = []
-ids = 324
-slots = 1944
-sha256 = "ea227c8c7fc98726ab016cd6110e3bc567f0bd23f1998377989ed87611fda7ac"
+ids = 325
+slots = 1950
+sha256 = "2d25648e6fc989bdc55076eb4f3f5b45f691d35d76337105e12aed30f69e530b"
 source = { ledger = "docs/design/platform-inventory.toml" }

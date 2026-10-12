@@ -30,7 +30,9 @@ the API surface, so the layout follows a few fixed rules.
   when it needs it (see `Realtime/README.md`). `App` is a folder holding one
   module, like `Graph`: its input-event and application-error values
   belong beside the GUI groups, not in the closed prelude and its
-  prebuilt core archive.
+  prebuilt core archive. `Java` is a one-module folder too: its
+  `JavaVirtualMachine` binds `jni.h` and owns the C runtime
+  (`JavaRuntime.c`) that compiler-generated Java bindings call.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
   `Audio/Linux`, `Digest/MacOS`, `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`,
   `Image/Linux`, `LocalApplicationChannel/MacOS`,

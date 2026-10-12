@@ -17,6 +17,7 @@ GUI = { path = "GUI" }
 Graph = { path = "Graph" }
 HTTP = { path = "HTTP" }
 Image = { path = "Image" }
+Java = { path = "Java" }
 LocalApplicationChannel = { path = "LocalApplicationChannel" }
 Realtime = { path = "Realtime" }
 Terminal = { path = "Terminal" }
