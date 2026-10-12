@@ -16,6 +16,7 @@ from src.compiler.python.ir.nodes import (
     IRBinOp,
     IRBlock,
     IRCall,
+    IREnumDef,
     IRExprStmt,
     IRFor,
     IRFunctionDef,
@@ -435,18 +436,23 @@ def test_unaliased_and_shadowed_setjmp_storage_remains_supported():
 
 
 def test_static_shadow_does_not_qualify_outer_automatic():
+    # The outer object's address is taken, so only a misresolved write through
+    # the static shadow could qualify it, and qualifier safety would then reject
+    # the address it already gave away.
     emitted = emit_c("""
         int main() {
             int value = 0;
+            int* outer = &value;
             {
                 static int value = 0;
                 try { value = 1; throw "done"; } catch (string error) {}
             }
-            return value;
+            return *outer;
         }
     """)
 
     assert "volatile int value = 0;" not in emitted
+    assert re.search(r"^\s*int value = 0;", emitted, re.MULTILINE)
     assert re.search(r"static int value(?:_\d+)? = 0;", emitted)
 
 
@@ -621,7 +627,7 @@ _CLOBBER_SHAPES = """
 
 
 def _function_body(emitted: str, name: str) -> str:
-    match = re.search(rf"^int {name}\(int x\) \{{\n(.*?)^\}}", emitted, re.MULTILINE | re.DOTALL)
+    match = re.search(rf"^int {name}\((?:volatile )?int x\) \{{\n(.*?)^\}}", emitted, re.MULTILINE | re.DOTALL)
     assert match is not None, name
     return match.group(1)
 
@@ -643,6 +649,159 @@ def test_generated_locals_of_a_setjmp_function_are_volatile():
     assert all("volatile" in declarator for declarator, _name in generated), generated
     assert any(name.startswith("__btrc_call_operand_") for _declarator, name in generated), generated
     assert re.search(r"^\s*int __btrc_ret_\d+ = ", _function_body(emitted, "withoutTry"), re.MULTILINE)
+    assert "int withoutTry(int x) {" in emitted
+
+
+def test_register_scalars_visible_at_setjmp_are_volatile():
+    """GCC judges -Wclobbered on register pseudos after inlining and coalescing,
+    so an unmodified parameter or a once-initialized scalar can be reported.
+    Every scalar or pointer object visible at a setjmp is qualified; addressed,
+    aggregate, array, static and later-declared objects keep their rules."""
+    parameter = IRParam(CType("int"), "parameter")
+    pointer_parameter = IRParam(CType("Box*"), "box")
+    aggregate_parameter = IRParam(CType("struct stat"), "status")
+    scalar = IRVarDecl(CType("int"), "scalar", IRLiteral("1"))
+    unsigned = IRVarDecl(CType("unsigned long long"), "wide", IRLiteral("1"))
+    enumeration = IRVarDecl(CType("Phase"), "phase", IRLiteral("0"))
+    alias = IRVarDecl(CType("Count"), "count", IRLiteral("0"))
+    pointer = IRVarDecl(CType("char*"), "text")
+    record = IRVarDecl(CType("Pair"), "pair")
+    native = IRVarDecl(CType("va_list"), "arguments")
+    addressed = IRVarDecl(CType("int"), "addressed", IRLiteral("0"))
+    array = IRVarDecl(CType("int"), "array", array_size=IRLiteral("2"))
+    static = IRVarDecl(CType("int"), "persistent", is_static=True)
+    later = IRVarDecl(CType("int"), "later", IRLiteral("0"))
+    inner = IRVarDecl(CType("int"), "inner", IRLiteral("0"))
+    body = IRBlock(
+        stmts=[
+            scalar,
+            unsigned,
+            enumeration,
+            alias,
+            pointer,
+            record,
+            native,
+            addressed,
+            array,
+            static,
+            IRExprStmt(IRAddressOf(IRVar("addressed"))),
+            IRIf(
+                condition=IRBinOp(IRCall("setjmp", [IRVar("frame")]), "==", IRLiteral("0")),
+                then_block=IRBlock(stmts=[inner]),
+            ),
+            later,
+        ]
+    )
+    module = IRModule(
+        enum_defs=[IREnumDef(name="Phase")],
+        typedef_defs=[
+            IRTypedefDef(CType("long long"), "Wide"),
+            IRTypedefDef(CType("Wide"), "Count"),
+            IRTypedefDef(CType("struct PairStorage"), "Pair"),
+        ],
+        function_defs=[
+            IRFunctionDef(
+                name="probe",
+                return_type=CType("void"),
+                params=[parameter, pointer_parameter, aggregate_parameter],
+                body=body,
+            )
+        ],
+    )
+    ExceptionLowerer.apply_setjmp_volatility(module)
+    assert all(
+        value.is_volatile for value in (parameter, pointer_parameter, scalar, unsigned, enumeration, alias, pointer)
+    )
+    assert not any(
+        value.is_volatile for value in (aggregate_parameter, record, native, addressed, array, static, later, inner)
+    )
+
+
+_REGISTER_SCALARS = """
+    #include <assert.h>
+    class Pump {
+        public int rounds = 0;
+        public bool active = false;
+        public int ready = 3;
+        public int waitMilliseconds() { return self.ready; }
+        public void pumpEvents(int timeout) {
+            if (timeout > 100) { throw "too long"; }
+            self.rounds = self.rounds + timeout;
+        }
+        public void pumpOnce(int timeoutMilliseconds) {
+            int readyTimeout = self.waitMilliseconds();
+            if (readyTimeout == 0 || (readyTimeout > 0 && (timeoutMilliseconds < 0 || readyTimeout < timeoutMilliseconds))) {
+                timeoutMilliseconds = readyTimeout;
+            }
+            self.active = true;
+            try {
+                try {
+                    self.pumpEvents(timeoutMilliseconds);
+                } finally {
+                    self.active = false;
+                }
+            } finally {
+                self.active = false;
+            }
+        }
+    }
+    class Barrier {
+        public int entered = 0;
+        public void require(bool condition) { if (!condition) { throw "barrier"; } }
+        public int poll(int turn) {
+            self.entered = self.entered + (turn % 3 == 0 ? 1 : 0);
+            return self.entered;
+        }
+    }
+    int publish(int count, long key, bool fail) {
+        int replace = -1;
+        for (int index = count - 1; index >= 0; index--) {
+            if (index == key) {
+                replace = index;
+                break;
+            }
+        }
+        bool signalled = false;
+        try {
+            if (fail) { throw "host"; }
+            signalled = true;
+        } catch (string error) {
+            signalled = false;
+        }
+        return signalled ? replace : -2;
+    }
+    int verify(int workers, int capacity, bool fail) {
+        int window = capacity == 1 ? 1 : (workers < capacity - 1 ? workers : capacity - 1);
+        Barrier barrier = new Barrier();
+        int outcome = 0;
+        try {
+            for (int turn = 0; turn < 9; turn++) { barrier.require(barrier.poll(turn) >= 0); }
+            barrier.require(!fail && barrier.entered >= window);
+            outcome = window;
+        } catch (string error) {
+            outcome = -window;
+        }
+        return outcome;
+    }
+    int main() {
+        Pump pump = new Pump();
+        pump.pumpOnce(50);
+        assert(pump.rounds == 3 && !pump.active);
+        pump.ready = 500;
+        try { pump.pumpOnce(-1); assert(false); } catch (string error) { assert(!pump.active); }
+        assert(publish(4, 2, false) == 2 && publish(4, 2, true) == -2);
+        assert(verify(2, 8, false) == 2 && verify(2, 8, true) == -2 && verify(4, 1, false) == 1);
+        return 0;
+    }
+"""
+
+
+def test_register_scalar_shapes_qualify_parameters_and_once_initialized_locals():
+    emitted = emit_c(_REGISTER_SCALARS)
+    assert "void Pump_pumpOnce(Pump* volatile self, volatile int timeoutMilliseconds) {" in emitted
+    assert re.search(r"^\s*volatile int window = ", emitted, re.MULTILINE)
+    assert re.search(r"^\s*volatile int replace = ", emitted, re.MULTILINE)
+    assert "int publish(volatile int count, volatile long key, volatile bool fail) {" in emitted
 
 
 def test_generated_pointer_temporaries_follow_setjmp_regions_and_storage_kinds():
@@ -728,13 +887,15 @@ def test_single_try_pointer_call_and_storage_operands_are_volatile():
 
 
 @pytest.mark.parametrize(
-    "program", [_CLOBBER_SHAPES, _SINGLE_TRY_POINTERS], ids=["nested-and-return", "single-pointer"]
+    "program",
+    [_CLOBBER_SHAPES, _SINGLE_TRY_POINTERS, _REGISTER_SCALARS],
+    ids=["nested-and-return", "single-pointer", "register-scalars"],
 )
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="needs gcc for -Wclobbered")
 def test_setjmp_shapes_build_with_gcc_clobbered_errors(tmp_path, program):
     source = tmp_path / "shapes.c"
     source.write_text(emit_c(program))
-    for optimization in ("-O2", "-O3"):
+    for optimization in ("-O1", "-O2", "-O3", "-Os"):
         build = subprocess.run(
             [
                 "gcc",
