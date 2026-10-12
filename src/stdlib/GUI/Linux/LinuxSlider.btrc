@@ -1,49 +1,196 @@
+import Library.Callback;
 import Library.Math;
 import Library.App;
+import Library.UI.Element;
 import Library.GUI.ISlider;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
 
-/* A horizontal drawn slider. Dragging updates the value; the consumer reads
- * it after dispatch. Programmatic values never synthesize input. */
+#include <limits.h>
+
+/* The double model is authoritative. SDL input captures pointer positions or
+ * relative intents; semantic delivery shares the window's existing queue. */
 class LinuxSlider extends LinuxNodeView implements ISlider {
 	private double _minimum;
 	private double _maximum;
+	private double _step;
 	private int _intervals;
 	private double _value;
+	private double _startValue;
+	private long long _modelRevision = 1LL;
+	private long long _rangeRevision = 1LL;
+	private long long _startRevision;
+	private long long _interaction = 0LL;
+	private long long _sequence = 0LL;
+	private long long _generation;
 	private bool _enabled = true;
-	private bool _dragging = false;
+	private bool _active = false;
 	private bool _hovered = false;
+	private ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>? _previews;
+	private ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>? _commits;
+	private ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>? _cancels;
+	private ControlEventTicket? _commitTicket;
+	private ControlEventTicket? _cancelTicket;
 
 	public LinuxSlider(LinuxContext context, double minimum, double maximum, int intervals) {
 		self.adoptNode(LinuxViewNode(context));
-		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || maximum <= minimum || !Math.isFinite(maximum - minimum) || intervals < 0 || intervals > 1000) { throw "Invalid native slider range"; }
-		self._minimum = minimum;
-		self._maximum = maximum;
-		self._intervals = intervals;
-		self._value = minimum;
+		self.node().focusable = true;
+		if (intervals < 0) { throw "Invalid native slider intervals"; }
+		double step = intervals == 0 ? 0.0 : (maximum - minimum) / (double)intervals;
+		self.validateRange(minimum, maximum, step);
+		if (intervals > 0 && minimum < maximum && step == 0.0) { throw "Native slider intervals cannot advance at this range precision"; }
+		self._minimum = minimum; self._maximum = maximum; self._step = step;
+		self._intervals = intervals; self._value = minimum;
 	}
 
 	private double knobRadius() { return Math.minDouble(10.0, Math.maxDouble(4.0, self.node().height * 0.42)); }
 
-	private double fraction() { return (self._value - self._minimum) / (self._maximum - self._minimum); }
+	private double fraction() { return self._minimum == self._maximum ? 0.0 : (self._value - self._minimum) / (self._maximum - self._minimum); }
 
-	private double snap(double value) {
-		if (self._intervals > 0) {
-			double step = (self._maximum - self._minimum) / (double)self._intervals;
-			value = self._minimum + Math.round((float)((value - self._minimum) / step)) * step;
+	private void validateRange(double minimum, double maximum, double step) {
+		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || !Math.isFinite(step) || maximum < minimum || step < 0.0 || !Math.isFinite(maximum - minimum)) { throw "Invalid native slider range"; }
+		if (step > 0.0 && minimum < maximum && step < maximum - minimum && (minimum + step <= minimum || maximum - step >= maximum)) { throw "Native slider step cannot advance at this range precision"; }
+	}
+
+	private double snapped(double minimum, double maximum, double step, double value) {
+		if (step == 0.0 || minimum == maximum || value == maximum) { return value; }
+		double span = maximum - minimum;
+		double lower = minimum;
+		if (step < span) { lower = minimum + Math.floorDouble((value - minimum) / step) * step; }
+		lower = Math.maxDouble(minimum, Math.minDouble(value, lower));
+		double upper = step >= maximum - lower ? maximum : lower + step;
+		return value - lower < upper - value ? lower : upper;
+	}
+
+	public SliderRange range() { self.node().requireOpen(); var range = SliderRange(); range.minimum = self._minimum; range.maximum = self._maximum; range.step = self._step; return range; }
+
+	public double value() { self.node().requireOpen(); return self._value; }
+
+	public void setRange(double minimum, double maximum, double step) {
+		self.node().requireOpen(); self.validateRange(minimum, maximum, step);
+		var range = SliderRange(); range.minimum = minimum; range.maximum = maximum; range.step = step;
+		self.setRangeValue(range, Math.maxDouble(minimum, Math.minDouble(maximum, self._value)));
+	}
+
+	public void setRangeValue(SliderRange range, double value) {
+		self.node().requireOpen(); self.node().context.requireMutationAllowed();
+		if (range == null) { throw "Native slider requires a range"; }
+		self.validateRange(range.minimum, range.maximum, range.step);
+		if (!Math.isFinite(value) || value < range.minimum || value > range.maximum) { throw "Native slider value is out of range"; }
+		double next = self.snapped(range.minimum, range.maximum, range.step, value);
+		bool changedRange = range.minimum != self._minimum || range.maximum != self._maximum || range.step != self._step;
+		if (!changedRange && next == self._value) { return; }
+		if (self._modelRevision == LLONG_MAX || (changedRange && self._rangeRevision == LLONG_MAX)) { throw "Native slider model revisions exhausted"; }
+		self.cancelInteraction(CONTROL_ORIGIN_MODEL, CONTROL_CANCEL_MODEL_REPLACEMENT);
+
+		self._minimum = range.minimum; self._maximum = range.maximum; self._step = range.step; self._value = next;
+		self.node().invalidate();
+		self._modelRevision++; if (changedRange) { self._rangeRevision++; self._intervals = 0; }
+	}
+
+	public void setValue(double value) { self.setRangeValue(self.range(), value); }
+
+	private void retireTickets() {
+		var commit = self._commitTicket; var cancel = self._cancelTicket;
+		self._commitTicket = null; self._cancelTicket = null;
+		if (commit != null && commit.isOpen() && !commit.queued()) { commit.retire(); }
+		if (cancel != null && cancel.isOpen() && !cancel.queued()) { cancel.retire(); }
+	}
+
+	private SliderControlEvent snapshot(ControlPhase phase, ControlOrigin origin, ControlCancelReason reason, SliderInputKind input = SLIDER_INPUT_ABSOLUTE_POINTER, UIRangeAdjustment adjustment = UI_RANGE_ADJUST_NONE, int count = 0) {
+		if (self._sequence == LLONG_MAX) { throw "Native slider event sequences exhausted"; }
+		var context = ControlEventContext(); context.generation = self._generation; context.interaction = self._interaction;
+		context.sequence = ++self._sequence; context.modelRevision = self._modelRevision; context.origin = origin;
+		var event = SliderControlEvent(); event.context = context; event.phase = phase; event.value = self._value;
+		event.rangeRevision = self._rangeRevision; event.input = input; event.adjustment = adjustment; event.count = count; event.cancelReason = reason; return event;
+	}
+
+	private bool beginInteraction() {
+		if (self._active || !self.node().effectiveEligible() || self._minimum == self._maximum) { return false; }
+		if (self._interaction == LLONG_MAX || self._sequence == LLONG_MAX) { throw "Native slider event identity exhausted"; }
+		var previews = self._previews; var commit = self._commits; var cancel = self._cancels;
+		if (previews != null && previews.isOpen() && !self.node().events().canCapture(1)) { throw "Native slider preview queue is full"; }
+		try {
+			if (commit != null && commit.isOpen()) { self._commitTicket = commit.beginInteraction(); if (self._commitTicket == null) { throw "Native slider commit capacity is exhausted"; } }
+			if (cancel != null && cancel.isOpen()) { self._cancelTicket = cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Native slider cancel capacity is exhausted"; } }
+		} catch (string error) { self.retireTickets(); throw error; }
+		self._interaction++; self._generation = self.node().generation();
+		self._startValue = self._value; self._startRevision = self._modelRevision; self._active = true; return true;
+	}
+
+	private void acceptValue(double value, bool preview) {
+		double next = self.snapped(self._minimum, self._maximum, self._step, Math.maxDouble(self._minimum, Math.minDouble(self._maximum, value)));
+		if (next == self._value) { return; }
+		self._value = next; self.node().invalidate();
+		var channel = self._previews;
+		if (preview && channel != null && channel.isOpen()) {
+			var event = self.snapshot(CONTROL_PHASE_PREVIEW, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
+			if (!channel.publish(event, self._generation, self._interaction, 1LL)) { throw "Native slider preview queue is full or unavailable"; }
 		}
-		return value < self._minimum ? self._minimum : (value > self._maximum ? self._maximum : value);
 	}
 
 	private void valueFromX(double x) {
 		double radius = self.knobRadius();
 		double track = Math.maxDouble(1.0, self.node().width - radius * 2.0);
-		double fraction = (x - radius) / track;
-		fraction = fraction < 0.0 ? 0.0 : (fraction > 1.0 ? 1.0 : fraction);
-		double next = self.snap(self._minimum + fraction * (self._maximum - self._minimum));
-		if (next != self._value) { self._value = next; self.node().invalidate(); }
+		double fraction = Math.maxDouble(0.0, Math.minDouble(1.0, (x - radius) / track));
+		self.acceptValue(self._minimum + fraction * (self._maximum - self._minimum), true);
+	}
+
+	private void commitInteraction(SliderInputKind input, UIRangeAdjustment adjustment = UI_RANGE_ADJUST_NONE, int count = 0) {
+		var channel = self._commits; var ticket = self._commitTicket;
+		/* Seal before publication, so later eligibility loss cannot create a
+		 * cancellation for this already accepted interaction. */
+		self._active = false; self._commitTicket = null; self.retireTickets(); self.node().invalidate();
+		try {
+			var event = self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE, input, adjustment, count);
+			if (channel != null && ticket != null) { channel.publishTerminal(event, self._generation, self._interaction, ticket); }
+		} finally { if (ticket != null && ticket.isOpen() && !ticket.queued()) { ticket.retire(); } }
+	}
+
+	private void cancelInteraction(ControlOrigin origin, ControlCancelReason reason) {
+		if (!self._active) { return; }
+		if (self._startRevision == self._modelRevision) { self._value = self._startValue; }
+		var channel = self._cancels; var ticket = self._cancelTicket;
+		self._active = false; self._cancelTicket = null; self.retireTickets(); self.node().invalidate();
+		try {
+			var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason);
+			if (channel != null && ticket != null) { channel.publishTerminal(event, self._generation, self._interaction, ticket); }
+		} finally { if (ticket != null && ticket.isOpen() && !ticket.queued()) { ticket.retire(); } }
+	}
+
+	class void deliverSlider(ISliderControlEventHandler receiver, SliderControlEvent event) { receiver.sliderEvent(event); }
+
+	private ControlEventChannel<ISliderControlEventHandler, SliderControlEvent> subscribe(ISliderControlEventHandler receiver, CallbackScope owner) {
+		self.node().requireOpen();
+		var channel = new ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>(self.node().events(), self.node(), receiver, LinuxSlider.deliverSlider, owner);
+		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public ICallbackRegistration onPreview(ISliderControlEventHandler receiver, CallbackScope owner) {
+		var previous = self._previews;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing slider preview handler first"; }
+		var channel = self.subscribe(receiver, owner); self._previews = channel; return channel;
+	}
+
+	public ICallbackRegistration onCommit(ISliderControlEventHandler receiver, CallbackScope owner) {
+		var previous = self._commits;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing slider commit handler first"; }
+		var channel = self.subscribe(receiver, owner); ControlEventTicket? ticket = null;
+		try { if (self._active) { ticket = channel.beginInteraction(); if (ticket == null) { throw "Native slider commit capacity is exhausted"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._commits = channel; self._commitTicket = ticket; return channel;
+	}
+
+	public ICallbackRegistration onCancel(ISliderControlEventHandler receiver, CallbackScope owner) {
+		var previous = self._cancels;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing slider cancel handler first"; }
+		var channel = self.subscribe(receiver, owner); ControlEventTicket? ticket = null;
+		try { if (self._active) { ticket = channel.beginInteraction(); if (ticket == null) { throw "Native slider cancel capacity is exhausted"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._cancels = channel; self._cancelTicket = ticket; return channel;
 	}
 
 	public void paint(LinuxPainter painter, double x, double y) {
@@ -62,44 +209,63 @@ class LinuxSlider extends LinuxNodeView implements ISlider {
 			}
 		}
 		double knobX = trackX + filled;
-		painter.fillCircle(knobX, centerY, radius, self._enabled ? (self._dragging ? theme.controlPressed : theme.controlFill) : theme.controlPressed);
-		painter.strokeCircle(knobX, centerY, radius, self._dragging || self._hovered ? theme.accent : theme.controlBorder, 1.0);
+		painter.fillCircle(knobX, centerY, radius, self._enabled ? (self._active ? theme.controlPressed : theme.controlFill) : theme.controlPressed);
+		painter.strokeCircle(knobX, centerY, radius, self._active || self._hovered ? theme.accent : theme.controlBorder, 1.0);
 	}
 
 	public bool pointer(AppPointerEvent event) {
 		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; self.node().invalidate(); return false; }
 		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self.node().invalidate(); return false; }
-		if (!self._enabled) { return false; }
-		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) { self._dragging = true; self.valueFromX(event.logicalX); return true; }
-		if (event.action == APP_POINTER_DRAGGED && self._dragging) { self.valueFromX(event.logicalX); return true; }
-		if ((event.action == APP_POINTER_RELEASED || event.action == APP_POINTER_CANCELLED) && self._dragging) { self._dragging = false; self.node().invalidate(); return true; }
+		if (event.action == APP_POINTER_CANCELLED) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); return true; }
+		if (!self.node().effectiveEligible()) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); return false; }
+		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
+			if (!self.beginInteraction()) { return false; }
+			self.node().requestFocus(); self.valueFromX(event.logicalX); return true;
+		}
+		if (event.action == APP_POINTER_DRAGGED && self._active) { self.valueFromX(event.logicalX); return true; }
+		if (event.action == APP_POINTER_RELEASED && self._active && event.button == APP_POINTER_BUTTON_PRIMARY) { self.valueFromX(event.logicalX); self.commitInteraction(SLIDER_INPUT_ABSOLUTE_POINTER); return true; }
 		return false;
 	}
+
+	public bool key(AppKeyboardEvent event) {
+		if (event.action == APP_KEY_RELEASED || !self.node().effectiveEligible()) { return false; }
+		if (event.key == APP_KEY_ESCAPE) { self.cancelInteraction(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); return true; }
+		UIRangeAdjustment adjustment = UI_RANGE_ADJUST_NONE;
+		if (event.key == APP_KEY_LEFT || event.key == APP_KEY_DOWN) { adjustment = UI_RANGE_ADJUST_SMALL_DECREMENT; }
+		else if (event.key == APP_KEY_RIGHT || event.key == APP_KEY_UP) { adjustment = UI_RANGE_ADJUST_SMALL_INCREMENT; }
+		else if (event.key == APP_KEY_HOME) { adjustment = UI_RANGE_ADJUST_MINIMUM; }
+		else if (event.key == APP_KEY_END) { adjustment = UI_RANGE_ADJUST_MAXIMUM; }
+		if (adjustment == UI_RANGE_ADJUST_NONE) { return false; }
+		self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION);
+		if (!self.beginInteraction()) { return true; }
+		double distance = self._step > 0.0 ? self._step : (self._maximum - self._minimum) / 100.0;
+		double next = self._value;
+		if (adjustment == UI_RANGE_ADJUST_MINIMUM) { next = self._minimum; }
+		else if (adjustment == UI_RANGE_ADJUST_MAXIMUM) { next = self._maximum; }
+		else if (adjustment == UI_RANGE_ADJUST_SMALL_DECREMENT) { next = distance >= self._value - self._minimum ? self._minimum : self._value - distance; }
+		else { next = distance >= self._maximum - self._value ? self._maximum : self._value + distance; }
+		self.acceptValue(next, false); self.commitInteraction(SLIDER_INPUT_RELATIVE_ADJUSTMENT, adjustment, 1); return true;
+	}
+
+	public void focus(bool focused) { if (!focused) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION); } }
 
 	public double fittingWidth() { self.node().requireOpen(); return LinuxMetrics.sliderWidth(); }
 
 	public double fittingHeight() { self.node().requireOpen(); return LinuxMetrics.sliderHeight(); }
 
-	public double value() { self.node().requireOpen(); return self._value; }
-
-	public void setValue(double value) {
-		self.node().requireOpen();
-		if (!Math.isFinite(value) || value < self._minimum || value > self._maximum) { throw "Native slider value is out of range"; }
-		double next = self.snap(value);
-		if (next == self._value) { return; }
-		self._value = next;
-		self.node().invalidate();
-	}
-
-	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); self._dragging = false; self.node().invalidate(); } }
+	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); self.node().invalidate(); } }
 
 	public bool locallyEnabled() { return self._enabled; }
 
-	public void eligibilityLost() { self.node().cancelOwnPointerCapture(); self._dragging = false; self.node().invalidate(); }
+	public void eligibilityLost() { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); self.node().cancelOwnPointerCapture(); }
+
+	public void cancelPointerCapture() { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); self.node().cancelPointerCapture(); }
 
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
 	public void setToolTip(string text) { self.node().requireOpen(); self.node().toolTip = text == null ? "" : text; }
 
 	public string toolTip() { self.node().requireOpen(); return self.node().toolTip; }
+
+	public CallbackCancellation close() { self.node().requireDetached(); self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING); return self.node().close(); }
 }

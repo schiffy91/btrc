@@ -105,3 +105,5 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
     (tmp_path / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
     assert marker in result.stdout
+    if fixture == "UI2LinuxControls.btrc":
+        assert "PASS: UI2 Linux range authority and ordered native slider interactions" in result.stdout

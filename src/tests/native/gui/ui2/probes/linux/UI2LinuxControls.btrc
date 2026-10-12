@@ -1,6 +1,8 @@
 import Library.Callback;
 import Library.Vector;
 import Library.GUI.IScrollView;
+import Library.GUI.ISlider;
+import Library.UI.Element;
 import Library.GUI.ITextField;
 import Library.GUI.ISelect;
 import Library.GUI.IView;
@@ -11,6 +13,8 @@ import Library.GUI.Linux.SDL;
 
 #include <assert.h>
 #include <stdio.h>
+#include <math.h>
+#include <float.h>
 
 class UI2LinuxScrollReceiver implements IScrollControlEventHandler {
 	public Vector<ScrollControlEvent> events = [];
@@ -24,6 +28,7 @@ class UI2LinuxReplacingScrollReceiver implements IScrollControlEventHandler {
 	public int calls = 0;
 	public bool rejectedWhileEntered = false;
 	public UI2LinuxReplacingScrollReceiver(IScrollView view) { self.view = view; }
+
 	public void scrollEvent(ScrollControlEvent event) {
 		self.calls++;
 		if (self.calls != 1) { return; }
@@ -58,7 +63,9 @@ class UI2LinuxSelectionReceiver implements ISelectionControlEventHandler {
 
 class UI2LinuxSelectionChecks {
 	class SelectOption option(string key, string title, bool enabled) { var option = SelectOption(); option.key = key; option.title = title; option.enabled = enabled; return option; }
+
 	class SelectModel model(Vector<SelectOption> options, string? key, SelectAvailability availability) { var model = SelectModel(); model.options = options; model.selectedKey = key; model.availability = availability; model.statusText = "status"; return model; }
+
 	class void selected(ISelect select, string expected) { var key = select.selectedKey(); if (key == null) { throw "Missing selected key"; } assert(key.equals(expected)); }
 
 	class void keyedSelection() {
@@ -205,8 +212,112 @@ class UI2LinuxTextChecks {
 	}
 }
 
+class UI2LinuxRangeReceiver implements ISliderControlEventHandler {
+	public Vector<SliderControlEvent> events = [];
+	public void sliderEvent(SliderControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
+}
+
+class UI2LinuxRangeChecks {
+	class SliderRange range(double minimum, double maximum, double step) { var range = SliderRange(); range.minimum = minimum; range.maximum = maximum; range.step = step; return range; }
+
+	class void unchanged(ISlider slider, SliderRange range, double value) {
+		var after = slider.range(); assert(after.minimum == range.minimum && after.maximum == range.maximum && after.step == range.step && slider.value() == value);
+	}
+
+	class void validation(LinuxApplication application) {
+		for (int intervals = 999; intervals <= 1001; intervals++) {
+			var slider = application.createSlider(0.0, 1001.0, intervals);
+			assert(slider.range().step == 1001.0 / (double)intervals);
+			assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+		}
+		var slider = application.createSlider(2.0, 2.0, 0); assert(slider.value() == 2.0);
+		slider.setRange(0.0, 10.0, 3.0); slider.setValue(1.5); assert(slider.value() == 3.0);
+		slider.setValue(9.5); assert(slider.value() == 10.0); slider.setValue(9.4); assert(slider.value() == 9.0);
+		var range = slider.range(); range.step = 7.0; assert(slider.range().step == 3.0);
+		var before = slider.range(); double value = slider.value(); bool rejected = false;
+		try { slider.setRangeValue(UI2LinuxRangeChecks.range(0.0, 4.0, 1.0), 5.0); } catch (string error) { rejected = !error.isEmpty(); }
+		assert(rejected); UI2LinuxRangeChecks.unchanged(slider, before, value);
+		rejected = false; try { slider.setRange(5.0, -5.0, 1.0); } catch (string error) { rejected = !error.isEmpty(); }
+		assert(rejected); UI2LinuxRangeChecks.unchanged(slider, before, value);
+		rejected = false; try { slider.setRange(0.0, 10.0, -1.0); } catch (string error) { rejected = !error.isEmpty(); }
+		assert(rejected); UI2LinuxRangeChecks.unchanged(slider, before, value);
+		rejected = false; try { slider.setRange(-1.0e308, 1.0e308, 0.0); } catch (string error) { rejected = !error.isEmpty(); }
+		assert(rejected); UI2LinuxRangeChecks.unchanged(slider, before, value);
+		rejected = false; try { slider.setRange(1.0e16, 1.0e16 + 100.0, 0.1); } catch (string error) { rejected = !error.isEmpty(); }
+		assert(rejected); UI2LinuxRangeChecks.unchanged(slider, before, value);
+		rejected = false; try { slider.setValue((double)NAN); } catch (string error) { rejected = !error.isEmpty(); }
+		assert(rejected); UI2LinuxRangeChecks.unchanged(slider, before, value);
+		double tiny = DBL_MIN / 4503599627370496.0; assert(tiny > 0.0 && tiny / 2.0 == 0.0);
+		rejected = false; try { var invalid = application.createSlider(0.0, tiny, 2); invalid.close(); } catch (string error) { rejected = !error.isEmpty(); }
+		assert(rejected);
+		assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void pointer(unsigned int window, float x, bool down) { btrcSdlPushPointerButton(window, x, 20.0f, 1u, down ? 1 : 0, 1u); }
+
+	class void lifecycle() {
+		var application = LinuxApplication(64); UI2LinuxRangeChecks.validation(application);
+		var window = application.createWindow("UI2 slider range and events", 300.0, 40.0);
+		var slider = application.createSlider(2.0, 2.0, 0); window.attachRoot(slider); window.show();
+		var native = (ILinuxWindow?)window; assert(native != null);
+		var receiver = UI2LinuxRangeReceiver(); var scope = CallbackScope();
+		slider.onPreview(receiver, scope); slider.onCommit(receiver, scope); slider.onCancel(receiver, scope);
+		UI2LinuxTextChecks.pump(application); assert(receiver.events.len == 0);
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 150.0f, true); UI2LinuxRangeChecks.pointer(native.nativeId(), 290.0f, false);
+		UI2LinuxTextChecks.pump(application); assert(slider.value() == 2.0 && receiver.events.len == 0);
+		slider.setRangeValue(UI2LinuxRangeChecks.range(0.0, 10.0, 1.0), 2.0); assert(receiver.events.len == 0);
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 150.0f, true); UI2LinuxTextChecks.pump(application);
+		assert(slider.value() == 5.0 && receiver.events.len == 1);
+		var first = receiver.events.get(0); assert(first.phase == CONTROL_PHASE_PREVIEW && first.context.origin == CONTROL_ORIGIN_USER && first.input == SLIDER_INPUT_ABSOLUTE_POINTER && first.count == 0);
+		/* Publishing the current state preserves the active drag and revision. */
+		slider.setRangeValue(slider.range(), slider.value());
+		btrcSdlPushPointerMotion(native.nativeId(), 234.0f, 20.0f); UI2LinuxTextChecks.pump(application);
+		assert(slider.value() == 8.0 && receiver.events.len == 2);
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 234.0f, false); UI2LinuxTextChecks.pump(application);
+		assert(receiver.events.len == 3); var commit = receiver.events.get(2);
+		assert(commit.phase == CONTROL_PHASE_COMMIT && commit.value == 8.0 && commit.context.interaction == first.context.interaction && commit.rangeRevision == first.rangeRevision && commit.context.modelRevision == first.context.modelRevision);
+		assert(first.context.sequence < receiver.events.get(1).context.sequence && receiver.events.get(1).context.sequence < commit.context.sequence);
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 290.0f, false); UI2LinuxTextChecks.pump(application); assert(receiver.events.len == 3);
+		/* A replacement ends the old epoch before publishing the new model. */
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 66.0f, true); UI2LinuxTextChecks.pump(application); assert(slider.value() == 2.0 && receiver.events.len == 4);
+		var abandoned = receiver.events.get(3);
+		slider.setRangeValue(UI2LinuxRangeChecks.range(0.0, 20.0, 2.0), 12.0); assert(slider.value() == 12.0 && receiver.events.len == 4);
+		UI2LinuxTextChecks.pump(application); assert(receiver.events.len == 5); var cancelled = receiver.events.get(4);
+		assert(cancelled.phase == CONTROL_PHASE_CANCEL && cancelled.context.origin == CONTROL_ORIGIN_MODEL && cancelled.cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT);
+		assert(cancelled.context.interaction == abandoned.context.interaction && cancelled.rangeRevision == abandoned.rangeRevision && cancelled.context.modelRevision == abandoned.context.modelRevision && cancelled.value == 8.0);
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 290.0f, false); UI2LinuxTextChecks.pump(application); assert(slider.value() == 12.0 && receiver.events.len == 5);
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 150.0f, true); UI2LinuxTextChecks.pump(application);
+		assert(slider.value() == 10.0 && receiver.events.len == 6 && receiver.events.get(5).rangeRevision == first.rangeRevision + 1LL);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_ESCAPE); UI2LinuxTextChecks.pump(application);
+		assert(slider.value() == 12.0 && receiver.events.len == 7 && receiver.events.get(6).cancelReason == CONTROL_CANCEL_ESCAPE && receiver.events.get(6).context.origin == CONTROL_ORIGIN_USER);
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 290.0f, false); UI2LinuxTextChecks.pump(application); assert(receiver.events.len == 7);
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 150.0f, true); UI2LinuxTextChecks.pump(application); assert(receiver.events.len == 8);
+		slider.setEnabled(false); UI2LinuxTextChecks.pump(application); assert(slider.value() == 12.0 && receiver.events.len == 8);
+		slider.setEnabled(true); UI2LinuxRangeChecks.pointer(native.nativeId(), 290.0f, false); UI2LinuxTextChecks.pump(application); assert(receiver.events.len == 8);
+		/* The relative intent remains observable when a double cannot move. */
+		slider.setRangeValue(UI2LinuxRangeChecks.range(9007199254740992.0, 9007199254741000.0, 0.0), 9007199254740992.0);
+		UI2LinuxRangeChecks.pointer(native.nativeId(), 10.0f, true); UI2LinuxRangeChecks.pointer(native.nativeId(), 10.0f, false); UI2LinuxTextChecks.pump(application);
+		assert(receiver.events.len == 9 && receiver.events.get(8).phase == CONTROL_PHASE_COMMIT);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RIGHT); UI2LinuxTextChecks.pump(application);
+		assert(receiver.events.len == 10); var relative = receiver.events.get(9);
+		assert(relative.phase == CONTROL_PHASE_COMMIT && relative.input == SLIDER_INPUT_RELATIVE_ADJUSTMENT && relative.adjustment == UI_RANGE_ADJUST_SMALL_INCREMENT && relative.count == 1);
+		assert(relative.value == 9007199254740992.0);
+		var exact = UISemanticRange.horizontal("position", 9007199254740992LL, 9007199254741000LL, 9007199254740992LL);
+		assert(exact.adjustedValue(relative.adjustment) == 9007199254740993LL);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_END); UI2LinuxTextChecks.pump(application);
+		assert(receiver.events.len == 11 && slider.value() == 9007199254741000.0 && receiver.events.get(10).adjustment == UI_RANGE_ADJUST_MAXIMUM);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_END); UI2LinuxTextChecks.pump(application); assert(receiver.events.len == 12);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_HOME); UI2LinuxTextChecks.pump(application); assert(receiver.events.len == 12);
+		window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+		printf("PASS: UI2 Linux range authority and ordered native slider interactions\n");
+	}
+}
+
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	UI2LinuxRangeChecks.lifecycle();
 	UI2LinuxRegistrationChecks.enteredReplacement(); UI2LinuxSelectionChecks.keyedSelection();
 	UI2LinuxTextChecks.textLifecycle(); UI2LinuxTextChecks.compositionCommitOrdering();
 	UI2LinuxTextChecks.refocusAfterEligibilityLoss();

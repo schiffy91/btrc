@@ -1,0 +1,15 @@
+# Linux UI2 range interaction slice
+
+On the existing Linux UI2 branch, `LinuxSlider` still rejected equal endpoints and more than 1,000 intervals, and changed its value without the approved semantic events. This packet implements the range/value and pointer lifecycle in that existing owner, using the shared control queue and terminal tickets. It follows the authoritative-double and snapping rules of `ui2-control-events.md` lines 189–234 and the retained macOS range owner at `209fe7f7`.
+
+Range replacement validates before changing state, cancels an active interaction using its old revision, then publishes the new model. An unchanged refresh preserves the interaction. Pointer release commits once; Escape, capture loss and eligibility loss cancel and restore only the matching starting model. Small-step arrows and Home/End produce relative intent even when a double cannot move. Equal endpoints are inert. The existing node retains callback cancellation, routing and closed-state ownership.
+
+The existing `UI2LinuxControls` fixture keeps every original text, selection, scroll and lifecycle assertion. New cases use SDL's real queue and the application's native pump for drags, releases, Escape, eligibility loss and keys. They assert range validation/atomicity, ties and the extra maximum endpoint, 999/1,000/1,001 intervals, no initial or setter actions, ordered preview/commit identities, model cancellation, stale-up suppression and exact integer intent above 2^53. The existing four frontend/sanitizer cells and 30-second native bound are unchanged; the driver additionally requires the range completion marker.
+
+Source formatting and structure checks are the only validation performed so far. No compiler projection, native execution, visual acceptance or current integrated UI2 qualification is claimed. The complete approved range contract remains open: Page-key large adjustments, accessibility input and pointer projection error measurement still need their real provider evidence. This packet does not transplant the older Mac qualification composition or overwrite current compiler/runtime files.
+
+## REQUEST(App key vocabulary and native accessibility)
+
+The approved slider contract requires small/large/endpoint relative intents, but `AppKeyCode` in `src/stdlib/App/App.btrc` has no PageUp/PageDown and `LinuxKeys` in `src/stdlib/GUI/Linux/LinuxWindow.btrc` cannot carry those identities. `src/stdlib/GUI/btrc.toml` also lacks the two SDL key selections. The Mac `Range.m` precedent maps PageDown/PageUp to the existing large decrement/increment intents. Per integrator direction, preserve the shared vocabulary here and coordinate that addition with UI3/E25 rather than silently expanding it. No modifier substitute is introduced.
+
+The SDL provider has no native assistive slider input route. Keep the approved absolute-assistive one-COMMIT/no-PREVIEW and relative adjustment requirements open until an approved existing-provider accessibility route can supply real input; do not manufacture native evidence from a direct method call.
