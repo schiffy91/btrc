@@ -1,0 +1,96 @@
+// Scalars visible at a try's setjmp that strict GCC reports as clobbered when
+// they stay in registers: an adjusted parameter read inside nested finally
+// regions, a loop result assigned before a single try, and a once-initialized
+// conditional window copied into a generated call operand.
+class Pump {
+	public int rounds = 0;
+	public bool active = false;
+	public int ready = 3;
+
+	public int waitMilliseconds() { return self.ready; }
+
+	public void pumpEvents(int timeout) {
+		if (timeout > 100) { throw "too long"; }
+		self.rounds = self.rounds + timeout;
+	}
+
+	public void pumpOnce(int timeoutMilliseconds) {
+		int readyTimeout = self.waitMilliseconds();
+		if (readyTimeout == 0 || (readyTimeout > 0 && (timeoutMilliseconds < 0 || readyTimeout < timeoutMilliseconds))) {
+			timeoutMilliseconds = readyTimeout;
+		}
+		self.active = true;
+		try {
+			try {
+				self.pumpEvents(timeoutMilliseconds);
+			} finally {
+				self.active = false;
+			}
+		} finally {
+			self.active = false;
+		}
+	}
+}
+
+class Barrier {
+	public int entered = 0;
+
+	public void require(bool condition) {
+		if (!condition) { throw "barrier"; }
+	}
+
+	public int poll(int turn) {
+		self.entered = self.entered + (turn % 3 == 0 ? 1 : 0);
+		return self.entered;
+	}
+}
+
+int publish(int count, long key, bool fail) {
+	int replace = -1;
+	for (int index = count - 1; index >= 0; index--) {
+		if (index == key) {
+			replace = index;
+			break;
+		}
+	}
+	bool signalled = false;
+	try {
+		if (fail) { throw "host"; }
+		signalled = true;
+	} catch (string error) {
+		signalled = false;
+	}
+	return signalled ? replace : -2;
+}
+
+int verify(int workers, int capacity, bool fail) {
+	int window = capacity == 1 ? 1 : (workers < capacity - 1 ? workers : capacity - 1);
+	Barrier barrier = new Barrier();
+	int outcome = 0;
+	try {
+		for (int turn = 0; turn < 9; turn++) { barrier.require(barrier.poll(turn) >= 0); }
+		barrier.require(!fail && barrier.entered >= window);
+		outcome = window;
+	} catch (string error) {
+		outcome = -window;
+	}
+	return outcome;
+}
+
+int main() {
+	Pump pump = new Pump();
+	pump.pumpOnce(50);
+	assert(pump.rounds == 3 && !pump.active);
+	pump.ready = 500;
+	bool rejected = false;
+	try {
+		pump.pumpOnce(-1);
+	} catch (string error) {
+		rejected = error == "too long" && !pump.active;
+	}
+	assert(rejected);
+	assert(publish(4, 2, false) == 2 && publish(4, 2, true) == -2 && publish(2, 7, false) == -1);
+	assert(verify(2, 8, false) == 2 && verify(2, 8, true) == -2 && verify(4, 1, false) == 1);
+	print("PASS");
+	return 0;
+}

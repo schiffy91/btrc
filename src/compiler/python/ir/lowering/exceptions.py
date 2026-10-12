@@ -72,6 +72,9 @@ _SETJMP_SEARCH_FIELDS: dict[type, tuple[str, ...] | None] = {}
 AliasState = dict["Storage", set["PointerOrigin"]]
 _ASSIGNMENT_OPS = frozenset({"=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="})
 _TYPE_QUALIFIERS = frozenset({"const", "volatile"})
+_ARITHMETIC_TYPE_WORDS = frozenset(
+    {"_Bool", "bool", "char", "double", "float", "int", "long", "short", "signed", "unsigned"}
+)
 OPAQUE_POINTER_DEPTH = -1
 
 
@@ -951,10 +954,44 @@ class _LexicalVisibilityPass:
         self,
         parameters: Sequence[IRParam],
         effects: SetjmpCallEffects,
+        *,
+        body: IRBlock | None = None,
+        scalar_aliases: frozenset[str] = frozenset(),
     ) -> None:
         self._parameters = parameters
         self._effects = effects
+        self._scalar_aliases = scalar_aliases
+        # Register candidates are judged only in a function that calls setjmp.
+        self._addressed: set[str] | None = None
+        if body is not None:
+            self._addressed = set()
+            self._addressed_names(body, self._addressed)
         self.inferred_volatile: set[int] = set()
+
+    def _register_candidate(self, declaration) -> bool:
+        """Whether GCC may hold this object in a register pseudo across setjmp.
+
+        GCC's -Wclobbered judges pseudos after inlining, out-of-SSA coalescing
+        and PHI copies, so a scalar initialized once (from a conditional, or a
+        call that inlines into branches) or a never-assigned parameter can be
+        reported when it shares a pseudo with another value. Every scalar or
+        pointer object visible at the setjmp is therefore kept in memory. An
+        addressed object already lives in memory and keeps its declared
+        pointee type for the API that receives the address; arrays are memory,
+        and aggregates keep the C11 modified-storage rule.
+        """
+        if self._addressed is None or declaration.name in self._addressed:
+            return False
+        storage = self._effects.flow.storages.get(id(declaration))
+        if storage is None or (not storage.automatic) or storage.is_array:
+            return False
+        if isinstance(declaration, IRVarDecl) and (
+            (not ExceptionLowerer._automatic(declaration))
+            or declaration.array_size is not None
+            or declaration.is_unsized_array
+        ):
+            return False
+        return storage.is_pointer or ExceptionLowerer.arithmetic_type(declaration.c_type, self._scalar_aliases)
 
     def _qualify(self, declaration) -> None:
         if not declaration.is_volatile:
@@ -1050,6 +1087,8 @@ class _LexicalVisibilityPass:
         remaining.update(
             id(declaration) for declaration in visible if ExceptionLowerer.compiler_storage_name(declaration.name)
         )
+        remaining.update(id(declaration) for declaration in visible if self._register_candidate(declaration))
+        remaining.update(id(parameter) for parameter in self._parameters if self._register_candidate(parameter))
         for declaration in reversed(visible):
             if id(declaration) in remaining:
                 if ExceptionLowerer._automatic(declaration):
@@ -1442,6 +1481,28 @@ class ExceptionLowerer:
         return str(c_type).count("*")
 
     @staticmethod
+    def arithmetic_type(c_type: object, aliases: frozenset[str] | set[str]) -> bool:
+        """Whether a rendered C type names an arithmetic or enumeration object."""
+        words = [word for word in str(c_type).split() if word not in _TYPE_QUALIFIERS]
+        if not words or any(character in "".join(words) for character in "*[]()"):
+            return False
+        return all(word in _ARITHMETIC_TYPE_WORDS for word in words) or (len(words) == 1 and words[0] in aliases)
+
+    @staticmethod
+    def scalar_type_aliases(module) -> frozenset[str]:
+        """Resolve the module's enumeration names and arithmetic typedef chains."""
+        aliases = {definition.name for definition in module.enum_defs if definition.name}
+        targets = {definition.name: definition.target_type for definition in module.typedef_defs}
+        changed = True
+        while changed:
+            changed = False
+            for name, target in targets.items():
+                if name not in aliases and ExceptionLowerer.arithmetic_type(target, aliases):
+                    aliases.add(name)
+                    changed = True
+        return frozenset(aliases)
+
+    @staticmethod
     def pointer_type_facts(module) -> PointerTypeFacts:
         """Resolve pointer shape and pointee constness through typedef chains."""
         definitions = {declaration.name: declaration for declaration in module.typedef_defs}
@@ -1622,9 +1683,12 @@ class ExceptionLowerer:
 
         Declarations created in a try/catch branch occur after its setjmp, while
         declarations in completed sibling blocks are out of scope. Unmodified
-        visible values also retain their pre-setjmp value under C11 and must not be
-        needlessly qualified: doing so can make an otherwise valid pointer to an
-        aggregate incompatible with its declared C API. Source address/array
+        visible aggregates also retain their pre-setjmp value under C11 and must
+        not be needlessly qualified: doing so can make an otherwise valid pointer
+        to an aggregate incompatible with its declared C API. Visible scalars and
+        pointers whose address is never taken are qualified regardless, because
+        strict GCC builds diagnose register pseudos that C11 itself would leave
+        determinate (see ``_LexicalVisibilityPass._register_candidate``). Source address/array
         aliases visible across setjmp are treated conservatively and rejected by
         the qualifier-safety pass because layered pointee qualifiers are not yet
         representable in the source type model. A module unit passes the
@@ -1648,12 +1712,18 @@ class ExceptionLowerer:
         }
         if not call_effects:
             call_effects = ExceptionLowerer.build_setjmp_call_effects(module, solved_effects, roots=roots)
+        scalar_aliases = ExceptionLowerer.scalar_type_aliases(module)
         for function in module.function_defs:
             if function.name not in roots:
                 continue
             if with_setjmp[id(function)]:
                 ExceptionLowerer.reject_unmodelled_setjmp_captures(function, call_effects[function.name])
-            visibility = _LexicalVisibilityPass(function.params, call_effects[function.name])
+            visibility = _LexicalVisibilityPass(
+                function.params,
+                call_effects[function.name],
+                body=function.body if with_setjmp[id(function)] else None,
+                scalar_aliases=scalar_aliases,
+            )
             visibility.block(function.body)
             if with_setjmp[id(function)]:
                 visibility.qualify_generated_locals(function.body)

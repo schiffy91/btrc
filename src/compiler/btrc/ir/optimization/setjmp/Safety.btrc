@@ -11,6 +11,9 @@ class SetjmpSafetyPlanner {
 	private SetjmpEffectAnalysis effectAnalysis;
 	private Map<string, SetjmpCallEffects> effectsByFunction;
 	private Map<string, bool> setjmpBodies = {};  /* function name -> body contains setjmp */
+	private Map<string, bool> scalarAliases = {};  /* enumeration and arithmetic typedef names */
+	private Map<string, bool> registerAddressed = {};  /* names whose address the scanned function takes */
+	private bool registerCandidates = false;  /* the scanned function calls setjmp */
 
 	public SetjmpSafetyPlanner(SetjmpEffectAnalysis effectAnalysis) {
 		self.effectAnalysis = effectAnalysis;
@@ -510,8 +513,81 @@ class SetjmpSafetyPlanner {
 		return storage == null ? "" : self.storageKey(storage);
 	}
 
+	private bool arithmeticWord(string word) { return word == "_Bool" || word == "bool" || word == "char" || word == "double" || word == "float" || word == "int" || word == "long" || word == "short" || word == "signed" || word == "unsigned"; }
+
+	/* Whether a rendered C type names an arithmetic or enumeration object. */
+	private bool arithmeticType(string cType, Map<string, bool> aliases) {
+		string text = cType.trim();
+		if (text.contains("*") || text.contains("[") || text.contains("]") || text.contains("(") || text.contains(")")) { return false; }
+		Vector<string> words = Strings.split(text, " ");
+		int count = 0;
+		bool arithmetic = true;
+		string single = "";
+		for raw in words {
+			string word = raw.trim();
+			if (word != "" && word != "const" && word != "volatile") {
+				count = count + 1;
+				single = word;
+				if (!self.arithmeticWord(word)) { arithmetic = false; }
+			}
+		}
+		return count > 0 && (arithmetic || (count == 1 && aliases.has(single)));
+	}
+
+	/* Resolve the module's enumeration names and arithmetic typedef chains. */
+	private Map<string, bool> scalarTypeAliases(IRModule module) {
+		Map<string, bool> aliases = {};
+		for definition in module.enumDefs {
+			if (definition.name != "") { aliases.put(definition.name, true); }
+		}
+		bool changed = true;
+		while (changed) {
+			changed = false;
+			for definition in module.typedefDefs {
+				if (!aliases.has(definition.name) && self.arithmeticType(definition.targetType, aliases)) {
+					aliases.put(definition.name, true);
+					changed = true;
+				}
+			}
+		}
+		return aliases;
+	}
+
+	/* Whether GCC may hold this object in a register pseudo across setjmp.
+	 * GCC's -Wclobbered judges pseudos after inlining, out-of-SSA coalescing
+	 * and PHI copies, so a scalar initialized once (from a conditional, or a
+	 * call that inlines into branches) or a never-assigned parameter can be
+	 * reported when it shares a pseudo with another value. Every scalar or
+	 * pointer object visible at the setjmp is therefore kept in memory. An
+	 * addressed object already lives in memory and keeps its declared pointee
+	 * type for the API that receives the address; arrays are memory, and
+	 * aggregates keep the C11 modified-storage rule. */
+	private bool registerStorage(SetjmpStorage? storage, string name, string cType) {
+		if (!self.registerCandidates || self.registerAddressed.has(name) || storage == null) { return false; }
+		if (!storage.automatic() || storage.isArray) { return false; }
+		return storage.isPointer || self.arithmeticType(cType, self.scalarAliases);
+	}
+
+	private bool registerDeclaration(IRNode declaration, SetjmpCallEffects effects) {
+		IRDeclarationPayload payload = (IRDeclarationPayload)declaration.payload;
+		if (payload.isStatic || payload.isExtern || payload.isArrayDecl) { return false; }
+		return self.registerStorage(effects.flow.declarationStorage(declaration), declaration.name, payload.cType);
+	}
+
 	private void markVisible(Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
 		Map<string, bool> remaining = self.copyNameSet(modified);
+		for declaration in visible {
+			if (self.registerDeclaration(declaration, effects)) {
+				string key = self.visibleDeclarationKey(declaration, effects);
+				if (key != "") { remaining.put(key, true); }
+			}
+		}
+		for parameter in params {
+			if (self.registerStorage(effects.flow.parameterStorage(parameter), parameter.name, parameter.cType)) {
+				string key = self.visibleParameterKey(parameter, effects);
+				if (key != "") { remaining.put(key, true); }
+			}
+		}
 		int index = 0;
 		if (!filterModified) {
 			while (index < params.len) {
@@ -835,6 +911,7 @@ class SetjmpSafetyPlanner {
 		}
 		if (!hasSetjmp) { return; }
 		self.effectsByFunction = solvedEffects.len > 0 ? solvedEffects : self.effectAnalysis.analyze(module, roots);
+		self.scalarAliases = self.scalarTypeAliases(module);
 		index = 0;
 		while (index < module.functions.len) {
 			IRFunction definition = module.functions.get(index);
@@ -843,7 +920,11 @@ class SetjmpSafetyPlanner {
 				SetjmpCallEffects effects = self.effectsByFunction.get(definition.name);
 				self.rejectUnmodelledCaptures(definition, effects);
 				Vector<IRNode> visible = [];
+				self.registerAddressed = {};
+				self.collectAddressed(body, self.registerAddressed);
+				self.registerCandidates = true;
 				self.scanBlock(body, visible, definition.params, effects);
+				self.registerCandidates = false;
 				self.qualifyGeneratedLocals(body, effects);
 			}
 			self.validateFunction(definition);
