@@ -46,6 +46,20 @@ Linux/ selector is not an approved final design. Any compiler-import change must
 retain WORKSTREAMS §3.4 own-binary/bootstrap/host-entry warning and C-parity gates.
 No root API, worker pool or generated symbol change is proposed.
 
+A separate source-inspected prerequisite remains for genuine NDK header bindings.
+Both current native importers admit macOS, Linux GNU and Windows MinGW triples
+only (`native_imports.py:797-814`, `NativeImports.btrc:2560-2573,3190`). An Android
+triple is not accepted. This was identified by source review, not an executed SDK
+probe; it must not be reported as a reproduced header failure.
+
+```text
+REQUEST(CL-P1-10): Complete the approved target-row-driven native importer for Android SDK bindings.
+Repro: Read the current paired native target admission above and platform-target-contract.md §3; Android targets are absent from the accepted reader triples. No SDK execution was attempted because no local NDK is installed.
+Expected / actual: The actual selected Android target and genuine NDK sysroot must reach the native reader; current admission supports only the three desktop host families.
+Blocks: Typed SDK bindings for the native ProcessThreads test fixture and future Android providers.
+Workaround in this branch: none; do not pass a Linux/MinGW triple or handwritten ABI to simulate Android.
+```
+
 ## Existing SDK host and pending native gate
 
 No Android SDK/NDK is installed at the inspected local SDK paths or retained Nix
