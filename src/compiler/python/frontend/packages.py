@@ -417,6 +417,9 @@ class NativeCallbackBinding:
     registration_status: str = ""
     unregister_status: str = ""
     captured_handles: tuple[str, ...] = ()
+    # Control actions (UIKit addTarget:action:forControlEvents:): the selector
+    # parameter the compiler fills with its own action.
+    action_parameter: str = ""
 
 
 @dataclass(frozen=True)
@@ -1540,6 +1543,7 @@ class PackageManifestValidator:
                         "slot-getter",
                         "action-setter",
                         "action-getter",
+                        "action-parameter",
                         "owned-arguments",
                         "field",
                         "name",
@@ -1596,6 +1600,7 @@ class PackageManifestValidator:
                         "slot-getter",
                         "action-setter",
                         "action-getter",
+                        "action-parameter",
                         "owned-arguments",
                         "field",
                     )
@@ -1637,6 +1642,20 @@ class PackageManifestValidator:
             action_setter = value.get("action-setter", "")
             action_getter = value.get("action-getter", "")
             action = "action-setter" in value or "action-getter" in value
+            action_parameter = value.get("action-parameter", "")
+            control_action = "action-parameter" in value
+            if control_action:
+                # The control keeps every target it is given and calls the
+                # compiler's selector; the unregister call names the same pair.
+                if lifetime != "stored" or language != "objective-c" or has_context:
+                    raise ValueError(f"{location}: control actions require a stored Objective-C callback")
+                if action or "methods" in value or "slot-getter" in value:
+                    raise ValueError(f"{location}: control actions take no methods, slot-getter or action accessors")
+                action_parameter = self._identifier(action_parameter, f"{location}.action-parameter")
+                if unregister == parameter.rsplit(".", 1)[0] or activation_failure != "abort":
+                    raise ValueError(
+                        f"{location}: control actions require a separate unregister and activation-failure abort"
+                    )
             if lifetime != "instantiated" and ("methods" in value or "slot-getter" in value or action):
                 if lifetime != "stored" or language != "objective-c" or has_context:
                     raise ValueError(f"{location}: delegate methods require a stored Objective-C callback")
@@ -1686,11 +1705,11 @@ class PackageManifestValidator:
             registration_status = value.get("registration-status", "")
             unregister_status = value.get("unregister-status", "")
             captured_handles = value.get("captured-handles", [])
-            if not stored_c and any(
-                key in value for key in ("registration-status", "unregister-status", "captured-handles")
-            ):
+            if not stored_c and any(key in value for key in ("registration-status", "unregister-status")):
                 raise ValueError(f"{location}: registration and unregister facts require a stored C registration")
-            if stored_c:
+            if not stored_c and not control_action and "captured-handles" in value:
+                raise ValueError(f"{location}: captured-handles requires a stored C registration or control action")
+            if stored_c or control_action:
                 if (registration_status and registration_status not in statuses) or (
                     unregister_status and unregister_status not in statuses
                 ):
@@ -1704,7 +1723,7 @@ class PackageManifestValidator:
                     )
                 ):
                     raise ValueError(f"{location}.captured-handles must list distinct registration parameters")
-                if not has_context:
+                if stored_c and not has_context:
                     raise ValueError(f"{location}: a stored C registration requires its context slots")
             if value.get("failure") != "abort":
                 raise ValueError(f"{location}.failure currently requires abort")
@@ -1734,6 +1753,7 @@ class PackageManifestValidator:
                     registration_status,
                     unregister_status,
                     tuple(captured_handles),
+                    action_parameter,
                 )
             )
         return tuple(callbacks)
@@ -1751,7 +1771,15 @@ class PackageManifestValidator:
             or not value.get("field")
             or value.get("activation-failure") != "abort"
             or any(
-                key in value for key in ("methods", "slot-getter", "action-setter", "action-getter", "owned-arguments")
+                key in value
+                for key in (
+                    "methods",
+                    "slot-getter",
+                    "action-setter",
+                    "action-getter",
+                    "action-parameter",
+                    "owned-arguments",
+                )
             )
         ):
             raise ValueError(

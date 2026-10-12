@@ -558,6 +558,24 @@ class NativeActionProjection:
 
 
 @dataclass(frozen=True)
+class NativeControlActionProjection:
+    """A control that keeps any number of target/action pairs (UIKit's addTarget:action:forControlEvents:)."""
+
+    interface: str
+    parameter_index: int
+    unregister: NativeObjectiveCMethod
+    activation_failure: str
+    action_index: int
+    captured: tuple[int, ...]
+    methods: tuple[NativeCallbackProjection, ...]
+    one_shot: bool = False
+
+    @property
+    def context_index(self):
+        return -1
+
+
+@dataclass(frozen=True)
 class NativeInstantiatedProjection:
     """An adapter class the SDK instantiates by name, answering protocol methods for one receiver.
 
@@ -699,7 +717,10 @@ class NativeCallContract:
     record_types: tuple[NativeRecordInput, ...] = ()
     resource_parameters: tuple[str, ...] = ()
     resource_result: str = ""
-    callbacks: tuple[NativeCallbackProjection | NativeDelegateProjection | NativeActionProjection, ...] = ()
+    callbacks: tuple[
+        NativeCallbackProjection | NativeDelegateProjection | NativeActionProjection | NativeControlActionProjection,
+        ...,
+    ] = ()
     objective_c_method: NativeObjectiveCMethod | None = None
     executor: str = ""
     record_output: NativeRecordOutput | None = None
@@ -1996,6 +2017,9 @@ class NativeDeclarationImporter:
             if binding.lifetime == "instantiated":
                 projections.append(self._project_instantiated(declaration, binding, index))
                 continue
+            if binding.action_parameter:
+                projections.append(self._project_control_action(declaration, binding, index))
+                continue
             if binding.action_setter:
                 projections.append(self._project_action(declaration, binding, index))
                 continue
@@ -2442,6 +2466,88 @@ class NativeDeclarationImporter:
             getter,
             setter,
             action_getter,
+            (invocation,),
+        )
+
+    def _project_control_action(self, declaration, binding, index):
+        unregister = self._callback_exports.get(binding.unregister)
+        names = [parameter.name for parameter in declaration.parameter_semantics]
+        if (
+            not isinstance(declaration, NativeObjectiveCMethod)
+            or not isinstance(unregister, NativeObjectiveCMethod)
+            or any(
+                operation.class_method
+                or operation.protocol_owner
+                or operation.optional
+                or operation.signature.variadic
+                or operation.consumes_self
+                or operation.returns_inner_pointer
+                or operation.returned_ownership != "unspecified"
+                or any(parameter.cf_consumed or parameter.ns_consumed for parameter in operation.parameter_semantics)
+                or self._objective_c_scalar(operation.signature.return_type).base != "void"
+                for operation in (declaration, unregister)
+            )
+            or unregister.receiver != declaration.receiver
+            or unregister.name == declaration.name
+            or [parameter.name for parameter in unregister.parameter_semantics] != names
+        ):
+            raise NativeImportError(
+                "control action requires void instance add and remove methods with the same parameters"
+            )
+        if binding.action_parameter not in names or names.index(binding.action_parameter) == index:
+            raise NativeImportError("control action-parameter must name the registration's selector parameter")
+        action_index = names.index(binding.action_parameter)
+        for operation in (declaration, unregister):
+            target = self._unqualified_native(operation.signature.parameters[index])
+            if (
+                not isinstance(target, NativeObjectiveCObject)
+                or target.name not in {"", "id"}
+                or target.protocols
+                or target.class_object
+                or target.type_arguments
+                or self._call_nullability(operation.signature.parameters[index]) != "nullable"
+            ):
+                raise NativeImportError("control action target requires nullable id")
+            self._objective_c_type(operation.signature.parameters[index], cancellation_token=True)
+            action = self._unqualified_native(operation.signature.parameters[action_index])
+            if (
+                not isinstance(action, NativePointer)
+                or not isinstance(action.pointee, NativeBuiltin)
+                or action.pointee.name != "SEL"
+            ):
+                raise NativeImportError("control action-parameter requires SEL")
+        captured = []
+        for position, name in enumerate(names):
+            if position in {index, action_index}:
+                continue
+            if name not in binding.captured_handles:
+                raise NativeImportError(f"control action parameter {name} must be listed in captured-handles")
+            native = declaration.signature.parameters[position]
+            if self._type_identity(native) != self._type_identity(unregister.signature.parameters[position]):
+                raise NativeImportError(f"unregister parameter {name} must repeat the registration's type")
+            if not isinstance(self._unqualified_native(native), (NativeBuiltin, NativeEnumType)):
+                raise NativeImportError(f"captured-handles.{name} must be a scalar")
+            captured.append(position)
+        if set(binding.captured_handles) != {names[position] for position in captured}:
+            raise NativeImportError("captured-handles must name registration parameters the unregister call takes")
+        result = ast.TypeExpr(base="void")
+        self._add(
+            binding.interface,
+            ast.InterfaceDecl(
+                name=binding.interface, methods=[ast.MethodSig(name="invoke", return_type=result, params=[])]
+            ),
+            ("action-interface",),
+        )
+        invocation = NativeCallbackProjection(
+            binding.interface, index, -1, 0, (ast.TypeExpr(base="void", pointer_depth=1),), result, native_return="void"
+        )
+        return NativeControlActionProjection(
+            binding.interface,
+            index,
+            unregister,
+            binding.activation_failure,
+            action_index,
+            tuple(captured),
             (invocation,),
         )
 
@@ -5248,6 +5354,10 @@ class NativeDeclarationImporter:
         )
         contract = NativeCallContract(callbacks=callbacks, objective_c_method=declaration)
         projected = {callback.parameter_index: callback for callback in callbacks}
+        # The compiler supplies a control action's selector itself.
+        hidden = {
+            callback.action_index for callback in callbacks if isinstance(callback, NativeControlActionProjection)
+        }
         name = declaration.selector.split(":", 1)[0]
         method = ast.MethodDecl(
             access="class" if declaration.class_method or initializer else "public",
@@ -5265,6 +5375,7 @@ class NativeDeclarationImporter:
                     name=f"argument{index}",
                 )
                 for index, native in enumerate(declaration.signature.parameters)
+                if index not in hidden
             ],
         )
         if stored:
@@ -5272,7 +5383,9 @@ class NativeDeclarationImporter:
                 raise NativeImportError("stored callback factory currently requires exactly one callback")
             token = (
                 ast.TypeExpr(base="id")
-                if isinstance(stored[0], (NativeDelegateProjection, NativeActionProjection))
+                if isinstance(
+                    stored[0], (NativeDelegateProjection, NativeActionProjection, NativeControlActionProjection)
+                )
                 else replace(method.return_type, is_nullable=False, pointer_depth=0)
             )
             if stored[0].unregister.signature.parameters and not stored[0].unregister.class_method:

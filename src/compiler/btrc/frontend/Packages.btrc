@@ -808,7 +808,7 @@ class FeManifestBlock {
 			if (parts.len == 5 && parts.get(3) == "operations" && self.identifier(parts.get(4)) && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string field = parts.get(3);
-			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "action-parameter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
 			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
 		}
 		for name in self.callbackNames.keys() {
@@ -833,11 +833,18 @@ class FeManifestBlock {
 				 * the binding only names the protocol methods it answers. */
 				if (binding.language != "objective-c" || hasContext) { FePackageFailure.fail("instantiated adapters require an Objective-C binding without context"); }
 				if (scope != "process") { FePackageFailure.fail("instantiated adapter scope currently requires process"); }
-				for field in ["unregister", "activation-failure", "cancellation", "slot-getter", "action-setter", "action-getter", "owned-arguments", "field"] {
+				for field in ["unregister", "activation-failure", "cancellation", "slot-getter", "action-setter", "action-getter", "action-parameter", "owned-arguments", "field"] {
 					if (self.fields.has(prefix + field)) { FePackageFailure.fail("instantiated adapters take only methods, scope, failure and executor"); }
 				}
 			} else if (self.fields.has(prefix + "scope")) { FePackageFailure.fail("callback scope requires an instantiated adapter"); }
 			var realtime = self.realtimeCallback(binding, prefix, lifetime, interfaceName);
+			bool controlAction = self.fields.has(prefix + "action-parameter");
+			if (controlAction) {
+				/* The control keeps every target it is given and calls the
+				 * compiler's selector; the unregister call names the same pair. */
+				if (lifetime != "stored" || binding.language != "objective-c" || hasContext) { FePackageFailure.fail("control actions require a stored Objective-C callback"); }
+				if (self.fields.has(prefix + "methods") || self.fields.has(prefix + "slot-getter") || self.fields.has(prefix + "action-setter") || self.fields.has(prefix + "action-getter")) { FePackageFailure.fail("control actions take no methods, slot-getter or action accessors"); }
+			}
 			string unregister = "";
 			string activationFailure = "";
 			if (lifetime == "stored") {
@@ -853,6 +860,7 @@ class FeManifestBlock {
 				if (activationFailure != "unpublished" && activationFailure != "abort") { FePackageFailure.fail("callback activation-failure requires unpublished or abort"); }
 				if (self.requiredText(prefix + "cancellation") != "abandon") { FePackageFailure.fail("one-shot cancellation requires abandon"); }
 			} else if (lifetime != "instantiated" && (self.fields.has(prefix + "unregister") || self.fields.has(prefix + "activation-failure") || self.fields.has(prefix + "cancellation"))) { FePackageFailure.fail("cancellation facts require a stored callback"); }
+			if (controlAction && (unregister == parts.get(0) || activationFailure != "abort")) { FePackageFailure.fail("control actions require a separate unregister and activation-failure abort"); }
 			if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail("callback failure currently requires abort"); }
 			if (self.requiredText(prefix + "executor") != "caller" && realtime == null) { FePackageFailure.fail("callback executor currently requires caller"); }
 			string raw = self.fields.getOrDefault(prefix + "context-index", "").trim();
@@ -874,20 +882,27 @@ class FeManifestBlock {
 			}
 			bool storedC = lifetime == "stored" && binding.language == "c" && realtime == null;
 			if (contextIndices.len > 1 && callback.field.isEmpty() && !storedC) { FePackageFailure.fail("multiple context slots require a callback field"); }
-			bool registrationFacts = self.fields.has(prefix + "registration-status") || self.fields.has(prefix + "unregister-status") || self.fields.has(prefix + "captured-handles");
+			bool registrationFacts = self.fields.has(prefix + "registration-status") || self.fields.has(prefix + "unregister-status");
 			if (registrationFacts && !storedC) { FePackageFailure.fail("registration and unregister facts require a stored C registration"); }
+			if (self.fields.has(prefix + "captured-handles") && !storedC && !controlAction) { FePackageFailure.fail("captured-handles requires a stored C registration or control action"); }
 			if (storedC) {
 				Vector<string> statuses = ["nonzero", "positive", "nonnegative", "zero"];
 				if (self.fields.has(prefix + "registration-status")) { callback.registrationStatus = self.requiredText(prefix + "registration-status"); }
 				if (self.fields.has(prefix + "unregister-status")) { callback.unregisterStatus = self.requiredText(prefix + "unregister-status"); }
 				if ((!callback.registrationStatus.isEmpty() && !statuses.contains(callback.registrationStatus)) || (!callback.unregisterStatus.isEmpty() && !statuses.contains(callback.unregisterStatus))) { FePackageFailure.fail("callback statuses require nonzero, positive, nonnegative or zero"); }
+				if (contexts.len == 0) { FePackageFailure.fail("a stored C registration requires its context slots"); }
+			}
+			if (storedC || controlAction) {
 				callback.capturedHandles = self.stringArray(prefix + "captured-handles");
 				Map<string, bool> captured = {};
 				for name in callback.capturedHandles {
 					if (!self.identifier(name) || captured.has(name)) { FePackageFailure.fail("callback captured-handles must list distinct registration parameters"); }
 					captured.put(name, true);
 				}
-				if (contexts.len == 0) { FePackageFailure.fail("a stored C registration requires its context slots"); }
+			}
+			if (controlAction) {
+				callback.actionParameter = self.requiredText(prefix + "action-parameter");
+				if (!self.identifier(callback.actionParameter)) { FePackageFailure.fail("callback action-parameter must be an identifier"); }
 			}
 			if (self.fields.has(prefix + "owned-arguments") && (binding.language != "c" || lifetime != "one-shot")) { FePackageFailure.fail("owned-arguments requires a C one-shot callback"); }
 			callback.ownedArguments = self.indexArray(prefix + "owned-arguments");
@@ -930,7 +945,7 @@ class FeManifestBlock {
 			return null;
 		}
 		if (binding.language != "c" || lifetime != "stored" || !self.fields.has(prefix + "field") || self.requiredText(prefix + "activation-failure") != "abort") { FePackageFailure.fail("realtime requires a stored C callback record, owner, invocation and operations"); }
-		for field in ["methods", "slot-getter", "action-setter", "action-getter", "owned-arguments"] { if (self.fields.has(prefix + field)) { FePackageFailure.fail("realtime callback cannot combine other callback projections"); } }
+		for field in ["methods", "slot-getter", "action-setter", "action-getter", "action-parameter", "owned-arguments"] { if (self.fields.has(prefix + field)) { FePackageFailure.fail("realtime callback cannot combine other callback projections"); } }
 		for name in names { if (!self.identifier(self.requiredText(prefix + name))) { FePackageFailure.fail("realtime callback fields require identifiers"); } }
 		var result = FeNativeRealtimeCallbackBinding(self.requiredText(prefix + "name"), self.requiredText(prefix + "record"), self.requiredText(prefix + "size"), self.requiredText(prefix + "owner"), self.requiredText(prefix + "invocation"));
 		if (!binding.symbols.contains(result.record) || binding.symbols.contains(result.name) || binding.symbols.contains(result.invocation) || result.name == result.invocation || result.name == interfaceName || result.invocation == interfaceName || result.size == result.owner) { FePackageFailure.fail("realtime callback names or selected record conflict"); }

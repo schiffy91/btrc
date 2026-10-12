@@ -38,6 +38,12 @@ implemented in both compilers today and documented there.
   `NSStringFromClass([Holder class])` names the class. Still owed for step 6:
   `scope = "instance"` and `terminal`, `superclass`/`overrides`,
   `error-outputs`, M3 downcasts and lightweight-generic erasure.
+- UIKit controls (2026-10-13) take their targets through additive
+  target/action pairs, `addTarget:action:forControlEvents:`, which the AppKit
+  setter form cannot express. Both compilers implement this as a stored
+  Objective-C callback with `action-parameter` and `captured-handles`
+  (package-manifest.md, "Stored Objective-C control actions"). A `UIButton` and
+  a `UITextField` deliver real actions to BTRC receivers on the iOS simulator.
 
 ## 1. One model: three relations, three mechanisms, two rules
 

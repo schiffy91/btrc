@@ -458,6 +458,9 @@ class FeNativeCallbackBinding {
 	public string registrationStatus = "";
 	public string unregisterStatus = "";
 	public Vector<string> capturedHandles = [];
+	/* Control actions (UIKit addTarget:action:forControlEvents:): the selector
+	 * parameter the compiler fills with its own action. */
+	public string actionParameter = "";
 	public string field = "";
 	public Vector<int> ownedArguments = [];
 	public Vector<string> methods = [];
@@ -562,6 +565,10 @@ class FeNativeCallbackProjection {
 	public Vector<string> unregisterArguments = [];
 	public Node? registrationResult = null;
 	public Node? unregisterResult = null;
+	/* A control action: the hidden selector parameter, and the registration
+	 * parameters the remove call repeats from the holder. */
+	public int controlActionIndex = -1;
+	public Vector<int> capturedPositions = [];
 	public NativeNode? unregister = null;
 	public string activationFailure = "";
 	public Vector<string> nativeParameters = [];

@@ -114,13 +114,13 @@ def _simulator() -> str:
     return udid
 
 
-def _project(root: Path) -> Path:
+def _project(root: Path, manifest: str = MANIFEST, program: str = PROGRAM) -> Path:
     (root / "src").mkdir(parents=True)
-    (root / "btrc.toml").write_text(MANIFEST, encoding="utf-8")
+    (root / "btrc.toml").write_text(manifest, encoding="utf-8")
     (root / "UIKitBinding.h").write_text("#import <UIKit/UIKit.h>\n", encoding="utf-8")
     (root / "src/UIKit.btrc").write_text("// Native wrapper module.\n", encoding="utf-8")
     source = root / "src/Main.btrc"
-    source.write_text(PROGRAM, encoding="utf-8")
+    source.write_text(program, encoding="utf-8")
     return source
 
 
@@ -244,19 +244,10 @@ def _build_app(root: Path, generated: Path, plan_path: Path, sdk: str, identifie
     return bundle
 
 
-@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
-def test_uikit_application_delegate_runs_through_btrc(frontend, tmp_path: Path, request) -> None:
-    sdk = _sdk()
-    if sdk is None:
-        pytest.skip("the iphonesimulator SDK is Mac-bound (xcrun)")
-    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
-    root = tmp_path / "project"
-    source = _project(root)
+def _launch(frontend: str, root: Path, source: Path, identifier: str, btrcc: Path | None, sdk: str) -> str:
     generated = root / "Main.c"
     plan = root / "Main.link.json"
     _transpile(frontend, source, generated, plan, sdk, btrcc)
-    # One identifier per frontend: parallel workers share the booted simulator.
-    identifier = f"{BUNDLE_IDENTIFIER}.{frontend}"
     bundle = _build_app(root, generated, plan, sdk, identifier)
     device = _simulator()
     installed = _xcrun("simctl", "install", device, str(bundle), timeout=300)
@@ -273,7 +264,103 @@ def test_uikit_application_delegate_runs_through_btrc(frontend, tmp_path: Path, 
         )
         output = launched.stdout + launched.stderr
         print(f"{frontend} on {device}: {output!r}")
-        assert "btrc-uikit launched" in output, output
-        assert "btrc-uikit active after 1 launch" in output, output
+        return output
     finally:
         _xcrun("simctl", "uninstall", device, identifier, timeout=120)
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_uikit_application_delegate_runs_through_btrc(frontend, tmp_path: Path, request) -> None:
+    sdk = _sdk()
+    if sdk is None:
+        pytest.skip("the iphonesimulator SDK is Mac-bound (xcrun)")
+    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+    root = tmp_path / "project"
+    # One identifier per frontend: parallel workers share the booted simulator.
+    output = _launch(frontend, root, _project(root), f"{BUNDLE_IDENTIFIER}.{frontend}", btrcc, sdk)
+    assert "btrc-uikit launched" in output, output
+    assert "btrc-uikit active after 1 launch" in output, output
+
+
+CONTROLS_MANIFEST = MANIFEST.replace(
+    'symbols = ["UIApplicationMain", ',
+    'symbols = ["+[UIButton buttonWithType:]", "UIButtonTypeSystem", "+[UITextField new]", '
+    '"-[UIControl addTarget:action:forControlEvents:]", "-[UIControl removeTarget:action:forControlEvents:]", '
+    '"-[UIControl sendActionsForControlEvents:]", "UIControlEventTouchUpInside", "UIControlEventEditingChanged", '
+    '"UIApplicationMain", ',
+).replace(
+    "[[native.frameworks]]",
+    """[native.bindings.callbacks."-[UIControl addTarget:action:forControlEvents:].target"]
+interface = "IControlAction"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[UIControl removeTarget:action:forControlEvents:]"
+action-parameter = "action"
+captured-handles = ["controlEvents"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.frameworks]]""",
+    1,
+)
+
+CONTROLS_PROGRAM = """import Library.Callback;
+import ./UIKit.btrc;
+#include <stdio.h>
+#include <stdlib.h>
+int taps = 0;
+int edits = 0;
+int released = 0;
+class Tap implements IControlAction {
+	public void invoke() { taps++; }
+	public void __del__() { released++; }
+}
+class Edit implements IControlAction {
+	private CallbackScope scope;
+	public int pending = 0;
+	public Edit(CallbackScope scope) { self.scope = scope; }
+	public void invoke() {
+		edits++;
+		if (self.scope.cancel() == CALLBACK_CANCELLATION_PENDING) { self.pending++; }
+	}
+	public void __del__() { released++; }
+}
+class Application implements IApplicationDelegate {
+	public void applicationDidFinishLaunching(UIApplication application) {
+		var buttonScope = CallbackScope();
+		var fieldScope = CallbackScope();
+		UIControl button = UIButton.buttonWithType(UIButtonTypeSystem);
+		UIControl field = UITextField.new();
+		ICallbackRegistration tap = button.addTarget(Tap(), UIControlEventTouchUpInside, buttonScope);
+		var edit = Edit(fieldScope);
+		ICallbackRegistration typing = field.addTarget(edit, UIControlEventEditingChanged, fieldScope);
+		button.sendActionsForControlEvents(UIControlEventTouchUpInside);
+		button.sendActionsForControlEvents(UIControlEventEditingChanged | UIControlEventTouchUpInside);
+		field.sendActionsForControlEvents(UIControlEventEditingChanged);
+		field.sendActionsForControlEvents(UIControlEventEditingChanged);
+		bool fieldDone = typing.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && edit.pending == 1;
+		bool buttonDone = buttonScope.cancel() == CALLBACK_CANCELLATION_COMPLETE && !tap.isOpen();
+		button.sendActionsForControlEvents(UIControlEventTouchUpInside);
+		printf("btrc-uikit controls taps=%d edits=%d released=%d done=%d\\n", taps, edits, released, (int)(fieldDone && buttonDone));
+		fflush(stdout);
+	}
+	public void applicationDidBecomeActive(UIApplication application) { exit(0); }
+}
+int main(int argc, char** argv) { return UIApplicationMain(argc, argv, null, Application()); }
+"""
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_uikit_controls_deliver_actions_through_btrc(frontend, tmp_path: Path, request) -> None:
+    """A real UIButton and UITextField send their actions to BTRC receivers (control actions)."""
+    sdk = _sdk()
+    if sdk is None:
+        pytest.skip("the iphonesimulator SDK is Mac-bound (xcrun)")
+    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+    root = tmp_path / "project"
+    source = _project(root, CONTROLS_MANIFEST, CONTROLS_PROGRAM)
+    output = _launch(frontend, root, source, f"{BUNDLE_IDENTIFIER}.controls.{frontend}", btrcc, sdk)
+    # Two taps, one edit that cancels itself, nothing after cancellation; the
+    # button's receiver is released at cancellation, the field's receiver is
+    # still held by this frame's `edit`.
+    assert "btrc-uikit controls taps=2 edits=1 released=1 done=1" in output, output

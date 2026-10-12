@@ -11,6 +11,7 @@ from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeSystem
 from src.compiler.python.frontend.native_imports import (
     NativeActionProjection,
+    NativeControlActionProjection,
     NativeDelegateProjection,
     NativeHeaderSource,
     NativeInstantiatedProjection,
@@ -3806,7 +3807,12 @@ class FunctionLowerer:
             )
         return configure.selector
 
-    def _stored_action_holder(self, native, invocation_type):
+    def _stored_action_holder(self, native, invocation_type, captured_types=()):
+        """The target answers btrcInvoke: from its own source only.
+
+        A control action's holder also keeps the registration values its
+        remove call repeats, read back through btrcCaptured<i>.
+        """
         holder = native.objective_c_classes[-1]
         configure = holder.methods[0]
         configure.selector += "invoke:source:"
@@ -3815,6 +3821,16 @@ class FunctionLowerer:
         configure.body.stmts.extend(
             [IRAssign(IRVar("_invoke"), IRVar("invoke")), IRAssign(IRVar("_source"), IRVar("source"))]
         )
+        for index, captured_type in enumerate(captured_types):
+            configure.selector += f"captured{index}:"
+            configure.params.append(IRParam(captured_type, f"captured{index}"))
+            holder.fields.append(IRStructField(captured_type, f"_captured{index}"))
+            configure.body.stmts.append(IRAssign(IRVar(f"_captured{index}"), IRVar(f"captured{index}")))
+            holder.methods.append(
+                IRObjectiveCMethod(
+                    f"btrcCaptured{index}", captured_type, [], IRBlock([IRReturn(IRVar(f"_captured{index}"))])
+                )
+            )
         holder.methods.append(
             IRObjectiveCMethod(
                 "btrcInvoke:",
@@ -3839,7 +3855,18 @@ class FunctionLowerer:
         descriptor = contract.objective_c_method
         callback = contract.callbacks[0]
         action = isinstance(callback, NativeActionProjection)
-        object_callback = isinstance(callback, (NativeDelegateProjection, NativeActionProjection))
+        control = isinstance(callback, NativeControlActionProjection)
+        object_callback = isinstance(
+            callback, (NativeDelegateProjection, NativeActionProjection, NativeControlActionProjection)
+        )
+        # The projected method omits a control action's selector parameter.
+        target_position = callback.parameter_index - int(control and callback.parameter_index > callback.action_index)
+
+        captured_types = []
+        if control:
+            for position in callback.captured:
+                value_type = method.params[position - int(position > callback.action_index)].type
+                captured_types.append((position, value_type, CType(self._types.render(value_type))))
         name = f"{declaration.name}_{method.name}"
         prefix = f"__btrc_objc_{name}"
         context_type = method.return_type
@@ -3877,8 +3904,8 @@ class FunctionLowerer:
             native.function_pointer_typedefs.append(typedef)
         holder_name = self._stored_context_holder(prefix, native, lifetime_type)
         configure_selector = (
-            self._stored_action_holder(native, invocation_types[0])
-            if action
+            self._stored_action_holder(native, invocation_types[0], [c_type for _, _, c_type in captured_types])
+            if action or control
             else self._stored_delegate_holder(callback, native, invocation_types, callback_types)
             if object_callback
             else "configure:retain:release:"
@@ -3907,7 +3934,27 @@ class FunctionLowerer:
                 )
             )
         ]
-        if object_callback:
+        if control:
+            stored_holder = IRCast(CType(holder_name + "*"), token, bridge="borrow")
+            remove_arguments = []
+            for position in range(len(callback.unregister.signature.parameters)):
+                if position == callback.parameter_index:
+                    remove_arguments.append(IRCast(CType("id"), token, bridge="borrow"))
+                elif position == callback.action_index:
+                    remove_arguments.append(IRObjectiveCSelector("btrcInvoke:"))
+                else:
+                    index = [captured for captured, _, _ in captured_types].index(position)
+                    remove_arguments.append(
+                        self._objective_c_value(
+                            captured_types[index][1],
+                            IRObjectiveCMessage(stored_holder, f"btrcCaptured{index}", []),
+                            to_native=True,
+                        )
+                    )
+            unregister_body = [
+                IRExprStmt(IRObjectiveCMessage(unregister_receiver, callback.unregister.selector, remove_arguments))
+            ]
+        elif object_callback:
             current = IRObjectiveCMessage(unregister_receiver, callback.getter.selector, [])
             reject = IRBlock([IRExprStmt(IRCall("abort", [], never_returns=True))])
             unregister_body.insert(0, IRIf(IRBinOp(current, "!=", IRCast(CType("id"), token, bridge="borrow")), reject))
@@ -3991,7 +4038,7 @@ class FunctionLowerer:
             native_receiver = IRCast(self._objective_c_object_type(source_type.base), IRVar("self"), bridge="borrow")
         native_arguments = []
         for index, parameter in enumerate(parameters[receiver_offset:-1]):
-            if index == callback.parameter_index:
+            if index == target_position:
                 adapter_parameters.extend(
                     [
                         *[
@@ -4050,6 +4097,8 @@ class FunctionLowerer:
                     if info is not None and info.native_language
                     else self._objective_c_value(value_type, argument, to_native=True)
                 )
+        if control:
+            native_arguments.insert(callback.action_index, IRObjectiveCSelector("btrcInvoke:"))
         adapter_parameters.append(IRParam(CType(f"{native_token_c.text} volatile*"), "nativeResult"))
         holder = IRVar("holder")
         native_body = [
@@ -4064,7 +4113,11 @@ class FunctionLowerer:
                         IRVar("retainContext"),
                         IRVar("releaseContext"),
                         *([IRVar(f"invoke{index}") for index in range(len(invokers))] if object_callback else []),
-                        *([native_receiver] if action else []),
+                        *([native_receiver] if action or control else []),
+                        *[
+                            IRVar(parameters[receiver_offset + position - int(position > callback.action_index)].name)
+                            for position, _, _ in captured_types
+                        ],
                     ],
                 )
             ),
@@ -4078,7 +4131,13 @@ class FunctionLowerer:
             ),
             IRReturn(IRLiteral("0")),
         ]
-        if object_callback:
+        if control:
+            # The control adds a pair and keeps every other target; it has no slot to verify.
+            native_body[-2:-1] = [
+                IRExprStmt(IRObjectiveCMessage(native_receiver, descriptor.selector, native_arguments)),
+                IRAssign(IRDeref(IRVar("nativeResult")), IRCast(native_token_c, holder, bridge="retain")),
+            ]
+        elif object_callback:
             current = IRObjectiveCMessage(native_receiver, callback.getter.selector, [])
             native_body.insert(0, IRIf(IRBinOp(current, "!=", IRLiteral("nil")), IRBlock([IRReturn(IRLiteral("3"))])))
             native_body[-2:-1] = [
@@ -4146,7 +4205,7 @@ class FunctionLowerer:
             "context",
             init=IRCall(
                 f"{context_symbol}_new",
-                [arguments[callback.parameter_index + receiver_offset], IRFunctionRef(unregister)],
+                [arguments[target_position + receiver_offset], IRFunctionRef(unregister)],
             ),
         )
         context = IRVar(context_slot.name)
@@ -4163,7 +4222,7 @@ class FunctionLowerer:
                     IRFunctionRef(prefix + "_retain"),
                     IRFunctionRef(prefix + "_release"),
                 ]
-                if index == callback.parameter_index + receiver_offset
+                if index == target_position + receiver_offset
                 else [argument]
             )
         adapter_arguments.append(IRAddressOf(IRVar(token_slot.name)))

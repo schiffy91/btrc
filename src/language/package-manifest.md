@@ -737,6 +737,54 @@ Action callbacks must only enqueue bounded typed work; execute application
 commands after native dispatch, not within AppKit tracking. This binding supplies
 safe native delivery, not a queue, event loop, or completed portable GUI factory.
 
+### Stored Objective-C control actions
+
+UIKit controls keep any number of target/action pairs and remove one pair by
+repeating it: `-[UIControl addTarget:action:forControlEvents:]` and
+`-[UIControl removeTarget:action:forControlEvents:]`. Name the selector
+parameter, which the compiler fills with its own action, and list every other
+registration parameter that the remove call repeats:
+
+```toml
+[native.bindings.callbacks."-[UIControl addTarget:action:forControlEvents:].target"]
+interface = "IControlAction"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[UIControl removeTarget:action:forControlEvents:]"
+action-parameter = "action"
+captured-handles = ["controlEvents"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+```
+
+This generates `IControlAction { void invoke(); }` and
+`ICallbackRegistration addTarget(IControlAction target, UIControlEvents
+controlEvents, CallbackScope scope)` on the control. The selector parameter
+disappears; registration and cancellation use the shared `CallbackContext` and
+`CallbackScope`, as for every stored callback.
+
+- Both methods are distinct, non-consuming, void instance methods of the same
+  receiver, with the same parameter names. The target is nullable `id` in both,
+  and the named parameter is a `SEL`.
+- Every other parameter must be listed in `captured-handles`, be a scalar or an
+  enum, and have the same type in both methods. The generated target keeps the
+  registration's values and passes them to the remove call.
+- The control does not retain its targets, so the registration keeps the
+  generated target alive until cancellation has removed the pair and drained
+  admitted calls. The target checks that each action comes from its own control
+  before delivery.
+- `activation-failure` must be `abort`: an Objective-C exception from the add
+  call terminates. There is no slot to verify, because the control keeps every
+  other target. The remove call is reserved for generated cancellation.
+
+`src/tests/python/test_native_objective_c_control_actions.py` covers a macOS
+proxy control (two registrations on one control, cancellation inside a
+delivery, 1,000 cycles, sanitizers, wrong sender, wrong thread, publication and
+receiver failures) and the rejections, in both compilers.
+`test_native_uikit_application.py` sends real `UIButton` and `UITextField`
+actions on the iOS simulator; that is simulator evidence, not device evidence.
+
 ### Stored Objective-C delegates (foundation in progress)
 
 A callback binding may project a nullable `id<Protocol>` property to one ordinary

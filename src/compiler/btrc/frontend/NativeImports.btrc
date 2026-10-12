@@ -737,6 +737,12 @@ class FeNativeDeclarationImporter {
 			var binding = self.callbacks.get(key);
 			if (binding.realtime != null) { continue; }
 			self.callbacks.remove(key);
+			if (!binding.actionParameter.isEmpty()) {
+				if (occupied.has(index)) { self.fail("callback parameters must be distinct"); }
+				occupied.put(index, true);
+				projections.push(self.projectControlAction(declaration, binding, index));
+				continue;
+			}
 			if (!binding.actionSetter.isEmpty()) {
 				if (occupied.has(index)) { self.fail("callback parameters must be distinct"); }
 				occupied.put(index, true);
@@ -1069,6 +1075,69 @@ class FeNativeDeclarationImporter {
 		projection.slotGetter = getter;
 		projection.actionSetter = setter;
 		projection.actionGetter = actionGetter;
+		var invocation = FeNativeCallbackProjection(binding.interfaceName, index, -1, 0, returnType);
+		Node context = self.node(NK_TYPE_EXPR);
+		context.base = "void";
+		context.pointerDepth = 1;
+		invocation.parameters = [context];
+		invocation.nativeReturn = "void";
+		projection.delegateMethods = [invocation];
+		return projection;
+	}
+
+	/* A control that keeps any number of target/action pairs (UIKit's
+	 * addTarget:action:forControlEvents:). The remove call repeats every
+	 * registration parameter by name; the compiler supplies the selector. */
+	private FeNativeCallbackProjection projectControlAction(NativeNode declaration, FeNativeCallbackBinding binding, int index) {
+		if (!self.callbackExports.has(binding.unregister)) { self.fail("control action requires void instance add and remove methods with the same parameters"); }
+		NativeNode unregister = self.callbackExports.get(binding.unregister);
+		Vector<string> names = [];
+		for parameter in declaration.parameterSemantics { names.push(parameter.name); }
+		bool valid = declaration.kind == NNK_NATIVE_OBJECTIVE_C_METHOD && unregister.kind == NNK_NATIVE_OBJECTIVE_C_METHOD && unregister.receiver == declaration.receiver && unregister.name != declaration.name && unregister.parameterSemantics.len == names.len;
+		for operation in [declaration, unregister] {
+			if (!valid) { break; }
+			if (operation.classMethod || operation.protocolOwner || operation.optional || operation.signature.variadic || operation.consumesSelf || operation.returnsInnerPointer || operation.returnedOwnership != "unspecified" || self.objectiveCScalar(operation.signature.returnType).base != "void") { valid = false; }
+			for parameter in operation.parameterSemantics { if (parameter.cfConsumed || parameter.nsConsumed) { valid = false; } }
+		}
+		if (valid) { for position in range(names.len) { if (unregister.parameterSemantics.get(position).name != names.get(position)) { valid = false; } } }
+		if (!valid) { self.fail("control action requires void instance add and remove methods with the same parameters"); }
+		int actionIndex = names.indexOf(binding.actionParameter);
+		if (actionIndex < 0 || actionIndex == index) { self.fail("control action-parameter must name the registration's selector parameter"); }
+		for operation in [declaration, unregister] {
+			NativeNode target = self.unqualifiedNative(operation.signature.parameters.get(index));
+			if (target.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || (!target.name.isEmpty() && target.name != "id") || target.protocols.len > 0 || target.classObject || target.typeArguments.len > 0 || self.callNullability(operation.signature.parameters.get(index)) != "nullable") { self.fail("control action target requires nullable id"); }
+			self.objectiveCType(operation.signature.parameters.get(index), false, "", false, true);
+			NativeNode action = self.unqualifiedNative(operation.signature.parameters.get(actionIndex));
+			if (action.kind != NNK_NATIVE_POINTER || action.pointee.kind != NNK_NATIVE_BUILTIN || action.pointee.name != "SEL") { self.fail("control action-parameter requires SEL"); }
+		}
+		Vector<int> captured = [];
+		Map<string, bool> capturedNames = {};
+		for position in range(names.len) {
+			if (position == index || position == actionIndex) { continue; }
+			string name = names.get(position);
+			if (!binding.capturedHandles.contains(name)) { self.fail(f"control action parameter {name} must be listed in captured-handles"); }
+			NativeNode native = declaration.signature.parameters.get(position);
+			if (self.typeIdentity(native) != self.typeIdentity(unregister.signature.parameters.get(position))) { self.fail(f"unregister parameter {name} must repeat the registration's type"); }
+			NativeNode scalar = self.unqualifiedNative(native);
+			if (scalar.kind != NNK_NATIVE_BUILTIN && scalar.kind != NNK_NATIVE_ENUM_TYPE) { self.fail(f"captured-handles.{name} must be a scalar"); }
+			captured.push(position);
+			capturedNames.put(name, true);
+		}
+		for name in binding.capturedHandles { if (!capturedNames.has(name)) { self.fail("captured-handles must name registration parameters the unregister call takes"); } }
+		Node returnType = self.node(NK_TYPE_EXPR);
+		returnType.base = "void";
+		Node signature = self.node(NK_METHOD_SIG);
+		signature.name = "invoke";
+		signature.returnType = returnType;
+		Node projectedInterface = self.node(NK_INTERFACE_DECL);
+		projectedInterface.name = binding.interfaceName;
+		projectedInterface.methodsStorage = [signature];
+		self.add(binding.interfaceName, projectedInterface, "action-interface");
+		var projection = FeNativeCallbackProjection(binding.interfaceName, index, -1, -1, returnType);
+		projection.unregister = unregister;
+		projection.activationFailure = binding.activationFailure;
+		projection.controlActionIndex = actionIndex;
+		projection.capturedPositions = captured;
 		var invocation = FeNativeCallbackProjection(binding.interfaceName, index, -1, 0, returnType);
 		Node context = self.node(NK_TYPE_EXPR);
 		context.base = "void";
@@ -2667,12 +2736,18 @@ class FeNativeDeclarationImporter {
 			}
 		}
 		Map<int, FeNativeCallbackProjection> callbacks = {};
-		for callback in contract.callbacks { callbacks.put(callback.parameterIndex, callback); }
+		Map<int, bool> hidden = {};
+		for callback in contract.callbacks {
+			callbacks.put(callback.parameterIndex, callback);
+			// The compiler supplies a control action's selector itself.
+			if (callback.controlActionIndex >= 0) { hidden.put(callback.controlActionIndex, true); }
+		}
 		var method = self.node(NK_METHOD_DECL);
 		method.access = declaration.classMethod || initializer ? "class" : "public";
 		method.name = Strings.split(declaration.selector, ":").get(0);
 		method.returnType = self.objectiveCType(declaration.signature.returnType, false, declaration.relatedResult ? declaration.receiver : "", false, opaqueToken);
 		for index in range(declaration.signature.parameters.len) {
+			if (hidden.has(index)) { continue; }
 			var parameter = self.node(NK_PARAM);
 			parameter.name = f"argument{index}";
 			if (callbacks.has(index)) {
@@ -2700,7 +2775,7 @@ class FeNativeDeclarationImporter {
 			if (cancellation == null) { continue; }
 			if (contract.callbacks.len != 1) { self.fail("stored callback factory currently requires exactly one callback"); }
 			Node token = method.returnType;
-			if (callback.slotGetter != null) { token = self.node(NK_TYPE_EXPR); token.base = "id"; }
+			if (callback.slotGetter != null || callback.controlActionIndex >= 0) { token = self.node(NK_TYPE_EXPR); token.base = "id"; }
 			token.isNullable = false;
 			token.pointerDepth = 0;
 			if (cancellation.signature.parameters.len > 0 && !cancellation.classMethod) {
@@ -2813,6 +2888,8 @@ class FeNativeDeclarationImporter {
 				}
 			}
 			if (first.activationFailure != second.activationFailure || first.oneShot != second.oneShot) { return false; }
+			if (first.controlActionIndex != second.controlActionIndex || first.capturedPositions.len != second.capturedPositions.len) { return false; }
+			for position in range(first.capturedPositions.len) { if (first.capturedPositions.get(position) != second.capturedPositions.get(position)) { return false; } }
 			if (first.delegateProtocol != second.delegateProtocol || first.delegateMethods.len != second.delegateMethods.len) { return false; }
 			Vector<NativeNode?> firstOperations = [first.slotGetter, first.actionSetter, first.actionGetter];
 			Vector<NativeNode?> secondOperations = [second.slotGetter, second.actionSetter, second.actionGetter];
