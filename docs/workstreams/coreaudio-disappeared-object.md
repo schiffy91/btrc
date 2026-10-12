@@ -33,3 +33,18 @@ status mappings and every fixture byte remain unchanged. The test-only
 preservation and formatting are checked; no behavioral baseline/candidate run
 or Player root-cause proof is claimed. Native qualification must preserve the
 original four paired plain/sanitized resource rows and all fault scenarios.
+
+
+## Required native binding fragment
+
+The causal Player replay failed during reference semantic projection, before
+native execution: `kAudioHardwareBadObjectError` was unresolved at the provider
+condition. Result `e5f40992` and independent audit `11d3d709` retain the failure,
+unchanged private inputs and six closed process groups. The SDK declaration
+exists, but the Audio package's explicit native selection omitted it.
+
+The final `fragment: select CoreAudio bad-object status` commit adds only
+`kAudioHardwareBadObjectError` beside the selected BadDevice constant in
+`src/stdlib/Audio/btrc.toml`. The mapper, tests, cleanup order and all assertions
+remain unchanged. Generated metadata belongs to the integrator and is untouched.
+Source/TOML checks only; corrected compiler/native qualification is pending.

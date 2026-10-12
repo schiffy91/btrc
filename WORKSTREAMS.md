@@ -1831,3 +1831,15 @@ Map the SDK invalid AudioObject status to the existing not-found outcome.
 Preserve original cleanup order/retries and all reproduction fixture bytes.
 The separate raw-status diagnostic is excluded; no Player causal claim or
 behavioral acceptance precedes allocated baseline/candidate qualification.
+
+
+## 2026-10-12 CoreAudio bad-object native binding
+
+Packet CX-COREAUDIO-BAD-OBJECT-BINDING; writer platform_review. Private branch
+`codex/coreaudio-disappeared-object-binding`, base `442cf4f7`. Owned paths:
+`src/stdlib/Audio/btrc.toml`, the existing
+`docs/workstreams/coreaudio-disappeared-object.md`, and this claim only.
+The provider's new SDK constant requires explicit native selection. Record this
+claim/report first; add only that symbol in a final integrator-data fragment.
+Do not change generated lock/symbols, compiler/runtime, mapping, cleanup or tests.
+The prior strict-import failure stays retained; no behavioral acceptance claimed.
