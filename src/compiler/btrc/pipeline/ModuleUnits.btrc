@@ -599,7 +599,8 @@ class ModuleUnitDeclarations {
 
 	public void configureNativeHeaders(Vector<FeNativeImportedDeclaration> imported) {
 		for native in imported {
-			if (native.language != "c") { continue; }
+			/* A Java class's adapters call JNI through Library.Java's JNI.h. */
+			if (native.language != "c" && native.language != "java") { continue; }
 			if (!self.nativeHeaderNames.has(native.header)) { self.nativeHeaderNames.put(native.header, {}); }
 			Map<string, bool> names = self.nativeHeaderNames.get(native.header);
 			Node declaration = native.declaration;

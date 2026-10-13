@@ -2843,6 +2843,8 @@ class FeNativeDeclarationImporter {
 		else if (left.callbackTable.identity() != right.callbackTable.identity()) { return false; }
 		if (left.cxxMethod == null || right.cxxMethod == null) { if (left.cxxMethod != right.cxxMethod) { return false; } }
 		else if (left.cxxMethod.identity() != right.cxxMethod.identity()) { return false; }
+		if (left.javaMember == null || right.javaMember == null) { if (left.javaMember != right.javaMember) { return false; } }
+		else if (left.javaMember.key() != right.javaMember.key()) { return false; }
 		if (left.variadicArguments.len != right.variadicArguments.len || left.transparentParameters.len != right.transparentParameters.len) { return false; }
 		for index in range(left.transparentParameters.len) { if (left.transparentParameters.get(index) != right.transparentParameters.get(index)) { return false; } }
 
@@ -3718,6 +3720,15 @@ class FeNativeDeclarationImporter {
 		Map<string, Vector<int>> groups = {};
 		Map<string, Result<string, string>> responses = {};
 		Map<string, FeNativeHeaderRead> pending = {};
+		/* Java bindings read class files through their own reader, never this session. */
+		Vector<FeNativeBinding> javaBindings = [];
+		Vector<FeNativeBinding> headerBindings = [];
+		for binding in bindings {
+			if (binding.language == "java") { javaBindings.push(binding); }
+			else { headerBindings.push(binding); }
+		}
+		Vector<FeNativeBinding> allBindings = bindings;
+		bindings = headerBindings;
 		for index in range(bindings.len) {
 			var binding = bindings.get(index);
 			self.module = binding.module;
@@ -3744,13 +3755,217 @@ class FeNativeDeclarationImporter {
 		}
 		self.pendingBindings = bindings;
 		self.pendingTarget = target;
+		for binding in javaBindings { self.prepareJavaBinding(binding, allBindings, target); }
 		BtrccPhaseTimer.mark("n-bindings");
+	}
+
+	private Vector<FeNativeBinding> pendingJavaBindings = [];
+	private Vector<string> pendingJavaResponses = [];
+	private string javaRuntimeHeader = "";
+
+	/* Reads one Java binding's classes with the build target's triple, never
+	 * through the header session or its cache. The reader's identity and its
+	 * document enter the resolution identity, so a C-only program's identity is
+	 * unchanged. Every generated adapter calls JNI through Library.Java's JNI.h,
+	 * which the program must import (native-interop-ownership.md 2.3). */
+	private void prepareJavaBinding(FeNativeBinding binding, Vector<FeNativeBinding> bindings, string target) {
+		self.module = binding.module;
+		string reader = Environment.get("BTRC_JAVA_CLASS_READER", "");
+		if (reader.isEmpty()) { self.fail("Java bindings require BTRC_JAVA_CLASS_READER"); }
+		string classpath = Environment.get("BTRC_JAVA_CLASSPATH", "");
+		if (classpath.isEmpty()) { self.fail("Java bindings require BTRC_JAVA_CLASSPATH"); }
+		string runtime = "";
+		for candidate in bindings {
+			if (runtime.isEmpty() && candidate.packageName == "btrc_stdlib_java" && candidate.language == "c" && PathTools.basename(candidate.header) == "JNI.h") { runtime = candidate.header; }
+		}
+		if (runtime.isEmpty()) { self.fail("Java bindings require import Library.Java.JavaVirtualMachine"); }
+		if (self.headerReader == null) { self.fail("SDK header scanning is unavailable in this compiler host build"); }
+		Vector<string> arguments = ["--target=" + target, "--classpath=" + classpath];
+		for symbol in binding.symbols { arguments.push("--symbol=" + symbol); }
+		var request = FeNativeHeaderRead(reader, arguments);
+		var batch = FeNativeHeaderBatch();
+		batch.append(request);
+		self.headerReader(batch);
+		var result = request.result();
+		if (result.isErr()) { self.fail(result.unwrapErr()); }
+		string identity = PathTools.isAbsolute(reader) ? self.sourceFiles.binaryIdentity(reader) : "";
+		if (identity.isEmpty()) { self.cacheable = false; }
+		self.resolvedIdentity.appendText("java\x1f" + identity);
+		self.resolvedIdentity.appendText(SHA256.digest(result.unwrap()));
+		for argument in arguments { self.resolvedIdentity.appendText(SHA256.digest(argument)); }
+		self.pendingJavaBindings.push(binding);
+		self.pendingJavaResponses.push(result.unwrap());
+		self.javaRuntimeHeader = runtime;
+	}
+
+	private string javaSimpleName(string binaryName) {
+		var parts = Strings.split(binaryName, "/");
+		return parts.get(parts.len - 1);
+	}
+
+	/* Each selected class is an abstract unique owner of one JNI global reference. */
+	private void projectJavaClasses(NativeNode header, Map<string, string> classes, Map<string, NativeNode> declarations, Map<string, string> simpleNames) {
+		for declaration in header.exports {
+			if (declaration.kind != NNK_NATIVE_JAVA_CLASS) { continue; }
+			string name = declaration.name;
+			if (classes.has(name)) { self.fail(f"Java class {name} is selected by two bindings"); }
+			if (declaration.binaryName.contains("$")) { self.fail(f"Java nested classes are not projected yet: {name}"); }
+			if (declaration.binaryName == "java/lang/String") { self.fail("java.lang.String projects to string, not to a class"); }
+			string simple = self.javaSimpleName(declaration.binaryName);
+			if (simpleNames.has(simple)) { self.fail(f"Java classes {simpleNames.get(simple)} and {name} project to the same BTRC name {simple}"); }
+			classes.put(name, simple);
+			declarations.put(name, declaration);
+			simpleNames.put(simple, name);
+			Node imported = self.node(NK_CLASS_DECL);
+			imported.name = simple;
+			imported.isAbstract = true;
+			for methodName in ["close", "isOpen"] {
+				Node method = self.node(NK_METHOD_DECL);
+				method.name = methodName;
+				method.access = "public";
+				method.returnType = self.node(NK_TYPE_EXPR);
+				method.returnType.base = methodName == "close" ? "void" : "bool";
+				imported.membersMut().push(method);
+			}
+			var resource = FeNativeResourceBinding(simple, "unique", "", "");
+			self.add(simple, imported, "java-class:" + declaration.identity, "jobject", false, null, resource);
+		}
+	}
+
+	private Node javaType(string base, bool nullable) {
+		Node projected = self.node(NK_TYPE_EXPR);
+		projected.base = base;
+		if (nullable) { projected.isNullable = true; projected.pointerDepth = 1; }
+		return projected;
+	}
+
+	/* A Java value's kind; `projected` receives its BTRC type, a nullable owner for a selected class. */
+	private string javaValue(NativeNode native, string member, Map<string, string> classes, Vector<Node> projected, bool result = false) {
+		if (native.kind == NNK_NATIVE_BUILTIN) {
+			if (result && native.name == "void") { projected.push(self.javaType("void", false)); return "V"; }
+			Vector<string> names = ["jboolean", "jbyte", "jchar", "jshort", "jint", "jlong", "jfloat", "jdouble"];
+			Vector<string> kinds = ["Z", "B", "C", "S", "I", "J", "F", "D"];
+			Vector<string> bases = ["bool", "signed char", "unsigned short", "short", "int", "long long", "float", "double"];
+			int index = names.indexOf(native.name);
+			if (index < 0) { self.fail(f"Java member {member} uses unsupported type {native.name}"); }
+			projected.push(self.javaType(bases.get(index), false));
+			return kinds.get(index);
+		}
+		if (native.kind == NNK_NATIVE_JAVA_ARRAY) { self.fail(f"Java arrays are not projected yet: {member}"); }
+		if (native.kind != NNK_NATIVE_JAVA_OBJECT) { self.fail(f"Java member {member} uses an unsupported type"); }
+		if (native.binaryName == "java/lang/String") { projected.push(self.javaType("string", true)); return "string"; }
+		if (!classes.has(native.name)) { self.fail(f"Java member {member} uses unselected class {native.name}"); }
+		projected.push(self.javaType(classes.get(native.name), true));
+		return "object";
+	}
+
+	private void addJavaMember(FeNativeImportedDeclaration owner, Map<string, string> names, NativeNode declaration, NativeNode ownerClass, string kind, string name, string access, Vector<string> kinds, string result, Node returnType, Vector<Node> parameters, string memberName) {
+		if (names.has(name)) { self.fail(f"Java members {names.get(name)} and {declaration.name} project to the same BTRC name {name}"); }
+		names.put(name, declaration.name);
+		var contract = FeNativeCallContract();
+		contract.javaMember = FeNativeJavaMember(kind, owner.declaration.name, ownerClass.binaryName, memberName, declaration.descriptor, declaration.identity, declaration.staticMember, kinds, result);
+		owner.methods.put(name, contract);
+		Node member = self.node(NK_METHOD_DECL);
+		member.access = access;
+		member.name = name;
+		member.returnType = returnType;
+		member.paramsStorage = parameters;
+		owner.declaration.membersMut().push(member);
+	}
+
+	/* Constructors, methods and fields of the selected classes, by JNI
+	 * descriptor. A constructor is the class method create(); a static member
+	 * is a class method; a field is a getter named for it plus set<Field>
+	 * unless final. */
+	private void projectJavaMembers(NativeNode header, Map<string, string> classes, Map<string, NativeNode> declarations) {
+		Map<string, Map<string, string>> projected = {};
+		for declaration in header.exports {
+			if (declaration.kind == NNK_NATIVE_JAVA_CLASS) { continue; }
+			if (declaration.kind != NNK_NATIVE_JAVA_METHOD && declaration.kind != NNK_NATIVE_JAVA_FIELD) { self.fail("Java class documents declare only classes, methods and fields"); }
+			string simple = classes.get(declaration.owner);
+			NativeNode ownerClass = declarations.get(declaration.owner);
+			var owner = self.resourceDeclaration(simple);
+			if (!projected.has(simple)) {
+				Map<string, string> reserved = {};
+				reserved.put("close", declaration.owner + ".close");
+				reserved.put("isOpen", declaration.owner + ".isOpen");
+				projected.put(simple, reserved);
+			}
+			Map<string, string> names = projected.get(simple);
+			string access = declaration.staticMember ? "class" : "public";
+			if (declaration.kind == NNK_NATIVE_JAVA_METHOD) {
+				Vector<string> kinds = [];
+				Vector<Node> parameters = [];
+				for index in range(declaration.signature.parameters.len) {
+					Vector<Node> projectedType = [];
+					kinds.push(self.javaValue(declaration.signature.parameters.get(index), declaration.name, classes, projectedType));
+					Node parameter = self.node(NK_PARAM);
+					parameter.name = f"argument{index}";
+					parameter.type = projectedType.get(0);
+					parameters.push(parameter);
+				}
+				if (declaration.constructor) {
+					if (ownerClass.interfaceClass || ownerClass.abstractClass) { self.fail(f"Java constructor {declaration.name} cannot create an abstract class or interface"); }
+					self.addJavaMember(owner, names, declaration, ownerClass, "constructor", "create", "class", kinds, "object", self.javaType(simple, false), parameters, declaration.methodName);
+				} else {
+					Vector<Node> returnType = [];
+					string result = self.javaValue(declaration.signature.returnType, declaration.name, classes, returnType, true);
+					self.addJavaMember(owner, names, declaration, ownerClass, "method", declaration.methodName, access, kinds, result, returnType.get(0), parameters, declaration.methodName);
+				}
+				continue;
+			}
+			Vector<Node> valueType = [];
+			string kind = self.javaValue(declaration.valueType, declaration.name, classes, valueType);
+			string field = declaration.fieldName;
+			Vector<string> noKinds = [];
+			Vector<Node> noParameters = [];
+			self.addJavaMember(owner, names, declaration, ownerClass, "getter", field, access, noKinds, kind, valueType.get(0), noParameters, field);
+			if (!declaration.readOnly) {
+				Node parameter = self.node(NK_PARAM);
+				parameter.name = "value";
+				parameter.type = self.javaType(valueType.get(0).base, valueType.get(0).isNullable);
+				Vector<Node> setterParameters = [parameter];
+				Vector<string> setterKinds = [kind];
+				string setter = "set" + field.substring(0, 1).toUpper() + field.substring(1, field.length() - 1);
+				self.addJavaMember(owner, names, declaration, ownerClass, "setter", setter, access, setterKinds, "V", self.javaType("void", false), setterParameters, field);
+			}
+		}
+	}
+
+	/* Every Java binding's classes, then their members, so one binding's
+	 * member may use another's class. */
+	private void completeJavaBindings(string target) {
+		Map<string, string> classes = {};
+		Map<string, NativeNode> declarations = {};
+		Map<string, string> simpleNames = {};
+		Vector<NativeNode> documents = [];
+		string priorModule = self.module;
+		string priorHeader = self.header;
+		string priorLanguage = self.language;
+		self.language = "java";
+		self.header = self.javaRuntimeHeader;
+		for index in range(self.pendingJavaBindings.len) {
+			self.module = self.pendingJavaBindings.get(index).module;
+			NativeNode document = FeNativeHeaderCodec().decode(self.pendingJavaResponses.get(index), target);
+			documents.push(document);
+			self.projectJavaClasses(document, classes, declarations, simpleNames);
+		}
+
+		for index in range(documents.len) {
+			self.module = self.pendingJavaBindings.get(index).module;
+			self.projectJavaMembers(documents.get(index), classes, declarations);
+		}
+		self.pendingJavaBindings = [];
+		self.pendingJavaResponses = [];
+		self.module = priorModule;
+		self.header = priorHeader;
+		self.language = priorLanguage;
 	}
 
 	/* The prepared bindings' declarations, decoded and imported once. */
 	public Vector<FeNativeImportedDeclaration> complete() {
 		Vector<FeNativeBinding> bindings = self.pendingBindings;
-		if (bindings.len == 0) { return self.declarations; }
+		if (bindings.len == 0 && self.pendingJavaBindings.len == 0) { return self.declarations; }
 		self.pendingBindings = [];
 		string target = self.pendingTarget;
 		for index in range(bindings.len) {
@@ -3805,6 +4020,7 @@ class FeNativeDeclarationImporter {
 			for identity in self.stringViews.keys() { if (!self.usedStringViews.has(identity)) { self.fail("string-views requires a mapped C one-shot callback argument"); } }
 		}
 		self.pendingResponses = [];
+		if (self.pendingJavaBindings.len > 0) { self.completeJavaBindings(target); }
 		BtrccPhaseTimer.mark("n-import");
 		for imported in self.declarations { if (self.resourceOperations.has(imported.declaration.name)) { self.fail("resource lifetime operations are reserved across native bindings"); } }
 		for handle in self.unmanagedOwners.keys() {

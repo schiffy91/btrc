@@ -976,6 +976,233 @@ class DeclarationLowerer {
 		self.nativeUniqueFunction(module, name, resultType, cParameters, statements);
 	}
 
+	/* A call through the thread's JNI function table, by its JNI-spec slot name. */
+	private IRNode javaEnvCall(string slot, Vector<IRNode> arguments) {
+		IRNode environment = IRNode.variable("__btrc_java_env");
+		Vector<IRNode> callArguments = [environment];
+		callArguments.extend(arguments);
+		return IRNode.indirectCall(IRNode.fieldAccess(IRNode.dereference(environment), slot, true), callArguments);
+	}
+
+	/* F1: clear the pending Java exception, pop the frame when `pop`, and throw its message. */
+	private IRNode javaTranslate(bool pop, Vector<IRNode> before) {
+		self.context.referenceHelper("__btrc_throw");
+		IRNode message = IRNode.variable("__btrc_java_message");
+		Vector<IRNode> statements = [];
+		statements.extend(before);
+		statements.push(IRNode.arrayDeclaration("char", "__btrc_java_message", IRNode.literal("1024"), null));
+		statements.push(IRNode.expressionStatement(IRNode.call("btrcJavaTakeException", [IRNode.variable("__btrc_java_env"), IRNode.literal(pop ? "1" : "0"), message, IRNode.sizeofExpression(IRNode.variable("__btrc_java_message"))])));
+		IRNode failure = IRNode.call("__btrc_throw", [message]);
+		((IRCallPayload)failure.payload).neverReturns = true;
+		statements.push(IRNode.expressionStatement(failure));
+		return IRNode.block(statements);
+	}
+
+	/* The exception check that follows every throwing JNI call in an adapter. */
+	private IRNode javaCheck(Vector<IRNode> before) {
+		Vector<IRNode> noArguments = [];
+		return IRNode.ifStatement(self.javaEnvCall("ExceptionCheck", noArguments), self.javaTranslate(true, before), null);
+	}
+
+	private string javaFamily(string kind) {
+		if (kind == "Z") { return "Boolean"; } if (kind == "B") { return "Byte"; } if (kind == "C") { return "Char"; } if (kind == "S") { return "Short"; }
+		if (kind == "I") { return "Int"; } if (kind == "J") { return "Long"; } if (kind == "F") { return "Float"; } if (kind == "D") { return "Double"; }
+		return kind == "V" ? "Void" : "Object";
+	}
+
+	private string javaCType(string kind) {
+		if (kind == "Z") { return "jboolean"; } if (kind == "B") { return "jbyte"; } if (kind == "C") { return "jchar"; } if (kind == "S") { return "jshort"; }
+		if (kind == "I") { return "jint"; } if (kind == "J") { return "jlong"; } if (kind == "F") { return "jfloat"; } if (kind == "D") { return "jdouble"; }
+		return kind == "string" ? "jstring" : kind == "object" ? "jobject" : "void";
+	}
+
+	private string javaValueMember(string kind) { return kind == "string" || kind == "object" ? "l" : kind.toLower(); }
+
+	/* A selected Java class: a unique owner of one global reference, and one checked adapter per member. */
+	private void emitJavaClass(FeNativeImportedDeclaration imported, IRModule module) {
+		string symbol = imported.declaration.name;
+		string releaseAdapter = "__btrc_java_" + symbol + "_release";
+		Vector<IRNode> noArguments = [];
+		self.nativeUniqueFunction(module, releaseAdapter, "void", [IRParam("jobject", "native")], [
+			IRNode.variableDeclaration("JNIEnv*", "__btrc_java_env", IRNode.call("btrcJavaEnvironment", noArguments)),
+			IRNode.expressionStatement(self.javaEnvCall("DeleteGlobalRef", [IRNode.variable("native")])),
+			IRNode.expressionStatement(IRNode.call("btrcJavaUnclaim", noArguments))
+		]);
+		self.emitUniqueResource(imported, module, symbol, releaseAdapter);
+		for member in imported.declaration.members() {
+			if (member.kind != NK_METHOD_DECL || member.name == "close" || member.name == "isOpen") { continue; }
+			FeNativeJavaMember? java = imported.methods.get(member.name).javaMember;
+			if (java == null) { throw "Java member requires its projection"; }
+			self.emitJavaMember(imported, member, java, module);
+		}
+	}
+
+	/* One member's adapter: borrow owners, frame the local references, call,
+	 * check, convert, unwind. Every throwing JNI call is followed by its
+	 * exception check; a failure translates through btrcJavaTakeException, which
+	 * pops the frame on every path a successful PushLocalFrame dominates, before
+	 * the BTRC exception starts (F1). Leased owners end their borrows through
+	 * the adapter's cleanup scope on both paths. */
+	private void emitJavaMember(FeNativeImportedDeclaration imported, Node member, FeNativeJavaMember java, IRModule module) {
+		string symbol = imported.declaration.name;
+		string what = "Java call " + symbol + "." + member.name;
+		bool field = java.kind == "getter" || java.kind == "setter";
+		string identifierType = field ? "jfieldID" : "jmethodID";
+		IRNode environment = IRNode.variable("__btrc_java_env");
+		Vector<IRNode> noArguments = [];
+		Vector<IRNode> nothing = [];
+		Vector<IRParam> parameters = [];
+		for parameter in member.params() { parameters.push(self.cTypes.lowerParameter(parameter)); }
+		string resultType = self.cTypes.lower(member.returnType);
+		bool instance = !java.staticMember && java.kind != "constructor";
+		Vector<IRParam> cParameters = [];
+		Map<string, bool> parameterNames = {};
+		if (instance) { cParameters.push(IRParam("struct __btrc_native_" + symbol + "*", "self")); parameterNames.put("self", true); }
+		for parameter in parameters { cParameters.push(parameter); parameterNames.put(parameter.name, true); }
+		IRNode classSlot = IRNode.variableDeclaration("jclass", "__btrc_java_class", IRNode.literal("NULL"));
+		((IRDeclarationPayload)classSlot.payload).isStatic = true;
+		IRNode memberSlot = IRNode.variableDeclaration(identifierType, "__btrc_java_member", IRNode.literal("NULL"));
+		((IRDeclarationPayload)memberSlot.payload).isStatic = true;
+		Vector<IRNode> statements = [classSlot, memberSlot];
+		Vector<Vector<IRNode>> releases = [];
+		if (instance) { statements.push(self.nativeNullGuard(IRNode.variable("self"), what + ": null receiver")); }
+		IRNode cleanup = self.nativeCleanupScope(parameterNames, statements);
+		IRNode receiver = IRNode.variable("self");
+		if (instance) {
+			Node receiverType = Node();
+			receiverType.kind = NK_TYPE_EXPR; receiverType.base = symbol; receiverType.isNullable = true; receiverType.pointerDepth = 1;
+			receiver = self.emitNativeLease(0, receiverType, IRNode.variable("self"), parameterNames, statements, releases);
+		}
+		Map<int, IRNode> leases = {};
+		int strings = 0;
+		for index in range(member.params().len) {
+			string kind = java.parameters.get(index);
+			if (kind == "object") { leases.put(index, self.emitNativeLease(index + 1, member.params().get(index).type, IRNode.variable(member.params().get(index).name), parameterNames, statements, releases)); }
+			if (kind == "string") { strings++; }
+		}
+		int capacity = 2 + strings + (java.result == "string" || java.result == "object" ? 1 : 0);
+		statements.push(IRNode.variableDeclaration("JNIEnv*", "__btrc_java_env", IRNode.call("btrcJavaEnvironment", noArguments)));
+		statements.push(IRNode.ifStatement(IRNode.binary(self.javaEnvCall("PushLocalFrame", [IRNode.literal(Strings.fromInt(capacity))]), "!=", IRNode.literal("0")), self.javaTranslate(false, nothing), null));
+		statements.push(IRNode.variableDeclaration("jclass", "__btrc_java_owner", IRNode.call("btrcJavaClass", [environment, IRNode.addressOf(IRNode.variable("__btrc_java_class")), IRNode.literal("\"" + java.binaryName + "\"")])));
+		statements.push(self.javaCheck(nothing));
+		statements.push(IRNode.variableDeclaration(identifierType, "__btrc_java_id", IRNode.call(field ? "btrcJavaField" : "btrcJavaMethod", [environment, IRNode.variable("__btrc_java_owner"), IRNode.addressOf(IRNode.variable("__btrc_java_member")), IRNode.literal("\"" + java.memberName + "\""), IRNode.literal("\"" + java.descriptor + "\""), IRNode.literal(java.staticMember ? "1" : "0")])));
+		statements.push(self.javaCheck(nothing));
+		IRNode arguments = IRNode.variable("__btrc_java_arguments");
+		if (java.kind != "getter") {
+			int count = member.params().len > 0 ? member.params().len : 1;
+			statements.push(IRNode.arrayDeclaration("jvalue", "__btrc_java_arguments", IRNode.literal(Strings.fromInt(count)), null));
+			if (member.params().len == 0) { statements.push(IRNode.assignment(IRNode.fieldAccess(IRNode.indexAccess(arguments, IRNode.literal("0")), "j", false), IRNode.literal("0"))); }
+		}
+		for index in range(member.params().len) {
+			string kind = java.parameters.get(index);
+			IRNode slot = IRNode.fieldAccess(IRNode.indexAccess(arguments, IRNode.literal(Strings.fromInt(index))), self.javaValueMember(kind), false);
+			IRNode value = IRNode.variable(member.params().get(index).name);
+			if (kind == "string") {
+				statements.push(IRNode.assignment(slot, IRNode.call("btrcJavaNewString", [environment, value])));
+				statements.push(self.javaCheck(nothing));
+			} else if (kind == "object") {
+				IRNode lease = leases.get(index);
+				statements.push(IRNode.assignment(slot, IRNode.ternary(IRNode.binary(lease, "!=", IRNode.literal("NULL")), IRNode.fieldAccess(lease, "value", true), IRNode.literal("NULL"))));
+			} else {
+				statements.push(IRNode.assignment(slot, IRNode.cast(self.javaCType(kind), value)));
+			}
+		}
+		IRNode target = instance ? IRNode.fieldAccess(receiver, "value", true) : IRNode.variable("__btrc_java_owner");
+		IRNode identifier = IRNode.variable("__btrc_java_id");
+		string family = self.javaFamily(java.result);
+		string isStatic = java.staticMember ? "Static" : "";
+		IRNode call = IRNode.literal("0");
+		if (java.kind == "constructor") { call = self.javaEnvCall("NewObjectA", [target, identifier, arguments]); }
+		else if (java.kind == "method") { call = self.javaEnvCall("Call" + isStatic + family + "MethodA", [target, identifier, arguments]); }
+		else if (java.kind == "getter") { call = self.javaEnvCall("Get" + isStatic + family + "Field", [target, identifier]); }
+		else {
+			string valueKind = java.parameters.get(0);
+			call = self.javaEnvCall("Set" + isStatic + self.javaFamily(valueKind) + "Field", [target, identifier, IRNode.fieldAccess(IRNode.indexAccess(arguments, IRNode.literal("0")), self.javaValueMember(valueKind), false)]);
+		}
+		IRNode outcome = IRNode.variable("__btrc_java_result");
+		if (java.result == "V") { statements.push(IRNode.expressionStatement(call)); }
+		else {
+			string nativeType = self.javaCType(java.result);
+			statements.push(IRNode.variableDeclaration(nativeType, "__btrc_java_result", java.result == "string" ? IRNode.cast(nativeType, call) : call));
+		}
+		statements.push(self.javaCheck(nothing));
+		IRNode returned = outcome;
+		if (java.result == "object") { returned = self.javaObjectResult(member, java, outcome, statements); }
+		else if (java.result == "string") { returned = self.javaStringResult(outcome, resultType, statements); }
+		else if (java.result != "V") { returned = IRNode.cast(resultType, outcome); }
+		statements.push(IRNode.expressionStatement(self.javaEnvCall("PopLocalFrame", [IRNode.literal("NULL")])));
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		statements.push(cleanup);
+		if (java.result != "V") {
+			if (java.kind == "constructor") { statements.push(self.nativeNullGuard(returned, what + ": null result")); }
+			statements.push(IRNode.returnStatement(returned));
+		}
+		self.nativeUniqueFunction(module, "__btrc_unique_" + symbol + "_" + member.name + "_public", resultType, cParameters, statements);
+	}
+
+	/* A local result becomes a new owner of one global reference before the
+	 * frame pops. The owner is registered in a cleanup slot before
+	 * NewGlobalRef, the next throwing call, so a failure there releases it with
+	 * no reference. */
+	private IRNode javaObjectResult(Node member, FeNativeJavaMember java, IRNode outcome, Vector<IRNode> statements) {
+		string owner = java.kind == "constructor" ? java.owner : member.returnType.base;
+		Node valueType = Node();
+		valueType.kind = NK_TYPE_EXPR; valueType.base = owner; valueType.isNullable = true; valueType.pointerDepth = 1;
+		IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(valueType), "__btrc_java_object", IRNode.literal("NULL"));
+		IRNode result = IRNode.variable("__btrc_java_object");
+		IRNode globalReference = IRNode.variable("__btrc_java_global");
+		Vector<IRNode> noArguments = [];
+		Vector<IRNode> nothing = [];
+		statements.push(slot);
+		statements.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(valueType))));
+		statements.push(IRNode.ifStatement(IRNode.binary(outcome, "!=", IRNode.literal("NULL")), IRNode.block([
+			IRNode.assignment(result, IRNode.call("__btrc_unique_" + owner + "_new", noArguments)),
+			IRNode.variableDeclaration("jobject", "__btrc_java_global", self.javaEnvCall("NewGlobalRef", [outcome])),
+			self.javaCheck(nothing),
+			self.nativeNullGuard(globalReference, "Java call " + java.owner + "." + member.name + ": no memory for a global reference"),
+			IRNode.assignment(IRNode.fieldAccess(result, "value", true), globalReference),
+			IRNode.expressionStatement(IRNode.call("btrcJavaClaim", noArguments))
+		]), null));
+		return result;
+	}
+
+	/* A Java string copies through UTF-16 into a new BTRC string; null stays
+	 * null. U+0000 has no BTRC spelling, so such a string throws after the copy
+	 * is freed and the frame is popped. */
+	private IRNode javaStringResult(IRNode outcome, string resultType, Vector<IRNode> statements) {
+		for helper in ["__btrc_string_alloc", "__btrc_safe_calloc", "__btrc_throw"] { self.context.referenceHelper(helper); }
+		IRNode text = IRNode.variable("__btrc_java_text");
+		IRNode count = IRNode.variable("__btrc_java_count");
+		IRNode units = IRNode.variable("__btrc_java_units");
+		IRNode length = IRNode.variable("__btrc_java_length");
+		Vector<IRNode> nothing = [];
+		Vector<IRNode> releaseUnits = [IRNode.expressionStatement(IRNode.call("free", [units]))];
+		Vector<IRNode> copy = [
+			IRNode.variableDeclaration("jsize", "__btrc_java_count", self.javaEnvCall("GetStringLength", [outcome])),
+			self.javaCheck(nothing),
+			IRNode.variableDeclaration("jchar*", "__btrc_java_units", IRNode.cast("jchar*", IRNode.call("__btrc_safe_calloc", [IRNode.binary(IRNode.cast("size_t", count), "+", IRNode.literal("1")), IRNode.sizeofType("jchar")]))),
+			IRNode.expressionStatement(self.javaEnvCall("GetStringRegion", [outcome, IRNode.literal("0"), count, units])),
+			self.javaCheck(releaseUnits),
+			IRNode.variableDeclaration("long long", "__btrc_java_length", IRNode.call("btrcJavaStringLength", [units, count]))
+		];
+		for limit in ["nul", "long"] {
+			IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal(limit == "nul" ? "\"Java string contains U+0000, which a BTRC string cannot hold\"" : "\"Java string is too long for a BTRC string\"")]);
+			((IRCallPayload)failure.payload).neverReturns = true;
+			IRNode refuse = IRNode.block([
+				IRNode.expressionStatement(IRNode.call("free", [units])),
+				IRNode.expressionStatement(self.javaEnvCall("PopLocalFrame", [IRNode.literal("NULL")])),
+				IRNode.expressionStatement(failure)
+			]);
+			copy.push(IRNode.ifStatement(limit == "nul" ? IRNode.binary(length, "<", IRNode.literal("0")) : IRNode.binary(length, ">", IRNode.literal("2147483646")), refuse, null));
+		}
+		copy.push(IRNode.assignment(text, IRNode.call("__btrc_string_alloc", [IRNode.cast("int", length)])));
+		copy.push(IRNode.expressionStatement(IRNode.call("btrcJavaEncodeString", [units, count, text])));
+		copy.push(IRNode.expressionStatement(IRNode.call("free", [units])));
+		statements.push(IRNode.variableDeclaration(resultType, "__btrc_java_text", IRNode.literal("NULL")));
+		statements.push(IRNode.ifStatement(IRNode.binary(outcome, "!=", IRNode.literal("NULL")), IRNode.block(copy), null));
+		return text;
+	}
+
 	private void nativeUniqueFunction(IRModule module, string name, string result, Vector<IRParam> parameters, Vector<IRNode> statements) {
 		var declaration = IRFunctionDecl(name, result, true);
 		declaration.params = parameters;
@@ -2950,6 +3177,7 @@ class DeclarationLowerer {
 		if (imported.declaration.kind == NK_CLASS_DECL && !imported.coalesced) {
 			if (!imported.invocation.isEmpty()) { return; }
 			else if (imported.language == "c++") { self.emitCxxClass(imported, m); }
+			else if (imported.language == "java") { self.emitJavaClass(imported, m); }
 			else if (imported.resource != null) { self.emitResourceLifetime(imported, m); }
 			else { self.emitObjectiveCAdapters(imported, m); }
 		}
@@ -3051,7 +3279,8 @@ class DeclarationLowerer {
 		Map<string, bool> nativeConstants = {};
 		for imported in self.analyzed.nativeDeclarations {
 			if (!self.validIncludeHeader(imported.header)) { self.preprocessorFail("invalid native include header"); }
-			if (imported.language == "c") { self.appendPreprocessorDecl(m, IRPreprocessorDecl.include(imported.header, false)); }
+			/* A Java class's adapters call JNI through Library.Java's JNI.h. */
+			if (imported.language == "c" || imported.language == "java") { self.appendPreprocessorDecl(m, IRPreprocessorDecl.include(imported.header, false)); }
 			/* Native declarations belong to the program unit. */
 			if (self.context.declarationsElsewhere && !self.context.ownedGroup.isEmpty()) { continue; }
 			DeclarationOwnershipScope nativeScope = self.context.beginOwnership(m, "");

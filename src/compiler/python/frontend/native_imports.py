@@ -51,7 +51,7 @@ from ..abi.native_generated import (
     NativeTypedef,
 )
 from ..syntax.ast import generated as ast
-from .packages import IncludeResolutionError, NativeLinkPlan
+from .packages import IncludeResolutionError, NativeLinkPlan, NativeResourceBinding
 
 
 class NativeToolEnvironment:
@@ -711,6 +711,27 @@ class NativeDispatchMethod:
 
 
 @dataclass(frozen=True)
+class NativeJavaMember:
+    """One selected Java member, reached through a checked JNI adapter (native-interop-ownership.md 2.3).
+
+    `kind` is constructor, method, getter or setter. `parameters` and `result`
+    are value kinds: a primitive descriptor letter (Z, B, C, S, I, J, F or D;
+    V for no result), "string" for java.lang.String, or "object" for a
+    selected class, whose BTRC owner the projected type names.
+    """
+
+    kind: str
+    owner: str
+    binary_name: str
+    member_name: str
+    descriptor: str
+    identity: str
+    static_member: bool
+    parameters: tuple[str, ...]
+    result: str
+
+
+@dataclass(frozen=True)
 class NativeCallContract:
     """Checks at a native call boundary, including calls through function values."""
 
@@ -741,6 +762,7 @@ class NativeCallContract:
     callback_table: NativeCallbackTableProjection | None = None
     transparent_parameters: tuple[bool, ...] = ()
     dispatch_method: NativeDispatchMethod | None = None
+    java_member: NativeJavaMember | None = None
 
     @property
     def returns_owned(self):
@@ -1069,6 +1091,10 @@ class NativeDeclarationImporter:
                     raise NativeImportError("string-views requires a mapped C one-shot callback argument")
             except (OSError, subprocess.TimeoutExpired, NativeImportError) as error:
                 raise IncludeResolutionError(f"{binding.module}: {error}") from error
+        java_bindings = tuple(binding for binding in plan.bindings if binding.language == "java")
+        java_identity = (
+            self._import_java_bindings(plan, java_bindings, target, environment, fingerprint) if java_bindings else None
+        )
         try:
             if any(name in self._resource_operations for _, name in self._declarations):
                 raise NativeImportError("resource lifetime operations are reserved across native bindings")
@@ -1088,7 +1114,15 @@ class NativeDeclarationImporter:
             raise IncludeResolutionError(str(error)) from error
         identity = (
             fingerprint.hexdigest()
-            if reader_identity is not None and self._reader_identity(reader) == reader_identity
+            if reader_identity is not None
+            and self._reader_identity(reader) == reader_identity
+            and (
+                not java_bindings
+                or (
+                    java_identity is not None
+                    and self._reader_identity(os.environ.get("BTRC_JAVA_CLASS_READER", "")) == java_identity
+                )
+            )
             else None
         )
         return NativeImportResolution((*self._declarations.values(), *self._input_classes), identity)
@@ -1131,9 +1165,11 @@ class NativeDeclarationImporter:
 
     def _read_headers(self, plan, reader, target, sysroot, environment, *, use_cache=False):
         """Dispatch bounded independent reads, consuming semantics in binding order."""
+        # Java bindings read class files through their own reader, never this session.
+        bindings = tuple(binding for binding in plan.bindings if binding.language != "java")
         commands = []
         groups = {}
-        for index, binding in enumerate(plan.bindings):
+        for index, binding in enumerate(bindings):
             try:
                 arguments = self._reader_arguments(binding, plan, reader, target, sysroot)
             except (OSError, subprocess.TimeoutExpired, NativeImportError) as error:
@@ -1149,7 +1185,7 @@ class NativeDeclarationImporter:
         )
         responses = {}
         pending = {}
-        for index, binding in enumerate(plan.bindings):
+        for index, binding in enumerate(bindings):
             arguments = commands[index]
             try:
                 if index not in responses:
@@ -1280,6 +1316,214 @@ class NativeDeclarationImporter:
                     f"-D{declaration.value}={declaration.detail}" if declaration.detail else f"-D{declaration.value}"
                 )
         return arguments
+
+    # The Library.Java binding whose JNI.h every generated Java adapter includes.
+    JAVA_RUNTIME_PACKAGE: ClassVar[str] = "btrc_stdlib_java"
+    JAVA_PRIMITIVES: ClassVar[Mapping[str, tuple[str, str]]] = {
+        "jboolean": ("Z", "bool"),
+        "jbyte": ("B", "signed char"),
+        "jchar": ("C", "unsigned short"),
+        "jshort": ("S", "short"),
+        "jint": ("I", "int"),
+        "jlong": ("J", "long long"),
+        "jfloat": ("F", "float"),
+        "jdouble": ("D", "double"),
+    }
+
+    def _import_java_bindings(self, plan, bindings, target, environment, fingerprint):
+        """Read each Java binding's classes, then project them (native-interop-ownership.md 2.3).
+
+        The Java class reader runs once per binding with the build target's
+        triple, never through the header session or its cache. Its identity
+        and each document enter the resolution fingerprint, so a C-only
+        program's identity is unchanged. Every generated adapter calls JNI
+        through Library.Java's JNI.h, which the program must import.
+        """
+        documents = []
+        reader_identity = None
+        for binding in bindings:
+            try:
+                reader = os.environ.get("BTRC_JAVA_CLASS_READER", "")
+                if not reader:
+                    raise NativeImportError("Java bindings require BTRC_JAVA_CLASS_READER")
+                classpath = os.environ.get("BTRC_JAVA_CLASSPATH", "")
+                if not classpath:
+                    raise NativeImportError("Java bindings require BTRC_JAVA_CLASSPATH")
+                runtime = next(
+                    (
+                        candidate
+                        for candidate in plan.bindings
+                        if candidate.package == self.JAVA_RUNTIME_PACKAGE
+                        and candidate.language == "c"
+                        and os.path.basename(candidate.header) == "JNI.h"
+                    ),
+                    None,
+                )
+                if runtime is None:
+                    raise NativeImportError("Java bindings require import Library.Java.JavaVirtualMachine")
+                arguments = (
+                    reader,
+                    f"--target={target}",
+                    f"--classpath={classpath}",
+                    *(f"--symbol={symbol}" for symbol in binding.symbols),
+                )
+                header = NativeHeaderCodec().decode(
+                    NativeHeaderRead(arguments, (0,)).read(environment), expected_target=target
+                )
+            except (OSError, UnicodeError, subprocess.TimeoutExpired, NativeImportError) as error:
+                raise IncludeResolutionError(f"{binding.module}: {error}") from error
+            reader_identity = self._reader_identity(reader)
+            encoded = json.dumps(
+                {
+                    "java_reader": reader_identity,
+                    "binding": asdict(binding),
+                    "arguments": arguments,
+                    "semantics": asdict(header),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8", errors="surrogatepass")
+            fingerprint.update(len(encoded).to_bytes(8, "big"))
+            fingerprint.update(encoded)
+            documents.append((binding, header, runtime.header))
+        classes = {}
+        for binding, header, jni in documents:
+            self._origin = NativeHeaderSource(binding.module, jni, language="java")
+            try:
+                self._project_java_classes(header, classes)
+            except NativeImportError as error:
+                raise IncludeResolutionError(f"{binding.module}: {error}") from error
+        for binding, header, jni in documents:
+            self._origin = NativeHeaderSource(binding.module, jni, language="java")
+            try:
+                self._project_java_members(header, classes)
+            except NativeImportError as error:
+                raise IncludeResolutionError(f"{binding.module}: {error}") from error
+        return reader_identity
+
+    def _project_java_classes(self, header, classes):
+        """Each selected class is an abstract unique owner of one JNI global reference."""
+        for declaration in header.exports:
+            if not isinstance(declaration, NativeJavaClass):
+                continue
+            if declaration.name in classes:
+                raise NativeImportError(f"Java class {declaration.name} is selected by two bindings")
+            if "$" in declaration.binary_name:
+                raise NativeImportError(f"Java nested classes are not projected yet: {declaration.name}")
+            if declaration.binary_name == "java/lang/String":
+                raise NativeImportError("java.lang.String projects to string, not to a class")
+            simple = declaration.binary_name.rsplit("/", 1)[-1]
+            for other, (owner, _) in classes.items():
+                if owner == simple:
+                    raise NativeImportError(
+                        f"Java classes {other} and {declaration.name} project to the same BTRC name {simple}"
+                    )
+            classes[declaration.name] = (simple, declaration)
+            self._add(
+                simple,
+                ast.ClassDecl(
+                    name=simple,
+                    is_abstract=True,
+                    members=[
+                        ast.MethodDecl(name="close", return_type=ast.TypeExpr(base="void"), access="public"),
+                        ast.MethodDecl(name="isOpen", return_type=ast.TypeExpr(base="bool"), access="public"),
+                    ],
+                ),
+                ("java-class", declaration.identity),
+                type_spelling="jobject",
+                resource=NativeResourceBinding(simple, "unique", "", ""),
+            )
+
+    def _java_value(self, native, member, classes, *, result=False):
+        """A Java value's kind and BTRC type; a selected class is a nullable owner."""
+        if isinstance(native, NativeBuiltin):
+            if result and native.name == "void":
+                return "V", ast.TypeExpr(base="void")
+            if native.name not in self.JAVA_PRIMITIVES:
+                raise NativeImportError(f"Java member {member} uses unsupported type {native.name}")
+            kind, base = self.JAVA_PRIMITIVES[native.name]
+            return kind, ast.TypeExpr(base=base)
+        if isinstance(native, NativeJavaArray):
+            raise NativeImportError(f"Java arrays are not projected yet: {member}")
+        if not isinstance(native, NativeJavaObject):
+            raise NativeImportError(f"Java member {member} uses an unsupported type")
+        if native.binary_name == "java/lang/String":
+            return "string", ast.TypeExpr(base="string", is_nullable=True, pointer_depth=1)
+        if native.name not in classes:
+            raise NativeImportError(f"Java member {member} uses unselected class {native.name}")
+        return "object", ast.TypeExpr(base=classes[native.name][0], is_nullable=True, pointer_depth=1)
+
+    def _project_java_members(self, header, classes):
+        """Constructors, methods and fields of the selected classes, by JNI descriptor.
+
+        A constructor is the class method create(); a static member is a class
+        method; a field is a getter named for it plus set<Field> unless final.
+        """
+        projected = {}
+        for declaration in header.exports:
+            if isinstance(declaration, NativeJavaClass):
+                continue
+            if not isinstance(declaration, (NativeJavaMethod, NativeJavaField)):
+                raise NativeImportError("Java class documents declare only classes, methods and fields")
+            simple, owner_class = classes[declaration.owner]
+            owner = self._declarations[(str(self._origin), simple)]
+            names = projected.setdefault(
+                simple, {"close": f"{declaration.owner}.close", "isOpen": f"{declaration.owner}.isOpen"}
+            )
+            static = declaration.static_member
+            access = "class" if static else "public"
+            if isinstance(declaration, NativeJavaMethod):
+                values = [
+                    self._java_value(parameter, declaration.name, classes)
+                    for parameter in declaration.signature.parameters
+                ]
+                kinds = tuple(kind for kind, _ in values)
+                parameters = [
+                    ast.Param(name=f"argument{index}", type=value_type) for index, (_, value_type) in enumerate(values)
+                ]
+                if declaration.constructor:
+                    if owner_class.interface_class or owner_class.abstract_class:
+                        raise NativeImportError(
+                            f"Java constructor {declaration.name} cannot create an abstract class or interface"
+                        )
+                    shapes = [
+                        ("constructor", "create", "class", kinds, "object", ast.TypeExpr(base=simple), parameters)
+                    ]
+                else:
+                    result, return_type = self._java_value(
+                        declaration.signature.return_type, declaration.name, classes, result=True
+                    )
+                    shapes = [("method", declaration.method_name, access, kinds, result, return_type, parameters)]
+                member_name = declaration.method_name
+            else:
+                kind, value_type = self._java_value(declaration.value_type, declaration.name, classes)
+                member_name = declaration.field_name
+                shapes = [("getter", member_name, access, (), kind, value_type, [])]
+                if not declaration.read_only:
+                    setter = "set" + member_name[:1].upper() + member_name[1:]
+                    value = ast.Param(name="value", type=replace(value_type))
+                    shapes.append(("setter", setter, access, (kind,), "V", ast.TypeExpr(base="void"), [value]))
+            for role, name, member_access, kinds, result, return_type, parameters in shapes:
+                if name in names:
+                    raise NativeImportError(
+                        f"Java members {names[name]} and {declaration.name} project to the same BTRC name {name}"
+                    )
+                names[name] = declaration.name
+                member = NativeJavaMember(
+                    role,
+                    simple,
+                    owner_class.binary_name,
+                    member_name,
+                    declaration.descriptor,
+                    declaration.identity,
+                    static,
+                    kinds,
+                    result,
+                )
+                owner.source_file.methods[name] = NativeCallContract(java_member=member)
+                owner.members.append(
+                    ast.MethodDecl(access=member_access, name=name, return_type=return_type, params=list(parameters))
+                )
 
     def _prepare_record_fields(self, binding):
         self._record_private_fields = {}
