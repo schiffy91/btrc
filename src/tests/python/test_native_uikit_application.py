@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -364,3 +365,75 @@ def test_uikit_controls_deliver_actions_through_btrc(frontend, tmp_path: Path, r
     # button's receiver is released at cancellation, the field's receiver is
     # still held by this frame's `edit`.
     assert "btrc-uikit controls taps=2 edits=1 released=1 done=1" in output, output
+
+
+PERSISTENCE_PROGRAM = """import Library.Callback;
+import Library.FileSystem;
+import Library.FileSystem.ApplicationDirectories;
+import ./UIKit.btrc;
+#include <stdio.h>
+#include <stdlib.h>
+class Application implements IApplicationDelegate {
+	public void applicationDidFinishLaunching(UIApplication application) {
+		var roots = ApplicationDirectories.resolveStandard();
+		if (!roots.ok()) {
+			printf("btrc-persist unresolved %s\\n", roots.error().message());
+			exit(3);
+		}
+		string state = roots.value().stateRoot();
+		if (FileSystem.mkdirp(state) != 0) {
+			printf("btrc-persist cannot create %s\\n", state);
+			exit(4);
+		}
+		string path = state + "/btrc-persist.txt";
+		if (FileSystem.exists(path)) {
+			printf("btrc-persist read %s at %s\\n", FileSystem.readText(path), path);
+		} else {
+			bool written = FileSystem.writeText(path, "first launch");
+			printf("btrc-persist wrote %d at %s\\n", (int)written, path);
+		}
+		fflush(stdout);
+		exit(0);
+	}
+	public void applicationDidBecomeActive(UIApplication application) {}
+}
+int main(int argc, char** argv) { return UIApplicationMain(argc, argv, null, Application()); }
+"""
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_uikit_application_state_persists_across_launches(frontend, tmp_path: Path, request) -> None:
+    """ApplicationDirectories resolves inside the app's own container, and a file written there survives a relaunch."""
+    sdk = _sdk()
+    if sdk is None:
+        pytest.skip("the iphonesimulator SDK is Mac-bound (xcrun)")
+    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+    root = tmp_path / "project"
+    source = _project(root, program=PERSISTENCE_PROGRAM)
+    generated = root / "Main.c"
+    plan = root / "Main.link.json"
+    _transpile(frontend, source, generated, plan, sdk, btrcc)
+    identifier = f"{BUNDLE_IDENTIFIER}.persist.{frontend}"
+    bundle = _build_app(root, generated, plan, sdk, identifier)
+    device = _simulator()
+    installed = _xcrun("simctl", "install", device, str(bundle), timeout=300)
+    assert installed.returncode == 0, installed.stderr
+    try:
+        outputs = []
+        for _ in range(2):
+            launched = _xcrun(
+                "simctl", "launch", "--console-pty", "--terminate-running-process", device, identifier, timeout=180
+            )
+            outputs.append(launched.stdout + launched.stderr)
+        print(f"{frontend} on {device}: {outputs!r}")
+        container = _xcrun("simctl", "get_app_container", device, identifier, "data", timeout=60).stdout.strip()
+        assert container, "the simulator reports no data container"
+        first = re.search(r"btrc-persist wrote 1 at ([^\r\n]+)", outputs[0])
+        second = re.search(r"btrc-persist read first launch at ([^\r\n]+)", outputs[1])
+        assert first and second, outputs
+        assert first.group(1) == second.group(1), outputs
+        assert first.group(1).startswith(os.path.realpath(container) + "/Library/Application Support/") or first.group(
+            1
+        ).startswith(container + "/Library/Application Support/"), (container, first.group(1))
+    finally:
+        _xcrun("simctl", "uninstall", device, identifier, timeout=120)
