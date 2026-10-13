@@ -759,7 +759,32 @@ class FeNativeDispatchMethod {
 	}
 }
 
+/* One selected Java member, reached through a checked JNI adapter
+ * (native-interop-ownership.md section 2.3). `kind` is constructor, method,
+ * getter or setter. `parameters` and `result` are value kinds: a primitive
+ * descriptor letter (Z, B, C, S, I, J, F or D; V for no result), "string" for
+ * java.lang.String, or "object" for a selected class, whose BTRC owner the
+ * projected type names. */
+class FeNativeJavaMember {
+	public string kind;
+	public string owner;
+	public string binaryName;
+	public string memberName;
+	public string descriptor;
+	public string identity;
+	public bool staticMember;
+	public Vector<string> parameters;
+	public string result;
+	public FeNativeJavaMember(string kind, string owner, string binaryName, string memberName, string descriptor, string identity, bool staticMember, Vector<string> parameters, string result) {
+		self.kind = kind; self.owner = owner; self.binaryName = binaryName; self.memberName = memberName; self.descriptor = descriptor;
+		self.identity = identity; self.staticMember = staticMember; self.parameters = parameters; self.result = result;
+	}
+
+	public string key() { return f"{self.kind}:{self.owner}:{self.binaryName}:{self.memberName}:{self.descriptor}:{self.identity}:{self.staticMember}:" + Strings.join(self.parameters, ",") + ":" + self.result; }
+}
+
 class FeNativeCallContract {
+	public FeNativeJavaMember? javaMember = null;
 	public FeNativeCallbackTableProjection? callbackTable = null;
 	public FeNativeDispatchMethod? dispatchMethod = null;
 	public FeNativeCxxProjection? cxxMethod = null;

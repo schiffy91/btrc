@@ -827,7 +827,8 @@ class FeConditionalTestChecker {
 		packages.sortBy((FePackageNode left, FePackageNode right) => Strings.lessThan(left.name, right.name));
 		for package in packages {
 			for binding in package.bindings {
-				if (binding.selectedFor(plan.target) && self.sourcePaths.identity(binding.module) == identity) {
+				/* A Java binding reads class files; no header can define a macro. */
+				if (binding.selectedFor(plan.target) && binding.language != "java" && self.sourcePaths.identity(binding.module) == identity) {
 					string header = FeConditionalTestChecker.basename(binding.header);
 					return f"native header {header} for {here}";
 				}

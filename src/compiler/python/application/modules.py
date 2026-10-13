@@ -654,7 +654,8 @@ class SharedDeclarations:
         """
         for declaration in declarations:
             source = getattr(declaration, "source_file", None)
-            if not isinstance(source, NativeHeaderSource) or source.language != "c":
+            # A Java class's adapters call JNI through Library.Java's JNI.h.
+            if not isinstance(source, NativeHeaderSource) or source.language not in ("c", "java"):
                 continue
             names = self._native_header_names.setdefault(source.header, set())
             for attribute in ("name", "alias"):

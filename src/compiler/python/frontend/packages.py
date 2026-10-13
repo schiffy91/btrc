@@ -52,6 +52,18 @@ _NATIVE_SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*
 _OBJECTIVE_C_SYMBOL = re.compile(
     r"^[+-]\[[A-Za-z_][A-Za-z0-9_]* (?:[A-Za-z_][A-Za-z0-9_]*|(?:[A-Za-z_][A-Za-z0-9_]*:)+)\]$"
 )
+# A Java binding selects a class by its dotted binary name, a method or
+# constructor by its JNI descriptor, and a field by its type descriptor, so an
+# overload is never guessed (native-interop-ownership.md section 2.3).
+_JAVA_CLASS = r"[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*"
+_JAVA_FIELD_DESCRIPTOR = r"\[*(?:[ZBCSIJFD]|L[A-Za-z_$][A-Za-z0-9_$]*(?:/[A-Za-z_$][A-Za-z0-9_$]*)*;)"
+_JAVA_SYMBOL = re.compile(
+    rf"^{_JAVA_CLASS}"
+    rf"(?:\.<init>\((?:{_JAVA_FIELD_DESCRIPTOR})*\)V"
+    rf"|\.[A-Za-z_$][A-Za-z0-9_$]*\((?:{_JAVA_FIELD_DESCRIPTOR})*\)(?:V|{_JAVA_FIELD_DESCRIPTOR})"
+    rf"|\.[A-Za-z_$][A-Za-z0-9_$]*:{_JAVA_FIELD_DESCRIPTOR})?$"
+)
+_JAVA_BINDING_FIELDS = frozenset({"module", "language", "symbols", "os", "arch", "env"})
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 # Manifest os/arch/env predicates range over every targets.toml row
@@ -600,7 +612,8 @@ class NativeLinkPlan:
             for item in self.declarations
             if item.kind in {"source", "header"} and item.selected_for(self.target)
         )
-        paths.update(binding.header for binding in self.bindings)
+        # A Java binding reads class files through the Java class reader, not a header.
+        paths.update(binding.header for binding in self.bindings if binding.language != "java")
         return tuple(sorted(paths))
 
     @classmethod
@@ -2473,6 +2486,42 @@ class PackageManifestValidator:
             )
         return tuple(snapshots)
 
+    def _java_binding(self, entry: Mapping, root: str, package: str, context: str) -> NativeBinding:
+        """A class-file binding: no header, standard or C ownership map, and never a source-unit language.
+
+        Its symbols name classes, or members by JNI descriptor; the Java class
+        reader supplies their semantics (native-interop-ownership.md section 2.3).
+        """
+        if "header" in entry or "standard" in entry:
+            raise ValueError(f"{context}: Java bindings take no header or standard")
+        self._reject_unknown(entry, _JAVA_BINDING_FIELDS, context)
+        module = entry.get("module")
+        if not isinstance(module, str) or _MODULE_NAME.fullmatch(module) is None:
+            raise ValueError(f"{context}.module must be a dotted module name")
+        (module_path,) = self._module_paths(root, {"modules": [module]}, context)
+        selector = self._target_selector(entry, context)
+        self._require_platform_directories((module,), selector, context)
+        symbols = entry.get("symbols")
+        if (
+            not isinstance(symbols, list)
+            or not symbols
+            or not all(isinstance(symbol, str) and _JAVA_SYMBOL.fullmatch(symbol) for symbol in symbols)
+        ):
+            raise ValueError(f"{context}.symbols must name Java classes, or members by JNI descriptor")
+        if len(set(symbols)) != len(symbols):
+            raise ValueError(f"{context}.symbols contains a duplicate value")
+        return NativeBinding(
+            package,
+            module_path,
+            "",
+            "java",
+            "",
+            tuple(sorted(symbols)),
+            selector.operating_systems,
+            selector.architectures,
+            environments=selector.environments,
+        )
+
     def bindings(self, manifest: Mapping, root: str, package: str, path: str) -> tuple[NativeBinding, ...]:
         entries = manifest.get("native", {}).get("bindings", [])
         if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
@@ -2480,6 +2529,12 @@ class PackageManifestValidator:
         bindings: list[NativeBinding] = []
         for index, entry in enumerate(entries):
             context = f"package manifest {path!r} native.bindings[{index}]"
+            if entry.get("language") == "java":
+                binding = self._java_binding(entry, root, package, context)
+                if any(binding.overlaps(previous) for previous in bindings):
+                    raise ValueError(f"{context} overlaps a native binding for the same module and target")
+                bindings.append(binding)
+                continue
             self._reject_unknown(
                 entry,
                 frozenset(

@@ -1586,7 +1586,86 @@ class FeManifestBlock {
 		results.put(shape.result, true); owners.put(shape.resource, true); binding.initializers.put(name, shape);
 	}
 
+	private bool javaIdentifier(string value) {
+		if (value.isEmpty() || (!Strings.isAlpha(value[0]) && value[0] != '_' && value[0] != '$')) { return false; }
+		for character in value { if (!Strings.isAlnum(character) && character != '_' && character != '$') { return false; } }
+		return true;
+	}
+
+	private bool javaClassName(string value, string separator) {
+		for segment in Strings.split(value, separator) { if (!self.javaIdentifier(segment)) { return false; } }
+		return true;
+	}
+
+	/* One JNI field descriptor at `start`: its end, or -1. */
+	private int javaDescriptorEnd(string text, int start) {
+		int index = start;
+		while (index < text.length() && text[index] == '[') { index++; }
+		if (index >= text.length()) { return -1; }
+		if ("ZBCSIJFD".contains(text.substring(index, 1))) { return index + 1; }
+		if (text[index] != 'L') { return -1; }
+		int end = text.find(";", index);
+		if (end < 0 || !self.javaClassName(text.substring(index + 1, end - index - 1), "/")) { return -1; }
+		return end + 1;
+	}
+
+	/* A class by its dotted binary name, a method or constructor by its JNI
+	 * descriptor, or a field by its type descriptor, so an overload is never
+	 * guessed (native-interop-ownership.md section 2.3). */
+	private bool javaSymbol(string symbol) {
+		int open = symbol.indexOf("(");
+		int colon = symbol.indexOf(":");
+		int split = open < 0 ? colon : (colon < 0 ? open : (open < colon ? open : colon));
+		if (split < 0) { return self.javaClassName(symbol, "."); }
+		string head = symbol.substring(0, split);
+		int dot = head.lastIndexOf(".");
+		if (dot <= 0) { return false; }
+		string member = head.substring(dot + 1, head.length() - dot - 1);
+		if (!self.javaClassName(head.substring(0, dot), ".")) { return false; }
+		if (split == colon) { return self.javaIdentifier(member) && self.javaDescriptorEnd(symbol, colon + 1) == symbol.length(); }
+		bool constructor = member == "<init>";
+		if (!constructor && !self.javaIdentifier(member)) { return false; }
+		int index = open + 1;
+		while (index < symbol.length() && symbol[index] != ')') {
+			index = self.javaDescriptorEnd(symbol, index);
+			if (index < 0) { return false; }
+		}
+		if (index >= symbol.length()) { return false; }
+		string result = symbol.substring(index + 1, symbol.length() - index - 1);
+		if (result == "V") { return true; }
+		return !constructor && self.javaDescriptorEnd(symbol, index + 1) == symbol.length();
+	}
+
+	private bool javaBinding() {
+		if (!self.fields.has("language")) { return false; }
+		string raw = self.fields.get("language").trim();
+		return raw == "\"java\"" || raw == "'java'";
+	}
+
+	/* A class-file binding: no header, standard or C ownership map, and never a
+	 * source-unit language. Its symbols name classes, or members by JNI
+	 * descriptor; the Java class reader supplies their semantics. */
+	private FeNativeBinding finishJavaBinding(string root, string packageName) {
+		if (self.fields.has("header") || self.fields.has("standard")) { FePackageFailure.fail(f"{self.context()}: Java bindings take no header or standard"); }
+		Vector<string> keys = self.fields.keys();
+		keys.sortBy((string left, string right) => Strings.lessThan(left, right));
+		Vector<string> allowed = ["module", "language", "symbols", "os", "arch", "env"];
+		for key in keys { if (!allowed.contains(key)) { FePackageFailure.fail(f"{self.context()} contains unexpected field '{key}'"); } }
+		if (!self.moduleName(self.requiredText("module"))) { FePackageFailure.fail(f"{self.context()}.module must be a dotted module name"); }
+		Vector<string> modules = self.modulePaths(root);
+		FeTargetSelector selector = self.targetSelector();
+		Vector<string> boundModules = [self.requiredText("module")];
+		self.requirePlatformDirectories(boundModules, selector);
+		Vector<string> symbols = self.stringArray("symbols");
+		if (symbols.len == 0) { FePackageFailure.fail(f"{self.context()}.symbols must name Java classes, or members by JNI descriptor"); }
+		for symbol in symbols { if (!self.javaSymbol(symbol)) { FePackageFailure.fail(f"{self.context()}.symbols must name Java classes, or members by JNI descriptor"); } }
+		var binding = FeNativeBinding(packageName, modules.get(0), "", "java", "", symbols, selector.operatingSystems, selector.architectures);
+		binding.environments = selector.environments;
+		return binding;
+	}
+
 	public FeNativeBinding finishBinding(string root, string packageName) {
+		if (self.javaBinding()) { return self.finishJavaBinding(root, packageName); }
 		self.validateFields();
 		if (!self.moduleName(self.requiredText("module"))) { FePackageFailure.fail(f"{self.context()}.module must be a dotted module name"); }
 		Vector<string> modules = self.modulePaths(root);
@@ -2240,7 +2319,8 @@ class FeNativeLinkPlan {
 			paths.put(PathTools.join(package.root, "btrc.toml"), true);
 			paths.put(PathTools.join(package.root, "btrc.lock"), true);
 			for binding in package.bindings {
-				if (binding.selectedFor(self.target)) { paths.put(binding.header, true); }
+				/* A Java binding reads class files through the Java class reader, not a header. */
+				if (binding.selectedFor(self.target) && binding.language != "java") { paths.put(binding.header, true); }
 			}
 		}
 		for declaration in self.declarations {

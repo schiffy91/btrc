@@ -358,6 +358,7 @@ class FrontendStage:
             if applies:
                 return f"native header {os.path.basename(item.value)} for {here}"
         for binding in plan.bindings:
-            if SourceDependencyGraph.canonical_file(binding.module) == path:
+            # A Java binding reads class files; no header can define a macro.
+            if binding.language != "java" and SourceDependencyGraph.canonical_file(binding.module) == path:
                 return f"native header {os.path.basename(binding.header)} for {here}"
         return None

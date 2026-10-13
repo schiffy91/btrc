@@ -38,6 +38,7 @@ from src.compiler.python.ir.nodes import (
     IRGlobalDecl,
     IRIf,
     IRInclude,
+    IRIndex,
     IRInitializerList,
     IRLiteral,
     IRModule,
@@ -2435,6 +2436,346 @@ class FunctionLowerer:
                 name=name, return_type=result_type, params=c_parameters, is_static=True, body=IRBlock(statements)
             )
         )
+
+    # Per Java value kind: the JNI call-family suffix, its C type and its jvalue member.
+    _JAVA_VALUES: ClassVar[dict[str, tuple[str, str, str]]] = {
+        "Z": ("Boolean", "jboolean", "z"),
+        "B": ("Byte", "jbyte", "b"),
+        "C": ("Char", "jchar", "c"),
+        "S": ("Short", "jshort", "s"),
+        "I": ("Int", "jint", "i"),
+        "J": ("Long", "jlong", "j"),
+        "F": ("Float", "jfloat", "f"),
+        "D": ("Double", "jdouble", "d"),
+        "string": ("Object", "jstring", "l"),
+        "object": ("Object", "jobject", "l"),
+        "V": ("Void", "void", ""),
+    }
+    _JAVA_ENVIRONMENT = "__btrc_java_env"
+
+    @classmethod
+    def _java_env_call(cls, slot, *arguments):
+        """A call through the thread's JNI function table, by its JNI-spec slot name."""
+        environment = IRVar(cls._JAVA_ENVIRONMENT)
+        return IRCall(IRFieldAccess(IRDeref(environment), slot, arrow=True), [environment, *arguments])
+
+    def _java_translate(self, pop, before=()):
+        """F1: clear the pending Java exception, pop the frame when `pop`, and throw its message."""
+        self._session.require_helper("__btrc_throw")
+        message = IRVar("__btrc_java_message")
+        return IRBlock(
+            [
+                *before,
+                IRVarDecl(CType("char"), message.name, array_size=IRLiteral("1024")),
+                IRExprStmt(
+                    IRCall(
+                        "btrcJavaTakeException",
+                        [IRVar(self._JAVA_ENVIRONMENT), IRLiteral("1" if pop else "0"), message, IRSizeof(message)],
+                    )
+                ),
+                IRExprStmt(IRCall("__btrc_throw", [message], helper_ref="__btrc_throw", never_returns=True)),
+            ]
+        )
+
+    def _java_check(self, before=()):
+        """The exception check that follows every throwing JNI call in an adapter."""
+        return IRIf(self._java_env_call("ExceptionCheck"), self._java_translate(True, before))
+
+    def emit_java_class(self, declaration):
+        """A selected Java class: a unique owner of one global reference, and one checked adapter per member."""
+        symbol = declaration.name
+        release = f"__btrc_java_{symbol}_release"
+        native = IRVar("native")
+        self._native_unique_function(
+            release,
+            "void",
+            [IRParam(CType("jobject"), "native")],
+            [
+                IRVarDecl(CType("JNIEnv*"), self._JAVA_ENVIRONMENT, init=IRCall("btrcJavaEnvironment", [])),
+                IRExprStmt(self._java_env_call("DeleteGlobalRef", native)),
+                IRExprStmt(IRCall("btrcJavaUnclaim", [])),
+            ],
+        )
+        self._emit_unique_resource(declaration, symbol=symbol, release_symbol=release)
+        for member in declaration.members:
+            if member.name not in {"close", "isOpen"}:
+                self._emit_java_member(declaration, member, declaration.source_file.methods[member.name].java_member)
+
+    def _emit_java_member(self, declaration, member, java):
+        """One member's adapter: borrow owners, frame the local references, call, check, convert, unwind.
+
+        Every throwing JNI call is followed by its exception check; a failure
+        translates through btrcJavaTakeException, which pops the frame on
+        every path a successful PushLocalFrame dominates, before the BTRC
+        exception starts (F1). Leased owners end their borrows through the
+        adapter's cleanup scope on both paths.
+        """
+        symbol = declaration.name
+        what = f"Java call {symbol}.{member.name}"
+        field = java.kind in ("getter", "setter")
+        environment = IRVar(self._JAVA_ENVIRONMENT)
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in member.params]
+        result_type = CType(self._types.render(member.return_type))
+        instance = not java.static_member and java.kind != "constructor"
+        c_parameters = list(parameters)
+        statements = [
+            IRVarDecl(CType("jclass"), "__btrc_java_class", init=IRLiteral("NULL"), is_static=True),
+            IRVarDecl(
+                CType("jfieldID" if field else "jmethodID"),
+                "__btrc_java_member",
+                init=IRLiteral("NULL"),
+                is_static=True,
+            ),
+        ]
+        releases = []
+        if instance:
+            c_parameters.insert(0, IRParam(CType(f"struct __btrc_native_{symbol}*"), "self"))
+            statements.append(self._native_null_guard(IRVar("self"), f"{what}: null receiver"))
+        cleanup = self._native_cleanup_scope(c_parameters, statements)
+        receiver = (
+            self._native_lease(
+                0,
+                TypeExpr(base=symbol, is_nullable=True, pointer_depth=1),
+                IRVar("self"),
+                c_parameters,
+                statements,
+                releases,
+            )
+            if instance
+            else None
+        )
+        leases = {
+            index: self._native_lease(
+                index + 1, parameter.type, IRVar(parameter.name), c_parameters, statements, releases
+            )
+            for index, (parameter, kind) in enumerate(zip(member.params, java.parameters, strict=True))
+            if kind == "object"
+        }
+        strings = sum(kind == "string" for kind in java.parameters)
+        capacity = 2 + strings + int(java.result in ("string", "object"))
+        statements.extend(
+            [
+                IRVarDecl(CType("JNIEnv*"), self._JAVA_ENVIRONMENT, init=IRCall("btrcJavaEnvironment", [])),
+                IRIf(
+                    IRBinOp(self._java_env_call("PushLocalFrame", IRLiteral(str(capacity))), "!=", IRLiteral("0")),
+                    self._java_translate(False),
+                ),
+                IRVarDecl(
+                    CType("jclass"),
+                    "__btrc_java_owner",
+                    init=IRCall(
+                        "btrcJavaClass",
+                        [environment, IRAddressOf(IRVar("__btrc_java_class")), IRLiteral(json.dumps(java.binary_name))],
+                    ),
+                ),
+                self._java_check(),
+                IRVarDecl(
+                    CType("jfieldID" if field else "jmethodID"),
+                    "__btrc_java_id",
+                    init=IRCall(
+                        "btrcJavaField" if field else "btrcJavaMethod",
+                        [
+                            environment,
+                            IRVar("__btrc_java_owner"),
+                            IRAddressOf(IRVar("__btrc_java_member")),
+                            IRLiteral(json.dumps(java.member_name)),
+                            IRLiteral(json.dumps(java.descriptor)),
+                            IRLiteral("1" if java.static_member else "0"),
+                        ],
+                    ),
+                ),
+                self._java_check(),
+            ]
+        )
+        arguments = IRVar("__btrc_java_arguments")
+        if java.kind != "getter":
+            statements.append(
+                IRVarDecl(CType("jvalue"), arguments.name, array_size=IRLiteral(str(max(1, len(member.params)))))
+            )
+        if not member.params and java.kind != "getter":
+            statements.append(IRAssign(IRFieldAccess(IRIndex(arguments, IRLiteral("0")), "j"), IRLiteral("0")))
+        for index, (parameter, kind) in enumerate(zip(member.params, java.parameters, strict=True)):
+            slot = IRFieldAccess(IRIndex(arguments, IRLiteral(str(index))), self._JAVA_VALUES[kind][2])
+            value = IRVar(parameter.name)
+            if kind == "string":
+                statements.extend(
+                    [IRAssign(slot, IRCall("btrcJavaNewString", [environment, value])), self._java_check()]
+                )
+            elif kind == "object":
+                lease = leases[index]
+                statements.append(
+                    IRAssign(
+                        slot,
+                        IRTernary(
+                            IRBinOp(lease, "!=", IRLiteral("NULL")),
+                            IRFieldAccess(lease, "value", arrow=True),
+                            IRLiteral("NULL"),
+                        ),
+                    )
+                )
+            else:
+                statements.append(IRAssign(slot, IRCast(CType(self._JAVA_VALUES[kind][1]), value)))
+        target = IRFieldAccess(receiver, "value", arrow=True) if instance else IRVar("__btrc_java_owner")
+        identifier = IRVar("__btrc_java_id")
+        family = self._JAVA_VALUES[java.result][0]
+        static = "Static" if java.static_member else ""
+        if java.kind == "constructor":
+            call = self._java_env_call("NewObjectA", target, identifier, arguments)
+        elif java.kind == "method":
+            call = self._java_env_call(f"Call{static}{family}MethodA", target, identifier, arguments)
+        elif java.kind == "getter":
+            call = self._java_env_call(f"Get{static}{family}Field", target, identifier)
+        else:
+            value_kind = java.parameters[0]
+            call = self._java_env_call(
+                f"Set{static}{self._JAVA_VALUES[value_kind][0]}Field",
+                target,
+                identifier,
+                IRFieldAccess(IRIndex(arguments, IRLiteral("0")), self._JAVA_VALUES[value_kind][2]),
+            )
+        outcome = IRVar("__btrc_java_result")
+        if java.result == "V":
+            statements.append(IRExprStmt(call))
+        else:
+            native_type = CType(self._JAVA_VALUES[java.result][1])
+            statements.append(
+                IRVarDecl(
+                    native_type, outcome.name, init=IRCast(native_type, call) if java.result == "string" else call
+                )
+            )
+        statements.append(self._java_check())
+        returned = None
+        if java.result == "object":
+            returned = self._java_object_result(member, java, outcome, c_parameters, statements)
+        elif java.result == "string":
+            returned = self._java_string_result(outcome, result_type, statements)
+        elif java.result != "V":
+            returned = IRCast(result_type, outcome)
+        statements.append(IRExprStmt(self._java_env_call("PopLocalFrame", IRLiteral("NULL"))))
+        statements.extend([*releases, *cleanup])
+        if java.kind == "constructor":
+            statements.append(self._native_null_guard(returned, f"{what}: null result"))
+        if returned is not None:
+            statements.append(IRReturn(returned))
+        name = f"__btrc_unique_{symbol}_{member.name}_public"
+        self._native_unique_function(name, result_type.text, c_parameters, statements)
+
+    def _java_object_result(self, member, java, outcome, parameters, statements):
+        """A local result becomes a new owner of one global reference before the frame pops.
+
+        The owner is registered in a cleanup slot before NewGlobalRef, the next
+        throwing call, so a failure there releases it with no reference.
+        """
+        owner = java.owner if java.kind == "constructor" else member.return_type.base
+        value_type = TypeExpr(base=owner, is_nullable=True, pointer_depth=1)
+        slot = IRVarDecl(CType(self._types.render(value_type)), "__btrc_java_object", init=IRLiteral("NULL"))
+        result = IRVar(slot.name)
+        global_reference = IRVar("__btrc_java_global")
+        missing = self._native_null_guard(
+            global_reference, f"Java call {java.owner}.{member.name}: no memory for a global reference"
+        )
+        statements.extend(
+            [
+                slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(slot, value_type)),
+                IRIf(
+                    IRBinOp(outcome, "!=", IRLiteral("NULL")),
+                    IRBlock(
+                        [
+                            IRAssign(result, IRCall(f"__btrc_unique_{owner}_new", [])),
+                            IRVarDecl(
+                                CType("jobject"),
+                                global_reference.name,
+                                init=self._java_env_call("NewGlobalRef", outcome),
+                            ),
+                            self._java_check(),
+                            missing,
+                            IRAssign(IRFieldAccess(result, "value", arrow=True), global_reference),
+                            IRExprStmt(IRCall("btrcJavaClaim", [])),
+                        ]
+                    ),
+                ),
+            ]
+        )
+        return result
+
+    def _java_string_result(self, outcome, result_type, statements):
+        """A Java string copies through UTF-16 into a new BTRC string; null stays null.
+
+        U+0000 has no BTRC spelling, so such a string throws after the copy is
+        freed and the frame is popped.
+        """
+        for helper in ("__btrc_string_alloc", "__btrc_safe_calloc", "__btrc_throw"):
+            self._session.require_helper(helper)
+        text, count, units, length = (
+            IRVar("__btrc_java_text"),
+            IRVar("__btrc_java_count"),
+            IRVar("__btrc_java_units"),
+            IRVar("__btrc_java_length"),
+        )
+        release_units = IRExprStmt(IRCall("free", [units]))
+
+        def refuse(message):
+            return IRBlock(
+                [
+                    release_units,
+                    IRExprStmt(self._java_env_call("PopLocalFrame", IRLiteral("NULL"))),
+                    IRExprStmt(
+                        IRCall(
+                            "__btrc_throw",
+                            [IRLiteral(json.dumps(message))],
+                            helper_ref="__btrc_throw",
+                            never_returns=True,
+                        )
+                    ),
+                ]
+            )
+
+        statements.extend(
+            [
+                IRVarDecl(result_type, text.name, init=IRLiteral("NULL")),
+                IRIf(
+                    IRBinOp(outcome, "!=", IRLiteral("NULL")),
+                    IRBlock(
+                        [
+                            IRVarDecl(CType("jsize"), count.name, init=self._java_env_call("GetStringLength", outcome)),
+                            self._java_check(),
+                            IRVarDecl(
+                                CType("jchar*"),
+                                units.name,
+                                init=IRCast(
+                                    CType("jchar*"),
+                                    IRCall(
+                                        "__btrc_safe_calloc",
+                                        [
+                                            IRBinOp(IRCast(CType("size_t"), count), "+", IRLiteral("1")),
+                                            IRSizeof(CType("jchar")),
+                                        ],
+                                    ),
+                                ),
+                            ),
+                            IRExprStmt(self._java_env_call("GetStringRegion", outcome, IRLiteral("0"), count, units)),
+                            self._java_check([release_units]),
+                            IRVarDecl(
+                                CType("long long"), length.name, init=IRCall("btrcJavaStringLength", [units, count])
+                            ),
+                            IRIf(
+                                IRBinOp(length, "<", IRLiteral("0")),
+                                refuse("Java string contains U+0000, which a BTRC string cannot hold"),
+                            ),
+                            IRIf(
+                                IRBinOp(length, ">", IRLiteral("2147483646")),
+                                refuse("Java string is too long for a BTRC string"),
+                            ),
+                            IRAssign(text, IRCall("__btrc_string_alloc", [IRCast(CType("int"), length)])),
+                            IRExprStmt(IRCall("btrcJavaEncodeString", [units, count, text])),
+                            release_units,
+                        ]
+                    ),
+                ),
+            ]
+        )
+        return text
 
     def _native_unique_result(self, declaration, call, parameters, statements, releases, cleanup):
         # Allocate and register the ordinary ARC owner before native publication.

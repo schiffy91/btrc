@@ -288,7 +288,8 @@ class TranslationUnitLowerer:
             declaration.source_file.header
             for declaration in self._analyzed.program.declarations
             if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
-            and declaration.source_file.language == "c"
+            # A Java class's adapters call JNI through Library.Java's JNI.h.
+            and declaration.source_file.language in ("c", "java")
         )
         self._session.module.preprocessor_decls.extend(IRInclude(header=header, is_system=False) for header in headers)
 
@@ -489,6 +490,8 @@ class TranslationUnitLowerer:
                             continue
                         elif decl.source_file.language == "c++":
                             self._functions.emit_cxx_class(decl)
+                        elif decl.source_file.language == "java":
+                            self._functions.emit_java_class(decl)
                         elif decl.source_file.resource is not None:
                             self._functions.emit_resource_lifetime(decl)
                         else:
