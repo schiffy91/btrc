@@ -114,6 +114,10 @@ PYTHON_ALLOWED = {
         1,
         NATIVE_FRONTEND,
     ),
+    "src/compiler/python/frontend/native_imports.py::NativeDeclarationImporter._project_dispatch_tables": (
+        2,
+        NATIVE_FRONTEND,
+    ),
     "src/compiler/python/frontend/native_imports.py::NativeDeclarationImporter._project_realtime_callbacks": (
         1,
         NATIVE_FRONTEND,
@@ -158,7 +162,7 @@ PYTHON_ALLOWED = {
     ),
     "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._native_record_output": (2, NATIVE_CONTRACT),
     "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._native_record_snapshot": (1, NATIVE_CONTRACT),
-    "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._stored_action_holder": (1, IR_RECORD),
+    "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._stored_action_holder": (2, IR_RECORD),
     "src/compiler/python/ir/lowering/functions.py::FunctionLowerer._stored_delegate_holder": (1, IR_RECORD),
     "src/compiler/python/ir/lowering/functions.py::FunctionLowerer.emit_native_adapter": (1, NATIVE_CONTRACT),
     "src/devex/lsp/features/completion.py::CompletionProvider.class_member_items": (1, CLASS_INFO),
