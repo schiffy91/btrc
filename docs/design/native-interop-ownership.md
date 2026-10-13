@@ -13,7 +13,7 @@ It extends the contracts already recorded in
 and does not replace them. Where this document says "the existing X", X is
 implemented in both compilers today and documented there.
 
-**Implementation status (2026-10-12).**
+**Implementation status (2026-10-13).**
 - Step 1 (schema v2) is implemented in both compilers and the reader.
 - Step 2's first slice is implemented in both compilers: the `dispatch`
   subtable, `_project_dispatch_tables`/`projectDispatchTables`, and M1
@@ -35,9 +35,36 @@ implemented in both compilers today and documented there.
   may select such a C entry; the generated class answers the selected protocol
   methods through a `CallbackRoot` (package-manifest.md, "SDK-instantiated
   Objective-C adapters"). No class-reference IR node was needed:
-  `NSStringFromClass([Holder class])` names the class. Still owed for step 6:
-  `scope = "instance"` and `terminal`, `superclass`/`overrides`,
-  `error-outputs`, M3 downcasts and lightweight-generic erasure.
+  `NSStringFromClass([Holder class])` names the class.
+- Step 6's UIScene slice (2026-10-13) is implemented in both compilers, because
+  the iOS 27 SDK deprecates the app-delegate life cycle and TN3187 requires the
+  UIScene life cycle after iOS 26:
+  - `scope = "instance"` with `terminal`, on the `Class` parameter of a void
+    Objective-C instance method (`-[UISceneConfiguration setDelegateClass:]`).
+    The parameter takes a generated `I<Interface>Factory { I<Interface>
+    create(); }`; each `-init` roots a new receiver from it, every method pins
+    that receiver for its call, and the receiver is released after the
+    terminal method or at `-dealloc`. A second registration replaces and
+    releases the factory root (package-manifest.md, "Instance-scoped
+    instantiated adapters"). The holder's `-dealloc` is compiled with ARC, so
+    the super call is implicit.
+  - Protocol methods of instantiated adapters may return managed objects
+    (`application:configurationForConnectingSceneSession:options:`).
+  - M3 for Objective-C: `(T?)value` asks `isKindOfClass:` in the generated
+    unit, which names `T` with `objc_lookUpClass` rather than `[T class]`,
+    because an imported class may be only a forward declaration in the
+    selected headers (package-manifest.md, "Checked Objective-C downcasts").
+    `conformsToProtocol:` waits for protocol-qualified handles.
+  - A macOS proxy covers both features with sanitizers in both compilers
+    (`test_native_instantiated_adapters.py`,
+    `test_native_objective_c_downcasts.py`), and the iOS 26.4 simulator runs
+    the real UIScene life cycle: the app delegate configures the scene, the
+    scene delegate downcasts its `UIScene` to `UIWindowScene` and makes a
+    window key and visible (`test_native_uikit_application.py`). That is
+    simulator evidence, not device evidence; the 100-cycle connect/disconnect
+    exit row needs multiple-scene support and is still open.
+- Still owed for step 6: `superclass`/`overrides`, `error-outputs`,
+  lightweight-generic erasure, and the step-6 exit rows that depend on them.
 - UIKit controls (2026-10-13) take their targets through additive
   target/action pairs, `addTarget:action:forControlEvents:`, which the AppKit
   setter form cannot express. Both compilers implement this as a stored
@@ -426,7 +453,9 @@ on the iOS simulator test host. The slice adds analysis, not new runtime:
 - `error-outputs` for `NSError**` parameters (F1). A `nil` error is success.
   A non-nil error becomes a btrc exception carrying `localizedDescription`.
 - M3 checked downcasts through `isKindOfClass:` and `conformsToProtocol:`.
-  Lightweight generics are erased to their bound for payloads.
+  Lightweight generics are erased to their bound for payloads. (As
+  implemented: `isKindOfClass:` against the class named at run time;
+  `conformsToProtocol:` waits for protocol handles.)
 - `id<P>` protocol handles stay deferred. WebGPU takes the `CAMetalLayer`
   pointer, so I1 does not need them.
 

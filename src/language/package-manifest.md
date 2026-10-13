@@ -891,8 +891,113 @@ released and stays outside leak accounting, and a second instantiation, or a
 second call of the entry, aborts. Deliveries are admitted only on the thread
 that called the entry; a wrong-thread delivery or a BTRC exception terminates
 at the native boundary. `executor` currently requires `caller` and `failure`
-requires `abort`; `scope = "instance"` (scene delegates), `terminal`,
-`superclass`/`overrides` and lightweight-generic payloads are later slices.
+requires `abort`; `superclass`/`overrides` and lightweight-generic payloads are
+later slices.
+
+A selected method of an instantiated adapter may return a managed Objective-C
+object, as `-[UIApplicationDelegate
+application:configurationForConnectingSceneSession:options:]` returns a
+`UISceneConfiguration`. The receiver's result is one ordinary claim, which the
+generated method transfers to ARC on return; a null result for an SDK non-null
+type terminates at the native boundary. Stored delegates still reject object
+results.
+
+#### Instance-scoped instantiated adapters
+
+Some SDK methods take a class rather than a class name, and create one
+instance per use: `-[UISceneConfiguration setDelegateClass:]` names the scene
+delegate class, and UIKit instantiates it once for each scene it connects. Map
+that `Class` parameter with `scope = "instance"` and name the method after
+which the instance is finished:
+
+```toml
+[native.bindings.callbacks."-[UISceneConfiguration setDelegateClass:].delegateClass"]
+interface = "ISceneDelegate"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+methods = ["-[UISceneDelegate scene:willConnectToSession:options:]", "-[UISceneDelegate sceneDidBecomeActive:]", "-[UISceneDelegate sceneDidDisconnect:]"]
+terminal = "-[UISceneDelegate sceneDidDisconnect:]"
+```
+
+This imports `ISceneDelegate` from the selected methods, as above, and a
+generated factory interface `ISceneDelegateFactory { ISceneDelegate create(); }`
+named after it. The method becomes `void setDelegateClass(ISceneDelegateFactory
+factory)` on `UISceneConfiguration`:
+
+```btrc
+class Scenes implements ISceneDelegateFactory {
+	public ISceneDelegate create() { return Scene(); }
+}
+configuration.setDelegateClass(Scenes());
+```
+
+- The call roots the factory in a `CallbackRoot` and passes the generated
+  class. A later call replaces the factory and releases the previous one;
+  instances that already exist keep their receivers. The current factory stays
+  rooted, outside leak accounting, until it is replaced.
+- Each `-init` claims a new receiver: it calls `create()` and roots the result
+  for that instance alone. It aborts when no factory was registered and when
+  `create()` returns null.
+- Each selected method enters through the instance's receiver and holds a claim
+  on it for the call, so an instance released during its own method finishes
+  against live memory. After the `terminal` method returns, the instance
+  releases its receiver; later void methods do nothing and methods with a
+  result abort. `-dealloc` releases a receiver the instance still holds.
+- The factory and every receiver are admitted only on the thread that
+  registered the factory, UIKit's main thread for scenes. A wrong-thread
+  instantiation, delivery or release, and a BTRC exception, terminate at the
+  native boundary.
+
+The parameter must be the only parameter of a void, non-consuming Objective-C
+instance method, typed `Class` without protocol qualifiers. `terminal` is
+required and names one of `methods`; it is rejected with `scope = "process"`,
+and `scope = "process"` is rejected on a `Class` parameter. A class method, any
+other parameter type and colliding method names are rejected. The receiver
+interface's name plus `Factory` must not collide with another imported name.
+
+`src/tests/python/test_native_instantiated_adapters.py` covers a macOS proxy
+configuration that instantiates the generated class twice and delivers through
+both instances: independent receivers, a replacement factory registered during
+a delivery, an object result, release after the terminal method, nothing after
+it, an abort for a value method after it, an instance released inside its own
+method, release at dealloc, a wrong-thread instantiation, a null `create()` and
+a missing factory, plain and with ASan/UBSan, in both compilers, and the
+rejections. `test_native_uikit_application.py` runs the real UIScene
+life cycle on the iOS simulator; that is simulator evidence, not device
+evidence.
+
+#### Checked Objective-C downcasts
+
+`(T?)value` on a managed Objective-C object is a checked conversion (M3 in
+[native-interop-ownership.md](../../docs/design/native-interop-ownership.md)).
+`T` must be an imported Objective-C class whose superclass chain, read from the
+SDK interface graph, contains the static class of `value`; `value` may be `id`.
+
+```btrc
+UIWindowScene? windowScene = (UIWindowScene?)scene;
+if (windowScene != null) { var window = UIWindow.initWithWindowScene(windowScene); }
+```
+
+- A null input yields null without sending a message.
+- Otherwise the generated Objective-C unit asks `[value isKindOfClass:T]`. A
+  mismatch yields null; a match yields the same object with a new native claim,
+  taken before the source's call lease ends, so the result outlives its source.
+  A temporary source is released after the test.
+- The unit names `T` by its runtime name (`objc_lookUpClass`), because an
+  imported class can be a forward declaration in the selected headers. A class
+  that is absent at run time matches no object. An Objective-C exception from
+  the test terminates.
+
+A nonnullable target is rejected ("Objective-C downcasts are checked and require
+a nullable target"), and so are casts between unrelated classes ("Objective-C
+casts require a proven object upcast or a nullable checked downcast").
+Upcasts, including to `id`, stay unchecked conversions. `conformsToProtocol:`
+waits for protocol-qualified handles. `test_native_objective_c_downcasts.py`
+covers null input, a match, a mismatch, a base-class instance, `id` sources, a
+result that outlives its source, 1,000 casts with no live object left, ASan and
+UBSan, and the rejections, in both compilers.
 
 ### Header selection
 
