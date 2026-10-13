@@ -24,7 +24,7 @@ def _manifest() -> TierManifest:
 
 def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
     matrix = plan["matrix"].get(job, {"include": []})
-    key = {"native-bundle": "target", "linux-gui": "session"}.get(job, "shard")
+    key = {"native-bundle": "target", "linux-gui": "session", "win32-native": "target"}.get(job, "shard")
     return {row[key]: row for row in matrix["include"]}
 
 
@@ -166,7 +166,12 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
         "c11-clang-O2",
     ]
     assert list(_rows(macos, "native-bundle")) == ["macos-arm64", "macos-x64"]
-    assert manifest.plan("windows.yml", "main")["jobs"] == ["windows", "bootstrap"]
+    assert manifest.plan("windows.yml", "main")["jobs"] == [
+        "windows",
+        "win32-native-build",
+        "win32-native",
+        "bootstrap",
+    ]
     extended = manifest.plan("macos.yml", "extended")
     assert [name for name in _rows(extended, "tests") if name.startswith("c11-")] == [
         f"c11-clang-O{level}" for level in range(4)

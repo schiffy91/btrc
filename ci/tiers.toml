@@ -448,6 +448,54 @@ changed_paths = [
 ]
 reports = ["skip-report"]
 
+# A stored C window subclass from the real MinGW commctrl.h: a Linux runner
+# builds both compilers' executables (win32-native-build), then each Windows
+# runner executes those of its architecture (win32-native). A job that waits
+# on another must run on exactly the same events (test_ci_workflow_contracts.py).
+[[jobs]]
+workflow = "windows.yml"
+job = "win32-native-build"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "src/tests/python/test_native_win32_subclass.py",
+  "src/compiler/**/native_imports.py",
+  "src/compiler/**/NativeImports.btrc",
+  "src/stdlib/Callback.btrc",
+]
+reports = ["skip-report"]
+
+[[jobs]]
+workflow = "windows.yml"
+job = "win32-native"
+key = "target"
+
+[[shards]]
+job = "windows.yml/win32-native"
+target = "windows-x64"
+runner = "windows-latest"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "src/tests/python/test_native_win32_subclass.py",
+  "src/compiler/**/native_imports.py",
+  "src/compiler/**/NativeImports.btrc",
+  "src/stdlib/Callback.btrc",
+]
+
+[[shards]]
+job = "windows.yml/win32-native"
+target = "windows-arm64"
+runner = "windows-11-arm"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "src/tests/python/test_native_win32_subclass.py",
+  "src/compiler/**/native_imports.py",
+  "src/compiler/**/NativeImports.btrc",
+  "src/stdlib/Callback.btrc",
+]
+
 [[jobs]]
 workflow = "windows.yml"
 job = "bootstrap"

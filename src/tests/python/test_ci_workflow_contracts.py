@@ -607,9 +607,24 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         assert set(jobs) - {"scope", "skip-reports"} == listed, workflow
         for name in listed:
             job = jobs[name]
-            assert job["needs"] == "scope", (workflow, name)
             assert job["if"] == f"contains({PLAN}.jobs, '{name}')", (workflow, name)
             tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{name}")
+            if job["needs"] != "scope":
+                # A job may also wait on a producer job of its workflow that
+                # the plan schedules on exactly the events it does.
+                needs = job["needs"]
+                assert isinstance(needs, list) and len(needs) > 1 and needs[0] == "scope", (workflow, name)
+                conditions = (
+                    [shard.condition for shard in TIERS.shards_of(tiered)] if tiered.key else [tiered.condition]
+                )
+                for producer in needs[1:]:
+                    assert producer in listed, (workflow, name, producer)
+                    made = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{producer}")
+                    assert made.key is None and all(condition == made.condition for condition in conditions), (
+                        workflow,
+                        name,
+                        producer,
+                    )
             matrix = job.get("strategy", {}).get("matrix")
             if tiered.key is None:
                 assert matrix is None, (workflow, name)
