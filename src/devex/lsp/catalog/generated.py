@@ -683,6 +683,13 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("format", "string", "method", (("double", "value"), ("bool", "isInt"),), "format"),
         BuiltinMemberSpec("utf8", "string", "method", (("int", "cp"),), "utf8"),
     )),
+    ("JavaVirtualMachine", (
+        BuiltinMemberSpec("createHost", "void", "method", (("Vector<string>", "options"),), "createHost"),
+        BuiltinMemberSpec("running", "bool", "method", (), "running"),
+        BuiltinMemberSpec("liveClaims", "long long", "method", (), "liveClaims"),
+        BuiltinMemberSpec("attachedThreads", "int", "method", (), "attachedThreads"),
+        BuiltinMemberSpec("shutdown", "void", "method", (), "shutdown"),
+    )),
     ("LocalApplicationChannelClient", (
         BuiltinMemberSpec("request", "LocalApplicationChannelClientOutcome", "method", (("string", "path"), ("Bytes", "request"), ("LocalApplicationChannelConfiguration", "configuration"), ("int", "timeoutMilliseconds"),), "request"),
         BuiltinMemberSpec("failure", "LocalApplicationChannelClientOutcome", "method", (("LocalApplicationChannelRequestKind", "fallback"),), "failure"),
