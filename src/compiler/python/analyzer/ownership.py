@@ -690,9 +690,10 @@ class OwnershipAnalyzer:
         if isinstance(expression, (NewExpr, BraceInitializer, ListLiteral, MapLiteral)):
             return managed
         if isinstance(expression, CastExpr):
+            source = self.types.canonical_type(self.type_of(expression.expr))
             if self.types.native_resource_query_type(
-                self.index.class_table, result, self.types.canonical_type(self.type_of(expression.expr))
-            ):
+                self.index.class_table, result, source
+            ) or self.types.native_objective_c_downcast(self.index.class_table, result, source):
                 return True
             return managed and self.expression_produces_owned_result(expression.expr)
         if isinstance(expression, FStringLiteral):

@@ -1145,8 +1145,20 @@ class ExpressionAnalyzer:
             and native_target.native_language == "objective-c"
             and not self.types.is_subclass(source.base, target.base)
         ):
-            self.session.error("Objective-C casts require a proven object upcast", expression.line, expression.col)
-            return
+            if not self.types.is_subclass(target.base, source.base):
+                self.session.error(
+                    "Objective-C casts require a proven object upcast or a nullable checked downcast",
+                    expression.line,
+                    expression.col,
+                )
+                return
+            if not self.types.native_objective_c_downcast(self.index.class_table, target, source):
+                self.session.error(
+                    "Objective-C downcasts are checked and require a nullable target: (T?)value",
+                    expression.line,
+                    expression.col,
+                )
+                return
         if target.base == "__realtime_fn_ptr":
             self.session.error(
                 "RealtimeFunction cannot be created by a cast; use a direct named @realtime function",

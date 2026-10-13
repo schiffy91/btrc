@@ -823,6 +823,18 @@ class Analyzed {
 		return query != "" && self.isSubclass(source.base, query) ? query : "";
 	}
 
+	/* Whether `(T?)value` checks a managed Objective-C object with
+	 * isKindOfClass: (M3): T is a nullable Objective-C class whose superclass
+	 * chain, read from the SDK interface graph, contains the source's class. */
+	public bool objectiveCDowncast(Node? target, Node? source) {
+		if (source == null || target == null || !target.isNullable || target.isArray || source.isArray || target.base == source.base || target.base == "id") { return false; }
+		if (self.nativeClassLanguage(source.base) != "objective-c" || self.nativeClassLanguage(target.base) != "objective-c") { return false; }
+		return target.pointerDepth == 1 && source.pointerDepth <= 1 && self.nativeClassIndex.get(target.base).nativeAncestors.contains(source.base);
+	}
+
+	/* A checked native conversion (M3) produces a new owned claim. */
+	public bool nativeCheckedCast(Node? target, Node? source) { return self.nativeResourceQueryType(target, source) != "" || self.objectiveCDowncast(target, source); }
+
 	/* Look up an ordinary class member by name, walking the inheritance chain.
      * Constructors are declaration-only call targets and never instance
      * members; classConstructor() is their sole lookup path. */

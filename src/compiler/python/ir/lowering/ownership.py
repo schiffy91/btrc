@@ -1606,13 +1606,13 @@ class OwnershipLowerer:
             result_type = self._session.type_of(expression)
             return bool(result_type and result_type.base in self._analyzed.class_table)
         if isinstance(expression, CastExpr):
+            target = TypeSystem.canonical_declaration_type(expression.target_type, self._analyzed.typedef_table)
+            source = TypeSystem.canonical_declaration_type(
+                self._session.type_of(expression.expr), self._analyzed.typedef_table
+            )
             if TypeSystem.native_resource_query_type(
-                self._analyzed.class_table,
-                TypeSystem.canonical_declaration_type(expression.target_type, self._analyzed.typedef_table),
-                TypeSystem.canonical_declaration_type(
-                    self._session.type_of(expression.expr), self._analyzed.typedef_table
-                ),
-            ):
+                self._analyzed.class_table, target, source
+            ) or TypeSystem.native_objective_c_downcast(self._analyzed.class_table, target, source):
                 return True
             return self._values.is_managed(self._session.type_of(expression)) and self.owns_result(
                 expression.expr, provenance=provenance

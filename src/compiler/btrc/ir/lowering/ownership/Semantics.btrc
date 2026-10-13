@@ -126,7 +126,7 @@ class OwnershipSemantics {
 			return managedResult;
 		}
 		if (expression.kind == NK_CAST_EXPR) {
-			if (self.analyzed.nativeResourceQueryType(self.resolveType(expression.targetType, environment), self.resolveType(self.expressionType(expression.expr, environment), environment)) != "") { return true; }
+			if (self.analyzed.nativeCheckedCast(self.resolveType(expression.targetType, environment), self.resolveType(self.expressionType(expression.expr, environment), environment))) { return true; }
 			return managedResult && self.expressionOwnsResult(expression.expr, environment, callableFlow);
 		}
 		if (expression.kind == NK_F_STRING_LITERAL) {
