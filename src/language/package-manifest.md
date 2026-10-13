@@ -1917,6 +1917,85 @@ the adapter toolchain: it probes the Clang driver named by `BTRC_NATIVE_CXX`
 `BTRC_NATIVE_SYSROOT`. Callbacks, record snapshots, string views, variadic
 calls and template instantiations are not available for C++ bindings.
 
+### Java bindings
+
+A `language = "java"` binding selects Java classes and members from class
+files and calls them through checked JNI adapters
+([native-interop-ownership.md](../../docs/design/native-interop-ownership.md)
+section 2.3). It has no `header` and no `standard`; either key fails with "Java
+bindings take no header or standard", and Java never becomes a source-unit
+language. The binding takes only `module`, `language`, `symbols` and the
+`os`/`arch`/`env` predicates. Each symbol is a class by its dotted binary name,
+a method or constructor by its JNI descriptor, or a field by its type
+descriptor, so an overload is never guessed:
+
+```toml
+[[native.bindings]]
+module = "Fixture"
+language = "java"
+symbols = ["dev.btrc.fixture.JniHost",
+           "dev.btrc.fixture.JniHost.<init>(I)V",
+           "dev.btrc.fixture.JniHost.twice(I)I",
+           "dev.btrc.fixture.JniHost.add(Ldev/btrc/fixture/JniHost;)Ldev/btrc/fixture/JniHost;",
+           "dev.btrc.fixture.JniHost.echo(Ljava/lang/String;)Ljava/lang/String;",
+           "dev.btrc.fixture.JniHost.LIMIT:I",
+           "dev.btrc.fixture.JniHost.count:I"]
+```
+
+Any other symbol fails with "symbols must name Java classes, or members by JNI
+descriptor". The program must import `Library.Java.JavaVirtualMachine`, whose
+JNI.h binding every generated adapter calls through ("Java bindings require
+import Library.Java.JavaVirtualMachine"). Both compilers run the Java class
+reader named by `BTRC_JAVA_CLASS_READER` once per binding, with
+`--target=<the build target's triple>` and the classpath in
+`BTRC_JAVA_CLASSPATH` (each is required: "Java bindings require
+BTRC_JAVA_CLASS_READER", "Java bindings require BTRC_JAVA_CLASSPATH"). The
+reader never goes through the header session or its cache; its identity and
+document join the resolution fingerprint, so a C-only program's fingerprint is
+unchanged. The reader's own failures name the symbol, for example
+`JavaClassReader: unknown member dev.btrc.fixture.JniHost.toString()Ljava/lang/String;`.
+
+Projection:
+
+- A class the binding names, or that owns a selected member, becomes an
+  abstract BTRC class named by its simple name: a unique owner of one JNI
+  global reference with `close()` and `isOpen()`, aliases, borrows and final
+  cleanup exactly as for [unique C resources](#unique-c-resources). Releasing
+  the owner deletes the global reference on the releasing thread (attaching it
+  as a daemon if needed) and lowers `JavaVirtualMachine.liveClaims()`.
+- A constructor is the class method `create(...)`, returning the class; an
+  abstract class or interface has none. A static method is a class method and
+  an instance method a public method, under the Java name. A field is a getter
+  named for it plus `set<Field>(value)` unless it is final; a static field's
+  accessors are class methods. Parameters are named `argument0`, `argument1`,
+  and so on.
+- `Z`, `B`, `C`, `S`, `I`, `J`, `F`, `D` and `V` are `bool`, `signed char`,
+  `unsigned short`, `short`, `int`, `long long`, `float`, `double` and `void`.
+  `java.lang.String` is `string?` both ways: text copies through UTF-16, a
+  null Java string is `null`, and a Java string holding U+0000 throws "Java
+  string contains U+0000, which a BTRC string cannot hold". A selected class
+  `T` is a borrowed `T?` argument and an owned `T?` result.
+
+Rejected at compile time, with identical diagnostics in both compilers: a type
+of a class no Java binding selects ("Java member M uses unselected class C"),
+arrays ("Java arrays are not projected yet: M"), nested classes ("Java nested
+classes are not projected yet: C"), two classes with one simple name, a class
+selected by two bindings, and two members projecting to one BTRC name,
+including `close` and `isOpen` ("Java members A and B project to the same BTRC
+name n").
+
+Every adapter brackets its JNI calls with a checked `PushLocalFrame`; checks
+`ExceptionCheck` immediately after every JNI call that can throw; turns a
+pending Java exception into the BTRC exception string `"JavaException:
+<Throwable.toString()>"` after popping the frame and ending its borrows; and
+registers a new result owner in a cleanup slot before `NewGlobalRef`. Adapters
+call JNI function-table slots by their JNI-spec names (`CallIntMethodA`) through
+the thread's `JNIEnv`, so the C compiler checks each against `jni.h`; only the
+`...A` (`jvalue*`) call variants are used. Class references and member IDs are
+cached per adapter in Library.Java. Weak references, arrays, nested classes,
+Java-to-BTRC entry, executors and Android's application class loader come with
+interop step 7.
+
 ### Selected C variadic calls
 
 An SDK variadic function may expose one fixed, typed call shape. Bind its actual

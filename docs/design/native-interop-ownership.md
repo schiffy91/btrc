@@ -51,6 +51,38 @@ implemented in both compilers today and documented there.
   Objective-C schema slice; step 3 takes the next version. Reader v1 reports
   `static final` members as read-only `java_field`s; folding them into
   `NativeConstant` waits for a consumer.
+- Step 4's checked calls (`CL-P2-09`) are implemented in both compilers:
+  `language = "java"` bindings, the importers' Java branch, class owners over
+  JNI global references, constructors, static and instance methods, fields,
+  `string?` through UTF-16, F1 translation and verifier rule 2
+  (package-manifest.md, "Java bindings"). A JDK 17 HotSpot under
+  `-Xcheck:jni` runs the host test with no CheckJNI warning: a static call, a
+  `static final` field, constructor and instance calls taking and returning a
+  class, a `"aé𝄞"` round trip, U+0000 rejection, a Java exception caught as
+  `"JavaException: java.lang.IllegalStateException: boom"`, 10,000
+  object-returning calls with every object collected and no live claim, and a
+  spawned thread that attaches and detaches
+  (`src/tests/python/test_native_jni_calls.py`, both compilers). Verifier rule
+  2 has negative cases for both compilers
+  (`src/tests/python/test_jni_adapter_verifier.py`). The emulator round trip
+  waits for Stage 25's test host.
+- **Deviation: no `dispatch-records` key.** Generated adapters call JNI
+  function-table slots by their JNI-spec names through the thread's env, as
+  structured IR (`(*env)->CallIntMethodA(env, ...)`: a call whose callee is a
+  field access on the dereferenced env pointer), and the generated C includes
+  Library.Java's `JNI.h`, so the C compiler checks every slot call against
+  `jni.h`. The mapped slots have no BTRC surface, so a manifest allowlist would
+  only restate what the compiler itself emits. Verifier rule 2, not rule 1,
+  constrains these calls; no BTRC source can name a slot. The env comes from
+  `btrcJavaEnvironment()` in `src/stdlib/Java/`, not from a manifest key, and
+  only the `...A` (`jvalue*`) variants are emitted.
+- Also as implemented: btrc exceptions are strings, so `JavaException` is the
+  message prefix of the thrown string, not a catchable type, and the throwable
+  is released once formatted. A BTRC string cannot hold U+0000, so the string
+  round trip uses `"aé𝄞"` and a Java string holding U+0000 throws. A class is
+  selected when the binding names it or one of its members (the reader reports
+  each member's class); arrays, nested classes and `java.lang.String` as a
+  class are rejected until step 7.
 
 ## 1. One model: three relations, three mechanisms, two rules
 
@@ -172,7 +204,9 @@ compiler and reused by every model that needs it.
     binding-level `dispatch-records` key (section 2.3). Every field of such
     a record becomes private **before** projection, so its variadic and
     `va_list` slots are never projected, and only its mapped slots are
-    callable.
+    callable. (As implemented in step 4b there is no `dispatch-records` key:
+    the env table is never projected, and generated adapters call its slots
+    by their JNI-spec names; see the implementation status.)
 
   In both forms, unmapped slots are uncallable, and variadic slots are
   rejected only if a binding maps them.
@@ -420,6 +454,10 @@ ownership idea.
 - Only the `...A` (`jvalue*`) call variants are mapped. The roughly 90
   variadic `Call*Method` slots and the reserved slots stay unmapped, and
   therefore uncallable.
+- *As implemented (step 4b):* no `dispatch-records` key exists. Generated
+  adapters call the slots by their JNI-spec names, `(*env)->CallIntMethodA(env,
+  ...)`, and the C compiler checks each against `jni.h` through Library.Java's
+  `JNI.h`; BTRC source cannot name a slot.
 - The thread's env lives in a `pthread_key_t` owned by `src/stdlib/Java/`.
   Lazy attach first calls `GetEnv`, and attaches only on `JNI_EDETACHED`,
   using `AttachCurrentThreadAsDaemon` so `DestroyJavaVM` cannot block on a
@@ -979,7 +1017,7 @@ every other key keeps its existing closed set.
 | `release-executor` with `caller`/`any` | resources | 2 |
 | `executor = "main"`; `release-executor = "main"`, derived from `main_actor` | Objective-C callbacks and resources | 3 |
 | `language = "java"` (no `header` or `standard`); descriptor symbols | `[[native.bindings]]` | 4 |
-| `dispatch-records` (`receiver = "environment"`, `executor`, `failure`, `methods`) | binding map | 4 |
+| `dispatch-records` (`receiver = "environment"`, `executor`, `failure`, `methods`) | binding map | 4 (not added; adapters call env slots by name, see the implementation status) |
 | `ownership = "com"`, `iid`, `base` | resources | 5 |
 | `executor` and `release-executor` = `apartment` | COM resources (both keys); dispatch and sinks (`executor` only) | 5 |
 | `status-results` | binding map | 5 |
