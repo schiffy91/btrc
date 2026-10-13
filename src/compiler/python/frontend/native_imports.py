@@ -5959,7 +5959,15 @@ class NativeHeaderCodec:
                 "complete",
             }
         elif kind == "java_method":
-            required |= {"identity", "owner", "method_name", "descriptor", "static_member", "constructor", "native_method"}
+            required |= {
+                "identity",
+                "owner",
+                "method_name",
+                "descriptor",
+                "static_member",
+                "constructor",
+                "native_method",
+            }
         elif kind == "java_field":
             required |= {"identity", "owner", "field_name", "descriptor", "static_member", "read_only"}
         elif kind not in {"typedef", "record"}:
