@@ -157,8 +157,13 @@ def _transpile(frontend: str, source: Path, output: Path, plan: Path, sdk: str, 
     assert result.returncode == 0, result.stderr
 
 
-def _build_app(root: Path, generated: Path, plan_path: Path, sdk: str, identifier: str) -> Path:
-    """Compile the program and the plan's generated Objective-C units with Xcode's clang."""
+def _build_app(
+    root: Path, generated: Path, plan_path: Path, sdk: str, identifier: str, plist: dict | None = None
+) -> Path:
+    """Compile the program and the plan's generated Objective-C units with Xcode's clang.
+
+    `plist` adds Info.plist entries, such as a scene manifest.
+    """
     row = PackageTarget.parse(TARGET).row
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     common = [*row.target_arguments, "-isysroot", sdk, "-O2", "-Wall", "-Wextra", "-Werror"]
@@ -237,6 +242,7 @@ def _build_app(root: Path, generated: Path, plan_path: Path, sdk: str, identifie
                 "CFBundleSupportedPlatforms": ["iPhoneSimulator"],
                 "UIDeviceFamily": [1, 2],
                 "LSRequiresIPhoneOS": True,
+                **(plist or {}),
             }
         )
     )
@@ -245,11 +251,13 @@ def _build_app(root: Path, generated: Path, plan_path: Path, sdk: str, identifie
     return bundle
 
 
-def _launch(frontend: str, root: Path, source: Path, identifier: str, btrcc: Path | None, sdk: str) -> str:
+def _launch(
+    frontend: str, root: Path, source: Path, identifier: str, btrcc: Path | None, sdk: str, plist: dict | None = None
+) -> str:
     generated = root / "Main.c"
     plan = root / "Main.link.json"
     _transpile(frontend, source, generated, plan, sdk, btrcc)
-    bundle = _build_app(root, generated, plan, sdk, identifier)
+    bundle = _build_app(root, generated, plan, sdk, identifier, plist)
     device = _simulator()
     installed = _xcrun("simctl", "install", device, str(bundle), timeout=300)
     assert installed.returncode == 0, installed.stderr
@@ -437,3 +445,113 @@ def test_uikit_application_state_persists_across_launches(frontend, tmp_path: Pa
         ).startswith(container + "/Library/Application Support/"), (container, first.group(1))
     finally:
         _xcrun("simctl", "uninstall", device, identifier, timeout=120)
+
+
+SCENE_MANIFEST = """manifest-version = 1
+[package]
+name = "uikitScenes"
+[[native.bindings]]
+module = "UIKit"
+header = "UIKitBinding.h"
+language = "objective-c"
+standard = "c11"
+os = ["ios"]
+symbols = ["UIApplicationMain", "-[UIApplicationDelegate applicationDidFinishLaunching:]", "-[UIApplicationDelegate application:configurationForConnectingSceneSession:options:]", "+[UISceneConfiguration configurationWithName:sessionRole:]", "-[UISceneConfiguration setDelegateClass:]", "-[UISceneSession role]", "-[UIWindow initWithWindowScene:]", "-[UIWindow makeKeyAndVisible]", "-[UIWindow isKeyWindow]", "-[UISceneDelegate scene:willConnectToSession:options:]", "-[UISceneDelegate sceneDidBecomeActive:]", "-[UISceneDelegate sceneDidDisconnect:]"]
+[native.bindings.callbacks."UIApplicationMain.delegateClassName"]
+interface = "IApplicationDelegate"
+lifetime = "instantiated"
+scope = "process"
+failure = "abort"
+executor = "caller"
+methods = ["-[UIApplicationDelegate applicationDidFinishLaunching:]", "-[UIApplicationDelegate application:configurationForConnectingSceneSession:options:]"]
+[native.bindings.callbacks."-[UISceneConfiguration setDelegateClass:].delegateClass"]
+interface = "ISceneDelegate"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+methods = ["-[UISceneDelegate scene:willConnectToSession:options:]", "-[UISceneDelegate sceneDidBecomeActive:]", "-[UISceneDelegate sceneDidDisconnect:]"]
+terminal = "-[UISceneDelegate sceneDidDisconnect:]"
+[[native.frameworks]]
+name = "UIKit"
+os = ["ios"]
+[[native.frameworks]]
+name = "Foundation"
+os = ["ios"]
+"""
+
+SCENE_PROGRAM = """import Library.Callback;
+import ./UIKit.btrc;
+#include <stdio.h>
+#include <stdlib.h>
+int scenes = 0;
+class Scene implements ISceneDelegate {
+	private UIWindow? window = null;
+	public void scene(UIScene scene, UISceneSession session, UISceneConnectionOptions options) {
+		UIWindowScene? windowScene = (UIWindowScene?)scene;
+		if (windowScene == null) {
+			printf("btrc-scene connected to a scene that is not a window scene\\n");
+			fflush(stdout);
+			exit(4);
+		}
+		UIWindow window = UIWindow.initWithWindowScene(windowScene);
+		window.makeKeyAndVisible();
+		self.window = window;
+		printf("btrc-scene window scene connected key=%d\\n", (int)window.isKeyWindow());
+		fflush(stdout);
+	}
+	public void sceneDidBecomeActive(UIScene scene) {
+		UIWindow? window = self.window;
+		printf("btrc-scene active scenes=%d window=%d\\n", scenes, (int)(window != null));
+		fflush(stdout);
+		exit(scenes == 1 && window != null ? 0 : 3);
+	}
+	public void sceneDidDisconnect(UIScene scene) { self.window = null; }
+}
+class Scenes implements ISceneDelegateFactory {
+	public ISceneDelegate create() {
+		scenes++;
+		return Scene();
+	}
+}
+class Application implements IApplicationDelegate {
+	public void applicationDidFinishLaunching(UIApplication application) {
+		printf("btrc-scene launched\\n");
+		fflush(stdout);
+	}
+	public UISceneConfiguration application(UIApplication application, UISceneSession session, UISceneConnectionOptions options) {
+		UISceneConfiguration configuration = UISceneConfiguration.configurationWithName(null, session.role());
+		configuration.setDelegateClass(Scenes());
+		printf("btrc-scene configured\\n");
+		fflush(stdout);
+		return configuration;
+	}
+}
+int main(int argc, char** argv) { return UIApplicationMain(argc, argv, null, Application()); }
+"""
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_uikit_scene_lifecycle_runs_through_btrc(frontend, tmp_path: Path, request) -> None:
+    """The UIScene life cycle: the app delegate configures each scene with a generated scene delegate class.
+
+    UIKit asks the application delegate for a configuration, instantiates the
+    configuration's delegate class (scope = "instance"), and connects the
+    scene; the receiver downcasts it to UIWindowScene with a checked cast and
+    shows a window. The scene manifest has no static configurations.
+    """
+    sdk = _sdk()
+    if sdk is None:
+        pytest.skip("the iphonesimulator SDK is Mac-bound (xcrun)")
+    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+    root = tmp_path / "project"
+    source = _project(root, SCENE_MANIFEST, SCENE_PROGRAM)
+    manifest = {"UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False}}
+    output = _launch(frontend, root, source, f"{BUNDLE_IDENTIFIER}.scenes.{frontend}", btrcc, sdk, manifest)
+    for line in (
+        "btrc-scene launched",
+        "btrc-scene configured",
+        "btrc-scene window scene connected key=1",
+        "btrc-scene active scenes=1 window=1",
+    ):
+        assert line in output, output
