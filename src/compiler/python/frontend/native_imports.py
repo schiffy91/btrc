@@ -582,12 +582,16 @@ class NativeControlActionProjection:
 
 @dataclass(frozen=True)
 class NativeInstantiatedProjection:
-    """An adapter class the SDK instantiates by name, answering protocol methods for one receiver.
+    """An adapter class the SDK instantiates itself, answering protocol methods for one receiver.
 
-    The entry function's class-name parameter becomes the receiver. With
-    `scope = "process"` the generated class is a permanent root: its first
+    With `scope = "process"` an entry function's class-name parameter becomes
+    the receiver, and the generated class is a permanent root: its first
     `-init` claims the receiver for the rest of the process, and a second
-    instantiation aborts (native-interop-ownership.md section 2.2).
+    instantiation aborts. With `scope = "instance"` an Objective-C method's
+    Class parameter becomes `factory`, a generated interface whose create()
+    gives each instance its own receiver, released after the terminal method
+    (methods[terminal_index]) or at dealloc (native-interop-ownership.md
+    section 2.2).
     """
 
     interface: str
@@ -598,6 +602,13 @@ class NativeInstantiatedProjection:
     one_shot: bool = False
     unregister: None = None
     field: str = ""
+    terminal_index: int = -1
+    factory: str = ""
+
+    @property
+    def parameter_interface(self):
+        """The BTRC type of the projected parameter: the receiver, or for instances its factory."""
+        return self.factory or self.interface
 
     @property
     def context_index(self):
@@ -2842,11 +2853,13 @@ class NativeDeclarationImporter:
             binding.interface, index, declaration, binding.activation_failure, getter, protocol, methods
         )
 
-    def _protocol_methods(self, binding, index, protocol):
+    def _protocol_methods(self, binding, index, protocol, *, object_results=False):
         """Project the selected protocol methods into the binding's interface.
 
         Every method must be a non-consuming instance requirement of
         `protocol`; an empty `protocol` takes the first method's protocol.
+        Instantiated adapters may also return managed Objective-C objects
+        (`object_results`): the receiver's claim is transferred to the SDK.
         """
         methods = []
         names = set()
@@ -2874,7 +2887,12 @@ class NativeDeclarationImporter:
             if name in names:
                 raise NativeImportError(f"ambiguous delegate method projection: {name}")
             names.add(name)
-            return_type = self._objective_c_scalar(method.signature.return_type)
+            return_type = (
+                self._objective_c_type(method.signature.return_type)
+                if object_results
+                and isinstance(self._unqualified_native(method.signature.return_type), NativeObjectiveCObject)
+                else self._objective_c_scalar(method.signature.return_type)
+            )
             parameters = tuple(
                 self._objective_c_type(parameter, parameter=True) for parameter in method.signature.parameters
             )
@@ -2910,8 +2928,50 @@ class NativeDeclarationImporter:
         return tuple(methods)
 
     def _project_instantiated(self, declaration, binding, index):
-        """The class-name parameter of an entry function names a generated adapter class."""
+        """The SDK instantiates a generated adapter class from its name or its class object.
+
+        With scope = "process" the NSString class-name parameter of a C entry
+        (UIApplicationMain) names the class. With scope = "instance" the Class
+        parameter of a void Objective-C instance method (-[UISceneConfiguration
+        setDelegateClass:]) receives it, and BTRC passes I<Interface>Factory,
+        a generated interface whose create() supplies each instance's receiver.
+        """
         argument = self._unqualified_native(declaration.signature.parameters[index])
+        if binding.scope == "instance":
+            result = self._unqualified_native(declaration.signature.return_type)
+            if (
+                not isinstance(declaration, NativeObjectiveCMethod)
+                or declaration.class_method
+                or len(declaration.signature.parameters) != 1
+                or not isinstance(result, NativeBuiltin)
+                or result.name != "void"
+                or not isinstance(argument, NativeObjectiveCObject)
+                or not argument.class_object
+                or argument.protocols
+                or argument.type_arguments
+            ):
+                raise NativeImportError(
+                    "instance-scoped instantiated adapters require a Class parameter of a void Objective-C instance method"
+                )
+            methods = self._protocol_methods(binding, index, "", object_results=True)
+            factory = binding.interface + "Factory"
+            self._add(
+                factory,
+                ast.InterfaceDecl(
+                    name=factory,
+                    methods=[ast.MethodSig(name="create", return_type=ast.TypeExpr(base=binding.interface), params=[])],
+                ),
+                ("instantiated-factory", binding.interface),
+            )
+            return NativeInstantiatedProjection(
+                binding.interface,
+                index,
+                methods[0].native_method.receiver,
+                binding.scope,
+                methods,
+                terminal_index=binding.methods.index(binding.terminal),
+                factory=factory,
+            )
         if (
             not isinstance(declaration, NativeFunction)
             or not isinstance(argument, NativeObjectiveCObject)
@@ -2921,7 +2981,7 @@ class NativeDeclarationImporter:
             or argument.type_arguments
         ):
             raise NativeImportError("instantiated adapters require an NSString class-name parameter of a C function")
-        methods = self._protocol_methods(binding, index, "")
+        methods = self._protocol_methods(binding, index, "", object_results=True)
         return NativeInstantiatedProjection(
             binding.interface, index, methods[0].native_method.receiver, binding.scope, methods
         )
@@ -5620,7 +5680,11 @@ class NativeDeclarationImporter:
             ),
             params=[
                 ast.Param(
-                    type=ast.TypeExpr(base=projected[index].interface)
+                    type=ast.TypeExpr(
+                        base=projected[index].parameter_interface
+                        if isinstance(projected[index], NativeInstantiatedProjection)
+                        else projected[index].interface
+                    )
                     if index in projected
                     else self._objective_c_type(native, parameter=True),
                     name=f"argument{index}",

@@ -180,8 +180,26 @@ def test_instantiated_application_delegate(
 @pytest.mark.parametrize(
     ("file", "old", "new", "message"),
     [
-        ("btrc.toml", 'scope = "process"', 'scope = "instance"', "scope currently requires process"),
-        ("btrc.toml", 'scope = "process"\n', "", "scope currently requires process"),
+        ("btrc.toml", 'scope = "process"', 'scope = "thread"', "scope requires process or instance"),
+        ("btrc.toml", 'scope = "process"\n', "", "scope requires process or instance"),
+        (
+            "btrc.toml",
+            'scope = "process"',
+            'scope = "instance"',
+            "instance-scoped instantiated adapters require terminal",
+        ),
+        (
+            "btrc.toml",
+            'scope = "process"',
+            'scope = "instance"\nterminal = "-[NativeApplicationDelegate willTerminate:]"',
+            "require a Class parameter of a void Objective-C instance method",
+        ),
+        (
+            "btrc.toml",
+            'scope = "process"',
+            'scope = "process"\nterminal = "-[NativeApplicationDelegate willTerminate:]"',
+            "terminal requires scope instance",
+        ),
         (
             "btrc.toml",
             'methods = ["-[NativeApplicationDelegate didLaunch:]", "-[NativeApplicationDelegate willTerminate:]"]',
@@ -242,3 +260,263 @@ def test_instantiated_adapter_requires_the_callback_library(instantiated_project
     assert "Instantiated native adapters require import Library.Callback" in str(compiled.failure) + str(
         compiled.diagnostics
     )
+
+
+# Instance scope: the SDK takes a class, not a name, and creates one adapter per
+# instance (-[UISceneConfiguration setDelegateClass:] and its scene delegates).
+# This proxy configuration instantiates its delegate class twice, as UIKit does
+# for two scenes, delivers protocol methods, ends one instance with the terminal
+# method and deallocates both.
+
+SCENE_HEADER = """#import <Foundation/Foundation.h>
+@class NativeScene;
+@protocol NativeSceneDelegate <NSObject>
+- (void)sceneWillConnect:(NativeScene * _Nonnull)scene;
+- (BOOL)sceneShouldUpdate:(NativeScene * _Nonnull)scene;
+- (void)sceneDidDisconnect:(NativeScene * _Nonnull)scene;
+- (NativeScene * _Nullable)sceneCurrent:(NativeScene * _Nonnull)scene;
+@end
+@interface NativeScene : NSObject
+- (int)identifier;
+@end
+@interface NativeSceneConfiguration : NSObject
+@property (nonatomic, nullable) Class delegateClass;
++ (NativeSceneConfiguration * _Nonnull)make;
++ (void)registerClass:(Class _Nullable)type;
+- (int)connect:(int)mode;
+- (void)dropFirst;
+@end
+"""
+
+SCENE_PROBE = """#import "Foundation.h"
+#include <pthread.h>
+@implementation NativeScene { int _identifier; }
+- (instancetype)initWithIdentifier:(int)identifier { self = [super init]; if (self) _identifier = identifier; return self; }
+- (int)identifier { return _identifier; }
+@end
+static Class workerType;
+static id<NativeSceneDelegate> dropped;
+static void *worker(void *unused) {
+    (void)unused;
+    @autoreleasepool { [[[workerType alloc] init] release]; }
+    return NULL;
+}
+@implementation NativeSceneConfiguration
+@synthesize delegateClass = _delegateClass;
++ (NativeSceneConfiguration *)make { return [[[NativeSceneConfiguration alloc] init] autorelease]; }
++ (void)registerClass:(Class)type { (void)type; }
+- (void)dropFirst { [dropped release]; dropped = nil; }
+- (int)connect:(int)mode {
+    /* Mode 3 instantiates the generated class before any factory exists. */
+    Class type = mode == 3 ? NSClassFromString(@"__btrc_objc_NativeSceneConfiguration_setDelegateClassHolder")
+                           : self.delegateClass;
+    if (type == Nil || ![type conformsToProtocol:@protocol(NativeSceneDelegate)]) return -1;
+    if (mode == 2) {
+        pthread_t thread;
+        workerType = type;
+        if (pthread_create(&thread, NULL, worker, NULL) != 0 || pthread_join(thread, NULL) != 0) return -3;
+        return 98;
+    }
+    NativeScene *a = [[NativeScene alloc] initWithIdentifier:1];
+    NativeScene *b = [[NativeScene alloc] initWithIdentifier:2];
+    id<NativeSceneDelegate> first = [[type alloc] init];
+    [first sceneWillConnect:a];
+    id<NativeSceneDelegate> second = [[type alloc] init];
+    [second sceneWillConnect:b];
+    if (mode == 4) {
+        /* The receiver releases the first instance from inside its own method. */
+        dropped = first;
+        BOOL kept = [first sceneShouldUpdate:a];
+        [second sceneDidDisconnect:b];
+        [second release];
+        [a release];
+        [b release];
+        return kept && dropped == nil ? 7 : 3;
+    }
+    BOOL updated = [first sceneShouldUpdate:a] && [second sceneShouldUpdate:b];
+    /* An object result is the receiver's claim, handed to the caller. */
+    updated = updated && [second sceneCurrent:b] == b && [second sceneCurrent:a] == nil;
+    [first sceneDidDisconnect:a];
+    [first sceneDidDisconnect:a];
+    [first sceneWillConnect:a];
+    updated = updated && [second sceneShouldUpdate:b];
+    if (mode == 1) (void)[first sceneShouldUpdate:a];
+    [first release];
+    [second release];
+    [a release];
+    [b release];
+    return updated ? 7 : 3;
+}
+@end
+"""
+
+SCENE_MANIFEST = """manifest-version = 1
+[package]
+name = "sceneConsumer"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[NativeSceneConfiguration make]", "-[NativeSceneConfiguration setDelegateClass:]", "-[NativeSceneConfiguration connect:]", "-[NativeSceneConfiguration dropFirst]", "-[NativeScene identifier]", "-[NativeSceneDelegate sceneWillConnect:]", "-[NativeSceneDelegate sceneShouldUpdate:]", "-[NativeSceneDelegate sceneDidDisconnect:]", "-[NativeSceneDelegate sceneCurrent:]"]
+[native.bindings.callbacks."-[NativeSceneConfiguration setDelegateClass:].delegateClass"]
+interface = "ISceneDelegate"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+methods = ["-[NativeSceneDelegate sceneWillConnect:]", "-[NativeSceneDelegate sceneShouldUpdate:]", "-[NativeSceneDelegate sceneDidDisconnect:]", "-[NativeSceneDelegate sceneCurrent:]"]
+terminal = "-[NativeSceneDelegate sceneDidDisconnect:]"
+[[native.sources]]
+path = "Probe.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+[[native.frameworks]]
+name = "Foundation"
+os = ["macos"]
+"""
+
+SCENE_PROGRAM = """import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+int mode = MODE;
+int created = 0;
+int destroyed = 0;
+int factoriesDestroyed = 0;
+int connects = 0;
+int updates = 0;
+int disconnects = 0;
+NativeSceneConfiguration? shared = null;
+class Scene implements ISceneDelegate {
+	private int tag;
+	public Scene(int tag) { self.tag = tag; }
+	public void sceneWillConnect(NativeScene scene) {
+		connects++;
+		// A replacement factory serves later instances; this one keeps its receiver.
+		NativeSceneConfiguration? configuration = shared;
+		if (self.tag == 2 && configuration != null) { configuration.setDelegateClass(Factory(3)); }
+	}
+	public bool sceneShouldUpdate(NativeScene scene) {
+		updates++;
+		NativeSceneConfiguration? configuration = shared;
+		if (mode == 4 && self.tag == 2 && configuration != null) { configuration.dropFirst(); }
+		// The first instance's receiver is released after its terminal method, before its dealloc.
+		return scene.identifier() == (self.tag == 2 ? 1 : 2) && (updates < 3 || destroyed == 1);
+	}
+	public void sceneDidDisconnect(NativeScene scene) { disconnects++; }
+	public NativeScene? sceneCurrent(NativeScene scene) { return scene.identifier() == 2 ? scene : null; }
+	public void __del__() { destroyed++; }
+}
+class Factory implements ISceneDelegateFactory {
+	private int tag;
+	public Factory(int tag) { self.tag = tag; }
+	public ISceneDelegate create() {
+		created++;
+		if (self.tag < 0) { return null; }
+		return Scene(self.tag);
+	}
+	public void __del__() { factoriesDestroyed++; }
+}
+int main() {
+	NativeSceneConfiguration configuration = NativeSceneConfiguration.make();
+	shared = configuration;
+	SETUP
+	int status = configuration.connect(mode);
+	assert(status == 7 && created == 2 && connects == 2 && disconnects == 1);
+	assert(updates == (mode == 4 ? 1 : 3));
+	// Both receivers are gone; two factories were replaced, the third stays rooted.
+	assert(destroyed == 2 && factoriesDestroyed == 2);
+	shared = null;
+	return 0;
+}
+"""
+
+SCENE_SETUP = (
+    "configuration.setDelegateClass(Factory(1));\n"
+    "\tconfiguration.setDelegateClass(Factory(2));\n"
+    "\tassert(factoriesDestroyed == 1 && created == 0);"
+)
+
+
+@pytest.fixture
+def scene_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text(SCENE_HEADER)
+    (root / "Probe.m").write_text(SCENE_PROBE)
+    (root / "btrc.toml").write_text(SCENE_MANIFEST)
+    (source.parent / "Foundation.btrc").write_text("")
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize(
+    ("scenario", "mode", "setup", "failure"),
+    [
+        ("lifecycle", 0, SCENE_SETUP, None),
+        ("released-during-delivery", 4, SCENE_SETUP, None),
+        ("value-after-terminal", 1, SCENE_SETUP, ""),
+        ("wrong-thread", 2, SCENE_SETUP, "Callback root requires its creating thread"),
+        ("null-receiver", 0, "configuration.setDelegateClass(Factory(-1));", "factory returned no receiver"),
+        ("no-factory", 3, "", ""),
+    ],
+)
+def test_instance_scoped_scene_delegates(scene_project, native_compile, sanitize, scenario, mode, setup, failure):
+    source = scene_project
+    source.write_text(SCENE_PROGRAM.replace("MODE", str(mode)).replace("SETUP", setup))
+    completed = _build_and_run(source, native_compile, sanitize)
+    if failure is None:
+        assert completed.returncode == 0, completed.stderr
+    else:
+        assert completed.returncode == -6, (scenario, completed.returncode, completed.stderr)
+        assert failure in completed.stderr
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+SCENE_SETTER = '"-[NativeSceneConfiguration setDelegateClass:]", '
+SCENE_KEY = '"-[NativeSceneConfiguration setDelegateClass:].delegateClass"'
+SCENE_TERMINAL = 'terminal = "-[NativeSceneDelegate sceneDidDisconnect:]"\n'
+
+
+@pytest.mark.parametrize(
+    ("replacements", "message"),
+    [
+        ([(SCENE_TERMINAL, "")], "instance-scoped instantiated adapters require terminal"),
+        (
+            [(SCENE_TERMINAL, 'terminal = "-[NativeScene identifier]"\n')],
+            "terminal must name one of methods",
+        ),
+        (
+            [(SCENE_SETTER, ""), (SCENE_KEY, '"-[NativeSceneConfiguration connect:].mode"')],
+            "require a Class parameter of a void Objective-C instance method",
+        ),
+        (
+            [
+                (SCENE_SETTER, '"+[NativeSceneConfiguration registerClass:]", '),
+                (SCENE_KEY, '"+[NativeSceneConfiguration registerClass:].type"'),
+            ],
+            "require a Class parameter of a void Objective-C instance method",
+        ),
+        ([('scope = "instance"', 'scope = "process"'), (SCENE_TERMINAL, "")], "NSString class-name parameter"),
+        ([('scope = "instance"', 'scope = "process"')], "terminal requires scope instance"),
+        (
+            [('terminal = "', 'unregister = "-[NativeSceneConfiguration connect:]"\nterminal = "')],
+            "take only methods",
+        ),
+    ],
+)
+def test_instance_scoped_adapter_rejects_unchecked_mapping(scene_project, native_compile, replacements, message):
+    source = scene_project
+    path = source.parent.parent / "btrc.toml"
+    manifest = path.read_text()
+    for old, new in replacements:
+        assert old in manifest
+        manifest = manifest.replace(old, new)
+    path.write_text(manifest)
+    source.write_text("import Library.Callback;\nimport ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert message in str(compiled.failure) + str(compiled.diagnostics)

@@ -451,7 +451,8 @@ class FeNativeRealtimeCallbackBinding {
 
 class FeNativeCallbackBinding {
 	public FeNativeRealtimeCallbackBinding? realtime = null;
-	/* "process" for an adapter the SDK instantiates by class name. */
+	/* "process" for an adapter the SDK instantiates by class name, "instance"
+	 * for one it instantiates from a class once per instance. */
 	public string scope = "";
 	/* Stored C registrations: the integer statuses meaning success, and the
 	 * registration arguments the unregister call receives again. */
@@ -461,6 +462,9 @@ class FeNativeCallbackBinding {
 	/* Control actions (UIKit addTarget:action:forControlEvents:): the selector
 	 * parameter the compiler fills with its own action. */
 	public string actionParameter = "";
+	/* Instance-scoped instantiated adapters: the selected method after which
+	 * the generated object releases its receiver. */
+	public string terminal = "";
 	public string field = "";
 	public Vector<int> ownedArguments = [];
 	public Vector<string> methods = [];
@@ -551,9 +555,15 @@ class FeNativeCallbackProjection {
 	public NativeNode? actionGetter = null;
 	public string delegateProtocol = "";
 	public Vector<FeNativeCallbackProjection> delegateMethods = [];
-	/* An adapter the SDK instantiates by class name (scope = "process"); it
-	 * answers `delegateMethods` of `delegateProtocol` for one receiver. */
+	/* An adapter the SDK instantiates itself; it answers `delegateMethods` of
+	 * `delegateProtocol` for one receiver. With scope = "process" an entry's
+	 * class-name parameter is the receiver. With scope = "instance" an
+	 * Objective-C method's Class parameter takes `factoryInterface`, whose
+	 * create() gives each instance its receiver, released after
+	 * delegateMethods[terminalIndex] or at dealloc. */
 	public string instantiatedScope = "";
+	public string factoryInterface = "";
+	public int terminalIndex = -1;
 	/* Stored C registrations: every registration parameter carrying the
 	 * context, the slots' representation ("pointer" or the shared integer
 	 * builtin), the success statuses, each unregister argument's source

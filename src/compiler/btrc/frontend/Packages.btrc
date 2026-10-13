@@ -808,7 +808,7 @@ class FeManifestBlock {
 			if (parts.len == 5 && parts.get(3) == "operations" && self.identifier(parts.get(4)) && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string field = parts.get(3);
-			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "action-parameter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "action-parameter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles" && field != "terminal") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
 			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
 		}
 		for name in self.callbackNames.keys() {
@@ -829,14 +829,15 @@ class FeManifestBlock {
 			if (lifetime != "call" && lifetime != "stored" && lifetime != "one-shot" && lifetime != "instantiated") { FePackageFailure.fail("callback lifetime requires call, stored, one-shot or instantiated"); }
 			string scope = self.fields.has(prefix + "scope") ? self.requiredText(prefix + "scope") : "";
 			if (lifetime == "instantiated") {
-				/* The SDK creates the adapter by class name (UIApplicationMain);
-				 * the binding only names the protocol methods it answers. */
+				/* The SDK creates the adapter from a class name (UIApplicationMain)
+				 * or a class (a scene configuration); the binding only names the
+				 * protocol methods it answers. */
 				if (binding.language != "objective-c" || hasContext) { FePackageFailure.fail("instantiated adapters require an Objective-C binding without context"); }
-				if (scope != "process") { FePackageFailure.fail("instantiated adapter scope currently requires process"); }
+				if (scope != "process" && scope != "instance") { FePackageFailure.fail("instantiated adapter scope requires process or instance"); }
 				for field in ["unregister", "activation-failure", "cancellation", "slot-getter", "action-setter", "action-getter", "action-parameter", "owned-arguments", "field"] {
-					if (self.fields.has(prefix + field)) { FePackageFailure.fail("instantiated adapters take only methods, scope, failure and executor"); }
+					if (self.fields.has(prefix + field)) { FePackageFailure.fail("instantiated adapters take only methods, scope, terminal, failure and executor"); }
 				}
-			} else if (self.fields.has(prefix + "scope")) { FePackageFailure.fail("callback scope requires an instantiated adapter"); }
+			} else if (self.fields.has(prefix + "scope") || self.fields.has(prefix + "terminal")) { FePackageFailure.fail("callback scope and terminal require an instantiated adapter"); }
 			var realtime = self.realtimeCallback(binding, prefix, lifetime, interfaceName);
 			bool controlAction = self.fields.has(prefix + "action-parameter");
 			if (controlAction) {
@@ -916,6 +917,15 @@ class FeManifestBlock {
 					if (!binding.symbols.contains(method)) { FePackageFailure.fail("instantiated methods must name selected native methods"); }
 					if (seen.has(method)) { FePackageFailure.fail("instantiated methods contains duplicate methods"); }
 					seen.put(method, true);
+				}
+				/* An instance-scoped adapter releases its receiver after the
+				 * terminal method; a process root is never released. */
+				bool terminal = self.fields.has(prefix + "terminal");
+				if (scope == "instance" && !terminal) { FePackageFailure.fail("instance-scoped instantiated adapters require terminal"); }
+				if (scope == "process" && terminal) { FePackageFailure.fail("callback terminal requires scope instance"); }
+				if (terminal) {
+					callback.terminal = self.requiredText(prefix + "terminal");
+					if (!seen.has(callback.terminal)) { FePackageFailure.fail("callback terminal must name one of methods"); }
 				}
 			} else if (self.fields.has(prefix + "methods") || self.fields.has(prefix + "slot-getter") || action) {
 				if (lifetime != "stored" || binding.language != "objective-c" || hasContext) { FePackageFailure.fail("delegate methods require a stored Objective-C callback"); }

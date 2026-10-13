@@ -1164,23 +1164,49 @@ class FeNativeDeclarationImporter {
 		return projection;
 	}
 
-	/* An SDK entry's class-name parameter names a generated adapter class the
-	 * SDK instantiates itself (UIApplicationMain's delegate). */
+	/* The SDK instantiates a generated adapter class from its name or its class
+	 * object. With scope = "process" the NSString class-name parameter of a C
+	 * entry (UIApplicationMain) names the class. With scope = "instance" the
+	 * Class parameter of a void Objective-C instance method
+	 * (-[UISceneConfiguration setDelegateClass:]) receives it, and BTRC passes
+	 * I<Interface>Factory, a generated interface whose create() supplies each
+	 * instance's receiver. */
 	private FeNativeCallbackProjection projectInstantiated(NativeNode declaration, FeNativeCallbackBinding binding, int index) {
 		NativeNode argument = self.unqualifiedNative(declaration.signature.parameters.get(index));
-		if (declaration.kind != NNK_NATIVE_FUNCTION || argument.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || argument.name != "NSString" || argument.protocols.len > 0 || argument.classObject || argument.typeArguments.len > 0) { self.fail("instantiated adapters require an NSString class-name parameter of a C function"); }
 		Node voidType = self.node(NK_TYPE_EXPR);
 		voidType.base = "void";
+		if (binding.scope == "instance") {
+			NativeNode result = self.unqualifiedNative(declaration.signature.returnType);
+			if (declaration.kind != NNK_NATIVE_OBJECTIVE_C_METHOD || declaration.classMethod || declaration.signature.parameters.len != 1 || result.kind != NNK_NATIVE_BUILTIN || result.name != "void" || argument.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || !argument.classObject || argument.protocols.len > 0 || argument.typeArguments.len > 0) { self.fail("instance-scoped instantiated adapters require a Class parameter of a void Objective-C instance method"); }
+			var instance = FeNativeCallbackProjection(binding.interfaceName, index, -1, -1, voidType);
+			instance.instantiatedScope = binding.scope;
+			self.protocolMethods(binding, index, instance, true);
+			instance.factoryInterface = binding.interfaceName + "Factory";
+			instance.terminalIndex = binding.methods.indexOf(binding.terminal);
+			Node receiver = self.node(NK_TYPE_EXPR);
+			receiver.base = binding.interfaceName;
+			Node create = self.node(NK_METHOD_SIG);
+			create.name = "create";
+			create.returnType = receiver;
+			Node factory = self.node(NK_INTERFACE_DECL);
+			factory.name = instance.factoryInterface;
+			factory.methodsStorage = [create];
+			self.add(instance.factoryInterface, factory, "instantiated-factory:" + binding.interfaceName);
+			return instance;
+		}
+		if (declaration.kind != NNK_NATIVE_FUNCTION || argument.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || argument.name != "NSString" || argument.protocols.len > 0 || argument.classObject || argument.typeArguments.len > 0) { self.fail("instantiated adapters require an NSString class-name parameter of a C function"); }
 		var projection = FeNativeCallbackProjection(binding.interfaceName, index, -1, -1, voidType);
 		projection.instantiatedScope = binding.scope;
-		self.protocolMethods(binding, index, projection);
+		self.protocolMethods(binding, index, projection, true);
 		return projection;
 	}
 
 	/* Project the selected protocol methods into the binding's interface. Each
 	 * is a non-consuming instance requirement of the projection's protocol; an
-	 * empty protocol takes the first method's. */
-	private void protocolMethods(FeNativeCallbackBinding binding, int index, FeNativeCallbackProjection projection) {
+	 * empty protocol takes the first method's. Instantiated adapters may also
+	 * return managed Objective-C objects (`objectResults`): the receiver's
+	 * claim is transferred to the SDK. */
+	private void protocolMethods(FeNativeCallbackBinding binding, int index, FeNativeCallbackProjection projection, bool objectResults = false) {
 		Node projectedInterface = self.node(NK_INTERFACE_DECL);
 		projectedInterface.name = binding.interfaceName;
 		Map<string, bool> names = {};
@@ -1194,7 +1220,7 @@ class FeNativeDeclarationImporter {
 			string name = Strings.split(method.selector, ":").get(0);
 			if (names.has(name)) { self.fail(f"ambiguous delegate method projection: {name}"); }
 			names.put(name, true);
-			Node returnType = self.objectiveCScalar(method.signature.returnType);
+			Node returnType = objectResults && self.unqualifiedNative(method.signature.returnType).kind == NNK_NATIVE_OBJECTIVE_C_OBJECT ? self.objectiveCType(method.signature.returnType) : self.objectiveCScalar(method.signature.returnType);
 			var callback = FeNativeCallbackProjection(binding.interfaceName, index, -1, method.signature.parameters.len, returnType);
 			callback.methodName = name;
 			callback.nativeMethod = method;
@@ -2752,7 +2778,8 @@ class FeNativeDeclarationImporter {
 			parameter.name = f"argument{index}";
 			if (callbacks.has(index)) {
 				parameter.type = self.node(NK_TYPE_EXPR);
-				parameter.type.base = callbacks.get(index).interfaceName;
+				/* An instance-scoped instantiated adapter takes its factory. */
+				parameter.type.base = callbacks.get(index).factoryInterface.isEmpty() ? callbacks.get(index).interfaceName : callbacks.get(index).factoryInterface;
 			} else { parameter.type = self.objectiveCType(declaration.signature.parameters.get(index), true); }
 			method.paramsMut().push(parameter);
 		}
