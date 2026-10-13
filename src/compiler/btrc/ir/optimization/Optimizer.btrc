@@ -75,6 +75,7 @@ class IROptimizer {
 		self.setjmpSafety.apply(module);
 		BtrccPhaseTimer.mark("o-setjmp");
 		CleanupSlotValidator(module).validate();
+		JavaAdapterValidator(module).validate();
 		BtrccPhaseTimer.mark("o-cleanup");
 		if (eliminateDeadCode) {
 			self.eliminateUnreachable(module);
@@ -116,6 +117,7 @@ class IROptimizer {
 		RealtimeIRVerifier(module).validate(module);
 		self.setjmpSafety.applySolved(module, setjmpEffects);
 		CleanupSlotValidator(module).validate();
+		JavaAdapterValidator(module).validate();
 		if (eliminateDeadCode) {
 			self.eliminateUnreachable(module);
 		}
