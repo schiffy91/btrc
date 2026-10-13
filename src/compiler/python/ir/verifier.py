@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
 from .nodes import (
     CType,
     GpuDispatchNames,
     IRAddressOf,
+    IRAssign,
+    IRBinOp,
     IRBlock,
     IRCall,
     IRCast,
@@ -17,10 +20,12 @@ from .nodes import (
     IRCxxDelete,
     IRCxxExceptionBoundary,
     IRCxxNew,
+    IRDeref,
     IRDesignation,
     IRDoWhile,
     IREnumDef,
     IRExpr,
+    IRExprStmt,
     IRFieldAccess,
     IRFor,
     IRFunctionDecl,
@@ -30,6 +35,7 @@ from .nodes import (
     IRGlobalDecl,
     IRGpuKernel,
     IRHelperDecl,
+    IRIf,
     IRInclude,
     IRIndex,
     IRInitializerList,
@@ -45,6 +51,7 @@ from .nodes import (
     IRObjectiveCMessage,
     IRObjectiveCMethod,
     IRObjectiveCSelector,
+    IRReturn,
     IRStructDef,
     IRStructField,
     IRStructForward,
@@ -56,8 +63,41 @@ from .nodes import (
 )
 
 
+@dataclass(frozen=True)
+class JavaFrameState:
+    """Rule 2 flow facts at one point of a JNI adapter.
+
+    `pushed` holds while the adapter's local frame is pushed; `registered`
+    names cleanup-registered slots; `pending` names owners created inside the
+    frame that no cleanup slot protects yet.
+    """
+
+    pushed: bool = False
+    registered: frozenset[str] = frozenset()
+    pending: frozenset[str] = frozenset()
+
+
 class IRVerifier:
     """Validate translation-unit schema and typed cleanup metadata."""
+
+    # JNI calls that never leave an exception pending (native-interop-ownership.md
+    # section 2.3, F1), beside every Release* slot.
+    _JNI_NON_THROWING: ClassVar[frozenset[str]] = frozenset(
+        {
+            "ExceptionCheck",
+            "ExceptionClear",
+            "ExceptionOccurred",
+            "ExceptionDescribe",
+            "DeleteLocalRef",
+            "DeleteGlobalRef",
+            "DeleteWeakGlobalRef",
+            "PopLocalFrame",
+        }
+    )
+    # Library.Java helpers that leave a Java exception pending, checked like a JNI call.
+    _JNI_HELPERS: ClassVar[frozenset[str]] = frozenset(
+        {"btrcJavaClass", "btrcJavaMethod", "btrcJavaField", "btrcJavaNewString"}
+    )
 
     _REGISTER_ARITY: ClassVar[dict[str, int]] = {
         "__btrc_register_cleanup": 4,
@@ -102,9 +142,198 @@ class IRVerifier:
         self.validate_schema()
         self._functions = {function.name: function for function in self.module.function_defs}
         self._validate_cleanup_slots()
+        self.validate_java_adapters()
         self.validate_type_declarations()
         for unit in self.module.native_units.values():
             IRVerifier(unit).validate()
+
+    def validate_java_adapters(self) -> None:
+        """Rule 2: every generated JNI adapter checks, frames and protects as section 2.3 requires.
+
+        A JNI adapter declares the thread's environment from btrcJavaEnvironment.
+        In one, every throwing env call (and every Library.Java helper that can
+        leave an exception pending) is immediately followed by its
+        ExceptionCheck branch; every path a successful PushLocalFrame dominates
+        passes PopLocalFrame, or the translation that pops; and an owner created
+        inside the frame is registered in a cleanup slot before the next
+        throwing call.
+        """
+        for function in self.module.function_defs:
+            environment = next(
+                (
+                    node.name
+                    for node in IRNode.walk_value(function.body)
+                    if isinstance(node, IRVarDecl)
+                    and isinstance(node.init, IRCall)
+                    and node.init.callee == "btrcJavaEnvironment"
+                ),
+                None,
+            )
+            if environment is None:
+                continue
+            state = self._java_block(function.name, environment, function.body.stmts, JavaFrameState())
+            if state is not None and state.pushed:
+                raise ValueError(f"Java adapter {function.name} returns with its local frame pushed")
+
+    @staticmethod
+    def _java_slot(node: object, environment: str) -> str | None:
+        """The JNI function-table slot `node` calls through the adapter's environment."""
+        if (
+            isinstance(node, IRCall)
+            and isinstance(node.callee, IRFieldAccess)
+            and node.callee.arrow
+            and isinstance(node.callee.obj, IRDeref)
+            and isinstance(node.callee.obj.expr, IRVar)
+            and node.callee.obj.expr.name == environment
+        ):
+            return node.callee.field
+        return None
+
+    def _java_throwing(self, node: object, environment: str) -> str | None:
+        slot = self._java_slot(node, environment)
+        if slot is not None:
+            throwing = (
+                slot not in self._JNI_NON_THROWING and slot != "PushLocalFrame" and not slot.startswith("Release")
+            )
+            return slot if throwing else None
+        if isinstance(node, IRCall) and isinstance(node.callee, str) and node.callee in self._JNI_HELPERS:
+            return node.callee
+        return None
+
+    @staticmethod
+    def _java_expressions(statement: object) -> list[object]:
+        if isinstance(statement, IRVarDecl):
+            return [statement.init, statement.array_size]
+        if isinstance(statement, IRAssign):
+            return [statement.target, statement.value]
+        if isinstance(statement, (IRExprStmt, IRReturn)):
+            return [statement.expr if isinstance(statement, IRExprStmt) else statement.value]
+        if isinstance(statement, IRIf):
+            return [statement.condition]
+        return []
+
+    def _java_exception_check(self, statement: object, environment: str) -> bool:
+        return (
+            isinstance(statement, IRIf)
+            and self._java_slot(statement.condition, environment) == "ExceptionCheck"
+            and statement.else_block is None
+        )
+
+    def _java_block(self, name, environment, statements, state):
+        """Walk one statement list; the state where it falls through, or None when it never does."""
+        for index, statement in enumerate(statements):
+            nodes = [node for value in self._java_expressions(statement) for node in IRNode.walk_value(value)]
+            throwing = [slot for node in nodes if (slot := self._java_throwing(node, environment))]
+            slots = [slot for node in nodes if (slot := self._java_slot(node, environment))]
+            if len(throwing) > 1:
+                raise ValueError(f"Java adapter {name}: {throwing[0]} and {throwing[1]} share one statement")
+            if throwing:
+                if not state.pushed:
+                    raise ValueError(f"Java adapter {name}: {throwing[0]} runs outside its local frame")
+                if state.pending:
+                    raise ValueError(
+                        f"Java adapter {name}: owner {sorted(state.pending)[0]} is not registered before {throwing[0]}"
+                    )
+                following = statements[index + 1] if index + 1 < len(statements) else None
+                if not self._java_exception_check(following, environment):
+                    raise ValueError(f"Java adapter {name}: {throwing[0]} is not followed by its ExceptionCheck branch")
+            if "PushLocalFrame" in slots:
+                condition = statement.condition if isinstance(statement, IRIf) else None
+                if (
+                    not isinstance(condition, IRBinOp)
+                    or condition.op != "!="
+                    or self._java_slot(condition.left, environment) != "PushLocalFrame"
+                    or statement.else_block is not None
+                ):
+                    raise ValueError(f"Java adapter {name}: PushLocalFrame must be checked by its failure branch")
+                if state.pushed:
+                    raise ValueError(f"Java adapter {name}: PushLocalFrame runs inside a pushed frame")
+                if self._java_block(name, environment, statement.then_block.stmts, state) is not None:
+                    raise ValueError(f"Java adapter {name}: a failed PushLocalFrame continues")
+                state = replace(state, pushed=True)
+                continue
+            for node in nodes:
+                if not isinstance(node, IRCall) or not isinstance(node.callee, str):
+                    if self._java_slot(node, environment) == "PopLocalFrame":
+                        if not state.pushed:
+                            raise ValueError(f"Java adapter {name}: PopLocalFrame pops a frame it did not push")
+                        state = replace(state, pushed=False)
+                    continue
+                if node.callee in self._REGISTER_ARITY and node.cleanup_slot is not None:
+                    slot_name = node.cleanup_slot.name
+                    state = replace(
+                        state, registered=state.registered | {slot_name}, pending=state.pending - {slot_name}
+                    )
+                if node.callee == "btrcJavaTakeException":
+                    popping = len(node.args) > 1 and isinstance(node.args[1], IRLiteral) and node.args[1].text != "0"
+                    if popping != state.pushed:
+                        raise ValueError(
+                            f"Java adapter {name}: an exception translation "
+                            + ("pops a frame it did not push" if popping else "keeps its frame pushed")
+                        )
+                    state = replace(state, pushed=False)
+            created = (
+                statement.name
+                if isinstance(statement, IRVarDecl)
+                else statement.target.name
+                if isinstance(statement, IRAssign) and isinstance(statement.target, IRVar)
+                else None
+            )
+            value = (
+                statement.init
+                if isinstance(statement, IRVarDecl)
+                else statement.value
+                if isinstance(statement, IRAssign)
+                else None
+            )
+            if (
+                created is not None
+                and state.pushed
+                and isinstance(value, IRCall)
+                and isinstance(value.callee, str)
+                and value.callee.startswith("__btrc_unique_")
+                and value.callee.endswith("_new")
+                and created not in state.registered
+            ):
+                state = replace(state, pending=state.pending | {created})
+            if isinstance(statement, IRReturn):
+                if state.pushed:
+                    raise ValueError(f"Java adapter {name} returns with its local frame pushed")
+                return None
+            if (
+                isinstance(statement, IRExprStmt)
+                and isinstance(statement.expr, IRCall)
+                and statement.expr.never_returns
+            ):
+                if statement.expr.callee == "__btrc_throw" and state.pushed:
+                    raise ValueError(f"Java adapter {name} throws with its local frame pushed")
+                return None
+            if isinstance(statement, IRBlock):
+                state = self._java_block(name, environment, statement.stmts, state)
+                if state is None:
+                    return None
+            elif isinstance(statement, IRIf):
+                then_state = self._java_block(name, environment, statement.then_block.stmts, state)
+                else_state = (
+                    state
+                    if statement.else_block is None
+                    else self._java_block(name, environment, statement.else_block.stmts, state)
+                )
+                if then_state is None or else_state is None:
+                    state = then_state or else_state
+                    if state is None:
+                        return None
+                elif then_state.pushed != else_state.pushed:
+                    raise ValueError(f"Java adapter {name}: branches leave its local frame in different states")
+                else:
+                    state = JavaFrameState(
+                        then_state.pushed,
+                        then_state.registered & else_state.registered,
+                        then_state.pending | else_state.pending,
+                    )
+            elif not isinstance(statement, (IRVarDecl, IRAssign, IRExprStmt)):
+                raise ValueError(f"Java adapter {name}: unsupported {type(statement).__name__} in a JNI adapter")
+        return state
 
     def validate_schema(self) -> None:
         """Reject raw strings and values in the wrong declaration category."""

@@ -1,6 +1,7 @@
 /* Function-local invariants for typed exception cleanup registrations. */
 
 import Library.Map;
+import Library.Strings;
 import Library.Vector;
 
 import ../Model.btrc;
@@ -163,5 +164,271 @@ class CleanupSlotValidator {
 			}
 			siteIndex = siteIndex + 1;
 		}
+	}
+}
+
+/* Rule 2 flow facts at one point of a JNI adapter: `pushed` while its local
+ * frame is pushed; `registered` names cleanup-registered slots; `pending`
+ * names owners created inside the frame that no cleanup slot protects yet. */
+class JavaFrameState {
+	public bool pushed = false;
+	public Map<string, bool> registered = {};
+	public Map<string, bool> pending = {};
+
+	public JavaFrameState copy() {
+		var state = JavaFrameState();
+		state.pushed = self.pushed;
+		for name in self.registered.keys() { state.registered.put(name, true); }
+		for name in self.pending.keys() { state.pending.put(name, true); }
+		return state;
+	}
+}
+
+/* Verifier rule 2 (native-interop-ownership.md section 4): every generated JNI
+ * adapter checks, frames and protects as section 2.3 requires. A JNI adapter
+ * declares the thread's environment from btrcJavaEnvironment. In one, every
+ * throwing env call (and every Library.Java helper that can leave an exception
+ * pending) is immediately followed by its ExceptionCheck branch; every path a
+ * successful PushLocalFrame dominates passes PopLocalFrame, or the translation
+ * that pops; and an owner created inside the frame is registered in a cleanup
+ * slot before the next throwing call. The messages match the reference
+ * compiler's IRVerifier.validate_java_adapters. */
+class JavaAdapterValidator {
+	private IRModule module;
+	private string environment = "";
+	private string name = "";
+
+	public JavaAdapterValidator(IRModule module) { self.module = module; }
+
+	public void validate() {
+		string problem = self.check();
+		if (!problem.isEmpty()) {
+			fprintf(stderr, "internal compiler error: %s\n", problem);
+			exit(1);
+		}
+	}
+
+	/* The first rule 2 violation among the module's JNI adapters, or "". */
+	public string check() {
+		for definition in self.module.functions {
+			string environment = self.environmentOf(definition.body);
+			if (environment.isEmpty()) { continue; }
+			self.environment = environment;
+			self.name = definition.name;
+			try {
+				JavaFrameState? state = self.walk(definition.body.stmts(), JavaFrameState());
+				if (state != null && state.pushed) { return f"Java adapter {self.name} returns with its local frame pushed"; }
+			} catch (string problem) { return problem; }
+		}
+		return "";
+	}
+
+	private string environmentOf(IRNode? node) {
+		if (node == null) { return ""; }
+		if (node.kind == IRK_VAR_DECL) {
+			IRNode? init = ((IRDeclarationPayload)node.payload).init;
+			if (init != null && init.kind == IRK_CALL && ((IRCallPayload)init.payload).callee == "btrcJavaEnvironment") { return node.name; }
+			return "";
+		}
+		if (node.kind == IRK_IF) {
+			string found = self.environmentOf(((IRControlPayload)node.payload).thenBlock);
+			return found.isEmpty() ? self.environmentOf(((IRControlPayload)node.payload).elseBlock) : found;
+		}
+		if (node.kind == IRK_BLOCK) {
+			for statement in node.stmts() {
+				string found = self.environmentOf(statement);
+				if (!found.isEmpty()) { return found; }
+			}
+		}
+		return "";
+	}
+
+	/* The JNI function-table slot `node` calls through the adapter's environment, or "". */
+	private string slot(IRNode node) {
+		if (node.kind != IRK_CALL || !((IRCallPayload)node.payload).callee.isEmpty() || node.expr == null) { return ""; }
+		IRNode callee = node.expr;
+		if (callee.kind != IRK_FIELD_ACCESS || !((IRProjectionPayload)callee.payload).arrow) { return ""; }
+		IRNode table = ((IRProjectionPayload)callee.payload).obj;
+		if (table == null || table.kind != IRK_DEREF || table.expr == null || table.expr.kind != IRK_VAR || table.expr.name != self.environment) { return ""; }
+		return ((IRProjectionPayload)callee.payload).field;
+	}
+
+	/* A throwing env call's slot, or a Library.Java helper that leaves a Java exception pending, or "". */
+	private string throwing(IRNode node) {
+		string slot = self.slot(node);
+		if (!slot.isEmpty()) {
+			Vector<string> quiet = ["ExceptionCheck", "ExceptionClear", "ExceptionOccurred", "ExceptionDescribe", "DeleteLocalRef", "DeleteGlobalRef", "DeleteWeakGlobalRef", "PopLocalFrame", "PushLocalFrame"];
+			return quiet.contains(slot) || slot.startsWith("Release") ? "" : slot;
+		}
+		if (node.kind != IRK_CALL) { return ""; }
+		string callee = ((IRCallPayload)node.payload).callee;
+		return callee == "btrcJavaClass" || callee == "btrcJavaMethod" || callee == "btrcJavaField" || callee == "btrcJavaNewString" ? callee : "";
+	}
+
+	private Vector<IRNode?> expressions(IRNode statement) {
+		Vector<IRNode?> values = [];
+		if (statement.kind == IRK_VAR_DECL) {
+			values.push(((IRDeclarationPayload)statement.payload).init);
+			values.push(((IRDeclarationPayload)statement.payload).arraySize);
+		} else if (statement.kind == IRK_ASSIGN) {
+			values.push(((IRValuePayload)statement.payload).target);
+			values.push(((IRValuePayload)statement.payload).value);
+		} else if (statement.kind == IRK_EXPR_STMT) {
+			values.push(statement.expr);
+		} else if (statement.kind == IRK_RETURN) {
+			values.push(((IRValuePayload)statement.payload).value);
+		} else if (statement.kind == IRK_IF) {
+			values.push(((IRControlPayload)statement.payload).condition);
+		}
+		return values;
+	}
+
+	/* Every call inside one expression, outer before inner. */
+	private void gather(IRNode? node, Vector<IRNode> calls) {
+		if (node == null) { return; }
+		if (node.kind == IRK_CALL) { calls.push(node); }
+		int domain = node.payloadDomain();
+		self.gather(node.left, calls);
+		self.gather(node.right, calls);
+		self.gather(node.expr, calls);
+		if (domain == IR_PAYLOAD_UNARY) { self.gather(((IRUnaryPayload)node.payload).operand, calls); }
+		if (domain == IR_PAYLOAD_CONVERSION_AGGREGATE) { self.gather(((IRConversionPayload)node.payload).operand, calls); }
+		if (domain == IR_PAYLOAD_PROJECTION_DESIGNATION) {
+			self.gather(((IRProjectionPayload)node.payload).obj, calls);
+			self.gather(((IRProjectionPayload)node.payload).index, calls);
+			self.gather(((IRProjectionPayload)node.payload).value, calls);
+		}
+		if (domain == IR_PAYLOAD_CONTROL_SEQUENCE) {
+			self.gather(((IRControlPayload)node.payload).condition, calls);
+			self.gather(((IRControlPayload)node.payload).trueExpr, calls);
+			self.gather(((IRControlPayload)node.payload).falseExpr, calls);
+			self.gather(((IRControlPayload)node.payload).result, calls);
+		}
+		for argument in node.args() { self.gather(argument, calls); }
+		for statement in node.stmts() { self.gather(statement, calls); }
+	}
+
+	private bool exceptionCheck(IRNode? statement) {
+		if (statement == null || statement.kind != IRK_IF || ((IRControlPayload)statement.payload).elseBlock != null) { return false; }
+		IRNode? condition = ((IRControlPayload)statement.payload).condition;
+		return condition != null && self.slot(condition) == "ExceptionCheck";
+	}
+
+	private string firstName(Map<string, bool> names) {
+		Vector<string> sorted = names.keys();
+		sorted.sortBy((string left, string right) => Strings.lessThan(left, right));
+		return sorted.get(0);
+	}
+
+	/* Walk one statement list: the state where it falls through, or null when it never does. */
+	private JavaFrameState? walk(Vector<IRNode> statements, JavaFrameState entry) {
+		JavaFrameState state = entry.copy();
+		for index in range(statements.len) {
+			IRNode statement = statements.get(index);
+			Vector<IRNode> calls = [];
+			for expression in self.expressions(statement) { self.gather(expression, calls); }
+			Vector<string> throwing = [];
+			bool pushes = false;
+			for call in calls {
+				string name = self.throwing(call);
+				if (!name.isEmpty()) { throwing.push(name); }
+				if (self.slot(call) == "PushLocalFrame") { pushes = true; }
+			}
+			if (throwing.len > 1) { throw f"Java adapter {self.name}: {throwing.get(0)} and {throwing.get(1)} share one statement"; }
+			if (throwing.len == 1) {
+				if (!state.pushed) { throw f"Java adapter {self.name}: {throwing.get(0)} runs outside its local frame"; }
+				if (state.pending.len > 0) { throw f"Java adapter {self.name}: owner {self.firstName(state.pending)} is not registered before {throwing.get(0)}"; }
+				IRNode? following = index + 1 < statements.len ? statements.get(index + 1) : null;
+				if (!self.exceptionCheck(following)) { throw f"Java adapter {self.name}: {throwing.get(0)} is not followed by its ExceptionCheck branch"; }
+			}
+			if (pushes) {
+				bool checked = false;
+				if (statement.kind == IRK_IF && ((IRControlPayload)statement.payload).elseBlock == null) {
+					IRNode? condition = ((IRControlPayload)statement.payload).condition;
+					checked = condition != null && condition.kind == IRK_BINOP && condition.op == "!=" && condition.left != null && self.slot(condition.left) == "PushLocalFrame";
+				}
+				if (!checked) { throw f"Java adapter {self.name}: PushLocalFrame must be checked by its failure branch"; }
+				if (state.pushed) { throw f"Java adapter {self.name}: PushLocalFrame runs inside a pushed frame"; }
+				if (self.walk(((IRControlPayload)statement.payload).thenBlock.stmts(), state) != null) { throw f"Java adapter {self.name}: a failed PushLocalFrame continues"; }
+				state.pushed = true;
+				continue;
+			}
+			for call in calls {
+				string callee = ((IRCallPayload)call.payload).callee;
+				if (callee.isEmpty()) {
+					if (self.slot(call) == "PopLocalFrame") {
+						if (!state.pushed) { throw f"Java adapter {self.name}: PopLocalFrame pops a frame it did not push"; }
+						state.pushed = false;
+					}
+					continue;
+				}
+				IRCleanupSlot? registered = ((IRCallPayload)call.payload).cleanupSlot;
+				if ((callee == "__btrc_register_cleanup" || callee == "__btrc_register_direct_cleanup") && registered != null) {
+					state.registered.put(registered.name, true);
+					if (state.pending.has(registered.name)) { state.pending.remove(registered.name); }
+				}
+				if (callee == "btrcJavaTakeException") {
+					bool popping = call.args().len > 1 && call.args().get(1).kind == IRK_LITERAL && call.args().get(1).text != "0";
+					if (popping != state.pushed) { throw f"Java adapter {self.name}: an exception translation " + (popping ? "pops a frame it did not push" : "keeps its frame pushed"); }
+					state.pushed = false;
+				}
+			}
+			string created = "";
+			IRNode? value = null;
+			if (statement.kind == IRK_VAR_DECL) { created = statement.name; value = ((IRDeclarationPayload)statement.payload).init; }
+			if (statement.kind == IRK_ASSIGN) {
+				IRNode? target = ((IRValuePayload)statement.payload).target;
+				if (target != null && target.kind == IRK_VAR) { created = target.name; value = ((IRValuePayload)statement.payload).value; }
+			}
+			if (!created.isEmpty() && state.pushed && value != null && value.kind == IRK_CALL) {
+				string constructor = ((IRCallPayload)value.payload).callee;
+				if (constructor.startsWith("__btrc_unique_") && constructor.endsWith("_new") && !state.registered.has(created)) { state.pending.put(created, true); }
+			}
+			if (statement.kind == IRK_RETURN) {
+				if (state.pushed) { throw f"Java adapter {self.name} returns with its local frame pushed"; }
+				return null;
+			}
+			if (statement.kind == IRK_EXPR_STMT && statement.expr != null && statement.expr.kind == IRK_CALL && ((IRCallPayload)statement.expr.payload).neverReturns) {
+				if (((IRCallPayload)statement.expr.payload).callee == "__btrc_throw" && state.pushed) { throw f"Java adapter {self.name} throws with its local frame pushed"; }
+				return null;
+			}
+			if (statement.kind == IRK_BLOCK) {
+				JavaFrameState? inner = self.walk(statement.stmts(), state);
+				if (inner == null) { return null; }
+				state = inner.copy();
+			} else if (statement.kind == IRK_IF) {
+				JavaFrameState? thenState = self.walk(((IRControlPayload)statement.payload).thenBlock.stmts(), state);
+				IRNode? elseBlock = ((IRControlPayload)statement.payload).elseBlock;
+				JavaFrameState? elseState = elseBlock == null ? state.copy() : self.walk(elseBlock.stmts(), state);
+				if (thenState == null) {
+					if (elseState == null) { return null; }
+					state = elseState.copy();
+				} else if (elseState == null) {
+					state = thenState.copy();
+				} else if (thenState.pushed != elseState.pushed) {
+					throw f"Java adapter {self.name}: branches leave its local frame in different states";
+				} else {
+					var merged = JavaFrameState();
+					merged.pushed = thenState.pushed;
+					for name in thenState.registered.keys() { if (elseState.registered.has(name)) { merged.registered.put(name, true); } }
+					for name in thenState.pending.keys() { merged.pending.put(name, true); }
+					for name in elseState.pending.keys() { merged.pending.put(name, true); }
+					state = merged;
+				}
+			} else if (statement.kind != IRK_VAR_DECL && statement.kind != IRK_ASSIGN && statement.kind != IRK_EXPR_STMT) {
+				throw f"Java adapter {self.name}: unsupported {self.kindName(statement.kind)} in a JNI adapter";
+			}
+		}
+		return state;
+	}
+
+	private string kindName(int kind) {
+		if (kind == IRK_WHILE) { return "IRWhile"; }
+		if (kind == IRK_DO_WHILE) { return "IRDoWhile"; }
+		if (kind == IRK_FOR) { return "IRFor"; }
+		if (kind == IRK_SWITCH) { return "IRSwitch"; }
+		if (kind == IRK_BREAK) { return "IRBreak"; }
+		if (kind == IRK_CONTINUE) { return "IRContinue"; }
+		return "statement";
 	}
 }

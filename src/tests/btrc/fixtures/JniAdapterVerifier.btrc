@@ -1,0 +1,103 @@
+/* Verifier rule 2 over malformed JNI adapters, through the self-hosted
+ * compiler's JavaAdapterValidator. Each case breaks one clause of a
+ * well-formed adapter; src/tests/python/test_jni_adapter_verifier.py builds
+ * the same cases for the reference compiler and expects the same messages. */
+import Library.Vector;
+
+import ../../../compiler/btrc/ir/Model.btrc;
+import ../../../compiler/btrc/ir/optimization/Cleanup.btrc;
+
+class JniAdapterCases {
+	public IRNode environment() { return IRNode.variable("__btrc_java_env"); }
+
+	public IRNode envCall(string slot, Vector<IRNode> arguments) {
+		Vector<IRNode> callArguments = [self.environment()];
+		callArguments.extend(arguments);
+		return IRNode.indirectCall(IRNode.fieldAccess(IRNode.dereference(self.environment()), slot, true), callArguments);
+	}
+
+	public IRNode translate(string pop, Vector<IRNode> before) {
+		Vector<IRNode> statements = [];
+		statements.extend(before);
+		statements.push(IRNode.arrayDeclaration("char", "message", IRNode.literal("1024"), null));
+		statements.push(IRNode.expressionStatement(IRNode.call("btrcJavaTakeException", [self.environment(), IRNode.literal(pop), IRNode.variable("message"), IRNode.literal("1024")])));
+		IRNode failure = IRNode.call("__btrc_throw", [IRNode.variable("message")]);
+		((IRCallPayload)failure.payload).neverReturns = true;
+		statements.push(IRNode.expressionStatement(failure));
+		return IRNode.block(statements);
+	}
+
+	public IRNode check() {
+		Vector<IRNode> none = [];
+		return IRNode.ifStatement(self.envCall("ExceptionCheck", none), self.translate("1", none), null);
+	}
+
+	public IRNode push(string mode) {
+		Vector<IRNode> none = [];
+		IRNode failure = mode == "continues" ? IRNode.block([IRNode.expressionStatement(IRNode.call("fputs", none))]) : self.translate(mode == "pops" ? "1" : "0", none);
+		return IRNode.ifStatement(IRNode.binary(self.envCall("PushLocalFrame", [IRNode.literal("2")]), "!=", IRNode.literal("0")), failure, null);
+	}
+
+	/* A well-formed object-returning adapter, with one clause broken per `name`. */
+	public IRFunction adapter(string name) {
+		Vector<IRNode> none = [];
+		Vector<IRNode> statements = [IRNode.variableDeclaration("JNIEnv*", "__btrc_java_env", IRNode.call("btrcJavaEnvironment", none))];
+		if (name == "outside-frame") {
+			statements.push(IRNode.variableDeclaration("jobject", "early", self.envCall("NewStringUTF", none)));
+			statements.push(self.check());
+		}
+		if (name == "unchecked-push") { statements.push(IRNode.expressionStatement(self.envCall("PushLocalFrame", [IRNode.literal("2")]))); }
+		else if (name == "push-pops") { statements.push(self.push("pops")); }
+		else if (name == "push-continues") { statements.push(self.push("continues")); }
+		else { statements.push(self.push("")); }
+		statements.push(IRNode.variableDeclaration("jclass", "owner", IRNode.call("btrcJavaClass", [self.environment()])));
+		if (name != "unchecked-helper") { statements.push(self.check()); }
+		statements.push(IRNode.variableDeclaration("jobject", "result", self.envCall("CallStaticObjectMethodA", [IRNode.variable("owner")])));
+		if (name != "unchecked-call") { statements.push(self.check()); }
+		IRNode slot = IRNode.variableDeclaration("struct Owner*", "object", IRNode.literal("NULL"));
+		((IRDeclarationPayload)slot.payload).isVolatile = true;
+		var metadata = IRCleanupSlot(1, "object", "struct Owner*", "take");
+		((IRDeclarationPayload)slot.payload).cleanupSlot = metadata;
+		IRNode registration = IRNode.call("__btrc_register_direct_cleanup", [IRNode.cast("void*", IRNode.addressOf(IRNode.variable("object"))), IRNode.functionReference("take"), IRNode.functionReference("release")]);
+		((IRCallPayload)registration.payload).cleanupSlot = metadata;
+		((IRCallPayload)registration.payload).helperRef = "__btrc_register_direct_cleanup";
+		IRNode created = IRNode.assignment(IRNode.variable("object"), IRNode.call("__btrc_unique_Owner_new", none));
+		IRNode globalReference = IRNode.variableDeclaration("jobject", "global", self.envCall("NewGlobalRef", [IRNode.variable("result")]));
+		if (name == "unregistered-owner") {
+			statements.extend([slot, created, globalReference, self.check(), IRNode.expressionStatement(registration)]);
+		} else {
+			statements.extend([slot, IRNode.expressionStatement(registration), created, globalReference, self.check()]);
+		}
+		if (name == "throw-pushed") {
+			IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"boom\"")]);
+			((IRCallPayload)failure.payload).neverReturns = true;
+			statements.push(IRNode.expressionStatement(failure));
+		}
+		if (name != "missing-pop") { statements.push(IRNode.expressionStatement(self.envCall("PopLocalFrame", [IRNode.literal("NULL")]))); }
+		statements.push(IRNode.returnStatement(IRNode.variable("object")));
+		var definition = IRFunction();
+		definition.name = "adapter";
+		definition.returnType = "struct Owner*";
+		definition.isStatic = true;
+		definition.body = IRNode.block(statements);
+		return definition;
+	}
+}
+
+int main() {
+	var cases = JniAdapterCases();
+	Vector<string> names = ["valid", "unchecked-call", "unchecked-helper", "outside-frame", "unchecked-push", "push-pops", "push-continues", "missing-pop", "throw-pushed", "unregistered-owner"];
+	for name in names {
+		var module = IRModule();
+		module.functions.push(cases.adapter(name));
+		printf("%s: %s\n", name, JavaAdapterValidator(module).check());
+	}
+	var plain = IRModule();
+	var definition = IRFunction();
+	definition.name = "plain";
+	Vector<IRNode> none = [];
+	definition.body = IRNode.block([IRNode.expressionStatement(IRNode.call("NewGlobalRef", none)), IRNode.returnStatement(null)]);
+	plain.functions.push(definition);
+	printf("plain: %s\n", JavaAdapterValidator(plain).check());
+	return 0;
+}
