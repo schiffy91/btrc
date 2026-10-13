@@ -145,8 +145,10 @@ native-control action draining remain open.
 Unqualified `id` in Objective-C method signatures projects as a managed native object, not
 `void*` or a presumed `NSObject` subclass. It retains actual object identity and
 uses generated ARC retain/release adapters. Typed Objective-C instances may
-upcast to `id`; returning from `id` to a concrete class requires a future checked
-conversion, not an unchecked cast. No methods are statically available on `id`.
+upcast to `id`; returning from `id` (or a superclass) to a concrete class takes
+the checked conversion `(T?)value`, which asks `isKindOfClass:` and yields null
+on a mismatch (package-manifest.md, "Checked Objective-C downcasts"), never an
+unchecked cast. No methods are statically available on `id`.
 Protocol-qualified objects, generic object projections and `Class` remain
 unsupported. This enables actual AppKit APIs such as progress-indicator
 start/stop methods without handwritten native wrappers.
