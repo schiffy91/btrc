@@ -1919,6 +1919,7 @@ class DeclarationLowerer {
 			}
 		}
 		self.emitObjectiveCLifetime(imported, module, native);
+		self.emitObjectiveCDowncast(imported, module, native);
 		for method in imported.declaration.members() {
 			var contract = imported.methods.get(method.name);
 			if (contract.callbacks.len > 0 && contract.callbacks.get(0).oneShot) {
@@ -3171,6 +3172,54 @@ class DeclarationLowerer {
 			prototype.params = adapter.params;
 			module.functionDecls.push(prototype);
 		}
+	}
+
+	/* M3 for Objective-C: `(T?)value` asks the object isKindOfClass: in the
+	 * Objective-C unit. Every class gets the C helper, which the optimizer drops
+	 * when no cast reaches it. The helper leases the source, and a match takes a
+	 * new native claim before that lease ends; null skips the test. */
+	private void emitObjectiveCDowncast(FeNativeImportedDeclaration imported, IRModule module, IRModule native) {
+		string name = imported.declaration.name;
+		if (name == "id") { return; }
+		self.emitObjectiveCKindTest(module, native);
+		Node targetType = Node(); targetType.kind = NK_TYPE_EXPR; targetType.base = name; targetType.isNullable = true; targetType.pointerDepth = 1;
+		string resultType = self.cTypes.lower(targetType);
+		Vector<IRParam> parameters = [IRParam(resultType, "source")];
+		Map<string, bool> parameterNames = {"source": true};
+		Vector<IRNode> statements = []; Vector<Vector<IRNode>> releases = [];
+		IRNode cleanup = self.nativeCleanupScope(parameterNames, statements);
+		IRNode source = self.emitNativeLease(0, targetType, IRNode.variable("source"), parameterNames, statements, releases);
+		IRNode matches = IRNode.binary(source, "&&", IRNode.call("__btrc_objc_is_kind", [IRNode.cast("void*", source), IRNode.literal("\"" + name + "\"")]));
+		IRNode slot = IRNode.variableDeclaration(resultType, "__btrc_native_projection", IRNode.ternary(matches, source, IRNode.literal("NULL")));
+		IRNode result = IRNode.variable("__btrc_native_projection");
+		statements.push(slot);
+		statements.push(IRNode.expressionStatement(self.managedLifetime.retainValue(result, targetType)));
+		statements.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(targetType))));
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		statements.push(cleanup); statements.push(IRNode.returnStatement(result));
+		self.nativeUniqueFunction(module, "__btrc_objc_" + name + "_try_cast", resultType, parameters, statements);
+	}
+
+	/* One isKindOfClass: test per Objective-C unit, naming the class by its
+	 * runtime name. An imported class may be only a forward declaration in the
+	 * selected headers, where `[T class]` would neither compile nor link, so the
+	 * unit looks the class up with objc_lookUpClass. A class missing at run time
+	 * matches no object. */
+	private void emitObjectiveCKindTest(IRModule module, IRModule native) {
+		string name = "__btrc_objc_is_kind";
+		for existing in native.functions { if (existing.name == name) { return; } }
+		self.appendPreprocessorDecl(native, IRPreprocessorDecl.include("objc/runtime.h", true));
+		var test = IRFunction();
+		test.name = name;
+		test.returnType = "int";
+		test.params = [IRParam("void*", "value"), IRParam("const char*", "name")];
+		IRNode kind = IRNode.objectiveCMessage(IRNode.cast("id", IRNode.variable("value"), "borrow"), "isKindOfClass:", [IRNode.call("objc_lookUpClass", [IRNode.variable("name")])]);
+		IRNode boundary = IRNode.objectiveCExceptionBoundary(IRNode.block([IRNode.returnStatement(IRNode.ternary(kind, IRNode.literal("1"), IRNode.literal("0")))]), IRNode.block([self.abortStatement()]));
+		test.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([boundary]))]);
+		native.functions.push(test);
+		var prototype = IRFunctionDecl(name, "int", false);
+		prototype.params = test.params;
+		module.functionDecls.push(prototype);
 	}
 
 	private void emitNativeDeclaration(FeNativeImportedDeclaration imported, IRModule m, Map<string, bool> nativeAdapters, Map<string, bool> nativeConstants) {

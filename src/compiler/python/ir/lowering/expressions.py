@@ -1576,8 +1576,9 @@ class ExpressionLowerer:
                 return IRDeref(expr=operand)
             return IRUnaryOp(op=node.op, operand=operand, prefix=node.prefix)
         if isinstance(node, CastExpr):
-            if self._native_resource_query_type(node):
-                return self._lower_native_resource_query(node, provenance)
+            checked = self._native_checked_cast(node)
+            if checked is not None:
+                return self._lower_native_checked_cast(node, provenance, checked)
             if self._is_interface_query(node):
                 return self._lower_interface_query(node, provenance)
             return IRCast(
@@ -1672,26 +1673,35 @@ class ExpressionLowerer:
             and target.is_nullable
         )
 
-    def _native_resource_query_type(self, node: CastExpr) -> str:
-        return TypeSystem.native_resource_query_type(
-            self._analyzed.class_table,
-            self._types.canonical_type(node.target_type),
-            self._types.canonical_type(self._session.type_of(node.expr)),
-        )
+    def _native_checked_cast(self, node: CastExpr) -> tuple[str, TypeExpr] | None:
+        """The generated helper and its argument type when `node` is an M3 checked conversion.
 
-    def _lower_native_resource_query(self, node: CastExpr, provenance: CallableProvenance) -> IRExpr:
+        A Core Foundation resource passes its declared query type; an
+        Objective-C object passes through the target's opaque pointer, whose
+        retain and release adapters are class-agnostic ARC bridges.
+        """
         target = self._types.canonical_type(node.target_type)
-        query_type = self._native_resource_query_type(node)
+        source = self._types.canonical_type(self._session.type_of(node.expr))
+        query = TypeSystem.native_resource_query_type(self._analyzed.class_table, target, source)
+        if query:
+            return f"__btrc_native_{target.base}_try_cast", TypeExpr(base=query, is_nullable=True, pointer_depth=1)
+        if TypeSystem.native_objective_c_downcast(self._analyzed.class_table, target, source):
+            return f"__btrc_objc_{target.base}_try_cast", TypeExpr(base=target.base, is_nullable=True, pointer_depth=1)
+        return None
+
+    def _lower_native_checked_cast(
+        self, node: CastExpr, provenance: CallableProvenance, checked: tuple[str, TypeExpr]
+    ) -> IRExpr:
+        target = self._types.canonical_type(node.target_type)
+        helper, argument_type = checked
         prepared = self._prepare_operand_evaluation((node.expr,), provenance, operand_targets=(None,), force=True)
         if prepared is None:
             return IRCast(CType(self._cast_target_type(target)), self.lower_expr(node.expr, provenance))
         evaluation, fact_types = prepared
         with self._session.operand_scope(evaluation.values, fact_types, evaluation.ownership):
             receiver = self.lower_expr(node.expr, provenance)
-        argument = IRCast(
-            CType(self._types.render(TypeExpr(base=query_type, is_nullable=True, pointer_depth=1))), receiver
-        )
-        result = IRCall(f"__btrc_native_{target.base}_try_cast", [argument])
+        argument = IRCast(CType(self._types.render(argument_type)), receiver)
+        result = IRCall(helper, [argument])
         return self._call_boundary.materialize(
             evaluation, result, CallResultPlan(c_type=self._cast_target_type(target), type_expr=target, owned=True)
         )
@@ -2013,8 +2023,9 @@ class ExpressionLowerer:
             return result
         if isinstance(node, CastExpr):
             self._callable_boundaries.reject_nonportable_callable_cast(node, provenance)
-            if self._native_resource_query_type(node):
-                return self._lower_native_resource_query(node, provenance)
+            checked = self._native_checked_cast(node)
+            if checked is not None:
+                return self._lower_native_checked_cast(node, provenance, checked)
             if self._is_interface_query(node):
                 return self._lower_interface_query(node, provenance)
             return IRCast(

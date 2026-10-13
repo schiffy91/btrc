@@ -3010,6 +3010,27 @@ class TypeSystem:
         query = target_info.native_query_type
         return query if query and (query == source.base or query in source_info.native_ancestors) else ""
 
+    @staticmethod
+    def native_objective_c_downcast(classes, target, source) -> bool:
+        """Whether `(T?)value` checks a managed Objective-C object with isKindOfClass: (M3).
+
+        T must be a nullable Objective-C class whose superclass chain, read
+        from the SDK interface graph, contains the source's static class.
+        """
+        if target is None or source is None or not target.is_nullable or target.is_array or source.is_array:
+            return False
+        target_info, source_info = classes.get(target.base), classes.get(source.base)
+        return bool(
+            target_info is not None
+            and source_info is not None
+            and target_info.native_language == "objective-c"
+            and source_info.native_language == "objective-c"
+            and target.base not in {source.base, "id"}
+            and source.base in target_info.native_ancestors
+            and target.pointer_depth == 1
+            and source.pointer_depth <= 1
+        )
+
     def is_subclass(self, child: str, parent: str) -> bool:
         """Check if child class extends parent (directly or transitively)."""
         if child == parent:

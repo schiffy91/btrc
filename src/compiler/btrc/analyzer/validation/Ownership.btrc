@@ -720,7 +720,7 @@ class OwnershipValidator {
 			return managedResult;
 		}
 		if (expression.kind == NK_CAST_EXPR) {
-			if (self.state.analyzed.nativeResourceQueryType(self.types.resolveAliases(expression.targetType), self.types.resolveAliases(self.types.inferType(expression.expr, vars))) != "") { return true; }
+			if (self.state.analyzed.nativeCheckedCast(self.types.resolveAliases(expression.targetType), self.types.resolveAliases(self.types.inferType(expression.expr, vars)))) { return true; }
 			return managedResult && self.expressionOwnsResult(expression.expr, vars);
 		}
 		if (expression.kind == NK_F_STRING_LITERAL) {

@@ -3100,6 +3100,7 @@ class FunctionLowerer:
                 native.struct_forwards.append(forward)
                 module.struct_forwards.append(forward)
         self._emit_objective_c_lifetime(declaration, native)
+        self._emit_objective_c_downcast(declaration, native)
         for method in declaration.members:
             contract = declaration.source_file.methods[method.name]
             if any(callback.one_shot for callback in contract.callbacks):
@@ -4920,6 +4921,74 @@ class FunctionLowerer:
             self._session.module.function_decls.append(
                 IRFunctionDecl(name=name, return_type=CType(text="void"), params=parameters)
             )
+
+    def _emit_objective_c_downcast(self, declaration, native):
+        """M3 for Objective-C: `(T?)value` asks the object isKindOfClass: in the Objective-C unit.
+
+        Every class gets the C helper, which the optimizer drops when no cast
+        reaches it. The helper leases the source, and a match takes a new
+        native claim before that lease ends; null skips the test.
+        """
+        if declaration.name == "id":
+            return
+        self._emit_objective_c_kind_test(native)
+        target_type = TypeExpr(base=declaration.name, is_nullable=True, pointer_depth=1)
+        result_type = CType(self._types.render(target_type))
+        parameters = [IRParam(result_type, "source")]
+        statements, releases = [], []
+        cleanup = self._native_cleanup_scope(parameters, statements)
+        source = self._native_lease(0, target_type, IRVar("source"), parameters, statements, releases)
+        matches = IRBinOp(
+            source,
+            "&&",
+            IRCall("__btrc_objc_is_kind", [IRCast(CType("void*"), source), IRLiteral(json.dumps(declaration.name))]),
+        )
+        result = IRVarDecl(result_type, "__btrc_native_projection", init=IRTernary(matches, source, IRLiteral("NULL")))
+        value = IRVar(result.name)
+        statements.extend(
+            [
+                result,
+                IRExprStmt(self._lifetime.retain_value(value, target_type)),
+                IRExprStmt(self._lifetime.register_cleanup_slot(result, target_type)),
+                *releases,
+                *cleanup,
+                IRReturn(value),
+            ]
+        )
+        name = f"__btrc_objc_{declaration.name}_try_cast"
+        self._session.module.function_decls.append(IRFunctionDecl(name, result_type, parameters, is_static=True))
+        self._session.module.function_defs.append(
+            IRFunctionDef(name, result_type, parameters, IRBlock(statements), is_static=True)
+        )
+
+    def _emit_objective_c_kind_test(self, native):
+        """One isKindOfClass: test per Objective-C unit, naming the class by its runtime name.
+
+        An imported class may be only a forward declaration in the selected
+        headers, where `[T class]` would neither compile nor link, so the
+        unit looks the class up with objc_lookUpClass. A class missing at run
+        time matches no object.
+        """
+        name = "__btrc_objc_is_kind"
+        if any(function.name == name for function in native.function_defs):
+            return
+        include = IRInclude(header="objc/runtime.h")
+        if include not in native.preprocessor_decls:
+            native.preprocessor_decls.append(include)
+        parameters = [IRParam(CType("void*"), "value"), IRParam(CType("const char*"), "name")]
+        test = IRObjectiveCMessage(
+            IRCast(CType("id"), IRVar("value"), bridge="borrow"),
+            "isKindOfClass:",
+            [IRCall("objc_lookUpClass", [IRVar("name")])],
+        )
+        boundary = IRObjectiveCExceptionBoundary(
+            IRBlock([IRReturn(IRTernary(test, IRLiteral("1"), IRLiteral("0")))]),
+            IRBlock([IRExprStmt(IRCall("abort", [], never_returns=True))]),
+        )
+        native.function_defs.append(
+            IRFunctionDef(name, CType("int"), parameters, IRBlock([IRObjectiveCAutoreleasePool(IRBlock([boundary]))]))
+        )
+        self._session.module.function_decls.append(IRFunctionDecl(name, CType("int"), parameters))
 
     def lower_specialization(self, view: SpecializedDeclarationView[MethodDecl]) -> None:
         method = view.declaration
