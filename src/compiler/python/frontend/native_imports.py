@@ -1264,7 +1264,9 @@ class NativeDeclarationImporter:
         if plan.target.operating_system == "linux":
             arguments.extend(("-isystem", os.path.join(sysroot, "usr", "include")))
         elif plan.target.operating_system == "windows":
-            arguments.extend(("-isystem", os.path.join(sysroot, "include")))
+            # A zig MinGW sysroot keeps the Windows SDK headers where its
+            # validation found windows.h (NativeSysroot.validate).
+            arguments.extend(("-isystem", os.path.join(sysroot, "include", "any-windows-any")))
         if binding.language == "c++":
             for directory in self._cxx_toolchain_includes(binding.standard, target, sysroot):
                 arguments.extend(("-isystem", directory))
