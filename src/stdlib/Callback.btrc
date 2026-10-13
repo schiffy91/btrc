@@ -627,12 +627,16 @@ class CallbackContext<TReceiver, TToken> implements ICallbackContext, ICallbackR
 	}
 }
 
-/* Process-lifetime storage for a generated adapter that the SDK instantiates
- * by class name (lifetime = "instantiated", scope = "process"), such as the
- * delegate UIApplicationMain creates. The SDK keeps that adapter for the rest
+/* Storage for a receiver of a generated adapter that the SDK instantiates
+ * itself (lifetime = "instantiated"). With scope = "process", such as the
+ * delegate UIApplicationMain creates, the SDK keeps that adapter for the rest
  * of the process and never releases it, so there is no cancellation: the
- * adapter's one external ARC claim is a declared permanent root. Entries are
- * admitted only on the creating thread, as for caller-executor contexts. */
+ * adapter's one external ARC claim is a declared permanent root. With
+ * scope = "instance", one root holds the registered factory until a later
+ * registration replaces it, and each instance owns a root for the receiver
+ * the factory created, released after the terminal method or at dealloc.
+ * Entries are admitted only on the creating thread, as for caller-executor
+ * contexts. */
 class CallbackRoot<TReceiver> {
 	private TReceiver? _receiver;
 	private pthread_t _executor;

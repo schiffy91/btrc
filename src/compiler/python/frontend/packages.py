@@ -432,6 +432,9 @@ class NativeCallbackBinding:
     # Control actions (UIKit addTarget:action:forControlEvents:): the selector
     # parameter the compiler fills with its own action.
     action_parameter: str = ""
+    # Instance-scoped instantiated adapters: the selected method after which
+    # the generated object releases its receiver.
+    terminal: str = ""
 
 
 @dataclass(frozen=True)
@@ -1569,6 +1572,7 @@ class PackageManifestValidator:
                         "registration-status",
                         "unregister-status",
                         "captured-handles",
+                        "terminal",
                     }
                 ),
                 location,
@@ -1595,15 +1599,17 @@ class PackageManifestValidator:
             if lifetime not in {"call", "stored", "one-shot", "instantiated"}:
                 raise ValueError(f"{location}.lifetime requires call, stored, one-shot or instantiated")
             scope = value.get("scope", "")
+            terminal = value.get("terminal", "")
             if lifetime == "instantiated":
-                # The SDK creates the adapter by class name (UIApplicationMain);
-                # the binding only names the protocol methods it answers.
+                # The SDK creates the adapter from a class name (UIApplicationMain)
+                # or a class (a scene configuration); the binding only names the
+                # protocol methods it answers.
                 if language != "objective-c" or has_context:
                     raise ValueError(
                         f"{location}: instantiated adapters require an Objective-C binding without context"
                     )
-                if scope != "process":
-                    raise ValueError(f"{location}.scope currently requires process")
+                if scope not in {"process", "instance"}:
+                    raise ValueError(f"{location}.scope requires process or instance")
                 if any(
                     key in value
                     for key in (
@@ -1619,7 +1625,7 @@ class PackageManifestValidator:
                     )
                 ):
                     raise ValueError(
-                        f"{location}: instantiated adapters take only methods, scope, failure and executor"
+                        f"{location}: instantiated adapters take only methods, scope, terminal, failure and executor"
                     )
                 methods = value.get("methods")
                 if (
@@ -1630,8 +1636,16 @@ class PackageManifestValidator:
                     raise ValueError(f"{location}.methods must name selected native methods")
                 if len(set(methods)) != len(methods):
                     raise ValueError(f"{location}.methods contains duplicate methods")
-            elif "scope" in value:
-                raise ValueError(f"{location}.scope requires an instantiated adapter")
+                # An instance-scoped adapter releases its receiver after the
+                # terminal method; a process root is never released.
+                if scope == "instance" and "terminal" not in value:
+                    raise ValueError(f"{location}: instance-scoped instantiated adapters require terminal")
+                if scope == "process" and "terminal" in value:
+                    raise ValueError(f"{location}.terminal requires scope instance")
+                if "terminal" in value and terminal not in methods:
+                    raise ValueError(f"{location}.terminal must name one of methods")
+            elif "scope" in value or "terminal" in value:
+                raise ValueError(f"{location}: scope and terminal require an instantiated adapter")
             realtime = self._realtime_callback_binding(value, symbols, location, language, lifetime)
             callback_field = self._identifier(value["field"], f"{location}.field") if "field" in value else ""
             if callback_field and (language != "c" or (lifetime != "one-shot" and realtime is None)):
@@ -1767,6 +1781,7 @@ class PackageManifestValidator:
                     unregister_status,
                     tuple(captured_handles),
                     action_parameter,
+                    terminal,
                 )
             )
         return tuple(callbacks)

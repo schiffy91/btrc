@@ -206,12 +206,16 @@ class GenericAnalyzer:
                         self.record_class_method_use(value_type, name)
 
     def _collect_instantiated_root(self, callback, method) -> None:
-        """An SDK-instantiated adapter enters its receiver through an authenticated CallbackRoot."""
-        root = TypeExpr(
-            base="CallbackRoot", generic_args=[method.params[callback.parameter_index].type], pointer_depth=1
-        )
+        """An SDK-instantiated adapter enters its receiver through an authenticated CallbackRoot.
+
+        An instance-scoped adapter also roots its factory, and each instance
+        roots the receiver the factory creates.
+        """
+        receivers = [method.params[callback.parameter_index].type]
+        if callback.factory:
+            receivers.append(TypeExpr(base=callback.interface, pointer_depth=1))
         methods = ("isOpen", "enter", "leave")
-        owner = self.index.class_table.get(root.base)
+        owner = self.index.class_table.get("CallbackRoot")
         if (
             owner is None
             or not CompilerStdlibSource.authenticated(getattr(owner.constructor, "source_file", None))
@@ -222,9 +226,11 @@ class GenericAnalyzer:
         ):
             self.session.error("Instantiated native adapters require import Library.Callback", method.line, method.col)
             return
-        self.collect_type_instances(root)
-        for name in methods:
-            self.record_class_method_use(root, name)
+        for receiver in receivers:
+            root = TypeExpr(base="CallbackRoot", generic_args=[receiver], pointer_depth=1)
+            self.collect_type_instances(root)
+            for name in methods:
+                self.record_class_method_use(root, name)
 
     def close_generic_instance_graph(self) -> None:
         """Discover concrete generic types used by instantiated templates.

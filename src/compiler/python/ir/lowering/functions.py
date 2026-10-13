@@ -3106,6 +3106,9 @@ class FunctionLowerer:
             if any(callback.one_shot for callback in contract.callbacks):
                 self._emit_one_shot_objective_c_adapter(declaration, method, contract, native)
                 continue
+            if any(isinstance(callback, NativeInstantiatedProjection) for callback in contract.callbacks):
+                self._emit_instance_instantiated_adapter(declaration, method, contract, native)
+                continue
             if any(callback.unregister is not None for callback in contract.callbacks):
                 self._emit_stored_objective_c_adapter(declaration, method, contract, native)
                 continue
@@ -4723,16 +4726,7 @@ class FunctionLowerer:
             )
         ]
         for index, (method, value_types) in enumerate(zip(callback.methods, callback_types)):
-            native_parameters = [
-                IRParam(CType(value), f"argument{position}") for position, value in enumerate(method.native_parameters)
-            ]
-            arguments = []
-            for parameter, value_type in zip(native_parameters, value_types):
-                value = IRVar(parameter.name)
-                info = self._analyzed.class_table.get(value_type.base)
-                if info is not None and info.native_language:
-                    value = IRCast(CType(self._types.render(value_type)), value, bridge="borrow")
-                arguments.append(value)
+            native_parameters, arguments = self._instantiated_arguments(method, value_types)
             invocation = IRCall(IRVar(f"{prefix}_invoke{index}"), [*arguments, context])
             methods.append(
                 IRObjectiveCMethod(
@@ -4740,11 +4734,9 @@ class FunctionLowerer:
                     CType(method.native_return),
                     native_parameters,
                     IRBlock(
-                        [
-                            IRExprStmt(invocation)
-                            if self._types.render(method.return_type) == "void"
-                            else IRReturn(IRCast(CType(method.native_return), invocation))
-                        ]
+                        [IRExprStmt(invocation)]
+                        if self._types.render(method.return_type) == "void"
+                        else self._instantiated_result(method, invocation)
                     ),
                 )
             )
@@ -4840,6 +4832,361 @@ class FunctionLowerer:
         module.function_decls.append(IRFunctionDecl(name, result_type, parameters, is_static=True))
         module.function_defs.append(
             IRFunctionDef(name=name, return_type=result_type, params=parameters, body=IRBlock(body), is_static=True)
+        )
+
+    def _instantiated_arguments(self, method, value_types):
+        """A generated instantiated class's native parameters and the invoker arguments they become."""
+        parameters = [
+            IRParam(CType(value), f"argument{position}") for position, value in enumerate(method.native_parameters)
+        ]
+        arguments = []
+        for parameter, value_type in zip(parameters, value_types):
+            value = IRVar(parameter.name)
+            info = self._analyzed.class_table.get(value_type.base)
+            if info is not None and info.native_language:
+                value = IRCast(CType(self._types.render(value_type)), value, bridge="borrow")
+            arguments.append(value)
+        return parameters, arguments
+
+    def _instantiated_result(self, method, invocation, before_return=()):
+        """Return one protocol method's result from a generated instantiated class.
+
+        A managed object result is the receiver's own claim, transferred to
+        ARC; null for an SDK non-null object result terminates here.
+        """
+        info = self._analyzed.class_table.get(method.return_type.base)
+        managed = info is not None and bool(info.native_language)
+        value = IRCast(CType(method.native_return), invocation, bridge="transfer" if managed else "")
+        statements = [IRVarDecl(CType(method.native_return), "result", init=value), *before_return]
+        if managed and not method.return_type.is_nullable:
+            statements.append(
+                IRIf(
+                    IRBinOp(IRVar("result"), "==", IRLiteral("nil")),
+                    IRBlock([IRExprStmt(IRCall("abort", [], never_returns=True))]),
+                )
+            )
+        statements.append(IRReturn(IRVar("result")))
+        return statements
+
+    def _instantiated_receiver_creator(self, prefix, callback, factory_root, receiver_root):
+        """Enter the rooted factory, call create() and root the receiver it returns for one instance.
+
+        The new root carries one claim, which the instance owns.
+        """
+        factory_type, receiver_type = factory_root.generic_args[0], receiver_root.generic_args[0]
+        factory_symbol = self._types.render(factory_root).removesuffix("*").strip()
+        receiver_symbol = self._types.render(receiver_root).removesuffix("*").strip()
+        parameters = [IRParam(CType("void*"), "rawFactory")]
+        body = []
+        cleanup = self._native_cleanup_scope(parameters, body)
+        context = IRCast(CType(self._types.render(factory_root)), IRVar("rawFactory"))
+        factory_slot = IRVarDecl(
+            CType(self._types.render(factory_type)), "factory", init=IRCall(f"{factory_symbol}_enter", [context])
+        )
+        receiver_slot = IRVarDecl(CType(self._types.render(receiver_type)), "receiver", init=IRLiteral("NULL"))
+        factory, receiver = IRVar(factory_slot.name), IRVar(receiver_slot.name)
+        body.extend(
+            [
+                factory_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(factory_slot, factory_type)),
+                receiver_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(receiver_slot, receiver_type)),
+                IRIf(
+                    factory,
+                    IRBlock(
+                        [
+                            IRAssign(receiver, IRCall(f"{callback.factory}_create", [factory])),
+                            IRExprStmt(IRCall(f"{factory_symbol}_leave", [context])),
+                        ]
+                    ),
+                ),
+                self._native_null_guard(receiver, "Instantiated adapter factory returned no receiver"),
+                IRVarDecl(
+                    CType(self._types.render(receiver_root)), "root", init=IRCall(f"{receiver_symbol}_new", [receiver])
+                ),
+            ]
+        )
+        release_locals = []
+        releases = [
+            *self._lifetime.release_and_clear(
+                receiver, receiver_type, release_locals, self._types.render(receiver_type)
+            ),
+            *self._lifetime.release_and_clear(factory, factory_type, release_locals, self._types.render(factory_type)),
+        ]
+        body.extend(
+            [
+                *release_locals,
+                *[IRExprStmt(value) for value in releases],
+                *cleanup,
+                *self._exceptions.pop_try_frames(1),
+                IRReturn(IRCast(CType("void*"), IRVar("root"))),
+            ]
+        )
+        name = prefix + "_create"
+        self._session.module.function_defs.append(
+            IRFunctionDef(
+                name=name,
+                return_type=CType("void*"),
+                params=parameters,
+                is_static=True,
+                body=self._exceptions.native_callback_boundary(IRBlock(body)),
+            )
+        )
+        return name
+
+    def _emit_instance_instantiated_adapter(self, declaration, method, contract, native):
+        """Hand the SDK a generated class it instantiates once per instance (scope = "instance").
+
+        `-[UISceneConfiguration setDelegateClass:]` takes a class, and UIKit
+        creates one delegate per scene. The C wrapper roots the factory in a
+        CallbackRoot. The Objective-C unit keeps that root, the receiver
+        creator and one invoker per protocol method in file statics, replacing
+        and then releasing a previous factory, and passes the generated
+        class. Each `-init` takes a new receiver root from the factory, and
+        each method pins that root for its call. After the terminal method
+        returns the instance releases its receiver: later void methods do
+        nothing and value methods abort. `-dealloc` releases a receiver still
+        held. Instances that already exist keep their receivers when the
+        factory is replaced.
+        """
+        module = self._session.module
+        descriptor = contract.objective_c_method
+        callback = contract.callbacks[0]
+        prefix = f"__btrc_objc_{declaration.name}_{method.name}"
+        factory_type = method.params[callback.parameter_index].type
+        factory_root = TypeExpr(base="CallbackRoot", generic_args=[factory_type], pointer_depth=1)
+        receiver_root = TypeExpr(
+            base="CallbackRoot", generic_args=[TypeExpr(base=callback.interface, pointer_depth=1)], pointer_depth=1
+        )
+        factory_symbol = self._types.render(factory_root).removesuffix("*").strip()
+        receiver_symbol = self._types.render(receiver_root).removesuffix("*").strip()
+        self._stored_context_lifetime(prefix, factory_root, factory_symbol)
+        self._stored_context_lifetime(prefix + "_receiver", receiver_root, receiver_symbol)
+        lifetime_type = prefix + "_lifetime"
+        creator_type = prefix + "_creator"
+        typedefs = [
+            IRFunctionPointerTypedef(lifetime_type, CType("void"), [CType("void*")]),
+            IRFunctionPointerTypedef(creator_type, CType("void*"), [CType("void*")]),
+        ]
+        invokers = []
+        callback_types = []
+        for index, projection in enumerate(callback.methods):
+            invoke, value_types = self._stored_context_invoker(
+                f"{prefix}_{index}", projection, receiver_root, receiver_symbol
+            )
+            invokers.append(invoke)
+            callback_types.append(value_types)
+            typedefs.append(
+                IRFunctionPointerTypedef(
+                    f"{prefix}_callback{index}",
+                    CType(self._types.render(self._native_callback_result(projection))),
+                    [CType(self._types.render(value)) for value in value_types],
+                )
+            )
+        for typedef in typedefs:
+            module.function_pointer_typedefs.append(typedef)
+            native.function_pointer_typedefs.append(typedef)
+        creator = self._instantiated_receiver_creator(prefix, callback, factory_root, receiver_root)
+        statics = {
+            "factory": "void*",
+            "retainFactory": lifetime_type,
+            "releaseFactory": lifetime_type,
+            "createReceiver": creator_type,
+            "retainReceiver": lifetime_type,
+            "releaseReceiver": lifetime_type,
+            **{f"invoke{index}": f"{prefix}_callback{index}" for index in range(len(invokers))},
+        }
+        native.global_decls.extend(
+            IRGlobalDecl(CType(value), f"{prefix}_{name}", init=IRLiteral("NULL")) for name, value in statics.items()
+        )
+
+        def static(name):
+            return IRVar(f"{prefix}_{name}")
+
+        def reject():
+            return IRBlock([IRExprStmt(IRCall("abort", [], never_returns=True))])
+
+        receiver = IRVar("receiver")
+        held = IRVar("_receiver")
+        methods = [
+            IRObjectiveCMethod(
+                "init",
+                CType("instancetype"),
+                [],
+                IRBlock(
+                    [
+                        IRAssign(IRVar("self"), IRObjectiveCMessage(IRVar("super"), "init", [])),
+                        IRIf(IRBinOp(IRVar("self"), "==", IRLiteral("nil")), IRBlock([IRReturn(IRLiteral("nil"))])),
+                        IRVarDecl(CType("void*"), "factory", init=static("factory")),
+                        IRIf(IRBinOp(IRVar("factory"), "==", IRLiteral("NULL")), reject()),
+                        IRExprStmt(IRCall(static("retainFactory"), [IRVar("factory")])),
+                        IRAssign(held, IRCall(static("createReceiver"), [IRVar("factory")])),
+                        IRExprStmt(IRCall(static("releaseFactory"), [IRVar("factory")])),
+                        IRReturn(IRVar("self")),
+                    ]
+                ),
+            )
+        ]
+        for index, (projection, value_types) in enumerate(zip(callback.methods, callback_types)):
+            parameters, arguments = self._instantiated_arguments(projection, value_types)
+            returns = self._types.render(projection.return_type) != "void"
+            body = [
+                IRVarDecl(CType("void*"), receiver.name, init=held),
+                IRIf(IRBinOp(receiver, "==", IRLiteral("NULL")), reject() if returns else IRBlock([IRReturn()])),
+                # The terminal method takes the instance's claim; any other
+                # method pins the receiver root for its call.
+                IRAssign(held, IRLiteral("NULL"))
+                if index == callback.terminal_index
+                else IRExprStmt(IRCall(static("retainReceiver"), [receiver])),
+            ]
+            invocation = IRCall(static(f"invoke{index}"), [*arguments, receiver])
+            release = IRExprStmt(IRCall(static("releaseReceiver"), [receiver]))
+            body.extend(
+                self._instantiated_result(projection, invocation, (release,))
+                if returns
+                else [IRExprStmt(invocation), release]
+            )
+            methods.append(
+                IRObjectiveCMethod(
+                    projection.native_method.selector, CType(projection.native_return), parameters, IRBlock(body)
+                )
+            )
+        methods.append(
+            IRObjectiveCMethod(
+                "dealloc",
+                CType("void"),
+                [],
+                IRBlock(
+                    [
+                        IRVarDecl(CType("void*"), receiver.name, init=held),
+                        IRIf(
+                            IRBinOp(receiver, "!=", IRLiteral("NULL")),
+                            IRBlock(
+                                [
+                                    IRAssign(held, IRLiteral("NULL")),
+                                    IRExprStmt(IRCall(static("releaseReceiver"), [receiver])),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            )
+        )
+        holder = prefix + "Holder"
+        native.objective_c_classes.append(
+            IRObjectiveCClass(
+                name=holder,
+                superclass="NSObject",
+                fields=[IRStructField(CType("void*"), held.name)],
+                methods=methods,
+                protocols=[callback.protocol],
+            )
+        )
+        receiver_parameter = IRParam(CType(f"struct __btrc_native_{declaration.name}*"), "self")
+        adapter_parameters = [
+            receiver_parameter,
+            *[IRParam(CType(f"{prefix}_callback{index}"), f"invoke{index}") for index in range(len(invokers))],
+            IRParam(CType(creator_type), "create"),
+            IRParam(CType("void*"), "context"),
+            *[
+                IRParam(CType(lifetime_type), name)
+                for name in ("retainContext", "releaseContext", "retainReceiver", "releaseReceiver")
+            ],
+        ]
+        registration = [
+            IRExprStmt(IRCall(IRVar("retainContext"), [IRVar("context")])),
+            IRVarDecl(CType("void*"), "previous", init=static("factory")),
+            IRAssign(static("factory"), IRVar("context")),
+            IRAssign(static("retainFactory"), IRVar("retainContext")),
+            IRAssign(static("releaseFactory"), IRVar("releaseContext")),
+            IRAssign(static("createReceiver"), IRVar("create")),
+            IRAssign(static("retainReceiver"), IRVar("retainReceiver")),
+            IRAssign(static("releaseReceiver"), IRVar("releaseReceiver")),
+            *[IRAssign(static(f"invoke{index}"), IRVar(f"invoke{index}")) for index in range(len(invokers))],
+            IRExprStmt(
+                IRObjectiveCMessage(
+                    IRCast(self._objective_c_object_type(declaration.name), IRVar("self"), bridge="borrow"),
+                    descriptor.selector,
+                    [IRObjectiveCMessage(IRVar(holder), "class", [])],
+                )
+            ),
+            # Instances already created keep their own receiver roots.
+            IRIf(
+                IRBinOp(IRVar("previous"), "!=", IRLiteral("NULL")),
+                IRBlock([IRExprStmt(IRCall(IRVar("releaseContext"), [IRVar("previous")]))]),
+            ),
+        ]
+        native.function_defs.append(
+            IRFunctionDef(
+                name=prefix,
+                return_type=CType("void"),
+                params=adapter_parameters,
+                body=IRBlock(
+                    [
+                        IRObjectiveCAutoreleasePool(
+                            IRBlock([IRObjectiveCExceptionBoundary(IRBlock(registration), reject())])
+                        )
+                    ]
+                ),
+            )
+        )
+        module.function_decls.append(IRFunctionDecl(prefix, CType("void"), adapter_parameters))
+        parameters = [receiver_parameter, *[self._signatures.lower_source_param(item) for item in method.params]]
+        self._session.require_helper("__btrc_throw")
+        statements = [
+            self._objective_c_null_guard(
+                IRVar(parameter.name), f"Objective-C call {descriptor.name}: null argument {parameter.name}"
+            )
+            for parameter in parameters
+        ]
+        releases = []
+        cleanup = self._native_cleanup_scope(parameters, statements)
+        receiver_type = TypeExpr(base=declaration.name, pointer_depth=1)
+        leased = self._native_lease(0, receiver_type, IRVar("self"), parameters, statements, releases)
+        root_slot = IRVarDecl(
+            CType(self._types.render(factory_root)),
+            "root",
+            init=IRCall(f"{factory_symbol}_new", [IRVar(parameters[1 + callback.parameter_index].name)]),
+        )
+        statements.extend(
+            [
+                root_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(root_slot, factory_root)),
+                IRExprStmt(
+                    IRCall(
+                        prefix,
+                        [
+                            leased,
+                            *[IRFunctionRef(invoke) for invoke in invokers],
+                            IRFunctionRef(creator),
+                            IRCast(CType("void*"), IRVar(root_slot.name)),
+                            IRFunctionRef(prefix + "_retain"),
+                            IRFunctionRef(prefix + "_release"),
+                            IRFunctionRef(prefix + "_receiver_retain"),
+                            IRFunctionRef(prefix + "_receiver_release"),
+                        ],
+                    )
+                ),
+            ]
+        )
+        release_locals = []
+        root_release = self._lifetime.release_and_clear(
+            IRVar(root_slot.name), factory_root, release_locals, self._types.render(factory_root)
+        )
+        statements.extend([*release_locals, *[IRExprStmt(value) for value in root_release], *releases])
+        flush = self._lifetime.flush_release_batch(type_exprs=[receiver_type])
+        if flush is not None:
+            statements.append(IRExprStmt(flush))
+        statements.extend(cleanup)
+        name = f"{declaration.name}_{method.name}"
+        result_type = CType(self._types.render(method.return_type))
+        module.function_decls.append(
+            IRFunctionDecl(name=name, return_type=result_type, params=parameters, is_static=True)
+        )
+        module.function_defs.append(
+            IRFunctionDef(
+                name=name, return_type=result_type, params=parameters, is_static=True, body=IRBlock(statements)
+            )
         )
 
     def _stored_activation_failure(self, callback, context_symbol, context, message):

@@ -382,18 +382,30 @@ class GenericSpecializer {
 				for callback in contract.callbacks {
 					if (!callback.instantiatedScope.isEmpty()) {
 						/* An SDK-instantiated adapter enters its receiver through an
-						 * authenticated CallbackRoot. */
-						Node root = Node();
-						root.kind = NK_TYPE_EXPR;
-						root.base = "CallbackRoot";
-						root.genericArgsStorage = [member.params().get(callback.parameterIndex).type];
-						root.pointerDepth = 1;
-						if (!self.analyzed.genericClassTable.has(root.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(root.base))) { throw "Instantiated native adapters require import Library.Callback"; }
+						 * authenticated CallbackRoot. An instance-scoped adapter also
+						 * roots its factory, and each instance roots the receiver the
+						 * factory creates. */
+						Vector<Node> receivers = [member.params().get(callback.parameterIndex).type];
+						if (!callback.factoryInterface.isEmpty()) {
+							Node receiver = Node();
+							receiver.kind = NK_TYPE_EXPR;
+							receiver.base = callback.interfaceName;
+							receiver.pointerDepth = 1;
+							receivers.push(receiver);
+						}
+						if (!self.analyzed.genericClassTable.has("CallbackRoot") || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get("CallbackRoot"))) { throw "Instantiated native adapters require import Library.Callback"; }
 						for name in ["isOpen", "enter", "leave"] {
-							Node? method = self.analyzed.genericClassMethod(root.base, name);
+							Node? method = self.analyzed.genericClassMethod("CallbackRoot", name);
 							if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Instantiated native adapters require import Library.Callback"; }
 						}
-						self.registerGenericInstanceWithUnresolved(root, self.analyzed, {});
+						for receiver in receivers {
+							Node root = Node();
+							root.kind = NK_TYPE_EXPR;
+							root.base = "CallbackRoot";
+							root.genericArgsStorage = [receiver];
+							root.pointerDepth = 1;
+							self.registerGenericInstanceWithUnresolved(root, self.analyzed, {});
+						}
 						continue;
 					}
 					if (callback.unregister == null && !callback.oneShot) { continue; }
