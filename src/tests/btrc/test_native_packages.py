@@ -13,7 +13,7 @@ import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.c_toolchains import HOST_C_COMPILERS
-from src.tests.native_targets import cross_target_environment
+from src.tests.native_targets import cross_target_environment, plan_target
 from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
@@ -356,10 +356,7 @@ def test_empty_native_plan_preserves_explicit_target_with_frontend_parity(
     assert selfhost.returncode == 0, selfhost.stderr
     selfhost_c.write_text(selfhost.stdout, encoding="utf-8")
     assert selfhost_plan.read_bytes() == reference_plan.read_bytes()
-    assert json.loads(selfhost_plan.read_text(encoding="utf-8"))["target"] == {
-        "arch": "aarch64",
-        "os": "macos",
-    }
+    assert json.loads(selfhost_plan.read_text(encoding="utf-8"))["target"] == plan_target("macos-aarch64")
     for frontend, generated in (("reference", reference_c), ("selfhost", selfhost_c)):
         for compiler in HOST_C_COMPILERS:
             _assert_strict_c_program(
@@ -515,10 +512,13 @@ def test_selfhost_plan_is_reference_exact_and_builds_native_package(
     selfhost_c = tmp_path / "selfhost.c"
     selfhost_plan = tmp_path / "selfhost.link.json"
     lock_before = (EXAMPLE / "btrc.lock").read_bytes()
-    environment = cross_target_environment(tmp_path, "linux-x64", _environment())
+    # The program runs, so the plan names the host row: another row is a
+    # cross build through that row's own toolchain.
+    host = _host_target()
+    environment = cross_target_environment(tmp_path, host, _environment())
 
-    reference = _reference(source, reference_c, reference_plan, environment=environment)
-    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan, environment=environment)
+    reference = _reference(source, reference_c, reference_plan, target=host, environment=environment)
+    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan, target=host, environment=environment)
 
     assert reference.returncode == 0, reference.stderr
     assert selfhost.returncode == 0, selfhost.stderr
@@ -854,7 +854,7 @@ def test_selfhost_versioned_manifest_infers_the_host_target(
         plans.append(json.loads(plan.read_text(encoding="utf-8")))
     assert plans[0] == plans[1]
     host = PackageTarget.parse(None)
-    assert plans[0]["target"] == {"arch": host.architecture, "os": host.operating_system}
+    assert plans[0]["target"] == plan_target(host.label)
 
 
 def test_selfhost_strict_manifest_rejects_arbitrary_build_fields(

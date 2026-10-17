@@ -40,7 +40,6 @@ def project(tmp_path):
     )
     plan = tmp_path / "plan.json"
     payload = NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
-    payload.update(schema=4)
     payload["emitted-units"] = [str(path) for path in parts]
     plan.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
     log = tmp_path / "parents"

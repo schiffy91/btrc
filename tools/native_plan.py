@@ -25,12 +25,17 @@ from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import ClassVar
 
+from src.compiler.python.abi.generated import TARGET_ROWS, GeneratedTargetRow
 from src.compiler.python.abi.hosted import TargetRepository
 from src.compiler.python.artifacts.publication import ArtifactPublisher
 
 MAX_PLAN_BYTES = 8 * 1024 * 1024
+# Schema 5's root fields (platform-target-contract.md section 4.1). Its
+# optional generated-units, emitted-units and emitted-unit-digests are present
+# exactly when non-empty.
 ROOT_FIELDS = frozenset(
     {
         "defines",
@@ -42,11 +47,20 @@ ROOT_FIELDS = frozenset(
         "pkg-config",
         "schema",
         "target",
+        "toolchain",
         "units",
     }
 )
-TARGET_OPERATING_SYSTEMS = frozenset({"linux", "macos", "windows"})
-TARGET_ARCHITECTURES = frozenset({"x86_64", "aarch64"})
+# Schemas 1, 2 and 4 carry no toolchain and only {arch, os} as their target;
+# they build only on the host row they name.
+LEGACY_ROOT_FIELDS = ROOT_FIELDS - {"toolchain"}
+PLAN_SCHEMAS = (1, 2, 4, 5)
+TARGET_FIELDS = frozenset({"arch", "environment", "label", "minimum", "os", "triple"})
+LEGACY_TARGET_FIELDS = frozenset({"arch", "os"})
+TARGET_ROWS_BY_LABEL = MappingProxyType({row.label: row for row in TARGET_ROWS})
+# Rows whose executables are Mach-O: Darwin debug maps and link receipts apply.
+APPLE_OPERATING_SYSTEMS = frozenset({"macos", "ios"})
+SHA256_DIGEST = re.compile(r"[0-9a-f]{64}")
 SOURCE_STANDARDS = {
     "c": frozenset({"c11"}),
     "c++": frozenset({"c++17", "c++20"}),
@@ -184,8 +198,7 @@ class NativeGeneratedUnit:
 class NativeBuildPlan:
     """Validated fields needed by the build adapter."""
 
-    operating_system: str
-    architecture: str
+    row: GeneratedTargetRow
     linker_language: str
     include_directories: tuple[Path, ...]
     defines: tuple[tuple[str, str], ...]
@@ -193,20 +206,25 @@ class NativeBuildPlan:
     pkg_config: tuple[str, ...]
     units: tuple[NativeUnit, ...]
     generated_units: tuple[NativeGeneratedUnit, ...] = ()
-    # Only schema 4 emits secondary units; it names their ordered output paths.
+    # Schemas 4 and 5 name the ordered output paths of secondary units.
     emitted_units: int = 0
     emitted_paths: tuple[Path, ...] = ()
+    # The sysroot the compile read native headers through (schema 5), or "".
+    sysroot_identity: str = ""
+    schema: int = 5
+
+    @property
+    def operating_system(self) -> str:
+        return self.row.operating_system
+
+    @property
+    def architecture(self) -> str:
+        return self.row.architecture
 
     @property
     def label(self) -> str:
-        """The canonical label of the plan's target row (its OS's default environment)."""
-
-        row = TargetRepository.row(
-            self.operating_system, self.architecture, TargetRepository.default_environment(self.operating_system)
-        )
-        if row is None:
-            raise NativePlanError(f"unsupported native link plan target {self.operating_system}-{self.architecture}")
-        return row.label
+        """The canonical label of the plan's target row."""
+        return self.row.label
 
 
 class NativePlanReader:
@@ -285,19 +303,25 @@ class NativePlanReader:
         except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
             raise NativePlanError(f"cannot parse native link plan {path}: {error}") from error
         schema = payload.get("schema") if isinstance(payload, dict) else None
-        if isinstance(payload, dict) and (type(schema) is not int or schema not in (1, 2, 4)):
-            raise NativePlanError("native link plan schema must be integer 1, 2 or 4")
-        fields = ROOT_FIELDS
+        if isinstance(payload, dict) and (type(schema) is not int or schema not in PLAN_SCHEMAS):
+            raise NativePlanError("native link plan schema must be integer 1, 2, 4 or 5")
+        fields = LEGACY_ROOT_FIELDS
         if schema == 2:
-            fields = ROOT_FIELDS | {"generated-units"}
+            fields = LEGACY_ROOT_FIELDS | {"generated-units"}
         elif schema == 4:
             # Adapter units remain optional alongside secondary C outputs, and
             # so do the units' digests, which older compilers did not write.
-            fields = ROOT_FIELDS | {"emitted-units"}
+            fields = LEGACY_ROOT_FIELDS | {"emitted-units"}
             if isinstance(payload, dict) and "generated-units" in payload:
                 fields = fields | {"generated-units"}
             if isinstance(payload, dict) and "emitted-unit-digests" in payload:
                 fields = fields | {"emitted-unit-digests"}
+        elif schema == 5:
+            # Adapter units and secondary outputs keep their schema 2 and 4
+            # meanings: each is present exactly when non-empty.
+            fields = ROOT_FIELDS
+            if isinstance(payload, dict):
+                fields = fields | ({"generated-units", "emitted-units", "emitted-unit-digests"} & payload.keys())
         root = PlanJson.exact_mapping(payload, fields, "native link plan")
         canonical = json.dumps(root, allow_nan=False, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
         if encoded != canonical.encode("utf-8"):
@@ -326,20 +350,17 @@ class NativePlanReader:
 
     def _validate(self, root: dict[str, object]) -> NativeBuildPlan:
         # Schema 3 (a bare emitted-unit count) was never written by either compiler.
-        if type(root["schema"]) is not int or root["schema"] not in (1, 2, 4):
-            raise NativePlanError("native link plan schema must be integer 1, 2 or 4")
-        target = PlanJson.exact_mapping(root["target"], frozenset({"arch", "os"}), "native link plan target")
-        operating_system = PlanJson.text(target["os"], "native link plan target.os")
-        architecture = PlanJson.text(target["arch"], "native link plan target.arch")
-        if (
-            operating_system not in TARGET_OPERATING_SYSTEMS
-            or architecture not in TARGET_ARCHITECTURES
-            or TargetRepository.row(
-                operating_system, architecture, TargetRepository.default_environment(operating_system)
-            )
-            is None
-        ):
-            raise NativePlanError(f"unsupported native link plan target {operating_system}-{architecture}")
+        schema = root["schema"]
+        if type(schema) is not int or schema not in PLAN_SCHEMAS:
+            raise NativePlanError("native link plan schema must be integer 1, 2, 4 or 5")
+        if schema == 5:
+            row = self._target_row(root["target"])
+            sysroot_identity = self._toolchain(root["toolchain"], row)
+            if "emitted-unit-digests" in root and "emitted-units" not in root:
+                raise NativePlanError("native link plan emitted-unit-digests requires emitted-units")
+        else:
+            row = self._legacy_target_row(root["target"])
+            sysroot_identity = ""
 
         package_roots = self._packages(root["packages"])
         headers = self._path_records(root["headers"], "headers", package_roots, directory=False)
@@ -352,16 +373,19 @@ class NativePlanReader:
         del headers  # Header existence/ownership is validated; compilation consumes includes and units.
         defines = self._defines(root["defines"], package_roots)
         frameworks = self._name_records(root["frameworks"], "frameworks", package_roots)
-        if frameworks and operating_system != "macos":
-            raise NativePlanError("native link plan frameworks require a macos target")
+        if frameworks and not row.frameworks:
+            raise NativePlanError(f"native link plan frameworks require a macos or ios target, not {row.label}")
         pkg_config = self._name_records(root["pkg-config"], "pkg-config", package_roots)
+        # A mobile app and an MSVC SDK build have no pkg-config search path.
+        if pkg_config and (row.operating_system in {"ios", "android"} or row.sysroot_kind == "windows-sdk"):
+            raise NativePlanError(f"native link plan pkg-config is unavailable for {row.label}")
         units = self._units(root["units"], package_roots)
         generated_units = (
-            self._generated_units(root["generated-units"]) if root["schema"] >= 2 and "generated-units" in root else ()
+            self._generated_units(root["generated-units"]) if schema >= 2 and "generated-units" in root else ()
         )
         emitted_units = 0
         emitted_paths = ()
-        if root["schema"] == 4:
+        if schema in (4, 5) and "emitted-units" in root:
             records = PlanJson.array(root["emitted-units"], "native link plan emitted-units")
             if not records:
                 raise NativePlanError("native link plan emitted-units must not be empty")
@@ -392,8 +416,7 @@ class NativePlanReader:
                 f"native link plan linker-language must be {expected_linker!r} for its selected units"
             )
         return NativeBuildPlan(
-            operating_system,
-            architecture,
+            row,
             linker_language,
             include_directories,
             defines,
@@ -403,7 +426,71 @@ class NativePlanReader:
             generated_units,
             emitted_units,
             emitted_paths,
+            sysroot_identity,
+            schema,
         )
+
+    def _target_row(self, value: object) -> GeneratedTargetRow:
+        """The schema-5 target, which must equal its targets.toml row exactly."""
+        target = PlanJson.exact_mapping(value, TARGET_FIELDS, "native link plan target")
+        for name in sorted(TARGET_FIELDS):
+            PlanJson.text(
+                target[name], f"native link plan target.{name}", allow_empty=name in {"environment", "minimum"}
+            )
+        label = target["label"]
+        row = TARGET_ROWS_BY_LABEL.get(label)
+        if row is None:
+            raise NativePlanError(f"unsupported native link plan target {label}")
+        expected = {
+            "arch": row.architecture,
+            "environment": row.environment,
+            "label": row.label,
+            "minimum": row.minimum_version,
+            "os": row.operating_system,
+            "triple": row.triple,
+        }
+        if target != expected:
+            raise NativePlanError(f"native link plan target does not match the {label} row of targets.toml")
+        return row
+
+    def _toolchain(self, value: object, row: GeneratedTargetRow) -> str:
+        """The plan's sysroot identity, after its toolchain matches the row."""
+        toolchain = PlanJson.exact_mapping(
+            value, frozenset({"sysroot", "target-arguments"}), "native link plan toolchain"
+        )
+        sysroot = PlanJson.exact_mapping(
+            toolchain["sysroot"], frozenset({"identity", "kind", "name"}), "native link plan toolchain.sysroot"
+        )
+        identity = PlanJson.text(sysroot["identity"], "native link plan toolchain.sysroot.identity", allow_empty=True)
+        if identity and not SHA256_DIGEST.fullmatch(identity):
+            raise NativePlanError("native link plan toolchain.sysroot.identity must be empty or one SHA-256")
+        kind = PlanJson.text(sysroot["kind"], "native link plan toolchain.sysroot.kind")
+        name = PlanJson.text(sysroot["name"], "native link plan toolchain.sysroot.name", allow_empty=True)
+        if (kind, name) != (row.sysroot_kind, row.sysroot_name):
+            raise NativePlanError(f"native link plan toolchain.sysroot does not match the {row.label} row")
+        arguments = [
+            PlanJson.text(argument, "native link plan toolchain.target-arguments")
+            for argument in PlanJson.array(toolchain["target-arguments"], "native link plan toolchain.target-arguments")
+        ]
+        if arguments != list(row.target_arguments):
+            raise NativePlanError(f"native link plan toolchain.target-arguments must be the {row.label} row's")
+        return identity
+
+    def _legacy_target_row(self, value: object) -> GeneratedTargetRow:
+        """A schema 1, 2 or 4 plan's row, which only that row's host may build."""
+        target = PlanJson.exact_mapping(value, LEGACY_TARGET_FIELDS, "native link plan target")
+        operating_system = PlanJson.text(target["os"], "native link plan target.os")
+        architecture = PlanJson.text(target["arch"], "native link plan target.arch")
+        row = TargetRepository.row(
+            operating_system, architecture, TargetRepository.default_environment(operating_system)
+        )
+        host = TargetRepository.host()
+        if row is None or not row.compiler_host or row != host:
+            raise NativePlanError(
+                f"legacy native link plan for {operating_system}-{architecture} cannot be built on host "
+                f"{host.label if host is not None else 'that no target row names'}; regenerate it as schema 5"
+            )
+        return row
 
     def _generated_units(self, value: object) -> tuple[NativeGeneratedUnit, ...]:
         units = []
@@ -603,6 +690,10 @@ class NativeBuildReport:
     prelude_s: float = 0.0
     adapter_source_status: str = "none"
     debug_object_status: str = "none"
+    # The minimum OS version the objects are built for: the row's triple
+    # pins it off the host; on the host it is the toolchain's own setting.
+    deployment_target: str = ""
+    warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
         result = asdict(self)
@@ -634,6 +725,267 @@ class NativeBuildReport:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
+
+
+class TargetToolchain:
+    """The compiler drivers, arguments and sysroot that build one target row.
+
+    The compilers never discover a toolchain (platform-target-contract.md
+    Principles); this owner and the test harness do. The host row keeps the
+    caller's `cc` and `c++` with no target arguments, so a host build runs
+    exactly today's commands. Every other row takes its driver from the row --
+    zig for its `zig_target`, Xcode's clang for an xcrun SDK, the NDK's clang,
+    or clang in a Windows SDK environment -- and is refused when that driver
+    is missing: a cross build never falls back to the host compiler.
+    """
+
+    # The NDK the Stage 22 toolchain matrix pins under $ANDROID_HOME/ndk.
+    NDK_VERSION = "29.0.14206865"
+    # The NDK's prebuilt toolchain directory for each build host.
+    NDK_HOSTS: ClassVar[Mapping[str, str]] = MappingProxyType(
+        {"darwin": "darwin-x86_64", "linux": "linux-x86_64", "win32": "windows-x86_64"}
+    )
+    # The checkout's Windows compatibility overlay, which the Makefile's
+    # WIN_COMPAT force-includes into every btrc-generated MinGW unit.
+    WINDOWS_OVERLAY = Path(__file__).resolve().parents[1] / "src" / "runtime" / "windows"
+    # Xcode's own xcrun, which knows every installed platform SDK. A Nix
+    # shell's xcrun, developer directory and SDKROOT name only its macOS SDK.
+    SYSTEM_XCRUN = Path("/usr/bin/xcrun")
+    _APPLE_SHELL_VARIABLES = ("DEVELOPER_DIR", "SDKROOT")
+    _UNRESOLVED: ClassVar[object] = object()
+
+    def __init__(
+        self,
+        row: GeneratedTargetRow,
+        *,
+        cc: str = "cc",
+        cxx: str = "c++",
+        runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        environment: Mapping[str, str] | None = None,
+    ) -> None:
+        self.row = row
+        self.host = row == TargetRepository.host()
+        self._runner = runner
+        self._environment = dict(os.environ if environment is None else environment)
+        self._sysroot: object = self._UNRESOLVED
+        # Arguments after each unit's language and standard, also used to link.
+        self.arguments: list[str] = []
+        # Arguments only btrc-generated C units receive.
+        self.generated_arguments: list[str] = []
+        if self.host:
+            self.drivers = {"cc": [self._executable(cc, "C compiler")], "cxx": [self._executable(cxx, "C++ compiler")]}
+        elif row.sysroot_kind == "windows-sdk":
+            self.drivers = self._windows_sdk_drivers()
+            self.arguments = list(row.target_arguments)
+        elif row.zig_target:
+            zig = shutil.which("zig", path=self._environment.get("PATH"))
+            if zig is None:
+                raise self._missing("zig is not on PATH")
+            self.drivers = {"cc": [zig, "cc"], "cxx": [zig, "c++"]}
+            # zig takes its own target spelling and never the clang arguments.
+            self.arguments = ["-target", row.zig_target]
+            if row.operating_system == "windows":
+                header = self.WINDOWS_OVERLAY / "btrc_win_compat.h"
+                if not header.is_file():
+                    raise self._missing(f"the Windows compatibility overlay {header} is missing")
+                self.generated_arguments = ["-I", str(self.WINDOWS_OVERLAY), "-include", str(header)]
+        elif row.sysroot_kind == "xcrun":
+            compilers = [self._xcrun("--find", tool) for tool in ("clang", "clang++")]
+            if None in compilers:
+                raise self._missing(f"xcrun finds no clang for the {row.sysroot_name} SDK")
+            self.drivers = {"cc": [compilers[0]], "cxx": [compilers[1]]}
+            self.arguments = [*row.target_arguments, "-isysroot", str(self.sysroot())]
+        elif row.sysroot_kind == "ndk":
+            prebuilt = self._ndk_prebuilt()
+            self.drivers = {"cc": [str(prebuilt / "bin" / "clang")], "cxx": [str(prebuilt / "bin" / "clang++")]}
+            self.arguments = [*row.target_arguments, f"--sysroot={self.sysroot()}"]
+        else:
+            raise self._missing("its row names no cross-compiler driver")
+
+    def _missing(self, reason: str) -> NativePlanError:
+        return NativePlanError(f"no toolchain for {self.row.label}: {reason}")
+
+    def _executable(self, value: str, context: str) -> str:
+        PlanJson.text(value, context)
+        resolved = shutil.which(value)
+        if resolved is None:
+            raise NativePlanError(f"{context} is unavailable: {value!r}")
+        return resolved
+
+    def runtime_libraries(self) -> list[str]:
+        """The libraries every btrc program links: libm, and threads off Windows."""
+        if self.row.sysroot_kind == "windows-sdk":
+            return []
+        return ["-lm"] if self.row.operating_system == "windows" else ["-lm", "-pthread"]
+
+    def compile_command(
+        self,
+        source: Path,
+        output: Path,
+        *,
+        language: str = "c",
+        standard: str = "c11",
+        generated: bool = True,
+        flags: Sequence[str] = (),
+    ) -> list[str]:
+        """One compile-only command for this row, as the builder spells it."""
+        return [
+            *self.drivers[SOURCE_DRIVERS[language]],
+            *SOURCE_LANGUAGE_ARGUMENTS[language],
+            f"-std={standard}",
+            *self.arguments,
+            *(self.generated_arguments if generated else ()),
+            *flags,
+            "-c",
+            str(source),
+            "-o",
+            str(output),
+        ]
+
+    def deployment_target(self) -> str:
+        """The minimum OS version objects are built for, or "" for the toolchain's default."""
+        if self.host and self.row.operating_system == "macos":
+            return self._environment.get("MACOSX_DEPLOYMENT_TARGET", "")
+        return self.row.minimum_version
+
+    def deployment_warning(self) -> str | None:
+        """A host build whose deployment target differs from the row's minimum (Q1)."""
+
+        def components(version: str) -> tuple[int, ...]:
+            parts = [int(part) if part.isdigit() else -1 for part in version.split(".")] if version else []
+            while parts and parts[-1] == 0:
+                parts.pop()
+            return tuple(parts)
+
+        effective = self.deployment_target()
+        if not self.row.minimum_version or components(effective) == components(self.row.minimum_version):
+            return None
+        return (
+            f"{self.row.label} objects target {effective or 'the toolchain default'}, "
+            f"not the row minimum {self.row.minimum_version}"
+        )
+
+    def sysroot(self) -> Path:
+        """The row's sysroot on this host: the BTRC_NATIVE_SYSROOT a build gave
+        the compiler for this row's triple, else the toolchain's own."""
+        if self._sysroot is self._UNRESOLVED:
+            self._sysroot = self._discover_sysroot()
+        if self._sysroot is None:
+            raise self._missing(f"cannot locate its {self.row.sysroot_kind} sysroot")
+        return self._sysroot
+
+    def _discover_sysroot(self) -> Path | None:
+        row = self.row
+        given = self._environment.get("BTRC_NATIVE_SYSROOT", "")
+        if given and self._environment.get("BTRC_NATIVE_TARGET", "") in (row.triple, *row.triple_aliases):
+            return Path(given)
+        if row.sysroot_kind == "xcrun":
+            path = self._xcrun("--show-sdk-path")
+        elif row.sysroot_kind == "ndk":
+            path = str(self._ndk_prebuilt() / "sysroot")
+        elif row.sysroot_kind == "zig-mingw":
+            path = self._zig_libc()
+        else:
+            path = None
+        return Path(path) if path and Path(path).is_dir() else None
+
+    def _xcrun(self, *arguments: str) -> str | None:
+        """Ask xcrun about the row's SDK. The host row asks in the build's own
+        environment, where its compiler runs; another Apple row asks Xcode."""
+        environment = self._environment
+        if self.host:
+            xcrun = shutil.which("xcrun", path=environment.get("PATH"))
+        else:
+            xcrun = str(self.SYSTEM_XCRUN) if self.SYSTEM_XCRUN.is_file() else None
+            environment = {
+                name: value
+                for name, value in environment.items()
+                if not (name in self._APPLE_SHELL_VARIABLES and value.startswith("/nix/store/"))
+            }
+        if xcrun is None:
+            return None
+        try:
+            completed = self._runner(
+                [xcrun, "--sdk", self.row.sysroot_name, *arguments],
+                capture_output=True,
+                text=True,
+                check=False,
+                shell=False,
+                env=environment,
+                timeout=120,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        answer = completed.stdout.strip()
+        return answer if completed.returncode == 0 and answer and os.path.exists(answer) else None
+
+    def _ndk_prebuilt(self) -> Path:
+        """$ANDROID_NDK_HOME, else the pinned NDK under $ANDROID_HOME."""
+        ndk = self._environment.get("ANDROID_NDK_HOME") or (
+            str(Path(self._environment["ANDROID_HOME"]) / "ndk" / self.NDK_VERSION)
+            if self._environment.get("ANDROID_HOME")
+            else ""
+        )
+        if not ndk:
+            raise self._missing(f"neither ANDROID_NDK_HOME nor ANDROID_HOME/ndk/{self.NDK_VERSION} names an NDK")
+        host = self.NDK_HOSTS.get(sys.platform)
+        prebuilt = Path(ndk) / "toolchains" / "llvm" / "prebuilt" / (host or sys.platform)
+        if host is None or not (prebuilt / "bin" / "clang").is_file():
+            raise self._missing(f"the NDK at {ndk} has no clang for this build host")
+        return prebuilt
+
+    def _zig_libc(self) -> str | None:
+        """zig's MinGW sysroot: the `.lib_dir` of `zig env` (ZON in 0.16) joined with libc."""
+        zig = shutil.which("zig", path=self._environment.get("PATH"))
+        if zig is None:
+            return None
+        try:
+            listed = self._runner(
+                [zig, "env"],
+                capture_output=True,
+                text=True,
+                check=False,
+                shell=False,
+                env=self._environment,
+                timeout=120,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        match = re.search(r'\.lib_dir = "([^"]+)"', listed.stdout) or re.search(
+            r'"lib_dir"\s*:\s*"([^"]+)"', listed.stdout
+        )
+        return str(Path(match.group(1)) / "libc") if listed.returncode == 0 and match else None
+
+    def _windows_sdk_drivers(self) -> dict[str, list[str]]:
+        """clang in a Windows SDK environment, as vcvarsall leaves it (runner-bound)."""
+        clang = shutil.which("clang", path=self._environment.get("PATH"))
+        clangxx = shutil.which("clang++", path=self._environment.get("PATH"))
+        if not (self._environment.get("WindowsSdkDir") and self._environment.get("VCToolsInstallDir")):
+            raise self._missing("no Windows SDK environment (WindowsSdkDir and VCToolsInstallDir); it is runner-bound")
+        if clang is None or clangxx is None:
+            raise self._missing("clang is not on PATH")
+        return {"cc": [clang], "cxx": [clangxx]}
+
+    def verify_identity(self, identity: str) -> None:
+        """Refuse a build whose sysroot is not the one the plan's headers were read through.
+
+        Only a row the builder supplies the sysroot for is checked. The host
+        row's compiler is the caller's, with today's flags: it finds its SDK
+        through the caller's environment (SDKROOT, DEVELOPER_DIR, a runner's
+        own environment), which the builder neither chooses nor observes.
+        """
+        if not identity or self.host:
+            return
+        from src.compiler.python.frontend.native_imports import NativeSysroot
+        from src.compiler.python.frontend.packages import IncludeResolutionError
+
+        sysroot = self.sysroot()
+        try:
+            current = NativeSysroot(self.row, str(sysroot)).validate()
+        except IncludeResolutionError as error:
+            raise NativePlanError(str(error)) from error
+        if current != identity:
+            raise NativePlanError(f"sysroot identity changed since the plan was emitted ({self.row.label}: {sysroot})")
 
 
 @dataclass
@@ -1001,8 +1353,12 @@ class NativePlanBuilder:
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
         reader: NativePlanReader | None = None,
         process_workers: bool = False,
+        discovery: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     ) -> None:
         self._runner = runner
+        # Toolchain discovery (xcrun, zig env) runs apart from the build's
+        # compile and link commands, which `runner` executes.
+        self._discovery = discovery
         self._reader = reader or NativePlanReader()
         # A guarded process entry point may opt in. Embedded callers and
         # custom capabilities retain their existing in-process execution.
@@ -1060,19 +1416,23 @@ class NativePlanBuilder:
                 report_path = report_path.absolute()
                 PlanPaths.real_directory(str(report_path.parent), "native report directory")
                 self._validate_destination(report_path, (*inputs, output), "native report")
-            tools = {"cc": self._tool(cc, "C compiler"), "cxx": self._tool(cxx, "C++ compiler")}
+            # The host row keeps cc/c++ and today's flags; any other row takes
+            # its driver from the row, or the build is refused.
+            toolchain = TargetToolchain(plan.row, cc=cc, cxx=cxx, runner=self._discovery)
+            toolchain.verify_identity(plan.sysroot_identity)
+            report.deployment_target = toolchain.deployment_target()
+            warning = toolchain.deployment_warning()
+            if warning is not None:
+                report.warnings.append(warning)
+            tools = toolchain.drivers
+            apple = plan.operating_system in APPLE_OPERATING_SYSTEMS
             # The link receipt's toolchain queries do not depend on the objects:
             # answer them beside preprocessing. Injected runners keep their
             # exact call sequences. The thread stays off the builder, which
             # compile workers receive by pickling.
             prefetch = None
-            if (
-                object_cache is not None
-                and sys.platform == "darwin"
-                and plan.operating_system == "macos"
-                and self._runner is subprocess.run
-            ):
-                driver = tools["cxx" if plan.linker_language == "c++" else "cc"]
+            if object_cache is not None and sys.platform == "darwin" and apple and self._runner is subprocess.run:
+                driver = tools["cxx" if plan.linker_language == "c++" else "cc"][0]
                 prefetch = threading.Thread(
                     target=_DarwinLinkReceipt.prefetch, args=(self._runner, driver), daemon=True
                 )
@@ -1083,12 +1443,15 @@ class NativePlanBuilder:
             strict = ["-pedantic-errors", "-Wall", "-Wextra", "-Werror"]
             if debug_info:
                 strict.append("-g")
+            # Objects are keyed by the row's label and, when the plan read
+            # native headers, the sysroot identity they were read through.
+            cache_target = f"{plan.label}+{plan.sysroot_identity}" if plan.sysroot_identity else plan.label
             cache = (
                 _ObjectCache(
                     object_cache,
                     self._runner,
-                    target=f"{plan.operating_system}-{plan.architecture}",
-                    drivers=tuple(dict.fromkeys(tools.values())),
+                    target=cache_target,
+                    drivers=tuple(dict.fromkeys(driver[0] for driver in tools.values())),
                 )
                 if object_cache is not None
                 else None
@@ -1118,10 +1481,12 @@ class NativePlanBuilder:
                     commands.append(
                         (
                             [
-                                tools["cc"],
+                                *tools["cc"],
                                 "-x",
                                 "c",
                                 "-std=c11",
+                                *toolchain.arguments,
+                                *toolchain.generated_arguments,
                                 *strict,
                                 *includes,
                                 *defines,
@@ -1156,9 +1521,10 @@ class NativePlanBuilder:
                     commands.append(
                         (
                             [
-                                tools[SOURCE_DRIVERS[unit.language]],
+                                *tools[SOURCE_DRIVERS[unit.language]],
                                 *SOURCE_LANGUAGE_ARGUMENTS[unit.language],
                                 f"-std={unit.standard}",
+                                *toolchain.arguments,
                                 *strict,
                                 *policy,
                                 *includes,
@@ -1247,18 +1613,17 @@ class NativePlanBuilder:
                         if cache is not None
                         else None
                     )
-                    if debug_info and plan.operating_system == "macos":
+                    if debug_info and apple:
                         objects, report.debug_object_status = self._retain_debug_objects(
                             objects, temporary, parent, cache.digests if cache is not None else {}, generations
                         )
                     staged = temporary / output.name
-                    runtime_libraries = ["-lm"]
-                    if plan.operating_system != "windows":
-                        runtime_libraries.append("-pthread")
+                    runtime_libraries = toolchain.runtime_libraries()
                     # Group packages may each declare the same framework; link it once.
                     framework_flags = [part for name in dict.fromkeys(plan.frameworks) for part in ("-framework", name)]
                     report.link_command = [
-                        tools["cxx" if plan.linker_language == "c++" else "cc"],
+                        *tools["cxx" if plan.linker_language == "c++" else "cc"],
+                        *toolchain.arguments,
                         *(str(path) for path in objects),
                         *package_link,
                         *framework_flags,
@@ -1276,7 +1641,7 @@ class NativePlanBuilder:
                     unit.preprocessing_status.startswith("receipt-") for unit in report.units
                 )
                 report.preprocessing_hits = sum(unit.preprocessing_status == "receipt-hit" for unit in report.units)
-                self._link(report, objects, staged, output, cache, prefetch, signer)
+                self._link(report, objects, staged, output, cache, prefetch, signer, apple, plan.sysroot_identity)
             if cache is not None:
                 cache.prune()
             report.wall_s = time.perf_counter() - started
@@ -1294,6 +1659,8 @@ class NativePlanBuilder:
         cache: _ObjectCache | None,
         prefetch: threading.Thread | None = None,
         signer: _DarwinSigner | None = None,
+        apple: bool = False,
+        sysroot_identity: str = "",
     ) -> None:
         publication = ArtifactPublisher()
         # A parent lock also serializes differently spelled aliases of the
@@ -1304,9 +1671,9 @@ class NativePlanBuilder:
             context = None
             if prefetch is not None:
                 prefetch.join()
-            if cache is not None and not (sys.platform == "darwin" and report.target.startswith("macos-")):
-                # Only ld64's -dependency_info proves a retained executable;
-                # every other host and target relinks on each build.
+            if cache is not None and not (sys.platform == "darwin" and apple):
+                # Only ld64's -dependency_info proves a retained executable, for
+                # a macos or ios row; every other host and row relinks.
                 report.link_cache_status = "host-unsupported"
             elif cache is not None:
                 receipt = _DarwinLinkReceipt(
@@ -1317,6 +1684,7 @@ class NativePlanBuilder:
                     output,
                     {
                         "target": report.target,
+                        **({"sysroot": sysroot_identity} if sysroot_identity else {}),
                         "optimization": report.optimization,
                         "debug": report.debug_info,
                         "unit_keys": [
@@ -1692,17 +2060,13 @@ class NativePlanBuilder:
         with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(deferred)))) as pool:
             list(pool.map(publish, zip(deferred, after, strict=True)))
 
-    def _tool(self, value: str, context: str) -> str:
-        PlanJson.text(value, context)
-        resolved = shutil.which(value)
-        if resolved is None:
-            raise NativePlanError(f"{context} is unavailable: {value!r}")
-        return resolved
-
     def _pkg_config(self, plan: NativeBuildPlan, executable: str) -> tuple[list[str], list[str]]:
         if not plan.pkg_config:
             return [], []
-        tool = self._tool(executable, "pkg-config tool")
+        PlanJson.text(executable, "pkg-config tool")
+        tool = shutil.which(executable)
+        if tool is None:
+            raise NativePlanError(f"pkg-config tool is unavailable: {executable!r}")
         return (
             self._pkg_config_arguments(tool, "--cflags", plan.pkg_config),
             self._pkg_config_arguments(tool, "--libs", plan.pkg_config),
@@ -2765,7 +3129,7 @@ def main(argv: Sequence[str] | None = None, *, process_workers: bool = False) ->
         else None
     )
     try:
-        NativePlanBuilder(process_workers=process_workers).build(
+        report = NativePlanBuilder(process_workers=process_workers).build(
             plan_path=arguments.plan,
             generated_c=arguments.generated_c,
             output=arguments.output,
@@ -2782,6 +3146,8 @@ def main(argv: Sequence[str] | None = None, *, process_workers: bool = False) ->
     except (NativePlanError, OSError) as error:
         sys.stderr.write(f"btrc-native-plan: error: {error}\n")
         return 1
+    for warning in report.warnings:
+        sys.stderr.write(f"btrc-native-plan: warning: {warning}\n")
     return 0
 
 
