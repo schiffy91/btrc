@@ -17,10 +17,12 @@ language = "c"
 standard = "c11"
 modules = ["JavaVirtualMachine"]
 
+# btrcJavaAdopt is not selected: only C calls it, from the JNI_OnLoad of the
+# library a running VM loaded, and BTRC sees the result through adopted().
 [[native.bindings]]
 module = "JavaVirtualMachine"
 header = "JNI.h"
 language = "c"
 standard = "c11"
-symbols = ["btrcJavaAddOption", "btrcJavaCreateHost", "btrcJavaRunning", "btrcJavaLiveClaims", "btrcJavaAttachedThreads", "btrcJavaDestroy"]
+symbols = ["btrcJavaAddOption", "btrcJavaCreateHost", "btrcJavaRunning", "btrcJavaAdopted", "btrcJavaLiveClaims", "btrcJavaAttachedThreads", "btrcJavaDestroy"]
 read-only-borrows = ["btrcJavaAddOption.option"]

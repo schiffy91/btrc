@@ -561,6 +561,11 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         names = [tuple(row.get(key) for key in keys) for row in rows]
         assert all(None not in values for values in names), (workflow, name, keys)
         assert len(set(names)) == len(rows), f"{workflow} {name}: skip-report names collide across the matrix"
+        if workflow not in CORE_WORKFLOWS:
+            # A lane workflow (host-android.yml's JNI round trip) is selected by
+            # its paths, not a tier, and no ledger bundle collects its reports.
+            assert not any(entry.reference.startswith(f"{workflow}/") for entry in TIERS.jobs), workflow
+            continue
         # The tier manifest names the same reports, so the bundle expects them.
         tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{name}")
         assert "skip-report" in tiered.reports, (workflow, name)
@@ -1331,6 +1336,12 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     assert "nix/android-repo-overlay.json" in android
     assert ".#platforms" not in android
     assert _parsed("host-android.yml")["jobs"]["emulator"]["strategy"]["matrix"]["api"] == ["29", "36"]
+    # CL-P2-09, interop step 4's exit: each emulator also round-trips a checked
+    # JNI call through both compilers, where a missing prerequisite fails.
+    for compiler in ("python", "btrc"):
+        assert f"--compilers {compiler}" in android, compiler
+    assert android.count("src/tests/python/test_native_jni_android.py") == 2
+    assert 'echo "BTRC_ANDROID_JNI_REQUIRED=1"' in android
 
 
 @pytest.mark.parametrize("sdk_exit", [0, 7])

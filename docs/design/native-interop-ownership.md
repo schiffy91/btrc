@@ -534,6 +534,15 @@ ownership idea.
 - Destroying the VM with live user claims aborts.
 - On Android the VM is never destroyed. On a host JVM, the test destroys it
   after every owner is closed.
+- *As implemented (CL-P2-09):* a library that a running VM loads adopts it.
+  Its `JNI_OnLoad` calls `btrcJavaAdopt(machine)` from C (Android's
+  `app_process` or app VM, or `System.load` in a host `java` process), and
+  `JavaVirtualMachine.adopted()` reports it. The loading thread keeps the
+  `JNIEnv` its VM gave it and never gets a key value; other threads attach as
+  daemons and detach as above. An adopted VM refuses `shutdown`, VM options
+  and a second VM, each by terminating. `test_native_jni_adopted.py` runs this
+  under a host `java -Xcheck:jni` through both compilers, and
+  `test_native_jni_android.py` runs the step's exit under `app_process`.
 - Class and ID initialization runs once per binding symbol, under the
   existing btrc mutex. (C11 `call_once` is missing on macOS.)
 - Application classes resolve at `JNI_OnLoad` or through a cached application

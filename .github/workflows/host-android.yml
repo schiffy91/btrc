@@ -10,7 +10,8 @@ name: Host Android
 # revisions are installed from the checksummed archives in
 # nix/android-repo-overlay.json, because sdkmanager installs only their latest.
 # Until the tool directory is on the revision being tested, the tooling job
-# reports it absent and the emulator jobs are skipped.
+# reports it absent and the emulator jobs are skipped. Each emulator job then
+# runs interop step 4's checked JNI round trip on its API (CL-P2-09).
 on:
   push:
     branches: [main]
@@ -20,6 +21,9 @@ on:
       - nix/platforms.nix
       - nix/android-repo-overlay.json
       - src/tests/python/test_android_host_versions.py
+      - src/stdlib/Java/**
+      - src/tests/python/jni_adoption_fixtures.py
+      - src/tests/python/test_native_jni_android.py
   pull_request:
     branches: [main]
     paths:
@@ -28,6 +32,9 @@ on:
       - nix/platforms.nix
       - nix/android-repo-overlay.json
       - src/tests/python/test_android_host_versions.py
+      - src/stdlib/Java/**
+      - src/tests/python/jni_adoption_fixtures.py
+      - src/tests/python/test_native_jni_android.py
   workflow_dispatch:
 
 permissions:
@@ -151,3 +158,61 @@ jobs:
             build/android-host-*/toolchain.json
           if-no-files-found: warn
           retention-days: 30
+      # Interop step 4's exit (CL-P2-09): a checked JNI call round trip under
+      # app_process on this API's emulator, through each compiler
+      # (src/tests/python/test_native_jni_android.py). The compilers read
+      # Library.Java's JNI.h and the fixture's classes through the flake's two
+      # readers, the only Nix outputs besides btrcc this job builds; the NDK,
+      # d8, adb and JDK 17 are the runner's pinned SDK above. Each run boots the
+      # AVD the fixture check created, after its results are retained, and
+      # stops it again.
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+        if: ${{ !cancelled() }}
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        if: ${{ !cancelled() }}
+        with:
+          use-flakehub: false
+      - name: Build the native header and Java class readers
+        if: ${{ !cancelled() }}
+        run: |
+          nix build .#btrc-native-header --out-link build/native-header-reader
+          nix build .#btrc-java-class-reader --out-link build/java-class-reader
+          python3 -m pip install pytest==8.4.2
+          ndk=$(sed -n 's/^ndk;//p' build/android-sdk-packages.txt)
+          {
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$ndk"
+            echo "BTRC_NATIVE_HEADER_READER=$PWD/build/native-header-reader/bin/btrc-native-header"
+            echo "BTRC_JAVA_CLASS_READER=$PWD/build/java-class-reader/bin/btrc-java-class-reader"
+            echo "BTRC_ANDROID_AVD_STATE=$PWD/build/android-avds"
+            echo "BTRC_ANDROID_API=${{ matrix.api }}"
+            echo "BTRC_ANDROID_JNI_REQUIRED=1"
+            echo "BTRC_ANDROID_JNI_EVIDENCE=$PWD/build/android-jni-api${{ matrix.api }}"
+          } >> "$GITHUB_ENV"
+      - name: Round-trip a checked JNI call on API ${{ matrix.api }} (reference compiler)
+        if: ${{ !cancelled() }}
+        run: |
+          python3 -m pytest -q -rA -p no:cacheprovider --compilers python \
+            src/tests/python/test_native_jni_android.py --skip-report=build/skip-report-android-jni-python.json
+      - name: Build the self-hosted compiler
+        if: ${{ !cancelled() }}
+        run: nix build .#btrcc --out-link build/btrcc
+      - name: Round-trip a checked JNI call on API ${{ matrix.api }} (self-hosted compiler)
+        if: ${{ !cancelled() }}
+        run: |
+          BTRC_TEST_BTRCC="$PWD/build/btrcc/bin/btrcc" python3 -m pytest -q -rA -p no:cacheprovider --compilers btrc \
+            src/tests/python/test_native_jni_android.py --skip-report=build/skip-report-android-jni-btrc.json
+      - name: Retain the JNI round trip
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-jni-api${{ matrix.api }}
+          path: build/android-jni-api${{ matrix.api }}
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Retain the skip reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-host-android-emulator-${{ matrix.api }}
+          path: build/skip-report*.json
+          if-no-files-found: warn

@@ -434,9 +434,11 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
     # the pugixml, SQLite, lldb and native-provider cases Linux skips run on
     # macOS. No CI runner has the NDK, a Windows SDK row toolchain or a
     # Stage 25 executor yet, so the target ABI fixture's rows that need them
-    # are uncovered until those lanes exist.
+    # are uncovered until those lanes exist. The Android JNI round trip runs
+    # in host-android.yml's emulator jobs, which write no skip report.
     uncovered = {rule_id for rule_id, rule in rules.items() if not rule.covered_by}
     assert uncovered == {
+        "android-device-bound",
         "apple-target-macro-oracle",
         "linux-tray-session-bus",
         "target-abi-ndk-bound",
