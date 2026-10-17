@@ -1,0 +1,75 @@
+/* The target ABI fixture (platform-target-contract.md section 7). Each line
+ * names one data-model fact that this row's C compiler and BTRC agree on. The
+ * lines are the same on every row, because each is a checked fact, never a raw
+ * size; target_abi.expected holds them. */
+
+class TargetAbiChecks {
+	public int failures = 0;
+
+	public void check(bool passed, string fact) {
+		if (passed) {
+			print(f"PASS {fact}");
+		} else {
+			print(f"FAIL {fact}");
+			self.failures++;
+		}
+	}
+}
+
+class Doubler implements ITargetAbiVisitor {
+	public int calls = 0;
+
+	public int invoke(long value) {
+		self.calls++;
+		return (int)value * 2;
+	}
+}
+
+int main() {
+	var checks = TargetAbiChecks();
+	checks.check(targetAbiLongEcho((long)-123456789) == (long)-123456789, "long crosses the C boundary unchanged");
+	unsigned long longMaximum = (unsigned long)targetAbiLongMax();
+	checks.check(longMaximum * (unsigned long)2 + (unsigned long)1 == targetAbiUnsignedLongMax(), "long and unsigned long share one width");
+	checks.check(targetAbiUnsignedLongMax() == (unsigned long)-1, "unsigned long has the maximum BTRC computes");
+	checks.check(targetAbiMixedSize() == sizeof(TargetAbiMixed), "size_t carries the record size");
+	unsigned char buffer[8];
+	checks.check(targetAbiDistance(&buffer[1], &buffer[6]) == (ptrdiff_t)5, "ptrdiff_t spans a pointer difference");
+	checks.check(targetAbiWideEcho(90) == 90, "wchar_t holds a letter");
+	checks.check(targetAbiNot(false) && !targetAbiNot(true), "bool crosses both ways");
+	char high = (char)200;
+	int widened = high;
+	checks.check(targetAbiCharIsSigned() == (widened < 0), "char signedness agrees");
+	checks.check(targetAbiNegate((signed char)5) == (signed char)-5, "signed char keeps its sign");
+	checks.check(targetAbiLongDoubleThird(9.0) == 3.0, "long double arithmetic returns through double");
+
+	TargetAbiMixed mixed = targetAbiMakeMixed((long)-40);
+	bool returned = mixed.tag == 'm' && mixed.count == (long)-40 && mixed.delta == (signed char)-7;
+	returned = returned && mixed.mask == targetAbiUnsignedLongMax() && mixed.ready && mixed.length == targetAbiMixedSize();
+	returned = returned && mixed.distance == -(ptrdiff_t)2 && mixed.ratio == 0.5 && mixed.color == TARGET_ABI_GREEN;
+	checks.check(returned, "a mixed-width record returns by value");
+	mixed.tag = 'b';
+	mixed.delta = (signed char)-3;
+	mixed.mask = targetAbiUnsignedLongMax() / (unsigned long)2;
+	mixed.ready = false;
+	mixed.ratio = 0.25;
+	mixed.color = TARGET_ABI_BLUE;
+	checks.check(targetAbiCheckMixed(mixed), "a mixed-width record passes by value");
+
+	TargetAbiPacked packed = targetAbiMakePacked(6);
+	long long wide = (long long)6 * (long long)1000000000;
+	checks.check(packed.tag == 'p' && packed.value == 6 && packed.half == (short)3 && packed.wide == wide, "a packed record returns by value");
+	checks.check(targetAbiPackedSum(packed) == (long long)(112 + 6 + 3) + wide, "a packed record passes by value");
+
+	checks.check(targetAbiCount(null) == (long)-1 && targetAbiCount(&mixed) == (long)-40, "a nullable record pointer crosses as null and as an address");
+	checks.check(targetAbiSum(3, 4, 5, 6) == 15, "a variadic call reads its promoted arguments");
+	var doubler = Doubler();
+	checks.check(targetAbiVisit(doubler, (long)20) == 82 && doubler.calls == 2, "C calls back into BTRC with its context");
+
+	Atomic<uint> counter = Atomic(1u);
+	counter.fetchAdd(2u, MemoryOrder.ACQ_REL);
+	uint expected = 3u;
+	bool exchanged = counter.compareExchangeStrong(&expected, 7u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE);
+	checks.check(exchanged && counter.load(MemoryOrder.ACQUIRE) == 7u, "atomics run through the runtime helpers");
+	checks.check(targetAbiColorValue(TARGET_ABI_BLUE) == 4, "an enum crosses as its value");
+	return checks.failures == 0 ? 0 : 1;
+}

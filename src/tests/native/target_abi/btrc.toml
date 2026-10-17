@@ -1,0 +1,63 @@
+manifest-version = 1
+
+[package]
+name = "targetAbi"
+
+# The C side of the target ABI fixture (platform-target-contract.md section 7).
+[[native.sources]]
+path = "target_abi.c"
+language = "c"
+standard = "c11"
+modules = ["TargetAbi"]
+
+[[native.headers]]
+path = "target_abi.h"
+modules = ["TargetAbi"]
+
+[[native.include-directories]]
+path = "."
+modules = ["TargetAbi"]
+
+[[native.bindings]]
+module = "TargetAbi"
+header = "target_abi.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"TargetAbiColor",
+	"TARGET_ABI_RED",
+	"TARGET_ABI_GREEN",
+	"TARGET_ABI_BLUE",
+	"TargetAbiMixed",
+	"TargetAbiPacked",
+	"targetAbiLongEcho",
+	"targetAbiLongMax",
+	"targetAbiUnsignedLongMax",
+	"targetAbiMixedSize",
+	"targetAbiDistance",
+	"targetAbiWideEcho",
+	"targetAbiNot",
+	"targetAbiCharIsSigned",
+	"targetAbiNegate",
+	"targetAbiLongDoubleThird",
+	"targetAbiMakeMixed",
+	"targetAbiCheckMixed",
+	"targetAbiMakePacked",
+	"targetAbiPackedSum",
+	"targetAbiCount",
+	"targetAbiSum",
+	"targetAbiVisit",
+	"targetAbiColorValue",
+]
+
+# Three int arguments after the count: the call shape TargetAbi.btrc uses.
+[native.bindings.variadic-calls.targetAbiSum]
+arguments = ["int", "int", "int"]
+
+[native.bindings.callbacks."targetAbiVisit.visitor"]
+context = "context"
+context-index = 0
+interface = "ITargetAbiVisitor"
+lifetime = "call"
+failure = "abort"
+executor = "caller"
