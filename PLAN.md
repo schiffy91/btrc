@@ -161,7 +161,10 @@ PRs and the [integration record](docs/design/claude-integration-record.md).
 | 2 | Android and iOS stdlib providers can be declared: `os`/`arch`/`env` selectors over every target row, row-based overlap, platform-directory rule (CL-P1-14) | `claude/provider-filters`: 172 paired tests | Batch 2 |
 | 2 | Native SDK headers import for every row; iOS device and simulator headers read through Xcode's SDKs and the emitted C compiles for iOS 17 (CL-P1-10) | `claude/native-import-targets`: 177 paired tests | Batch 2 |
 | 2 | Runtime reports iOS (4) and Android (5) instead of macOS/Linux; `Platform.isIOS/isAndroid/isApple/isMobile` (CL-P1-16) | `claude/target-probes`: per-triple IR probe test for all 11 rows | Boundary re-capture, then batch 2 |
-| 2 | Corpus programs run on the iOS 26.4 simulator through the reference compiler | 41 of 41 sampled programs pass (survey, not yet a committed runner) | Full corpus both compilers; Stage 25 runner (CL-P1-17) with PR #34's executor |
+| 2 | Corpus programs run on the iOS 26.4 simulator through the reference compiler | 41 of 41 sampled programs pass (survey, not yet a committed runner) | Full corpus both compilers through the Stage 25 runner once PR #34's executor adopts protocol 1 (`CX-P1-08`) |
+| 2 | Any target row builds through one toolchain owner: link-plan schema 5 and `TargetToolchain` (CL-P1-11), with the target ABI fixture's static half for every row (CL-P1-13) | Batch 7 ([PR #81](https://github.com/schiffy91/btrc/pull/81)): both compilers write byte-identical v5 plans; the fixture compiles for every row whose toolchain is present here (Android needs the NDK, the MSVC row a Windows SDK runner) and runs on the host | Land with batch 7 |
+| 2 | The Stage 25 target runner (CL-P1-17): compiles the corpus for a target through both compilers, runs it through a registered executor and writes ledger records | Batch 7: executor protocol 1 frozen in `src/tests/target_runner.py`. On macOS arm64 it reproduces `runner.py` program by program (1,018 per frontend; the same 3 GPU programs missing). Windows x86_64 compile-only through zig: 980 built per frontend, 7 real failures (the programs assume an 8-byte `long`; Windows `long` is 4), 1 restricted and 33 missing, each with its reason. The Codex executors' follow-ups are listed under the Codex queue below | Land with batch 7; then `CX-P1-07/08/09` adopt protocol 1, and `CL-P1-18` triages the 7 Windows failures |
+| 1 | Parity: both compilers release an interface value according to whether any implementing class can cycle, and flush cycles after a native call only when a leased type may cycle | Batch 7 (`3c973248`) and batch 8 (`a04fb126`). The self-hosted compiler treated every interface as cyclic, and flushed after every native callback call, so an acyclic callback receiver brought the cycle collector into its C. The ABI fixture's C now differs between the compilers only in spelling, and its test checks for every row that neither flushes | Land with batches 7 and 8 |
 | 1 | Interop step 1: callback slot parameters and every calling convention in the native document (schema v2) | `claude/interop-schema-v2`: 347 paired tests | Batch 3 |
 | 1 | Interop step 2: BTRC calls through SDK-owned function tables (M1 dispatch) with release slots | `claude/interop-dispatch` `9428afbe`: 22 dispatch cases pass through both compilers (swap, release once, null table/slot and use-after-close aborts, `-O2` with ASan/UBSan) | Batch 3; the step's remaining items are listed in native-interop-ownership.md |
 | 1 | iOS: a BTRC program can start UIKit. `UIApplicationMain` creates its delegate from a class name, and C entries in Objective-C bindings were rejected outright, so no BTRC iOS app could launch | Batch 3: `lifetime = "instantiated"`, `scope = "process"` in both compilers. A generated delegate class claims a `CallbackRoot`. The macOS proxy passes 16 cases plus rejections per compiler. On the iOS 26.4 simulator, an app built by each compiler launches through the real `UIApplicationMain`, and its BTRC receiver logs launch and activation. This is simulator evidence, not device evidence (D8) | Scene delegates (`scope = "instance"`), `UIView` subclasses, lightweight generics |
@@ -174,7 +177,9 @@ PRs and the [integration record](docs/design/claude-integration-record.md).
 | — | Gate flake: `Process.btrc` timed out in every Mac gate | It scanned `$TMPDIR`, which holds about 300k foreign entries, for files the implementation can't create (stdin uses an anonymous `tmpfile()`); concurrent scans stalled in the kernel. The scan is removed (batch 2): 160 parallel runs now take 1.7 s, where they previously hung | — |
 | — | Mac gates kept losing the native header reader mid-run | Determinate Nix collects every unrooted store path every 30 minutes while the disk is 99% full (`determinate_nixd::gc` in `/var/log/determinate-nix-daemon.log`); the gate environments were unrooted. They are now rooted per commit. This is a candidate explanation for the hosted "reader could no longer be started" failure, not yet confirmed there | Check whether hosted runners run the same GC |
 
-**Landed 2026-10-17.** `main` is `c976993b`: batches 2–4 ([PR #77](https://github.com/schiffy91/btrc/pull/77), which also closes #71, #72, #73 and #76). Batch 4's Mac gate passes every step: lint, format, generated, extension, bootstrap and the eight strict C11 cells (2,042 each). In `make test` the only failures are the four macOS native-shell cases that need an unlocked screen. Its hosted CI passes 39 of 39, including the new `win32-native` jobs on x64 and ARM64 Windows.
+**Landed 2026-10-17, second push.** `main` is `4db0a98a`: batches 5 and 6 ([PR #78](https://github.com/schiffy91/btrc/pull/78), [PR #79](https://github.com/schiffy91/btrc/pull/79)), after PR #79's hosted CI passed every check and both Mac gates showed only environmental failures (below). Batch 7 then gates as one unit with the target runner and the parity fix: the old batch 7 gate found two `test_native_plan_builder.py` failures from `e73f9c74`, fixed by `6d17f037`.
+
+**Landed 2026-10-17.** `main` was `c976993b`: batches 2–4 ([PR #77](https://github.com/schiffy91/btrc/pull/77), which also closes #71, #72, #73 and #76). Batch 4's Mac gate passes every step: lint, format, generated, extension, bootstrap and the eight strict C11 cells (2,042 each). In `make test` the only failures are the four macOS native-shell cases that need an unlocked screen. Its hosted CI passes 39 of 39, including the new `win32-native` jobs on x64 and ARM64 Windows.
 
 **Batch 5 gate (Mac, `549a00f4`).** It passes bootstrap and all eight C11 cells. `make test` has 18,544 passes and 10 failures, all environmental:
 - the four locked-screen native-shell cases;
@@ -3634,6 +3639,31 @@ owner, the exact prerequisite and the next acceptance.
   read-only retry, so a target that leaves a read-only file leaks its temp
   directory. Second, the duplicate overflow note. Third, `check.py`'s relocated
   bundle cleanup. The marker-file and digest-to-launch gaps are for `CL-P1-17`.
+- **`CL-P1-17` target runner, executor protocol 1** (batch 7, `4df25c53`;
+  the protocol is frozen in the `src/tests/target_runner.py` docstring). It
+  closes both gaps above in the protocol: `prepare(bundle_dir, label)` is
+  atomic and launches a private staged copy whose digest it checked, the
+  outcome comes only from the OS process status, and no control file sits
+  in or above the program's working directory. The registry imports
+  `tools.target_hosts.<platform>.executor` (a `TARGET_EXECUTORS` mapping or
+  the matching class), so no runner edit is needed. Owner Codex, to adopt it:
+  - `CX-P1-07` (Windows): honour `label`; read `bundle.json` rather than the
+    `manifest.json` view; stage a private copy instead of re-hashing just
+    before launch; move the `control` directory and `status.txt` out of the
+    program's reach, and stop letting a missing marker decide the outcome.
+  - `CX-P1-09` (Android): make `prepare` atomic (it sets `bundle` and
+    `programs` before validating); read `bundle.json` and supply its own
+    supervisor instead of expecting one in the bundle; move shell mode's
+    stdin, stderr and status files out of the program's cwd. Construction
+    already works through `--executor-option sdk=… --executor-option serial=…`.
+  - `CX-P1-08` (iOS): rename cwd policy `temp` to `isolated`; take
+    `launch_mode` per request rather than from the constructor; read
+    `bundle.json` instead of `btrc.ios-testhost/1`; move the status and
+    identity files out of the cwd's parent; report `provenance["app_roots"]`.
+  - Still open for the runner itself: caches stay off until `CL-P1-15`; no
+    executor is granted `loopback-listener`; the inventory's `corpus.*` rows
+    still cite `runner.py::test_btrc_file` rather than the runner's own
+    record ids.
 - **PR53, `CX-P1-03` Windows ARM64 toolchain** (`codex/cx-p1-03`,
   merged main `49f136ec`, qualified head `110a514c`). Owner: this authorized integration session. The final five workflows and actual ARM64 native proof pass; the historical diagnosis below remains retained.
   Main `87dd60d7` is merged into the branch; the tooling now uses the shared Windows Job/gate, target
