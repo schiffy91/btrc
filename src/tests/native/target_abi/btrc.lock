@@ -1,0 +1,1 @@
+{"manifest-hash":"556f2b5fbf5d729ce9ca5606341cd6ca086416f154f0ca177be193a4fd6c4807","packages":[{"dependencies":{},"manifest-hash":"1b71c7db0c65cf90a8359d316c8f227a7785e73fb61a131161655719d8cd7287","name":"targetAbi","source":{"path":"."}}],"root":"targetAbi","schema":3}
