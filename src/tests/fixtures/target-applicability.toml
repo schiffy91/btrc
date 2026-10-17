@@ -5,15 +5,20 @@
 # run is reported, never dropped:
 #   restricted  deliberately excluded on that target (an OS restriction or an
 #               adaptation contract says so)
-#   missing     not implemented there yet; a Stage 25 fix wave owns it
+#   missing     not implemented there yet; a Stage 25 or 26 fix wave owns it
 # scope = "build" keeps a program out of the bundle; scope = "run" builds it
 # (compile-only lanes still prove it compiles) and never executes it there.
 #
-# Every entry states its reason and cites either an inventory cell
-# (`corpus.<topic>@<slice>`, a TARGET_SLICES name) or a contract
-# (`<repository path>#<anchor>`); test_target_runner.py resolves each citation
-# and fails on an entry that matches no corpus program. Codex lanes propose
-# changes as `fragment:` commits (WORKSTREAMS.md section 3.5).
+# Each [[programs]] entry lists corpus paths (globs allowed), the targets.toml
+# rows and, optionally, the frontends it decides; no two entries may decide
+# one program, row and frontend. Every entry states its reason and cites an
+# inventory cell of its own row's slice (`corpus.<topic>@<slice>`, a
+# TARGET_SLICES name) or a contract (`<repository path>#<anchor>`);
+# test_target_runner.py resolves each citation and fails on an entry that
+# matches no corpus program. A program an entry does not name, whose topic
+# cell is not os-restricted or missing, is applicable: its build or run
+# failure is a failure, never an exclusion. Codex lanes propose changes as
+# `fragment:` commits (WORKSTREAMS.md section 3.5).
 
 schema = "btrc.target-applicability/1"
 
@@ -37,3 +42,158 @@ targets = []
 status = "missing"
 reason = "dispatching @gpu programs need libbtrc_gpu over wgpu-native, which is not built for this row (Stage 28, tooling-cross-gpu-deps)"
 cites = "docs/design/platform-inventory.toml#corpus.gpu"
+
+# Windows gnu rows. Established by `--target windows-x86_64 --frontend both
+# --compile-only` with zig 0.16.0 on 2026-10-17 (980 of 1,021 programs built
+# through each frontend). Every program below fails to compile for MinGW
+# because it reaches a POSIX provider the inventory records as lacking its
+# Win32 backend. The LP64 programs that also fail there (long is 4 bytes on
+# Windows) are not excluded: they are failures for the CL-P1-18 triage.
+
+[[programs]]
+paths = [
+    "stdlib/AdvisoryFileLockReal.btrc",
+    "stdlib/FileSystemHandlesReal.btrc",
+    "stdlib/FileTreeSnapshotReal.btrc",
+    "stdlib/Fs.btrc",
+    "stdlib/FsRemoveRecursive.btrc",
+    "stdlib/PrivateDirectoryChild.btrc",
+    "stdlib/PrivateDirectoryReal.btrc",
+    "stdlib/RegularFileSnapshotReal.btrc",
+]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "build"
+reason = "the exact filesystem handles call POSIX symlink() and fcntl(F_GETFD), which MinGW lacks; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = [
+    "stdlib/AdvisoryFileLockReal.btrc",
+    "stdlib/FileSystemHandlesReal.btrc",
+    "stdlib/FileTreeSnapshotReal.btrc",
+    "stdlib/Fs.btrc",
+    "stdlib/FsRemoveRecursive.btrc",
+    "stdlib/PrivateDirectoryChild.btrc",
+    "stdlib/PrivateDirectoryReal.btrc",
+    "stdlib/RegularFileSnapshotReal.btrc",
+]
+targets = ["windows-aarch64"]
+status = "missing"
+scope = "build"
+reason = "the exact filesystem handles call POSIX symlink() and fcntl(F_GETFD), which MinGW lacks; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
+cites = "corpus.stdlib@windows-arm64"
+
+[[programs]]
+paths = [
+    "stdlib/ChildProcess*.btrc",
+    "stdlib/Daemon.btrc",
+    "stdlib/HttpClientLocal.btrc",
+    "stdlib/HttpFramingSafety.btrc",
+    "stdlib/ImagePpm.btrc",
+    "stdlib/Process.btrc",
+    "stdlib/ProcessStatusPipe.btrc",
+    "stdlib/ShellCwdEnv.btrc",
+    "stdlib/Shellwords.btrc",
+]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "build"
+reason = "reaches the POSIX Process provider (struct rlimit, fork and exec); the Windows provider over CreateProcessW is platforms-p3-windows-launch-seam and platforms-p3-process-terminal (platform adaptations, Windows rows 1 and 4)"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = [
+    "stdlib/ChildProcess*.btrc",
+    "stdlib/Daemon.btrc",
+    "stdlib/HttpClientLocal.btrc",
+    "stdlib/HttpFramingSafety.btrc",
+    "stdlib/ImagePpm.btrc",
+    "stdlib/Process.btrc",
+    "stdlib/ProcessStatusPipe.btrc",
+    "stdlib/ShellCwdEnv.btrc",
+    "stdlib/Shellwords.btrc",
+]
+targets = ["windows-aarch64"]
+status = "missing"
+scope = "build"
+reason = "reaches the POSIX Process provider (struct rlimit, fork and exec); the Windows provider over CreateProcessW is platforms-p3-windows-launch-seam and platforms-p3-process-terminal (platform adaptations, Windows rows 1 and 4)"
+cites = "corpus.stdlib@windows-arm64"
+
+[[programs]]
+paths = [
+    "stdlib/Http.btrc",
+    "stdlib/HttpBytesResponse.btrc",
+    "stdlib/HttpParseBytes.btrc",
+    "stdlib/HttpParseEdges.btrc",
+    "stdlib/HttpSocketIo.btrc",
+    "stdlib/HttpUtil.btrc",
+]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "build"
+reason = "the HTTP stack uses BSD sockets (SHUT_RDWR, fcntl on a socket); the Winsock and WinHTTP providers are platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = [
+    "stdlib/Http.btrc",
+    "stdlib/HttpBytesResponse.btrc",
+    "stdlib/HttpParseBytes.btrc",
+    "stdlib/HttpParseEdges.btrc",
+    "stdlib/HttpSocketIo.btrc",
+    "stdlib/HttpUtil.btrc",
+]
+targets = ["windows-aarch64"]
+status = "missing"
+scope = "build"
+reason = "the HTTP stack uses BSD sockets (SHUT_RDWR, fcntl on a socket); the Winsock and WinHTTP providers are platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
+cites = "corpus.stdlib@windows-arm64"
+
+[[programs]]
+paths = ["stdlib/Terminal.btrc", "stdlib/PatternAny.btrc"]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "build"
+reason = "Terminal uses termios and PatternAny uses fnmatch(), neither of which MinGW provides; the console provider is platforms-p3-process-terminal (platform adaptations, Windows row 2) and the vendored matcher platforms-p3-regex-glob (D22)"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/Terminal.btrc", "stdlib/PatternAny.btrc"]
+targets = ["windows-aarch64"]
+status = "missing"
+scope = "build"
+reason = "Terminal uses termios and PatternAny uses fnmatch(), neither of which MinGW provides; the console provider is platforms-p3-process-terminal (platform adaptations, Windows row 2) and the vendored matcher platforms-p3-regex-glob (D22)"
+cites = "corpus.stdlib@windows-arm64"
+
+[[programs]]
+paths = ["stdlib/SleepEintr.btrc"]
+targets = ["windows-x86_64"]
+status = "restricted"
+scope = "build"
+reason = "the program interrupts a sleep with SIGALRM and expects EINTR; Windows has neither SIGALRM nor signal-interrupted sleeps"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/SleepEintr.btrc"]
+targets = ["windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "the program interrupts a sleep with SIGALRM and expects EINTR; Windows has neither SIGALRM nor signal-interrupted sleeps"
+cites = "corpus.stdlib@windows-arm64"
+
+[[programs]]
+paths = ["strings/Regex.btrc", "strings/RegexSafety.btrc"]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "build"
+reason = "Library.Regex needs POSIX regex.h, which MinGW lacks; the vendored engine is platforms-p3-regex-glob (D22)"
+cites = "corpus.strings@windows-x64"
+
+[[programs]]
+paths = ["strings/Regex.btrc", "strings/RegexSafety.btrc"]
+targets = ["windows-aarch64"]
+status = "missing"
+scope = "build"
+reason = "Library.Regex needs POSIX regex.h, which MinGW lacks; the vendored engine is platforms-p3-regex-glob (D22)"
+cites = "corpus.strings@windows-arm64"

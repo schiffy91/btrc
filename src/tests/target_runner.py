@@ -885,6 +885,7 @@ class ApplicabilityManifest:
         self.programs = [
             self.program_entry(entry, index, corpus) for index, entry in enumerate(document.get("programs", ()))
         ]
+        self.check_overlaps(corpus)
         self.capabilities: dict[str, dict[str, Any]] = {}
         for index, entry in enumerate(document.get("capabilities", ())):
             where = f"capabilities[{index}]"
@@ -952,10 +953,14 @@ class ApplicabilityManifest:
 
     def program_entry(self, entry: object, index: int, corpus: Sequence[str]) -> dict[str, Any]:
         where = f"programs[{index}]"
-        allowed = {"program", "targets", "frontends", "status", "scope", "reason", "cites"}
+        allowed = {"paths", "targets", "frontends", "status", "scope", "reason", "cites"}
         self.fields(entry, where, allowed, optional=frozenset({"frontends"}))
-        if not any(fnmatch.fnmatchcase(source, entry["program"]) for source in corpus):
-            raise ValueError(f"{where}: {entry['program']!r} matches no corpus program")
+        paths = entry["paths"]
+        if not isinstance(paths, list) or not paths or not all(isinstance(path, str) for path in paths):
+            raise ValueError(f"{where}: paths must list corpus paths or globs")
+        for path in paths:
+            if not any(fnmatch.fnmatchcase(source, path) for source in corpus):
+                raise ValueError(f"{where}: {path!r} matches no corpus program")
         self.check_status(entry["status"], where)
         self.check_targets(entry["targets"], where)
         if entry["scope"] not in self.SCOPES:
@@ -966,15 +971,30 @@ class ApplicabilityManifest:
         self.cite(entry["cites"], where)
         return {**entry, "targets": frozenset(entry["targets"]), "frontends": frozenset(frontends)}
 
+    @staticmethod
+    def matches(entry: Mapping[str, Any], source: str) -> bool:
+        return any(fnmatch.fnmatchcase(source, path) for path in entry["paths"])
+
+    def check_overlaps(self, corpus: Sequence[str]) -> None:
+        """Refuse two entries that would both decide one program, target and frontend."""
+
+        for source in corpus:
+            claimed: dict[tuple[str, str], int] = {}
+            for index, entry in enumerate(self.programs):
+                if not self.matches(entry, source):
+                    continue
+                for slot in ((target, frontend) for target in entry["targets"] for frontend in entry["frontends"]):
+                    if slot in claimed:
+                        raise ValueError(
+                            f"programs[{claimed[slot]}] and programs[{index}] both decide {source} on {slot}"
+                        )
+                    claimed[slot] = index
+
     def program_verdict(self, program: CorpusProgram, label: str, frontend: str) -> Verdict | None:
         """The manifest's, then the inventory's, verdict on one program, target and frontend."""
 
         for entry in self.programs:
-            if (
-                label in entry["targets"]
-                and frontend in entry["frontends"]
-                and fnmatch.fnmatchcase(program.source, entry["program"])
-            ):
+            if label in entry["targets"] and frontend in entry["frontends"] and self.matches(entry, program.source):
                 return Verdict(entry["status"], entry["scope"], entry["reason"], entry["cites"])
         return self.inventory.topic_verdict(program.topic, label)
 
@@ -1336,7 +1356,11 @@ class TargetBundle:
             raise ValueError("the bundle's programs must be a table")
         bundle = cls(directory, document)
         for program_id, entry in programs.items():
-            if not PROGRAM_ID.fullmatch(program_id) or entry.get("status") not in cls.PROGRAM_STATUSES:
+            if (
+                not PROGRAM_ID.fullmatch(program_id)
+                or not isinstance(entry, dict)
+                or entry.get("status") not in cls.PROGRAM_STATUSES
+            ):
                 raise ValueError(f"invalid bundle program {program_id!r}")
             if entry["status"] == "built":
                 bundle.artifact_path(program_id)
@@ -1423,12 +1447,12 @@ class TargetEnvironment:
     native reader as the ABI fixture does.
     """
 
+    PRIVATE = ("cache", "state", "zig")
+
     def __init__(self, row: GeneratedTargetRow, toolchain: TargetToolchain, scratch: Path) -> None:
         self.row = row
         self.toolchain = toolchain
         self.scratch = scratch
-
-    PRIVATE = ("cache", "state", "zig")
 
     def discard(self) -> None:
         """Remove the run-private caches and state, keeping anything else under the scratch directory."""

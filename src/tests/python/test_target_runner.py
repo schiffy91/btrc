@@ -523,8 +523,11 @@ def test_the_applicability_manifest_loads_and_its_citations_hold():
         # A program is missing only where the inventory itself says the topic is incomplete.
         if entry["status"] == "missing":
             assert cell.get("implementation") != "implemented", entry
+        # An entry cites the cell of its own target slice, and of no other.
         mapped = {label for label, name in TargetRunAdapter.ROW_SLICES.items() if name == match["slice"]}
-        assert entry["targets"] <= mapped | {"windows-aarch64-msvc"}, f"{entry['program']} cites another slice"
+        assert entry["targets"] <= mapped | {"windows-aarch64-msvc"}, f"{entry['paths']} cites another slice"
+        topics = {path.split("/", 1)[0] for path in entry["paths"]}
+        assert {f"corpus.{topic}" for topic in topics} == {match["row"]}, f"{entry['paths']} cites another topic"
     assert manifest.facility(ComputeRuntime.FACILITY) is not None
     assert "loopback-listener" in manifest.capabilities
 
@@ -540,7 +543,7 @@ def _manifest(tmp_path: Path, programs=(), inventory: str | None = None, **extra
 
 
 ENTRY = {
-    "program": "strings/Regex.btrc",
+    "paths": ["strings/Regex*.btrc"],
     "targets": ["windows-x86_64"],
     "status": "missing",
     "scope": "build",
@@ -553,7 +556,9 @@ ENTRY = {
     "change, message",
     [
         ({"reason": " "}, "reason"),
-        ({"program": "strings/NoSuchProgram.btrc"}, "matches no corpus program"),
+        ({"paths": ["strings/Regex.btrc", "strings/NoSuchProgram.btrc"]}, "matches no corpus program"),
+        ({"paths": "strings/Regex.btrc"}, "paths must list"),
+        ({"paths": []}, "paths must list"),
         ({"targets": ["windows-x64"]}, "targets.toml labels"),
         ({"status": "skipped"}, "status"),
         ({"scope": "always"}, "scope"),
@@ -569,6 +574,14 @@ def test_the_manifest_refuses_unsupported_entries(tmp_path, change, message):
         _manifest(tmp_path, [{**ENTRY, **change}])
 
 
+def test_the_manifest_refuses_two_entries_deciding_one_program(tmp_path):
+    overlapping = {**ENTRY, "paths": ["strings/Regex.btrc"], "frontends": ["selfhost"], "status": "restricted"}
+    with pytest.raises(ValueError, match=r"both decide strings/Regex\.btrc"):
+        _manifest(tmp_path, [ENTRY, overlapping])
+    other_target = {**overlapping, "targets": ["windows-aarch64"]}
+    assert len(_manifest(tmp_path, [ENTRY, other_target]).programs) == 2
+
+
 def test_verdicts_come_from_the_manifest_then_the_inventory(tmp_path):
     inventory = (
         "[[rows]]\nkind = 'operation'\nid = 'corpus.strings'\n"
@@ -577,7 +590,7 @@ def test_verdicts_come_from_the_manifest_then_the_inventory(tmp_path):
     )
     entry = {
         **ENTRY,
-        "program": "strings/FstringBasic.btrc",
+        "paths": ["strings/FstringBasic.btrc"],
         "frontends": ["selfhost"],
         "cites": "corpus.strings@android-arm64",
     }
@@ -820,7 +833,7 @@ def test_the_runner_builds_runs_and_excludes_through_the_reference_frontend(tmp_
     cites = "src/tests/target_runner.py#ApplicabilityManifest"
     entries = [
         {
-            "program": "strings/BracesInCodeGen.btrc",
+            "paths": ["strings/BracesInCodeGen.btrc"],
             "targets": [HOST.label],
             "status": "restricted",
             "scope": "run",
@@ -828,7 +841,7 @@ def test_the_runner_builds_runs_and_excludes_through_the_reference_frontend(tmp_
             "cites": cites,
         },
         {
-            "program": "basics/ArrayOfPointers.btrc",
+            "paths": ["basics/ArrayOfPointers.btrc"],
             "targets": [HOST.label],
             "status": "missing",
             "scope": "build",
