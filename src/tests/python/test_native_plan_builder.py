@@ -563,13 +563,33 @@ def _native_plan_import_closure() -> set[str]:
     return closure
 
 
+# TargetToolchain force-includes these C headers into every windows-gnu unit.
+NATIVE_PLAN_HEADER_PREFIXES = ["src/runtime/windows/"]
+
+
 def _flake_native_plan_files(flake: str) -> set[str]:
     source = flake.split("nativePlanSource = sourceSubset", 1)[1].split("formatterSource", 1)[0]
-    # Exact files only: a directory prefix would ship modules the adapter never imports.
-    assert "prefixes = [ ];" in source
+    prefixes = re.search(r"prefixes = \[(.*?)\];", source, re.DOTALL)
+    assert prefixes is not None
+    # Exact modules only: a directory prefix would ship modules the adapter
+    # never imports, so the one prefix allowed is the header-only overlay.
+    assert re.findall(r'"([^"\n]+)"', prefixes.group(1)) == NATIVE_PLAN_HEADER_PREFIXES
     listed = re.search(r"files = \[(.*?)\];", source, re.DOTALL)
     assert listed is not None
-    return set(re.findall(r'"([^"\n]+)"', listed.group(1)))
+    files = set(re.findall(r'"([^"\n]+)"', listed.group(1)))
+    for prefix in NATIVE_PLAN_HEADER_PREFIXES:
+        shipped = [path for path in (REPO / prefix).rglob("*") if path.is_file()]
+        assert shipped and not [path for path in shipped if path.suffix == ".py"], prefix
+        files.update(path.relative_to(REPO).as_posix() for path in shipped)
+    return files
+
+
+def _flake_native_plan_modules(flake: str) -> set[str]:
+    return {
+        path
+        for path in _flake_native_plan_files(flake)
+        if not any(path.startswith(prefix) for prefix in NATIVE_PLAN_HEADER_PREFIXES)
+    }
 
 
 def test_standalone_native_plan_distribution_reuses_cached_objects(tmp_path):
@@ -1040,7 +1060,7 @@ def test_flake_installs_adapter_and_runs_native_plan_check() -> None:
     closure = _native_plan_import_closure()
     # The lazily imported header reader owner is what the package once lacked.
     assert "src/compiler/python/frontend/native_imports.py" in closure
-    assert _flake_native_plan_files(flake) == closure
+    assert _flake_native_plan_modules(flake) == closure
     # The devcontainer evaluates this flake from a copied subset of the tree.
     copied = [
         source
