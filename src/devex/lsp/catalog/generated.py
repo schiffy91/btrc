@@ -686,6 +686,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("JavaVirtualMachine", (
         BuiltinMemberSpec("createHost", "void", "method", (("Vector<string>", "options"),), "createHost"),
         BuiltinMemberSpec("running", "bool", "method", (), "running"),
+        BuiltinMemberSpec("adopted", "bool", "method", (), "adopted"),
         BuiltinMemberSpec("liveClaims", "long long", "method", (), "liveClaims"),
         BuiltinMemberSpec("attachedThreads", "int", "method", (), "attachedThreads"),
         BuiltinMemberSpec("shutdown", "void", "method", (), "shutdown"),

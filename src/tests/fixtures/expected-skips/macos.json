@@ -363,6 +363,23 @@
       "category": "platform",
       "covered_by": [],
       "note": "The run mode runs the host row here and checks target_abi.expected; every other row runs in its Stage 25 host lane, on the executor its granted BTRC_TEST_CAPABILITIES capability names, which does not exist yet (platform-target-contract.md section 7.2)."
+    },
+    {
+      "id": "android-device-bound",
+      "files": [
+        "src/tests/python/test_native_jni_android.py"
+      ],
+      "reason": "^requires an Android SDK and device: ",
+      "category": "platform",
+      "gating": {
+        "env": [
+          "ANDROID_SDK_ROOT",
+          "BTRC_ANDROID_SERIAL",
+          "BTRC_ANDROID_AVD_STATE"
+        ]
+      },
+      "covered_by": [],
+      "note": "Interop step 4's exit, the checked JNI round trip, runs inside app_process on an Android device. host-android.yml runs it on its API 29 and 36 x86_64 emulators with BTRC_ANDROID_JNI_REQUIRED=1, where a missing prerequisite fails; its evidence is that workflow's artifact, not a skip report. This Mac has no Android SDK; the 16 KiB-page arm64 image it could run stays MAC-P1-03."
     }
   ]
 }

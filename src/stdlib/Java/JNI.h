@@ -17,9 +17,19 @@
 void btrcJavaAddOption(const char* option);
 int btrcJavaCreateHost(void);
 int btrcJavaRunning(void);
+int btrcJavaAdopted(void);
 long long btrcJavaLiveClaims(void);
 int btrcJavaAttachedThreads(void);
 void btrcJavaDestroy(void);
+
+/* For the JNI_OnLoad of a library a running VM loaded (an Android app, or
+ * System.load in a host `java` process): makes `machine` the process's VM.
+ * Returns JNI_OK, or GetEnv's status when the VM lacks JNI 1.6, for
+ * JNI_OnLoad to refuse the load. An adopted VM is the host's: queued options,
+ * a second VM and btrcJavaDestroy all terminate. The loading thread keeps
+ * the environment its VM gave it; other threads attach as daemons on first
+ * use and detach when they exit, as with a created VM. */
+int btrcJavaAdopt(JavaVM* machine);
 
 /* For generated adapters. The environment of the calling thread, attached as
  * a daemon on first use when the VM is running and the thread is not Java's. */

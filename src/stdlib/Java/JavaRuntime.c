@@ -4,6 +4,12 @@
  * destructor runs after BTRC's thread cleanup and must touch no BTRC state, and
  * because the cache is shared by every module unit.
  *
+ * The VM is either created here (btrcJavaCreateHost, a host program) or adopted
+ * (btrcJavaAdopt, from the JNI_OnLoad of a library a running VM loaded: an
+ * Android application or a host `java` process). An adopted VM belongs to its
+ * host: it is never destroyed here, and the threads it attached are never
+ * detached here.
+ *
  * Locking: javaLock guards every field below and is never held across a JNI
  * call except JNI_CreateJavaVM and the cache teardown in btrcJavaDestroy,
  * neither of which calls back into this file. */
@@ -16,6 +22,7 @@
 static pthread_mutex_t javaLock = PTHREAD_MUTEX_INITIALIZER;
 static JavaVM* javaMachine;
 static int javaDestroyed;
+static int javaAdopted;
 static pthread_t javaCreator;
 static long long javaClaims;
 static int javaAttached;
@@ -44,7 +51,8 @@ static void* javaGrow(void* items, size_t count, size_t size) {
 
 /* Runs at the exit of a thread this runtime attached, after BTRC's thread
  * cleanup has released that thread's claims; Java's own threads, the creating
- * thread and threads Java attached never have a key value. */
+ * thread, the thread that adopted the VM and threads Java attached never have
+ * a key value. */
 static void javaDetach(void* environment) {
 	(void)environment;
 	pthread_mutex_lock(&javaLock);
@@ -68,6 +76,10 @@ void btrcJavaAddOption(const char* option) {
 	if (copy == NULL) { javaAbort("out of memory"); }
 	memcpy(copy, option, length + 1);
 	pthread_mutex_lock(&javaLock);
+	if (javaAdopted) {
+		pthread_mutex_unlock(&javaLock);
+		javaAbort("an adopted Java VM takes no options; its host started it");
+	}
 	if (javaMachine != NULL || javaDestroyed) {
 		pthread_mutex_unlock(&javaLock);
 		javaAbort("Java VM options must precede its creation");
@@ -79,7 +91,7 @@ void btrcJavaAddOption(const char* option) {
 
 int btrcJavaCreateHost(void) {
 #ifdef __ANDROID__
-	javaAbort("Android runs the application's own VM; it is adopted, not created");
+	javaAbort("Android runs the application's own VM; JNI_OnLoad adopts it (btrcJavaAdopt), it is never created");
 	return JNI_ERR;
 #else
 	pthread_mutex_lock(&javaLock);
@@ -116,11 +128,41 @@ int btrcJavaCreateHost(void) {
 #endif
 }
 
+int btrcJavaAdopt(JavaVM* machine) {
+	if (machine == NULL) { javaAbort("an adopted Java VM cannot be null"); }
+	/* JNI_OnLoad runs on a thread the VM attached, so GetEnv answers without
+	 * attaching; this is the thread's only JNI call, made outside javaLock. */
+	JNIEnv* environment = NULL;
+	jint status = (*machine)->GetEnv(machine, (void**)&environment, JNI_VERSION_1_6);
+	if (status != JNI_OK || environment == NULL) { return status != JNI_OK ? (int)status : JNI_ERR; }
+	pthread_mutex_lock(&javaLock);
+	if (javaMachine != NULL || javaDestroyed) {
+		pthread_mutex_unlock(&javaLock);
+		javaAbort("a process runs at most one Java VM");
+	}
+	if (javaOptionCount != 0) {
+		pthread_mutex_unlock(&javaLock);
+		javaAbort("Java VM options apply only to a VM this library creates, not to an adopted one");
+	}
+	javaMachine = machine;
+	javaAdopted = 1;
+	pthread_mutex_unlock(&javaLock);
+	javaThreadEnvironment = environment;
+	return JNI_OK;
+}
+
 int btrcJavaRunning(void) {
 	pthread_mutex_lock(&javaLock);
 	int running = javaMachine != NULL;
 	pthread_mutex_unlock(&javaLock);
 	return running;
+}
+
+int btrcJavaAdopted(void) {
+	pthread_mutex_lock(&javaLock);
+	int adopted = javaAdopted;
+	pthread_mutex_unlock(&javaLock);
+	return adopted;
 }
 
 long long btrcJavaLiveClaims(void) {
@@ -413,6 +455,7 @@ void btrcJavaDestroy(void) {
 	JavaVM* machine = javaMachine;
 	char problem[160] = "";
 	if (machine == NULL) { snprintf(problem, sizeof problem, "no Java VM is running"); }
+	else if (javaAdopted) { snprintf(problem, sizeof problem, "an adopted Java VM belongs to its host and is never destroyed"); }
 	else if (!pthread_equal(javaCreator, pthread_self())) { snprintf(problem, sizeof problem, "only the thread that created the Java VM can destroy it"); }
 	else if (javaClaims != 0) { snprintf(problem, sizeof problem, "the Java VM was destroyed with %lld live references", javaClaims); }
 	else if (javaAttached != 0) { snprintf(problem, sizeof problem, "the Java VM was destroyed with %d attached threads", javaAttached); }
