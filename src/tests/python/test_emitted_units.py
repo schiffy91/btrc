@@ -320,7 +320,7 @@ def test_explicit_unit_paths_stay_stable_when_outputs_already_exist(tmp_path, re
     baseline = plan.read_bytes()
     payload = json.loads(baseline)
     paths = payload["emitted-units"]
-    assert payload["schema"] == 4 and paths
+    assert payload["schema"] == 5 and paths
     assert paths == [os.path.realpath(f"{prefix}.unit-{index}.c") for index in range(1, len(paths) + 1)]
     contents = {path: Path(path).read_bytes() for path in paths}
     generated_locations = 0
@@ -348,7 +348,7 @@ def test_a_change_confined_to_a_secondary_unit_changes_the_primary_outputs(tmp_p
     _compile(frontend, out, plan, request, program=program)
     payload = json.loads(plan.read_text())
     units = [Path(path) for path in payload["emitted-units"]]
-    assert payload["schema"] == 4
+    assert payload["schema"] == 5
     assert payload["emitted-unit-digests"] == [hashlib.sha256(unit.read_bytes()).hexdigest() for unit in units]
     literal = "PASS: test_forin_interface_list_literal"
     holder = next(unit for unit in units if literal in unit.read_text())
@@ -391,7 +391,7 @@ def test_split_units_link_and_run_like_one(tmp_path, request, frontend):
     assert json.loads(plan_text)["emitted-units"] == [
         str(path) for path in sorted(units, key=lambda p: int(p.stem.rsplit("-", 1)[1]))
     ]
-    assert json.loads(plan_text)["schema"] == 4
+    assert json.loads(plan_text)["schema"] == 5
     primary = out.read_text()
     assert "\n_Thread_local __btrc_tls_record __btrc_tls = {" in primary
     assert "static _Thread_local __btrc_tls_record __btrc_tls" not in primary

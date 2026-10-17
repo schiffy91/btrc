@@ -19,7 +19,6 @@ def publish_native_generation(root, value, secondary_name="secondary", *, bounda
     secondary = root / secondary_name / "part.c"
     plan = root / "plan" / "plan.json"
     payload = NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
-    payload.update(schema=4)
     payload["emitted-units"] = [str(secondary)]
     outputs = []
     for destination, role, content in (

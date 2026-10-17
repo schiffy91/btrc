@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.abi.generated import TARGET_ROWS
+from src.compiler.python.abi.hosted import TargetRepository
 from src.compiler.python.artifacts.cache import CompilerGenerationPublisher, CompilerOutput
 from src.compiler.python.artifacts.publication import ArtifactPublisher, PublicationLock, PublishedArtifact
 from src.compiler.python.frontend.packages import NativeGeneratedUnit, NativeLinkPlan, PackageTarget
@@ -35,6 +37,9 @@ from tools.native_plan import (
 
 REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "native-package"
+# Builds that run their output emit the host row: any other row is a cross
+# build through that row's own toolchain.
+HOST_LABEL = PackageTarget.parse(None).label
 
 
 def generated_plan(source="int answer(void) { return 42; }\n", language="c", standard="c11", memory="manual"):
@@ -55,7 +60,6 @@ def test_pending_generation_rejects_build_before_tools(tmp_path, participant):
     primary.write_text("int main(void) { return 0; }\n")
     secondary.write_text("int answer(void) { return 42; }\n")
     payload = NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
-    payload.update(schema=4)
     payload["emitted-units"] = [str(secondary)]
     plan.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
     # An untrusted journal is evidence to stop, never authority to recover paths.
@@ -277,7 +281,6 @@ def aliased_generation(tmp_path):
     )
     paths["secondary"].write_text("int answer(void) { return 42; }\n")
     payload = NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
-    payload.update(schema=4)
     payload["emitted-units"] = [str(paths["secondary"])]
     paths["plan"].write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
     return paths
@@ -658,7 +661,6 @@ def test_secondary_inventory_builds_from_another_working_directory(tmp_path, mon
         if adapter
         else NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
     )
-    payload.update(schema=4)
     payload["emitted-units"] = [str(secondary)]
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
@@ -726,7 +728,6 @@ def test_invalid_secondary_inventory_never_invokes_tools(tmp_path, damage):
     elif damage == "primary":
         records = [str(primary)]
     payload = NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
-    payload.update(schema=4)
     payload["emitted-units"] = records
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
@@ -828,7 +829,7 @@ def test_failed_generated_unit_preserves_output_and_removes_temporary_files(tmp_
     }
 
 
-def _emit_plan(root: Path, generated: Path, plan: Path) -> None:
+def _emit_plan(root: Path, generated: Path, plan: Path, target: str = HOST_LABEL) -> None:
     completed = subprocess.run(
         [
             sys.executable,
@@ -837,7 +838,7 @@ def _emit_plan(root: Path, generated: Path, plan: Path) -> None:
             "--no-stdlib",
             "--no-cache",
             "--target",
-            "linux-x64",
+            target,
             "--emit-link-plan",
             str(plan),
             str(root / "src/Main.btrc"),
@@ -845,7 +846,7 @@ def _emit_plan(root: Path, generated: Path, plan: Path) -> None:
             str(generated),
         ],
         cwd=REPO,
-        env=cross_target_environment(generated.parent, "linux-x64"),
+        env=cross_target_environment(generated.parent, target),
         capture_output=True,
         text=True,
         timeout=TRANSPILE_TIMEOUT,
@@ -969,19 +970,19 @@ def test_reader_compares_real_paths_for_package_containment(tmp_path: Path) -> N
         NativePlanReader().read(plan)
 
 
-def test_reader_rejects_frameworks_for_non_macos_target(tmp_path: Path) -> None:
+def test_reader_rejects_frameworks_for_non_apple_target(tmp_path: Path) -> None:
     project = tmp_path / "project"
     shutil.copytree(EXAMPLE, project, ignore=shutil.ignore_patterns(".btrc-cache", "build"))
     generated = tmp_path / "program.c"
     plan = tmp_path / "program.link.json"
-    _emit_plan(project, generated, plan)
+    _emit_plan(project, generated, plan, "linux-x64")
     payload = json.loads(plan.read_text())
     payload["frameworks"] = [{"name": "Cocoa", "package": "middle"}]
     plan.write_text(
         json.dumps(payload, allow_nan=False, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
     )
 
-    with pytest.raises(NativePlanError, match="frameworks require a macos target"):
+    with pytest.raises(NativePlanError, match="frameworks require a macos or ios target, not linux-x86_64"):
         NativePlanReader().read(plan)
 
 
@@ -990,7 +991,7 @@ def test_example_makefile_realizes_the_canonical_plan(tmp_path: Path) -> None:
     make = shutil.which("make")
     if toolchain is None or make is None:
         pytest.skip("native Make proof needs make, C, and C++ compilers")
-    environment = cross_target_environment(tmp_path, "linux-x64", {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+    environment = cross_target_environment(tmp_path, HOST_LABEL, {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
     try:
         completed = subprocess.run(
             [
@@ -999,7 +1000,7 @@ def test_example_makefile_realizes_the_canonical_plan(tmp_path: Path) -> None:
                 str(EXAMPLE),
                 "clean",
                 "run",
-                "TARGET=linux-x64",
+                f"TARGET={HOST_LABEL}",
                 f"PYTHON={sys.executable}",
                 f"CC={toolchain[0]}",
                 f"CXX={toolchain[1]}",
@@ -1028,7 +1029,7 @@ def test_adapter_has_no_shell_or_source_discovery_surface() -> None:
     assert "os.walk(" not in source
     marker = "ROOT_FIELDS = frozenset("
     start = source.index(marker)
-    end = source.index("TARGET_OPERATING_SYSTEMS", start)
+    end = source.index("LEGACY_ROOT_FIELDS", start)
     assert '"cflags"' not in source[start:end]
 
 
@@ -1382,7 +1383,7 @@ def test_emitted_native_plan_cache_through_both_frontends(tmp_path, request, fro
             "--no-stdlib",
             "--strict-imports",
             "--target",
-            "linux-x64",
+            HOST_LABEL,
             "--emit-link-plan",
             str(plan),
             "--emit-units",
@@ -1392,7 +1393,7 @@ def test_emitted_native_plan_cache_through_both_frontends(tmp_path, request, fro
             str(generated),
         ],
         cwd=REPO,
-        env=cross_target_environment(tmp_path, "linux-x64", {**os.environ, "BTRC_UNIT_LINES": "1"}),
+        env=cross_target_environment(tmp_path, HOST_LABEL, {**os.environ, "BTRC_UNIT_LINES": "1"}),
         capture_output=True,
         text=True,
         timeout=TRANSPILE_TIMEOUT,
@@ -1773,7 +1774,6 @@ def _build_units_sharing_a_prologue(tmp_path: Path, header_text: str, first_unit
     declarations = "".join(f"int part{index}(void);\n" for index in range(count))
     primary.write_text(f'#include <stdio.h>\n{declarations}int main(void) {{ printf("%d\\n", {calls}); return 0; }}\n')
     payload = NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
-    payload.update(schema=4)
     payload["emitted-units"] = [str(unit) for unit in units]
     plan = tmp_path / "program.json"
     plan.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
@@ -1850,7 +1850,7 @@ def test_unwritten_schema_three_link_plans_are_rejected(tmp_path):
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
 
-    with pytest.raises(NativePlanError, match="schema must be integer 1, 2 or 4"):
+    with pytest.raises(NativePlanError, match="schema must be integer 1, 2, 4 or 5"):
         NativePlanReader().read(plan)
 
 
@@ -2010,3 +2010,393 @@ def test_codesign_resolves_existing_local_certificate_without_global_trust(tmp_p
     verification = next(command for command in calls if "--verify" in command)
     assert "--strict" in verification
     assert verification[verification.index("--test-requirement") + 1] == f'=certificate leaf = H"{fingerprint}"'
+
+
+# Link-plan schema 5 and the target-aware builder (platform-target-contract.md
+# section 4.2): exact field sets, legacy plans on their host row only, the row
+# rules for frameworks and pkg-config, the sysroot identity and the drivers.
+
+
+def _write_plan(path: Path, payload: dict) -> Path:
+    path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n")
+    return path
+
+
+def _row(label: str):
+    return PackageTarget.parse(label).row
+
+
+def _cross_zig_row():
+    """A row zig builds that is not this host's."""
+    return next(row for row in TARGET_ROWS if row.zig_target and row.compiler_host and row.label != HOST_LABEL)
+
+
+def _never_run(*args, **kwargs):
+    pytest.fail("a refused plan reached a build tool")
+
+
+def test_schema_five_plan_records_the_row_and_toolchain():
+    payload = NativeLinkPlan.empty(PackageTarget.parse("ios-arm64-simulator")).as_dict()
+    assert payload["schema"] == 5
+    assert payload["target"] == {
+        "arch": "aarch64",
+        "environment": "simulator",
+        "label": "ios-aarch64-simulator",
+        "minimum": "17.0",
+        "os": "ios",
+        "triple": "arm64-apple-ios17.0.0-simulator",
+    }
+    assert payload["toolchain"] == {
+        "sysroot": {"identity": "", "kind": "xcrun", "name": "iphonesimulator"},
+        "target-arguments": ["--target=arm64-apple-ios17.0.0-simulator"],
+    }
+    assert "generated-units" not in payload and "emitted-units" not in payload
+    assert NativeLinkPlan.empty(PackageTarget.parse(None)).with_sysroot_identity("a" * 64).as_dict()["toolchain"][
+        "sysroot"
+    ]["identity"] == ("a" * 64)
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    [
+        ("no-toolchain", "must contain exactly"),
+        ("legacy-toolchain", "must contain exactly"),
+        ("target-field", "target must contain exactly"),
+        ("unknown-label", "unsupported native link plan target linux-riscv64"),
+        ("alias-label", "unsupported native link plan target macos-arm64"),
+        ("triple", "does not match the linux-x86_64 row"),
+        ("environment", "does not match the linux-x86_64 row"),
+        ("sysroot-kind", "toolchain.sysroot does not match the linux-x86_64 row"),
+        ("empty-arguments", "target-arguments must be the linux-x86_64 row's"),
+        ("host-arguments", "target-arguments must be the linux-x86_64 row's"),
+        ("identity", "identity must be empty or one SHA-256"),
+        ("digests-alone", "emitted-unit-digests requires emitted-units"),
+        ("schema", "schema must be integer 1, 2, 4 or 5"),
+    ],
+)
+def test_schema_five_field_sets_are_exact(tmp_path, damage, message):
+    payload = NativeLinkPlan.empty(PackageTarget.parse("linux-x86_64")).as_dict()
+    if damage == "no-toolchain":
+        del payload["toolchain"]
+    elif damage == "legacy-toolchain":
+        payload.update(schema=1, target={"arch": "x86_64", "os": "linux"})
+    elif damage == "target-field":
+        payload["target"]["vendor"] = "unknown"
+    elif damage == "unknown-label":
+        payload["target"]["label"] = "linux-riscv64"
+    elif damage == "alias-label":
+        # A plan spells the canonical label, never an alias.
+        payload["target"]["label"] = "macos-arm64"
+    elif damage == "triple":
+        payload["target"]["triple"] = "x86_64-linux-gnu"
+    elif damage == "environment":
+        payload["target"]["environment"] = ""
+    elif damage == "sysroot-kind":
+        payload["toolchain"]["sysroot"]["kind"] = "zig-mingw"
+    elif damage == "empty-arguments":
+        payload["toolchain"]["target-arguments"] = []
+    elif damage == "host-arguments":
+        payload["toolchain"]["target-arguments"] = ["--target=aarch64-unknown-linux-gnu"]
+    elif damage == "identity":
+        payload["toolchain"]["sysroot"]["identity"] = "A" * 64
+    elif damage == "digests-alone":
+        payload["emitted-unit-digests"] = ["0" * 64]
+    else:
+        payload["schema"] = 6
+    plan = _write_plan(tmp_path / "plan.json", payload)
+    with pytest.raises(NativePlanError, match=re.escape(message)):
+        NativePlanReader().read(plan)
+
+
+@pytest.mark.parametrize("schema", [1, 2, 4])
+def test_legacy_plans_build_only_on_their_host_row(tmp_path, monkeypatch, schema):
+    primary = tmp_path / "main.c"
+    primary.write_text("int main(void) { return 0; }\n")
+    secondary = tmp_path / "part.c"
+    secondary.write_text("int answer(void) { return 42; }\n")
+    host = PackageTarget.parse(None)
+    payload = {
+        key: value
+        for key, value in NativeLinkPlan.empty(host).as_dict().items()
+        if key not in {"toolchain", "schema", "target"}
+    }
+    payload.update(schema=schema, target={"arch": host.architecture, "os": host.operating_system})
+    if schema == 2:
+        payload["generated-units"] = generated_plan()["generated-units"]
+    elif schema == 4:
+        payload["emitted-units"] = [str(secondary)]
+    plan = _write_plan(tmp_path / "plan.json", payload)
+    assert NativePlanReader().read(plan).label == host.label
+    other = next(row for row in TARGET_ROWS if row.compiler_host and row.label != host.label)
+    payload["target"] = {"arch": other.architecture, "os": other.operating_system}
+    _write_plan(plan, payload)
+    expected = (
+        f"legacy native link plan for {other.operating_system}-{other.architecture} cannot be built on host "
+        f"{host.label}; regenerate it as schema 5"
+    )
+    with pytest.raises(NativePlanError, match=re.escape(expected)):
+        NativePlanBuilder(runner=_never_run).build(plan_path=plan, generated_c=primary, output=tmp_path / "program")
+    # A host that no row names builds no legacy plan.
+    monkeypatch.setattr(TargetRepository, "host", classmethod(lambda cls, system=None, machine=None: None))
+    payload["target"] = {"arch": host.architecture, "os": host.operating_system}
+    _write_plan(plan, payload)
+    with pytest.raises(NativePlanError, match="regenerate it as schema 5"):
+        NativePlanReader().read(plan)
+
+
+def test_legacy_host_plan_still_builds_and_runs(tmp_path):
+    primary = tmp_path / "main.c"
+    primary.write_text("int main(void) { return 0; }\n")
+    host = PackageTarget.parse(None)
+    payload = {
+        key: value
+        for key, value in NativeLinkPlan.empty(host).as_dict().items()
+        if key not in {"toolchain", "schema", "target"}
+    }
+    payload.update(schema=1, target={"arch": host.architecture, "os": host.operating_system})
+    plan = _write_plan(tmp_path / "plan.json", payload)
+    report = NativePlanBuilder().build(plan_path=plan, generated_c=primary, output=tmp_path / "program")
+    assert report.target == host.label
+    assert subprocess.run([str(tmp_path / "program")], timeout=RUN_TIMEOUT).returncode == 0
+
+
+@pytest.mark.parametrize("label", ["ios-aarch64", "ios-aarch64-simulator", "android-aarch64", "windows-aarch64-msvc"])
+def test_pkg_config_is_refused_where_the_row_has_no_search_path(tmp_path, label):
+    root = tmp_path / "package"
+    root.mkdir()
+    payload = NativeLinkPlan.empty(PackageTarget.parse(label)).as_dict()
+    payload["packages"] = [{"dependencies": {}, "name": "app", "root": str(root)}]
+    payload["pkg-config"] = [{"name": "zlib", "package": "app"}]
+    plan = _write_plan(tmp_path / "plan.json", payload)
+    with pytest.raises(NativePlanError, match=f"pkg-config is unavailable for {label}"):
+        NativePlanReader().read(plan)
+
+
+@pytest.mark.parametrize("label", ["macos-aarch64", "ios-aarch64", "ios-aarch64-simulator"])
+def test_frameworks_are_accepted_on_apple_rows(tmp_path, label):
+    root = tmp_path / "package"
+    root.mkdir()
+    payload = NativeLinkPlan.empty(PackageTarget.parse(label)).as_dict()
+    payload["packages"] = [{"dependencies": {}, "name": "app", "root": str(root)}]
+    payload["frameworks"] = [{"name": "Foundation", "package": "app"}]
+    plan = _write_plan(tmp_path / "plan.json", payload)
+    assert NativePlanReader().read(plan).frameworks == ("Foundation",)
+
+
+@pytest.mark.parametrize(
+    ("label", "environment", "reason"),
+    [
+        (None, {"PATH": ""}, "zig is not on PATH"),
+        ("android-aarch64", {}, "neither ANDROID_NDK_HOME nor ANDROID_HOME/ndk/29.0.14206865 names an NDK"),
+        ("android-x86_64", {"ANDROID_NDK_HOME": "/nonexistent/ndk"}, "the NDK at /nonexistent/ndk has no clang"),
+        ("windows-aarch64-msvc", {}, "no Windows SDK environment"),
+    ],
+)
+def test_cross_rows_never_fall_back_to_the_host_compiler(tmp_path, monkeypatch, label, environment, reason):
+    label = label or _cross_zig_row().label
+    for name in ("ANDROID_NDK_HOME", "ANDROID_HOME", "WindowsSdkDir", "VCToolsInstallDir"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    primary = tmp_path / "main.c"
+    primary.write_text("int main(void) { return 0; }\n")
+    plan = _write_plan(tmp_path / "plan.json", NativeLinkPlan.empty(PackageTarget.parse(label)).as_dict())
+    with pytest.raises(NativePlanError, match=re.escape(f"no toolchain for {label}: {reason}")):
+        NativePlanBuilder(runner=_never_run).build(
+            plan_path=plan, generated_c=primary, output=tmp_path / "program", cc=sys.executable, cxx=sys.executable
+        )
+
+
+def test_host_row_keeps_the_callers_compiler_and_flags(tmp_path):
+    from tools.native_plan import TargetToolchain
+
+    host = TargetToolchain(_row(HOST_LABEL), cc="cc", cxx="c++")
+    assert host.host and host.arguments == [] and host.generated_arguments == []
+    assert host.drivers == {"cc": [shutil.which("cc")], "cxx": [shutil.which("c++")]}
+    # The host compiler finds its own SDK, so no identity is checked there.
+    host.verify_identity("0" * 64)
+    with pytest.raises(NativePlanError, match="C compiler is unavailable"):
+        TargetToolchain(_row(HOST_LABEL), cc="btrc-no-such-cc")
+
+
+def test_zig_rows_take_the_zig_target_and_the_windows_overlay(tmp_path):
+    from tools.native_plan import TargetToolchain
+
+    zig = tmp_path / "bin" / "zig"
+    zig.parent.mkdir()
+    zig.write_text("#!/bin/sh\nexit 0\n")
+    zig.chmod(0o755)
+    environment = {"PATH": str(zig.parent)}
+    for label in ("linux-x86_64", "linux-aarch64", "windows-x86_64", "windows-aarch64"):
+        if label == HOST_LABEL:
+            continue
+        row = _row(label)
+        toolchain = TargetToolchain(row, environment=environment)
+        assert toolchain.drivers == {"cc": [str(zig), "cc"], "cxx": [str(zig), "c++"]}
+        # zig never receives clang's --target spelling.
+        assert toolchain.arguments == ["-target", row.zig_target]
+        overlay = TargetToolchain.WINDOWS_OVERLAY
+        assert toolchain.generated_arguments == (
+            ["-I", str(overlay), "-include", str(overlay / "btrc_win_compat.h")]
+            if row.operating_system == "windows"
+            else []
+        )
+        assert toolchain.runtime_libraries() == (["-lm"] if row.operating_system == "windows" else ["-lm", "-pthread"])
+        command = toolchain.compile_command(Path("/in.c"), Path("/out.o"), flags=["-O2"])
+        assert command[:5] == [str(zig), "cc", "-x", "c", "-std=c11"] and command[-4:] == [
+            "-c",
+            "/in.c",
+            "-o",
+            "/out.o",
+        ]
+
+
+def test_xcrun_and_ndk_rows_take_their_sdk_driver_and_sysroot(tmp_path, monkeypatch):
+    from tools.native_plan import TargetToolchain
+
+    sdk = tmp_path / "iPhoneSimulator.sdk"
+    sdk.mkdir()
+    clang = tmp_path / "xcode" / "clang"
+    clang.parent.mkdir()
+    clang.write_text("")
+    (clang.parent / "clang++").write_text("")
+    xcrun = tmp_path / "xcrun"
+    xcrun.write_text("")
+    monkeypatch.setattr(TargetToolchain, "SYSTEM_XCRUN", xcrun)
+    asked = []
+
+    def discovery(command, **kwargs):
+        asked.append((command, kwargs["env"]))
+        answer = {"--show-sdk-path": str(sdk), "clang": str(clang), "clang++": str(clang) + "++"}[command[-1]]
+        return subprocess.CompletedProcess(command, 0, answer + "\n", "")
+
+    nix = {"PATH": "", "DEVELOPER_DIR": "/nix/store/x-apple-sdk", "SDKROOT": "/nix/store/x-apple-sdk/MacOSX.sdk"}
+    row = _row("ios-aarch64-simulator")
+    toolchain = TargetToolchain(row, runner=discovery, environment=nix)
+    assert toolchain.drivers == {"cc": [str(clang)], "cxx": [str(clang) + "++"]}
+    assert toolchain.arguments == [*row.target_arguments, "-isysroot", str(sdk)]
+    assert toolchain.deployment_target() == "17.0" and toolchain.deployment_warning() is None
+    # Xcode answers for the platform SDKs; the shell's pinned macOS SDK cannot.
+    assert {command[0] for command, _ in asked} == {str(xcrun)}
+    assert all(command[1:3] == ["--sdk", "iphonesimulator"] for command, _ in asked)
+    assert all("DEVELOPER_DIR" not in env and "SDKROOT" not in env for _, env in asked)
+
+    ndk = tmp_path / "ndk"
+    prebuilt = ndk / "toolchains" / "llvm" / "prebuilt" / TargetToolchain.NDK_HOSTS.get(sys.platform, "unknown")
+    (prebuilt / "bin").mkdir(parents=True)
+    (prebuilt / "sysroot").mkdir()
+    (prebuilt / "bin" / "clang").write_text("")
+    row = _row("android-aarch64")
+    if sys.platform not in TargetToolchain.NDK_HOSTS:
+        pytest.skip("the NDK ships no prebuilt toolchain for this build host")
+    toolchain = TargetToolchain(
+        row, environment={"ANDROID_HOME": str(tmp_path / "unused"), "ANDROID_NDK_HOME": str(ndk)}
+    )
+    assert toolchain.drivers == {"cc": [str(prebuilt / "bin" / "clang")], "cxx": [str(prebuilt / "bin" / "clang++")]}
+    assert toolchain.arguments == [*row.target_arguments, f"--sysroot={prebuilt / 'sysroot'}"]
+    assert toolchain.deployment_target() == "29"
+
+
+def _stub_mingw(root: Path, version: str) -> Path:
+    headers = root / "include" / "any-windows-any"
+    headers.mkdir(parents=True)
+    (headers / "windows.h").write_text("/* stub */\n")
+    (headers / "_mingw_mac.h").write_text(f"#define __MINGW64_VERSION_MAJOR {version}\n")
+    return root
+
+
+def test_sysroot_identity_changed_since_the_plan_was_emitted_is_refused(tmp_path, monkeypatch):
+    from src.compiler.python.frontend.native_imports import NativeSysroot
+
+    if not shutil.which("zig"):
+        pytest.skip("the windows-gnu driver is zig, which the dev shell provides")
+    row = _row("windows-x86_64")
+    if row.label == HOST_LABEL:
+        pytest.skip("the host row's compiler finds its own sysroot")
+    emitted = _stub_mingw(tmp_path / "emitted", "13")
+    current = _stub_mingw(tmp_path / "current", "14")
+    identity = NativeSysroot(row, str(emitted)).validate()
+    plan = _write_plan(
+        tmp_path / "plan.json",
+        NativeLinkPlan.empty(PackageTarget.parse(row.label)).with_sysroot_identity(identity).as_dict(),
+    )
+    primary = tmp_path / "main.c"
+    primary.write_text("int main(void) { return 0; }\n")
+    # The build names the sysroot for this row's triple, as it did for the compile.
+    monkeypatch.setenv("BTRC_NATIVE_TARGET", row.triple)
+    monkeypatch.setenv("BTRC_NATIVE_SYSROOT", str(current))
+    with pytest.raises(NativePlanError, match=re.escape("sysroot identity changed since the plan was emitted")):
+        NativePlanBuilder(runner=_never_run).build(plan_path=plan, generated_c=primary, output=tmp_path / "program")
+    monkeypatch.setenv("BTRC_NATIVE_SYSROOT", str(emitted))
+    from tools.native_plan import TargetToolchain
+
+    TargetToolchain(row).verify_identity(identity)
+
+
+def test_native_build_report_names_the_label_and_deployment_target(tmp_path, monkeypatch):
+    from tools.native_plan import TargetToolchain
+
+    primary = tmp_path / "main.c"
+    primary.write_text("int main(void) { return 0; }\n")
+    plan = _write_plan(tmp_path / "plan.json", NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict())
+    row = _row(HOST_LABEL)
+    if row.operating_system == "macos":
+        monkeypatch.setenv("MACOSX_DEPLOYMENT_TARGET", "15.0")
+    report = NativePlanBuilder().build(plan_path=plan, generated_c=primary, output=tmp_path / "program")
+    assert report.target == HOST_LABEL == report.as_dict()["target"]
+    if row.operating_system == "macos":
+        # A host build keeps the toolchain's own minimum and only warns (Q1).
+        assert report.deployment_target == "15.0"
+        assert report.warnings == [f"{HOST_LABEL} objects target 15.0, not the row minimum 14.0"]
+    else:
+        assert report.deployment_target == "" and report.warnings == []
+    macos = TargetToolchain(_row(HOST_LABEL), environment={"MACOSX_DEPLOYMENT_TARGET": "14.0.0"})
+    assert macos.deployment_warning() is None
+
+
+@pytest.mark.parametrize(
+    "label",
+    [label for label in ("windows-x86_64", "windows-aarch64", "linux-x86_64", "linux-aarch64") if label != HOST_LABEL],
+)
+def test_zig_rows_cross_build_through_the_plan(tmp_path, label):
+    if not shutil.which("zig"):
+        pytest.skip("cross rows build with zig, which the dev shell provides")
+    primary = tmp_path / "main.c"
+    primary.write_text('#include <stdio.h>\nint main(void) { printf("cross\\n"); return 0; }\n')
+    plan = _write_plan(tmp_path / "plan.json", NativeLinkPlan.empty(PackageTarget.parse(label)).as_dict())
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        return subprocess.run(command, **kwargs)
+
+    output = tmp_path / "program"
+    report = NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=primary, output=output)
+    assert report.target == label
+    row = _row(label)
+    assert all(command[:2] == [shutil.which("zig"), "cc"] and row.zig_target in command for command in commands)
+    assert output.read_bytes().startswith(b"MZ" if row.operating_system == "windows" else b"\x7fELF")
+
+
+def test_ios_simulator_row_builds_through_xcode(tmp_path):
+    from tools.native_plan import TargetToolchain
+
+    row = _row("ios-aarch64-simulator")
+    try:
+        TargetToolchain(row)
+    except NativePlanError as error:
+        # Off a Mac with Xcode the row is refused, never built by the host compiler.
+        assert str(error).startswith("no toolchain for ios-aarch64-simulator: xcrun finds no clang")
+        if sys.platform == "darwin":
+            pytest.skip(f"Xcode's iPhoneSimulator SDK is not installed: {error}")
+        return
+    primary = tmp_path / "main.c"
+    primary.write_text("int main(void) { return 0; }\n")
+    plan = _write_plan(tmp_path / "plan.json", NativeLinkPlan.empty(PackageTarget.parse(row.label)).as_dict())
+    output = tmp_path / "program"
+    report = NativePlanBuilder().build(plan_path=plan, generated_c=primary, output=output)
+    assert report.deployment_target == "17.0"
+    assert report.link_command[1] == row.target_arguments[0] and "-isysroot" in report.link_command
+    # LC_BUILD_VERSION names platform 7, the iOS simulator.
+    described = subprocess.run(["/usr/bin/otool", "-l", str(output)], capture_output=True, text=True, timeout=60)
+    assert "platform 7" in described.stdout, described.stdout

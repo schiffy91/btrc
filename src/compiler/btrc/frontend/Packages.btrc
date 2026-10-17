@@ -2291,11 +2291,14 @@ class FeNativeLinkPlan {
 	public Vector<FePackageNode> packages;
 	public Vector<FeNativeDeclaration> declarations;
 	public Vector<FeNativeGeneratedUnit> generatedUnits;
-	/* Ordered absolute paths of secondary compiler outputs (schema 4). */
+	/* Ordered absolute paths of secondary compiler outputs (emitted-units). */
 	public Vector<string> emittedUnits = [];
 	/* SHA-256 of each secondary output's text, in `emittedUnits` order, so
 	 * the plan changes whenever any unit of the program does. */
 	public Vector<string> emittedUnitDigests = [];
+	/* The validated sysroot's identity (FeNativeSysroot) when the compile read
+	 * native headers through one, else empty. The plan never holds the path. */
+	public string sysrootIdentity = "";
 
 	/* Record one secondary output and the digest of its text. */
 	public void addEmittedUnit(string path, string source) {
@@ -2671,6 +2674,7 @@ class FeNativeLinkPlan {
 		var document = JSONValue.parse(serialized);
 		if (!document.isObject()) { return null; }
 		var restored = FeNativeLinkPlan(self.target, self.packages, self.declarations);
+		restored.sysrootIdentity = self.sysrootIdentity;
 		var names = new Map<string, bool>();
 		if (document.has("generated-units")) {
 			var records = document.get("generated-units");
@@ -2736,11 +2740,37 @@ class FeNativeLinkPlan {
 		return paths;
 	}
 
-	public string canonicalJson() {
-		JSONValue targetValue = JSONValue.makeObject();
-		targetValue.set("arch", JSONValue.makeString(self.target.architecture));
-		targetValue.set("os", JSONValue.makeString(self.target.operatingSystem));
+	/* The schema-5 target identity: the selected row, never a host fact. */
+	private JSONValue targetRecord() {
+		GeneratedTargetRow row = self.target.row();
+		JSONValue record = JSONValue.makeObject();
+		record.set("arch", JSONValue.makeString(row.architecture));
+		record.set("environment", JSONValue.makeString(row.environment));
+		record.set("label", JSONValue.makeString(row.label));
+		record.set("minimum", JSONValue.makeString(row.minimumVersion));
+		record.set("os", JSONValue.makeString(row.operatingSystem));
+		record.set("triple", JSONValue.makeString(row.triple));
+		return record;
+	}
 
+	/* The row's clang target arguments and sysroot identity, with no path. */
+	private JSONValue toolchainRecord() {
+		GeneratedTargetRow row = self.target.row();
+		JSONValue sysroot = JSONValue.makeObject();
+		sysroot.set("identity", JSONValue.makeString(self.sysrootIdentity));
+		sysroot.set("kind", JSONValue.makeString(row.sysrootKind));
+		sysroot.set("name", JSONValue.makeString(row.sysrootName));
+		JSONValue arguments = JSONValue.makeArray();
+		for argument in row.targetArguments { arguments.push(JSONValue.makeString(argument)); }
+		JSONValue record = JSONValue.makeObject();
+		record.set("sysroot", sysroot);
+		record.set("target-arguments", arguments);
+		return record;
+	}
+
+	/* The frozen schema-5 plan (platform-target-contract.md section 4.1),
+	 * byte-identical to the reference compiler's NativeLinkPlan.as_dict. */
+	public string canonicalJson() {
 		JSONValue root = JSONValue.makeObject();
 		root.set("defines", self.defineRecords());
 		if (self.emittedUnits.len > 0) {
@@ -2773,8 +2803,9 @@ class FeNativeLinkPlan {
 		root.set("linker-language", JSONValue.makeString(self.linkerLanguage()));
 		root.set("packages", self.packageRecords());
 		root.set("pkg-config", self.nameRecords("pkg-config"));
-		root.set("schema", JSONValue.makeInt(self.emittedUnits.len > 0 ? 4 : (self.generatedUnits.len > 0 ? 2 : 1)));
-		root.set("target", targetValue);
+		root.set("schema", JSONValue.makeInt(5));
+		root.set("target", self.targetRecord());
+		root.set("toolchain", self.toolchainRecord());
 		root.set("units", self.unitRecords());
 		return root.stringify() + "\n";
 	}

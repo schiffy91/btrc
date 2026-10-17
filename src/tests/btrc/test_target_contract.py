@@ -30,6 +30,7 @@ from src.compiler.python.application.results import (
 from src.compiler.python.artifacts.archive import TargetCatalog
 from src.compiler.python.cli.compiler import CompilerCommand, CompilerDiagnostics
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.native_targets import plan_target
 from tools.qualification.schema import TARGET_SLICES
 
 REPO = Path(__file__).resolve().parents[3]
@@ -304,7 +305,7 @@ def test_both_clis_select_the_same_row_for_each_spelling(spelling: str, immutabl
         plans.append(plan.read_text(encoding="utf-8"))
     assert plans[0] == plans[1]
     row = _row(ACCEPTED[spelling])
-    assert json.loads(plans[0])["target"] == {"arch": row.architecture, "os": row.operating_system}
+    assert json.loads(plans[0])["target"] == plan_target(row.label)
 
 
 # -- host inference -----------------------------------------------------------

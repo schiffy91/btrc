@@ -676,7 +676,7 @@ def test_selfhost_writers_lock_directories_in_one_order(immutable_btrcc, tmp_pat
         contents = [path.read_text() for path in outputs]
         assert sum("int main" in content for content in contents) == 1
         plan_text = next(content for content in contents if "int main" not in content)
-        assert json.loads(plan_text)["schema"] == 1
+        assert json.loads(plan_text)["schema"] == 5
     finally:
         for process in processes:
             if process.poll() is None:

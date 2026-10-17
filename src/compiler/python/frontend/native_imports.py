@@ -893,6 +893,9 @@ class NativeImportResolution:
 
     declarations: tuple
     cache_identity: str | None
+    # NativeSysroot's identity of the sysroot the headers were read through,
+    # which the link plan records (platform-target-contract.md section 4.1).
+    sysroot_identity: str = ""
 
 
 class NativeDeclarationImporter:
@@ -1003,7 +1006,8 @@ class NativeDeclarationImporter:
             raise IncludeResolutionError(f"native imports for {row.label} require BTRC_NATIVE_TARGET {row.triple}")
         target = row.triple
         sysroot = os.environ.get("BTRC_NATIVE_SYSROOT", "")
-        fingerprint.update(f"sysroot\0{NativeSysroot(row, sysroot).validate()}\0".encode())
+        sysroot_identity = NativeSysroot(row, sysroot).validate()
+        fingerprint.update(f"sysroot\0{sysroot_identity}\0".encode())
         for binding, arguments, semantics in self._read_headers(
             plan, reader, target, sysroot, environment, use_cache=use_cache
         ):
@@ -1136,7 +1140,7 @@ class NativeDeclarationImporter:
             )
             else None
         )
-        return NativeImportResolution((*self._declarations.values(), *self._input_classes), identity)
+        return NativeImportResolution((*self._declarations.values(), *self._input_classes), identity, sysroot_identity)
 
     @staticmethod
     def _reader_group(arguments):

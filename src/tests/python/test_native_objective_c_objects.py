@@ -413,7 +413,7 @@ def test_objective_c_class_message_source_to_foundation(native_project, native_c
     assert "@autoreleasepool" not in result.c_source
     assert f'#include "{root / "Foundation.h"}"' not in result.c_source
     payload = json.loads(plan_path.read_text())
-    assert payload["schema"] == 2 and payload["generated-units"]
+    assert payload["schema"] == 5 and payload["generated-units"]
     reference = compile_source(source)
     assert reference.successful, reference.failure
     assert payload == reference.native_plan.as_dict()

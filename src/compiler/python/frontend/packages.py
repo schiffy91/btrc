@@ -42,7 +42,7 @@ class LockfileVersionError(LockfileError):
 LOCK_SCHEMA = 2
 PACKAGE_GRAPH_LOCK_SCHEMA = 3
 PACKAGE_MANIFEST_VERSION = 1
-NATIVE_LINK_PLAN_SCHEMA = 1
+NATIVE_LINK_PLAN_SCHEMA = 5
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _UNIT_NAME = re.compile(r"^unit-[A-Za-z0-9][A-Za-z0-9_-]*$")
@@ -582,15 +582,18 @@ class NativeLinkPlan:
     packages: tuple[PackageNode, ...] = ()
     declarations: tuple[NativeDeclaration, ...] = ()
     generated_units: tuple[NativeGeneratedUnit, ...] = ()
-    # Ordered absolute paths of secondary compiler outputs (schema 4).
+    # Ordered absolute paths of secondary compiler outputs (emitted-units).
     emitted_units: tuple[str, ...] = ()
     # SHA-256 of each secondary output's text, in `emitted_units` order, so
     # the plan changes whenever any unit of the program does.
     emitted_unit_digests: tuple[str, ...] = ()
+    # The validated sysroot's identity (NativeSysroot) when the compile read
+    # native headers through one, else empty. The plan never holds the path.
+    sysroot_identity: str = ""
 
     @property
     def bindings(self) -> tuple[NativeBinding, ...]:
-        """Compiler-only imports; these are not linker units or schema-1 records."""
+        """Compiler-only imports; these are not linker units or link-plan records."""
         return tuple(
             binding
             for package in sorted(self.packages, key=lambda package: package.name)
@@ -643,7 +646,28 @@ class NativeLinkPlan:
     def _name_record(item: NativeDeclaration) -> dict[str, str]:
         return {"name": item.value, "package": item.package}
 
+    def target_record(self) -> dict[str, str]:
+        """The schema-5 target identity: the selected row, never a host fact."""
+        row = self.target.row
+        return {
+            "arch": row.architecture,
+            "environment": row.environment,
+            "label": row.label,
+            "minimum": row.minimum_version,
+            "os": row.operating_system,
+            "triple": row.triple,
+        }
+
+    def toolchain_record(self) -> dict:
+        """The row's clang target arguments and sysroot identity, with no path."""
+        row = self.target.row
+        return {
+            "sysroot": {"identity": self.sysroot_identity, "kind": row.sysroot_kind, "name": row.sysroot_name},
+            "target-arguments": list(row.target_arguments),
+        }
+
     def as_dict(self) -> dict:
+        """The frozen schema-5 plan (platform-target-contract.md section 4.1)."""
         selected = tuple(item for item in self.declarations if item.selected_for(self.target))
         sources = [
             {
@@ -688,16 +712,15 @@ class NativeLinkPlan:
                 key=lambda item: (item["package"], item["name"]),
             ),
             "schema": NATIVE_LINK_PLAN_SCHEMA,
-            "target": {"arch": self.target.architecture, "os": self.target.operating_system},
+            "target": self.target_record(),
+            "toolchain": self.toolchain_record(),
             "units": sorted(sources, key=lambda item: (item["package"], item["path"], item["language"])),
         }
         if self.generated_units:
-            result["schema"] = 2
             result["generated-units"] = [
                 unit.as_dict() for unit in sorted(self.generated_units, key=lambda unit: unit.name)
             ]
         if self.emitted_units:
-            result["schema"] = 4
             result["emitted-units"] = list(self.emitted_units)
             result["emitted-unit-digests"] = list(self.emitted_unit_digests)
         return result
@@ -756,6 +779,10 @@ class NativeLinkPlan:
             emitted_units=tuple(f"{absolute_prefix}.{name}.c" for name in names),
             emitted_unit_digests=tuple(self.unit_digest(source) for source in sources),
         )
+
+    def with_sysroot_identity(self, identity: str) -> NativeLinkPlan:
+        """This plan recording the sysroot its native headers were read through."""
+        return replace(self, sysroot_identity=identity)
 
     @staticmethod
     def unit_digest(source: str) -> str:

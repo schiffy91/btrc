@@ -2697,6 +2697,7 @@ class SourceResolver:
         sources = graph.source_paths()
         native_plan = packages.native_plan.for_sources(sources).with_stdlib(self.stdlib.directory(), sources)
         native = NativeDeclarationImporter().resolve(native_plan, use_cache=use_cache)
+        native_plan = native_plan.with_sysroot_identity(native.sysroot_identity)
         return ResolvedSource(
             user_source=user_source,
             source=full_source,

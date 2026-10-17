@@ -35,6 +35,21 @@ TRIPLES = {
 }
 
 
+def plan_target(target: str) -> dict[str, str]:
+    """The `target` object a schema-5 link plan records for `target`: its row's
+    identity (platform-target-contract.md section 4.1)."""
+
+    row = PackageTarget.parse(target).row
+    return {
+        "arch": row.architecture,
+        "environment": row.environment,
+        "label": row.label,
+        "minimum": row.minimum_version,
+        "os": row.operating_system,
+        "triple": row.triple,
+    }
+
+
 def stub_sysroot(sysroot: Path, target: str) -> None:
     """Write the files that identify `target`'s sysroot kind, and no SDK headers.
 

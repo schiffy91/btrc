@@ -23,7 +23,7 @@ from src.compiler.python.frontend.packages import (
 from src.compiler.python.frontend.sources import SourceDependencyGraph
 from src.compiler.python.main import main as compiler_main
 from src.tests.c_toolchains import default_toolchain
-from src.tests.native_targets import cross_target_environment
+from src.tests.native_targets import cross_target_environment, plan_target
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
@@ -583,8 +583,12 @@ def test_recursive_aliases_lock_and_native_plan_are_canonical() -> None:
     plan_text = packages.native_plan.canonical_json()
     assert plan_text == packages.native_plan.canonical_json()
     plan = json.loads(plan_text)
-    assert plan["schema"] == NATIVE_LINK_PLAN_SCHEMA
-    assert plan["target"] == {"arch": "x86_64", "os": "linux"}
+    assert plan["schema"] == NATIVE_LINK_PLAN_SCHEMA == 5
+    assert plan["target"] == plan_target("linux-x86_64")
+    assert plan["toolchain"] == {
+        "sysroot": {"identity": "", "kind": "none", "name": ""},
+        "target-arguments": ["--target=x86_64-unknown-linux-gnu"],
+    }
     assert plan["linker-language"] == "c++"
     assert [(unit["package"], unit["language"]) for unit in plan["units"]] == [
         ("leaf", "c"),
@@ -687,11 +691,14 @@ def test_cli_atomically_emits_plan_sidecar(tmp_path: Path, monkeypatch: pytest.M
 @pytest.mark.parametrize(
     ("requested", "expected"),
     (
-        ("linux-x86_64", {"arch": "x86_64", "os": "linux"}),
-        ("linux-x64", {"arch": "x86_64", "os": "linux"}),
-        ("macos-arm64", {"arch": "aarch64", "os": "macos"}),
-        ("macos-x86_64", {"arch": "x86_64", "os": "macos"}),
-        ("windows-x86_64", {"arch": "x86_64", "os": "windows"}),
+        ("linux-x86_64", plan_target("linux-x86_64")),
+        ("linux-x64", plan_target("linux-x86_64")),
+        ("macos-arm64", plan_target("macos-aarch64")),
+        ("macos-x86_64", plan_target("macos-x86_64")),
+        ("windows-x86_64", plan_target("windows-x86_64")),
+        ("ios-arm64-simulator", plan_target("ios-aarch64-simulator")),
+        ("android-x86_64", plan_target("android-x86_64")),
+        ("windows-aarch64-msvc", plan_target("windows-aarch64-msvc")),
     ),
 )
 @pytest.mark.parametrize(
