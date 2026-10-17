@@ -232,9 +232,12 @@ def target_abi(request, tmp_path_factory) -> TargetAbiBuild:
 def test_target_abi_static_half_compiles_for_the_row(target_abi: TargetAbiBuild) -> None:
     row = target_abi.row
     # The two compilers' plans agree byte for byte. Their C need not: they
-    # lower the native callback's managed receiver differently, and both
-    # translations must compile for the row.
+    # spell the native callback's thunk and lease release differently, and
+    # both translations must compile for the row. The callback's receiver
+    # cannot cycle, so neither may bring in the cycle collector.
     assert target_abi.selfhost_plan.read_bytes() == target_abi.reference_plan.read_bytes()
+    for generated in (target_abi.reference_c, target_abi.selfhost_c):
+        assert "__btrc_flush_cycles" not in generated.read_text(encoding="utf-8"), generated.name
     plan = target_abi.plan()
     assert plan["schema"] == 5 and plan["target"]["label"] == row.label
     assert plan["toolchain"]["target-arguments"] == list(row.target_arguments)
