@@ -1,0 +1,19 @@
+PASS long crosses the C boundary unchanged
+PASS long and unsigned long share one width
+PASS unsigned long has the maximum BTRC computes
+PASS size_t carries the record size
+PASS ptrdiff_t spans a pointer difference
+PASS wchar_t holds a letter
+PASS bool crosses both ways
+PASS char signedness agrees
+PASS signed char keeps its sign
+PASS long double arithmetic returns through double
+PASS a mixed-width record returns by value
+PASS a mixed-width record passes by value
+PASS a packed record returns by value
+PASS a packed record passes by value
+PASS a nullable record pointer crosses as null and as an address
+PASS a variadic call reads its promoted arguments
+PASS C calls back into BTRC with its context
+PASS atomics run through the runtime helpers
+PASS an enum crosses as its value

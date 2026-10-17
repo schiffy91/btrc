@@ -1,7 +1,8 @@
 # Package manifests and native link plans
 
 This document defines package manifest version 1, lockfile schema 3, and native
-link-plan schemas 1 through 4. The reference and self-hosted compilers implement the same
+link-plan schema 5 (readers keep schemas 1, 2 and 4 for host-native plans). The
+reference and self-hosted compilers implement the same
 strict local graph, lock, and plan contracts. The reference compiler also
 materializes Git dependencies; the self-hosted compiler currently rejects that
 acquisition surface precisely. A build tool consumes the emitted plan; compilers never execute
@@ -1078,7 +1079,7 @@ Language/standard and `os`/`arch` use the existing closed sets. There is no
 package-wide binding. Duplicate exports into the same module are rejected when
 their target predicates overlap, including inactive targets; disjoint providers
 are allowed. Bindings participate in manifest locking but are compiler inputs,
-not schema-1 linker records or native source units.
+not link-plan linker records or native source units.
 
 Both compiler consumers require explicit `BTRC_NATIVE_HEADER_READER` (built with
 `nix build .#btrc-native-header`), `BTRC_NATIVE_SYSROOT` (an available macOS SDK,
@@ -2279,21 +2280,97 @@ change without depending on a TOML serializer's formatting choices.
 
 The compiler result owns the validated native plan.  `--emit-link-plan PATH`
 writes its canonical JSON representation while normal C emission continues.
-`--target OS-ARCH` selects platform predicates; accepted aliases are `x64` for
-`x86_64` and `arm64` for `aarch64`. The self-hosted `btrcc` requires this
-option explicitly for every version-1 manifest and fails closed if it is
-missing. The reference `btrcpy` may infer a supported host target.
+`--target OS-ARCH[-ENV]` selects one row of `src/language/targets.toml`, which
+then selects platform predicates; accepted aliases are `x64` for `x86_64` and
+`arm64` for `aarch64`. Without `--target`, both compilers infer the same
+desktop host row, or fail with the same message on a host no row names.
 
-Plans without compiler-emitted adapters retain the byte-compatible schema 1.
-Schema 2 adds a nonempty `generated-units` array, sorted by unique identifier
+New compilers write schema 5, and only schema 5; readers keep 1, 2 and 4 for
+host-native plans only. Both compilers write byte-identical canonical JSON
+(sorted keys, compact separators, non-ASCII text unescaped, a trailing
+newline). Schema 5 records the selected row and its toolchain:
+
+```json
+{
+  "defines": [],
+  "frameworks": [],
+  "headers": [],
+  "include-directories": [],
+  "linker-language": "c",
+  "packages": [],
+  "pkg-config": [],
+  "schema": 5,
+  "target": {
+    "arch": "aarch64",
+    "environment": "simulator",
+    "label": "ios-aarch64-simulator",
+    "minimum": "17.0",
+    "os": "ios",
+    "triple": "arm64-apple-ios17.0.0-simulator"
+  },
+  "toolchain": {
+    "sysroot": {"identity": "", "kind": "xcrun", "name": "iphonesimulator"},
+    "target-arguments": ["--target=arm64-apple-ios17.0.0-simulator"]
+  },
+  "units": []
+}
+```
+
+`target` is the row's identity: its canonical label, operating system,
+architecture, environment, deployment minimum and clang triple. `environment`
+and `minimum` are always present and may be empty. `toolchain.target-arguments`
+copies the row's clang target arguments. `toolchain.sysroot` names the row's
+sysroot kind and xcrun SDK name, and its `identity` is the 64-digit SHA-256
+that both compilers' sysroot validation computes when the compile read native
+headers through a sysroot (`""` otherwise). The plan never holds a sysroot
+path: paths are facts of the building host. `generated-units` and
+`emitted-units` (with `emitted-unit-digests`) keep the meanings below and are
+present exactly when non-empty.
+
+The builder (`tools/native_plan.py`) accepts only the exact field set of each
+schema. A schema-5 `target` must equal the row its `label` names, and its
+toolchain must equal that row's. A schema 1, 2 or 4 plan names only
+`{arch, os}`; it builds only on the compiler-host row that is this host, and
+otherwise fails with `legacy native link plan for <os>-<arch> cannot be built
+on host <label>; regenerate it as schema 5`.
+
+The builder takes its compiler from the plan's row. On the host row it uses
+the caller's `--cc`/`--cxx` with no target arguments, exactly as before, so a
+host build's commands do not change. Every other row uses that row's own
+driver, and the builder never falls back to the host compiler: `zig cc -target
+<zig_target>` for a row with a zig target (the Windows GNU rows, and Linux
+rows built from another host), with the Windows compatibility overlay
+(`-I src/runtime/windows -include src/runtime/windows/btrc_win_compat.h`)
+force-included into every btrc-generated unit of a Windows GNU row, as the
+Makefile's `WIN_COMPAT` does; Xcode's clang (`xcrun --sdk <name> --find
+clang`) with the target arguments and `-isysroot` for macOS and iOS rows; the
+NDK's clang with the target arguments and `--sysroot` for Android rows; and
+clang in a Windows SDK (vcvars) environment for the MSVC row, which is
+runner-bound. When no driver is found the build fails with `no toolchain for
+<label>: <what is missing>`. The builder finds sysroots itself: the
+`BTRC_NATIVE_SYSROOT` of its environment when `BTRC_NATIVE_TARGET` spells the
+row's triple, else `xcrun --sdk <name> --show-sdk-path`, the NDK's sysroot
+under `$ANDROID_NDK_HOME` (else `$ANDROID_HOME/ndk/29.0.14206865`), or the
+`libc` directory beside zig's `.lib_dir`. When the plan carries a sysroot
+identity and the builder supplies the sysroot, it validates that sysroot the
+way the compilers do and refuses a different one: `sysroot identity changed
+since the plan was emitted`. The host row's compiler finds its own SDK, so its
+builds are not checked. Frameworks require a macOS or iOS row, and pkg-config
+is refused for iOS, Android and the Windows SDK row. The build report names
+the row's label as `target` and records `deployment_target`: the row minimum
+off the host, and `MACOSX_DEPLOYMENT_TARGET` (or the toolchain default) for a
+macOS host build, which is reported as a warning when it differs from the row
+minimum rather than refused.
+
+Schema 2 added a nonempty `generated-units` array, sorted by unique identifier
 `name`. Each record contains exactly `name`, `language`, `standard`,
 `memory-management` and `source` (the emitted translation-unit text). It has no
 package path: generated output must not masquerade as a source-package file.
 The plan is the single published artifact, so it cannot refer to a half-published
 adapter file. This is compiler output, not a new manifest input table.
 
-Schema 4 is written when `--emit-units PREFIX` produces secondary translation
-units. Its `emitted-units` field is a nonempty ordered array of absolute paths
+Schema 4 added `emitted-units`, written when `--emit-units PREFIX` produces
+secondary translation units. It is a nonempty ordered array of absolute paths
 to `PREFIX.unit-<k>.c`, for `k` from 1. Resolve relative prefixes against the
 compiler process's working directory and resolve its destination directory
 through existing symlinks, without following the final output file. Append a
@@ -2307,7 +2384,7 @@ their order is emission order rather than lexical sorting (unit 10 follows
 unit 9). The builder validates nonempty strings, absolute paths and distinct
 regular files, rejecting symlinks, missing files, duplicate/hardlink aliases
 and aliases of the primary C or native source units before invoking build tools.
-The plan's existing total-byte bound applies; schema 4 adds no fixed unit-count
+The plan's existing total-byte bound applies; there is no fixed unit-count
 ceiling. Reference cache restoration validates these exact paths and their order
 against the current emission options and cached unit count.
 
@@ -2319,16 +2396,13 @@ inode and mtime, same bytes when its own text did not change) whenever any
 other output of the compile was replaced. A build rule that depends only on the
 primary C file or only on the plan relinks after a change confined to one
 secondary unit; when nothing changed, nothing is rewritten. The builder accepts
-schema-4 plans without the field (older compilers), and when it is present
+plans without the field (compilers older than it), and when it is present
 requires exactly one 64-digit digest per emitted unit.
 
-The builder continues to read schema 3, whose `emitted-units` is an integer
-count from 1 through 4096. Only that legacy schema derives secondary paths as
-`<generated>.unit-<k>.c` beside the primary C supplied to the builder. New
-compilers do not write schema 3. Consumers must upgrade their plan reader with
-the compiler before using schema 4; an old reader must reject the newer schema.
-Unsplit output, including a split request that produces no secondary units,
-retains schema 1 or 2 as appropriate.
+No compiler ever wrote schema 3 (a bare emitted-unit count), and the builder
+rejects it. Consumers must upgrade their plan reader with the compiler; an old
+reader must reject the newer schema. Unsplit output, including a split request
+that produces no secondary units, omits `emitted-units`.
 
 The builder compiles secondary units in parallel before linking or validating
 a retained executable. A split program's
@@ -2372,7 +2446,7 @@ output directory is cleaned. Builders do not evict source generations another
 compiler might be using. The embedded plan remains authoritative; this is not
 a new manifest input table or a complete compiler-output generation cache.
 
-On macOS, `--debug-info` also retains a complete immutable object generation in
+For a macOS or iOS row, `--debug-info` also retains a complete immutable object generation in
 `.btrc-debug-v1-<digest>/` beside the executable. Darwin's debug map refers to
 these object paths and timestamps after linking. The generation identity covers
 object names and content hashes; validation checks the closed file inventory,
