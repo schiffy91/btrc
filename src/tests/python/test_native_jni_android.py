@@ -296,6 +296,10 @@ def test_checked_jni_round_trip_on_android(android_device, compiler, tmp_path, m
         while "JNI DETECTED ERROR IN APPLICATION" not in probe_log and time.monotonic() < deadline:
             time.sleep(1)
             probe_log = device.logcat()
+        # logd can still be taking the aborted process's dump; let it land
+        # before the round trip's logcat starts.
+        time.sleep(3)
+        probe_log = device.logcat()
         report["probe"] = {
             "exit_status": probe.returncode,
             "pid": probe_pid,
@@ -319,17 +323,22 @@ def test_checked_jni_round_trip_on_android(android_device, compiler, tmp_path, m
         logcat = device.logcat()
         if evidence is not None:
             (evidence / "round-trip-logcat.txt").write_text(logcat, encoding="utf-8")
-        fatal = [line for priority, line in process_lines(logcat, pid) if priority in "FA"] if pid else []
+        own = process_lines(logcat, pid) if pid else []
+        fatal = [line for priority, line in own if priority in "FA"]
+        found = reports(logcat, pid) if pid else []
+        everywhere = [line for line in logcat.splitlines() if any(report in line for report in CHECKJNI_REPORTS)]
         report["round_trip"] = {
             "exit_status": completed.returncode,
             "pid": pid,
             "seconds": round(seconds, 3),
             "stdout": completed.stdout,
             "stderr": completed.stderr,
-            "reports": reports(logcat, pid) if pid else [],
+            "reports": found,
             "fatal": fatal,
-            "process_lines": len(process_lines(logcat, pid)) if pid else 0,
-            "checkjni_lines": [line for line in logcat.splitlines() if "CheckJNI" in line],
+            "process_lines": len(own),
+            "checkjni_lines": [line for _, line in own if "CheckJNI" in line],
+            # Another process's reports (a late line of the probe's dump) are recorded, not judged.
+            "other_process_reports": len(everywhere) - len(found),
         }
         print(json.dumps(report["round_trip"], indent=2))
         assert completed.returncode == 0, (completed.stdout, completed.stderr, logcat[-4000:])
@@ -338,7 +347,9 @@ def test_checked_jni_round_trip_on_android(android_device, compiler, tmp_path, m
             "java-adopted-ok",
             "java-entry-status=0",
         ], completed.stdout
-        assert report["round_trip"]["reports"] == [] and fatal == [], logcat[-4000:]
+        # The process wrote to logcat (ART's start-up lines), so an empty scan is not a missed filter.
+        assert own, logcat[-4000:]
+        assert found == [] and fatal == [], logcat[-4000:]
         report["status"] = "passed"
     finally:
         report.setdefault("status", "failed")
