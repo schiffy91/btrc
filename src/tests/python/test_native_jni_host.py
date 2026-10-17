@@ -13,6 +13,7 @@ import subprocess
 
 import pytest
 
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
@@ -49,7 +50,10 @@ int main(int argc, char** argv) {
 
 
 def jni_environment():
-    if not shutil.which("pkg-config") or subprocess.run(["pkg-config", "--exists", "btrc-jni"], check=False).returncode:
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "btrc-jni"], check=False, timeout=TOOL_TIMEOUT).returncode
+    ):
         pytest.skip("requires the btrc-jni pkg-config package (the flake's dev shell provides JDK 17)")
     return apple_environment()
 
