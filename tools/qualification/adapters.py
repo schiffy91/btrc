@@ -12,6 +12,9 @@ shrinking the denominator:
   test the session collected, with each skip's coverage.
 - `BoundaryReportAdapter`: ``boundary-check --report``, against every frozen
   boundary record in the manifest.
+- `TargetRunAdapter`: a ``src.tests.target_runner`` ``target-run.json``,
+  against every corpus program and frontend the run declared, on the target
+  row's platform slice.
 """
 
 from __future__ import annotations
@@ -25,19 +28,24 @@ import re
 import shlex
 import subprocess
 import xml.etree.ElementTree as ElementTree
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, ClassVar
 
 from tools.qualification.schema import (
+    TARGET_SLICES,
     Budget,
+    Classification,
     Evidence,
     EvidenceStatus,
     Frontend,
     LedgerRecord,
     LedgerSchemaError,
     Measurement,
+    Parity,
     Platform,
     Provenance,
     Subject,
@@ -673,3 +681,205 @@ class BoundaryReportAdapter:
         if len(records) != report.get("total_records") or checked != report.get("checked_records"):
             raise LedgerSchemaError("boundary report totals disagree with its records")
         return records
+
+
+class TargetRunAdapter:
+    """One test record per corpus program and frontend of a ``src.tests.target_runner`` run.
+
+    The report is the runner's ``target-run.json`` (``btrc.target-run/1``). A
+    program's slot is ``src/tests/target_runner.py::run[<corpus path>]`` for an
+    executed run and ``::build[<corpus path>]`` for ``--compile-only``, through
+    its frontend, on the target row's platform family and artifact variant:
+    the six P0 slice rows take `TARGET_SLICES`' variants (the slice mapping of
+    the platform-target contract, section 1.2), the desktop rows their
+    architecture. ``windows-aarch64-msvc`` belongs to the windows-arm64 slice
+    but keeps its own ``arm64-msvc`` variant, so its runs never overwrite the
+    gnu row's. A passed program is ``passed`` (observed ``built`` when only
+    compiled); a failed one ``implemented-unverified`` (observed ``error`` when
+    the executor, not the program, failed); a restricted one ``unavailable``
+    with an ``os-restricted`` classification and a missing one
+    ``unavailable`` with a ``missing`` classification, each naming the
+    inventory cell or contract it cites as its decision.
+    """
+
+    SCHEMA = "btrc.target-run/1"
+    STATUSES = ("passed", "failed", "restricted", "missing")
+    MODES: ClassVar[Mapping[str, str]] = MappingProxyType({"execute": "run", "compile-only": "build"})
+    ROW_SLICES: ClassVar[Mapping[str, str]] = MappingProxyType(
+        {
+            "windows-x86_64": "windows-x64",
+            "windows-aarch64": "windows-arm64",
+            "ios-aarch64": "ios-device",
+            "ios-aarch64-simulator": "ios-simulator",
+            "android-aarch64": "android-arm64",
+            "android-x86_64": "android-x86_64",
+        }
+    )
+    OTHER_ROWS: ClassVar[Mapping[str, tuple[Platform, str]]] = MappingProxyType(
+        {
+            "linux-x86_64": (Platform.LINUX, "x86_64"),
+            "linux-aarch64": (Platform.LINUX, "arm64"),
+            "macos-x86_64": (Platform.MACOS, "x86_64"),
+            "macos-aarch64": (Platform.MACOS, "arm64"),
+            "windows-aarch64-msvc": (Platform.WINDOWS, "arm64-msvc"),
+        }
+    )
+    REPORT_FIELDS = frozenset(
+        {
+            "schema",
+            "protocol",
+            "target",
+            "mode",
+            "executor",
+            "executor_provenance",
+            "frontends",
+            "selection",
+            "source_revision",
+            "source_dirty",
+            "toolchain",
+            "compilers",
+            "started_at",
+            "finished_at",
+            "host",
+            "counts",
+            "results",
+        }
+    )
+    RESULT_FIELDS = frozenset(
+        {
+            "program",
+            "frontend",
+            "program_id",
+            "status",
+            "observed",
+            "phase",
+            "reason",
+            "cites",
+            "duration_s",
+            "artifact",
+            "notes",
+            "result",
+        }
+    )
+
+    def __init__(self, provenance: Provenance) -> None:
+        self.provenance = replace(provenance, source="target-runner")
+
+    @classmethod
+    def slot(cls, label: str) -> tuple[Platform, str]:
+        """The platform family and artifact variant a target row's runs are recorded on."""
+
+        if label in cls.ROW_SLICES:
+            return TARGET_SLICES[cls.ROW_SLICES[label]]
+        if label in cls.OTHER_ROWS:
+            return cls.OTHER_ROWS[label]
+        raise LedgerSchemaError(f"target {label!r} maps to no platform slice")
+
+    def run_provenance(self, report: Mapping[str, Any], where: str) -> Provenance:
+        target = report.get("target") or {}
+        executed = report.get("executor_provenance") or {}
+        toolchain = report.get("toolchain") or {}
+        if not isinstance(target, Mapping) or not isinstance(executed, Mapping) or not isinstance(toolchain, Mapping):
+            raise LedgerSchemaError(f"{where}: target, executor_provenance and toolchain must be tables")
+        compiler = " ".join(filter(None, (toolchain.get("version"), " ".join(toolchain.get("cflags") or ()))))
+        return replace(
+            self.provenance,
+            recorded_at=report.get("finished_at") or self.provenance.recorded_at,
+            runner=report.get("executor") or "compile-only",
+            btrc_revision=report.get("source_revision") or self.provenance.btrc_revision,
+            target_triple=target.get("triple") or self.provenance.target_triple,
+            # An executed run took place on the target, which the executor describes.
+            os_build=str(executed["os_build"]) if executed.get("os_build") else self.provenance.os_build,
+            device_class=str(executed["device"]) if executed.get("device") else self.provenance.device_class,
+            c_compiler=compiler or self.provenance.c_compiler,
+        )
+
+    def records(self, report: Mapping[str, Any], artifact: str | None = None) -> list[LedgerRecord]:
+        where = "target-run report"
+        if not isinstance(report, Mapping) or report.get("schema") != self.SCHEMA:
+            raise LedgerSchemaError(f"not a {self.SCHEMA} report")
+        unknown = sorted(set(report) - self.REPORT_FIELDS)
+        if unknown:
+            raise LedgerSchemaError(f"{where}: unknown field(s) {', '.join(unknown)}")
+        if report.get("mode") not in self.MODES:
+            raise LedgerSchemaError(f"{where}.mode: expected one of {', '.join(self.MODES)}")
+        label = (report.get("target") or {}).get("label")
+        platform, variant = self.slot(label)
+        frontends = report.get("frontends") or []
+        if not frontends or not set(frontends) <= {frontend.value for frontend in Frontend}:
+            raise LedgerSchemaError(f"{where}.frontends: expected reference and/or selfhost")
+        provenance = self.run_provenance(report, where)
+        digest = ((report.get("compilers") or {}).get("selfhost") or {}).get("btrcc_sha256")
+        check = self.MODES[report["mode"]]
+        directory = Path(artifact).parent if artifact else None
+        results = report.get("results") or []
+        seen: set[tuple[str, str]] = set()
+        tallies = {frontend: Counter() for frontend in frontends}
+        records = []
+        for index, result in enumerate(results):
+            here = f"{where}.results[{index}]"
+            if not isinstance(result, Mapping):
+                raise LedgerSchemaError(f"{here}: expected a table")
+            unknown = sorted(set(result) - self.RESULT_FIELDS)
+            if unknown:
+                raise LedgerSchemaError(f"{here}: unknown field(s) {', '.join(unknown)}")
+            program, frontend, status = result.get("program"), result.get("frontend"), result.get("status")
+            if not isinstance(program, str) or not program.endswith(".btrc") or frontend not in frontends:
+                raise LedgerSchemaError(f"{here}: a result names a corpus program and one of the run's frontends")
+            if status not in self.STATUSES:
+                raise LedgerSchemaError(f"{here}.status: expected one of {', '.join(self.STATUSES)}")
+            if (program, frontend) in seen:
+                raise LedgerSchemaError(f"{here}: {program} through {frontend} is reported twice")
+            seen.add((program, frontend))
+            tallies[frontend][status] += 1
+            evidence_artifact = (
+                str(directory / result["artifact"]) if directory and result.get("artifact") else artifact
+            )
+            classification, evidence = self.disposition(result, check, evidence_artifact)
+            selfhost = frontend == Frontend.SELFHOST.value
+            records.append(
+                LedgerRecord(
+                    subject=Subject(
+                        kind=SubjectKind.TEST,
+                        id=f"src/tests/target_runner.py::{check}[{program}]",
+                        platform=platform,
+                        frontend=Frontend(frontend),
+                        variant=variant,
+                        group=f"target-runner/{label}/{program.split('/', 1)[0]}",
+                    ),
+                    classification=classification,
+                    evidence=evidence,
+                    provenance=replace(
+                        provenance,
+                        frontend=Frontend(frontend),
+                        compiler_digest=f"sha256:{digest}" if selfhost and digest else None,
+                    ),
+                )
+            )
+        programs = {frontend: {program for program, named in seen if named == frontend} for frontend in frontends}
+        if len({frozenset(names) for names in programs.values()}) > 1:
+            raise LedgerSchemaError(f"{where}: every frontend must report the same programs")
+        counts = report.get("counts") or {}
+        for frontend in frontends:
+            expected = {status: tallies[frontend][status] for status in self.STATUSES}
+            if dict(counts.get(frontend) or {}) != expected:
+                raise LedgerSchemaError(f"{where}.counts.{frontend}: {counts.get(frontend)} disagrees with its results")
+        return records
+
+    @staticmethod
+    def disposition(
+        result: Mapping[str, Any], check: str, artifact: str | None
+    ) -> tuple[Classification | None, Evidence]:
+        status, reason = result["status"], result.get("reason")
+        if status == "passed":
+            return None, Evidence(EvidenceStatus.PASSED, "built" if check == "build" else "passed", None, artifact)
+        if status == "failed":
+            observed = "error" if result.get("observed") == "error" else "failed"
+            phase = result.get("phase")
+            summary = f"{phase}: {reason}" if phase and reason else reason or phase or "failed"
+            return None, Evidence(EvidenceStatus.IMPLEMENTED_UNVERIFIED, observed, summary, artifact)
+        parity = Parity.OS_RESTRICTED if status == "restricted" else Parity.MISSING
+        if not reason or not result.get("cites"):
+            raise LedgerSchemaError(f"a {status} program states its reason and what it cites")
+        classification = Classification(parity=parity, decision=result["cites"])
+        return classification, Evidence(EvidenceStatus.UNAVAILABLE, status, reason, artifact)

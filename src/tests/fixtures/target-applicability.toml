@@ -1,0 +1,39 @@
+# Which corpus programs each compilation target builds and runs (CL-P1-17).
+#
+# src/tests/target_runner.py reads this beside the corpus.* topic cells of
+# docs/design/platform-inventory.toml. A program the target cannot build or
+# run is reported, never dropped:
+#   restricted  deliberately excluded on that target (an OS restriction or an
+#               adaptation contract says so)
+#   missing     not implemented there yet; a Stage 25 fix wave owns it
+# scope = "build" keeps a program out of the bundle; scope = "run" builds it
+# (compile-only lanes still prove it compiles) and never executes it there.
+#
+# Every entry states its reason and cites either an inventory cell
+# (`corpus.<topic>@<slice>`, a TARGET_SLICES name) or a contract
+# (`<repository path>#<anchor>`); test_target_runner.py resolves each citation
+# and fails on an entry that matches no corpus program. Codex lanes propose
+# changes as `fragment:` commits (WORKSTREAMS.md section 3.5).
+
+schema = "btrc.target-applicability/1"
+
+# BTRC_TEST_REQUIRES host capabilities, and the executors that grant them. An
+# executor that reports granted_capabilities() after prepare (the local
+# executor probes the host) answers for itself; for the others this list does.
+[[capabilities]]
+name = "loopback-listener"
+executors = []
+reason = "no target executor has proven an IPv4 loopback listener inside its sandbox yet"
+cites = "src/tests/runner_capabilities.py#loopback_listener_error"
+
+# The @gpu compute runtime: emitted C that includes btrc_gpu_compute_internal.h
+# links libbtrc_gpu over wgpu-native. The host links build/stdlib/GPU when
+# `make gpu` built it; no cross row has a runtime build until Stage 28
+# (tooling-cross-gpu-deps), so dispatching programs are missing there.
+[[facilities]]
+name = "compute-runtime"
+header = "btrc_gpu_compute_internal.h"
+targets = []
+status = "missing"
+reason = "dispatching @gpu programs need libbtrc_gpu over wgpu-native, which is not built for this row (Stage 28, tooling-cross-gpu-deps)"
+cites = "docs/design/platform-inventory.toml#corpus.gpu"
