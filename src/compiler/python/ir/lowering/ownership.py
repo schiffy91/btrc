@@ -463,9 +463,11 @@ class CycleMetadata:
         if emitted_name in self._emitted_may_cycle:
             return self._emitted_may_cycle[emitted_name]
         result = True
-        info = self._analyzed.class_table.get(emitted_name)
+        info = self._analyzed.class_table.get(emitted_name) or self._analyzed.interface_table.get(emitted_name)
         instance = self._generic_instance(emitted_name)
         if info is not None and (not info.generic_params):
+            # An interface value is one of its implementers at run time, so it
+            # answers from them, exactly as the typed query does.
             result = self.type_may_cycle(TypeExpr(base=emitted_name))
         elif instance is not None:
             # A specialization answers from its concrete type, exactly as the

@@ -185,7 +185,6 @@ def test_native_cli_consumes_batched_receipts_for_all_units(project):
         source = root / f"part-{index}.c"
         source.write_text(f"int extra{index}(void) {{ return {index}; }}\n")
         extras.append(str(source))
-    payload.update(schema=4)
     payload["emitted-units"] = extras
     options["plan_path"].write_text(
         json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"

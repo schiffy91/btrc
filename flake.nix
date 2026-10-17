@@ -292,7 +292,9 @@
         # missing module fails only builds that pass --object-cache.
         # test_flake_installs_adapter_and_runs_native_plan_check recomputes it.
         nativePlanSource = sourceSubset {
-          prefixes = [ ];
+          # TargetToolchain force-includes the Windows compatibility overlay
+          # into every windows-gnu unit it cross-builds.
+          prefixes = [ "src/runtime/windows/" ];
           files = [
             "tools/native_plan.py"
             "src/compiler/python/__init__.py"

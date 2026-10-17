@@ -1,6 +1,7 @@
 /* Checked SDK projections and managed C/Objective-C imports. Unknown ownership
  * and unsupported native shapes fail before structured adapter lowering. */
 
+import Library.Bytes;
 import Library.JSON;
 import Library.Digest.SHA256;
 import Library.FileSystem;
@@ -89,7 +90,18 @@ class FeNativeSysroot {
 		} else {
 			self.fail("this sysroot kind is validated only on its runner");
 		}
-		return SHA256.digest(kind + "\x1f" + identityFile + "\x1f" + content);
+		/* SHA-256 over kind NUL identity-file NUL bytes, as the reference
+		 * NativeSysroot computes it, so both compilers' link plans and the
+		 * plan builder agree on one identity. */
+		Bytes separator = Bytes();
+		separator.append(0);
+		SHA256 identity = SHA256();
+		identity.appendText(kind);
+		identity.appendBytes(separator);
+		identity.appendText(identityFile);
+		identity.appendBytes(separator);
+		identity.appendText(content);
+		return identity.finish();
 	}
 }
 
@@ -3742,7 +3754,10 @@ class FeNativeDeclarationImporter {
 		if (requested != row.triple && !row.tripleAliases.contains(requested)) { throw "native imports for " + row.label + " require BTRC_NATIVE_TARGET " + row.triple; }
 		string target = row.triple;
 		string sysroot = Environment.get("BTRC_NATIVE_SYSROOT", "");
-		self.resolvedIdentity.appendText("sysroot\x1f" + FeNativeSysroot(row, sysroot).validate());
+		string sysrootIdentity = FeNativeSysroot(row, sysroot).validate();
+		/* The link plan records which sysroot the headers were read through. */
+		plan.sysrootIdentity = sysrootIdentity;
+		self.resolvedIdentity.appendText("sysroot\x1f" + sysrootIdentity);
 		Vector<Vector<string>> commands = [];
 		Map<string, Vector<int>> groups = {};
 		Map<string, Result<string, string>> responses = {};
