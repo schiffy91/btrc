@@ -252,7 +252,14 @@ def _build_app(
 
 
 def _launch(
-    frontend: str, root: Path, source: Path, identifier: str, btrcc: Path | None, sdk: str, plist: dict | None = None
+    frontend: str,
+    root: Path,
+    source: Path,
+    identifier: str,
+    btrcc: Path | None,
+    sdk: str,
+    plist: dict | None = None,
+    marker: str = "btrc-",
 ) -> str:
     generated = root / "Main.c"
     plan = root / "Main.link.json"
@@ -262,17 +269,23 @@ def _launch(
     installed = _xcrun("simctl", "install", device, str(bundle), timeout=300)
     assert installed.returncode == 0, installed.stderr
     try:
-        launched = _xcrun(
-            "simctl",
-            "launch",
-            "--console-pty",
-            "--terminate-running-process",
-            device,
-            identifier,
-            timeout=180,
-        )
-        output = launched.stdout + launched.stderr
-        print(f"{frontend} on {device}: {output!r}")
+        # simctl's console relay can lose every line of an app that exits
+        # moments after printing; a hosted run then shows only the launch
+        # line. One relaunch tells that apart from an app that printed nothing.
+        for _ in range(2):
+            launched = _xcrun(
+                "simctl",
+                "launch",
+                "--console-pty",
+                "--terminate-running-process",
+                device,
+                identifier,
+                timeout=180,
+            )
+            output = launched.stdout + launched.stderr
+            print(f"{frontend} on {device}: {output!r}")
+            if marker in output:
+                break
         return output
     finally:
         _xcrun("simctl", "uninstall", device, identifier, timeout=120)
