@@ -241,7 +241,14 @@ class DeclarationLowerer {
 		for name in contract.recordTypes.keys() { for field in contract.recordTypes.get(name).fields { if (field.managed()) { recordLeases = true; } } }
 		if (leases.len > 0 || recordLeases || contract.recordOutput != null || contract.ownedOutput != null || contract.copiedResult != null || contract.recordSnapshot != null) {
 			IRNode discard = self.nativeCleanupScope(parameterNames, statements);
-			if (contract.callbacks.len > 0) { cleanup.push(IRNode.expressionStatement(self.managedLifetime.flushCycles())); }
+			/* Releasing the leases can enqueue a cycle candidate only when one
+			 * leased type may cycle, as Python's flush_release_batch decides. */
+			bool leasesMayCycle = false;
+			for index in leases.keys() {
+				Node leasedType = declaration.params().get(index).type;
+				if (self.managedValues.isArc(leasedType) && self.cycles.runtimeTypeMayCycle(self.managedValues.runtimeType(leasedType))) { leasesMayCycle = true; }
+			}
+			if (leasesMayCycle) { cleanup.push(IRNode.expressionStatement(self.managedLifetime.flushCycles())); }
 			cleanup.push(discard);
 			for index in range(arguments.len) {
 				if (leases.has(index)) { arguments.set(index, self.emitNativeLease(index, declaration.params().get(index).type, arguments.get(index), parameterNames, statements, releases, false, null, contract.copiedInput != null && index == contract.copiedInput.ownerIndex)); }
