@@ -646,9 +646,10 @@ class NameValidator {
 
 	public void claimClassSymbols(Node declaration, Map<string, string> symbols) {
 		string name = declaration.name;
-		bool unique = false;
+		/* Unique owners and COM interfaces publish their methods as generated adapters. */
+		string adapter = "";
 		for imported in self.state.analyzed.nativeDeclarations {
-			if (imported.declaration == declaration && imported.resource != null && imported.resource.ownership == "unique") { unique = true; break; }
+			if (imported.declaration == declaration && imported.resource != null && (imported.resource.ownership == "unique" || imported.resource.ownership == "com")) { adapter = "__btrc_" + imported.resource.ownership + "_"; break; }
 		}
 		if (self.state.analyzed.nativeClassLanguage(name) == "") {
 			self.claimGeneratedSymbol(symbols, name + "_init", "class '" + name + "' initializer", declaration);
@@ -666,7 +667,7 @@ class NameValidator {
 		int methodIndex = 0;
 		while (methodIndex < methods.len) {
 			MethodEntry entry = methods.get(methodIndex);
-			string symbol = unique ? "__btrc_unique_" + name + "_" + entry.name + "_public" : name + "_" + entry.name;
+			string symbol = !adapter.isEmpty() ? adapter + name + "_" + entry.name + "_public" : name + "_" + entry.name;
 			self.claimGeneratedSymbol(symbols, symbol, "method '" + name + "." + entry.name + "'", entry.sig);
 			methodIndex = methodIndex + 1;
 		}

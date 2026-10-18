@@ -118,6 +118,10 @@ PYTHON_ALLOWED = {
         2,
         NATIVE_FRONTEND,
     ),
+    "src/compiler/python/frontend/native_imports.py::NativeDeclarationImporter._project_com_interfaces": (
+        2,
+        NATIVE_FRONTEND,
+    ),
     "src/compiler/python/frontend/native_imports.py::NativeDeclarationImporter._project_realtime_callbacks": (
         1,
         NATIVE_FRONTEND,

@@ -9,6 +9,7 @@ exports = ["Array", "BitPattern", "Bytes", "CLI", "Callback", "Console", "DateTi
 App = { path = "App" }
 Audio = { path = "Audio" }
 BackgroundJobs = { path = "BackgroundJobs" }
+COM = { path = "COM" }
 Daemon = { path = "Daemon" }
 Digest = { path = "Digest" }
 FileSystem = { path = "FileSystem" }

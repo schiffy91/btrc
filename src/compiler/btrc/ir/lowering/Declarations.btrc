@@ -94,6 +94,7 @@ class DeclarationLowerer {
 	private FunctionLowerer functions;
 	private ExpressionLowerer expressions;
 	private Map<string, FeNativeResourceBinding> nativeResources;
+	private Map<string, string> nativeSpellings;
 
 	public DeclarationLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry semanticDeclarations, ManagedValueSemantics managedValues, CycleSemantics cycles, CleanupSlotRegistry cleanupSlots, CallableValueSemantics callableValues, CallableBoundaryPolicy callableBoundaries, LoweringContext context, ManagedLifetimeLowerer managedLifetime, ManagedTypeLowerer managedTypes, CycleBoundaryLowerer cycleBoundaries, CycleReturnBoundaryLowerer cycleReturns, CTypeLowerer cTypes, FunctionLowerer functions, ExpressionLowerer expressions) {
 		self.analyzed = analyzed;
@@ -109,10 +110,21 @@ class DeclarationLowerer {
 		self.cycleReturns = cycleReturns;
 		self.cTypes = cTypes; self.functions = functions; self.expressions = expressions;
 		self.nativeResources = {};
-		for imported in analyzed.nativeDeclarations { if (imported.resource != null) { self.nativeResources.put(imported.resource.name, imported.resource); } }
+		self.nativeSpellings = {};
+		for imported in analyzed.nativeDeclarations {
+			FeNativeResourceBinding? resource = imported.resource;
+			if (resource == null) { continue; }
+			FeNativeResourceBinding owned = resource;
+			self.nativeResources.put(owned.name, owned);
+			/* The C type each resource's adapters convert to: a COM interface is
+			 * its record pointer (`IStream*`), a reference-counted resource its typedef. */
+			self.nativeSpellings.put(owned.name, imported.typeSpelling.isEmpty() ? owned.name : imported.typeSpelling);
+		}
 	}
 
 	private bool uniqueResource(string name) { return self.nativeResources.has(name) && self.nativeResources.get(name).ownership == "unique"; }
+
+	private bool comResource(string name) { return self.nativeResources.has(name) && self.nativeResources.get(name).ownership == "com"; }
 
 	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
 
@@ -266,7 +278,7 @@ class DeclarationLowerer {
 			if (!resource.isEmpty()) {
 				if (contract.copiedInput != null && index == contract.copiedInput.ownerIndex) { continue; }
 				IRNode owner = arguments.get(index);
-				arguments.set(index, self.uniqueResource(resource) ? IRNode.ternary(IRNode.binary(owner, "==", IRNode.literal("NULL")), IRNode.literal("NULL"), IRNode.fieldAccess(owner, "value", true)) : IRNode.cast(resource, owner));
+				arguments.set(index, self.uniqueResource(resource) ? IRNode.ternary(IRNode.binary(owner, "==", IRNode.literal("NULL")), IRNode.literal("NULL"), IRNode.fieldAccess(owner, "value", true)) : IRNode.cast(self.nativeSpellings.get(resource), owner));
 			}
 		}
 		if (contract.callbacks.len > 0) {
@@ -292,6 +304,8 @@ class DeclarationLowerer {
 			arguments = selectedArguments;
 		}
 		IRNode call = IRNode.call(declaration.name, arguments);
+		/* A factory's interface pointer is one claim, counted against the apartment. */
+		if (self.comResource(contract.resourceResult) && contract.borrowedResultOwner < 0) { call = IRNode.call("__btrc_com_" + contract.resourceResult + "_adopt", [call]); }
 		if (!contract.resourceResult.isEmpty()) { call = IRNode.cast(adapter.returnType, call); }
 		if (contract.copiedInput != null) {
 			self.nativeCopiedInput(declaration, contract.copiedInput, arguments, parameterNames, statements, releases, cleanup);
@@ -508,6 +522,7 @@ class DeclarationLowerer {
 			}
 			return;
 		}
+		if (resource.ownership == "com") { self.emitComInterface(imported, module); return; }
 		module.structForwards.push(IRStructForward("__btrc_native_" + resource.name));
 		for operation in ["retain", "release"] {
 			var adapter = IRFunction();
@@ -1298,6 +1313,183 @@ class DeclarationLowerer {
 		self.nativeUniqueFunction(module, "__btrc_unique_" + symbol + "_" + method.name + "_public", resultType, cParameters, statements);
 	}
 
+	/* Reload the interface's table and slot, check both, and call through the slot with This first. */
+	private IRNode comCall(FeNativeComInterface comInterface, IRNode native, string slot, Vector<IRNode> arguments, string what, Vector<IRNode> statements) {
+		IRNode table = IRNode.variable("__btrc_table");
+		IRNode callee = IRNode.fieldAccess(table, slot, true);
+		statements.push(IRNode.variableDeclaration(comInterface.tableType, "__btrc_table", IRNode.fieldAccess(native, "lpVtbl", true)));
+		statements.push(self.nativeNullGuard(table, what + ": null function table"));
+		statements.push(self.nativeNullGuard(callee, what + ": null table slot " + slot));
+		Vector<IRNode> callArguments = [native];
+		callArguments.extend(arguments);
+		return IRNode.indirectCall(callee, callArguments);
+	}
+
+	/* Every COM adapter runs on its apartment's thread (Library.COM checks it). */
+	private IRNode comApartment() {
+		Vector<IRNode> noArguments = [];
+		return IRNode.expressionStatement(IRNode.call("btrcCOMRequireApartment", noArguments));
+	}
+
+	/* A COM interface: AddRef and Release through its table, M3 queries,
+	 * sameObject and its methods. A BTRC value of the interface is the SDK's own
+	 * pointer, and each value holds one claim: adopted from a factory, an [out]
+	 * parameter or QueryInterface, or taken by AddRef for an alias. Release ends
+	 * it. Every adapter checks its apartment, and Library.COM counts each claim
+	 * against it, so the apartment cannot be uninitialized while one is live
+	 * (native-interop-ownership.md section 2.4). */
+	private void emitComInterface(FeNativeImportedDeclaration imported, IRModule module) {
+		string symbol = imported.declaration.name;
+		FeNativeComInterface? selected = imported.methods.get("").comInterface;
+		if (selected == null) { throw "com interface requires its projection"; }
+		FeNativeComInterface comInterface = selected;
+		module.structForwards.push(IRStructForward("__btrc_native_" + symbol));
+		IRNode value = IRNode.variable("value");
+		IRNode native = IRNode.variable("__btrc_native");
+		Vector<IRNode> noArguments = [];
+		Vector<string> operations = ["retain", "release"];
+		Vector<string> slots = ["AddRef", "Release"];
+		Vector<string> counts = ["btrcCOMClaim", "btrcCOMUnclaim"];
+		for index in range(2) {
+			Vector<IRNode> body = [self.comApartment(), IRNode.variableDeclaration(comInterface.nativeType, "__btrc_native", IRNode.cast(comInterface.nativeType, value))];
+			IRNode call = self.comCall(comInterface, native, slots.get(index), noArguments, "Native COM " + symbol + "." + slots.get(index), body);
+			/* The returned count is diagnostic only, and discarded. */
+			body.push(IRNode.expressionStatement(call));
+			body.push(IRNode.expressionStatement(IRNode.call(counts.get(index), noArguments)));
+			self.nativeUniqueFunction(module, "__btrc_native_" + symbol + "_" + operations.get(index), "void", [IRParam("void*", "value")], [IRNode.ifStatement(IRNode.binary(value, "!=", IRNode.literal("NULL")), IRNode.block(body), null)]);
+		}
+		self.nativeUniqueFunction(module, "__btrc_com_" + symbol + "_adopt", "void*", [IRParam("void*", "value")], [
+			IRNode.ifStatement(IRNode.binary(value, "!=", IRNode.literal("NULL")), IRNode.block([self.comApartment(), IRNode.expressionStatement(IRNode.call("btrcCOMClaim", noArguments))]), null),
+			IRNode.returnStatement(value)
+		]);
+		self.emitComQuery(imported, comInterface, module);
+		for member in imported.declaration.members() {
+			if (member.kind != NK_METHOD_DECL) { continue; }
+			FeNativeDispatchMethod? method = imported.methods.get(member.name).dispatchMethod;
+			if (method != null) { self.emitComMethod(imported, member, method, comInterface, module); }
+			else { self.emitComIdentity(imported, member, comInterface, module); }
+		}
+	}
+
+	/* M3: QueryInterface through the source's own table. Success is one new
+	 * claim; E_NOINTERFACE gives null; any other failure terminates, and a
+	 * failure that still wrote an interface adopts it first. */
+	private void emitComQuery(FeNativeImportedDeclaration imported, FeNativeComInterface comInterface, IRModule module) {
+		string symbol = imported.declaration.name;
+		string what = "Native COM " + symbol + ".QueryInterface";
+		IRNode source = IRNode.variable("source");
+		IRNode result = IRNode.variable("__btrc_result");
+		IRNode status = IRNode.variable("__btrc_status");
+		Vector<IRNode> noArguments = [];
+		Vector<IRNode> statements = [
+			IRNode.ifStatement(IRNode.binary(source, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(IRNode.literal("NULL"))]), null),
+			self.comApartment(),
+			IRNode.variableDeclaration(comInterface.nativeType, "__btrc_native", IRNode.cast(comInterface.nativeType, source))
+		];
+		IRNode call = self.comCall(comInterface, IRNode.variable("__btrc_native"), "QueryInterface", [IRNode.variable("iid"), IRNode.addressOf(result)], what, statements);
+		IRNode adoptedAbort = IRNode.call("abort", noArguments);
+		((IRCallPayload)adoptedAbort.payload).neverReturns = true;
+		IRNode failedAbort = IRNode.call("abort", noArguments);
+		((IRCallPayload)failedAbort.payload).neverReturns = true;
+		statements.extend([
+			IRNode.variableDeclaration("void*", "__btrc_result", IRNode.literal("NULL")),
+			IRNode.variableDeclaration(comInterface.statusType, "__btrc_status", call),
+			IRNode.ifStatement(IRNode.binary(status, ">=", IRNode.literal("0")), IRNode.block([self.nativeNullGuard(result, what + ": success without an interface"), IRNode.expressionStatement(IRNode.call("btrcCOMClaim", noArguments)), IRNode.returnStatement(result)]), null),
+			IRNode.ifStatement(IRNode.binary(result, "!=", IRNode.literal("NULL")), IRNode.block([
+			IRNode.expressionStatement(IRNode.call("btrcCOMClaim", noArguments)),
+			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"" + what + ": a failed query returned an interface\\n\""), IRNode.variable("stderr")])),
+			IRNode.expressionStatement(adoptedAbort)
+		]), null),
+			/* E_NOINTERFACE, the HRESULT 0x80004002 as a 32-bit signed value: the one
+			 * QueryInterface failure that answers "no" rather than reporting an error. */
+			IRNode.ifStatement(IRNode.binary(status, "==", IRNode.literal("-2147467262")), IRNode.block([IRNode.returnStatement(IRNode.literal("NULL"))]), null),
+			IRNode.expressionStatement(IRNode.call("fprintf", [IRNode.variable("stderr"), IRNode.literal("\"" + what + " failed with HRESULT 0x%08X\\n\""), IRNode.cast("unsigned int", status)])),
+			IRNode.expressionStatement(failedAbort)
+		]);
+		self.nativeUniqueFunction(module, "__btrc_com_" + symbol + "_query", "void*", [IRParam("void*", "source"), IRParam(comInterface.iidType, "iid")], statements);
+	}
+
+	/* sameObject(a, b): two objects are one when their IUnknown identities are one pointer. */
+	private void emitComIdentity(FeNativeImportedDeclaration imported, Node member, FeNativeComInterface comInterface, IRModule module) {
+		string symbol = imported.declaration.name;
+		Vector<IRParam> parameters = [];
+		for parameter in member.params() { parameters.push(self.cTypes.lowerParameter(parameter)); }
+		IRNode first = IRNode.variable(parameters.get(0).name);
+		IRNode second = IRNode.variable(parameters.get(1).name);
+		Vector<IRNode> statements = [IRNode.ifStatement(IRNode.binary(IRNode.binary(first, "==", IRNode.literal("NULL")), "||", IRNode.binary(second, "==", IRNode.literal("NULL"))), IRNode.block([IRNode.returnStatement(IRNode.binary(first, "==", second))]), null)];
+		Vector<string> identities = ["__btrc_first", "__btrc_second"];
+		Vector<IRNode> values = [first, second];
+		for index in range(2) {
+			statements.push(IRNode.variableDeclaration("void*", identities.get(index), IRNode.call("__btrc_com_" + symbol + "_query", [values.get(index), IRNode.addressOf(IRNode.variable(comInterface.unknownIid))])));
+			statements.push(self.nativeNullGuard(IRNode.variable(identities.get(index)), "Native COM " + symbol + ".sameObject: an object has no IUnknown"));
+		}
+		statements.push(IRNode.variableDeclaration("bool", "__btrc_same", IRNode.binary(IRNode.variable(identities.get(0)), "==", IRNode.variable(identities.get(1)))));
+		/* Release is slot 2 of every table, so the interface's own adapter ends each IUnknown claim. */
+		for name in identities { statements.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + symbol + "_release", [IRNode.variable(name)]))); }
+		statements.push(IRNode.returnStatement(IRNode.variable("__btrc_same")));
+		self.nativeUniqueFunction(module, "__btrc_com_" + symbol + "_" + member.name + "_public", "bool", parameters, statements);
+	}
+
+	/* A dispatched COM method: borrow the receiver and each [in] interface,
+	 * call, then report. The adapter holds one claim on the receiver and on
+	 * every [in] interface for the call, and adopts a nonnull [out] interface
+	 * before those end. With status-results a failing HRESULT releases the
+	 * adopted output and throws (F1); an owned-outputs result class carries the
+	 * HRESULT and the output; otherwise the slot's result is returned unchanged. */
+	private void emitComMethod(FeNativeImportedDeclaration imported, Node member, FeNativeDispatchMethod method, FeNativeComInterface comInterface, IRModule module) {
+		string symbol = imported.declaration.name;
+		IRNode owner = IRNode.variable("self");
+		IRNode status = IRNode.variable("__btrc_status");
+		IRNode output = IRNode.variable("__btrc_output");
+		IRNode result = IRNode.variable("__btrc_result");
+		string what = "Native dispatch " + symbol + "." + method.name;
+		Vector<IRParam> parameters = [];
+		for parameter in member.params() { parameters.push(self.cTypes.lowerParameter(parameter)); }
+		string resultType = self.cTypes.lower(member.returnType);
+		Vector<IRNode> arguments = [];
+		for index in range(parameters.len) { arguments.push(IRNode.cast(method.nativeParameters.get(index), IRNode.variable(parameters.get(index).name))); }
+		/* The slot's argument list puts This first; the output keeps its own position. */
+		if (method.outputPosition >= 0) { arguments.insert(method.outputPosition - 1, IRNode.addressOf(output)); }
+		Vector<IRNode> noArguments = [];
+		Vector<IRNode> body = [self.nativeNullGuard(owner, what + ": null receiver"), IRNode.expressionStatement(IRNode.call("__btrc_native_" + symbol + "_retain", [owner]))];
+		for index in range(parameters.len) {
+			if (!method.resources.get(index).isEmpty()) { body.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + method.resources.get(index) + "_retain", [IRNode.variable(parameters.get(index).name)]))); }
+		}
+		body.push(IRNode.variableDeclaration(comInterface.nativeType, "__btrc_native", IRNode.cast(comInterface.nativeType, owner)));
+		if (method.status == "result") { body.push(IRNode.variableDeclaration(resultType, "__btrc_result", IRNode.call(method.resultClass + "_new", noArguments))); }
+		if (method.outputPosition >= 0) { body.push(IRNode.variableDeclaration(method.outputSpelling, "__btrc_output", IRNode.literal("NULL"))); }
+		IRNode call = self.comCall(comInterface, IRNode.variable("__btrc_native"), method.slot, arguments, what, body);
+		bool returns = method.nativeReturn != "void";
+		if (returns) { body.push(IRNode.variableDeclaration(method.nativeReturn, "__btrc_status", call)); }
+		else { body.push(IRNode.expressionStatement(call)); }
+		if (method.outputPosition >= 0) { body.push(IRNode.expressionStatement(IRNode.call("__btrc_com_" + method.outputResource + "_adopt", [output]))); }
+		for (int index = parameters.len - 1; index >= 0; index--) {
+			if (!method.resources.get(index).isEmpty()) { body.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + method.resources.get(index) + "_release", [IRNode.variable(parameters.get(index).name)]))); }
+		}
+		body.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + symbol + "_release", [owner])));
+		IRNode managedOutput = IRNode.cast("struct __btrc_native_" + method.outputResource + "*", output);
+		if (method.status == "throw") {
+			self.context.referenceHelper("__btrc_throw");
+			IRNode message = IRNode.variable("__btrc_message");
+			Vector<IRNode> failure = [];
+			if (method.outputPosition >= 0) { failure.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + method.outputResource + "_release", [output]))); }
+			failure.push(IRNode.arrayDeclaration("char", "__btrc_message", IRNode.literal("128"), null));
+			failure.push(IRNode.expressionStatement(IRNode.call("snprintf", [message, IRNode.sizeofExpression(message), IRNode.literal("\"COM " + symbol + "." + method.name + " failed with HRESULT 0x%08X\""), IRNode.cast("unsigned int", status)])));
+			IRNode thrown = IRNode.call("__btrc_throw", [message]);
+			((IRCallPayload)thrown.payload).neverReturns = true;
+			failure.push(IRNode.expressionStatement(thrown));
+			body.push(IRNode.ifStatement(IRNode.binary(status, "<", IRNode.literal("0")), IRNode.block(failure), null));
+			body.push(IRNode.returnStatement(method.outputPosition >= 0 ? managedOutput : IRNode.cast(resultType, status)));
+		} else if (method.status == "result") {
+			body.push(IRNode.assignment(IRNode.fieldAccess(result, "status", true), status));
+			body.push(IRNode.assignment(IRNode.fieldAccess(result, "value", true), managedOutput));
+			body.push(IRNode.returnStatement(result));
+		} else if (returns) { body.push(IRNode.returnStatement(IRNode.cast(resultType, status))); }
+		Vector<IRParam> cParameters = [IRParam("struct __btrc_native_" + symbol + "*", "self")];
+		cParameters.extend(parameters);
+		self.nativeUniqueFunction(module, "__btrc_com_" + symbol + "_" + method.name + "_public", resultType, cParameters, body);
+	}
+
 	private void emitUniqueResource(FeNativeImportedDeclaration imported, IRModule module, string symbol = "", string releaseSymbol = "") {
 		var resource = imported.resource;
 		if (resource == null) { throw "unique native resource requires its resource binding"; }
@@ -1594,6 +1786,18 @@ class DeclarationLowerer {
 		IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(declaration.returnType), name, IRNode.call(output.resultName + "_new", noArguments));
 		IRNode owner = IRNode.variable(name);
 		IRNode child = IRNode.fieldAccess(owner, "value", true);
+		if (self.comResource(output.resource)) {
+			/* The [out] interface lands in a zeroed slot; a nonnull one is one
+			 * adopted claim on every HRESULT, which the caller inspects. */
+			IRNode interfaceSlot = IRNode.variable(name + "_interface");
+			statements.extend([slot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(declaration.returnType))), IRNode.variableDeclaration(self.nativeSpellings.get(output.resource), name + "_interface", IRNode.literal("NULL"))]);
+			callArguments.insert(output.parameterIndex, IRNode.addressOf(interfaceSlot));
+			statements.push(IRNode.assignment(IRNode.fieldAccess(owner, "status", true), IRNode.call(declaration.name, callArguments)));
+			statements.push(IRNode.assignment(child, IRNode.cast("struct __btrc_native_" + output.resource + "*", IRNode.call("__btrc_com_" + output.resource + "_adopt", [interfaceSlot]))));
+			for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+			statements.extend(cleanup); statements.push(IRNode.returnStatement(owner));
+			return;
+		}
 		IRNode native = IRNode.fieldAccess(child, "value", true);
 		statements.extend([slot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(declaration.returnType))), IRNode.assignment(child, IRNode.call("__btrc_unique_" + output.resource + "_new", noArguments))]);
 		FeNativeOutputOffset? offset = output.offset;

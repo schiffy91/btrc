@@ -1,0 +1,23 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_com"
+exports = ["COMApartment"]
+
+# The apartment and its claim count. On Windows CoInitializeEx and
+# CoUninitialize come from ole32; elsewhere the program supplies them, as the
+# proxy COM fixtures do.
+[[native.sources]]
+path = "COMRuntime.c"
+language = "c"
+standard = "c11"
+modules = ["COMApartment"]
+
+# Generated COM adapters call btrcCOMRequireApartment, btrcCOMClaim and
+# btrcCOMUnclaim by name; selecting them keeps COM.h in every unit that does.
+[[native.bindings]]
+module = "COMApartment"
+header = "COM.h"
+language = "c"
+standard = "c11"
+symbols = ["btrcCOMInitialize", "btrcCOMInitialized", "btrcCOMLiveClaims", "btrcCOMUninitialize", "btrcCOMRequireApartment", "btrcCOMClaim", "btrcCOMUnclaim"]

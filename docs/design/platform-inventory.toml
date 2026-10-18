@@ -250,6 +250,19 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.COM.COMApartment"
+group = "stdlib/COM"
+title = "COM apartment, its thread check and interface claim accounting"
+regression = ["src/tests/python/test_native_com_interfaces.py::test_com_interfaces_count_every_claim", "src/tests/python/test_native_com_interfaces.py::test_com_layouts_read_from_real_mingw_headers"]
+windows-x64 = { parity = "equivalent", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "CoInitializeEx/CoUninitialize from ole32 compile and link with zig against MinGW-w64; the package declares no ole32 link record yet and nothing runs on Windows until interop step 5's Windows CI exit" }
+windows-arm64 = { parity = "equivalent", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "CoInitializeEx/CoUninitialize from ole32 compile and link with zig against MinGW-w64; the package declares no ole32 link record yet and nothing runs on Windows until interop step 5's Windows CI exit" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "COM exists only on Windows" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "COM exists only on Windows" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "COM exists only on Windows" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "COM exists only on Windows" }
+
+[[rows]]
+kind = "operation"
 id = "Library.Callback"
 group = "stdlib"
 title = "Native callback registration and scopes"

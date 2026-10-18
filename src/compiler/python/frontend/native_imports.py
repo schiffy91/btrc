@@ -719,6 +719,35 @@ class NativeDispatchMethod:
     native_parameters: tuple[str, ...]
     native_return: str
     table_type: str
+    # A COM method (native-interop-ownership.md section 2.4) borrows each [in]
+    # interface in `resources` for the call. Its one hidden [out] interface
+    # sits at `output_position` among the slot's arguments; `status` says how
+    # its HRESULT reaches BTRC: "throw" (status-results) or "result" (an
+    # owned-outputs result class).
+    resources: tuple[str, ...] = ()
+    output_position: int = -1
+    output_resource: str = ""
+    output_spelling: str = ""
+    status: str = ""
+    result_class: str = ""
+
+
+@dataclass(frozen=True)
+class NativeComInterface:
+    """The IUnknown slots of one COM interface, checked against its lpVtbl table.
+
+    `table_type` spells the lpVtbl field, `status_type` QueryInterface's
+    HRESULT and `iid_type` its REFIID parameter. `unknown_iid` is IID_IUnknown
+    when the binding selects it, which sameObject's identity query needs.
+    """
+
+    resource: str
+    native_type: str
+    table_type: str
+    status_type: str
+    iid_type: str
+    iid: str
+    unknown_iid: str = ""
 
 
 @dataclass(frozen=True)
@@ -774,6 +803,7 @@ class NativeCallContract:
     transparent_parameters: tuple[bool, ...] = ()
     dispatch_method: NativeDispatchMethod | None = None
     java_member: NativeJavaMember | None = None
+    com_interface: NativeComInterface | None = None
 
     @property
     def returns_owned(self):
@@ -984,6 +1014,14 @@ class NativeDeclarationImporter:
                     self._callback_operations.update(
                         parameter.split(".", 1)[0] for _, parameter in callback.realtime.operations
                     )
+        # Generated COM adapters count their claims and check their apartment
+        # through Library.COM's COM.h (native-interop-ownership.md section 2.4).
+        self._com_runtime = any(
+            candidate.package == self.COM_RUNTIME_PACKAGE
+            and candidate.language == "c"
+            and os.path.basename(candidate.header) == "COM.h"
+            for candidate in plan.bindings
+        )
         reader = os.environ.get("BTRC_NATIVE_HEADER_READER")
         if not reader:
             plan.require_resolved_bindings()
@@ -1019,6 +1057,8 @@ class NativeDeclarationImporter:
             self._resource_parameters = dict(binding.resource_parameters)
             self._resource_results = dict(binding.resource_results)
             self._owned_outputs = dict(binding.owned_outputs)
+            self._owned_output_statuses = dict(binding.owned_output_statuses)
+            self._status_results = dict(binding.status_results)
             self._initializers = {value.function: value for value in binding.initializers}
             self._resource_initializers = {value.resource: value for value in binding.initializers}
             self._copied_inputs = {parameter: (owner, length) for parameter, owner, length in binding.copied_inputs}
@@ -1066,8 +1106,11 @@ class NativeDeclarationImporter:
                     self._import(declaration)
                 self._project_realtime_callbacks(binding)
                 self._project_callback_tables(binding)
+                self._project_com_interfaces(binding)
                 self._project_dispatch_tables(binding)
                 self._project_record_snapshots(binding)
+                if self._status_results:
+                    raise NativeImportError("status-results names an unknown dispatched method")
                 if self._variadic_calls:
                     raise NativeImportError("variadic-calls names an unknown function or parameter")
                 if self._borrows:
@@ -1286,6 +1329,13 @@ class NativeDeclarationImporter:
                             *((resource.dispatch.release,) if resource.dispatch.release else ()),
                         )
                     }
+                    # A COM interface's IUnknown slots are checked against its table.
+                    | {
+                        f"{resource.name}.lpVtbl.{slot}"
+                        for resource in binding.resources
+                        if resource.ownership == "com"
+                        for slot in ("QueryInterface", "AddRef", "Release")
+                    }
                 )
             ),
             *(
@@ -1334,6 +1384,8 @@ class NativeDeclarationImporter:
 
     # The Library.Java binding whose JNI.h every generated Java adapter includes.
     JAVA_RUNTIME_PACKAGE: ClassVar[str] = "btrc_stdlib_java"
+    # The Library.COM binding whose COM.h every generated COM adapter calls.
+    COM_RUNTIME_PACKAGE: ClassVar[str] = "btrc_stdlib_com"
     JAVA_PRIMITIVES: ClassVar[Mapping[str, tuple[str, str]]] = {
         "jboolean": ("Z", "bool"),
         "jbyte": ("B", "signed char"),
@@ -2141,6 +2193,234 @@ class NativeDeclarationImporter:
             )
             self._add(table.name, factory, ("callback-table-factory", resource.name), call_contract=contract)
 
+    def _com_integer(self, native, signedness):
+        """Whether `native` is COM's 32-bit integer: an HRESULT (signed) or a ULONG (unsigned)."""
+        value = self._unqualified_native(native)
+        return (
+            isinstance(value, NativeBuiltin)
+            and value.name in {"int", "unsigned int", "long", "unsigned long"}
+            and value.bits == 32
+            and value.signedness == signedness
+        )
+
+    def _com_iid_record(self, native):
+        """The GUID record a REFIID parameter (`const IID*`) points to, or None."""
+        pointer = self._unqualified_native(native)
+        if not isinstance(pointer, NativePointer) or not self._native_is_const(pointer.pointee):
+            return None
+        record = self._unqualified_native(pointer.pointee)
+        return record if isinstance(record, NativeRecordType) else None
+
+    def _com_slot(self, field, name):
+        """A COM table slot: the named fixed-arity function-pointer field, or None."""
+        if field is None or field.name != name or field.is_bitfield:
+            return None
+        pointer = self._unqualified_native(field.field_type)
+        signature = self._unqualified_native(pointer.pointee) if isinstance(pointer, NativePointer) else None
+        return signature if isinstance(signature, NativeFunctionType) and not signature.variadic else None
+
+    def _com_output(self, native):
+        """The COM interface an [out] `IFoo**` parameter receives, or empty."""
+        pointer = self._unqualified_native(native)
+        if not isinstance(pointer, NativePointer) or self._native_is_const(pointer.pointee):
+            return ""
+        inner = self._unqualified_native(pointer.pointee)
+        if not isinstance(inner, NativePointer) or self._native_is_const(inner.pointee):
+            return ""
+        name = self._resource_name(pointer.pointee)
+        return name if name and self._resources[name].ownership == "com" else ""
+
+    def _com_slot_matches(self, slot, base_slot, record, base_record):
+        """A derived table's slot repeats its base's: same name and signature except This."""
+        signature = self._com_slot(slot, base_slot.name)
+        base = self._com_slot(base_slot, base_slot.name)
+        return (
+            signature is not None
+            and base is not None
+            and len(signature.parameters) == len(base.parameters) >= 1
+            and signature.calling_convention == base.calling_convention
+            and self._dispatch_receiver(signature.parameters[0], record)
+            and self._dispatch_receiver(base.parameters[0], base_record)
+            and self._type_identity(signature.return_type) == self._type_identity(base.return_type)
+            and all(
+                self._type_identity(mine) == self._type_identity(theirs)
+                for mine, theirs in zip(signature.parameters[1:], base.parameters[1:], strict=True)
+            )
+        )
+
+    def _com_guid_global(self, name, identity):
+        """Whether `name` is a selected read-only global of the GUID record `identity`."""
+        selected = self._callback_exports.get(name)
+        if not isinstance(selected, NativeGlobal) or not selected.read_only:
+            return False
+        value = self._unqualified_native(selected.value_type)
+        return isinstance(value, NativeRecordType) and value.identity == identity
+
+    def _project_com_interfaces(self, binding):
+        """Check each COM interface's lpVtbl slots 0-2 against IUnknown, and its base prefix.
+
+        The importer reads the table's real layout: QueryInterface(This, REFIID,
+        void**) returning a 32-bit signed HRESULT, then AddRef(This) and
+        Release(This) returning a 32-bit unsigned ULONG. A declared base must be
+        a slot-by-slot prefix whose signatures differ only in This, so widening
+        to the base is static (native-interop-ownership.md section 2.4).
+        """
+        interfaces = [resource for resource in binding.resources if resource.ownership == "com"]
+        tables = {}
+        for resource in interfaces:
+            record = self._unqualified_native(self._resource_types[resource.name].pointee)
+            layout = self._layouts.get(record.identity)
+            members = layout.fields if layout is not None and layout.record_kind == "struct" else ()
+            first = members[0] if members else None
+            pointer = (
+                self._unqualified_native(first.field_type) if first is not None and first.name == "lpVtbl" else None
+            )
+            table_record = self._unqualified_native(pointer.pointee) if isinstance(pointer, NativePointer) else None
+            table = self._layouts.get(table_record.identity) if isinstance(table_record, NativeRecordType) else None
+            if table is None or table.record_kind != "struct":
+                raise NativeImportError(
+                    f"resource {resource.name}: com requires a complete record whose first field lpVtbl "
+                    "points to a complete SDK table"
+                )
+            tables[resource.name] = (record, tuple(table.fields), first)
+        for resource in interfaces:
+            record, slots, first = tables[resource.name]
+            query, add_ref, release = (
+                self._com_slot(slots[index] if index < len(slots) else None, name)
+                for index, name in enumerate(("QueryInterface", "AddRef", "Release"))
+            )
+            iid_record = self._com_iid_record(query.parameters[1]) if query and len(query.parameters) == 3 else None
+            output = self._unqualified_native(query.parameters[2]) if iid_record is not None else None
+            target = self._unqualified_native(output.pointee) if isinstance(output, NativePointer) else None
+            if (
+                iid_record is None
+                or add_ref is None
+                or release is None
+                or len(add_ref.parameters) != 1
+                or len(release.parameters) != 1
+                or not all(self._dispatch_receiver(slot.parameters[0], record) for slot in (query, add_ref, release))
+                or not self._com_integer(query.return_type, "signed")
+                or not all(self._com_integer(slot.return_type, "unsigned") for slot in (add_ref, release))
+                or self._native_is_const(output.pointee)
+                or not isinstance(target, NativePointer)
+                or not isinstance(self._unqualified_native(target.pointee), NativeBuiltin)
+                or self._unqualified_native(target.pointee).name != "void"
+            ):
+                raise NativeImportError(
+                    f"resource {resource.name}: lpVtbl slots 0-2 are not IUnknown-shaped "
+                    "(QueryInterface, AddRef, Release)"
+                )
+            for slot in (query, add_ref, release):
+                self._require_qualified_convention(slot)
+            if not self._com_guid_global(resource.iid, iid_record.identity):
+                raise NativeImportError(f"resource {resource.name}: iid {resource.iid} is not a read-only GUID global")
+            if resource.base:
+                base_record, base_slots, _ = tables[resource.base]
+                if len(base_slots) > len(slots) or not all(
+                    self._com_slot_matches(mine, theirs, record, base_record) for mine, theirs in zip(slots, base_slots)
+                ):
+                    raise NativeImportError(
+                        f"resource {resource.name}: base {resource.base} is not a slot-by-slot prefix of its lpVtbl table"
+                    )
+            declaration = self._declarations[(str(self._origin), resource.name)]
+            interface = NativeComInterface(
+                resource.name,
+                declaration.source_file.type_spelling,
+                self._realtime_native_spelling(first.field_type),
+                self._realtime_native_spelling(query.return_type),
+                self._realtime_native_spelling(query.parameters[1]),
+                resource.iid,
+                # sameObject asks each object for its IUnknown identity.
+                "IID_IUnknown" if self._com_guid_global("IID_IUnknown", iid_record.identity) else "",
+            )
+            declaration.source_file.methods[""] = NativeCallContract(com_interface=interface)
+            if interface.unknown_iid:
+                declaration.members.append(
+                    ast.MethodDecl(
+                        access="class",
+                        name="sameObject",
+                        return_type=ast.TypeExpr(base="bool"),
+                        params=[
+                            ast.Param(
+                                type=ast.TypeExpr(base=resource.name, is_nullable=True, pointer_depth=1), name=name
+                            )
+                            for name in ("first", "second")
+                        ],
+                    )
+                )
+                declaration.source_file.methods["sameObject"] = NativeCallContract(com_interface=interface)
+
+    def _com_method_status(self, resource, method, signature, names, outputs):
+        """How a COM method's HRESULT and its one [out] interface reach BTRC.
+
+        With status-results a failing (negative) HRESULT throws after the
+        adopted output is released, and the method returns that output, or else
+        the nonnegative HRESULT. An owned-outputs result class carries the
+        HRESULT and the adopted output instead. An [out] interface with neither
+        form is rejected (native-interop-ownership.md section 2.4).
+        """
+        key = f"{resource.name}.{method.name}"
+        throws = self._status_results.pop(key, "") == "hresult"
+        if len(outputs) > 1:
+            raise NativeImportError(f"dispatch method {key} adopts at most one [out] interface")
+        parameter = (names[outputs[0]] if names else f"argument{outputs[0]}") if outputs else ""
+        output_key = f"{key}.{parameter}"
+        result_class = self._owned_outputs.pop(output_key, "") if outputs else ""
+        if (throws or result_class) and not self._com_integer(signature.return_type, "signed"):
+            raise NativeImportError(
+                f"dispatch method {key}: status = hresult and status-results require a 32-bit signed result"
+            )
+        if not outputs:
+            return replace(method, status="throw") if throws else method
+        if not throws and not result_class:
+            raise NativeImportError(
+                f"dispatch method {key}: an [out] interface requires status-results or owned-outputs"
+            )
+        native = signature.parameters[outputs[0]]
+        output = self._com_output(native)
+        projected = replace(
+            method,
+            output_position=outputs[0],
+            output_resource=output,
+            output_spelling=self._realtime_native_spelling(self._unqualified_native(native).pointee),
+        )
+        if throws:
+            return replace(
+                projected, status="throw", return_type=ast.TypeExpr(base=output, is_nullable=True, pointer_depth=1)
+            )
+        if self._owned_output_statuses.get(output_key) != "hresult":
+            raise NativeImportError("owned-outputs status = hresult pairs with a com interface output")
+        self._owned_output_class(result_class, self._type(signature.return_type), output)
+        return replace(
+            projected, status="result", result_class=result_class, return_type=ast.TypeExpr(base=result_class)
+        )
+
+    def _owned_output_class(self, result_name, status_type, resource, offset=None):
+        """The generated class an owning output returns: its status, the adopted resource and any offset."""
+        if any(name == result_name for _, name in self._declarations) or any(
+            value.name == result_name for value in self._input_classes
+        ):
+            raise NativeImportError(f"conflicting owned-output result class {result_name!r}")
+        self._input_classes.append(
+            ast.ClassDecl(
+                name=result_name,
+                members=[
+                    ast.FieldDecl(access="public", name="status", type=status_type),
+                    ast.FieldDecl(
+                        access="public",
+                        name="value",
+                        type=ast.TypeExpr(base=resource, is_nullable=True, pointer_depth=1),
+                    ),
+                    *(
+                        [ast.FieldDecl(access="public", name=offset.field, type=ast.TypeExpr(base="int"))]
+                        if offset
+                        else []
+                    ),
+                ],
+                source_file=NativeGeneratedSource(self._origin),
+            )
+        )
+
     def _dispatch_context(self, resource, record, signature, what):
         """The argument at context-index takes the context field, or the object itself."""
         dispatch = resource.dispatch
@@ -2213,24 +2493,42 @@ class NativeDeclarationImporter:
                     raise NativeImportError("dispatch methods require scalar or void results")
                 names = self._parameter_names(field.callback_parameters) if field.callback_parameters else ()
                 kept = [index for index in range(len(signature.parameters)) if index != dispatch.context_index]
-                parameters = []
+                parameters, resources, outputs = [], [], []
                 for index in kept:
+                    native = signature.parameters[index]
+                    if resource.ownership == "com":
+                        # An [in] interface is borrowed for the call; an [out]
+                        # IFoo** is adopted under a declared status form.
+                        borrowed = self._resource_name(native)
+                        if borrowed and self._resources[borrowed].ownership == "com":
+                            parameters.append(self._resource_call_type(native, borrowed))
+                            resources.append(borrowed)
+                            continue
+                        if self._com_output(native):
+                            outputs.append(index)
+                            continue
                     try:
-                        parameters.append(self._realtime_parameter(signature.parameters[index]))
+                        parameters.append(self._realtime_parameter(native))
                     except NativeImportError as error:
                         raise NativeImportError(
                             "dispatch method arguments require SDK scalar or POD data-pointer types"
                         ) from error
-                methods[method] = NativeDispatchMethod(
+                    resources.append("")
+                visible = [index for index in kept if index not in outputs]
+                projected = NativeDispatchMethod(
                     method,
                     slot,
-                    tuple(names[index] if names else f"argument{index}" for index in kept),
+                    tuple(names[index] if names else f"argument{index}" for index in visible),
                     tuple(parameters),
                     self._call_type(signature.return_type),
-                    tuple(self._realtime_native_spelling(signature.parameters[index]) for index in kept),
+                    tuple(self._realtime_native_spelling(signature.parameters[index]) for index in visible),
                     self._realtime_native_spelling(signature.return_type),
                     table_type,
+                    resources=tuple(resources) if resource.ownership == "com" else (),
                 )
+                if resource.ownership == "com":
+                    projected = self._com_method_status(resource, projected, signature, names, outputs)
+                methods[method] = projected
             if dispatch.release:
                 field = slots.get(dispatch.release)
                 if field is None:
@@ -3344,6 +3642,15 @@ class NativeDeclarationImporter:
         exports = {declaration.name: declaration for declaration in header.exports}
         for resource in binding.resources:
             declaration = exports.get(resource.name)
+            if resource.ownership == "com":
+                # A COM interface is a record typedef: `typedef struct IStream IStream;`
+                # represents IStream* (native-interop-ownership.md section 2.4).
+                if not isinstance(declaration, NativeTypedef) or not isinstance(
+                    self._unqualified_native(declaration.underlying), NativeRecordType
+                ):
+                    raise NativeImportError(f"resource {resource.name}: com resources require a record typedef")
+                if not self._com_runtime:
+                    raise NativeImportError("COM resources require import Library.COM.COMApartment")
             if isinstance(declaration, NativeTypedef):
                 native = declaration.underlying
                 spelling = resource.name
@@ -3356,7 +3663,7 @@ class NativeDeclarationImporter:
                 )
             pointer = self._unqualified_native(native)
             record_spelling = ""
-            if resource.ownership == "unique" and isinstance(pointer, NativeRecordType):
+            if resource.ownership in ("unique", "com") and isinstance(pointer, NativeRecordType):
                 if pointer.identity in self._resource_records:
                     raise NativeImportError("one SDK record cannot declare multiple unique owners")
                 self._resource_records[pointer.identity] = resource.name
@@ -3390,7 +3697,12 @@ class NativeDeclarationImporter:
                 raise NativeImportError("unique resource records and completion payloads require owning projections")
             close_type = ast.TypeExpr(base="void")
             resource_identity = self._type_identity(pointer)
-            if resource.dispatch is not None and resource.dispatch.release:
+            if resource.ownership == "com":
+                # AddRef and Release are table slots, checked with the table
+                # when the interface is projected.
+                operations = ()
+                resource_identity = (resource_identity, "com", resource.iid, resource.base)
+            elif resource.dispatch is not None and resource.dispatch.release:
                 # The table's release slot is the destructor; it is checked with
                 # the table when the dispatched methods are projected.
                 operations = ()
@@ -3467,7 +3779,17 @@ class NativeDeclarationImporter:
 
     def _prepare_resource_conversions(self, binding, header):
         exports = {declaration.name: declaration for declaration in header.exports}
+        resources = {resource.name: resource for resource in binding.resources}
         for resource in binding.resources:
+            if resource.ownership == "com":
+                # A COM interface widens statically along its declared base chain;
+                # the table prefix is checked when the interface is projected.
+                ancestors, base = [], resource.base
+                while base:
+                    ancestors.append(base)
+                    base = resources[base].base
+                self._declarations[(str(self._origin), resource.name)].source_file.native_ancestors = tuple(ancestors)
+                continue
             if resource.ownership != "reference-counted":
                 continue
             origin = self._declarations[(str(self._origin), resource.name)].source_file
@@ -4626,8 +4948,12 @@ class NativeDeclarationImporter:
     def _project_owned_output(self, declaration, parameter_names):
         if declaration.name in self._initializers:
             return self._project_initializer(declaration, parameter_names)
+        # A dispatched COM method's "<R>.<method>.<parameter>" output is
+        # projected with its table, not by a function of the same name.
         selected = [
-            (key, result) for key, result in self._owned_outputs.items() if key.split(".", 1)[0] == declaration.name
+            (key, result)
+            for key, result in self._owned_outputs.items()
+            if key.count(".") == 1 and key.split(".", 1)[0] == declaration.name
         ]
         if not selected:
             return None
@@ -4646,7 +4972,7 @@ class NativeDeclarationImporter:
         ):
             raise NativeImportError("owned-outputs requires a mutable resource pointer output slot")
         resource = self._resource_name(pointer.pointee)
-        if not resource or self._resources[resource].ownership != "unique":
+        if not resource or self._resources[resource].ownership not in ("unique", "com"):
             raise NativeImportError("owned-outputs requires a declared unique resource")
         if self._resources[resource].storage:
             raise NativeImportError("inline resources require checked initializers, not owned pointer outputs")
@@ -4673,31 +4999,18 @@ class NativeDeclarationImporter:
             "unsigned long long",
         }:
             raise NativeImportError("owned-outputs requires an integral or enum status result")
+        # A COM [out] interface reports an HRESULT (native-interop-ownership.md section 2.4).
+        if (self._resources[resource].ownership == "com") != (self._owned_output_statuses.get(key) == "hresult"):
+            raise NativeImportError("owned-outputs status = hresult pairs with a com interface output")
+        if self._owned_output_statuses.get(key) == "hresult" and not self._com_integer(
+            declaration.signature.return_type, "signed"
+        ):
+            raise NativeImportError(
+                f"owned-outputs {key}: status = hresult and status-results require a 32-bit signed result"
+            )
         status_type = self._type(declaration.signature.return_type)
         offset = self._project_output_offset(declaration, parameter_names, index)
-        if any(name == result_name for _, name in self._declarations) or any(
-            value.name == result_name for value in self._input_classes
-        ):
-            raise NativeImportError(f"conflicting owned-output result class {result_name!r}")
-        self._input_classes.append(
-            ast.ClassDecl(
-                name=result_name,
-                members=[
-                    ast.FieldDecl(access="public", name="status", type=status_type),
-                    ast.FieldDecl(
-                        access="public",
-                        name="value",
-                        type=ast.TypeExpr(base=resource, is_nullable=True, pointer_depth=1),
-                    ),
-                    *(
-                        [ast.FieldDecl(access="public", name=offset.field, type=ast.TypeExpr(base="int"))]
-                        if offset
-                        else []
-                    ),
-                ],
-                source_file=NativeGeneratedSource(self._origin),
-            )
-        )
+        self._owned_output_class(result_name, status_type, resource, offset)
         self._owned_outputs.pop(key)
         return NativeOwnedOutput(index, result_name, resource, status_type, offset)
 
