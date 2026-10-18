@@ -114,7 +114,9 @@ def assert_codec_parity(codec_probe, tmp_path, source):
             lines.append(f"pointer {declaration.name} {declaration.pointer_bits} {declaration.decimal_value}")
         elif isinstance(declaration, NativeObjectiveCMethod):
             lines.append(
-                f"method {declaration.name} {declaration.identity} {declaration.receiver} {declaration.owner} {int(declaration.protocol_owner)} {int(declaration.optional)}"
+                f"method {declaration.name} {declaration.identity} {declaration.receiver} {declaration.owner} "
+                f"{int(declaration.protocol_owner)} {int(declaration.optional)} "
+                f"{int(declaration.designated_initializer)} {int(declaration.requires_super)}"
             )
         elif isinstance(declaration, NativeCxxClass):
             lines.append(
@@ -696,6 +698,70 @@ def test_objective_c_protocol_methods_preserve_dispatch_contract(reader, codec_p
         assert declaration.protocol_owner == protocol_owner
         assert declaration.optional == optional
     assert declarations["-[SharedName value]"].signature.return_type.bits == 32
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+
+
+@pytest.mark.parametrize("corruption", [None, "class_designated", "family_designated", "requires_super_type"])
+def test_objective_c_override_facts(reader, codec_probe, tmp_path, corruption):
+    """Step 6's subclass facts: designated initializers of the selected class, and NS_REQUIRES_SUPER."""
+    if sys.platform != "darwin":
+        pytest.skip("requires the Apple AppKit SDK")
+    # (designated_initializer, requires_super), relative to the selected class.
+    selections = {
+        "-[NSView initWithFrame:]": (True, False),
+        "-[NSView initWithCoder:]": (True, False),
+        "-[NSView updateConstraints]": (False, True),
+        "-[NSView layout]": (False, False),
+        "-[NSObject init]": (True, False),
+        # A class that introduces no initializer inherits its superclass's set.
+        "-[NativeBox initWithFrame:]": (True, False),
+        "-[NativeBox updateConstraints]": (False, True),
+        # A class that introduces initializers has only its own.
+        "-[NativeOwn initWithName:]": (True, False),
+        "-[NativeOwn initWithFrame:]": (False, False),
+        "-[NativeOwn refresh]": (False, True),
+        "+[NativeOwn make]": (False, False),
+    }
+    result = read(
+        reader,
+        tmp_path,
+        "#import <AppKit/AppKit.h>\n"
+        "@interface NativeBox : NSView\n@end\n"
+        "@interface NativeOwn : NSView\n"
+        "- (instancetype)initWithName:(int)name NS_DESIGNATED_INITIALIZER;\n"
+        "- (void)refresh NS_REQUIRES_SUPER;\n"
+        "+ (instancetype)make;\n@end\n",
+        list(selections),
+        "-x",
+        "objective-c",
+        "-fblocks",
+        "-fobjc-arc",
+        "-isysroot",
+        os.environ["BTRC_NATIVE_SYSROOT"],
+        "-target",
+        os.environ["BTRC_NATIVE_TARGET"],
+    )
+    assert result.returncode == 0, result.stderr
+    if corruption is not None:
+        document = json.loads(result.stdout)
+        declarations = {entry["name"]: entry for entry in document["declarations"]}
+        if corruption == "class_designated":
+            declarations["+[NativeOwn make]"]["designated_initializer"] = True
+        elif corruption == "family_designated":
+            declarations["-[NSView layout]"]["designated_initializer"] = True
+        else:
+            declarations["-[NSView updateConstraints]"]["requires_super"] = "true"
+        encoded = json.dumps(document)
+        with pytest.raises(NativeImportError):
+            NativeHeaderCodec().decode(encoded)
+        assert probe_document(codec_probe, tmp_path, encoded).returncode != 0
+        return
+    declarations = {entry.name: entry for entry in NativeHeaderCodec().decode(result.stdout).exports}
+    for name, (designated, requires_super) in selections.items():
+        assert (declarations[name].designated_initializer, declarations[name].requires_super) == (
+            designated,
+            requires_super,
+        ), name
     assert_codec_parity(codec_probe, tmp_path, result.stdout)
 
 

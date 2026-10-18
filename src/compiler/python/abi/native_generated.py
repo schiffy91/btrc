@@ -51,6 +51,8 @@ class NativeObjectiveCMethod:
     returns_inner_pointer: bool = False
     protocol_owner: bool = False
     optional: bool = False
+    designated_initializer: bool = False
+    requires_super: bool = False
     source_file: str = _dc_field(default=None, compare=False)
     line: int = _dc_field(default=0, compare=False)
     column: int = 0

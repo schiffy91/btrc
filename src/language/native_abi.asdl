@@ -14,7 +14,8 @@ module NativeAbi {
                                                 native_type signature, native_parameter* parameter_semantics,
                                                 string returned_ownership, string method_family,
                                                 bool consumes_self, bool related_result, bool returns_inner_pointer,
-                                                bool protocol_owner, bool optional)
+                                                bool protocol_owner, bool optional,
+                                                bool designated_initializer, bool requires_super)
                        | NativeCxxClass(identifier name, native_type record_type,
                                         bool default_constructor, bool public_destructor,
                                         bool trivially_copyable, bool trivially_destructible)

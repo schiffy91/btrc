@@ -827,6 +827,10 @@ class NativeHeaderReader {
 			result["consumes_self"] = method->hasAttr<clang::NSConsumesSelfAttr>();
 			result["related_result"] = method->hasRelatedResultType();
 			result["returns_inner_pointer"] = method->hasAttr<clang::ObjCReturnsInnerPointerAttr>();
+			// Clang asks an override for [super ...] when the nearest declaration
+			// it overrides carries NS_REQUIRES_SUPER, as this one would.
+			result["requires_super"] = method->hasAttr<clang::ObjCRequiresSuperAttr>();
+			result["designated_initializer"] = false;
 		} else if (const auto* method = llvm::dyn_cast<clang::CXXMethodDecl>(value)) {
 			if (method->getAccess() != clang::AS_public || method->isDeleted() || method->isStatic() || method->isVariadic() || method->isVolatile() || method->getRefQualifier() != clang::RQ_None || method->isOverloadedOperator() || llvm::isa<clang::CXXConstructorDecl>(method) || llvm::isa<clang::CXXDestructorDecl>(method) || llvm::isa<clang::CXXConversionDecl>(method) || method->getTemplatedKind() != clang::FunctionDecl::TK_NonTemplate) {
 				errors.push_back("C++ methods require unambiguous public non-template instance methods: " + NativeHeaderIndex::declarationName(method));
@@ -1023,6 +1027,11 @@ public:
 					exported["receiver"] = objectiveCReceiver(name);
 					auto receiver = header->interfaces.find(objectiveCReceiver(name));
 					if (receiver != header->interfaces.end()) { requestInterface(receiver->second); }
+					// Relative to the selected class: one of its designated
+					// initializers, inherited when it introduces none.
+					const auto* method = llvm::cast<clang::ObjCMethodDecl>(selected);
+					const auto* definition = receiver == header->interfaces.end() ? nullptr : receiver->second->getDefinition();
+					exported["designated_initializer"] = definition != nullptr && method->isInstanceMethod() && definition->isDesignatedInitializer(method->getSelector());
 					if (const auto* owner = llvm::cast<clang::ObjCMethodDecl>(selected)->getClassInterface()) { requestInterface(owner); }
 				}
 				exports.push_back(std::move(exported));
