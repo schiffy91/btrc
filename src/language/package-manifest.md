@@ -498,6 +498,55 @@ path passes real copied-block and Foundation run-loop tests in both compilers,
 including sanitizers. It does **not** yet qualify automatic application shutdown,
 abandoned foreign ownership cycles or GUI migration. One-shot bindings follow below.
 
+#### Main-thread blocks
+
+A stored block that the SDK calls on the main thread, such as an observer
+registered with `NSOperationQueue.mainQueue` for the interruption notifications
+`AVAudioSession` posts from a thread of its own, binds `executor = "main"`
+(rules 3 and 4 in
+[native-interop-ownership.md](../../docs/design/native-interop-ownership.md)):
+
+```toml
+[native.bindings.callbacks."-[NSNotificationCenter addObserverForName:object:queue:usingBlock:].block"]
+interface = "IInterruptionObserver"
+lifetime = "stored"
+failure = "abort"
+executor = "main"
+unregister = "-[NSNotificationCenter removeObserver:]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+```
+
+```btrc
+ICallbackRegistration observation = NSNotificationCenter.defaultCenter().addObserverForName(AVAudioSessionInterruptionNotification, AVAudioSession.sharedInstance(), NSOperationQueue.mainQueue(), Interruption(scope), scope);
+```
+
+- The registration must run on the main thread: elsewhere it throws
+  `"Stored callback <method> requires the main thread"` before it creates or
+  publishes anything. The callback context is therefore created there, and its
+  own thread check admits every entry, and the final release of the context, on
+  the main thread only; a delivery on another thread terminates.
+- The generated holder's last release may happen wherever the SDK drops the
+  block (a poster thread that still held its observer, an SDK queue). On the
+  main thread it releases the context's claim at once; elsewhere it posts that
+  release to the main queue (`dispatch_async_f`) and never touches ARC on the
+  calling thread. The context itself releases its receiver at cancellation, as
+  for every stored block. With `executor = "caller"` such a release terminates.
+- `main` is accepted only on a stored Objective-C block; one-shot blocks,
+  delegates, target/actions, control actions, instantiated adapters and C
+  callbacks still require `caller` ("executor currently requires caller, or
+  main for a stored Objective-C block").
+
+`src/tests/python/test_native_objective_c_main_executor.py` posts Foundation
+notifications from a background queue and from a BTRC thread to observers on
+the main queue, cancels from inside a delivery and checks the receiver is
+released once on the main thread, drops a proxy center's block on another thread
+(posted release under `main`, termination under `caller`), delivers from another
+thread (termination) and registers from a BTRC thread (the exception), plain and
+with ASan/UBSan, in both compilers. `test_native_uikit_application.py` posts a
+real `AVAudioSessionInterruptionNotification` from a BTRC thread on the iOS
+simulator; that is simulator evidence, not device evidence.
+
 ### One-shot completion (foundation in progress)
 
 An escaping block that runs exactly once to signal terminal completion uses the
@@ -902,8 +951,8 @@ released and stays outside leak accounting, and a second instantiation, or a
 second call of the entry, aborts. Deliveries are admitted only on the thread
 that called the entry; a wrong-thread delivery or a BTRC exception terminates
 at the native boundary. `executor` currently requires `caller` and `failure`
-requires `abort`. The generated class extends `NSObject`; a class that extends
-an SDK class is a subclass adapter (below).
+requires `abort`. The generated class extends `NSObject`, or the SDK class
+that `superclass` names (below).
 
 A selected method of an instantiated adapter may return a managed Objective-C
 object, as `-[UIApplicationDelegate
@@ -1054,8 +1103,38 @@ be `instance`. Each override must be a selected, non-protocol method of the
 superclass (named on the superclass, inherited methods included) outside the
 init, alloc, new, copy and dealloc families, non-variadic and non-consuming.
 Names may not collide across `methods`, instance overrides, `create` and class
-overrides. `superclass` and `overrides` are rejected on the other instantiated
-forms, whose generated class extends `NSObject`.
+overrides.
+
+The forms the SDK instantiates itself take `superclass` and `overrides` too: a
+UIKit application or scene delegate that must be a `UIResponder`, to join the
+responder chain or answer responder methods.
+
+```toml
+[native.bindings.callbacks."UIApplicationMain.delegateClassName"]
+interface = "IApplicationDelegate"
+lifetime = "instantiated"
+scope = "process"
+failure = "abort"
+executor = "caller"
+superclass = "UIResponder"
+methods = ["-[UIApplicationDelegate applicationDidFinishLaunching:]", "-[UIApplicationDelegate applicationDidBecomeActive:]"]
+overrides = ["-[UIResponder canPerformAction:withSender:]"]
+```
+
+- The generated class extends `superclass` and adopts the protocol of
+  `methods`, which stay required. The SDK creates it with `-init`, which sends
+  `[super init]` before it claims its receiver, as the `NSObject` form does.
+- Instance overrides join the receiver interface after the protocol methods,
+  checked as above, and an `NS_REQUIRES_SUPER` override sends super after the
+  receiver returns. The process form's receiver is rooted before the SDK
+  creates the instance, so its overrides always find it; the instance form's
+  overrides behave as a subclass adapter's, without a receiver before `-init`
+  returns and after `terminal`.
+- Class overrides join `I<Interface>Factory` and so need the instance form; on
+  the process form they are rejected ("class-method overrides require an
+  instance-scoped adapter"). `overrides` without `superclass` is rejected
+  ("overrides require superclass"), as is a superclass without a complete
+  interface.
 
 `src/tests/python/test_native_objective_c_subclasses.py` covers a Foundation
 proxy shaped like `UIView` (two designated initializers, `+layerClass` asked in
@@ -1065,9 +1144,17 @@ from the other initializer, a value override without a receiver, a wrong
 thread, an unknown class name and a null `create()`, plain and with
 ASan/UBSan, in both compilers, plus the rejections. A real `NSView` subclass
 returns a `CAMetalLayer` from `-makeBackingLayer` and receives `-layout`,
-`-updateConstraints` and `-drawRect:` from AppKit. `test_native_uikit_application.py`
-shows a `UIView` subclass whose layer is a `CAMetalLayer` in a scene's window on
-the iOS simulator; that is simulator evidence, not device evidence.
+`-updateConstraints` and `-drawRect:` from AppKit. For the SDK-created forms
+it runs a process delegate created from a class name that extends `NSResponder`
+(or an `NSResponder` subclass with an `NS_REQUIRES_SUPER` method) and answers
+`-acceptsFirstResponder` and a `SEL`-taking `-tryToPerform:with:`, and an
+instance delegate created from a class whose class override answers before any
+instance exists and whose required super send follows the terminal method, plus
+the rejections. `test_native_uikit_application.py` shows a `UIView` subclass
+whose layer is a `CAMetalLayer` in a scene's window, and a `UIResponder`
+application delegate that is UIApplication's next responder and answers
+`-targetForAction:withSender:` through its `-canPerformAction:withSender:`
+override, on the iOS simulator; that is simulator evidence, not device evidence.
 
 #### Objective-C error outputs
 
@@ -1108,7 +1195,8 @@ returns the parameter's bound, `id` unless the class declares another, as the
 reader reports it. A checked downcast recovers the element class. Generated
 implementations keep the SDK's spelling, type arguments included, so a block
 or override still matches its declaration. Protocol-qualified objects
-(`id<P>`) stay rejected until protocol handles exist.
+(`id<P>`) in parameters and results stay rejected; a checked cast reaches a
+protocol handle instead (below).
 
 #### Checked Objective-C downcasts
 
@@ -1135,11 +1223,48 @@ if (windowScene != null) { var window = UIWindow.initWithWindowScene(windowScene
 A nonnullable target is rejected ("Objective-C downcasts are checked and require
 a nullable target"), and so are casts between unrelated classes ("Objective-C
 casts require a proven object upcast or a nullable checked downcast").
-Upcasts, including to `id`, stay unchecked conversions. `conformsToProtocol:`
-waits for protocol-qualified handles. `test_native_objective_c_downcasts.py`
-covers null input, a match, a mismatch, a base-class instance, `id` sources, a
-result that outlives its source, 1,000 casts with no live object left, ASan and
-UBSan, and the rejections, in both compilers.
+Upcasts, including to `id`, stay unchecked conversions.
+
+A protocol whose own instance methods the binding selects is a **protocol
+handle**: a managed Objective-C object type named after the protocol, which the
+generated unit spells `id<P>`. Its methods are the selected requirements, and
+`(P?)value` is the checked conversion that produces one:
+
+```toml
+symbols = ["+[NSLock new]", "-[NSLocking lock]", "-[NSLocking unlock]"]
+```
+
+```btrc
+NSLocking? locking = (NSLocking?)NSLock.new();
+if (locking != null) { locking.lock(); locking.unlock(); }
+```
+
+- The cast asks `[value conformsToProtocol:P]`, with the same null, mismatch
+  and claim rules as `isKindOfClass:`. The unit finds `P` by its runtime name
+  (`objc_getProtocol`); a protocol no loaded image registers matches no object
+  and sends no message.
+- The reader reports no class conformance, so every cast to a handle is
+  checked, from any Objective-C object: a class, `id` or another handle. A cast
+  from a handle to a class asks `isKindOfClass:`. A handle converts to `id`
+  unchecked; assigning a class value to a handle without a cast is a type
+  error.
+- A protocol method belongs to a handle only when its receiver names no class:
+  the reader resolves a class of the same name first, as it does for
+  `NSObject`, and a protocol method selected on a class (`-[NSLock unlock]`) is
+  that class's method. A handle takes instance methods outside the init family
+  ("Objective-C protocol handles take instance methods outside the init
+  family"), no callbacks, and, as on a class, no optional method ("Optional
+  Objective-C calls require an availability check").
+- `id<P>` parameters and results stay rejected ("Objective-C
+  protocol/generic/dynamic objects require managed native lowering"); a
+  delegate slot keeps its own `id<P>` mapping.
+
+`test_native_objective_c_downcasts.py` covers null input, a match, a mismatch, a
+base-class instance, `id` sources, a result that outlives its source, 1,000
+casts with no live object left, ASan and UBSan, and the rejections, in both
+compilers, for classes and for protocol handles: casts to a protocol from a
+class, from `id` and from another handle, from a handle back to a class,
+`NSLocking` on an `NSLock`, and the rejected handle methods and `id<P>` result.
 
 ### Header selection
 

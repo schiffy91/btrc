@@ -54,7 +54,7 @@ implemented in both compilers today and documented there.
     unit, which names `T` with `objc_lookUpClass` rather than `[T class]`,
     because an imported class may be only a forward declaration in the
     selected headers (package-manifest.md, "Checked Objective-C downcasts").
-    `conformsToProtocol:` waits for protocol-qualified handles.
+    `conformsToProtocol:` followed with protocol handles (below).
   - A macOS proxy covers both features with sanitizers in both compilers
     (`test_native_instantiated_adapters.py`,
     `test_native_objective_c_downcasts.py`), and the iOS 26.4 simulator runs
@@ -100,12 +100,53 @@ implemented in both compilers today and documented there.
     `NSFileManager` (`test_native_objective_c_errors.py`). The iOS simulator
     shows a `UIView` subclass whose layer is a `CAMetalLayer` in a scene's
     window (`test_native_uikit_application.py`).
-- Still owed for step 6: `superclass` on the SDK-instantiated forms (a
-  `UIResponder` app or scene delegate), `conformsToProtocol:` with protocol
-  handles, `AVAudioSession` interruption notifications on the main queue, the
-  100 scene connect/disconnect cycles, and the device rows (D8). A direct or
-  unavailable superclass method is rejected only by the native compile, since
-  the reader reports neither fact.
+- Step 6's responder, protocol-handle and main-queue slice (2026-10-18) is
+  implemented in both compilers:
+  - `superclass` and `overrides` on the SDK-instantiated forms: the
+    class-name (`scope = "process"`) and `Class` (`scope = "instance"`)
+    adapters may extend an SDK class, such as a `UIResponder` app or scene
+    delegate. The SDK creates them with `-init`, which sends `[super init]`;
+    the protocol `methods` stay required, instance overrides join the receiver
+    interface and send a required super after it, and class overrides join
+    the factory, so the process form, which has none, rejects them
+    (package-manifest.md, "Objective-C subclass adapters").
+  - Protocol handles and `conformsToProtocol:`. A protocol whose own instance
+    methods (the reader resolves a class of the same name first) the binding
+    selects is a managed object type named after it, `id<P>` in the generated
+    unit, converting to `id` unchecked. `(P?)value` from any Objective-C object
+    asks `conformsToProtocol:` against `objc_getProtocol`, and a cast from a
+    handle to a class asks `isKindOfClass:`, with M3's null, mismatch and claim
+    rules. This is the minimal form M3 needs: `id<P>` parameters and results
+    stay rejected, and the reader still reports no class conformance, so no
+    protocol upcast is proven statically (package-manifest.md, "Checked
+    Objective-C downcasts").
+  - `executor = "main"` on a stored Objective-C block (rules 3 and 4): the
+    registration throws off the main thread, so the callback context's own
+    thread check admits entries and its release on main only, and the
+    generated holder releases its claim at once on main or posts it to the
+    main queue with `dispatch_async_f`. That is the binding an
+    `AVAudioSession` interruption observer on `NSOperationQueue.mainQueue`
+    takes (package-manifest.md, "Main-thread blocks").
+  - A macOS proxy covers each with sanitizers in both compilers:
+    `NSResponder`-derived process and instance delegates
+    (`test_native_objective_c_subclasses.py`), protocol casts on a counting
+    proxy and `NSLocking` on an `NSLock` (`test_native_objective_c_downcasts.py`),
+    and Foundation notifications posted from a background queue and a BTRC
+    thread to main-queue observers, with a proxy center whose block is dropped
+    on another thread (`test_native_objective_c_main_executor.py`). The iOS
+    simulator runs a `UIResponder` app delegate that is UIApplication's next
+    responder and answers `-targetForAction:withSender:` through its
+    `-canPerformAction:withSender:` override, casts a `UIView` but not the
+    application to `UITraitEnvironment`, and receives an
+    `AVAudioSessionInterruptionNotification` a BTRC thread posts, on the main
+    queue (`test_native_uikit_application.py`). That is simulator evidence, not
+    device evidence.
+- Still owed for step 6: the 100 scene connect/disconnect cycles (they need
+  multiple-scene support) and the device rows (D8). Deferred beyond step 6:
+  `id<P>` handles in signatures, statically proven protocol conformance (step
+  3's reader facts), and `executor = "main"` on delegates, target/actions and
+  one-shot blocks. A direct or unavailable superclass method is rejected only by
+  the native compile, since the reader reports neither fact.
 - UIKit controls (2026-10-13) take their targets through additive
   target/action pairs, `addTarget:action:forControlEvents:`, which the AppKit
   setter form cannot express. Both compilers implement this as a stored
@@ -591,15 +632,26 @@ on the iOS simulator test host. The slice adds analysis, not new runtime:
   - The reader's designated-initializer facts choose the init.
   - (As implemented: the binding maps the implicit `self` of the designated
     initializer it names, which BTRC calls with a factory; class overrides
-    return a class name the factory answers. See the implementation status.)
+    return a class name the factory answers. The SDK-created forms take
+    `superclass` and `overrides` too, as a `UIResponder` application or scene
+    delegate needs; the SDK creates them with `-init`. See the implementation
+    status.)
 - `error-outputs` for `NSError**` parameters (F1). A `nil` error is success.
   A non-nil error becomes a btrc exception carrying `localizedDescription`.
 - M3 checked downcasts through `isKindOfClass:` and `conformsToProtocol:`.
   Lightweight generics are erased to their bound for payloads. (As
   implemented: `isKindOfClass:` against the class named at run time;
-  `conformsToProtocol:` waits for protocol handles.)
-- `id<P>` protocol handles stay deferred. WebGPU takes the `CAMetalLayer`
-  pointer, so I1 does not need them.
+  `conformsToProtocol:` against the protocol named at run time, into a
+  protocol handle.)
+- `id<P>` protocol handles stay deferred in signatures. WebGPU takes the
+  `CAMetalLayer` pointer, so I1 does not need them. (As implemented: a protocol
+  whose instance methods the binding selects is a handle type, the target of
+  a checked cast and the receiver of those methods; `id<P>` parameters and
+  results stay rejected.)
+- (As implemented: a stored block takes `executor = "main"`, as a main-queue
+  `AVAudioSession` observer needs: registration and entries are checked on the
+  main thread, and the holder posts a final release made elsewhere to the main
+  queue, rule 4.)
 
 ### 2.3 JNI (Stage 27 step 4; Stage 29 step 7)
 
@@ -1325,6 +1377,14 @@ compare the texts.
 - An `NSError**` parameter that `error-outputs` does not map.
 - A duplicate adapter class name.
 - An unmapped object result or generic `id<P>` payload.
+- (Step 6, as implemented.) `overrides` without `superclass`, a class
+  override on the process form ("class-method overrides require an
+  instance-scoped adapter"), a protocol handle's class or init-family method
+  ("Objective-C protocol handles take instance methods outside the init
+  family"), callbacks on a handle's method, an unchecked or nonnullable cast to
+  or from a handle, and `executor = "main"` anywhere but a stored block
+  ("executor currently requires caller, or main for a stored Objective-C
+  block").
 
 **JNI.**
 - An unknown class or member, including non-public, synthetic and bridge
