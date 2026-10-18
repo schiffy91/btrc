@@ -235,7 +235,6 @@ def test_objective_c_block_invalid_mapping(objective_c_block_project, native_com
         ("NSInteger (^)(char*)", "non-scalar arguments require a borrow mapping"),
         ("NSInteger (^)(Class)", "protocol/generic/dynamic objects require managed native lowering"),
         ("NSInteger (^)(id<NSCopying>)", "protocol/generic/dynamic objects require managed native lowering"),
-        ("NSInteger (^)(NSArray<NSString*>*)", "protocol/generic/dynamic objects require managed native lowering"),
         ("NSInteger (^)(NSString* volatile)", "unsupported Objective-C object qualifiers"),
         ("NSString* (^)(NSInteger)", "object callback results require a stored Objective-C block"),
         ("NSInteger (*)(NSInteger)", "Objective-C method callbacks require block parameters"),

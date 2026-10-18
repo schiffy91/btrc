@@ -473,6 +473,10 @@ class FeNativeCallbackBinding {
 	/* Instance-scoped instantiated adapters: the selected method after which
 	 * the generated object releases its receiver. */
 	public string terminal = "";
+	/* Subclass adapters ("<designated initializer>.self"): the SDK class the
+	 * generated class extends, and the superclass methods it answers. */
+	public string superclass = "";
+	public Vector<string> overrides = [];
 	public string field = "";
 	public Vector<int> ownedArguments = [];
 	public Vector<string> methods = [];
@@ -572,6 +576,14 @@ class FeNativeCallbackProjection {
 	public string instantiatedScope = "";
 	public string factoryInterface = "";
 	public int terminalIndex = -1;
+	/* A subclass adapter (`initializer` set) extends `superclass`: BTRC calls
+	 * the superclass's designated initializer with a factory,
+	 * `delegateMethods` also holds the instance overrides, and `classMethods`
+	 * the class overrides, which the factory answers. */
+	public string superclass = "";
+	public NativeNode? initializer = null;
+	public Vector<string> initializerParameters = [];
+	public Vector<FeNativeCallbackProjection> classMethods = [];
 	/* Stored C registrations: every registration parameter carrying the
 	 * context, the slots' representation ("pointer" or the shared integer
 	 * builtin), the success statuses, each unregister argument's source
@@ -879,6 +891,9 @@ class FeNativeJavaMember {
 }
 
 class FeNativeCallContract {
+	/* Native parameter positions of an Objective-C method's NSError**
+	 * error-outputs; the BTRC method omits them (F1). */
+	public Vector<int> errorOutputs = [];
 	public FeNativeJavaMember? javaMember = null;
 	public FeNativeCallbackTableProjection? callbackTable = null;
 	public FeNativeDispatchMethod? dispatchMethod = null;

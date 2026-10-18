@@ -4009,6 +4009,10 @@ class FunctionLowerer:
                     )
                 else:
                     native_arguments.append(self._objective_c_value(parameter.type, argument, to_native=True))
+            # The adapter passes its own NSError for an error output (F1).
+            native_error = IRVar("nativeError")
+            for position in contract.error_outputs:
+                native_arguments.insert(position, IRAddressOf(native_error))
             receiver = IRVar(name=declaration.name)
             if initializer:
                 receiver = IRObjectiveCMessage(receiver, "alloc", [])
@@ -4075,22 +4079,29 @@ class FunctionLowerer:
                     result_type.text, object_return is not None and bool(object_return.native_language)
                 )
                 adapter_parameters.append(IRParam(CType(f"{output_type}*"), "nativeResult"))
+            if contract.error_outputs:
+                adapter_parameters.append(IRParam(CType("char*"), "nativeMessage"))
             call = IRObjectiveCMessage(receiver=receiver, selector=descriptor.selector, args=native_arguments)
-            if object_return is not None and object_return.native_language:
-                call = IRCast(target_type=result_type, expr=call, bridge="retain")
-            body = []
             record_return = self._objective_c_record(method.return_type)
-            if record_return is not None:
-                body.append(
-                    IRVarDecl(c_type=CType(text=record_return.source_file.type_spelling), name="sdkResult", init=call)
+            if contract.error_outputs:
+                body = self._objective_c_error_call(native, call, method, result_type, record_return, returns_value)
+            else:
+                if object_return is not None and object_return.native_language:
+                    call = IRCast(target_type=result_type, expr=call, bridge="retain")
+                body = []
+                if record_return is not None:
+                    body.append(
+                        IRVarDecl(
+                            c_type=CType(text=record_return.source_file.type_spelling), name="sdkResult", init=call
+                        )
+                    )
+                    call = self._objective_c_value(method.return_type, IRVar(name="sdkResult"), to_native=False)
+                body.extend(
+                    [
+                        IRAssign(target=IRDeref(expr=result), value=call) if returns_value else IRExprStmt(expr=call),
+                        IRReturn(value=IRLiteral(text="0")),
+                    ]
                 )
-                call = self._objective_c_value(method.return_type, IRVar(name="sdkResult"), to_native=False)
-            body.extend(
-                [
-                    IRAssign(target=IRDeref(expr=result), value=call) if returns_value else IRExprStmt(expr=call),
-                    IRReturn(value=IRLiteral(text="0")),
-                ]
-            )
             boundary = IRObjectiveCExceptionBoundary(
                 body=IRBlock(stmts=body), failure=IRBlock(stmts=[IRReturn(value=IRLiteral(text="1"))])
             )
@@ -4124,6 +4135,9 @@ class FunctionLowerer:
                 if returns_value
                 else []
             )
+            message = IRVar("nativeMessage")
+            if contract.error_outputs:
+                statements.append(IRVarDecl(CType("char"), message.name, array_size=IRLiteral("1024")))
             required = [
                 parameter.name
                 for index, parameter in enumerate(method.params)
@@ -4161,11 +4175,37 @@ class FunctionLowerer:
                     call_arguments.extend(
                         self._native_callback_context(name, callback, argument, parameters, statements)
                     )
+            adapter_call = IRCall(
+                callee=adapter,
+                args=[
+                    *call_arguments,
+                    *([IRAddressOf(expr=result)] if returns_value else []),
+                    *([message] if contract.error_outputs else []),
+                ],
+            )
+            if contract.error_outputs:
+                # A non-nil NSError is a BTRC exception, thrown after the
+                # adapter's pool has drained; leases unwind as the throw runs.
+                status = IRVar("nativeStatus")
+                statements.extend(
+                    [
+                        IRVarDecl(CType("int"), status.name, init=adapter_call),
+                        IRIf(
+                            IRBinOp(status, "==", IRLiteral("2")),
+                            IRBlock(
+                                [
+                                    IRExprStmt(
+                                        IRCall("__btrc_throw", [message], helper_ref="__btrc_throw", never_returns=True)
+                                    )
+                                ]
+                            ),
+                        ),
+                    ]
+                )
+                adapter_call = status
             statements.append(
                 IRIf(
-                    condition=IRCall(
-                        callee=adapter, args=[*call_arguments, *([IRAddressOf(expr=result)] if returns_value else [])]
-                    ),
+                    condition=adapter_call,
                     then_block=IRBlock(
                         stmts=[
                             IRExprStmt(
@@ -5719,6 +5759,9 @@ class FunctionLowerer:
             info = self._analyzed.class_table.get(value_type.base)
             if info is not None and info.native_language:
                 value = IRCast(CType(self._types.render(value_type)), value, bridge="borrow")
+            else:
+                # An SDK record (a drawRect: rectangle) becomes its BTRC record value.
+                value = self._objective_c_value(value_type, value, to_native=False)
             arguments.append(value)
         return parameters, arguments
 
@@ -5822,10 +5865,20 @@ class FunctionLowerer:
         nothing and value methods abort. `-dealloc` releases a receiver still
         held. Instances that already exist keep their receivers when the
         factory is replaced.
+
+        A subclass adapter (`callback.initializer`) extends its SDK
+        superclass instead of NSObject. Its BTRC entry is the superclass's
+        designated initializer: the call registers the factory the same way,
+        then sends that initializer to a new instance, whose override sends it
+        to super before claiming its receiver. A class override enters the
+        factory and resolves the class name it returns. An override the SDK
+        marks NS_REQUIRES_SUPER sends super after BTRC returns, also when the
+        instance has no receiver.
         """
         module = self._session.module
         descriptor = contract.objective_c_method
         callback = contract.callbacks[0]
+        subclass = callback.initializer is not None
         prefix = f"__btrc_objc_{declaration.name}_{method.name}"
         factory_type = method.params[callback.parameter_index].type
         factory_root = TypeExpr(base="CallbackRoot", generic_args=[factory_type], pointer_depth=1)
@@ -5861,6 +5914,11 @@ class FunctionLowerer:
             module.function_pointer_typedefs.append(typedef)
             native.function_pointer_typedefs.append(typedef)
         creator = self._instantiated_receiver_creator(prefix, callback, factory_root, receiver_root)
+        # Each class override's C thunk has the creator's shape: factory in, class out.
+        class_invokers = [
+            self._subclass_class_invoker(prefix, index, projection, factory_root, native)
+            for index, projection in enumerate(callback.class_methods)
+        ]
         statics = {
             "factory": "void*",
             "retainFactory": lifetime_type,
@@ -5869,6 +5927,7 @@ class FunctionLowerer:
             "retainReceiver": lifetime_type,
             "releaseReceiver": lifetime_type,
             **{f"invoke{index}": f"{prefix}_callback{index}" for index in range(len(invokers))},
+            **{f"classInvoke{index}": creator_type for index in range(len(class_invokers))},
         }
         native.global_decls.extend(
             IRGlobalDecl(CType(value), f"{prefix}_{name}", init=IRLiteral("NULL")) for name, value in statics.items()
@@ -5882,20 +5941,33 @@ class FunctionLowerer:
 
         receiver = IRVar("receiver")
         held = IRVar("_receiver")
+        factory = IRVar("factory")
+        initializer = callback.initializer
+        init_parameters = [
+            IRParam(CType(spelling), f"argument{position}")
+            for position, spelling in enumerate(callback.initializer_parameters)
+        ]
         methods = [
             IRObjectiveCMethod(
-                "init",
+                initializer.selector if subclass else "init",
                 CType("instancetype"),
-                [],
+                init_parameters,
                 IRBlock(
                     [
-                        IRAssign(IRVar("self"), IRObjectiveCMessage(IRVar("super"), "init", [])),
+                        IRAssign(
+                            IRVar("self"),
+                            IRObjectiveCMessage(
+                                IRVar("super"),
+                                initializer.selector if subclass else "init",
+                                [IRVar(parameter.name) for parameter in init_parameters],
+                            ),
+                        ),
                         IRIf(IRBinOp(IRVar("self"), "==", IRLiteral("nil")), IRBlock([IRReturn(IRLiteral("nil"))])),
-                        IRVarDecl(CType("void*"), "factory", init=static("factory")),
-                        IRIf(IRBinOp(IRVar("factory"), "==", IRLiteral("NULL")), reject()),
-                        IRExprStmt(IRCall(static("retainFactory"), [IRVar("factory")])),
-                        IRAssign(held, IRCall(static("createReceiver"), [IRVar("factory")])),
-                        IRExprStmt(IRCall(static("releaseFactory"), [IRVar("factory")])),
+                        IRVarDecl(CType("void*"), factory.name, init=static("factory")),
+                        IRIf(IRBinOp(factory, "==", IRLiteral("NULL")), reject()),
+                        IRExprStmt(IRCall(static("retainFactory"), [factory])),
+                        IRAssign(held, IRCall(static("createReceiver"), [factory])),
+                        IRExprStmt(IRCall(static("releaseFactory"), [factory])),
                         IRReturn(IRVar("self")),
                     ]
                 ),
@@ -5904,25 +5976,68 @@ class FunctionLowerer:
         for index, (projection, value_types) in enumerate(zip(callback.methods, callback_types)):
             parameters, arguments = self._instantiated_arguments(projection, value_types)
             returns = self._types.render(projection.return_type) != "void"
-            body = [
-                IRVarDecl(CType("void*"), receiver.name, init=held),
-                IRIf(IRBinOp(receiver, "==", IRLiteral("NULL")), reject() if returns else IRBlock([IRReturn()])),
-                # The terminal method takes the instance's claim; any other
-                # method pins the receiver root for its call.
+            # The terminal method takes the instance's claim; any other
+            # method pins the receiver root for its call.
+            claim = (
                 IRAssign(held, IRLiteral("NULL"))
                 if index == callback.terminal_index
-                else IRExprStmt(IRCall(static("retainReceiver"), [receiver])),
-            ]
+                else IRExprStmt(IRCall(static("retainReceiver"), [receiver]))
+            )
             invocation = IRCall(static(f"invoke{index}"), [*arguments, receiver])
             release = IRExprStmt(IRCall(static("releaseReceiver"), [receiver]))
-            body.extend(
-                self._instantiated_result(projection, invocation, (release,))
-                if returns
-                else [IRExprStmt(invocation), release]
-            )
+            if projection.native_method.requires_super:
+                # The superclass's own part runs after the receiver, and without one.
+                body = [
+                    IRVarDecl(CType("void*"), receiver.name, init=held),
+                    IRIf(IRBinOp(receiver, "!=", IRLiteral("NULL")), IRBlock([claim, IRExprStmt(invocation), release])),
+                    IRExprStmt(
+                        IRObjectiveCMessage(
+                            IRVar("super"),
+                            projection.native_method.selector,
+                            [IRVar(parameter.name) for parameter in parameters],
+                        )
+                    ),
+                ]
+            else:
+                body = [
+                    IRVarDecl(CType("void*"), receiver.name, init=held),
+                    IRIf(IRBinOp(receiver, "==", IRLiteral("NULL")), reject() if returns else IRBlock([IRReturn()])),
+                    claim,
+                ]
+                body.extend(
+                    self._instantiated_result(projection, invocation, (release,))
+                    if returns
+                    else [IRExprStmt(invocation), release]
+                )
             methods.append(
                 IRObjectiveCMethod(
                     projection.native_method.selector, CType(projection.native_return), parameters, IRBlock(body)
+                )
+            )
+        for index, projection in enumerate(callback.class_methods):
+            value = IRVar("value")
+            methods.append(
+                IRObjectiveCMethod(
+                    projection.native_method.selector,
+                    CType("Class"),
+                    [],
+                    IRBlock(
+                        [
+                            IRVarDecl(CType("void*"), factory.name, init=static("factory")),
+                            IRIf(IRBinOp(factory, "==", IRLiteral("NULL")), reject()),
+                            IRExprStmt(IRCall(static("retainFactory"), [factory])),
+                            IRVarDecl(
+                                CType("Class"),
+                                value.name,
+                                init=IRCast(
+                                    CType("Class"), IRCall(static(f"classInvoke{index}"), [factory]), bridge="borrow"
+                                ),
+                            ),
+                            IRExprStmt(IRCall(static("releaseFactory"), [factory])),
+                            IRReturn(value),
+                        ]
+                    ),
+                    is_class_method=True,
                 )
             )
         methods.append(
@@ -5950,22 +6065,32 @@ class FunctionLowerer:
         native.objective_c_classes.append(
             IRObjectiveCClass(
                 name=holder,
-                superclass="NSObject",
+                superclass=callback.superclass or "NSObject",
                 fields=[IRStructField(CType("void*"), held.name)],
                 methods=methods,
-                protocols=[callback.protocol],
+                protocols=[callback.protocol] if callback.protocol else [],
             )
         )
+        source_parameters = [self._signatures.lower_source_param(item) for item in method.params]
         receiver_parameter = IRParam(CType(f"struct __btrc_native_{declaration.name}*"), "self")
+        value_parameters = source_parameters[1:] if subclass else []
+        result_type = CType(self._types.render(method.return_type))
         adapter_parameters = [
-            receiver_parameter,
+            *([] if subclass else [receiver_parameter]),
             *[IRParam(CType(f"{prefix}_callback{index}"), f"invoke{index}") for index in range(len(invokers))],
             IRParam(CType(creator_type), "create"),
+            *[IRParam(CType(creator_type), f"classInvoke{index}") for index in range(len(class_invokers))],
             IRParam(CType("void*"), "context"),
             *[
                 IRParam(CType(lifetime_type), name)
                 for name in ("retainContext", "releaseContext", "retainReceiver", "releaseReceiver")
             ],
+            *value_parameters,
+            *(
+                [IRParam(CType(f"{CType.qualify_volatile_object(result_type.text, True)}*"), "nativeResult")]
+                if subclass
+                else []
+            ),
         ]
         registration = [
             IRExprStmt(IRCall(IRVar("retainContext"), [IRVar("context")])),
@@ -5977,19 +6102,40 @@ class FunctionLowerer:
             IRAssign(static("retainReceiver"), IRVar("retainReceiver")),
             IRAssign(static("releaseReceiver"), IRVar("releaseReceiver")),
             *[IRAssign(static(f"invoke{index}"), IRVar(f"invoke{index}")) for index in range(len(invokers))],
-            IRExprStmt(
-                IRObjectiveCMessage(
-                    IRCast(self._objective_c_object_type(declaration.name), IRVar("self"), bridge="borrow"),
-                    descriptor.selector,
-                    [IRObjectiveCMessage(IRVar(holder), "class", [])],
+            *[
+                IRAssign(static(f"classInvoke{index}"), IRVar(f"classInvoke{index}"))
+                for index in range(len(class_invokers))
+            ],
+        ]
+        if subclass:
+            # The new instance, through the designated initializer BTRC called.
+            values = []
+            for parameter, source in zip(value_parameters, method.params[1:], strict=True):
+                info = self._analyzed.class_table.get(source.type.base)
+                values.append(
+                    IRCast(self._objective_c_object_type(source.type.base), IRVar(parameter.name), bridge="borrow")
+                    if info is not None and info.native_language
+                    else self._objective_c_value(source.type, IRVar(parameter.name), to_native=True)
                 )
-            ),
-            # Instances already created keep their own receiver roots.
+            created = IRObjectiveCMessage(IRObjectiveCMessage(IRVar(holder), "alloc", []), initializer.selector, values)
+            registration.append(IRAssign(IRDeref(IRVar("nativeResult")), IRCast(result_type, created, bridge="retain")))
+        else:
+            registration.append(
+                IRExprStmt(
+                    IRObjectiveCMessage(
+                        IRCast(self._objective_c_object_type(declaration.name), IRVar("self"), bridge="borrow"),
+                        descriptor.selector,
+                        [IRObjectiveCMessage(IRVar(holder), "class", [])],
+                    )
+                )
+            )
+        # Instances already created keep their own receiver roots.
+        registration.append(
             IRIf(
                 IRBinOp(IRVar("previous"), "!=", IRLiteral("NULL")),
                 IRBlock([IRExprStmt(IRCall(IRVar("releaseContext"), [IRVar("previous")]))]),
-            ),
-        ]
+            )
+        )
         native.function_defs.append(
             IRFunctionDef(
                 name=prefix,
@@ -6005,55 +6151,79 @@ class FunctionLowerer:
             )
         )
         module.function_decls.append(IRFunctionDecl(prefix, CType("void"), adapter_parameters))
-        parameters = [receiver_parameter, *[self._signatures.lower_source_param(item) for item in method.params]]
+        parameters = source_parameters if subclass else [receiver_parameter, *source_parameters]
         self._session.require_helper("__btrc_throw")
-        statements = [
-            self._objective_c_null_guard(
-                IRVar(parameter.name), f"Objective-C call {descriptor.name}: null argument {parameter.name}"
-            )
-            for parameter in parameters
-        ]
+        statements = [IRVarDecl(result_type, "nativeResult", init=IRLiteral("NULL"))] if subclass else []
+        argument_types = [item.type for item in method.params]
+        if not subclass:
+            argument_types.insert(0, TypeExpr(base=declaration.name, pointer_depth=1))
+        for parameter, value_type in zip(parameters, argument_types, strict=True):
+            if value_type is factory_type or not subclass or (value_type.pointer_depth and not value_type.is_nullable):
+                statements.append(
+                    self._objective_c_null_guard(
+                        IRVar(parameter.name), f"Objective-C call {descriptor.name}: null argument {parameter.name}"
+                    )
+                )
         releases = []
         cleanup = self._native_cleanup_scope(parameters, statements)
-        receiver_type = TypeExpr(base=declaration.name, pointer_depth=1)
-        leased = self._native_lease(0, receiver_type, IRVar("self"), parameters, statements, releases)
+        arguments = [IRVar(parameter.name) for parameter in parameters]
+        leased_types = []
+        for index, value_type in enumerate(argument_types):
+            info = self._analyzed.class_table.get(value_type.base)
+            if index != callback.parameter_index or not subclass:
+                if info is not None and info.native_language:
+                    arguments[index] = self._native_lease(
+                        index, value_type, arguments[index], parameters, statements, releases
+                    )
+                    leased_types.append(value_type)
         root_slot = IRVarDecl(
             CType(self._types.render(factory_root)),
             "root",
-            init=IRCall(f"{factory_symbol}_new", [IRVar(parameters[1 + callback.parameter_index].name)]),
+            init=IRCall(
+                f"{factory_symbol}_new",
+                [IRVar(parameters[callback.parameter_index + (0 if subclass else 1)].name)],
+            ),
         )
+        adapter_arguments = [
+            *([] if subclass else [arguments[0]]),
+            *[IRFunctionRef(invoke) for invoke in invokers],
+            IRFunctionRef(creator),
+            *[IRFunctionRef(invoke) for invoke in class_invokers],
+            IRCast(CType("void*"), IRVar(root_slot.name)),
+            IRFunctionRef(prefix + "_retain"),
+            IRFunctionRef(prefix + "_release"),
+            IRFunctionRef(prefix + "_receiver_retain"),
+            IRFunctionRef(prefix + "_receiver_release"),
+            *(arguments[1:] if subclass else []),
+            *([IRAddressOf(IRVar("nativeResult"))] if subclass else []),
+        ]
         statements.extend(
             [
                 root_slot,
                 IRExprStmt(self._lifetime.register_cleanup_slot(root_slot, factory_root)),
-                IRExprStmt(
-                    IRCall(
-                        prefix,
-                        [
-                            leased,
-                            *[IRFunctionRef(invoke) for invoke in invokers],
-                            IRFunctionRef(creator),
-                            IRCast(CType("void*"), IRVar(root_slot.name)),
-                            IRFunctionRef(prefix + "_retain"),
-                            IRFunctionRef(prefix + "_release"),
-                            IRFunctionRef(prefix + "_receiver_retain"),
-                            IRFunctionRef(prefix + "_receiver_release"),
-                        ],
-                    )
-                ),
+                IRExprStmt(IRCall(prefix, adapter_arguments)),
             ]
         )
+        if subclass:
+            statements.append(IRExprStmt(self._lifetime.register_cleanup_slot(statements[0], method.return_type)))
         release_locals = []
         root_release = self._lifetime.release_and_clear(
             IRVar(root_slot.name), factory_root, release_locals, self._types.render(factory_root)
         )
         statements.extend([*release_locals, *[IRExprStmt(value) for value in root_release], *releases])
-        flush = self._lifetime.flush_release_batch(type_exprs=[receiver_type])
+        flush = self._lifetime.flush_release_batch(type_exprs=leased_types)
         if flush is not None:
             statements.append(IRExprStmt(flush))
         statements.extend(cleanup)
+        if subclass:
+            if not method.return_type.is_nullable:
+                statements.append(
+                    self._objective_c_null_guard(
+                        IRVar("nativeResult"), f"Objective-C call {descriptor.name}: null result"
+                    )
+                )
+            statements.append(IRReturn(IRVar("nativeResult")))
         name = f"{declaration.name}_{method.name}"
-        result_type = CType(self._types.render(method.return_type))
         module.function_decls.append(
             IRFunctionDecl(name=name, return_type=result_type, params=parameters, is_static=True)
         )
@@ -6062,6 +6232,105 @@ class FunctionLowerer:
                 name=name, return_type=result_type, params=parameters, is_static=True, body=IRBlock(statements)
             )
         )
+
+    def _subclass_class_invoker(self, prefix, index, projection, factory_root, native):
+        """Enter the rooted factory for one class override and resolve the class it names.
+
+        The factory's method returns the runtime name of an Objective-C class.
+        The Objective-C unit resolves it with objc_lookUpClass and terminates
+        when no class answers; the name is released here.
+        """
+        lookup = f"{prefix}_class{index}_lookUp"
+        for header in ("objc/runtime.h", "stdio.h"):
+            include = IRInclude(header=header)
+            if include not in native.preprocessor_decls:
+                native.preprocessor_decls.append(include)
+        name, value = IRVar("name"), IRVar("value")
+        message = f"Objective-C override {projection.native_method.name} names no Objective-C class: %s\n"
+        lookup_parameters = [IRParam(CType("const char*"), name.name)]
+        native.function_defs.append(
+            IRFunctionDef(
+                lookup,
+                CType("void*"),
+                lookup_parameters,
+                IRBlock(
+                    [
+                        IRVarDecl(CType("Class"), value.name, init=IRCall("objc_lookUpClass", [name])),
+                        IRIf(
+                            IRBinOp(value, "==", IRLiteral("Nil")),
+                            IRBlock(
+                                [
+                                    IRExprStmt(
+                                        IRCall("fprintf", [IRVar("stderr"), IRLiteral(json.dumps(message)), name])
+                                    ),
+                                    IRExprStmt(IRCall("abort", [], never_returns=True)),
+                                ]
+                            ),
+                        ),
+                        IRReturn(IRCast(CType("void*"), value, bridge="borrow")),
+                    ]
+                ),
+            )
+        )
+        self._session.module.function_decls.append(IRFunctionDecl(lookup, CType("void*"), lookup_parameters))
+        factory_type = factory_root.generic_args[0]
+        factory_symbol = self._types.render(factory_root).removesuffix("*").strip()
+        text_type = TypeExpr(base="string")
+        parameters = [IRParam(CType("void*"), "rawFactory")]
+        body = []
+        cleanup = self._native_cleanup_scope(parameters, body)
+        context = IRCast(CType(self._types.render(factory_root)), IRVar("rawFactory"))
+        factory_slot = IRVarDecl(
+            CType(self._types.render(factory_type)), "factory", init=IRCall(f"{factory_symbol}_enter", [context])
+        )
+        name_slot = IRVarDecl(CType(self._types.render(text_type)), name.name, init=IRLiteral("NULL"))
+        factory = IRVar(factory_slot.name)
+        body.extend(
+            [
+                factory_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(factory_slot, factory_type)),
+                name_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(name_slot, text_type)),
+                IRIf(
+                    factory,
+                    IRBlock(
+                        [
+                            IRAssign(name, IRCall(f"{projection.interface}_{projection.method_name}", [factory])),
+                            IRExprStmt(IRCall(f"{factory_symbol}_leave", [context])),
+                        ]
+                    ),
+                ),
+                self._native_null_guard(
+                    name, f"Objective-C override {projection.native_method.name} returned no class name"
+                ),
+                IRVarDecl(CType("void*"), "type", init=IRCall(lookup, [name])),
+            ]
+        )
+        release_locals = []
+        releases = [
+            *self._lifetime.release_and_clear(name, text_type, release_locals, self._types.render(text_type)),
+            *self._lifetime.release_and_clear(factory, factory_type, release_locals, self._types.render(factory_type)),
+        ]
+        body.extend(
+            [
+                *release_locals,
+                *[IRExprStmt(item) for item in releases],
+                *cleanup,
+                *self._exceptions.pop_try_frames(1),
+                IRReturn(IRVar("type")),
+            ]
+        )
+        thunk = f"{prefix}_class{index}"
+        self._session.module.function_defs.append(
+            IRFunctionDef(
+                name=thunk,
+                return_type=CType("void*"),
+                params=parameters,
+                is_static=True,
+                body=self._exceptions.native_callback_boundary(IRBlock(body)),
+            )
+        )
+        return thunk
 
     def _stored_activation_failure(self, callback, context_symbol, context, message):
         if callback.activation_failure == "abort":
@@ -6181,6 +6450,93 @@ class FunctionLowerer:
         self._session.module.function_defs.append(
             IRFunctionDef(name, result_type, parameters, IRBlock(statements), is_static=True)
         )
+
+    def _objective_c_error_call(self, native, call, method, result_type, record_return, returns_value):
+        """An adapter body whose method reports failure through its NSError** output (F1).
+
+        The SDK writes the adapter's own error. A nil error is success: the
+        result is stored as usual. A non-nil error copies its message into
+        the caller's buffer and returns status 2; ARC releases the result and
+        the pool the error before the caller throws.
+        """
+        native_error = IRVar("nativeError")
+        body = [IRVarDecl(CType("NSError*"), native_error.name, init=IRLiteral("nil"))]
+        value = None
+        if returns_value:
+            info = self._analyzed.class_table.get(method.return_type.base)
+            managed = info is not None and bool(info.native_language)
+            spelling = (
+                self._objective_c_object_type(method.return_type.base)
+                if managed
+                else CType(record_return.source_file.type_spelling)
+                if record_return is not None
+                else result_type
+            )
+            body.append(IRVarDecl(spelling, "sdkValue", init=call))
+            value = IRVar("sdkValue")
+            if managed:
+                value = IRCast(result_type, value, bridge="retain")
+            elif record_return is not None:
+                value = self._objective_c_value(method.return_type, value, to_native=False)
+        else:
+            body.append(IRExprStmt(call))
+        body.append(
+            IRIf(
+                IRBinOp(native_error, "!=", IRLiteral("nil")),
+                IRBlock(
+                    [
+                        IRExprStmt(
+                            IRCall(self._emit_objective_c_error_message(native), [native_error, IRVar("nativeMessage")])
+                        ),
+                        IRReturn(IRLiteral("2")),
+                    ]
+                ),
+            )
+        )
+        if value is not None:
+            body.append(IRAssign(IRDeref(IRVar("nativeResult")), value))
+        body.append(IRReturn(IRLiteral("0")))
+        return body
+
+    def _emit_objective_c_error_message(self, native):
+        """One message writer per Objective-C unit: "NSError: " and the error's localizedDescription.
+
+        The caller's buffer holds the runtime's 1,023 message bytes; the UTF-8
+        description is cut at a character boundary to fit.
+        """
+        name = "__btrc_objc_error_message"
+        if any(function.name == name for function in native.function_defs):
+            return name
+        include = IRInclude(header="string.h")
+        if include not in native.preprocessor_decls:
+            native.preprocessor_decls.append(include)
+        prefix = "NSError: "
+        error, message, text, used = IRVar("error"), IRVar("message"), IRVar("text"), IRVar("used")
+        start = IRBinOp(message, "+", IRLiteral(str(len(prefix))))
+        body = [
+            IRExprStmt(IRCall("memcpy", [message, IRLiteral(json.dumps(prefix)), IRLiteral(str(len(prefix)))])),
+            IRVarDecl(CType("NSString*"), text.name, init=IRObjectiveCMessage(error, "localizedDescription", [])),
+            IRVarDecl(CType("NSUInteger"), used.name, init=IRLiteral("0")),
+            IRExprStmt(
+                IRObjectiveCMessage(
+                    text,
+                    "getBytes:maxLength:usedLength:encoding:options:range:remainingRange:",
+                    [
+                        start,
+                        IRLiteral(str(1023 - len(prefix))),
+                        IRAddressOf(used),
+                        IRVar("NSUTF8StringEncoding"),
+                        IRLiteral("0"),
+                        IRCall("NSMakeRange", [IRLiteral("0"), IRObjectiveCMessage(text, "length", [])]),
+                        IRLiteral("NULL"),
+                    ],
+                )
+            ),
+            IRAssign(IRIndex(message, IRBinOp(IRLiteral(str(len(prefix))), "+", used)), IRLiteral("'\\0'")),
+        ]
+        parameters = [IRParam(CType("NSError*"), error.name), IRParam(CType("char*"), message.name)]
+        native.function_defs.append(IRFunctionDef(name, CType("void"), parameters, IRBlock(body), is_static=True))
+        return name
 
     def _emit_objective_c_kind_test(self, native):
         """One isKindOfClass: test per Objective-C unit, naming the class by its runtime name.

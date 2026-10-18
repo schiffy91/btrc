@@ -592,6 +592,11 @@ class NativeInstantiatedProjection:
     gives each instance its own receiver, released after the terminal method
     (methods[terminal_index]) or at dealloc (native-interop-ownership.md
     section 2.2).
+
+    A subclass adapter (`initializer` set) extends `superclass`: BTRC calls the
+    superclass's designated initializer with a factory, `methods` also holds
+    the instance overrides, and `class_methods` the class overrides, which the
+    factory answers.
     """
 
     interface: str
@@ -604,6 +609,10 @@ class NativeInstantiatedProjection:
     field: str = ""
     terminal_index: int = -1
     factory: str = ""
+    superclass: str = ""
+    initializer: NativeObjectiveCMethod | None = None
+    initializer_parameters: tuple[str, ...] = ()
+    class_methods: tuple[NativeCallbackProjection, ...] = ()
 
     @property
     def parameter_interface(self):
@@ -859,6 +868,9 @@ class NativeCallContract:
     java_member: NativeJavaMember | None = None
     com_interface: NativeComInterface | None = None
     com_sink: NativeComSink | None = None
+    # Native parameter positions of an Objective-C method's NSError**
+    # error-outputs; the BTRC method omits them (F1).
+    error_outputs: tuple[int, ...] = ()
 
     @property
     def returns_owned(self):
@@ -1038,6 +1050,7 @@ class NativeDeclarationImporter:
         self._copied_outputs = {}
         self._com_binding = False
         self._com_tables = {}
+        self._error_outputs = set()
 
     @staticmethod
     def _reader_identity(reader: str) -> tuple[str, str] | None:
@@ -1061,11 +1074,12 @@ class NativeDeclarationImporter:
             for operation in (
                 (callback.slot_getter, callback.action_setter, callback.action_getter, *callback.methods)
                 if callback.slot_getter
-                else callback.methods
+                else (*callback.methods, *callback.overrides)
                 if callback.lifetime == "instantiated"
                 else (callback.unregister,)
             )
-            if operation
+            # A subclass adapter's own initializer is imported, as its constructor.
+            if operation and (callback.lifetime != "instantiated" or operation != callback.parameter.rsplit(".", 1)[0])
         }
         for binding in plan.bindings:
             for callback in binding.callbacks:
@@ -1111,6 +1125,7 @@ class NativeDeclarationImporter:
             self._borrows = set(binding.read_only_borrows)
             self._realtime = set(binding.realtime_safe)
             self._callbacks = {callback.parameter: callback for callback in binding.callbacks}
+            self._error_outputs = set(binding.error_outputs)
             self._main_thread_globals = set(binding.main_thread_globals)
             self._static_globals = set(binding.static_globals)
             self._resource_parameters = dict(binding.resource_parameters)
@@ -1176,6 +1191,10 @@ class NativeDeclarationImporter:
                     raise NativeImportError("status-results names an unknown dispatched method")
                 if self._copied_outputs:
                     raise NativeImportError("copied-outputs names an unknown dispatched method parameter")
+                if self._error_outputs:
+                    raise NativeImportError(
+                        f"error-outputs names an unknown Objective-C method parameter: {sorted(self._error_outputs)[0]}"
+                    )
                 if self._variadic_calls:
                     raise NativeImportError("variadic-calls names an unknown function or parameter")
                 if self._borrows:
@@ -3479,18 +3498,21 @@ class NativeDeclarationImporter:
             binding.interface, index, declaration, binding.activation_failure, getter, protocol, methods
         )
 
-    def _protocol_methods(self, binding, index, protocol, *, object_results=False):
+    def _protocol_methods(self, binding, index, protocol, *, object_results=False, overrides=()):
         """Project the selected protocol methods into the binding's interface.
 
         Every method must be a non-consuming instance requirement of
         `protocol`; an empty `protocol` takes the first method's protocol.
         Instantiated adapters may also return managed Objective-C objects
         (`object_results`): the receiver's claim is transferred to the SDK.
+        A subclass adapter's checked instance `overrides` join the same
+        interface after the protocol methods.
         """
         methods = []
         names = set()
         signatures = []
         identities = []
+        selected = []
         for symbol in binding.methods:
             method = self._callback_exports.get(symbol)
             if not protocol and isinstance(method, NativeObjectiveCMethod) and method.protocol_owner:
@@ -3509,6 +3531,8 @@ class NativeDeclarationImporter:
                 raise NativeImportError(
                     f"delegate method requires a non-consuming instance method of {protocol or 'one protocol'}: {symbol}"
                 )
+            selected.append(method)
+        for method in (*selected, *overrides):
             name = method.selector.split(":", 1)[0]
             if name in names:
                 raise NativeImportError(f"ambiguous delegate method projection: {name}")
@@ -3618,7 +3642,14 @@ class NativeDeclarationImporter:
         if isinstance(native, (NativeBuiltin, NativeAlias)):
             return native.name
         if isinstance(native, NativeObjectiveCObject):
-            return f"{native.name}*" if native.name and native.name != "id" else "id"
+            # The SDK's own type arguments, so a generated implementation
+            # matches its declaration although BTRC erases them.
+            arguments = (
+                f"<{', '.join(self._block_type_spelling(value) for value in native.type_arguments)}>"
+                if native.type_arguments
+                else ""
+            )
+            return f"{native.name}{arguments}*" if native.name and native.name != "id" else "id"
         if isinstance(native, NativeEnumType) and native.name:
             return f"enum {native.name}"
         raise NativeImportError("anonymous native block scalar requires a named SDK type")
@@ -6262,15 +6293,14 @@ class NativeDeclarationImporter:
             return self._objective_c_value(original)
         name = related_owner or native.name
         opaque_token = cancellation_token and name in {"", "id"}
-        unbounded_arguments = all(
-            isinstance(argument := self._unqualified_native(value), NativeObjectiveCObject)
-            and argument.name in {"", "id"}
-            and not argument.class_object
-            and not argument.protocols
-            and not argument.type_arguments
-            for value in native.type_arguments
-        )
-        if native.class_object or (native.protocols and not opaque_token) or not unbounded_arguments or name == "Class":
+        # Lightweight generics are erased to their bound: NSArray<NSString *> *
+        # is NSArray, whose elements are its type parameter's bound (id), as
+        # the reader reports them. Only object type arguments exist.
+        if any(
+            not isinstance(self._unqualified_native(value), NativeObjectiveCObject) for value in native.type_arguments
+        ):
+            raise NativeImportError("Objective-C protocol/generic/dynamic objects require managed native lowering")
+        if native.class_object or (native.protocols and not opaque_token) or name == "Class":
             raise NativeImportError("Objective-C protocol/generic/dynamic objects require managed native lowering")
         # Unqualified id is a managed object with no statically callable methods,
         # not a void pointer and not an assertion that it inherits NSObject.
@@ -6299,21 +6329,29 @@ class NativeDeclarationImporter:
             or any(parameter.cf_consumed or parameter.ns_consumed for parameter in declaration.parameter_semantics)
         ):
             raise NativeImportError("Objective-C instance/ownership calls require managed native lowering")
+        subclass = self._callbacks.pop(f"{declaration.name}.self", None)
+        if subclass is not None:
+            self._import_objective_c_subclass(declaration, subclass, initializer)
+            return
+        errors = self._objective_c_error_outputs(declaration)
         callbacks = self._project_callbacks(declaration)
         if initializer and callbacks:
             raise NativeImportError("Objective-C initializer callbacks require an explicit publication contract")
+        if errors and callbacks:
+            raise NativeImportError(f"error-outputs require a method without callback parameters: {declaration.name}")
         stored = [callback for callback in callbacks if callback.unregister is not None]
         opaque_token = bool(
             stored
             and stored[0].unregister.signature.parameters
             and self._unqualified_native(stored[0].unregister.signature.parameters[0]).name in {"", "id"}
         )
-        contract = NativeCallContract(callbacks=callbacks, objective_c_method=declaration)
+        contract = NativeCallContract(callbacks=callbacks, objective_c_method=declaration, error_outputs=errors)
         projected = {callback.parameter_index: callback for callback in callbacks}
-        # The compiler supplies a control action's selector itself.
+        # The compiler supplies a control action's selector itself, and the
+        # adapter its own NSError** output.
         hidden = {
             callback.action_index for callback in callbacks if isinstance(callback, NativeControlActionProjection)
-        }
+        } | set(errors)
         name = declaration.selector.split(":", 1)[0]
         method = ast.MethodDecl(
             access="class" if declaration.class_method or initializer else "public",
@@ -6370,6 +6408,211 @@ class NativeDeclarationImporter:
             if previous != contract:
                 raise NativeImportError(f"ambiguous Objective-C method projection {declaration.receiver}.{name}")
             return
+        owner.source_file.methods[name] = contract
+        owner.members.append(method)
+
+    def _objective_c_error_outputs(self, declaration):
+        """The native positions of the NSError** parameters error-outputs maps (F1).
+
+        The adapter supplies each such output itself, so the BTRC method omits
+        it; an NSError** parameter that error-outputs does not map has no BTRC
+        projection.
+        """
+        names = [parameter.name for parameter in declaration.parameter_semantics]
+        prefix = declaration.name + "."
+        for key in sorted(self._error_outputs):
+            if key.startswith(prefix) and key.removeprefix(prefix) not in names:
+                raise NativeImportError(f"error-outputs names an unknown Objective-C method parameter: {key}")
+        positions = []
+        for position, (name, native) in enumerate(zip(names, declaration.signature.parameters, strict=True)):
+            key = prefix + name
+            mapped = key in self._error_outputs
+            self._error_outputs.discard(key)
+            shape = self._error_output_shape(native)
+            if mapped and shape != "output":
+                raise NativeImportError(f"error-outputs require an NSError** parameter of an Objective-C method: {key}")
+            if shape and not mapped:
+                raise NativeImportError(f"NSError** parameters require error-outputs: {declaration.name}")
+            if mapped:
+                positions.append(position)
+        if len(positions) > 1:
+            raise NativeImportError(f"error-outputs take one NSError** parameter per method: {declaration.name}")
+        return tuple(positions)
+
+    def _error_output_shape(self, native):
+        """ "output" for an unqualified NSError**, "other" for another NSError** form, else ""."""
+        qualified = False
+        while isinstance(native, (NativeAlias, NativeQualifiedType)):
+            qualified |= native.qualifiers.is_const or native.qualifiers.is_volatile or native.qualifiers.is_restrict
+            native = native.underlying
+        if not isinstance(native, NativePointer):
+            return ""
+        qualified |= native.qualifiers.is_const or native.qualifiers.is_volatile or native.qualifiers.is_restrict
+        error = native.pointee
+        nullability = "unannotated"
+        while isinstance(error, (NativeAlias, NativeQualifiedType)):
+            qualified |= error.qualifiers.is_const or error.qualifiers.is_volatile or error.qualifiers.is_restrict
+            if error.qualifiers.nullability != "unannotated":
+                nullability = error.qualifiers.nullability
+            error = error.underlying
+        if not isinstance(error, NativeObjectiveCObject) or error.name != "NSError":
+            return ""
+        if error.qualifiers.nullability != "unannotated":
+            nullability = error.qualifiers.nullability
+        if (
+            qualified
+            or error.class_object
+            or error.protocols
+            or error.type_arguments
+            or nullability not in {"unannotated", "nullable"}
+            or native.qualifiers.nullability not in {"unannotated", "nullable"}
+        ):
+            return "other"
+        return "output"
+
+    def _import_objective_c_subclass(self, declaration, binding, initializer):
+        """A generated subclass of an SDK class, created by BTRC through the superclass's designated initializer.
+
+        The key maps the initializer's implicit self (`-[UIView
+        initWithFrame:].self`). Instance overrides and protocol methods join
+        the receiver interface; class overrides, which must return Class, join
+        I<Interface>Factory beside create() and return the runtime name of an
+        Objective-C class. The initializer becomes a class method that takes
+        the factory first and returns the new instance (native-interop-ownership.md
+        section 2.2).
+        """
+        if (
+            not isinstance(declaration, NativeObjectiveCMethod)
+            or not initializer
+            or declaration.protocol_owner
+            or not declaration.designated_initializer
+        ):
+            raise NativeImportError(
+                f"subclass adapters require a designated initializer of their superclass: {declaration.name}"
+            )
+        superclass = binding.superclass
+        if declaration.receiver != superclass:
+            raise NativeImportError(f"subclass adapter superclass must be the initializer's class: {declaration.name}")
+        interface = self._interfaces.get(superclass)
+        if interface is None or not interface.complete:
+            raise NativeImportError(f"subclass adapters require a complete superclass interface: {superclass}")
+        if any(key.startswith(declaration.name + ".") for key in self._callbacks) or any(
+            key.startswith(declaration.name + ".") for key in self._error_outputs
+        ):
+            raise NativeImportError(f"subclass adapter initializers take no other mapping: {declaration.name}")
+        instance_overrides = []
+        class_overrides = []
+        for symbol in binding.overrides:
+            method = self._callback_exports.get(symbol)
+            if not isinstance(method, NativeObjectiveCMethod) or method.protocol_owner or method.receiver != superclass:
+                raise NativeImportError(f"overrides require a method of the superclass {superclass}: {symbol}")
+            if method.method_family != "none":
+                raise NativeImportError(
+                    f"overrides cannot name an initializer, allocator, copy or dealloc method: {symbol}"
+                )
+            if (
+                method.signature.variadic
+                or method.consumes_self
+                or method.returns_inner_pointer
+                or method.returned_ownership != "unspecified"
+                or any(parameter.cf_consumed or parameter.ns_consumed for parameter in method.parameter_semantics)
+            ):
+                raise NativeImportError(f"overrides require a non-consuming, non-variadic method: {symbol}")
+            result = self._unqualified_native(method.signature.return_type)
+            if method.class_method:
+                if (
+                    method.signature.parameters
+                    or not isinstance(result, NativeObjectiveCObject)
+                    or not result.class_object
+                    or result.protocols
+                ):
+                    raise NativeImportError(
+                        f"class-method overrides require a Class result and no parameters: {symbol}"
+                    )
+                class_overrides.append(method)
+            elif not (isinstance(result, NativeBuiltin) and result.name == "void") and method.requires_super:
+                raise NativeImportError(f"overrides that require super must return void: {symbol}")
+            else:
+                instance_overrides.append(method)
+            if method.class_method and method.requires_super:
+                raise NativeImportError(f"overrides that require super must return void: {symbol}")
+        protocol = ""
+        if binding.methods:
+            first = self._callback_exports.get(binding.methods[0])
+            protocol = first.receiver if isinstance(first, NativeObjectiveCMethod) and first.protocol_owner else ""
+        methods = self._protocol_methods(binding, 0, protocol, object_results=True, overrides=instance_overrides)
+        terminal = -1
+        if binding.terminal:
+            terminal_method = self._callback_exports.get(binding.terminal)
+            terminal = next(
+                (position for position, method in enumerate(methods) if method.native_method == terminal_method), -1
+            )
+            if terminal < 0:
+                raise NativeImportError(f"terminal must name an instance method: {binding.terminal}")
+        factory = binding.interface + "Factory"
+        names = {"create"}
+        signatures = [ast.MethodSig(name="create", return_type=ast.TypeExpr(base=binding.interface), params=[])]
+        identities = []
+        class_methods = []
+        for method in class_overrides:
+            name = method.selector
+            if name in names:
+                raise NativeImportError(f"ambiguous delegate method projection: {name}")
+            names.add(name)
+            text = ast.TypeExpr(base="string")
+            signatures.append(ast.MethodSig(name=name, return_type=text, params=[]))
+            identities.append(name)
+            class_methods.append(
+                NativeCallbackProjection(
+                    factory,
+                    0,
+                    -1,
+                    0,
+                    (ast.TypeExpr(base="void", pointer_depth=1),),
+                    text,
+                    (),
+                    "Class",
+                    method_name=name,
+                    native_method=method,
+                )
+            )
+        self._add(
+            factory,
+            ast.InterfaceDecl(name=factory, methods=signatures),
+            ("instantiated-factory", binding.interface, tuple(identities)),
+        )
+        projection = NativeInstantiatedProjection(
+            binding.interface,
+            0,
+            protocol,
+            binding.scope,
+            methods,
+            terminal_index=terminal,
+            factory=factory,
+            superclass=superclass,
+            initializer=declaration,
+            initializer_parameters=tuple(
+                self._block_type_spelling(parameter) for parameter in declaration.signature.parameters
+            ),
+            class_methods=tuple(class_methods),
+        )
+        name = declaration.selector.split(":", 1)[0]
+        method = ast.MethodDecl(
+            access="class",
+            name=name,
+            return_type=self._objective_c_type(declaration.signature.return_type, related_owner=declaration.receiver),
+            params=[
+                ast.Param(type=ast.TypeExpr(base=factory), name="factory"),
+                *[
+                    ast.Param(type=self._objective_c_type(native, parameter=True), name=f"argument{index}")
+                    for index, native in enumerate(declaration.signature.parameters)
+                ],
+            ],
+        )
+        contract = NativeCallContract(callbacks=(projection,), objective_c_method=declaration)
+        owner = self._objective_c_class(declaration.receiver)
+        if name in owner.source_file.methods:
+            raise NativeImportError(f"ambiguous Objective-C method projection {declaration.receiver}.{name}")
         owner.source_file.methods[name] = contract
         owner.members.append(method)
 
