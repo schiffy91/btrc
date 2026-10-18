@@ -117,10 +117,12 @@ def _simulator() -> str:
     return udid
 
 
-def _project(root: Path, manifest: str = MANIFEST, program: str = PROGRAM) -> Path:
+def _project(
+    root: Path, manifest: str = MANIFEST, program: str = PROGRAM, header: str = "#import <UIKit/UIKit.h>\n"
+) -> Path:
     (root / "src").mkdir(parents=True)
     (root / "btrc.toml").write_text(manifest, encoding="utf-8")
-    (root / "UIKitBinding.h").write_text("#import <UIKit/UIKit.h>\n", encoding="utf-8")
+    (root / "UIKitBinding.h").write_text(header, encoding="utf-8")
     (root / "src/UIKit.btrc").write_text("// Native wrapper module.\n", encoding="utf-8")
     source = root / "src/Main.btrc"
     source.write_text(program, encoding="utf-8")
@@ -576,6 +578,114 @@ def test_uikit_scene_lifecycle_runs_through_btrc(frontend, tmp_path: Path, reque
     )
     output = _launch(
         frontend, root, source, f"{BUNDLE_IDENTIFIER}.scenes.{frontend}", btrcc, sdk, manifest, expected=expected
+    )
+    for line in expected:
+        assert line in output, output
+
+
+# A UIView subclass that hosts a CAMetalLayer (subclass adapters, interop step
+# 6): +layerClass names CAMetalLayer through the BTRC factory, -layoutSubviews
+# reaches the BTRC receiver, and the NS_REQUIRES_SUPER -updateConstraints sends
+# super after it. The scene's window shows the view.
+VIEW_MANIFEST = SCENE_MANIFEST.replace(
+    'symbols = ["UIApplicationMain", ',
+    'symbols = ["-[UIView initWithFrame:]", "+[UIView layerClass]", "-[UIView layoutSubviews]", '
+    '"-[UIView updateConstraints]", "-[UIView layer]", "-[UIView setNeedsLayout]", "-[UIView layoutIfNeeded]", '
+    '"-[UIView setNeedsUpdateConstraints]", "-[UIView updateConstraintsIfNeeded]", "-[UIWindow addSubview:]", '
+    '"-[UIWindow bounds]", "-[CAMetalLayer pixelFormat]", "UIApplicationMain", ',
+).replace(
+    "[[native.frameworks]]",
+    """[native.bindings.callbacks."-[UIView initWithFrame:].self"]
+interface = "IMetalView"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+superclass = "UIView"
+overrides = ["+[UIView layerClass]", "-[UIView layoutSubviews]", "-[UIView updateConstraints]"]
+[[native.frameworks]]
+name = "QuartzCore"
+os = ["ios"]
+[[native.frameworks]]""",
+    1,
+)
+
+VIEW_PROGRAM = """import Library.Callback;
+import ./UIKit.btrc;
+#include <stdio.h>
+#include <stdlib.h>
+int layouts = 0;
+int constraints = 0;
+class MetalView implements IMetalView {
+	public void layoutSubviews() { layouts++; }
+	public void updateConstraints() { constraints++; }
+}
+class MetalViews implements IMetalViewFactory {
+	public IMetalView create() { return MetalView(); }
+	public string layerClass() { return "CAMetalLayer"; }
+}
+class Scene implements ISceneDelegate {
+	private UIWindow? window = null;
+	private UIView? view = null;
+	public void scene(UIScene scene, UISceneSession session, UISceneConnectionOptions options) {
+		UIWindowScene? windowScene = (UIWindowScene?)scene;
+		if (windowScene == null) { exit(4); }
+		UIWindow window = UIWindow.initWithWindowScene(windowScene);
+		UIView view = UIView.initWithFrame(MetalViews(), window.bounds());
+		window.addSubview(view);
+		window.makeKeyAndVisible();
+		CAMetalLayer? layer = (CAMetalLayer?)view.layer();
+		view.setNeedsUpdateConstraints();
+		view.updateConstraintsIfNeeded();
+		view.setNeedsLayout();
+		view.layoutIfNeeded();
+		int format = -1;
+		if (layer != null) { format = (int)layer.pixelFormat(); }
+		printf("btrc-view metal=%d layouts=%d\\n", (int)(layer != null), (int)(layouts > 0));
+		printf("btrc-view constraints=%d format=%d\\n", constraints, format);
+		fflush(stdout);
+		self.window = window;
+		self.view = view;
+	}
+	public void sceneDidBecomeActive(UIScene scene) {
+		printf("btrc-view active\\n");
+		fflush(stdout);
+		exit(0);
+	}
+	public void sceneDidDisconnect(UIScene scene) {
+		self.view = null;
+		self.window = null;
+	}
+}
+class Scenes implements ISceneDelegateFactory {
+	public ISceneDelegate create() { return Scene(); }
+}
+class Application implements IApplicationDelegate {
+	public void applicationDidFinishLaunching(UIApplication application) {}
+	public UISceneConfiguration application(UIApplication application, UISceneSession session, UISceneConnectionOptions options) {
+		UISceneConfiguration configuration = UISceneConfiguration.configurationWithName(null, session.role());
+		configuration.setDelegateClass(Scenes());
+		return configuration;
+	}
+}
+int main(int argc, char** argv) { return UIApplicationMain(argc, argv, null, Application()); }
+"""
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_uikit_metal_view_subclass_runs_through_btrc(frontend, tmp_path: Path, request) -> None:
+    """A generated UIView subclass whose +layerClass is CAMetalLayer, shown in the scene's window."""
+    sdk = _sdk()
+    if sdk is None:
+        pytest.skip("the iphonesimulator SDK is Mac-bound (xcrun)")
+    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+    root = tmp_path / "project"
+    header = "#import <UIKit/UIKit.h>\n#import <QuartzCore/CAMetalLayer.h>\n"
+    source = _project(root, VIEW_MANIFEST, VIEW_PROGRAM, header)
+    manifest = {"UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False}}
+    expected = ("btrc-view metal=1 layouts=1", "btrc-view active")
+    output = _launch(
+        frontend, root, source, f"{BUNDLE_IDENTIFIER}.metal.{frontend}", btrcc, sdk, manifest, expected=expected
     )
     for line in expected:
         assert line in output, output

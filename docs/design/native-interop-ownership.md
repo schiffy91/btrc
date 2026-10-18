@@ -63,8 +63,49 @@ implemented in both compilers today and documented there.
     window key and visible (`test_native_uikit_application.py`). That is
     simulator evidence, not device evidence; the 100-cycle connect/disconnect
     exit row needs multiple-scene support and is still open.
-- Still owed for step 6: `superclass`/`overrides`, `error-outputs`,
-  lightweight-generic erasure, and the step-6 exit rows that depend on them.
+- Step 6's subclass slice (2026-10-18) is implemented in both compilers:
+  - `superclass` and `overrides` on an instantiated adapter keyed by the
+    implicit `self` of the superclass's designated initializer
+    (`-[UIView initWithFrame:].self`). BTRC creates the instance there: the
+    initializer becomes a class method that takes `I<Interface>Factory` and
+    returns the object, and the generated subclass overrides that initializer,
+    sending it to super before claiming a receiver from `create()`. Instance
+    overrides join the receiver interface; class overrides, which must return
+    `Class`, join the factory, the class's receiver, and return a runtime class
+    name that `objc_lookUpClass` resolves, because BTRC holds no class objects
+    and UIKit asks `+layerClass` inside `[super initWithFrame:]`. `terminal` is
+    optional there; without it the receiver is released at `-dealloc`
+    (package-manifest.md, "Objective-C subclass adapters").
+  - The reader's two facts are on `NativeObjectiveCMethod`, relative to the
+    selected class: `designated_initializer` (Clang's
+    `isDesignatedInitializer` on the receiver, so a class that introduces no
+    initializer inherits its superclass's set) and `requires_super`
+    (`ObjCRequiresSuperAttr` on the nearest declaration, the one Clang's own
+    missing-super warning reads). They are optional fields within
+    `btrc.native-declarations.v3`, as `protocol_owner` and `optional` are, so
+    no schema bump. A `requires_super` override sends super after the
+    receiver returns, also without a receiver, and must return void.
+  - `error-outputs` for an `NSError**` parameter of an Objective-C method
+    (F1): the adapter passes its own error, a nil error is success, and a
+    non-nil one throws `"NSError: " + localizedDescription` after the
+    adapter's pool drains. An unmapped `NSError**` parameter is rejected
+    (package-manifest.md, "Objective-C error outputs").
+  - Lightweight generics are erased to their bound for calls, results and
+    callback payloads; generated implementations keep the SDK spelling with
+    its type arguments (package-manifest.md, "Lightweight generics").
+  - A Foundation proxy shaped like `UIView` and a real `NSView` subclass (a
+    `CAMetalLayer` from `-makeBackingLayer`, AppKit's `-layout`,
+    `-updateConstraints` and `-drawRect:`) run through both compilers, plain
+    and with ASan/UBSan (`test_native_objective_c_subclasses.py`), as does
+    `NSFileManager` (`test_native_objective_c_errors.py`). The iOS simulator
+    shows a `UIView` subclass whose layer is a `CAMetalLayer` in a scene's
+    window (`test_native_uikit_application.py`).
+- Still owed for step 6: `superclass` on the SDK-instantiated forms (a
+  `UIResponder` app or scene delegate), `conformsToProtocol:` with protocol
+  handles, `AVAudioSession` interruption notifications on the main queue, the
+  100 scene connect/disconnect cycles, and the device rows (D8). A direct or
+  unavailable superclass method is rejected only by the native compile, since
+  the reader reports neither fact.
 - UIKit controls (2026-10-13) take their targets through additive
   target/action pairs, `addTarget:action:forControlEvents:`, which the AppKit
   setter form cannot express. Both compilers implement this as a stored
@@ -548,6 +589,9 @@ on the iOS simulator test host. The slice adds analysis, not new runtime:
   (`+layerClass`, `-layoutSubviews`).
   - The reader's `requires_super` fact forces the super send.
   - The reader's designated-initializer facts choose the init.
+  - (As implemented: the binding maps the implicit `self` of the designated
+    initializer it names, which BTRC calls with a factory; class overrides
+    return a class name the factory answers. See the implementation status.)
 - `error-outputs` for `NSError**` parameters (F1). A `nil` error is success.
   A non-nil error becomes a btrc exception carrying `localizedDescription`.
 - M3 checked downcasts through `isKindOfClass:` and `conformsToProtocol:`.
@@ -1056,6 +1100,8 @@ native_property = NativeObjectiveCProperty(identifier name, string getter, strin
 
 -- NativeObjectiveCMethod gains three trailing fields:
 --   bool designated_initializer, bool requires_super, bool main_actor
+-- (The first two landed in step 6, as optional v3 fields; main_actor waits
+-- for step 3.)
 
 -- Step 4 (schema v3, landed before step 3): JNI slice
 native_declaration = ...
@@ -1269,8 +1315,14 @@ compare the texts.
 - Property ownership that contradicts the mode: a strong delegate mapped as a
   vacant slot, or a read-only or class property used as a slot.
 - `no_escape` with a stored or one-shot mapping.
-- An override that does not send the `requires_super` call.
-- No usable designated initializer.
+- An override that does not send the `requires_super` call. (As implemented:
+  the generated override always sends it, so a `requires_super` override that
+  returns a value, whose super result has no projection, is rejected.)
+- No usable designated initializer. (As implemented: "subclass adapters
+  require a designated initializer of their superclass".)
+- An override outside the superclass, in the init, alloc, new, copy or
+  dealloc families, or a class override that does not return `Class`.
+- An `NSError**` parameter that `error-outputs` does not map.
 - A duplicate adapter class name.
 - An unmapped object result or generic `id<P>` payload.
 

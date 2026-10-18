@@ -902,8 +902,8 @@ released and stays outside leak accounting, and a second instantiation, or a
 second call of the entry, aborts. Deliveries are admitted only on the thread
 that called the entry; a wrong-thread delivery or a BTRC exception terminates
 at the native boundary. `executor` currently requires `caller` and `failure`
-requires `abort`; `superclass`/`overrides` and lightweight-generic payloads are
-later slices.
+requires `abort`. The generated class extends `NSObject`; a class that extends
+an SDK class is a subclass adapter (below).
 
 A selected method of an instantiated adapter may return a managed Objective-C
 object, as `-[UIApplicationDelegate
@@ -978,6 +978,137 @@ a missing factory, plain and with ASan/UBSan, in both compilers, and the
 rejections. `test_native_uikit_application.py` runs the real UIScene
 life cycle on the iOS simulator; that is simulator evidence, not device
 evidence.
+
+#### Objective-C subclass adapters
+
+A view that hosts a `CAMetalLayer` must subclass the SDK's view class and answer
+methods of that class itself: `+[UIView layerClass]` and `-[UIView
+layoutSubviews]`. BTRC creates such an instance, so the binding maps the
+implicit `self` of the superclass's designated initializer and names the
+superclass and the methods the generated class overrides:
+
+```toml
+symbols = ["-[UIView initWithFrame:]", "+[UIView layerClass]", "-[UIView layoutSubviews]", "-[UIView updateConstraints]", "-[UIView layer]", "-[UIWindow bounds]"]
+
+[native.bindings.callbacks."-[UIView initWithFrame:].self"]
+interface = "IMetalView"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+superclass = "UIView"
+overrides = ["+[UIView layerClass]", "-[UIView layoutSubviews]", "-[UIView updateConstraints]"]
+```
+
+This imports `IMetalView { void layoutSubviews(); void updateConstraints(); }`
+from the instance overrides (after any protocol `methods`, which the class then
+adopts) and `IMetalViewFactory { IMetalView create(); string layerClass(); }`
+from the class overrides. The initializer becomes the class method
+`UIView initWithFrame(IMetalViewFactory factory, CGRect argument0)`:
+
+```btrc
+class MetalView implements IMetalView {
+	public void layoutSubviews() { ... }
+	public void updateConstraints() { ... }
+}
+class MetalViews implements IMetalViewFactory {
+	public IMetalView create() { return MetalView(); }
+	public string layerClass() { return "CAMetalLayer"; }
+}
+UIView view = UIView.initWithFrame(MetalViews(), window.bounds());
+```
+
+- The call roots the factory as `setDelegateClass` does, replacing and
+  releasing a previous one, and sends the initializer to a new instance of the
+  generated subclass. Its override sends the initializer to `super` and then
+  claims a receiver from `create()`, as an instance-scoped adapter's `-init`
+  does. The call returns the new object.
+- An instance override enters the instance's receiver and holds a claim on it
+  for the call. A class override enters the factory, the class's receiver:
+  UIKit asks `+layerClass` inside `[super initWithFrame:]`, before the instance
+  has a receiver. A class override must return `Class` and take no
+  parameters. BTRC cannot hold a class object, so its method returns the
+  runtime name of an Objective-C class, which the generated method resolves
+  with `objc_lookUpClass`; a name no class answers terminates ("Objective-C
+  override +[UIView layerClass] names no Objective-C class: ...").
+- The reader reports `requires_super` for a method whose nearest declaration
+  carries `NS_REQUIRES_SUPER`. Its override sends the same message to `super`
+  after the receiver returns, also when the instance has no receiver
+  (`-updateConstraints` asks for super as its final step). Such an override
+  must return void. Every other override replaces the superclass's
+  implementation.
+- `terminal` is optional and names an instance method; without it the instance
+  releases its receiver at `-dealloc`. A receiver that keeps its own view in a
+  field is a cycle foreign code holds, which only `terminal` or dropping the
+  field breaks.
+- An instance the SDK creates through another initializer (nib decoding's
+  `-initWithCoder:`), and an override the superclass sends inside its own
+  initializer, have no receiver: void overrides do nothing beyond a required
+  super send, and value overrides terminate.
+
+The key's method must be an Objective-C instance initializer of the
+superclass whose reader fact `designated_initializer` holds: one of the
+designated initializers of that class, or of its nearest ancestor when it
+introduces none. `superclass` must be the initializer's class and `scope` must
+be `instance`. Each override must be a selected, non-protocol method of the
+superclass (named on the superclass, inherited methods included) outside the
+init, alloc, new, copy and dealloc families, non-variadic and non-consuming.
+Names may not collide across `methods`, instance overrides, `create` and class
+overrides. `superclass` and `overrides` are rejected on the other instantiated
+forms, whose generated class extends `NSObject`.
+
+`src/tests/python/test_native_objective_c_subclasses.py` covers a Foundation
+proxy shaped like `UIView` (two designated initializers, `+layerClass` asked in
+the initializer, an `NS_REQUIRES_SUPER` method): class and instance overrides,
+an object result, the required super send, a replacement factory, an instance
+from the other initializer, a value override without a receiver, a wrong
+thread, an unknown class name and a null `create()`, plain and with
+ASan/UBSan, in both compilers, plus the rejections. A real `NSView` subclass
+returns a `CAMetalLayer` from `-makeBackingLayer` and receives `-layout`,
+`-updateConstraints` and `-drawRect:` from AppKit. `test_native_uikit_application.py`
+shows a `UIView` subclass whose layer is a `CAMetalLayer` in a scene's window on
+the iOS simulator; that is simulator evidence, not device evidence.
+
+#### Objective-C error outputs
+
+Cocoa reports failure through an `NSError**` parameter. Name it in
+`error-outputs`:
+
+```toml
+error-outputs = ["-[NSFileManager contentsOfDirectoryAtPath:error:].error"]
+```
+
+The parameter disappears from the BTRC method,
+`NSArray? contentsOfDirectoryAtPath(NSString argument0)`. The generated adapter
+passes its own `NSError*`, initially nil, and after the call a nil error is
+success. A non-nil error becomes a BTRC exception, `"NSError: "` followed by the
+error's `localizedDescription` in UTF-8, cut at a character boundary to the
+runtime's 1,023-byte message (F1 in
+[native-interop-ownership.md](../../docs/design/native-interop-ownership.md)).
+The adapter's autorelease pool releases the error and ARC the result before the
+exception starts, and argument leases unwind as it runs. An `NSError**`
+parameter that `error-outputs` does not name is rejected ("NSError**
+parameters require error-outputs"), so a failure is never ignored.
+
+Each entry must name a parameter of a selected Objective-C method whose type
+is a pointer to a nullable `NSError` object, without other qualifiers; a
+method takes at most one, and not together with callback parameters or a
+subclass adapter's initializer. `test_native_objective_c_errors.py` lists a
+directory with `NSFileManager`, lists and removes a missing one, passes a null
+generic attribute dictionary, cuts a long description at a character, and
+throws a thousand probe errors with none left alive, plain and with
+ASan/UBSan, in both compilers, plus the rejections.
+
+#### Lightweight generics
+
+Lightweight generics are erased to their bound, for calls, results and callback
+payloads alike: `NSArray<NSString *> *` is `NSArray`, and a method of the class
+that returns its type parameter (`-[NSArray objectAtIndex:]`'s `ObjectType`)
+returns the parameter's bound, `id` unless the class declares another, as the
+reader reports it. A checked downcast recovers the element class. Generated
+implementations keep the SDK's spelling, type arguments included, so a block
+or override still matches its declaration. Protocol-qualified objects
+(`id<P>`) stay rejected until protocol handles exist.
 
 #### Checked Objective-C downcasts
 
