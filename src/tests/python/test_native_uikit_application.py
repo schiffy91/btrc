@@ -89,14 +89,27 @@ def _sdk() -> str | None:
     return path if result.returncode == 0 and Path(path).is_dir() else None
 
 
+_UNANSWERED_SIMCTL: list[str] = []
+
+
 def _simulator() -> str:
     """A booted iOS simulator, booting the newest available iPhone when none runs.
 
-    The device stays booted afterwards: another worker may be using it.
+    The device stays booted afterwards: another worker may be using it. A
+    CoreSimulator service that never answers (a host whose Xcode still needs
+    its first-launch setup) skips the launch after the app is built; the
+    hosted runners' expected-skip manifest has no such skip, so there it
+    still fails the run.
     """
+    if _UNANSWERED_SIMCTL:
+        pytest.skip(_UNANSWERED_SIMCTL[0])
     # The first simctl call of a run starts CoreSimulator's service, which on
     # a cold hosted runner has outlasted 60 s; booting has its own budget below.
-    listed = _xcrun("simctl", "list", "devices", "available", "--json", timeout=180)
+    try:
+        listed = _xcrun("simctl", "list", "devices", "available", "--json", timeout=180)
+    except subprocess.TimeoutExpired:
+        _UNANSWERED_SIMCTL.append("CoreSimulator did not answer simctl list within 180 s on this host")
+        pytest.skip(_UNANSWERED_SIMCTL[0])
     assert listed.returncode == 0, listed.stderr
     runtimes = json.loads(listed.stdout).get("devices", {})
     candidates = []
