@@ -702,3 +702,176 @@ def test_uikit_metal_view_subclass_runs_through_btrc(frontend, tmp_path: Path, r
     )
     for line in expected:
         assert line in output, output
+
+
+# The rest of step 6 on UIKit: the application delegate extends UIResponder
+# (superclass on an SDK-created form), so UIApplication's next responder is the
+# generated delegate and UIResponder's -targetForAction:withSender: asks the
+# BTRC override -canPerformAction:withSender:; conformsToProtocol: casts a
+# UIView, but not the application, to UITraitEnvironment; and an
+# AVAudioSession interruption that a BTRC thread posts reaches a main-executor
+# observer on the main queue, which cancels itself. A run-loop timer drives the
+# checks, because a launch callout runs inside the main queue, which a nested
+# run loop does not drain.
+RESPONDER_MANIFEST = """manifest-version = 1
+[package]
+name = "uikitResponder"
+[[native.bindings]]
+module = "UIKit"
+header = "UIKitBinding.h"
+language = "objective-c"
+standard = "c11"
+os = ["ios"]
+symbols = ["UIApplicationMain", "-[UIApplicationDelegate applicationDidFinishLaunching:]", "-[UIApplicationDelegate applicationDidBecomeActive:]", "-[UIResponder canPerformAction:withSender:]", "-[UIResponder targetForAction:withSender:]", "-[UIApplication nextResponder]", "+[UIView new]", "-[UITraitEnvironment traitCollection]", "-[UITraitCollection displayScale]", "+[AVAudioSession sharedInstance]", "AVAudioSessionInterruptionNotification", "AVAudioSessionInterruptionTypeKey", "+[NSNotificationCenter defaultCenter]", "-[NSNotificationCenter addObserverForName:object:queue:usingBlock:]", "-[NSNotificationCenter removeObserver:]", "-[NSNotificationCenter postNotificationName:object:userInfo:]", "+[NSOperationQueue mainQueue]", "-[NSNotification object]", "-[NSNotification userInfo]", "-[NSDictionary objectForKey:]", "+[NSMutableDictionary dictionary]", "-[NSMutableDictionary setValue:forKey:]", "+[NSNumber numberWithInt:]", "-[NSNumber intValue]", "+[NSThread isMainThread]", "+[NSRunLoop currentRunLoop]", "-[NSRunLoop runUntilDate:]", "+[NSDate dateWithTimeIntervalSinceNow:]", "+[NSTimer scheduledTimerWithTimeInterval:repeats:block:]", "-[NSTimer invalidate]"]
+[native.bindings.callbacks."UIApplicationMain.delegateClassName"]
+interface = "IApplicationDelegate"
+lifetime = "instantiated"
+scope = "process"
+failure = "abort"
+executor = "caller"
+superclass = "UIResponder"
+methods = ["-[UIApplicationDelegate applicationDidFinishLaunching:]", "-[UIApplicationDelegate applicationDidBecomeActive:]"]
+overrides = ["-[UIResponder canPerformAction:withSender:]"]
+[native.bindings.callbacks."-[NSNotificationCenter addObserverForName:object:queue:usingBlock:].block"]
+interface = "IInterruptionObserver"
+lifetime = "stored"
+failure = "abort"
+executor = "main"
+unregister = "-[NSNotificationCenter removeObserver:]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[native.bindings.callbacks."+[NSTimer scheduledTimerWithTimeInterval:repeats:block:].block"]
+interface = "IStartTimer"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSTimer invalidate]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.bindings]]
+module = "Selectors"
+header = "Selectors.h"
+language = "c"
+standard = "c11"
+os = ["ios"]
+symbols = ["SEL", "sel_registerName"]
+read-only-borrows = ["sel_registerName.str"]
+[[native.frameworks]]
+name = "UIKit"
+os = ["ios"]
+[[native.frameworks]]
+name = "AVFAudio"
+os = ["ios"]
+[[native.frameworks]]
+name = "Foundation"
+os = ["ios"]
+"""
+
+RESPONDER_PROGRAM = """import Library.Callback;
+import ./UIKit.btrc;
+import ./Selectors.btrc;
+#include <stdio.h>
+#include <stdlib.h>
+int asked = 0;
+int deliveries = 0;
+int offMain = 0;
+int sessions = 0;
+int lastType = -1;
+int released = 0;
+class Interruption implements IInterruptionObserver {
+	private CallbackScope scope;
+	public Interruption(CallbackScope scope) { self.scope = scope; }
+	public void invoke(NSNotification notification) {
+		deliveries++;
+		if (!NSThread.isMainThread()) { offMain++; }
+		if ((AVAudioSession?)notification.object() != null) { sessions++; }
+		NSDictionary? info = notification.userInfo();
+		if (info != null) {
+			NSNumber? type = (NSNumber?)info.objectForKey(AVAudioSessionInterruptionTypeKey);
+			if (type != null) { lastType = type.intValue(); }
+		}
+		self.scope.cancel();
+	}
+	public void __del__() { released++; }
+}
+class Start implements IStartTimer {
+	private UIApplication application;
+	public Start(UIApplication application) { self.application = application; }
+	public void invoke(NSTimer timer) {
+		// UIApplication's next responder is the delegate only when it is a UIResponder.
+		UIResponder? next = self.application.nextResponder();
+		bool target = false;
+		if (next != null) { target = next.targetForAction(sel_registerName("btrcProbe:"), null) != null; }
+		printf("btrc-responder delegate=%d asked=%d target=%d\\n", (int)(next != null), asked, (int)target);
+		UIView view = UIView.new();
+		UITraitEnvironment? environment = (UITraitEnvironment?)view;
+		UITraitEnvironment? application = (UITraitEnvironment?)self.application;
+		bool traits = false;
+		if (environment != null) {
+			UITraitCollection collection = environment.traitCollection();
+			traits = collection.displayScale() >= 0.0;
+		}
+		printf("btrc-protocol view=%d traits=%d application=%d\\n", (int)(environment != null), (int)traits, (int)(application != null));
+		fflush(stdout);
+		var scope = CallbackScope();
+		ICallbackRegistration observation = NSNotificationCenter.defaultCenter().addObserverForName(AVAudioSessionInterruptionNotification, AVAudioSession.sharedInstance(), NSOperationQueue.mainQueue(), Interruption(scope), scope);
+		// AVAudioSession posts from a thread of its own; so does this one, which waits for the main queue.
+		var poster = spawn(() => {
+				NSMutableDictionary info = NSMutableDictionary.dictionary();
+				info.setValue(NSNumber.numberWithInt(1), AVAudioSessionInterruptionTypeKey);
+				NSNotificationCenter.defaultCenter().postNotificationName(AVAudioSessionInterruptionNotification, AVAudioSession.sharedInstance(), info);
+			});
+		for (int index = 0; index < 1000 && deliveries == 0; index++) {
+			NSRunLoop.currentRunLoop().runUntilDate(NSDate.dateWithTimeIntervalSinceNow(0.01));
+		}
+		if (deliveries == 0) {
+			printf("btrc-audio no delivery\\n");
+			fflush(stdout);
+			exit(4);
+		}
+		poster.join();
+		bool done = !observation.isOpen() && scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE;
+		printf("btrc-audio deliveries=%d main=%d session=%d type=%d released=%d done=%d\\n", deliveries, (int)(offMain == 0), sessions, lastType, released, (int)done);
+		fflush(stdout);
+		exit(0);
+	}
+}
+class Application implements IApplicationDelegate {
+	private CallbackScope timers;
+	private ICallbackRegistration? start = null;
+	public Application() { self.timers = CallbackScope(); }
+	// UIKit may ask about its own actions too; only the probe's counts.
+	public bool canPerformAction(SEL action, id? sender) {
+		if (action != sel_registerName("btrcProbe:")) { return false; }
+		asked++;
+		return sender == null;
+	}
+	public void applicationDidFinishLaunching(UIApplication application) {
+		self.start = NSTimer.scheduledTimerWithTimeInterval(0.1, false, Start(application), self.timers);
+	}
+	public void applicationDidBecomeActive(UIApplication application) {}
+}
+int main(int argc, char** argv) { return UIApplicationMain(argc, argv, null, Application()); }
+"""
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_uikit_responder_delegate_protocols_and_audio_interruptions(frontend, tmp_path: Path, request) -> None:
+    """A UIResponder app delegate, a conformsToProtocol: cast and an AVAudioSession interruption on the main queue."""
+    sdk = _sdk()
+    if sdk is None:
+        pytest.skip("the iphonesimulator SDK is Mac-bound (xcrun)")
+    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+    root = tmp_path / "project"
+    header = "#import <UIKit/UIKit.h>\n#import <AVFAudio/AVFAudio.h>\n"
+    source = _project(root, RESPONDER_MANIFEST, RESPONDER_PROGRAM, header)
+    (root / "Selectors.h").write_text("#include <objc/objc.h>\n", encoding="utf-8")
+    (root / "src/Selectors.btrc").write_text("// The Objective-C runtime's selectors.\n", encoding="utf-8")
+    expected = (
+        "btrc-responder delegate=1 asked=1 target=1",
+        "btrc-protocol view=1 traits=1 application=0",
+        "btrc-audio deliveries=1 main=1 session=1 type=1 released=1 done=1",
+    )
+    output = _launch(frontend, root, source, f"{BUNDLE_IDENTIFIER}.responder.{frontend}", btrcc, sdk, expected=expected)
+    for line in expected:
+        assert line in output, output
