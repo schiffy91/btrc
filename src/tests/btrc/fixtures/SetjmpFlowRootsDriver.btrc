@@ -35,7 +35,7 @@ class FlowFixture {
 		Map<string, Vector<FeDependencyEdge>> outgoing = {};
 		Map<string, Vector<string>> parents = {};
 		var resolved = FeResolvedSource("", "", "", [], FeDependencyGraph(outgoing, parents), true, 0, "FlowRoots.btrc", FeStdlibRootSnapshot([], []));
-		var input = ModuleUnitProgram(program, analyzed, analyzer, abi, RuntimeHelperCatalog(runtime.rows, runtime.intrinsicEffects), resolved, "FlowRoots.btrc", null);
+		var input = ModuleUnitProgram(program, analyzed, analyzer, abi, RuntimeHelperCatalog(runtime.rows, runtime.intrinsicEffects), resolved, "FlowRoots.btrc", null, tables.targetRows().get(0).label);
 		var options = BtrccOptions();
 		options.moduleJobs = 1;
 		var compiler = ModuleUnitCompiler(input, options, null, null);

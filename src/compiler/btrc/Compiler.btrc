@@ -27,12 +27,14 @@ class Compiler {
 		self.sourceFiles = sourceFiles;
 	}
 
+	/* The target is the resolved row's canonical label, never the option's
+	 * spelling: every alias of one row, and the inferred host, share a key. */
 	private string artifactIdentity(string rootSource, BtrccResolvedCompilation input, BtrccOptions options) {
 		var digest = SHA256();
 		for value in ["btrcc-artifacts-v1", rootSource, input.sourcePath, input.source.source,
 			input.source.userSource, input.contentIdentity, input.nativeIdentity,
 			input.packages.linkPlan.canonicalJson(), self.grammar.vocabulary.cacheIdentity(),
-			self.stdlibDirectory, Platform.currentDirectory(), options.target,
+			self.stdlibDirectory, Platform.currentDirectory(), input.packages.linkPlan.target.label(),
 			options.outputPath, options.unitsPrefix, options.linkPlanPath,
 			Environment.get("BTRC_UNIT_LINES", "40000"),
 			f"{options.debug}:{options.irDump}:{options.runDce}:{options.strictImports}:{options.includeStdlib}:{options.moduleUnits}"] {

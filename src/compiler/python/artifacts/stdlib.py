@@ -8,6 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from ..abi.generated import TARGET_SPEC_FINGERPRINT
 from .cache import AtomicFileStore, ToolchainFingerprint
 from .publication import ArtifactPublisher, ArtifactStorage, PublishedArtifact
 
@@ -79,8 +80,10 @@ class ArchiveVersionError(ValueError):
 class StdlibArchiveManifest:
     """Own archive manifest schema, loading, and integrity checks."""
 
-    # Schema 6 records the target row the archive was analysed for: literal
-    # typing and constant casts follow the row (platform-target-contract.md §1.8).
+    # Schema 6 records the target row the archive was analysed for, by its
+    # canonical label, and the fingerprint of the targets.toml that defined
+    # the row: the archive holds emitted C, whose widths and hosted names
+    # follow the row (platform-target-contract.md §1.8, §6.2).
     SCHEMA = 6
     MAX_BYTES = 16 * 1024 * 1024
     MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
@@ -100,6 +103,7 @@ class StdlibArchiveManifest:
             "schema",
             "stdlib_source",
             "target",
+            "target_spec",
             "toolchain",
             "macros",
             *LIST_FIELDS,
@@ -130,6 +134,7 @@ class StdlibArchiveManifest:
             and isinstance(manifest.get("stdlib_source"), str)
             and isinstance(manifest.get("target"), str)
             and bool(manifest["target"])
+            and self._valid_sha256(manifest.get("target_spec"))
             and isinstance(manifest.get("toolchain"), str)
             and isinstance(manifest.get("artifacts"), dict)
             and set(manifest["artifacts"]) == set(self.ARTIFACT_NAMES)
@@ -169,11 +174,19 @@ class StdlibArchiveManifest:
             )
         # The row comes before the source hash: once the stdlib is conditioned
         # on the target, an archive for another row also hashes a different
-        # source, and only the row message names the remedy.
+        # source, and only the row message names the remedy. ``target`` is the
+        # compile's canonical label, so every spelling of one row accepts it.
         if manifest["target"] != target:
             raise ArchiveVersionError(
-                f"stdlib archive in '{stdlib_dir}' was built for target '{manifest['target']}', "
-                f"not '{target}'; regenerate it with --build-stdlib --target {target}"
+                f"prebuilt stdlib archive was built for {manifest['target']}; regenerate it for {target}"
+            )
+        # The toolchain fingerprint covers the generated target tables too;
+        # the spec fingerprint names the row definition on its own.
+        if manifest["target_spec"] != TARGET_SPEC_FINGERPRINT:
+            raise ArchiveVersionError(
+                f"prebuilt stdlib archive was built for {target} under another targets.toml "
+                f"(spec {manifest['target_spec'][:12]}, current {TARGET_SPEC_FINGERPRINT[:12]}); "
+                f"regenerate it for {target}"
             )
         if manifest["stdlib_source"] != self.source_hash(stdlib_source):
             raise ArchiveVersionError(
@@ -306,6 +319,7 @@ class StdlibArtifactRepository:
             "schema": MANIFEST_SCHEMA,
             "stdlib_source": self.manifest.source_hash(stdlib_source),
             "target": target,
+            "target_spec": TARGET_SPEC_FINGERPRINT,
             "toolchain": self.fingerprint.digest("full"),
         }
         if not self.manifest.valid(manifest):

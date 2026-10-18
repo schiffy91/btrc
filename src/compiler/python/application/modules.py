@@ -890,7 +890,9 @@ class ModuleUnitCompiler:
             {
                 "debug": options.debug,
                 "dce": options.dce,
-                "target": options.target,
+                # The resolved row's canonical label: every spelling of one
+                # target, and the inferred host, key one set of units.
+                "target": source.native_plan.target.label,
                 "units-prefix": options.units_prefix if options.debug else None,
                 "generated-c-path": options.generated_c_path if options.debug else None,
             },

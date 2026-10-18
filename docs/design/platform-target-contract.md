@@ -733,6 +733,13 @@ The counters are those of C4's test plan: Python `module_units_lowered`/`reused`
 
 The program uses `#if defined(_WIN32)`, `long`, a hosted name unavailable on one side, and one native binding. Every step's emitted C or error is compared, not only the counters. The prebuilt stdlib archive is exercised through `build_stdlib_archive` under A and B.
 
+**As landed (CL-P1-15).**
+- Each step compiles twice. A fresh output prefix, which every whole-program key covers, is answered by the module units and btrcc's validation records. One fixed prefix is answered by the whole-program artifacts. btrcc's counters come from `BTRC_TIMING` (`artifact-hit`, `module-units=lowered:N,reused:M`, `a-records-stored(replayed=R,journaled=J)`); the reference's from `CompilerResult` (`cache_hit`, `module_units_lowered`/`reused`).
+- The binding reads through the dev shell's real reader with a stub sysroot per row (`src/tests/native_targets.py`), so every row but `windows-aarch64-msvc` reads natively on any host, the iOS rows included. The msvc row's `windows-sdk` sysroot is validated only on its runner, so the binding's `env` leaves it out and an `#if` keeps its call out of that program. The iOS read against the real SDKs stays MAC-P1-07's row.
+- The sysroot row rewrites one directory's identity file in place, so only the identity changes. Every key that carries the native identity misses: the whole-program artifacts, through the native resolution fingerprint, in both compilers. Module units and validation records key the declarations a read returned, never the sysroot that served them, so identical reads reuse them, and the matrix asserts that reuse with output equal to a cold compile.
+- With no `--target`, the inferred host keys every cache as its label does: the reference's module units now spell the resolved row's label rather than the absent option.
+- The spec fingerprint row: the reference's toolchain fingerprint covers `abi/generated.py`; btrcc salts every stored key with its executable's content, so a byte-identical copy reuses units and a changed one lowers them again.
+
 **Quiet re-measure** (Mac, PLAN Stage 24 exit). After this sub-batch, Stage 3's `budget_bench` runs no-op, edit and the cold transpile (the data-model and optimizer changes touch cold paths), on both frontends, measuring instructions retired and peak footprint at `--jobs 1`. ≤0.3% passes (standing approvals). Each run names the C compiler that built btrcc.
 
 **Exit evidence:** the matrix is green on Linux for every row that needs no SDK, and on the Mac for the iOS native-read row; the quiet re-measure is recorded in PLAN.md.

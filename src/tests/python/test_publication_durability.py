@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 import src.compiler.python.artifacts.publication as transaction_module
+from src.compiler.python.abi.generated import TARGET_SPEC_FINGERPRINT
 from src.compiler.python.artifacts.cache import CompilerGenerationPublisher, CompilerOutput, ToolchainFingerprint
 from src.compiler.python.artifacts.publication import (
     ArtifactPublisher,
@@ -111,6 +112,7 @@ def _stdlib_manifest(source: str, header: str, impl: str) -> dict:
         "schema": MANIFEST_SCHEMA,
         "stdlib_source": hashlib.sha256(source.encode()).hexdigest(),
         "target": "linux-x86_64",
+        "target_spec": TARGET_SPEC_FINGERPRINT,
         "toolchain": ToolchainFingerprint().digest("full"),
         "types": [],
         "functions": [],

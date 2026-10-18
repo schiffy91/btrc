@@ -302,6 +302,7 @@ def _archive_manifest(stdlib_source: str, **overrides):
         "schema": stdlib_archive.MANIFEST_SCHEMA,
         "stdlib_source": _archive_service().manifest.source_hash(stdlib_source),
         "target": ARCHIVE_TARGET,
+        "target_spec": stdlib_archive.TARGET_SPEC_FINGERPRINT,
         "toolchain": ToolchainFingerprint().digest("full"),
         "macros": [],
         **{field: [] for field in stdlib_archive.StdlibArchiveManifest.LIST_FIELDS},
@@ -449,10 +450,7 @@ def test_archive_manifest_refused_for_another_target_row(tmp_path, archive_row, 
     assert _archive_service().load(str(tmp_path), source, archive_row)["types"] == []
     with pytest.raises(
         stdlib_archive.ArchiveVersionError,
-        match=re.escape(
-            f"was built for target '{archive_row}', not '{current_row}'; "
-            f"regenerate it with --build-stdlib --target {current_row}"
-        ),
+        match=re.escape(f"prebuilt stdlib archive was built for {archive_row}; regenerate it for {current_row}"),
     ):
         _archive_service().load(str(tmp_path), source, current_row)
 
@@ -462,9 +460,20 @@ def test_archive_manifest_for_another_row_names_the_row_before_the_source(tmp_pa
 
     with pytest.raises(
         stdlib_archive.ArchiveVersionError,
-        match=re.escape("was built for target 'linux-x86_64', not 'windows-x86_64'"),
+        match=re.escape("prebuilt stdlib archive was built for linux-x86_64; regenerate it for windows-x86_64"),
     ):
         _archive_service().load(str(tmp_path), "windows stdlib", "windows-x86_64")
+
+
+def test_archive_manifest_from_another_target_spec_requires_regeneration(tmp_path):
+    source = "stdlib source"
+    _write_archive(tmp_path, _archive_manifest(source, target_spec="0" * 64))
+
+    with pytest.raises(
+        stdlib_archive.ArchiveVersionError,
+        match=re.escape(f"prebuilt stdlib archive was built for {ARCHIVE_TARGET} under another targets.toml"),
+    ):
+        _archive_service().load(str(tmp_path), source, ARCHIVE_TARGET)
 
 
 def test_archive_manifest_without_a_target_requires_regeneration(tmp_path):

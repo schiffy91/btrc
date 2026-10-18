@@ -232,7 +232,7 @@ class CompilerPipeline {
 		ValidationRecords? records = null;
 		IBtrccArtifactCache? store = self.moduleUnitStore;
 		if (options.moduleUnits && !options.unitsPrefix.isEmpty() && options.useCache && store != null && resolved.strictImports) {
-			records = ValidationRecords(program, sourceDeclarations, resolved, options, store, input.nativeIdentity);
+			records = ValidationRecords(program, sourceDeclarations, resolved, options, store, input.nativeIdentity, packages.linkPlan.target.label());
 			analyzer.configureValidationRecords(records);
 			BtrccPhaseTimer.mark("a-records");
 		}
@@ -246,7 +246,7 @@ class CompilerPipeline {
 		if (options.moduleUnits && !options.unitsPrefix.isEmpty()) {
 			if (!resolved.strictImports) { return self.failure("error: module units require strict imports"); }
 			Map<string, bool>? stdlibKeys = options.runDce ? StdlibReachability.classify(program.declarations(), self.hostedAbi) : null;
-			ModuleUnitProgram unitProgram = ModuleUnitProgram(program, analyzed, analyzer, self.hostedAbi, runtimeHelpers, resolved, sourcePath, stdlibKeys);
+			ModuleUnitProgram unitProgram = ModuleUnitProgram(program, analyzed, analyzer, self.hostedAbi, runtimeHelpers, resolved, sourcePath, stdlibKeys, packages.linkPlan.target.label());
 			if (records != null) {
 				unitProgram.interfaceDigest = records.interfaceDigest;
 				unitProgram.knownSourceDigests = records.groupSourceDigests;

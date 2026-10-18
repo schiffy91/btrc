@@ -806,6 +806,8 @@ class ModuleUnitProgram {
 	public FeResolvedSource resolved;
 	public string sourcePath;
 	public Map<string, bool>? stdlibKeys;
+	/* The resolved row's canonical label, which unit keys spell. */
+	public string target;
 	/* The program's pre-analysis interface digest when validation records
 	 * computed it (per-group, cached); empty otherwise. */
 	public string interfaceDigest = "";
@@ -813,7 +815,7 @@ class ModuleUnitProgram {
 	 * group's digest is of its lines, in order, as groupSourceDigests takes. */
 	public Map<string, string> knownSourceDigests = {};
 
-	public ModuleUnitProgram(Node program, Analyzed analyzed, SemanticAnalyzer analyzer, HostedAbiRepository hostedAbi, RuntimeHelperCatalog runtimeHelpers, FeResolvedSource resolved, string sourcePath, Map<string, bool>? stdlibKeys) {
+	public ModuleUnitProgram(Node program, Analyzed analyzed, SemanticAnalyzer analyzer, HostedAbiRepository hostedAbi, RuntimeHelperCatalog runtimeHelpers, FeResolvedSource resolved, string sourcePath, Map<string, bool>? stdlibKeys, string target) {
 		self.program = program;
 		self.analyzed = analyzed;
 		self.declarations = analyzer.declarationRegistry();
@@ -827,6 +829,7 @@ class ModuleUnitProgram {
 		self.resolved = resolved;
 		self.sourcePath = sourcePath;
 		self.stdlibKeys = stdlibKeys;
+		self.target = target;
 	}
 }
 
@@ -1887,7 +1890,7 @@ class ModuleUnitCompiler {
 		BtrccPhaseTimer.mark("u-digest");
 		Map<string, string> sources = self.groupSourceDigests();
 		BtrccPhaseTimer.mark("u-sources");
-		string context = f"debug={self.options.debug};dce={self.options.runDce};target={self.options.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
+		string context = f"debug={self.options.debug};dce={self.options.runDce};target={input.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
 		Vector<ModuleUnitGroupState> states = [];
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";
@@ -2784,8 +2787,10 @@ class ValidationRecords implements IValidationRecords {
 	public int instancesReplayed = 0;
 
 	/* `nativeIdentity` identifies the imported native declarations (as the
-	 * artifact cache keys them), or is empty when they are not cacheable. */
-	public ValidationRecords(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache store, string nativeIdentity) {
+	 * artifact cache keys them), or is empty when they are not cacheable.
+	 * `target` is the resolved row's canonical label, never the option's
+	 * spelling. */
+	public ValidationRecords(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache store, string nativeIdentity, string target) {
 		self.store = store;
 		self.verify = getenv("BTRC_VERIFY_VALIDATION_RECORDS") != null;
 		FeSourcePathPolicy paths = FeSourcePathPolicy();
@@ -2824,7 +2829,7 @@ class ValidationRecords implements IValidationRecords {
 			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
 		}
 		self.codec = ValidationRecordCodec(program.declarations(), self.fileOfDeclaration);
-		string context = f"validation-record-v5;target={options.target};strict={options.strictImports};stdlib={options.includeStdlib}";
+		string context = f"validation-record-v5;target={target};strict={options.strictImports};stdlib={options.includeStdlib}";
 		Map<string, string> sources = {};
 		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
 		if (resolved.stdlibLineCount > 0) { sources.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }

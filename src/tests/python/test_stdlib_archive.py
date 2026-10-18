@@ -174,6 +174,7 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
         "schema": sa.MANIFEST_SCHEMA,
         "stdlib_source": "0" * 64,
         "target": "linux-x86_64",
+        "target_spec": sa.TARGET_SPEC_FINGERPRINT,
         "toolchain": "test",
     }
     assert manifest["schema"] == sa.MANIFEST_SCHEMA == 6
@@ -387,9 +388,9 @@ def test_archive_built_for_one_row_is_refused_by_another(tmp_path, monkeypatch, 
             ["--no-cache", "--target", "windows-x86_64", "--stdlib", str(std), str(prog), "-o", str(tmp_path / "p.c")],
         )
     assert (
-        f"stdlib archive in '{std}' was built for target 'linux-x86_64', not 'windows-x86_64'; "
-        "regenerate it with --build-stdlib --target windows-x86_64"
-    ) in capsys.readouterr().err
+        "prebuilt stdlib archive was built for linux-x86_64; regenerate it for windows-x86_64"
+        in capsys.readouterr().err
+    )
 
 
 def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):

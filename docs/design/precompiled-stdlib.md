@@ -45,8 +45,11 @@ One archive generation contains:
   globals, and shared helpers.
 
 The manifest is the partition contract. A consumer validates its schema,
-toolchain fingerprint, the target row the archive was analysed for (schema 6;
-an archive for another row is refused before the source hash is compared),
+toolchain fingerprint, the target row the archive was analysed for and the
+`targets.toml` fingerprint that defined it (schema 6: `target` is the row's
+canonical label and `target_spec` is `TARGET_SPEC_FINGERPRINT`; an archive for
+another row is refused before the source hash is compared, with `prebuilt
+stdlib archive was built for <label>; regenerate it for <label>`),
 canonical stdlib-source hash, and the SHA-256 digest of both C artifacts before
 changing the program IR.
 
