@@ -783,9 +783,57 @@ class FeNativeDispatchMethod {
 	public string outputSpelling = "";
 	public string status = "";
 	public string resultClass = "";
+	/* A copied [out] UTF-16 string (copied-outputs) names the function that
+	 * frees it instead of an output resource: SysFreeString or CoTaskMemFree. */
+	public string outputFree = "";
 	public FeNativeDispatchMethod(string name, string slot, Node returnType, string nativeReturn, string tableType) {
 		self.name = name; self.slot = slot; self.returnType = returnType; self.nativeReturn = nativeReturn; self.tableType = tableType;
 	}
+}
+
+/* One event slot of a COM sink's table, answered by the BTRC handler's method
+ * `name`. `nativeParameters` spells every slot parameter, This first. */
+class FeNativeComSinkMethod {
+	public string name;
+	public string slot;
+	public Vector<string> nativeParameters = [];
+	public string nativeReturn;
+	public FeNativeComSinkMethod(string name, string slot, string nativeReturn) { self.name = name; self.slot = slot; self.nativeReturn = nativeReturn; }
+}
+
+/* A generated COM sink: an M2 holder implementing a `com` resource's table.
+ * The holder is `{ lpVtbl, comCount, state, context, thread, registered }`
+ * with one static const table (`tableRecord`). While its COM count is
+ * positive it holds one external claim on its CallbackContext; QueryInterface
+ * answers `iids`. The factory Advises the holder on `source` through
+ * `registerSlot`, storing the cookie (`cookieType`) that `unregisterSlot`
+ * later passes back (native-interop-ownership.md section 2.4). */
+class FeNativeComSink {
+	public string resource;
+	public string handler;
+	public string nativeType = "";
+	public string tableType = "";
+	public string tableRecord = "";
+	public Vector<string> queryParameters = [];
+	public string countParameter = "";
+	public string countType = "";
+	public string statusType = "";
+	public Vector<string> iids = [];
+	public Vector<FeNativeComSinkMethod> methods = [];
+	public string source = "";
+	public string sourceType = "";
+	public string sourceTable = "";
+	public string registerMethod = "";
+	public string registerSlot = "";
+	public string registerStatus = "";
+	public int sinkPosition = 0;
+	public string sinkSpelling = "";
+	public string cookieType = "";
+	public string unregisterMethod = "";
+	public string unregisterSlot = "";
+	public string unregisterStatus = "";
+	public string activationFailure = "";
+	public FeNativeComSink(string resource, string handler) { self.resource = resource; self.handler = handler; }
 }
 
 /* The IUnknown slots of one COM interface, checked against its lpVtbl table.
@@ -835,6 +883,7 @@ class FeNativeCallContract {
 	public FeNativeCallbackTableProjection? callbackTable = null;
 	public FeNativeDispatchMethod? dispatchMethod = null;
 	public FeNativeComInterface? comInterface = null;
+	public FeNativeComSink? comSink = null;
 	public FeNativeCxxProjection? cxxMethod = null;
 	public FeNativeCopiedInput? copiedInput = null;
 	public FeNativeRecordSnapshot? recordSnapshot = null;
@@ -867,7 +916,7 @@ class FeNativeCallContract {
 	}
 
 	public bool returnsOwned() {
-		if (self.recordSnapshot != null) { return true; }
+		if (self.recordSnapshot != null || self.comSink != null) { return true; }
 		if (!self.resourceResult.isEmpty() || self.recordOutput != null || self.ownedOutput != null || self.copiedResult != null) { return true; }
 		FeNativeCxxProjection? cxxMethod = self.cxxMethod;
 		if (cxxMethod != null && !cxxMethod.factoryResult.isEmpty()) { return true; }

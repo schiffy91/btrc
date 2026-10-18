@@ -140,6 +140,17 @@ class GenericAnalyzer:
                 ):
                     self._collect_instantiated_root(contract.callbacks[0], method)
                     continue
+                if contract and contract.com_sink is not None:
+                    # A COM sink's registration is a CallbackContext whose token owns its record.
+                    context = method.return_type
+                    self._require_callback_methods(
+                        [
+                            (context, self._STORED_CONTEXT_METHODS),
+                            (context.generic_args[1], ("unregister", "close")),
+                        ],
+                        method,
+                    )
+                    continue
                 if not contract or not any(callback.unregister or callback.one_shot for callback in contract.callbacks):
                     continue
                 if getattr(contract.callbacks[0], "realtime", None) is not None:
@@ -162,16 +173,7 @@ class GenericAnalyzer:
                 result = context if contract.callbacks[0].one_shot and context.base == "CallbackResult" else None
                 if result:
                     context = context.generic_args[1]
-                required = (
-                    "activate",
-                    "publish",
-                    "abortActivation",
-                    "enter",
-                    "leave",
-                    "close",
-                    "cancel",
-                    "pollCompletion",
-                )
+                required = self._STORED_CONTEXT_METHODS
                 dependencies = [(context, required)]
                 if contract.callbacks[0].one_shot:
                     dependencies = [(context, (*required, "complete"))]
@@ -185,25 +187,37 @@ class GenericAnalyzer:
                     dependencies.append((context.generic_args[1], ("publish", "source", "value")))
                 if result:
                     dependencies.append((result, ()))
-                for value_type, methods in dependencies:
-                    owner = self.index.class_table.get(value_type.base)
-                    if (
-                        owner is None
-                        or not CompilerStdlibSource.authenticated(getattr(owner.constructor, "source_file", None))
-                        or any(
-                            not CompilerStdlibSource.authenticated(
-                                getattr(owner.methods.get(name), "source_file", None)
-                            )
-                            for name in methods
-                        )
-                    ):
-                        self.session.error(
-                            "Stored native callbacks require import Library.Callback", method.line, method.col
-                        )
-                        continue
-                    self.collect_type_instances(value_type)
-                    for name in methods:
-                        self.record_class_method_use(value_type, name)
+                self._require_callback_methods(dependencies, method)
+
+    # The CallbackContext methods every generated stored registration calls.
+    _STORED_CONTEXT_METHODS = (
+        "activate",
+        "publish",
+        "abortActivation",
+        "enter",
+        "leave",
+        "close",
+        "cancel",
+        "pollCompletion",
+    )
+
+    def _require_callback_methods(self, dependencies, method) -> None:
+        """Instantiate each authenticated Library.Callback type a generated adapter calls, with those methods."""
+        for value_type, methods in dependencies:
+            owner = self.index.class_table.get(value_type.base)
+            if (
+                owner is None
+                or not CompilerStdlibSource.authenticated(getattr(owner.constructor, "source_file", None))
+                or any(
+                    not CompilerStdlibSource.authenticated(getattr(owner.methods.get(name), "source_file", None))
+                    for name in methods
+                )
+            ):
+                self.session.error("Stored native callbacks require import Library.Callback", method.line, method.col)
+                continue
+            self.collect_type_instances(value_type)
+            for name in methods:
+                self.record_class_method_use(value_type, name)
 
     def _collect_instantiated_root(self, callback, method) -> None:
         """An SDK-instantiated adapter enters its receiver through an authenticated CallbackRoot.

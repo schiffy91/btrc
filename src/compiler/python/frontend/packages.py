@@ -387,6 +387,23 @@ class NativeResourceBinding:
 
 
 @dataclass(frozen=True)
+class NativeComSinkBinding:
+    """A generated COM sink: the `com` resource it implements and the source's Advise and Unadvise.
+
+    `name` is the factory and `interface` the BTRC handler interface; the
+    factory takes the source, the handler and a CallbackScope, and returns the
+    registration (native-interop-ownership.md section 2.4, M2).
+    """
+
+    resource: str
+    name: str
+    interface: str
+    register: str
+    unregister: str
+    activation_failure: str
+
+
+@dataclass(frozen=True)
 class NativeInitializerBinding:
     """Initialize one zeroed inline resource, optionally retaining copied bytes."""
 
@@ -534,6 +551,10 @@ class NativeBinding:
     # owned outputs whose result class carries an HRESULT status.
     status_results: tuple[tuple[str, str], ...] = ()
     owned_output_statuses: tuple[tuple[str, str], ...] = ()
+    # Dispatched COM [out] strings ("<R>.<method>.<parameter>") copied into BTRC
+    # strings, with the allocator's free function, and generated COM sinks.
+    copied_outputs: tuple[tuple[str, str], ...] = ()
+    com_sinks: tuple[NativeComSinkBinding, ...] = ()
 
     @property
     def selector(self) -> TargetSelector:
@@ -729,6 +750,14 @@ class NativeLinkPlan:
             "toolchain": self.toolchain_record(),
             "units": sorted(sources, key=lambda item: (item["package"], item["path"], item["language"])),
         }
+        # System libraries the program links (`-l<name>`), present exactly when
+        # a selected package declares one, so plans without them are unchanged.
+        libraries = sorted(
+            (self._name_record(item) for item in selected if item.kind == "library"),
+            key=lambda item: (item["package"], item["name"]),
+        )
+        if libraries:
+            result["libraries"] = libraries
         if self.generated_units:
             result["generated-units"] = [
                 unit.as_dict() for unit in sorted(self.generated_units, key=lambda unit: unit.name)
@@ -1258,8 +1287,10 @@ class PackageManifestValidator:
 
     _TOP_LEVEL_FIELDS = frozenset({"manifest-version", "package", "dependencies", "native"})
     _NATIVE_FIELDS = frozenset(
-        {"sources", "headers", "include-directories", "defines", "frameworks", "pkg-config", "bindings"}
+        {"sources", "headers", "include-directories", "defines", "frameworks", "pkg-config", "libraries", "bindings"}
     )
+    # The plan kind of each named native requirement.
+    _NAMED_KINDS = MappingProxyType({"frameworks": "framework", "pkg-config": "pkg-config", "libraries": "library"})
 
     @staticmethod
     def _reject_unknown(value: Mapping, allowed: frozenset[str], context: str) -> None:
@@ -1526,7 +1557,7 @@ class PackageManifestValidator:
                     if not isinstance(name, str) or _NATIVE_NAME.fullmatch(name) is None:
                         raise ValueError(f"{context}.name contains unsupported characters")
                     declaration = NativeDeclaration(
-                        "framework" if field == "frameworks" else "pkg-config",
+                        self._NAMED_KINDS[field],
                         package,
                         name,
                         operating_systems=operating_systems,
@@ -2168,6 +2199,118 @@ class PackageManifestValidator:
                 raise ValueError(f"{context}.status-results kind must be hresult")
         return tuple(sorted(values.items()))
 
+    # The COM allocators a copied output may name, each freeing what it allocated.
+    _COM_ALLOCATORS = frozenset({"SysFreeString", "CoTaskMemFree"})
+
+    def _copied_output_bindings(self, values, resources, symbols, status_results, context):
+        """UTF-16 strings a dispatched COM method returns through an [out] slot.
+
+        Each `"<R>.<method>.<parameter>"` names a BSTR (`free = "SysFreeString"`)
+        or CoTaskMemAlloc string (`free = "CoTaskMemFree"`) that the adapter
+        copies into a BTRC string and frees itself. The method reports failure
+        through status-results (native-interop-ownership.md section 2.4).
+        """
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.copied-outputs must map dispatched method parameters to copies")
+        copies = []
+        methods = set()
+        for parameter, value in sorted(values.items()):
+            method, _, output = parameter.rpartition(".")
+            if (
+                parameter.count(".") != 2
+                or _IDENTIFIER.fullmatch(output) is None
+                or not self._dispatched_method(method, resources)
+            ):
+                raise ValueError(
+                    f"{context}.copied-outputs currently requires a dispatched com method R.method.parameter"
+                )
+            if not isinstance(value, dict) or set(value) != {"encoding", "free"}:
+                raise ValueError(f"{context}.copied-outputs requires exactly encoding and free")
+            if value["encoding"] != "utf-16":
+                raise ValueError(f"{context}.copied-outputs encoding must be utf-16")
+            free = value["free"]
+            if free not in self._COM_ALLOCATORS:
+                raise ValueError(f"{context}.copied-outputs free must be SysFreeString or CoTaskMemFree")
+            if free not in symbols:
+                raise ValueError(f"{context}.copied-outputs free {free} must be a selected function")
+            if method in methods:
+                raise ValueError(f"{context}.copied-outputs requires one output per method")
+            if method not in dict(status_results):
+                raise ValueError(f"{context}.copied-outputs requires status-results on its method")
+            methods.add(method)
+            copies.append((parameter, free))
+        return tuple(copies)
+
+    _COM_SINK_FIELDS = frozenset(
+        {"name", "interface", "register", "unregister", "executor", "failure", "activation-failure", "cancellation"}
+    )
+
+    def _com_sink_bindings(self, values, resources, symbols, context):
+        """BTRC receivers behind generated COM sinks (native-interop-ownership.md section 2.4, M2).
+
+        The key names a selected `com` resource: the sink answers its IID and
+        its bases', checked against its own table. `register` and `unregister`
+        are the source's dispatched Advise and Unadvise methods.
+        """
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.com-sinks must map com resources to sink declarations")
+        named = {resource.name: resource for resource in resources}
+        sinks = []
+        identifiers = set()
+        declared = set()
+        for name, value in sorted(values.items()):
+            location = f"{context}.com-sinks.{name}"
+            resource = named.get(name)
+            if resource is None or resource.ownership != "com":
+                raise ValueError(f"{location}: com-sinks requires a com resource of the binding")
+            if not isinstance(value, dict):
+                raise ValueError(f"{location} must be a sink declaration")
+            self._reject_unknown(value, self._COM_SINK_FIELDS, location)
+            missing = sorted(self._COM_SINK_FIELDS - set(value))
+            if missing:
+                raise ValueError(f"{location} requires {missing[0]}")
+            factory = self._identifier(value["name"], f"{location}.name")
+            interface = self._identifier(value["interface"], f"{location}.interface")
+            if factory == interface or {factory, interface} & (set(symbols) | identifiers):
+                raise ValueError(f"{location}: the factory and interface names must be distinct from selected symbols")
+            identifiers.update((factory, interface))
+            register, unregister = value["register"], value["unregister"]
+            if (
+                not isinstance(register, str)
+                or not isinstance(unregister, str)
+                or not self._dispatched_method(register, resources)
+                or not self._dispatched_method(unregister, resources)
+                or register.partition(".")[0] != unregister.partition(".")[0]
+                or register == unregister
+            ):
+                raise ValueError(
+                    f"{location}: register and unregister require two methods of one dispatching com resource"
+                )
+            if value["executor"] != "apartment":
+                raise ValueError(f"{location}.executor currently requires apartment")
+            if value["failure"] != "abort":
+                raise ValueError(f"{location}.failure currently requires abort")
+            if value["activation-failure"] not in {"unpublished", "abort"}:
+                raise ValueError(f"{location}.activation-failure requires unpublished or abort")
+            if value["cancellation"] != "entry-barrier":
+                raise ValueError(f"{location}.cancellation requires entry-barrier")
+            # QueryInterface answers IID_IUnknown, the sink's IID and its bases'.
+            if "IID_IUnknown" not in symbols:
+                raise ValueError(f"{location}: a com sink answers IID_IUnknown, which the binding must select")
+            # Each sink is the only one answering its own IID, and its chain
+            # names each IID once.
+            chain, current = [], resource
+            while current is not None:
+                if current.iid in chain or (current is resource and current.iid in declared):
+                    raise ValueError(f"{location}: duplicate sink IID {current.iid}")
+                chain.append(current.iid)
+                current = named.get(current.base) if current.base else None
+            declared.add(resource.iid)
+            sinks.append(
+                NativeComSinkBinding(name, factory, interface, register, unregister, value["activation-failure"])
+            )
+        return tuple(sinks)
+
     def _callback_table(self, value, symbols, location, ownership, storage):
         table = value["table"]
         location = f"{location}.table"
@@ -2707,6 +2850,8 @@ class PackageManifestValidator:
                         "owned-results",
                         "owned-outputs",
                         "status-results",
+                        "copied-outputs",
+                        "com-sinks",
                         "variadic-calls",
                         "output-offsets",
                         "copied-results",
@@ -2939,6 +3084,13 @@ class PackageManifestValidator:
             status_results = self._status_result_bindings(entry.get("status-results", {}), resources, context)
             if {key.rpartition(".")[0] for key, _ in binding.owned_outputs} & {name for name, _ in status_results}:
                 raise ValueError(f"{context}: a method declares one status form, status-results or owned-outputs")
+            copied_outputs = self._copied_output_bindings(
+                entry.get("copied-outputs", {}), resources, symbols, status_results, context
+            )
+            if {key.rpartition(".")[0] for key, _ in binding.owned_outputs} & {
+                key.rpartition(".")[0] for key, _ in copied_outputs
+            }:
+                raise ValueError(f"{context}: a method adopts at most one [out] value")
             binding = replace(
                 binding,
                 status_results=status_results,
@@ -2949,6 +3101,8 @@ class PackageManifestValidator:
                         if isinstance(value, dict) and "status" in value
                     )
                 ),
+                copied_outputs=copied_outputs,
+                com_sinks=self._com_sink_bindings(entry.get("com-sinks", {}), resources, symbols, context),
             )
             binding = replace(
                 binding,

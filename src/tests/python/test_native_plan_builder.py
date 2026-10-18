@@ -2192,6 +2192,46 @@ def test_pkg_config_is_refused_where_the_row_has_no_search_path(tmp_path, label)
         NativePlanReader().read(plan)
 
 
+def test_plan_libraries_link_after_the_objects(tmp_path):
+    # Packages name system libraries (Library.COM's ole32 on Windows); each links once.
+    root = tmp_path / "package"
+    root.mkdir()
+    payload = NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
+    payload["packages"] = [{"dependencies": {}, "name": "app", "root": str(root)}]
+    payload["libraries"] = [{"name": "m", "package": "app"}]
+    plan = _write_plan(tmp_path / "plan.json", payload)
+    assert NativePlanReader().read(plan).libraries == ("m",)
+    source = tmp_path / "program.c"
+    source.write_text(
+        "#include <math.h>\nint main(int count, char** values) { (void)values; return (int)sqrt((double)count) - 1; }\n"
+    )
+    output = tmp_path / "program"
+    report_path = tmp_path / "report.json"
+    assert (
+        main(
+            [
+                "--plan",
+                str(plan),
+                "--generated-c",
+                str(source),
+                "--output",
+                str(output),
+                "--report-json",
+                str(report_path),
+            ]
+        )
+        == 0
+    )
+    command = json.loads(report_path.read_text())["link_command"]
+    objects = [index for index, part in enumerate(command) if part.endswith(".o")]
+    # The plan's libraries come straight after the objects, before the runtime's own.
+    assert objects and command[max(objects) + 1] == "-lm"
+    subprocess.run([str(output)], check=True, timeout=RUN_TIMEOUT)
+    payload["libraries"] = []
+    with pytest.raises(NativePlanError, match="libraries must not be empty"):
+        NativePlanReader().read(_write_plan(tmp_path / "empty.json", payload))
+
+
 @pytest.mark.parametrize("label", ["macos-aarch64", "ios-aarch64", "ios-aarch64-simulator"])
 def test_frameworks_are_accepted_on_apple_rows(tmp_path, label):
     root = tmp_path / "package"

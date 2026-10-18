@@ -217,6 +217,7 @@ class DeclarationLowerer {
 		for callback in contract.callbacks { if (callback.oneShot) { self.emitOneShotCAdapter(declaration, contract, module); return; } }
 		for callback in contract.callbacks { if (callback.registrationContexts.len > 0) { self.emitStoredCAdapter(declaration, contract, module); return; } }
 		if (contract.callbackTable != null) { self.emitCallbackTableAdapter(declaration, contract, module); return; }
+		if (contract.comSink != null) { self.emitComSinkAdapter(declaration, contract, module); return; }
 		var adapter = IRFunction();
 		adapter.name = name;
 		adapter.returnType = self.cTypes.lower(declaration.returnType);
@@ -1314,10 +1315,13 @@ class DeclarationLowerer {
 	}
 
 	/* Reload the interface's table and slot, check both, and call through the slot with This first. */
-	private IRNode comCall(FeNativeComInterface comInterface, IRNode native, string slot, Vector<IRNode> arguments, string what, Vector<IRNode> statements) {
+	private IRNode comCall(FeNativeComInterface comInterface, IRNode native, string slot, Vector<IRNode> arguments, string what, Vector<IRNode> statements) { return self.comTableCall(comInterface.tableType, native, slot, arguments, what, statements); }
+
+	/* Reload a COM object's lpVtbl (spelled `tableType`) and slot, check both, and call with This first. */
+	private IRNode comTableCall(string tableType, IRNode native, string slot, Vector<IRNode> arguments, string what, Vector<IRNode> statements) {
 		IRNode table = IRNode.variable("__btrc_table");
 		IRNode callee = IRNode.fieldAccess(table, slot, true);
-		statements.push(IRNode.variableDeclaration(comInterface.tableType, "__btrc_table", IRNode.fieldAccess(native, "lpVtbl", true)));
+		statements.push(IRNode.variableDeclaration(tableType, "__btrc_table", IRNode.fieldAccess(native, "lpVtbl", true)));
 		statements.push(self.nativeNullGuard(table, what + ": null function table"));
 		statements.push(self.nativeNullGuard(callee, what + ": null table slot " + slot));
 		Vector<IRNode> callArguments = [native];
@@ -1462,7 +1466,7 @@ class DeclarationLowerer {
 		bool returns = method.nativeReturn != "void";
 		if (returns) { body.push(IRNode.variableDeclaration(method.nativeReturn, "__btrc_status", call)); }
 		else { body.push(IRNode.expressionStatement(call)); }
-		if (method.outputPosition >= 0) { body.push(IRNode.expressionStatement(IRNode.call("__btrc_com_" + method.outputResource + "_adopt", [output]))); }
+		if (!method.outputResource.isEmpty()) { body.push(IRNode.expressionStatement(IRNode.call("__btrc_com_" + method.outputResource + "_adopt", [output]))); }
 		for (int index = parameters.len - 1; index >= 0; index--) {
 			if (!method.resources.get(index).isEmpty()) { body.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + method.resources.get(index) + "_release", [IRNode.variable(parameters.get(index).name)]))); }
 		}
@@ -1472,14 +1476,20 @@ class DeclarationLowerer {
 			self.context.referenceHelper("__btrc_throw");
 			IRNode message = IRNode.variable("__btrc_message");
 			Vector<IRNode> failure = [];
-			if (method.outputPosition >= 0) { failure.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + method.outputResource + "_release", [output]))); }
+			/* A failing HRESULT first ends the output: an adopted interface's
+			 * claim, or a copied string's allocation. */
+			if (!method.outputResource.isEmpty()) { failure.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + method.outputResource + "_release", [output]))); }
+			else if (!method.outputFree.isEmpty()) { failure.push(IRNode.ifStatement(IRNode.binary(output, "!=", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(IRNode.call(method.outputFree, [output]))]), null)); }
 			failure.push(IRNode.arrayDeclaration("char", "__btrc_message", IRNode.literal("128"), null));
 			failure.push(IRNode.expressionStatement(IRNode.call("snprintf", [message, IRNode.sizeofExpression(message), IRNode.literal("\"COM " + symbol + "." + method.name + " failed with HRESULT 0x%08X\""), IRNode.cast("unsigned int", status)])));
 			IRNode thrown = IRNode.call("__btrc_throw", [message]);
 			((IRCallPayload)thrown.payload).neverReturns = true;
 			failure.push(IRNode.expressionStatement(thrown));
 			body.push(IRNode.ifStatement(IRNode.binary(status, "<", IRNode.literal("0")), IRNode.block(failure), null));
-			body.push(IRNode.returnStatement(method.outputPosition >= 0 ? managedOutput : IRNode.cast(resultType, status)));
+			if (!method.outputFree.isEmpty()) {
+				IRNode text = self.comCopiedText(symbol, method, output, body);
+				body.push(IRNode.returnStatement(text));
+			} else { body.push(IRNode.returnStatement(method.outputPosition >= 0 ? managedOutput : IRNode.cast(resultType, status))); }
 		} else if (method.status == "result") {
 			body.push(IRNode.assignment(IRNode.fieldAccess(result, "status", true), status));
 			body.push(IRNode.assignment(IRNode.fieldAccess(result, "value", true), managedOutput));
@@ -1488,6 +1498,293 @@ class DeclarationLowerer {
 		Vector<IRParam> cParameters = [IRParam("struct __btrc_native_" + symbol + "*", "self")];
 		cParameters.extend(parameters);
 		self.nativeUniqueFunction(module, "__btrc_com_" + symbol + "_" + method.name + "_public", resultType, cParameters, body);
+	}
+
+	/* A COM sink entry's holder: the object the source called, as the holder it is. */
+	private IRNode comSinkHolder(string holderType) { return IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, IRNode.cast("void*", IRNode.variable("This")))); }
+
+	/* Whether `riid` is the IID global `iid`, by memcmp. */
+	private IRNode comIidTest(IRNode riid, string iid) { return IRNode.binary(IRNode.call("memcmp", [riid, IRNode.addressOf(IRNode.variable(iid)), IRNode.sizeofExpression(IRNode.variable(iid))]), "==", IRNode.literal("0")); }
+
+	/* An abort with `message` when `condition` holds. */
+	private IRNode nativeAbortIf(IRNode condition, string message) {
+		IRNode guard = self.nativeNullGuard(IRNode.literal("NULL"), message);
+		((IRControlPayload)guard.payload).condition = condition;
+		return guard;
+	}
+
+	/* Copy a returned UTF-16 string into a new BTRC string, then free it with
+	 * its allocator. A BSTR's length is its prefix; a CoTaskMemAlloc string
+	 * ends at U+0000. U+0000 inside a BSTR has no BTRC spelling, so such a
+	 * string throws after it is freed; null stays null. */
+	private IRNode comCopiedText(string symbol, FeNativeDispatchMethod method, IRNode output, Vector<IRNode> body) {
+		self.context.referenceHelper("__btrc_string_alloc");
+		self.context.referenceHelper("__btrc_throw");
+		IRNode text = IRNode.variable("__btrc_text");
+		IRNode units = IRNode.variable("__btrc_units");
+		IRNode length = IRNode.variable("__btrc_length");
+		string what = "COM " + symbol + "." + method.name;
+		Vector<string> refusals = [what + " returned a string holding U+0000, which a BTRC string cannot hold", what + " returned a string too long for a BTRC string"];
+		Vector<IRNode> conditions = [IRNode.binary(length, "<", IRNode.literal("0")), IRNode.binary(length, ">", IRNode.literal("2147483646"))];
+		Vector<IRNode> copy = [
+			IRNode.variableDeclaration("long long", "__btrc_units", IRNode.call("btrcCOMTextUnits", [output, IRNode.literal(method.outputFree == "SysFreeString" ? "1" : "0")])),
+			IRNode.variableDeclaration("long long", "__btrc_length", IRNode.call("btrcCOMTextLength", [output, units]))
+		];
+		for index in range(2) {
+			IRNode thrown = IRNode.call("__btrc_throw", [IRNode.literal("\"" + refusals.get(index) + "\"")]);
+			((IRCallPayload)thrown.payload).neverReturns = true;
+			copy.push(IRNode.ifStatement(conditions.get(index), IRNode.block([IRNode.expressionStatement(IRNode.call(method.outputFree, [output])), IRNode.expressionStatement(thrown)]), null));
+		}
+		copy.push(IRNode.assignment(text, IRNode.call("__btrc_string_alloc", [IRNode.cast("int", length)])));
+		copy.push(IRNode.expressionStatement(IRNode.call("btrcCOMEncodeText", [output, units, text])));
+		copy.push(IRNode.expressionStatement(IRNode.call(method.outputFree, [output])));
+		body.push(IRNode.variableDeclaration("char*", "__btrc_text", IRNode.literal("NULL")));
+		body.push(IRNode.ifStatement(IRNode.binary(output, "!=", IRNode.literal("NULL")), IRNode.block(copy), null));
+		return text;
+	}
+
+	/* A generated COM sink: an M2 holder implementing a com resource's table,
+	 * and its factory. The holder is the object the source receives: one
+	 * static const table, a COM count, a state word (0 live, 1 cancelled, 2
+	 * dead), the creating thread, and one external claim on its
+	 * CallbackContext, held while the count is positive. Every entry checks
+	 * the thread (rules 3 and 4), and a dead holder aborts AddRef and
+	 * QueryInterface. An event pins the holder with its count, then enters the
+	 * context, so a handler may Unadvise from inside it; after cancellation an
+	 * event returns S_OK without entering BTRC. The registration owns one claim
+	 * on the source and the Advise cookie, unregisters with Unadvise, and lets
+	 * the holder free itself at zero once it is gone
+	 * (native-interop-ownership.md section 2.4). */
+	private void emitComSinkAdapter(Node declaration, FeNativeCallContract contract, IRModule module) {
+		FeNativeComSink? selected = contract.comSink;
+		if (selected == null) { throw "com sink adapter requires its sink projection"; }
+		FeNativeComSink sink = selected;
+		Vector<IRNode> noArguments = [];
+		string prefix = "__btrc_com_sink_" + sink.resource;
+		string holderName = prefix + "_holder";
+		string registrationName = prefix + "_registration";
+		string holderType = "struct " + holderName + "*";
+		string registrationType = "struct " + registrationName + "*";
+		Node contextType = declaration.returnType;
+		string contextC = self.cTypes.lower(contextType);
+		string contextSymbol = TypeIdentity.mangleGenericSymbol(contextType.base, contextType.genericArgs());
+		Node tokenType = contextType.genericArgs().get(1);
+		string tokenC = self.cTypes.lower(tokenType);
+		string tokenSymbol = TypeIdentity.mangleGenericSymbol(tokenType.base, tokenType.genericArgs());
+		Node receiverType = contextType.genericArgs().get(0);
+		module.structForwards.push(IRStructForward(holderName));
+		module.structForwards.push(IRStructForward(registrationName));
+		var holderDefinition = IRStructDef(); holderDefinition.name = holderName;
+		holderDefinition.fields = [IRStructField(sink.tableType, "lpVtbl"), IRStructField("uint32_t", "comCount"), IRStructField("uint32_t", "state"), IRStructField("void*", "context"), IRStructField("volatile int*", "thread"), IRStructField("bool", "registered")];
+		module.structDefs.push(holderDefinition);
+		var registrationDefinition = IRStructDef(); registrationDefinition.name = registrationName;
+		registrationDefinition.fields = [IRStructField("void*", "source"), IRStructField(sink.cookieType, "cookie"), IRStructField(holderType, "sink")];
+		module.structDefs.push(registrationDefinition);
+		IRNode holder = IRNode.variable("holder");
+		IRNode registration = IRNode.variable("registration");
+		IRNode state = IRNode.fieldAccess(holder, "state", true);
+		IRNode count = IRNode.fieldAccess(holder, "comCount", true);
+		IRNode registered = IRNode.fieldAccess(holder, "registered", true);
+		IRNode context = IRNode.cast(contextC, IRNode.fieldAccess(holder, "context", true));
+		string what = "Native COM sink " + sink.resource;
+		IRNode onThread = IRNode.binary(IRNode.fieldAccess(holder, "thread", true), "!=", IRNode.addressOf(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false)));
+		/* QueryInterface: IID_IUnknown, the sink's IID and its bases', by memcmp. */
+		Vector<string> queryNames = ["This", "riid", "ppvObject"];
+		Vector<IRParam> queryParameters = [];
+		for index in range(3) { queryParameters.push(IRParam(sink.queryParameters.get(index), queryNames.get(index))); }
+		IRNode riid = IRNode.variable("riid");
+		IRNode out = IRNode.variable("ppvObject");
+		IRNode matches = self.comIidTest(riid, sink.iids.get(0));
+		for index in range(1, sink.iids.len) { matches = IRNode.binary(matches, "||", self.comIidTest(riid, sink.iids.get(index))); }
+		self.nativeUniqueFunction(module, prefix + "_slot_QueryInterface", sink.statusType, queryParameters, [
+			self.comSinkHolder(holderType),
+			self.nativeAbortIf(onThread, what + ".QueryInterface: called off its apartment thread"),
+			self.nativeAbortIf(IRNode.binary(state, "==", IRNode.literal("2u")), what + ".QueryInterface: the holder is dead"),
+			IRNode.ifStatement(IRNode.binary(out, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(IRNode.cast(sink.statusType, IRNode.literal("-2147467261")))]), null),
+			IRNode.assignment(IRNode.dereference(out), IRNode.literal("NULL")),
+			IRNode.ifStatement(IRNode.binary(riid, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(IRNode.cast(sink.statusType, IRNode.literal("-2147467261")))]), null),
+			IRNode.ifStatement(matches, IRNode.block([
+			IRNode.assignment(count, IRNode.binary(count, "+", IRNode.literal("1u"))),
+			IRNode.assignment(IRNode.dereference(out), IRNode.cast("void*", IRNode.variable("This"))),
+			IRNode.returnStatement(IRNode.cast(sink.statusType, IRNode.literal("0")))
+		]), null),
+			IRNode.returnStatement(IRNode.cast(sink.statusType, IRNode.literal("-2147467262")))
+		]);
+		self.nativeUniqueFunction(module, prefix + "_slot_AddRef", sink.countType, [IRParam(sink.countParameter, "This")], [
+			self.comSinkHolder(holderType),
+			self.nativeAbortIf(onThread, what + ".AddRef: called off its apartment thread"),
+			self.nativeAbortIf(IRNode.binary(state, "==", IRNode.literal("2u")), what + ".AddRef: the holder is dead"),
+			IRNode.assignment(count, IRNode.binary(count, "+", IRNode.literal("1u"))),
+			IRNode.returnStatement(IRNode.cast(sink.countType, count))
+		]);
+		/* At zero the holder is dead before anything is released; it frees
+		 * itself once its registration has also let go of it. */
+		IRNode remaining = IRNode.variable("remaining");
+		Vector<IRNode> finalRelease = [IRNode.expressionStatement(self.managedLifetime.releaseValue(context, contextType)), IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))];
+		self.nativeUniqueFunction(module, prefix + "_slot_Release", sink.countType, [IRParam(sink.countParameter, "This")], [
+			self.comSinkHolder(holderType),
+			self.nativeAbortIf(onThread, what + ".Release: foreign holder released on the wrong thread"),
+			self.nativeAbortIf(IRNode.binary(IRNode.binary(state, "==", IRNode.literal("2u")), "||", IRNode.binary(count, "==", IRNode.literal("0u"))), what + ".Release: the holder is dead"),
+			IRNode.assignment(count, IRNode.binary(count, "-", IRNode.literal("1u"))),
+			IRNode.variableDeclaration("uint32_t", "remaining", count),
+			IRNode.ifStatement(IRNode.binary(remaining, "==", IRNode.literal("0u")), IRNode.block([
+			IRNode.assignment(state, IRNode.literal("2u")),
+			self.nativeCallbackBoundary(finalRelease, module),
+			IRNode.assignment(IRNode.fieldAccess(holder, "context", true), IRNode.literal("NULL")),
+			IRNode.ifStatement(IRNode.unary("!", registered, true), IRNode.block([IRNode.expressionStatement(IRNode.call("free", [holder])), IRNode.expressionStatement(IRNode.call("btrcCOMSinkClosed", noArguments))]), null)
+		]), null),
+			IRNode.returnStatement(IRNode.cast(sink.countType, remaining))
+		]);
+		/* Each event pins the holder, then enters the context (rule 2). */
+		Vector<string> slots = [prefix + "_slot_QueryInterface", prefix + "_slot_AddRef", prefix + "_slot_Release"];
+		for method in sink.methods {
+			Vector<IRParam> eventParameters = [];
+			Map<string, bool> eventNames = {};
+			Vector<IRNode> callArguments = [IRNode.variable("receiver")];
+			for index in range(method.nativeParameters.len) {
+				string parameterName = index == 0 ? "This" : f"argument{index}";
+				eventParameters.push(IRParam(method.nativeParameters.get(index), parameterName));
+				eventNames.put(parameterName, true);
+				if (index > 0) { callArguments.push(IRNode.variable(parameterName)); }
+			}
+			IRNode eventReceiver = IRNode.variable("receiver");
+			IRNode result = IRNode.variable("result");
+			Vector<IRNode> inner = [];
+			IRNode eventCleanup = self.nativeCleanupScope(eventNames, inner);
+			IRNode receiverSlot = IRNode.variableDeclaration(self.cTypes.lower(receiverType), "receiver", IRNode.call(contextSymbol + "_enter", [context]));
+			inner.push(receiverSlot);
+			inner.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(receiverSlot, self.managedValues.runtimeType(receiverType))));
+			inner.push(IRNode.variableDeclaration(method.nativeReturn, "result", IRNode.cast(method.nativeReturn, IRNode.literal("0"))));
+			inner.push(IRNode.ifStatement(eventReceiver, IRNode.block([
+				IRNode.assignment(result, IRNode.cast(method.nativeReturn, IRNode.call(sink.handler + "_" + method.name, callArguments))),
+				IRNode.expressionStatement(IRNode.call(contextSymbol + "_leave", [context]))
+			]), null));
+			self.releaseStoredLocal(eventReceiver, receiverType, "releasedReceiver", inner);
+			inner.push(eventCleanup);
+			inner.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
+			inner.push(IRNode.expressionStatement(IRNode.call(prefix + "_slot_Release", [IRNode.variable("This")])));
+			inner.push(IRNode.returnStatement(result));
+			string slotName = prefix + "_slot_" + method.slot;
+			self.nativeUniqueFunction(module, slotName, method.nativeReturn, eventParameters, [
+				self.comSinkHolder(holderType),
+				self.nativeAbortIf(onThread, what + "." + method.slot + ": called off its apartment thread"),
+				self.nativeAbortIf(IRNode.binary(state, "==", IRNode.literal("2u")), what + "." + method.slot + ": the holder is dead"),
+				/* After cancellation the source may still hold the sink: S_OK, without BTRC. */
+				IRNode.ifStatement(IRNode.binary(state, "!=", IRNode.literal("0u")), IRNode.block([IRNode.returnStatement(IRNode.cast(method.nativeReturn, IRNode.literal("0")))]), null),
+				IRNode.assignment(count, IRNode.binary(count, "+", IRNode.literal("1u"))),
+				self.nativeCallbackBoundary(inner, module)
+			]);
+			slots.push(slotName);
+		}
+		Vector<IRNode> entries = [];
+		for slot in slots { entries.push(IRNode.functionReference(slot)); }
+		var table = IRGlobalDecl("const " + sink.tableRecord, prefix + "_table");
+		table.init = IRNode.initializerList(entries);
+		module.globalDecls.push(table);
+		IRNode sourceNative = IRNode.variable("__btrc_native");
+		string sourceWhat = what + ": " + sink.source;
+		/* Unregister: Unadvise the cookie. The sink is cancelled first, so later
+		 * events return S_OK; a dead sink is already unreachable from the source. */
+		IRNode present = IRNode.binary(holder, "!=", IRNode.literal("NULL"));
+		Vector<IRNode> unregisterBody = [
+			IRNode.variableDeclaration(registrationType, "registration", IRNode.cast(registrationType, IRNode.variable("rawRegistration"))),
+			IRNode.variableDeclaration(holderType, "holder", IRNode.fieldAccess(registration, "sink", true)),
+			IRNode.ifStatement(IRNode.binary(present, "&&", IRNode.binary(state, "==", IRNode.literal("0u"))), IRNode.block([IRNode.assignment(state, IRNode.literal("1u"))]), null),
+			self.comApartment(),
+			IRNode.variableDeclaration(sink.sourceType, "__btrc_native", IRNode.cast(sink.sourceType, IRNode.fieldAccess(registration, "source", true)))
+		];
+		IRNode unadvise = self.comTableCall(sink.sourceTable, sourceNative, sink.unregisterSlot, [IRNode.fieldAccess(registration, "cookie", true)], sourceWhat + "." + sink.unregisterMethod, unregisterBody);
+		IRNode status = IRNode.variable("status");
+		unregisterBody.push(IRNode.variableDeclaration(sink.unregisterStatus, "status", unadvise));
+		unregisterBody.push(IRNode.returnStatement(IRNode.binary(IRNode.binary(status, ">=", IRNode.literal("0")), "||", IRNode.binary(present, "&&", IRNode.binary(state, "==", IRNode.literal("2u"))))));
+		self.nativeUniqueFunction(module, prefix + "_unregister", "bool", [IRParam("void*", "rawRegistration")], unregisterBody);
+		/* Destroy: the registration has drained. It ends its source claim and
+		 * frees a dead sink; a live one stays cancelled until its last Release. */
+		self.nativeUniqueFunction(module, prefix + "_destroy", "void", [IRParam("void*", "rawRegistration")], [
+			IRNode.variableDeclaration(registrationType, "registration", IRNode.cast(registrationType, IRNode.variable("rawRegistration"))),
+			IRNode.variableDeclaration(holderType, "holder", IRNode.fieldAccess(registration, "sink", true)),
+			IRNode.ifStatement(present, IRNode.block([
+			IRNode.assignment(registered, IRNode.literal("false")),
+			IRNode.ifStatement(IRNode.binary(state, "==", IRNode.literal("0u")), IRNode.block([IRNode.assignment(state, IRNode.literal("1u"))]), null),
+			IRNode.ifStatement(IRNode.binary(state, "==", IRNode.literal("2u")), IRNode.block([IRNode.expressionStatement(IRNode.call("free", [holder])), IRNode.expressionStatement(IRNode.call("btrcCOMSinkClosed", noArguments))]), null)
+		]), null),
+			IRNode.expressionStatement(IRNode.call("__btrc_native_" + sink.source + "_release", [IRNode.fieldAccess(registration, "source", true)])),
+			IRNode.expressionStatement(IRNode.call("free", [registration]))
+		]);
+		self.nativeUniqueFunction(module, prefix + "_cancel", "bool", [IRParam(tokenC, "token")], [IRNode.returnStatement(IRNode.call(tokenSymbol + "_unregister", [IRNode.variable("token")]))]);
+		/* The factory: registration, token and context, then the holder, then Advise. */
+		Vector<IRParam> parameters = [];
+		Map<string, bool> parameterNames = {};
+		for parameter in declaration.params() {
+			IRParam lowered = self.cTypes.lowerParameter(parameter);
+			parameters.push(lowered);
+			parameterNames.put(lowered.name, true);
+		}
+		IRNode source = IRNode.variable(parameters.get(0).name);
+		IRNode receiver = IRNode.variable(parameters.get(1).name);
+		IRNode scope = IRNode.variable(parameters.get(2).name);
+		Vector<IRNode> body = [];
+		IRNode cleanup = self.nativeCleanupScope(parameterNames, body);
+		for parameter in parameters { body.push(self.nativeNullGuard(IRNode.variable(parameter.name), f"Native call {declaration.name}: null {parameter.name}")); }
+		body.push(self.comApartment());
+		self.context.referenceHelper("__btrc_safe_calloc");
+		body.push(IRNode.variableDeclaration(registrationType, "registration", IRNode.cast(registrationType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + registrationName)]))));
+		/* The registration's own claim keeps the source alive until Unadvise. */
+		body.push(IRNode.assignment(IRNode.fieldAccess(registration, "source", true), IRNode.cast("void*", source)));
+		body.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + sink.source + "_retain", [source])));
+		IRNode token = IRNode.variable("registrationToken");
+		IRNode tokenSlot = IRNode.variableDeclaration(tokenC, "registrationToken", IRNode.call(tokenSymbol + "_new", [IRNode.functionReference(prefix + "_destroy"), IRNode.cast("void*", registration), IRNode.functionReference(prefix + "_destroy"), IRNode.functionReference(prefix + "_unregister"), IRNode.cast("void*", registration)]));
+		IRNode contextValue = IRNode.variable("context");
+		IRNode contextSlot = IRNode.variableDeclaration(contextC, "context", IRNode.call(contextSymbol + "_new", [receiver, IRNode.functionReference(prefix + "_cancel")]));
+		body.push(tokenSlot);
+		body.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(tokenSlot, self.managedValues.runtimeType(tokenType))));
+		body.push(contextSlot);
+		body.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(contextSlot, self.managedValues.runtimeType(contextType))));
+		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_activate", [contextValue, scope])));
+		body.push(IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + holderName)]))));
+		body.push(IRNode.expressionStatement(IRNode.call("btrcCOMSinkOpened", noArguments)));
+		body.push(IRNode.assignment(IRNode.fieldAccess(holder, "lpVtbl", true), IRNode.cast(sink.tableType, IRNode.addressOf(IRNode.variable(prefix + "_table")))));
+		/* The factory's own reference, ended after Advise. */
+		body.push(IRNode.assignment(count, IRNode.literal("1u")));
+		body.push(IRNode.assignment(IRNode.fieldAccess(holder, "thread", true), IRNode.addressOf(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false))));
+		body.push(IRNode.assignment(registered, IRNode.literal("true")));
+		/* The holder's one external claim on the context. */
+		body.push(IRNode.expressionStatement(self.managedLifetime.retainValue(contextValue, contextType)));
+		body.push(IRNode.assignment(IRNode.fieldAccess(holder, "context", true), IRNode.cast("void*", contextValue)));
+		body.push(IRNode.assignment(IRNode.fieldAccess(registration, "sink", true), holder));
+		body.push(IRNode.variableDeclaration(sink.sourceType, "__btrc_native", IRNode.cast(sink.sourceType, source)));
+		Vector<IRNode> adviseArguments = [];
+		for index in range(2) {
+			if (index == sink.sinkPosition) { adviseArguments.push(IRNode.cast(sink.sinkSpelling, IRNode.cast("void*", holder))); }
+			else { adviseArguments.push(IRNode.addressOf(IRNode.fieldAccess(registration, "cookie", true))); }
+		}
+		IRNode advise = self.comTableCall(sink.sourceTable, sourceNative, sink.registerSlot, adviseArguments, sourceWhat + "." + sink.registerMethod, body);
+		IRNode registrationStatus = IRNode.variable("registrationStatus");
+		body.push(IRNode.variableDeclaration(sink.registerStatus, "registrationStatus", advise));
+		body.push(IRNode.expressionStatement(IRNode.call(prefix + "_slot_Release", [IRNode.cast(sink.countParameter, IRNode.cast("void*", holder))])));
+		string failure = "COM sink " + sink.resource + ": " + sink.source + "." + sink.registerMethod + " failed with HRESULT 0x%08X";
+		Vector<IRNode> failed = [];
+		if (sink.activationFailure == "abort") {
+			IRNode abortCall = IRNode.call("abort", noArguments);
+			((IRCallPayload)abortCall.payload).neverReturns = true;
+			failed.push(IRNode.expressionStatement(IRNode.call("fprintf", [IRNode.variable("stderr"), IRNode.literal("\"" + failure + "\\n\""), IRNode.cast("unsigned int", registrationStatus)])));
+			failed.push(IRNode.expressionStatement(abortCall));
+		} else {
+			self.context.referenceHelper("__btrc_throw");
+			IRNode message = IRNode.variable("__btrc_message");
+			failed.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_abortActivation", [contextValue])));
+			failed.push(IRNode.arrayDeclaration("char", "__btrc_message", IRNode.literal("160"), null));
+			failed.push(IRNode.expressionStatement(IRNode.call("snprintf", [message, IRNode.sizeofExpression(message), IRNode.literal("\"" + failure + "\""), IRNode.cast("unsigned int", registrationStatus)])));
+			IRNode thrown = IRNode.call("__btrc_throw", [message]);
+			((IRCallPayload)thrown.payload).neverReturns = true;
+			failed.push(IRNode.expressionStatement(thrown));
+		}
+		body.push(IRNode.ifStatement(IRNode.binary(registrationStatus, "<", IRNode.literal("0")), IRNode.block(failed), null));
+		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [contextValue, token])));
+		self.releaseStoredLocal(token, tokenType, "releasedToken", body);
+		body.push(cleanup);
+		body.push(IRNode.returnStatement(contextValue));
+		self.nativeUniqueFunction(module, contract.adapterSymbol(declaration.name), contextC, parameters, body);
 	}
 
 	private void emitUniqueResource(FeNativeImportedDeclaration imported, IRModule module, string symbol = "", string releaseSymbol = "") {
