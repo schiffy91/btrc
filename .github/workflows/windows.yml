@@ -418,10 +418,12 @@ jobs:
   # The native three-stage fixed point, in its own job: it takes most of two
   # hours, so ci/tiers.toml runs it in the main tier and above, while the
   # windows job runs on a pull request whose Windows paths change.
-  # A stored C window subclass from the real MinGW commctrl.h, through both
-  # compilers (test_native_win32_subclass.py). The header reader and zig run
-  # under Nix, which Windows lacks, so a Linux runner builds the executables
-  # and win32-native runs them on x64 and ARM64 Windows.
+  # A stored C window subclass from the real MinGW commctrl.h, and real COM
+  # (interop step 5's exit: a registry-free server DLL with a BTRC sink, and
+  # an ole32 stream), through both compilers (test_native_win32_subclass.py,
+  # test_native_com_windows.py). The header reader and zig run under Nix,
+  # which Windows lacks, so a Linux runner builds the executables and the
+  # server and win32-native runs them on x64 and ARM64 Windows.
   win32-native-build:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'win32-native-build')
@@ -433,12 +435,14 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
         with:
           use-flakehub: false
-      - name: Build the window subclass with both compilers for x64 and ARM64
-        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Build the window subclass and the COM programs with both compilers for x64 and ARM64
+        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: win32-subclass-executables
-          path: build/win32/*.exe
+          name: win32-native-executables
+          path: |
+            build/win32/*.exe
+            build/win32/*.dll
           if-no-files-found: error
           retention-days: 7
       - name: Retain the skip report
@@ -465,7 +469,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: win32-subclass-executables
+          name: win32-native-executables
           path: win32
       - name: Subclass a real window through each compiler's program
         run: |
@@ -473,6 +477,22 @@ jobs:
             output=$("./win32/win32-subclass-$frontend-${{ matrix.target }}.exe" | tr -d '\r')
             echo "$frontend ${{ matrix.target }}: $output"
             test "$output" = "win32-subclass first=42 after=0 cancelled=1 destroyed=1 open=0"
+          done
+      # The server DLL sits beside each program, which loads it by name
+      # (LoadLibrary, DllGetClassObject): no registry entry exists.
+      - name: Advise a BTRC sink on a registry-free COM server through each compiler's program
+        run: |
+          for frontend in reference selfhost; do
+            output=$("./win32/com-sinks-$frontend-${{ matrix.target }}.exe" | tr -d '\r')
+            echo "$frontend ${{ matrix.target }}: $output"
+            test "$output" = "$(printf 'com-sinks same=1 cloned=1 named=1 fired=1 cancelled=1 quiet=1\ncom-server live=0 balanced=1 peak=2 last=0 destroyed=1 claims=0 sinks=0')"
+          done
+      - name: Release an ole32 stream to zero through each compiler's program
+        run: |
+          for frontend in reference selfhost; do
+            output=$("./win32/com-stream-$frontend-${{ matrix.target }}.exe" | tr -d '\r')
+            echo "$frontend ${{ matrix.target }}: $output"
+            test "$output" = "$(printf 'com-stream status=0 written=4 same=1\ncom-stream-release claims=0 last=0')"
           done
 
   bootstrap:
