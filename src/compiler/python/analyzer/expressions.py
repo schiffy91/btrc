@@ -1145,7 +1145,13 @@ class ExpressionAnalyzer:
             and native_target.native_language == "objective-c"
             and not self.types.is_subclass(source.base, target.base)
         ):
-            if not self.types.is_subclass(target.base, source.base):
+            # Any Objective-C object may conform to a protocol, and any class
+            # may implement one: casts to or from a protocol handle are checked.
+            if not (
+                self.types.is_subclass(target.base, source.base)
+                or native_source.native_protocol
+                or native_target.native_protocol
+            ):
                 self.session.error(
                     "Objective-C casts require a proven object upcast or a nullable checked downcast",
                     expression.line,

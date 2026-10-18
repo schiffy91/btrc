@@ -377,7 +377,7 @@ def _override(symbol, select=True):
         ([(OVERRIDES, OVERRIDES + '\nterminal = "+[NativeView live]"')], "terminal must name one of methods"),
         (
             [(SELF_KEY, '"+[NativeHost drive:].view"'), ('superclass = "NativeView"\n', "")],
-            "superclass and overrides require a designated initializer's self parameter",
+            "overrides require superclass",
         ),
         (
             [('lifetime = "instantiated"', 'lifetime = "stored"')],
@@ -534,3 +534,305 @@ def test_appkit_view_subclass_hosts_a_metal_layer(native_project, native_compile
     assert "appkit layers=1" in completed.stdout
     assert "ERROR: AddressSanitizer" not in completed.stderr
     assert "runtime error:" not in completed.stderr
+
+
+# The forms the SDK instantiates itself may extend an SDK class too, as a
+# UIResponder app or scene delegate does. This proxy entry creates its process
+# delegate from a class name, as UIApplicationMain does, and a configuration
+# creates one connection delegate per use from a class, as a UIScene
+# configuration does; both classes extend NSResponder. The probe sends the
+# protocol methods and the overrides itself, and asks the connection class for
+# a class before it creates an instance. The iOS simulator runs a UIResponder
+# app delegate (test_native_uikit_application.py).
+
+RESPONDER_HEADER = """#import <AppKit/AppKit.h>
+@protocol NativeLaunchDelegate <NSObject>
+- (BOOL)didLaunch:(int)mode;
+@end
+@protocol NativeConnectDelegate <NSObject>
+- (void)willConnect:(int)identifier;
+- (void)didDisconnect:(int)identifier;
+@end
+@interface NativeResponder : NSResponder
+- (void)resignActive NS_REQUIRES_SUPER;
+- (int)depth:(int)value NS_REQUIRES_SUPER;
++ (Class _Nonnull)targetClass;
++ (int)superResigns;
++ (int)live;
+@end
+@interface NativeResponderConfiguration : NSObject
+@property (nonatomic, nullable) Class delegateClass;
++ (NativeResponderConfiguration * _Nonnull)make;
+- (int)connect;
+@end
+int NativeResponderMain(int mode, NSString * _Nullable delegateClassName);
+"""
+
+RESPONDER_PROBE = """#import "AppKitBinding.h"
+static int superResigns;
+static int live;
+@implementation NativeResponder
++ (Class)targetClass { return [NSObject class]; }
++ (int)superResigns { return superResigns; }
++ (int)live { return live; }
+- (instancetype)init { self = [super init]; if (self) live++; return self; }
+- (void)dealloc { live--; [super dealloc]; }
+- (void)resignActive { superResigns++; }
+- (int)depth:(int)value { return value; }
+@end
+@implementation NativeResponderConfiguration
+@synthesize delegateClass = _delegateClass;
++ (NativeResponderConfiguration *)make { return [[[NativeResponderConfiguration alloc] init] autorelease]; }
+- (int)connect {
+    Class type = self.delegateClass;
+    if (type == Nil || ![type isSubclassOfClass:[NativeResponder class]]
+        || ![type conformsToProtocol:@protocol(NativeConnectDelegate)]) return -1;
+    /* A class override answers before any instance exists. */
+    if ([type targetClass] != [NSMutableString class]) return -2;
+    NativeResponder<NativeConnectDelegate> *first = [[type alloc] init];
+    [first willConnect:1];
+    BOOL accepts = [first acceptsFirstResponder];
+    [first resignActive];
+    [first didDisconnect:1];
+    /* After the terminal method only the required super send runs. */
+    [first resignActive];
+    [first release];
+    return accepts ? 7 : 3;
+}
+@end
+int NativeResponderMain(int mode, NSString *delegateClassName) {
+    Class type = NSClassFromString(delegateClassName);
+    if (type == Nil || ![type isSubclassOfClass:[NSResponder class]]
+        || ![type conformsToProtocol:@protocol(NativeLaunchDelegate)]) return -1;
+    /* Like UIApplicationMain, the entry keeps its delegate for the process. */
+    NSResponder<NativeLaunchDelegate> *delegate = [[type alloc] init];
+    BOOL launched = [delegate didLaunch:mode];
+    BOOL accepts = [delegate acceptsFirstResponder];
+    BOOL tried = [delegate tryToPerform:@selector(copy:) with:nil];
+    if ([type isSubclassOfClass:[NativeResponder class]]) [(NativeResponder *)delegate resignActive];
+    return launched && accepts && tried ? 7 : 3;
+}
+"""
+
+RESPONDER_SYMBOLS = [
+    "NativeResponderMain",
+    "-[NativeLaunchDelegate didLaunch:]",
+    "-[NSResponder acceptsFirstResponder]",
+    "-[NSResponder tryToPerform:with:]",
+    "-[NativeResponder acceptsFirstResponder]",
+    "-[NativeResponder tryToPerform:with:]",
+    "-[NativeResponder resignActive]",
+    "-[NativeResponder depth:]",
+    "+[NativeResponder targetClass]",
+    "+[NativeResponder superResigns]",
+    "+[NativeResponder live]",
+    "+[NativeResponderConfiguration make]",
+    "-[NativeResponderConfiguration setDelegateClass:]",
+    "-[NativeResponderConfiguration connect]",
+    "-[NativeConnectDelegate willConnect:]",
+    "-[NativeConnectDelegate didDisconnect:]",
+]
+
+PROCESS_OVERRIDES = {
+    "NSResponder": 'overrides = ["-[NSResponder acceptsFirstResponder]", "-[NSResponder tryToPerform:with:]"]',
+    "NativeResponder": (
+        'overrides = ["-[NativeResponder acceptsFirstResponder]", "-[NativeResponder tryToPerform:with:]", '
+        '"-[NativeResponder resignActive]"]'
+    ),
+}
+
+CONNECTION_OVERRIDES = (
+    'overrides = ["+[NativeResponder targetClass]", "-[NativeResponder resignActive]", '
+    '"-[NativeResponder acceptsFirstResponder]"]'
+)
+
+RESPONDER_MANIFEST = f"""manifest-version = 1
+[package]
+name = "responderDelegates"
+[[native.bindings]]
+module = "AppKit"
+header = "AppKitBinding.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = [{", ".join(f'"{symbol}"' for symbol in RESPONDER_SYMBOLS)}]
+[native.bindings.callbacks."NativeResponderMain.delegateClassName"]
+interface = "ILaunchDelegate"
+lifetime = "instantiated"
+scope = "process"
+failure = "abort"
+executor = "caller"
+superclass = "SUPERCLASS"
+methods = ["-[NativeLaunchDelegate didLaunch:]"]
+PROCESS_OVERRIDES
+[native.bindings.callbacks."-[NativeResponderConfiguration setDelegateClass:].delegateClass"]
+interface = "IConnectDelegate"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+superclass = "NativeResponder"
+methods = ["-[NativeConnectDelegate willConnect:]", "-[NativeConnectDelegate didDisconnect:]"]
+{CONNECTION_OVERRIDES}
+terminal = "-[NativeConnectDelegate didDisconnect:]"
+[[native.bindings]]
+module = "Selectors"
+header = "Selectors.h"
+language = "c"
+standard = "c11"
+os = ["macos"]
+symbols = ["SEL", "sel_registerName"]
+read-only-borrows = ["sel_registerName.str"]
+[[native.sources]]
+path = "Probe.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+[[native.frameworks]]
+name = "AppKit"
+os = ["macos"]
+[[native.frameworks]]
+name = "Foundation"
+os = ["macos"]
+"""
+
+RESPONDER_PROGRAM = """import Library.Callback;
+import ./AppKit.btrc;
+import ./Selectors.btrc;
+#include <assert.h>
+int launches = 0;
+int accepts = 0;
+int tries = 0;
+int resigns = 0;
+int connects = 0;
+int disconnects = 0;
+int connectionResigns = 0;
+int destroyed = 0;
+class Launch implements ILaunchDelegate {
+	public bool didLaunch(int mode) {
+		launches++;
+		return mode == 0;
+	}
+	public bool acceptsFirstResponder() {
+		accepts++;
+		return true;
+	}
+	public bool tryToPerform(SEL action, id? object) {
+		tries++;
+		return action == sel_registerName("copy:") && object == null;
+	}
+	public void resignActive() {
+		// The required super send follows the receiver.
+		assert(NativeResponder.superResigns() == resigns);
+		resigns++;
+	}
+	public void __del__() { destroyed++; }
+}
+class Connection implements IConnectDelegate {
+	public void willConnect(int identifier) { connects++; }
+	public void didDisconnect(int identifier) { disconnects++; }
+	public bool acceptsFirstResponder() { return true; }
+	public void resignActive() { connectionResigns++; }
+	public void __del__() { destroyed++; }
+}
+class Connections implements IConnectDelegateFactory {
+	public IConnectDelegate create() { return Connection(); }
+	public string targetClass() { return "NSMutableString"; }
+}
+int main() {
+	assert(NativeResponderMain(0, Launch()) == 7 && launches == 1 && accepts == 1 && tries == 1);
+	assert(resigns == RESIGNS && NativeResponder.superResigns() == RESIGNS);
+	NativeResponderConfiguration configuration = NativeResponderConfiguration.make();
+	configuration.setDelegateClass(Connections());
+	assert(configuration.connect() == 7 && connects == 1 && disconnects == 1);
+	// One resign reached the receiver; the one after the terminal sent only super.
+	assert(connectionResigns == 1 && NativeResponder.superResigns() == RESIGNS + 2);
+	// The process delegate stays a permanent root; the connection released its receiver.
+	assert(destroyed == 1 && NativeResponder.live() == RESIGNS);
+	return 0;
+}
+"""
+
+
+@pytest.fixture
+def responder_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "AppKitBinding.h").write_text(RESPONDER_HEADER)
+    (root / "Selectors.h").write_text("#include <objc/objc.h>\n")
+    (root / "Probe.m").write_text(RESPONDER_PROBE)
+    (source.parent / "AppKit.btrc").write_text("")
+    (source.parent / "Selectors.btrc").write_text("")
+    return source
+
+
+def _responder_manifest(superclass):
+    return RESPONDER_MANIFEST.replace("SUPERCLASS", superclass).replace(
+        "PROCESS_OVERRIDES", PROCESS_OVERRIDES[superclass]
+    )
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("superclass", ["NSResponder", "NativeResponder"])
+def test_sdk_instantiated_delegates_extend_a_responder(responder_project, native_compile, sanitize, superclass):
+    source = responder_project
+    (source.parent.parent / "btrc.toml").write_text(_responder_manifest(superclass))
+    source.write_text(RESPONDER_PROGRAM.replace("RESIGNS", "1" if superclass == "NativeResponder" else "0"))
+    completed = _build_and_run(source, native_compile, sanitize)
+    assert completed.returncode == 0, (completed.returncode, completed.stdout, completed.stderr)
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+PROCESS_KEY = '"NativeResponderMain.delegateClassName"'
+
+
+@pytest.mark.parametrize(
+    ("replacements", "message"),
+    [
+        ([('superclass = "SUPERCLASS"\n', "")], "overrides require superclass"),
+        (
+            [
+                ("PROCESS_OVERRIDES", 'overrides = ["+[NativeResponder targetClass]"]'),
+                ("SUPERCLASS", "NativeResponder"),
+            ],
+            "class-method overrides require an instance-scoped adapter: +[NativeResponder targetClass]",
+        ),
+        (
+            [("PROCESS_OVERRIDES", 'overrides = ["-[NativeResponder depth:]"]'), ("SUPERCLASS", "NativeResponder")],
+            "overrides that require super must return void: -[NativeResponder depth:]",
+        ),
+        (
+            [("PROCESS_OVERRIDES", 'overrides = ["-[NativeLaunchDelegate didLaunch:]"]')],
+            "methods and overrides must be distinct",
+        ),
+        (
+            [("PROCESS_OVERRIDES", 'overrides = ["-[NativeResponder resignActive]"]')],
+            "overrides require a method of the superclass NSResponder: -[NativeResponder resignActive]",
+        ),
+        ([("SUPERCLASS", "NSView")], "subclass adapters require a complete superclass interface: NSView"),
+        (
+            [('terminal = "-[NativeConnectDelegate didDisconnect:]"', 'terminal = "+[NativeResponder targetClass]"')],
+            "terminal must name an instance method: +[NativeResponder targetClass]",
+        ),
+        (
+            [('terminal = "-[NativeConnectDelegate didDisconnect:]"\n', "")],
+            "instance-scoped instantiated adapters require terminal",
+        ),
+    ],
+)
+def test_sdk_instantiated_subclass_rejects_unchecked_mapping(responder_project, native_compile, replacements, message):
+    source = responder_project
+    manifest = RESPONDER_MANIFEST
+    for old, new in replacements:
+        assert old in manifest, old
+        manifest = manifest.replace(old, new)
+    # Unless a case replaced them: an NSResponder process delegate.
+    manifest = manifest.replace("SUPERCLASS", "NSResponder").replace(
+        "PROCESS_OVERRIDES", PROCESS_OVERRIDES["NSResponder"]
+    )
+    (source.parent.parent / "btrc.toml").write_text(manifest)
+    source.write_text("import Library.Callback;\nimport ./AppKit.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert message in str(compiled.failure) + str(compiled.diagnostics)

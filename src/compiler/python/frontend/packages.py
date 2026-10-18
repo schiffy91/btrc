@@ -1724,24 +1724,25 @@ class PackageManifestValidator:
                     )
                 if scope not in {"process", "instance"}:
                     raise ValueError(f"{location}.scope requires process or instance")
-                if not subclass and ("superclass" in value or "overrides" in value):
-                    raise ValueError(
-                        f"{location}: superclass and overrides require a designated initializer's self parameter"
-                    )
                 if subclass:
                     if "superclass" not in value:
                         raise ValueError(f"{location}: an initializer's self parameter requires superclass")
-                    superclass = self._identifier(superclass, f"{location}.superclass")
                     if scope != "instance":
                         raise ValueError(f"{location}: subclass adapters require scope instance")
-                    if "overrides" in value and (
-                        not isinstance(overrides, list)
-                        or not overrides
-                        or any(not isinstance(method, str) or method not in symbols for method in overrides)
-                    ):
-                        raise ValueError(f"{location}.overrides must name selected native methods")
-                    if len(set(overrides)) != len(overrides):
-                        raise ValueError(f"{location}.overrides contains a duplicate value")
+                # The forms the SDK instantiates (a class name, a Class) may
+                # extend an SDK class too, such as a UIResponder app delegate.
+                if "overrides" in value and "superclass" not in value:
+                    raise ValueError(f"{location}: overrides require superclass")
+                if "superclass" in value:
+                    superclass = self._identifier(superclass, f"{location}.superclass")
+                if "overrides" in value and (
+                    not isinstance(overrides, list)
+                    or not overrides
+                    or any(not isinstance(method, str) or method not in symbols for method in overrides)
+                ):
+                    raise ValueError(f"{location}.overrides must name selected native methods")
+                if len(set(overrides)) != len(overrides):
+                    raise ValueError(f"{location}.overrides contains a duplicate value")
                 if any(
                     key in value
                     for key in (
@@ -1890,8 +1891,24 @@ class PackageManifestValidator:
                     raise ValueError(f"{location}: a stored C registration requires its context slots")
             if value.get("failure") != "abort":
                 raise ValueError(f"{location}.failure currently requires abort")
-            if value.get("executor") != "caller" and realtime is None:
-                raise ValueError(f"{location}.executor currently requires caller")
+            # A stored Objective-C block may be bound to the main thread, as a
+            # main-queue notification observer is (native-interop-ownership.md
+            # section 1, rules 3 and 4): registration and every entry are
+            # checked there, and a final holder release elsewhere is posted to it.
+            main_block = (
+                value.get("executor") == "main"
+                and lifetime == "stored"
+                and language == "objective-c"
+                and not has_context
+                and not control_action
+                and not action
+                and "methods" not in value
+                and "slot-getter" not in value
+            )
+            if value.get("executor") != "caller" and realtime is None and not main_block:
+                raise ValueError(
+                    f"{location}.executor currently requires caller, or main for a stored Objective-C block"
+                )
             if interface in symbols:
                 raise ValueError(f"{location}.interface conflicts with another imported name")
             callbacks.append(

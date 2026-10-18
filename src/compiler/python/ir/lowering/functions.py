@@ -5014,9 +5014,34 @@ class FunctionLowerer:
                 )
             )
 
-    def _stored_context_holder(self, prefix, native, lifetime_type):
-        """One ARC-captured Objective-C object transports the managed root claim."""
+    def _stored_context_holder(self, prefix, native, lifetime_type, main_executor=False):
+        """One ARC-captured Objective-C object transports the managed root claim.
+
+        A main-executor holder that the SDK releases on another thread posts
+        its claim's release to the main queue (rule 4 in
+        native-interop-ownership.md section 1), so ARC is touched on main only.
+        """
         name = prefix + "Holder"
+        release = IRExprStmt(IRCall(IRVar("_release"), [IRVar("_context")]))
+        if main_executor:
+            for header in ("pthread.h", "dispatch/dispatch.h"):
+                include = IRInclude(header=header)
+                if include not in native.preprocessor_decls:
+                    native.preprocessor_decls.append(include)
+            release = IRIf(
+                IRBinOp(IRCall("pthread_main_np", []), "!=", IRLiteral("0")),
+                IRBlock([release]),
+                IRBlock(
+                    [
+                        IRExprStmt(
+                            IRCall(
+                                "dispatch_async_f",
+                                [IRCall("dispatch_get_main_queue", []), IRVar("_context"), IRVar("_release")],
+                            )
+                        )
+                    ]
+                ),
+            )
         native.objective_c_classes.append(
             IRObjectiveCClass(
                 name=name,
@@ -5041,17 +5066,7 @@ class FunctionLowerer:
                     ),
                     IRObjectiveCMethod("context", CType("void*"), [], IRBlock([IRReturn(IRVar("_context"))])),
                     IRObjectiveCMethod(
-                        "dealloc",
-                        CType("void"),
-                        [],
-                        IRBlock(
-                            [
-                                IRIf(
-                                    IRVar("_context"),
-                                    IRBlock([IRExprStmt(IRCall(IRVar("_release"), [IRVar("_context")]))]),
-                                ),
-                            ]
-                        ),
+                        "dealloc", CType("void"), [], IRBlock([IRIf(IRVar("_context"), IRBlock([release]))])
                     ),
                 ],
             )
@@ -5902,7 +5917,10 @@ class FunctionLowerer:
         for typedef in typedefs:
             module.function_pointer_typedefs.append(typedef)
             native.function_pointer_typedefs.append(typedef)
-        holder_name = self._stored_context_holder(prefix, native, lifetime_type)
+        # A block bound to the main thread (executor = "main"); delegates and
+        # actions keep the caller executor.
+        main_executor = not object_callback and callback.main_executor
+        holder_name = self._stored_context_holder(prefix, native, lifetime_type, main_executor)
         configure_selector = (
             self._stored_action_holder(native, invocation_types[0], [c_type for _, _, c_type in captured_types])
             if action or control
@@ -6186,6 +6204,24 @@ class FunctionLowerer:
         module.function_decls.append(IRFunctionDecl(prefix, CType("int"), adapter_parameters))
         body = []
         cleanup = self._native_cleanup_scope(parameters, body)
+        if main_executor:
+            # The context is created below, so its own thread check then
+            # admits entries and the final release on the main thread only.
+            include = IRInclude(header="pthread.h")
+            if include not in module.preprocessor_decls:
+                module.preprocessor_decls.append(include)
+            body.append(
+                IRIf(
+                    IRBinOp(IRCall("pthread_main_np", []), "==", IRLiteral("0")),
+                    IRBlock(
+                        [
+                            self._objective_c_null_guard(
+                                IRLiteral("NULL"), f"Stored callback {descriptor.name} requires the main thread"
+                            )
+                        ]
+                    ),
+                )
+            )
         arguments = [IRVar(parameter.name) for parameter in parameters]
         releases = []
         for index, (parameter, value_type) in enumerate(zip(parameters, parameter_types)):
@@ -6301,7 +6337,10 @@ class FunctionLowerer:
         Objective-C unit. There the adapter keeps them in file statics for the
         generated class, takes the permanent external claim and calls the SDK
         entry with that class's name. With scope = "process" the first `-init`
-        claims the root; a second instantiation or registration aborts.
+        claims the root; a second instantiation or registration aborts. A
+        class that extends an SDK class (a UIResponder app delegate) answers
+        its instance overrides through the same root, sending super after an
+        override the SDK marks NS_REQUIRES_SUPER.
         """
         module = self._session.module
         native = self._objective_c_unit(declaration)
@@ -6383,20 +6422,35 @@ class FunctionLowerer:
         for index, (method, value_types) in enumerate(zip(callback.methods, callback_types)):
             native_parameters, arguments = self._instantiated_arguments(method, value_types)
             invocation = IRCall(IRVar(f"{prefix}_invoke{index}"), [*arguments, context])
+            body = (
+                [IRExprStmt(invocation)]
+                if self._types.render(method.return_type) == "void"
+                else self._instantiated_result(method, invocation)
+            )
+            if method.native_method.requires_super:
+                # An override of a superclass method the SDK marks
+                # NS_REQUIRES_SUPER: the superclass's part follows the receiver.
+                body.append(
+                    IRExprStmt(
+                        IRObjectiveCMessage(
+                            IRVar("super"),
+                            method.native_method.selector,
+                            [IRVar(parameter.name) for parameter in native_parameters],
+                        )
+                    )
+                )
             methods.append(
                 IRObjectiveCMethod(
-                    method.native_method.selector,
-                    CType(method.native_return),
-                    native_parameters,
-                    IRBlock(
-                        [IRExprStmt(invocation)]
-                        if self._types.render(method.return_type) == "void"
-                        else self._instantiated_result(method, invocation)
-                    ),
+                    method.native_method.selector, CType(method.native_return), native_parameters, IRBlock(body)
                 )
             )
         native.objective_c_classes.append(
-            IRObjectiveCClass(name=holder, superclass="NSObject", methods=methods, protocols=[callback.protocol])
+            IRObjectiveCClass(
+                name=holder,
+                superclass=callback.superclass or "NSObject",
+                methods=methods,
+                protocols=[callback.protocol],
+            )
         )
         parameters = [self._signatures.lower_source_param(parameter) for parameter in declaration.params]
         result_type = CType(self._types.render(declaration.return_type))
@@ -7116,8 +7170,11 @@ class FunctionLowerer:
             ),
         )
 
-    @staticmethod
-    def _objective_c_object_type(name):
+    def _objective_c_object_type(self, name):
+        """The generated unit's spelling of a managed Objective-C object: Class*, id, or id<P> for a protocol handle."""
+        info = self._analyzed.class_table.get(name)
+        if info is not None and info.native_protocol:
+            return CType(text=f"id<{name}>")
         return CType(text="id" if name == "id" else f"{name}*")
 
     def _emit_objective_c_lifetime(self, declaration, native):
@@ -7162,7 +7219,12 @@ class FunctionLowerer:
         """
         if declaration.name == "id":
             return
-        self._emit_objective_c_kind_test(native)
+        # A protocol handle's cast asks conformsToProtocol: instead.
+        test = (
+            self._emit_objective_c_conformance_test(native)
+            if self._analyzed.class_table[declaration.name].native_protocol
+            else self._emit_objective_c_kind_test(native)
+        )
         target_type = TypeExpr(base=declaration.name, is_nullable=True, pointer_depth=1)
         result_type = CType(self._types.render(target_type))
         parameters = [IRParam(result_type, "source")]
@@ -7172,7 +7234,7 @@ class FunctionLowerer:
         matches = IRBinOp(
             source,
             "&&",
-            IRCall("__btrc_objc_is_kind", [IRCast(CType("void*"), source), IRLiteral(json.dumps(declaration.name))]),
+            IRCall(test, [IRCast(CType("void*"), source), IRLiteral(json.dumps(declaration.name))]),
         )
         result = IRVarDecl(result_type, "__btrc_native_projection", init=IRTernary(matches, source, IRLiteral("NULL")))
         value = IRVar(result.name)
@@ -7289,7 +7351,7 @@ class FunctionLowerer:
         """
         name = "__btrc_objc_is_kind"
         if any(function.name == name for function in native.function_defs):
-            return
+            return name
         include = IRInclude(header="objc/runtime.h")
         if include not in native.preprocessor_decls:
             native.preprocessor_decls.append(include)
@@ -7307,6 +7369,46 @@ class FunctionLowerer:
             IRFunctionDef(name, CType("int"), parameters, IRBlock([IRObjectiveCAutoreleasePool(IRBlock([boundary]))]))
         )
         self._session.module.function_decls.append(IRFunctionDecl(name, CType("int"), parameters))
+        return name
+
+    def _emit_objective_c_conformance_test(self, native):
+        """One conformsToProtocol: test per Objective-C unit, naming the protocol by its runtime name.
+
+        objc_getProtocol finds every protocol a loaded image registers, which
+        includes each protocol a loaded class adopts; a protocol no image
+        registers matches no object, and no message is sent for it.
+        """
+        name = "__btrc_objc_conforms"
+        if any(function.name == name for function in native.function_defs):
+            return name
+        include = IRInclude(header="objc/runtime.h")
+        if include not in native.preprocessor_decls:
+            native.preprocessor_decls.append(include)
+        parameters = [IRParam(CType("void*"), "value"), IRParam(CType("const char*"), "name")]
+        protocol = IRVar("protocol")
+        test = IRObjectiveCMessage(
+            IRCast(CType("id"), IRVar("value"), bridge="borrow"), "conformsToProtocol:", [protocol]
+        )
+        boundary = IRObjectiveCExceptionBoundary(
+            IRBlock(
+                [
+                    IRVarDecl(CType("Protocol*"), protocol.name, init=IRCall("objc_getProtocol", [IRVar("name")])),
+                    IRReturn(
+                        IRTernary(
+                            IRBinOp(IRBinOp(protocol, "!=", IRLiteral("nil")), "&&", test),
+                            IRLiteral("1"),
+                            IRLiteral("0"),
+                        )
+                    ),
+                ]
+            ),
+            IRBlock([IRExprStmt(IRCall("abort", [], never_returns=True))]),
+        )
+        native.function_defs.append(
+            IRFunctionDef(name, CType("int"), parameters, IRBlock([IRObjectiveCAutoreleasePool(IRBlock([boundary]))]))
+        )
+        self._session.module.function_decls.append(IRFunctionDecl(name, CType("int"), parameters))
+        return name
 
     def lower_specialization(self, view: SpecializedDeclarationView[MethodDecl]) -> None:
         method = view.declaration

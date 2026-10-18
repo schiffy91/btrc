@@ -908,12 +908,14 @@ class FeManifestBlock {
 				 * protocol methods it answers. */
 				if (binding.language != "objective-c" || hasContext) { FePackageFailure.fail("instantiated adapters require an Objective-C binding without context"); }
 				if (scope != "process" && scope != "instance") { FePackageFailure.fail("instantiated adapter scope requires process or instance"); }
-				if (!subclass && subclassFacts) { FePackageFailure.fail("superclass and overrides require a designated initializer's self parameter"); }
 				if (subclass) {
 					if (!self.fields.has(prefix + "superclass")) { FePackageFailure.fail("an initializer's self parameter requires superclass"); }
-					if (!self.identifier(self.requiredText(prefix + "superclass"))) { FePackageFailure.fail("callback superclass must be an identifier"); }
 					if (scope != "instance") { FePackageFailure.fail("subclass adapters require scope instance"); }
 				}
+				/* The forms the SDK instantiates (a class name, a Class) may
+				 * extend an SDK class too, such as a UIResponder app delegate. */
+				if (self.fields.has(prefix + "overrides") && !self.fields.has(prefix + "superclass")) { FePackageFailure.fail("callback overrides require superclass"); }
+				if (self.fields.has(prefix + "superclass") && !self.identifier(self.requiredText(prefix + "superclass"))) { FePackageFailure.fail("callback superclass must be an identifier"); }
 				for field in ["unregister", "activation-failure", "cancellation", "slot-getter", "action-setter", "action-getter", "action-parameter", "owned-arguments", "field"] {
 					if (self.fields.has(prefix + field)) { FePackageFailure.fail("instantiated adapters take only methods, scope, terminal, failure and executor"); }
 				}
@@ -943,7 +945,14 @@ class FeManifestBlock {
 			} else if (lifetime != "instantiated" && (self.fields.has(prefix + "unregister") || self.fields.has(prefix + "activation-failure") || self.fields.has(prefix + "cancellation"))) { FePackageFailure.fail("cancellation facts require a stored callback"); }
 			if (controlAction && (unregister == parts.get(0) || activationFailure != "abort")) { FePackageFailure.fail("control actions require a separate unregister and activation-failure abort"); }
 			if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail("callback failure currently requires abort"); }
-			if (self.requiredText(prefix + "executor") != "caller" && realtime == null) { FePackageFailure.fail("callback executor currently requires caller"); }
+			/* A stored Objective-C block may be bound to the main thread, as a
+			 * main-queue notification observer is (native-interop-ownership.md
+			 * section 1, rules 3 and 4): registration and every entry are checked
+			 * there, and a final holder release elsewhere is posted to it. */
+			string executor = self.requiredText(prefix + "executor");
+			bool delegateFacts = self.fields.has(prefix + "methods") || self.fields.has(prefix + "slot-getter") || self.fields.has(prefix + "action-setter") || self.fields.has(prefix + "action-getter");
+			bool mainBlock = executor == "main" && lifetime == "stored" && binding.language == "objective-c" && !hasContext && !controlAction && !delegateFacts;
+			if (executor != "caller" && realtime == null && !mainBlock) { FePackageFailure.fail("callback executor currently requires caller, or main for a stored Objective-C block"); }
 			string raw = self.fields.getOrDefault(prefix + "context-index", "").trim();
 			Vector<int> contextIndices = [];
 			if (hasContext) {
@@ -957,6 +966,7 @@ class FeManifestBlock {
 			}
 			var callback = FeNativeCallbackBinding(name, contexts, contextIndices, interfaceName, lifetime, unregister, activationFailure);
 			callback.realtime = realtime;
+			callback.executor = executor;
 			if (self.fields.has(prefix + "field")) {
 				callback.field = self.requiredText(prefix + "field");
 				if (!self.identifier(callback.field) || binding.language != "c" || (lifetime != "one-shot" && realtime == null)) { FePackageFailure.fail("callback field requires a C one-shot callback and a field identifier"); }
@@ -991,7 +1001,7 @@ class FeManifestBlock {
 			if (lifetime == "instantiated") {
 				callback.scope = scope;
 				Map<string, bool> overridden = {};
-				if (subclass) {
+				if (self.fields.has(prefix + "superclass")) {
 					callback.superclass = self.requiredText(prefix + "superclass");
 					if (self.fields.has(prefix + "overrides")) {
 						callback.overrides = self.stringArray(prefix + "overrides");

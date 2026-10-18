@@ -3060,9 +3060,20 @@ class DeclarationLowerer {
 		}
 	}
 
-	private string emitStoredContextHolder(string prefix, string lifetimeType, IRModule native) {
+	/* A main-executor holder that the SDK releases on another thread posts its
+	 * claim's release to the main queue (rule 4 in native-interop-ownership.md
+	 * section 1), so ARC is touched on main only. */
+	private string emitStoredContextHolder(string prefix, string lifetimeType, IRModule native, bool mainExecutor = false) {
 		string name = prefix + "Holder";
 		Vector<IRParam> noParameters = [];
+		IRNode releaseClaim = IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_release"), [IRNode.variable("_context")]));
+		if (mainExecutor) {
+			self.appendPreprocessorDecl(native, IRPreprocessorDecl.include("pthread.h", true));
+			self.appendPreprocessorDecl(native, IRPreprocessorDecl.include("dispatch/dispatch.h", true));
+			Vector<IRNode> noArguments = [];
+			IRNode posted = IRNode.expressionStatement(IRNode.call("dispatch_async_f", [IRNode.call("dispatch_get_main_queue", noArguments), IRNode.variable("_context"), IRNode.variable("_release")]));
+			releaseClaim = IRNode.ifStatement(IRNode.binary(IRNode.call("pthread_main_np", noArguments), "!=", IRNode.literal("0")), IRNode.block([releaseClaim]), IRNode.block([posted]));
+		}
 		var holder = IRObjectiveCClass(name, "NSObject");
 		holder.fields = [IRStructField("void*", "_context"), IRStructField(lifetimeType, "_release")];
 		holder.methods = [
@@ -3072,9 +3083,7 @@ class DeclarationLowerer {
 			IRNode.assignment(IRNode.variable("_release"), IRNode.variable("releaseContext"))
 		])),
 			IRObjectiveCMethod("context", "void*", noParameters, IRNode.block([IRNode.returnStatement(IRNode.variable("_context"))])),
-			IRObjectiveCMethod("dealloc", "void", noParameters, IRNode.block([
-			IRNode.ifStatement(IRNode.variable("_context"), IRNode.block([IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_release"), [IRNode.variable("_context")]))]), null)
-		]))
+			IRObjectiveCMethod("dealloc", "void", noParameters, IRNode.block([IRNode.ifStatement(IRNode.variable("_context"), IRNode.block([releaseClaim]), null)]))
 		];
 		native.objectiveCClasses.push(holder);
 		return name;
@@ -3681,7 +3690,10 @@ class DeclarationLowerer {
 			module.functionPointerTypedefs.push(definition);
 			native.functionPointerTypedefs.push(definition);
 		}
-		string holderName = self.emitStoredContextHolder(prefix, lifetime.name, native);
+		/* A block bound to the main thread (executor = "main"); delegates and
+		 * actions keep the caller executor. */
+		bool mainExecutor = !holderCallback && callback.mainExecutor;
+		string holderName = self.emitStoredContextHolder(prefix, lifetime.name, native, mainExecutor);
 		string configureSelector = action || control ? self.emitStoredActionHolder(native, invocations.get(0).name, capturedC) : objectCallback ? self.emitStoredDelegateHolder(callback, native, invocations, callbackTypes) : "configure:retain:release:";
 		IRNode token = IRNode.variable("token");
 		var unregisterAdapter = IRFunction();
@@ -3856,6 +3868,13 @@ class DeclarationLowerer {
 		Map<string, bool> parameterNames = {};
 		for parameter in wrapper.params { parameterNames.put(parameter.name, true); }
 		IRNode cleanup = self.nativeCleanupScope(parameterNames, body);
+		if (mainExecutor) {
+			/* The context is created below, so its own thread check then
+			 * admits entries and the final release on the main thread only. */
+			self.appendPreprocessorDecl(module, IRPreprocessorDecl.include("pthread.h", true));
+			Vector<IRNode> noArguments = [];
+			body.push(IRNode.ifStatement(IRNode.binary(IRNode.call("pthread_main_np", noArguments), "==", IRNode.literal("0")), IRNode.block([self.objectiveCNullGuard(IRNode.literal("NULL"), f"Stored callback {descriptor.name} requires the main thread")]), null));
+		}
 		Vector<IRNode> arguments = [];
 		Vector<Vector<IRNode>> releases = [];
 		for index in range(wrapper.params.len) {
@@ -3984,7 +4003,7 @@ class DeclarationLowerer {
 			native.globalDecls.push(invokeGlobal);
 		}
 		string holderName = prefix + "Holder";
-		var holder = IRObjectiveCClass(holderName, "NSObject");
+		var holder = IRObjectiveCClass(holderName, callback.superclass.isEmpty() ? "NSObject" : callback.superclass);
 		holder.protocols = [callback.delegateProtocol];
 		holder.methods = [IRObjectiveCMethod("init", "instancetype", noParameters, IRNode.block([
 			IRNode.assignment(IRNode.variable("self"), IRNode.objectiveCMessage(IRNode.variable("super"), "init", noArguments)),
@@ -4004,6 +4023,13 @@ class DeclarationLowerer {
 			if (invocations.get(index).returnType != "void") { body = self.instantiatedResult(method, call, noRelease); }
 			var nativeMethod = method.nativeMethod;
 			if (nativeMethod == null) { throw "instantiated adapter method requires its native method"; }
+			if (nativeMethod.requiresSuper) {
+				/* An override of a superclass method the SDK marks
+				 * NS_REQUIRES_SUPER: the superclass's part follows the receiver. */
+				Vector<IRNode> forwarded = [];
+				for parameter in parameters { forwarded.push(IRNode.variable(parameter.name)); }
+				body.push(IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("super"), nativeMethod.selector, forwarded)));
+			}
 			holder.methods.push(IRObjectiveCMethod(nativeMethod.selector, method.nativeReturn, parameters, IRNode.block(body)));
 		}
 		native.objectiveCClasses.push(holder);
@@ -4517,7 +4543,12 @@ class DeclarationLowerer {
 		return IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(failure)]), null);
 	}
 
-	private string objectiveCObjectType(string name) { return name == "id" ? "id" : name + "*"; }
+	/* The generated unit's spelling of a managed Objective-C object: Class*,
+	 * id, or id<P> for a protocol handle. */
+	private string objectiveCObjectType(string name) {
+		if (self.analyzed.objectiveCProtocol(name)) { return "id<" + name + ">"; }
+		return name == "id" ? "id" : name + "*";
+	}
 
 	private void emitObjectiveCLifetime(FeNativeImportedDeclaration imported, IRModule module, IRModule native) {
 		Vector<string> operations = ["retain", "release"];
@@ -4555,7 +4586,8 @@ class DeclarationLowerer {
 	private void emitObjectiveCDowncast(FeNativeImportedDeclaration imported, IRModule module, IRModule native) {
 		string name = imported.declaration.name;
 		if (name == "id") { return; }
-		self.emitObjectiveCKindTest(module, native);
+		/* A protocol handle's cast asks conformsToProtocol: instead. */
+		string test = imported.objectiveCProtocol ? self.emitObjectiveCConformanceTest(module, native) : self.emitObjectiveCKindTest(module, native);
 		Node targetType = Node(); targetType.kind = NK_TYPE_EXPR; targetType.base = name; targetType.isNullable = true; targetType.pointerDepth = 1;
 		string resultType = self.cTypes.lower(targetType);
 		Vector<IRParam> parameters = [IRParam(resultType, "source")];
@@ -4563,7 +4595,7 @@ class DeclarationLowerer {
 		Vector<IRNode> statements = []; Vector<Vector<IRNode>> releases = [];
 		IRNode cleanup = self.nativeCleanupScope(parameterNames, statements);
 		IRNode source = self.emitNativeLease(0, targetType, IRNode.variable("source"), parameterNames, statements, releases);
-		IRNode matches = IRNode.binary(source, "&&", IRNode.call("__btrc_objc_is_kind", [IRNode.cast("void*", source), IRNode.literal("\"" + name + "\"")]));
+		IRNode matches = IRNode.binary(source, "&&", IRNode.call(test, [IRNode.cast("void*", source), IRNode.literal("\"" + name + "\"")]));
 		IRNode slot = IRNode.variableDeclaration(resultType, "__btrc_native_projection", IRNode.ternary(matches, source, IRNode.literal("NULL")));
 		IRNode result = IRNode.variable("__btrc_native_projection");
 		statements.push(slot);
@@ -4640,9 +4672,9 @@ class DeclarationLowerer {
 	 * selected headers, where `[T class]` would neither compile nor link, so the
 	 * unit looks the class up with objc_lookUpClass. A class missing at run time
 	 * matches no object. */
-	private void emitObjectiveCKindTest(IRModule module, IRModule native) {
+	private string emitObjectiveCKindTest(IRModule module, IRModule native) {
 		string name = "__btrc_objc_is_kind";
-		for existing in native.functions { if (existing.name == name) { return; } }
+		for existing in native.functions { if (existing.name == name) { return name; } }
 		self.appendPreprocessorDecl(native, IRPreprocessorDecl.include("objc/runtime.h", true));
 		var test = IRFunction();
 		test.name = name;
@@ -4655,6 +4687,33 @@ class DeclarationLowerer {
 		var prototype = IRFunctionDecl(name, "int", false);
 		prototype.params = test.params;
 		module.functionDecls.push(prototype);
+		return name;
+	}
+
+	/* One conformsToProtocol: test per Objective-C unit, naming the protocol
+	 * by its runtime name. objc_getProtocol finds every protocol a loaded
+	 * image registers, which includes each protocol a loaded class adopts; a
+	 * protocol no image registers matches no object, and no message is sent
+	 * for it. */
+	private string emitObjectiveCConformanceTest(IRModule module, IRModule native) {
+		string name = "__btrc_objc_conforms";
+		for existing in native.functions { if (existing.name == name) { return name; } }
+		self.appendPreprocessorDecl(native, IRPreprocessorDecl.include("objc/runtime.h", true));
+		var test = IRFunction();
+		test.name = name;
+		test.returnType = "int";
+		test.params = [IRParam("void*", "value"), IRParam("const char*", "name")];
+		IRNode protocol = IRNode.variable("protocol");
+		IRNode conforms = IRNode.objectiveCMessage(IRNode.cast("id", IRNode.variable("value"), "borrow"), "conformsToProtocol:", [protocol]);
+		IRNode registered = IRNode.binary(IRNode.binary(protocol, "!=", IRNode.literal("nil")), "&&", conforms);
+		Vector<IRNode> body = [IRNode.variableDeclaration("Protocol*", "protocol", IRNode.call("objc_getProtocol", [IRNode.variable("name")])), IRNode.returnStatement(IRNode.ternary(registered, IRNode.literal("1"), IRNode.literal("0")))];
+		IRNode boundary = IRNode.objectiveCExceptionBoundary(IRNode.block(body), IRNode.block([self.abortStatement()]));
+		test.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([boundary]))]);
+		native.functions.push(test);
+		var prototype = IRFunctionDecl(name, "int", false);
+		prototype.params = test.params;
+		module.functionDecls.push(prototype);
+		return name;
 	}
 
 	private void emitNativeDeclaration(FeNativeImportedDeclaration imported, IRModule m, Map<string, bool> nativeAdapters, Map<string, bool> nativeConstants) {

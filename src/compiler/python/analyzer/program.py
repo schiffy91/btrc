@@ -94,6 +94,8 @@ class ClassInfo:
     native_invocation: str = ""
     # A COM interface's IID global, which QueryInterface casts to it ask for.
     native_iid: str = ""
+    # An Objective-C protocol handle: casts to it ask conformsToProtocol: (M3).
+    native_protocol: bool = False
     generic_params: list[str] = field(default_factory=list)
     fields: dict[str, FieldDecl] = field(default_factory=dict)
     static_fields: dict[str, FieldDecl] = field(default_factory=dict)
