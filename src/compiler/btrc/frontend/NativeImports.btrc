@@ -4863,7 +4863,7 @@ class FeNativeHeaderCodec {
 		else if (kind.equals("java_method")) { required = required + ",identity,owner,method_name,descriptor,static_member,constructor,native_method"; }
 		else if (kind.equals("java_field")) { required = required + ",identity,owner,field_name,descriptor,static_member,read_only"; }
 		else if (!kind.equals("typedef") && !kind.equals("record")) { self.fail(f"unsupported native declaration '{kind}'"); }
-		self.fields(value, required, kind.equals("objc_method") ? "source,line,column,protocol_owner,optional" : (kind.equals("enum_constant") ? "source,line,column,enum_identity" : "source,line,column"));
+		self.fields(value, required, kind.equals("objc_method") ? "source,line,column,protocol_owner,optional,designated_initializer,requires_super" : (kind.equals("enum_constant") ? "source,line,column,enum_identity" : "source,line,column"));
 		var result = NativeNode();
 		result.name = self.text(value.get("name"));
 		if (value.has("source")) { result.sourceFile = self.text(value.get("source"), true); }
@@ -4910,6 +4910,10 @@ class FeNativeHeaderCodec {
 				if (value.has("protocol_owner")) { result.protocolOwner = self.boolean(value.get("protocol_owner")); }
 				if (value.has("optional")) { result.optional = self.boolean(value.get("optional")); }
 				if (result.optional && !result.protocolOwner) { self.fail("optional Objective-C method requires a protocol owner"); }
+				/* Step 6's override facts (native-interop-ownership.md section 3). */
+				if (value.has("designated_initializer")) { result.designatedInitializer = self.boolean(value.get("designated_initializer")); }
+				if (value.has("requires_super")) { result.requiresSuper = self.boolean(value.get("requires_super")); }
+				if (result.designatedInitializer && (result.classMethod || result.protocolOwner || self.text(value.get("method_family")) != "init")) { self.fail("Objective-C designated initializer requires an instance init method"); }
 				string prefix = result.classMethod ? "+" : "-";
 				int arguments = 0;
 				for character in result.selector { if (character == ':') { arguments++; } }

@@ -7076,7 +7076,7 @@ class NativeHeaderCodec:
         if kind == "enum_constant":
             optional_fields.add("enum_identity")
         if kind == "objc_method":
-            optional_fields |= {"protocol_owner", "optional"}
+            optional_fields |= {"protocol_owner", "optional", "designated_initializer", "requires_super"}
         self._object(value, required, optional_fields)
         position = {
             "name": self._text(value["name"]),
@@ -7136,6 +7136,9 @@ class NativeHeaderCodec:
                 optional = self._boolean(value.get("optional", False))
                 if optional and not protocol_owner:
                     raise NativeImportError("optional Objective-C method requires a protocol owner")
+                designated = self._boolean(value.get("designated_initializer", False))
+                if designated and (class_method or protocol_owner or value["method_family"] != "init"):
+                    raise NativeImportError("Objective-C designated initializer requires an instance init method")
                 if position["name"] != f"{'+' if class_method else '-'}[{receiver} {selector}]" or selector.count(
                     ":"
                 ) != len(parameters):
@@ -7175,6 +7178,9 @@ class NativeHeaderCodec:
                     returns_inner_pointer=self._boolean(value["returns_inner_pointer"]),
                     protocol_owner=protocol_owner,
                     optional=optional,
+                    # Step 6's override facts (native-interop-ownership.md section 3).
+                    designated_initializer=designated,
+                    requires_super=self._boolean(value.get("requires_super", False)),
                 )
             return NativeFunction(
                 **position,

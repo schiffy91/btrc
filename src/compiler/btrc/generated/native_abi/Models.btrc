@@ -67,6 +67,8 @@ class NativeNode {
 	public bool returnsInnerPointer;
 	public bool protocolOwner;
 	public bool optional;
+	public bool designatedInitializer;
+	public bool requiresSuper;
 	public NativeNode recordType;
 	public bool defaultConstructor;
 	public bool publicDestructor;
@@ -155,6 +157,8 @@ class NativeNode {
 		self.returnsInnerPointer = false;
 		self.protocolOwner = false;
 		self.optional = false;
+		self.designatedInitializer = false;
+		self.requiresSuper = false;
 		self.defaultConstructor = false;
 		self.publicDestructor = false;
 		self.triviallyCopyable = false;
