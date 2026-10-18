@@ -20,7 +20,7 @@ from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.frontend.sources import StdlibRepository
 from src.compiler.python.frontend.stage import FrontendStage
-from src.tests.process_limits import TOOL_TIMEOUT
+from src.tests.process_limits import TOOL_TIMEOUT, TRANSPILE_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -161,7 +161,9 @@ def native_compile(request):
             env={**os.environ, "BTRC_HOME": str(data_root or REPO / "src")},
             capture_output=True,
             text=True,
-            timeout=90,
+            # A whole btrc compile, so the host's transpile budget: a loaded
+            # hosted macOS runner outlasted a fixed 90 s.
+            timeout=TRANSPILE_TIMEOUT,
         )
         if result.returncode:
             assert not result.stdout, "failed native compilation emitted partial C"
