@@ -1455,6 +1455,8 @@ def test_macos_reader_is_rooted_and_observed_through_job_failure(job_name: str) 
     assert '--out-link "$RUNNER_TEMP/btrc-native-header-root"' in build
     assert "--no-link" not in build
     assert 'test -x "$reader"' in build and 'test "$exported" = "$reader"' in build
+    # The rest of the shell's closure is rooted too, before any test runs.
+    assert 'nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true' in build
     pre = _step_containing(job, "--phase pre")
     post = _step_containing(job, "--phase post")
     for step in (pre, post):

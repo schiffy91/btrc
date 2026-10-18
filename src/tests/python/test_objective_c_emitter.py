@@ -364,7 +364,10 @@ def _build_emitter_probe(request, root: Path, executable: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        timeout=120,
+        # The unit is most of the self-hosted IR stage, so compiling it at -O2
+        # weighs as much as a transpile: on a loaded three-core hosted runner it
+        # outlasted the 120 s C budget. It takes the host's transpile budget.
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
     assert built.returncode == 0, built.stderr
     staged.replace(executable)

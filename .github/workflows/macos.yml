@@ -272,6 +272,10 @@ jobs:
           test -x "$reader"
           exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
           test "$exported" = "$reader"
+          # Root the whole dev shell as well. Determinate Nix collects unrooted
+          # store paths when the runner's disk fills; one push run lost
+          # wgpu-native's pkg-config file two hours in, after earlier cases had used it.
+          nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true
 
       - name: Record native reader prerequisites
         timeout-minutes: 2
@@ -398,6 +402,10 @@ jobs:
           test -x "$reader"
           exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
           test "$exported" = "$reader"
+          # Root the whole dev shell as well. Determinate Nix collects unrooted
+          # store paths when the runner's disk fills; one push run lost
+          # wgpu-native's pkg-config file two hours in, after earlier cases had used it.
+          nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true
 
       - name: Record native reader prerequisites
         timeout-minutes: 2
