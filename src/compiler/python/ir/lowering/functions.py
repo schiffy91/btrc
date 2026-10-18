@@ -3359,24 +3359,31 @@ class FunctionLowerer:
         return IRIf(self._java_env_call("ExceptionCheck"), self._java_translate(True, before))
 
     def emit_java_class(self, declaration):
-        """A selected Java class: a unique owner of one global reference, and one checked adapter per member."""
+        """A Java owner: one global reference (a selected class or a primitive array) or one weak
+        global reference (JavaWeak<Class>), and one checked adapter per member."""
         symbol = declaration.name
         release = f"__btrc_java_{symbol}_release"
         native = IRVar("native")
+        weak = declaration.source_file.type_spelling == "jweak"
         self._native_unique_function(
             release,
             "void",
             [IRParam(CType("jobject"), "native")],
             [
                 IRVarDecl(CType("JNIEnv*"), self._JAVA_ENVIRONMENT, init=IRCall("btrcJavaEnvironment", [])),
-                IRExprStmt(self._java_env_call("DeleteGlobalRef", native)),
-                IRExprStmt(IRCall("btrcJavaUnclaim", [])),
+                IRExprStmt(self._java_env_call("DeleteWeakGlobalRef" if weak else "DeleteGlobalRef", native)),
+                IRExprStmt(IRCall("btrcJavaWeakUnclaim" if weak else "btrcJavaUnclaim", [])),
             ],
         )
         self._emit_unique_resource(declaration, symbol=symbol, release_symbol=release)
         for member in declaration.members:
-            if member.name not in {"close", "isOpen"}:
-                self._emit_java_member(declaration, member, declaration.source_file.methods[member.name].java_member)
+            if member.name in {"close", "isOpen"}:
+                continue
+            java = declaration.source_file.methods[member.name].java_member
+            if java.kind in self._JAVA_GENERATED_MEMBERS:
+                self._emit_java_generated_member(declaration, member, java)
+            else:
+                self._emit_java_member(declaration, member, java)
 
     def _emit_java_member(self, declaration, member, java):
         """One member's adapter: borrow owners, frame the local references, call, check, convert, unwind.
@@ -3433,6 +3440,7 @@ class FunctionLowerer:
         statements.extend(
             [
                 IRVarDecl(CType("JNIEnv*"), self._JAVA_ENVIRONMENT, init=IRCall("btrcJavaEnvironment", [])),
+                *self._java_executor_check(java.executor, what),
                 IRIf(
                     IRBinOp(self._java_env_call("PushLocalFrame", IRLiteral(str(capacity))), "!=", IRLiteral("0")),
                     self._java_translate(False),
@@ -3654,6 +3662,205 @@ class FunctionLowerer:
         )
         return text
 
+    def _java_executor_check(self, executor, what):
+        """executor = "main": the adapter terminates unless it runs on the main Looper's thread."""
+        if executor != "main":
+            return []
+        return [IRExprStmt(IRCall("btrcJavaRequireMain", [IRVar(self._JAVA_ENVIRONMENT), IRLiteral(json.dumps(what))]))]
+
+    # The members of the generated Java resources: JavaWeak<Class> and the primitive array owners.
+    _JAVA_GENERATED_MEMBERS: ClassVar[frozenset[str]] = frozenset(
+        {"weak-create", "weak-get", "array-create", "array-length", "array-read", "array-write"}
+    )
+
+    def _java_span_bound(self, span, what):
+        """A Span longer than a Java array can be throws before any JNI call."""
+        self._session.require_helper("__btrc_throw")
+        return IRIf(
+            IRBinOp(IRFieldAccess(span, "length"), ">", IRLiteral("(size_t)2147483647")),
+            IRBlock(
+                [
+                    IRExprStmt(
+                        IRCall(
+                            "__btrc_throw",
+                            [IRLiteral(json.dumps(f"{what}: a Java array holds at most 2147483647 elements"))],
+                            helper_ref="__btrc_throw",
+                            never_returns=True,
+                        )
+                    )
+                ]
+            ),
+        )
+
+    def _emit_java_generated_member(self, declaration, member, java):
+        """One member of a generated Java resource, framed and checked like every JNI adapter.
+
+        JavaWeak<Class>.create takes NewWeakGlobalRef of its leased referent
+        and get promotes NewLocalRef to a new global owner, or returns null
+        once the object is collected. A primitive array owner's create copies
+        a Span through New<X>Array and Set<X>ArrayRegion, length reads
+        GetArrayLength, and read and write copy through Get<X>ArrayRegion and
+        Set<X>ArrayRegion (native-interop-ownership.md section 2.3, "Global
+        refs" and "Arrays"); an empty Span copies nothing.
+        """
+        symbol = declaration.name
+        what = f"Java call {symbol}.{member.name}"
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in member.params]
+        result_type = CType(self._types.render(member.return_type))
+        instance = not java.static_member
+        c_parameters = list(parameters)
+        statements = []
+        releases = []
+        if instance:
+            c_parameters.insert(0, IRParam(CType(f"struct __btrc_native_{symbol}*"), "self"))
+            statements.append(self._native_null_guard(IRVar("self"), f"{what}: null receiver"))
+        cleanup = self._native_cleanup_scope(c_parameters, statements)
+        receiver = (
+            self._native_lease(
+                0,
+                TypeExpr(base=symbol, is_nullable=True, pointer_depth=1),
+                IRVar("self"),
+                c_parameters,
+                statements,
+                releases,
+            )
+            if instance
+            else None
+        )
+        span = next((IRVar(parameter.name) for parameter in parameters if parameter.name == "elements"), None)
+        if span is not None:
+            statements.append(self._java_span_bound(span, what))
+        referent = None
+        if java.kind == "weak-create":
+            statements.append(self._native_null_guard(IRVar(parameters[0].name), f"{what}: null referent"))
+            referent = self._native_lease(
+                1, member.params[0].type, IRVar(parameters[0].name), c_parameters, statements, releases
+            )
+        letter = java.descriptor[1:] if java.descriptor.startswith("[") else ""
+        family, element = (self._JAVA_VALUES[letter][0], self._JAVA_VALUES[letter][1]) if letter else ("", "")
+        statements.extend(
+            [
+                IRVarDecl(CType("JNIEnv*"), self._JAVA_ENVIRONMENT, init=IRCall("btrcJavaEnvironment", [])),
+                IRIf(
+                    IRBinOp(self._java_env_call("PushLocalFrame", IRLiteral("2")), "!=", IRLiteral("0")),
+                    self._java_translate(False),
+                ),
+            ]
+        )
+        returned = None
+        count = IRCast(CType("jsize"), IRFieldAccess(span, "length")) if span is not None else None
+        nonempty = IRBinOp(IRFieldAccess(span, "length"), ">", IRLiteral("0")) if span is not None else None
+        if java.kind == "weak-create":
+            value_type = TypeExpr(base=symbol, is_nullable=True, pointer_depth=1)
+            slot = IRVarDecl(CType(self._types.render(value_type)), "__btrc_java_object", init=IRLiteral("NULL"))
+            result = IRVar(slot.name)
+            weak = IRVar("__btrc_java_weak")
+            statements.extend(
+                [
+                    slot,
+                    IRExprStmt(self._lifetime.register_cleanup_slot(slot, value_type)),
+                    IRAssign(result, IRCall(f"__btrc_unique_{symbol}_new", [])),
+                    IRVarDecl(
+                        CType("jweak"),
+                        weak.name,
+                        init=self._java_env_call("NewWeakGlobalRef", IRFieldAccess(referent, "value", arrow=True)),
+                    ),
+                    self._java_check(),
+                    self._native_null_guard(weak, f"{what}: no memory for a weak global reference"),
+                    IRAssign(IRFieldAccess(result, "value", arrow=True), weak),
+                    IRExprStmt(IRCall("btrcJavaWeakClaim", [])),
+                ]
+            )
+            returned = result
+        elif java.kind == "weak-get":
+            local = IRVar("__btrc_java_local")
+            statements.extend(
+                [
+                    IRVarDecl(
+                        CType("jobject"),
+                        local.name,
+                        init=self._java_env_call("NewLocalRef", IRFieldAccess(receiver, "value", arrow=True)),
+                    ),
+                    self._java_check(),
+                ]
+            )
+            returned = self._java_object_result(member, java, local, c_parameters, statements)
+        elif java.kind == "array-create":
+            array = IRVar("__btrc_java_array")
+            statements.extend(
+                [
+                    IRVarDecl(
+                        CType(declaration.source_file.type_spelling),
+                        array.name,
+                        init=self._java_env_call(f"New{family}Array", count),
+                    ),
+                    self._java_check(),
+                    self._native_null_guard(array, f"{what}: New{family}Array returned null"),
+                    IRIf(
+                        nonempty,
+                        IRBlock(
+                            [
+                                IRExprStmt(
+                                    self._java_env_call(
+                                        f"Set{family}ArrayRegion",
+                                        array,
+                                        IRLiteral("0"),
+                                        count,
+                                        IRCast(CType(f"const {element}*"), IRFieldAccess(span, "data")),
+                                    )
+                                ),
+                                self._java_check(),
+                            ]
+                        ),
+                    ),
+                ]
+            )
+            returned = self._java_object_result(member, java, array, c_parameters, statements)
+        elif java.kind == "array-length":
+            length = IRVar("__btrc_java_length")
+            statements.extend(
+                [
+                    IRVarDecl(
+                        CType("jsize"),
+                        length.name,
+                        init=self._java_env_call("GetArrayLength", IRFieldAccess(receiver, "value", arrow=True)),
+                    ),
+                    self._java_check(),
+                ]
+            )
+            returned = IRCast(result_type, length)
+        else:
+            reading = java.kind == "array-read"
+            data = IRFieldAccess(span, "data")
+            statements.append(
+                IRIf(
+                    nonempty,
+                    IRBlock(
+                        [
+                            IRExprStmt(
+                                self._java_env_call(
+                                    f"{'Get' if reading else 'Set'}{family}ArrayRegion",
+                                    IRFieldAccess(receiver, "value", arrow=True),
+                                    IRCast(CType("jsize"), IRVar(parameters[0].name)),
+                                    count,
+                                    IRCast(CType(f"{element}*" if reading else f"const {element}*"), data),
+                                )
+                            ),
+                            self._java_check(),
+                        ]
+                    ),
+                )
+            )
+        statements.append(IRExprStmt(self._java_env_call("PopLocalFrame", IRLiteral("NULL"))))
+        statements.extend([*releases, *cleanup])
+        if java.kind in ("weak-create", "array-create"):
+            statements.append(self._native_null_guard(returned, f"{what}: null result"))
+        if returned is not None:
+            statements.append(IRReturn(returned))
+        self._native_unique_function(
+            f"__btrc_unique_{symbol}_{member.name}_public", result_type.text, c_parameters, statements
+        )
+
     def _emit_java_natives_adapter(self, declaration, contract):
         """A Java class's natives: RegisterNatives thunks over one M2 holder, and the registration factory.
 
@@ -3778,8 +3985,14 @@ class FunctionLowerer:
             ],
         )
         # Unpin: at zero the holder is dead before its claim is released, and
-        # frees itself once its registration has also let go of it.
+        # frees itself once its registration has also let go of it. That last
+        # unpin is the holder's final event: a cancellation off its executor
+        # thread would release the claim there, which terminates (rule 4).
         remaining = IRVar("remaining")
+        released_elsewhere = self._native_null_guard(
+            IRLiteral("NULL"), f"Java natives {natives.class_name}: foreign holder released on the wrong thread"
+        )
+        released_elsewhere.condition = IRBinOp(IRFieldAccess(holder, "thread", arrow=True), "!=", on_thread)
         define(
             f"{prefix}_unpin",
             CType("void"),
@@ -3794,6 +4007,7 @@ class FunctionLowerer:
                     IRBinOp(remaining, "==", IRLiteral("0u")),
                     IRBlock(
                         [
+                            released_elsewhere,
                             self._exceptions.native_callback_boundary(
                                 IRBlock(
                                     [
@@ -3923,6 +4137,8 @@ class FunctionLowerer:
         body.extend(
             [
                 IRVarDecl(CType("JNIEnv*"), self._JAVA_ENVIRONMENT, init=IRCall("btrcJavaEnvironment", [])),
+                # executor = "main": the registering thread, and so every call's, is the main Looper's.
+                *self._java_executor_check(natives.executor, f"Java natives {natives.class_name}"),
                 IRIf(
                     IRBinOp(self._java_env_call("PushLocalFrame", IRLiteral("2")), "!=", IRLiteral("0")),
                     self._java_translate(False),
@@ -4070,7 +4286,10 @@ class FunctionLowerer:
         if not method.static_member:
             kinds.insert(0, "object")
         for index, kind in enumerate(method.parameters):
-            params.append(IRParam(CType(self._JAVA_VALUES[kind][1]), f"argument{index}"))
+            native_type = (
+                f"{self._JAVA_VALUES[kind[1]][1]}Array" if kind.startswith("[") else self._JAVA_VALUES[kind][1]
+            )
+            params.append(IRParam(CType(native_type), f"argument{index}"))
             values.append(IRVar(f"argument{index}"))
         value_types = [parameter.type for parameter in signature.params]
         result_c = CType(self._JAVA_VALUES[method.result][1])
@@ -4110,6 +4329,8 @@ class FunctionLowerer:
         undo = []
         converted = []
         strings = {}
+        # (array, elements, family, writable) of each borrowed span.
+        spans = []
         string_type = TypeExpr(base="string", is_nullable=True, pointer_depth=1)
         for position, (kind, value) in enumerate(zip(kinds, values, strict=True)):
             if kind == "object":
@@ -4163,6 +4384,63 @@ class FunctionLowerer:
                 undo.insert(0, IRExprStmt(self._lifetime.release_value(IRVar(text.name), string_type)))
                 strings[position] = text
                 converted.append(IRVar(text.name))
+            elif kind.startswith("["):
+                # A borrowed span: the array's elements for the call, released
+                # with JNI_ABORT unless writable (rule "Arrays"); a null array
+                # has no span, so Java gets a NullPointerException instead.
+                argument = position - (0 if method.static_member else 1)
+                family, element = self._JAVA_VALUES[kind[1]][0], self._JAVA_VALUES[kind[1]][1]
+                elements = IRVar(f"__btrc_java_elements_{position}")
+                count = IRVar(f"__btrc_java_count_{position}")
+                span = IRVar(f"__btrc_java_span_{position}")
+                span_type = value_types[position]
+                data_type = TypeExpr(
+                    base=span_type.generic_args[0].base, is_const=span_type.generic_args[0].is_const, pointer_depth=1
+                )
+                refused_null = IRBlock(
+                    [
+                        *undo,
+                        IRExprStmt(
+                            IRCall(
+                                "btrcJavaThrow",
+                                [
+                                    IRVar("env"),
+                                    IRLiteral('"java/lang/NullPointerException"'),
+                                    IRLiteral(json.dumps(f"{what}: argument{argument} is null")),
+                                ],
+                            )
+                        ),
+                        pop_frame(),
+                        unpin,
+                        restore,
+                        IRReturn(zero),
+                    ]
+                )
+                body.extend(
+                    [
+                        IRIf(IRBinOp(value, "==", IRLiteral("NULL")), refused_null),
+                        IRVarDecl(CType("jsize"), count.name, init=self._java_env_call("GetArrayLength", value)),
+                        IRIf(self._java_env_call("ExceptionCheck"), to_java(list(undo))),
+                        IRVarDecl(
+                            CType(f"{element}*"),
+                            elements.name,
+                            init=self._java_env_call(f"Get{family}ArrayElements", value, IRLiteral("NULL")),
+                        ),
+                        IRIf(self._java_env_call("ExceptionCheck"), to_java(list(undo))),
+                        self._native_null_guard(elements, f"{what}: Get{family}ArrayElements returned null"),
+                        IRVarDecl(CType(self._types.render(span_type)), span.name),
+                        IRAssign(IRFieldAccess(span, "data"), IRCast(CType(self._types.render(data_type)), elements)),
+                        IRAssign(IRFieldAccess(span, "length"), IRCast(CType("size_t"), count)),
+                    ]
+                )
+                undo.insert(
+                    0,
+                    IRExprStmt(
+                        self._java_env_call(f"Release{family}ArrayElements", value, elements, IRLiteral("JNI_ABORT"))
+                    ),
+                )
+                spans.append((value, elements, family, argument in method.writable))
+                converted.append(span)
             else:
                 converted.append(value)
         admitted = IRVar("__btrc_java_admitted")
@@ -4202,6 +4480,8 @@ class FunctionLowerer:
                 inner.append(IRExprStmt(self._lifetime.register_cleanup_slot(strings[position], string_type)))
                 arguments.append(value)
                 managed.append((value, string_type))
+            elif kind.startswith("["):
+                arguments.append(value)
             else:
                 arguments.append(IRCast(CType(self._types.render(value_type)), value))
         receiver_slot = IRVarDecl(
@@ -4239,6 +4519,24 @@ class FunctionLowerer:
                 ),
             )
         )
+
+        def release_spans(committed):
+            """Each borrowed span's release: a writable one copies back once the receiver ran."""
+            return [
+                IRExprStmt(
+                    self._java_env_call(
+                        f"Release{family}ArrayElements",
+                        array,
+                        elements,
+                        IRTernary(committed, IRLiteral("0"), IRLiteral("JNI_ABORT"))
+                        if writable
+                        else IRLiteral("JNI_ABORT"),
+                    )
+                )
+                for array, elements, family, writable in spans
+            ]
+
+        inner.extend(release_spans(entered))
         release_locals = []
         releases = [
             *self._lifetime.release_and_clear(
@@ -4367,6 +4665,7 @@ class FunctionLowerer:
                             ]
                         ),
                     ),
+                    *release_spans(admitted),
                     IRVarDecl(CType("char"), message.name, array_size=IRLiteral("1024")),
                     IRExprStmt(
                         IRCall(

@@ -118,8 +118,12 @@ public class JniHost {
         return value.hashCode();
     }
 
-    public static int[] numbers() {
-        return new int[] {1};
+    public static String[] names() {
+        return new String[] {"one"};
+    }
+
+    public static int[][] grid() {
+        return new int[][] {{1}};
     }
 
     public static class Inner {
@@ -369,7 +373,14 @@ HOST_CLASS = "dev.btrc.fixture.JniHost"
             [f"{HOST_CLASS}.hash(Ljava/lang/Object;)I"],
             f"Java member {HOST_CLASS}.hash(Ljava/lang/Object;)I uses unselected class java.lang.Object",
         ),
-        ([HOST_CLASS, f"{HOST_CLASS}.numbers()[I"], f"Java arrays are not projected yet: {HOST_CLASS}.numbers()[I"),
+        (
+            [HOST_CLASS, f"{HOST_CLASS}.names()[Ljava/lang/String;"],
+            f"Java arrays of objects or arrays are not projected yet: {HOST_CLASS}.names()[Ljava/lang/String;",
+        ),
+        (
+            [HOST_CLASS, f"{HOST_CLASS}.grid()[[I"],
+            f"Java arrays of objects or arrays are not projected yet: {HOST_CLASS}.grid()[[I",
+        ),
         ([f"{HOST_CLASS}$Inner"], f"Java nested classes are not projected yet: {HOST_CLASS}$Inner"),
         (
             [HOST_CLASS, f"{HOST_CLASS}.twice(I)I", f"{HOST_CLASS}.twice(J)J"],
@@ -392,7 +403,17 @@ HOST_CLASS = "dev.btrc.fixture.JniHost"
             f"JavaClassReader: unknown member {HOST_CLASS}.toString()Ljava/lang/String;",
         ),
     ],
-    ids=["unselected", "array", "nested", "overload", "close", "simple-name", "abstract", "unknown-member"],
+    ids=[
+        "unselected",
+        "object-array",
+        "nested-array",
+        "nested",
+        "overload",
+        "close",
+        "simple-name",
+        "abstract",
+        "unknown-member",
+    ],
 )
 def test_java_projection_rejections(java_project, native_compile, symbols, message):
     source, _ = java_project

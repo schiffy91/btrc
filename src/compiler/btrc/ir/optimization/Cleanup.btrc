@@ -336,6 +336,13 @@ class JavaAdapterValidator {
 				if (!name.isEmpty()) { throwing.push(name); }
 				if (self.slot(call) == "PushLocalFrame") { pushes = true; }
 			}
+			/* Arrays copy through Get/Set<X>ArrayRegion or borrow through
+			 * Get<X>ArrayElements; no adapter enters a critical region. */
+			Vector<string> critical = ["GetPrimitiveArrayCritical", "ReleasePrimitiveArrayCritical", "GetStringCritical", "ReleaseStringCritical"];
+			for call in calls {
+				string entered = self.slot(call);
+				if (critical.contains(entered)) { throw f"Java adapter {self.name}: {entered} is rejected; a critical region forbids the adapter's other JNI calls"; }
+			}
 			if (throwing.len > 1) { throw f"Java adapter {self.name}: {throwing.get(0)} and {throwing.get(1)} share one statement"; }
 			if (throwing.len == 1) {
 				if (!state.pushed) { throw f"Java adapter {self.name}: {throwing.get(0)} runs outside its local frame"; }

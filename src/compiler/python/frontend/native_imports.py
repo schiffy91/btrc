@@ -817,10 +817,15 @@ class NativeComInterface:
 class NativeJavaMember:
     """One selected Java member, reached through a checked JNI adapter (native-interop-ownership.md 2.3).
 
-    `kind` is constructor, method, getter or setter. `parameters` and `result`
-    are value kinds: a primitive descriptor letter (Z, B, C, S, I, J, F or D;
-    V for no result), "string" for java.lang.String, or "object" for a
-    selected class, whose BTRC owner the projected type names.
+    `kind` is constructor, method, getter or setter; a generated resource's
+    members are weak-create and weak-get (JavaWeak<Class>), or array-create,
+    array-length, array-read and array-write (a primitive array owner).
+    `parameters` and `result` are value kinds: a primitive descriptor letter
+    (Z, B, C, S, I, J, F or D; V for no result), "string" for
+    java.lang.String, "object" for a selected class or a primitive array,
+    whose BTRC owner the projected type names, or "span" for a generated
+    array member's Span. `executor` is "main" when the class's calls must run
+    on the main Looper's thread.
     """
 
     kind: str
@@ -832,15 +837,17 @@ class NativeJavaMember:
     static_member: bool
     parameters: tuple[str, ...]
     result: str
+    executor: str = ""
 
 
 @dataclass(frozen=True)
 class NativeJavaNative:
     """One Java native method, answered by the receiver interface's method `name`.
 
-    `parameters` and `result` are value kinds as for NativeJavaMember; an
-    instance method's own object reaches the receiver first, as an owner of
-    its class.
+    `parameters` and `result` are value kinds as for NativeJavaMember, and a
+    primitive array parameter's kind is its descriptor ("[I"): a borrowed
+    Span, writable when its index is in `writable`. An instance method's own
+    object reaches the receiver first, as an owner of its class.
     """
 
     name: str
@@ -849,6 +856,7 @@ class NativeJavaNative:
     static_member: bool
     parameters: tuple[str, ...]
     result: str
+    writable: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -860,7 +868,9 @@ class NativeJavaNatives:
     `class_name` its dotted one). Each thunk pins the holder on the
     registering thread, makes its JNIEnv the thread's for the call and enters
     the receiver through its CallbackContext; a BTRC exception escaping it
-    follows `failure` (native-interop-ownership.md section 2.3).
+    follows `failure` (native-interop-ownership.md section 2.3). With
+    `executor = "main"` the factory runs only on the main Looper's thread,
+    which is then the registering one.
     """
 
     owner: str
@@ -869,6 +879,7 @@ class NativeJavaNatives:
     interface: str
     failure: str
     methods: tuple[NativeJavaNative, ...]
+    executor: str = "caller"
 
 
 @dataclass(frozen=True)
@@ -1519,6 +1530,18 @@ class NativeDeclarationImporter:
         "jfloat": ("F", "float"),
         "jdouble": ("D", "double"),
     }
+    # Each primitive array's generated owner, by element descriptor letter
+    # (native-interop-ownership.md 2.3, "Arrays").
+    JAVA_ARRAYS: ClassVar[Mapping[str, str]] = {
+        "Z": "JavaBooleanArray",
+        "B": "JavaByteArray",
+        "C": "JavaCharArray",
+        "S": "JavaShortArray",
+        "I": "JavaIntArray",
+        "J": "JavaLongArray",
+        "F": "JavaFloatArray",
+        "D": "JavaDoubleArray",
+    }
 
     def _import_java_bindings(self, plan, bindings, target, environment, fingerprint):
         """Read each Java binding's classes, then project them (native-interop-ownership.md 2.3).
@@ -1577,16 +1600,26 @@ class NativeDeclarationImporter:
             fingerprint.update(encoded)
             documents.append((binding, header, runtime.header))
         classes = {}
+        self._java_arrays = {}
+        executors = {options.class_name: options.executor for binding in bindings for options in binding.java_classes}
         for binding, header, jni in documents:
             self._origin = NativeHeaderSource(binding.module, jni, language="java")
             try:
                 self._project_java_classes(header, classes)
             except NativeImportError as error:
                 raise IncludeResolutionError(f"{binding.module}: {error}") from error
+        for binding, _, jni in documents:
+            self._origin = NativeHeaderSource(binding.module, jni, language="java")
+            try:
+                for options in binding.java_classes:
+                    if options.weak:
+                        self._project_java_weak(options.class_name, classes)
+            except NativeImportError as error:
+                raise IncludeResolutionError(f"{binding.module}: {error}") from error
         for binding, header, jni in documents:
             self._origin = NativeHeaderSource(binding.module, jni, language="java")
             try:
-                self._project_java_members(header, classes, set(binding.symbols))
+                self._project_java_members(header, classes, set(binding.symbols), executors)
             except NativeImportError as error:
                 raise IncludeResolutionError(f"{binding.module}: {error}") from error
         for binding, header, jni in documents:
@@ -1641,8 +1674,13 @@ class NativeDeclarationImporter:
                 resource=NativeResourceBinding(simple, "unique", "", ""),
             )
 
-    def _java_value(self, native, member, classes, *, result=False):
-        """A Java value's kind and BTRC type; a selected class is a nullable owner."""
+    def _java_value(self, native, member, classes, *, result=False, span=None):
+        """A Java value's kind and BTRC type; a selected class is a nullable owner.
+
+        A primitive array is a nullable owner of its generated array class,
+        except a natives parameter (`span` is whether it is writable), which
+        is a borrowed Span of its elements whose kind is its descriptor.
+        """
         if isinstance(native, NativeBuiltin):
             if result and native.name == "void":
                 return "V", ast.TypeExpr(base="void")
@@ -1651,7 +1689,16 @@ class NativeDeclarationImporter:
             kind, base = self.JAVA_PRIMITIVES[native.name]
             return kind, ast.TypeExpr(base=base)
         if isinstance(native, NativeJavaArray):
-            raise NativeImportError(f"Java arrays are not projected yet: {member}")
+            element = native.element
+            if not isinstance(element, NativeBuiltin) or element.name not in self.JAVA_PRIMITIVES:
+                raise NativeImportError(f"Java arrays of objects or arrays are not projected yet: {member}")
+            letter, base = self.JAVA_PRIMITIVES[element.name]
+            if span is not None:
+                elements = ast.TypeExpr(base=base, is_const=not span)
+                return f"[{letter}", ast.TypeExpr(base="Span", generic_args=[elements])
+            return "object", ast.TypeExpr(
+                base=self._project_java_array(letter, classes), is_nullable=True, pointer_depth=1
+            )
         if not isinstance(native, NativeJavaObject):
             raise NativeImportError(f"Java member {member} uses an unsupported type")
         if native.binary_name == "java/lang/String":
@@ -1660,12 +1707,131 @@ class NativeDeclarationImporter:
             raise NativeImportError(f"Java member {member} uses unselected class {native.name}")
         return "object", ast.TypeExpr(base=classes[native.name][0], is_nullable=True, pointer_depth=1)
 
-    def _project_java_members(self, header, classes, selected):
+    def _project_java_generated(self, name, subject, classes, spelling, identity, members):
+        """A generated Java resource: a unique owner of one JNI reference and its generated members.
+
+        Each member is (kind, name, static, parameters, return type,
+        parameter kinds, result kind); its adapter is generated from the kind
+        (native-interop-ownership.md section 2.3).
+        """
+        for other, (owner, _) in classes.items():
+            if owner == name:
+                raise NativeImportError(f"Java class {other} and {subject} project to the same BTRC name {name}")
+        declaration = ast.ClassDecl(
+            name=name,
+            is_abstract=True,
+            members=[
+                ast.MethodDecl(name="close", return_type=ast.TypeExpr(base="void"), access="public"),
+                ast.MethodDecl(name="isOpen", return_type=ast.TypeExpr(base="bool"), access="public"),
+            ],
+        )
+        self._add(
+            name,
+            declaration,
+            identity,
+            type_spelling=spelling,
+            resource=NativeResourceBinding(name, "unique", "", ""),
+        )
+        declaration = self._declarations[(str(self._origin), name)]
+        binary_name, descriptor = identity[1], identity[1] if identity[0] == "java-array" else ""
+        for kind, member, static, parameters, return_type, kinds, result in members:
+            declaration.source_file.methods[member] = NativeCallContract(
+                java_member=NativeJavaMember(
+                    kind, name, binary_name, "", descriptor, binary_name, static, kinds, result
+                )
+            )
+            declaration.members.append(
+                ast.MethodDecl(
+                    access="class" if static else "public",
+                    name=member,
+                    return_type=return_type,
+                    params=list(parameters),
+                )
+            )
+
+    def _project_java_array(self, letter, classes):
+        """The owner of one primitive array kind, projected the first time a member uses it.
+
+        create copies a Span into a new Java array through Set<X>ArrayRegion;
+        read and write copy a Span's elements out of and into it through
+        Get<X>ArrayRegion and Set<X>ArrayRegion, from `start`
+        (native-interop-ownership.md section 2.3, "Arrays").
+        """
+        name = self.JAVA_ARRAYS[letter]
+        if letter in self._java_arrays:
+            return name
+        self._java_arrays[letter] = name
+        base = next(base for code, base in self.JAVA_PRIMITIVES.values() if code == letter)
+        spelling = next(native for native, (code, _) in self.JAVA_PRIMITIVES.items() if code == letter) + "Array"
+
+        def elements(read_only):
+            return ast.Param(
+                name="elements",
+                type=ast.TypeExpr(base="Span", generic_args=[ast.TypeExpr(base=base, is_const=read_only)]),
+            )
+
+        start = ast.Param(name="start", type=ast.TypeExpr(base="int"))
+        void = ast.TypeExpr(base="void")
+        self._project_java_generated(
+            name,
+            f"[{letter}",
+            classes,
+            spelling,
+            ("java-array", f"[{letter}"),
+            [
+                ("array-create", "create", True, [elements(True)], ast.TypeExpr(base=name), ("span",), "object"),
+                ("array-length", "length", False, [], ast.TypeExpr(base="int"), (), "I"),
+                ("array-read", "read", False, [start, elements(False)], void, ("I", "span"), "V"),
+                ("array-write", "write", False, [start, elements(True)], void, ("I", "span"), "V"),
+            ],
+        )
+        return name
+
+    def _project_java_weak(self, class_name, classes):
+        """JavaWeak<Class>: a unique owner of one weak global reference to an object of a selected class.
+
+        create(referent) takes NewWeakGlobalRef of a live owner; get() returns
+        a new owner of a new global reference (NewLocalRef, then a null check,
+        then NewGlobalRef), or null once the object has been collected
+        (native-interop-ownership.md section 2.3, "Global refs").
+        """
+        simple, owner_class = classes[class_name]
+        name = f"JavaWeak{simple}"
+        self._project_java_generated(
+            name,
+            f"the weak reference class of {class_name}",
+            classes,
+            "jweak",
+            ("java-weak", owner_class.binary_name),
+            [
+                (
+                    "weak-create",
+                    "create",
+                    True,
+                    [ast.Param(name="referent", type=ast.TypeExpr(base=simple))],
+                    ast.TypeExpr(base=name),
+                    ("object",),
+                    "object",
+                ),
+                (
+                    "weak-get",
+                    "get",
+                    False,
+                    [],
+                    ast.TypeExpr(base=simple, is_nullable=True, pointer_depth=1),
+                    (),
+                    "object",
+                ),
+            ],
+        )
+
+    def _project_java_members(self, header, classes, selected, executors):
         """Constructors, methods and fields of the selected classes, by JNI descriptor.
 
         A constructor is the class method create(); a static member is a class
         method; a field is a getter named for it plus set<Field> unless final.
         A native method only a natives registration names is not callable.
+        A member of a class whose executor is "main" checks its thread.
         """
         projected = {}
         for declaration in header.exports:
@@ -1729,6 +1895,7 @@ class NativeDeclarationImporter:
                     static,
                     kinds,
                     result,
+                    executors.get(declaration.owner, ""),
                 )
                 owner.source_file.methods[name] = NativeCallContract(java_member=member)
                 owner.members.append(
@@ -1758,9 +1925,22 @@ class NativeDeclarationImporter:
                     raise NativeImportError(f"Java natives method {symbol} is not a method the reader reports")
                 if not declaration.native_method:
                     raise NativeImportError(f"Java RegisterNatives target {symbol} is not ACC_NATIVE")
+                writable = sorted(
+                    int(index)
+                    for entry in natives.writable_arrays
+                    for named, _, index in (entry.rpartition(".argument"),)
+                    if named == method
+                )
                 values = [
-                    self._java_value(parameter, symbol, classes) for parameter in declaration.signature.parameters
+                    self._java_value(parameter, symbol, classes, span=position in writable)
+                    for position, parameter in enumerate(declaration.signature.parameters)
                 ]
+                for position in writable:
+                    if position >= len(values) or not values[position][0].startswith("["):
+                        raise NativeImportError(
+                            f"Java natives {symbol}: argument{position} is not a primitive array parameter, "
+                            "so writable-arrays cannot name it"
+                        )
                 result, return_type = self._java_value(declaration.signature.return_type, symbol, classes, result=True)
                 name = declaration.method_name
                 if name in names:
@@ -1782,6 +1962,7 @@ class NativeDeclarationImporter:
                         declaration.static_member,
                         tuple(kind for kind, _ in values),
                         result,
+                        tuple(writable),
                     )
                 )
             self._add(
@@ -1790,7 +1971,13 @@ class NativeDeclarationImporter:
                 ("java-natives", owner_class.identity, tuple(method.identity for method in methods)),
             )
             projection = NativeJavaNatives(
-                simple, owner_class.binary_name, natives.class_name, natives.interface, natives.failure, tuple(methods)
+                simple,
+                owner_class.binary_name,
+                natives.class_name,
+                natives.interface,
+                natives.failure,
+                tuple(methods),
+                natives.executor,
             )
             token = ast.TypeExpr(
                 base="OwnedClosure",

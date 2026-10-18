@@ -4560,19 +4560,52 @@ class FeNativeDeclarationImporter {
 		return projected;
 	}
 
-	/* A Java value's kind; `projected` receives its BTRC type, a nullable owner for a selected class. */
-	private string javaValue(NativeNode native, string member, Map<string, string> classes, Vector<Node> projected, bool result = false) {
+	private Vector<string> javaPrimitiveNames() { return ["jboolean", "jbyte", "jchar", "jshort", "jint", "jlong", "jfloat", "jdouble"]; }
+
+	private Vector<string> javaPrimitiveKinds() { return ["Z", "B", "C", "S", "I", "J", "F", "D"]; }
+
+	private Vector<string> javaPrimitiveBases() { return ["bool", "signed char", "unsigned short", "short", "int", "long long", "float", "double"]; }
+
+	/* Each primitive array's generated owner, in javaPrimitiveKinds() order
+	 * (native-interop-ownership.md 2.3, "Arrays"). */
+	private Vector<string> javaArrayNames() { return ["JavaBooleanArray", "JavaByteArray", "JavaCharArray", "JavaShortArray", "JavaIntArray", "JavaLongArray", "JavaFloatArray", "JavaDoubleArray"]; }
+
+	/* The array owners already projected, by element descriptor letter. */
+	private Map<string, bool> javaArrays = {};
+
+	private Node javaSpan(string base, bool readOnly) {
+		Node elements = self.javaType(base, false);
+		elements.isConst = readOnly;
+		Node span = self.javaType("Span", false);
+		span.genericArgsStorage = [elements];
+		return span;
+	}
+
+	/* A Java value's kind; `projected` receives its BTRC type, a nullable owner
+	 * for a selected class. A primitive array is a nullable owner of its
+	 * generated array class, except a natives parameter (`span` is 1 when it is
+	 * writable, 0 when read-only, -1 otherwise), which is a borrowed Span of its
+	 * elements whose kind is its descriptor. */
+	private string javaValue(NativeNode native, string member, Map<string, string> classes, Vector<Node> projected, bool result = false, int span = -1) {
 		if (native.kind == NNK_NATIVE_BUILTIN) {
 			if (result && native.name == "void") { projected.push(self.javaType("void", false)); return "V"; }
-			Vector<string> names = ["jboolean", "jbyte", "jchar", "jshort", "jint", "jlong", "jfloat", "jdouble"];
-			Vector<string> kinds = ["Z", "B", "C", "S", "I", "J", "F", "D"];
-			Vector<string> bases = ["bool", "signed char", "unsigned short", "short", "int", "long long", "float", "double"];
-			int index = names.indexOf(native.name);
+			int index = self.javaPrimitiveNames().indexOf(native.name);
 			if (index < 0) { self.fail(f"Java member {member} uses unsupported type {native.name}"); }
-			projected.push(self.javaType(bases.get(index), false));
-			return kinds.get(index);
+			projected.push(self.javaType(self.javaPrimitiveBases().get(index), false));
+			return self.javaPrimitiveKinds().get(index);
 		}
-		if (native.kind == NNK_NATIVE_JAVA_ARRAY) { self.fail(f"Java arrays are not projected yet: {member}"); }
+		if (native.kind == NNK_NATIVE_JAVA_ARRAY) {
+			NativeNode element = native.element;
+			int index = element.kind == NNK_NATIVE_BUILTIN ? self.javaPrimitiveNames().indexOf(element.name) : -1;
+			if (index < 0) { self.fail(f"Java arrays of objects or arrays are not projected yet: {member}"); }
+			string letter = self.javaPrimitiveKinds().get(index);
+			if (span >= 0) {
+				projected.push(self.javaSpan(self.javaPrimitiveBases().get(index), span == 0));
+				return "[" + letter;
+			}
+			projected.push(self.javaType(self.projectJavaArray(index, classes), true));
+			return "object";
+		}
 		if (native.kind != NNK_NATIVE_JAVA_OBJECT) { self.fail(f"Java member {member} uses an unsupported type"); }
 		if (native.binaryName == "java/lang/String") { projected.push(self.javaType("string", true)); return "string"; }
 		if (!classes.has(native.name)) { self.fail(f"Java member {member} uses unselected class {native.name}"); }
@@ -4580,11 +4613,13 @@ class FeNativeDeclarationImporter {
 		return "object";
 	}
 
-	private void addJavaMember(FeNativeImportedDeclaration owner, Map<string, string> names, NativeNode declaration, NativeNode ownerClass, string kind, string name, string access, Vector<string> kinds, string result, Node returnType, Vector<Node> parameters, string memberName) {
+	private void addJavaMember(FeNativeImportedDeclaration owner, Map<string, string> names, NativeNode declaration, NativeNode ownerClass, string kind, string name, string access, Vector<string> kinds, string result, Node returnType, Vector<Node> parameters, string memberName, string executor) {
 		if (names.has(name)) { self.fail(f"Java members {names.get(name)} and {declaration.name} project to the same BTRC name {name}"); }
 		names.put(name, declaration.name);
 		var contract = FeNativeCallContract();
-		contract.javaMember = FeNativeJavaMember(kind, owner.declaration.name, ownerClass.binaryName, memberName, declaration.descriptor, declaration.identity, declaration.staticMember, kinds, result);
+		var java = FeNativeJavaMember(kind, owner.declaration.name, ownerClass.binaryName, memberName, declaration.descriptor, declaration.identity, declaration.staticMember, kinds, result);
+		java.executor = executor;
+		contract.javaMember = java;
 		owner.methods.put(name, contract);
 		Node member = self.node(NK_METHOD_DECL);
 		member.access = access;
@@ -4594,12 +4629,96 @@ class FeNativeDeclarationImporter {
 		owner.declaration.membersMut().push(member);
 	}
 
+	private Node javaParameter(string name, Node type) {
+		Node parameter = self.node(NK_PARAM);
+		parameter.name = name;
+		parameter.type = type;
+		return parameter;
+	}
+
+	/* A generated Java resource: a unique owner of one JNI reference and its
+	 * generated members, each declared by `addJavaGenerated`; its adapters are
+	 * generated from the member kinds (native-interop-ownership.md section 2.3). */
+	private FeNativeImportedDeclaration projectJavaGenerated(string name, string subject, Map<string, string> classes, string spelling, string identity) {
+		for other in classes.keys() {
+			if (classes.get(other) == name) { self.fail(f"Java class {other} and {subject} project to the same BTRC name {name}"); }
+		}
+		Node imported = self.node(NK_CLASS_DECL);
+		imported.name = name;
+		imported.isAbstract = true;
+		for methodName in ["close", "isOpen"] {
+			Node method = self.node(NK_METHOD_DECL);
+			method.name = methodName;
+			method.access = "public";
+			method.returnType = self.node(NK_TYPE_EXPR);
+			method.returnType.base = methodName == "close" ? "void" : "bool";
+			imported.membersMut().push(method);
+		}
+		var resource = FeNativeResourceBinding(name, "unique", "", "");
+		self.add(name, imported, identity, spelling, false, null, resource);
+		return self.resourceDeclaration(name);
+	}
+
+	private void addJavaGenerated(FeNativeImportedDeclaration owner, string kind, string name, bool isStatic, Vector<Node> parameters, Node returnType, Vector<string> kinds, string result, string binaryName, string descriptor) {
+		var contract = FeNativeCallContract();
+		contract.javaMember = FeNativeJavaMember(kind, owner.declaration.name, binaryName, "", descriptor, binaryName, isStatic, kinds, result);
+		owner.methods.put(name, contract);
+		Node member = self.node(NK_METHOD_DECL);
+		member.access = isStatic ? "class" : "public";
+		member.name = name;
+		member.returnType = returnType;
+		member.paramsStorage = parameters;
+		owner.declaration.membersMut().push(member);
+	}
+
+	/* The owner of one primitive array kind, projected the first time a member
+	 * uses it. create copies a Span into a new Java array through
+	 * Set<X>ArrayRegion; read and write copy a Span's elements out of and into
+	 * it through Get<X>ArrayRegion and Set<X>ArrayRegion, from `start`
+	 * (native-interop-ownership.md section 2.3, "Arrays"). */
+	private string projectJavaArray(int index, Map<string, string> classes) {
+		string name = self.javaArrayNames().get(index);
+		string letter = self.javaPrimitiveKinds().get(index);
+		if (self.javaArrays.has(letter)) { return name; }
+		self.javaArrays.put(letter, true);
+		string base = self.javaPrimitiveBases().get(index);
+		string descriptor = "[" + letter;
+		var owner = self.projectJavaGenerated(name, descriptor, classes, self.javaPrimitiveNames().get(index) + "Array", "java-array:" + descriptor);
+		Vector<string> spanKind = ["span"];
+		Vector<string> regionKinds = ["I", "span"];
+		Vector<string> noKinds = [];
+		Vector<Node> noParameters = [];
+		self.addJavaGenerated(owner, "array-create", "create", true, [self.javaParameter("elements", self.javaSpan(base, true))], self.javaType(name, false), spanKind, "object", descriptor, descriptor);
+		self.addJavaGenerated(owner, "array-length", "length", false, noParameters, self.javaType("int", false), noKinds, "I", descriptor, descriptor);
+		self.addJavaGenerated(owner, "array-read", "read", false, [self.javaParameter("start", self.javaType("int", false)), self.javaParameter("elements", self.javaSpan(base, false))], self.javaType("void", false), regionKinds, "V", descriptor, descriptor);
+		self.addJavaGenerated(owner, "array-write", "write", false, [self.javaParameter("start", self.javaType("int", false)), self.javaParameter("elements", self.javaSpan(base, true))], self.javaType("void", false), regionKinds, "V", descriptor, descriptor);
+		return name;
+	}
+
+	/* JavaWeak<Class>: a unique owner of one weak global reference to an object
+	 * of a selected class. create(referent) takes NewWeakGlobalRef of a live
+	 * owner; get() returns a new owner of a new global reference (NewLocalRef,
+	 * then a null check, then NewGlobalRef), or null once the object has been
+	 * collected (native-interop-ownership.md section 2.3, "Global refs"). */
+	private void projectJavaWeak(string className, Map<string, string> classes, Map<string, NativeNode> declarations) {
+		string simple = classes.get(className);
+		string binaryName = declarations.get(className).binaryName;
+		string name = "JavaWeak" + simple;
+		var owner = self.projectJavaGenerated(name, "the weak reference class of " + className, classes, "jweak", "java-weak:" + binaryName);
+		Vector<string> objectKind = ["object"];
+		Vector<string> noKinds = [];
+		Vector<Node> noParameters = [];
+		self.addJavaGenerated(owner, "weak-create", "create", true, [self.javaParameter("referent", self.javaType(simple, false))], self.javaType(name, false), objectKind, "object", binaryName, "");
+		self.addJavaGenerated(owner, "weak-get", "get", false, noParameters, self.javaType(simple, true), noKinds, "object", binaryName, "");
+	}
+
 	/* Constructors, methods and fields of the selected classes, by JNI
 	 * descriptor. A constructor is the class method create(); a static member
 	 * is a class method; a field is a getter named for it plus set<Field>
 	 * unless final. A native method only a natives registration names is not
-	 * callable. */
-	private void projectJavaMembers(NativeNode header, Map<string, string> classes, Map<string, NativeNode> declarations, Vector<string> selected) {
+	 * callable. A member of a class whose executor is "main" checks its
+	 * thread. */
+	private void projectJavaMembers(NativeNode header, Map<string, string> classes, Map<string, NativeNode> declarations, Vector<string> selected, Map<string, string> executors) {
 		Map<string, Map<string, string>> projected = {};
 		for declaration in header.exports {
 			if (declaration.kind == NNK_NATIVE_JAVA_CLASS) { continue; }
@@ -4616,6 +4735,7 @@ class FeNativeDeclarationImporter {
 			}
 			Map<string, string> names = projected.get(simple);
 			string access = declaration.staticMember ? "class" : "public";
+			string executor = executors.has(declaration.owner) ? executors.get(declaration.owner) : "";
 			if (declaration.kind == NNK_NATIVE_JAVA_METHOD) {
 				Vector<string> kinds = [];
 				Vector<Node> parameters = [];
@@ -4629,11 +4749,11 @@ class FeNativeDeclarationImporter {
 				}
 				if (declaration.constructor) {
 					if (ownerClass.interfaceClass || ownerClass.abstractClass) { self.fail(f"Java constructor {declaration.name} cannot create an abstract class or interface"); }
-					self.addJavaMember(owner, names, declaration, ownerClass, "constructor", "create", "class", kinds, "object", self.javaType(simple, false), parameters, declaration.methodName);
+					self.addJavaMember(owner, names, declaration, ownerClass, "constructor", "create", "class", kinds, "object", self.javaType(simple, false), parameters, declaration.methodName, executor);
 				} else {
 					Vector<Node> returnType = [];
 					string result = self.javaValue(declaration.signature.returnType, declaration.name, classes, returnType, true);
-					self.addJavaMember(owner, names, declaration, ownerClass, "method", declaration.methodName, access, kinds, result, returnType.get(0), parameters, declaration.methodName);
+					self.addJavaMember(owner, names, declaration, ownerClass, "method", declaration.methodName, access, kinds, result, returnType.get(0), parameters, declaration.methodName, executor);
 				}
 				continue;
 			}
@@ -4642,7 +4762,7 @@ class FeNativeDeclarationImporter {
 			string field = declaration.fieldName;
 			Vector<string> noKinds = [];
 			Vector<Node> noParameters = [];
-			self.addJavaMember(owner, names, declaration, ownerClass, "getter", field, access, noKinds, kind, valueType.get(0), noParameters, field);
+			self.addJavaMember(owner, names, declaration, ownerClass, "getter", field, access, noKinds, kind, valueType.get(0), noParameters, field, executor);
 			if (!declaration.readOnly) {
 				Node parameter = self.node(NK_PARAM);
 				parameter.name = "value";
@@ -4650,7 +4770,7 @@ class FeNativeDeclarationImporter {
 				Vector<Node> setterParameters = [parameter];
 				Vector<string> setterKinds = [kind];
 				string setter = "set" + field.substring(0, 1).toUpper() + field.substring(1, field.length() - 1);
-				self.addJavaMember(owner, names, declaration, ownerClass, "setter", setter, access, setterKinds, "V", self.javaType("void", false), setterParameters, field);
+				self.addJavaMember(owner, names, declaration, ownerClass, "setter", setter, access, setterKinds, "V", self.javaType("void", false), setterParameters, field, executor);
 			}
 		}
 	}
@@ -4670,6 +4790,7 @@ class FeNativeDeclarationImporter {
 			string simple = classes.get(natives.className);
 			NativeNode ownerClass = declarations.get(natives.className);
 			var projection = FeNativeJavaNatives(simple, ownerClass.binaryName, natives.className, natives.handler, natives.failure);
+			projection.executor = natives.executor;
 			Node handler = self.node(NK_INTERFACE_DECL); handler.name = natives.handler;
 			Map<string, string> names = {};
 			string identities = "";
@@ -4678,15 +4799,24 @@ class FeNativeDeclarationImporter {
 				if (!exports.has(symbol) || exports.get(symbol).kind != NNK_NATIVE_JAVA_METHOD || exports.get(symbol).constructor) { self.fail(f"Java natives method {symbol} is not a method the reader reports"); }
 				NativeNode declaration = exports.get(symbol);
 				if (!declaration.nativeMethod) { self.fail(f"Java RegisterNatives target {symbol} is not ACC_NATIVE"); }
+				Vector<int> writable = [];
+				for entry in natives.writableArrays {
+					int split = entry.lastIndexOf(".argument");
+					if (entry.substring(0, split) == method) { writable.push(Strings.toInt(entry.substring(split + 9, entry.length() - split - 9))); }
+				}
+				writable.sortBy((int left, int right) => left < right);
 				Vector<string> kinds = [];
 				Vector<Node> parameters = [];
 				for index in range(declaration.signature.parameters.len) {
 					Vector<Node> projectedType = [];
-					kinds.push(self.javaValue(declaration.signature.parameters.get(index), symbol, classes, projectedType));
+					kinds.push(self.javaValue(declaration.signature.parameters.get(index), symbol, classes, projectedType, false, writable.contains(index) ? 1 : 0));
 					Node parameter = self.node(NK_PARAM);
 					parameter.name = f"argument{index}";
 					parameter.type = projectedType.get(0);
 					parameters.push(parameter);
+				}
+				for position in writable {
+					if (position >= kinds.len || !kinds.get(position).startsWith("[")) { self.fail(f"Java natives {symbol}: argument{position} is not a primitive array parameter, so writable-arrays cannot name it"); }
 				}
 				Vector<Node> returnType = [];
 				string result = self.javaValue(declaration.signature.returnType, symbol, classes, returnType, true);
@@ -4703,7 +4833,9 @@ class FeNativeDeclarationImporter {
 				for parameter in parameters { member.paramsMut().push(parameter); }
 				member.returnType = returnType.get(0);
 				handler.methodsMut().push(member);
-				projection.methods.push(FeNativeJavaNative(name, declaration.descriptor, declaration.identity, declaration.staticMember, kinds, result));
+				var native = FeNativeJavaNative(name, declaration.descriptor, declaration.identity, declaration.staticMember, kinds, result);
+				native.writable = writable;
+				projection.methods.push(native);
 				identities = identities + ";" + declaration.identity;
 			}
 			self.add(natives.handler, handler, "java-natives:" + ownerClass.identity + identities);
@@ -4740,6 +4872,11 @@ class FeNativeDeclarationImporter {
 		string priorLanguage = self.language;
 		self.language = "java";
 		self.header = self.javaRuntimeHeader;
+		self.javaArrays = {};
+		Map<string, string> executors = {};
+		for binding in self.pendingJavaBindings {
+			for options in binding.javaClasses { executors.put(options.className, options.executor); }
+		}
 		for index in range(self.pendingJavaBindings.len) {
 			self.module = self.pendingJavaBindings.get(index).module;
 			NativeNode document = FeNativeHeaderCodec().decode(self.pendingJavaResponses.get(index), target);
@@ -4749,7 +4886,14 @@ class FeNativeDeclarationImporter {
 
 		for index in range(documents.len) {
 			self.module = self.pendingJavaBindings.get(index).module;
-			self.projectJavaMembers(documents.get(index), classes, declarations, self.pendingJavaBindings.get(index).symbols);
+			for options in self.pendingJavaBindings.get(index).javaClasses {
+				if (options.weak) { self.projectJavaWeak(options.className, classes, declarations); }
+			}
+		}
+
+		for index in range(documents.len) {
+			self.module = self.pendingJavaBindings.get(index).module;
+			self.projectJavaMembers(documents.get(index), classes, declarations, self.pendingJavaBindings.get(index).symbols, executors);
 		}
 
 		for index in range(documents.len) {

@@ -14,7 +14,9 @@
  *
  * Java natives registrations (RegisterNatives thunks, interop step 7) install
  * the environment Java called them with for the duration of each call, raise
- * their Java exceptions here, and count their holders.
+ * their Java exceptions here, and count their holders. JavaWeak owners count
+ * their weak global references here, and `executor = "main"` adapters check
+ * their thread against the main Looper's, which this file captures once.
  *
  * Locking: javaLock guards every field below and is never held across a JNI
  * call except JNI_CreateJavaVM and the cache teardown in btrcJavaDestroy,
@@ -47,6 +49,11 @@ static _Thread_local JNIEnv* javaThreadEnvironment;
 static jobject javaLoader;
 static jmethodID javaLoadClass;
 static int javaNatives;
+static long long javaWeaks;
+/* The main Looper's Thread, a global reference outside the user count, and
+ * whether the calling thread is it: 0 not checked yet, 1 yes, -1 no. */
+static jobject javaMain;
+static _Thread_local int javaOnMain;
 
 static void javaAbort(const char* message) {
 	fprintf(stderr, "Library.Java: %s\n", message);
@@ -285,6 +292,33 @@ void btrcJavaUnclaim(void) {
 	pthread_mutex_unlock(&javaLock);
 }
 
+void btrcJavaWeakClaim(void) {
+	pthread_mutex_lock(&javaLock);
+	if (javaMachine == NULL) {
+		pthread_mutex_unlock(&javaLock);
+		javaAbort("a Java weak reference outlived its VM");
+	}
+	javaWeaks++;
+	pthread_mutex_unlock(&javaLock);
+}
+
+void btrcJavaWeakUnclaim(void) {
+	pthread_mutex_lock(&javaLock);
+	if (javaWeaks <= 0) {
+		pthread_mutex_unlock(&javaLock);
+		javaAbort("a Java weak reference was released twice");
+	}
+	javaWeaks--;
+	pthread_mutex_unlock(&javaLock);
+}
+
+long long btrcJavaLiveWeaks(void) {
+	pthread_mutex_lock(&javaLock);
+	long long weaks = javaWeaks;
+	pthread_mutex_unlock(&javaLock);
+	return weaks;
+}
+
 /* Formats Throwable.toString() in its own local frame. A second exception
  * while doing so has no meaningful translation, so it terminates. */
 static void javaDescribe(JNIEnv* env, jthrowable thrown, const char* prefix, char* message, size_t capacity) {
@@ -447,6 +481,76 @@ jfieldID btrcJavaField(JNIEnv* env, jclass owner, jfieldID* slot, const char* na
 	cached = *slot;
 	pthread_mutex_unlock(&javaLock);
 	return cached;
+}
+
+static void javaNoMain(void) { javaAbort("the main thread is not established: this Java VM has no main Looper (android.os.Looper.getMainLooper() is null or absent)"); }
+
+/* The thread of android.os.Looper.getMainLooper() (native-interop-ownership.md
+ * 2.3, "Executors"), resolved through the application ClassLoader like every
+ * class, read once and cached as a global reference outside the user count.
+ * A VM whose Looper class is absent (a host JVM) or whose main Looper is not
+ * prepared yet has no main thread, which terminates. */
+static jobject javaMainThread(JNIEnv* env) {
+	pthread_mutex_lock(&javaLock);
+	jobject cached = javaMain;
+	jobject loader = javaLoader;
+	jmethodID loadClass = javaLoadClass;
+	pthread_mutex_unlock(&javaLock);
+	if (cached != NULL) { return cached; }
+	if ((*env)->PushLocalFrame(env, 4) != 0) { javaAbort("out of memory while finding the main thread"); }
+	jclass looper = loader != NULL ? javaLoadClassNamed(env, loader, loadClass, "android/os/Looper") : (*env)->FindClass(env, "android/os/Looper");
+	if ((*env)->ExceptionCheck(env) || looper == NULL) {
+		(*env)->ExceptionClear(env);
+		javaNoMain();
+	}
+	jmethodID getMainLooper = (*env)->GetStaticMethodID(env, looper, "getMainLooper", "()Landroid/os/Looper;");
+	if ((*env)->ExceptionCheck(env) || getMainLooper == NULL) {
+		(*env)->ExceptionClear(env);
+		javaNoMain();
+	}
+	jvalue none[1];
+	none[0].j = 0;
+	jobject mainLooper = (*env)->CallStaticObjectMethodA(env, looper, getMainLooper, none);
+	if ((*env)->ExceptionCheck(env)) { javaAbort("android.os.Looper.getMainLooper() threw"); }
+	if (mainLooper == NULL) { javaNoMain(); }
+	jmethodID getThread = (*env)->GetMethodID(env, looper, "getThread", "()Ljava/lang/Thread;");
+	if ((*env)->ExceptionCheck(env) || getThread == NULL) { javaAbort("android.os.Looper has no getThread()"); }
+	jobject thread = (*env)->CallObjectMethodA(env, mainLooper, getThread, none);
+	if ((*env)->ExceptionCheck(env) || thread == NULL) { javaAbort("the main Looper has no thread"); }
+	jobject global = (*env)->NewGlobalRef(env, thread);
+	if ((*env)->ExceptionCheck(env) || global == NULL) { javaAbort("out of memory for the main thread's global reference"); }
+	(*env)->PopLocalFrame(env, NULL);
+	pthread_mutex_lock(&javaLock);
+	if (javaMain == NULL) {
+		javaMain = global;
+		global = NULL;
+	}
+	cached = javaMain;
+	pthread_mutex_unlock(&javaLock);
+	if (global != NULL) { (*env)->DeleteGlobalRef(env, global); }
+	return cached;
+}
+
+void btrcJavaRequireMain(JNIEnv* env, const char* what) {
+	if (javaOnMain == 0) {
+		if ((*env)->ExceptionCheck(env)) { javaAbort("a Java exception is pending at a main-thread check"); }
+		jobject mainThread = javaMainThread(env);
+		if ((*env)->PushLocalFrame(env, 2) != 0) { javaAbort("out of memory while checking the main thread"); }
+		jclass threads = (*env)->FindClass(env, "java/lang/Thread");
+		if ((*env)->ExceptionCheck(env) || threads == NULL) { javaAbort("cannot find java.lang.Thread"); }
+		jmethodID current = (*env)->GetStaticMethodID(env, threads, "currentThread", "()Ljava/lang/Thread;");
+		if ((*env)->ExceptionCheck(env) || current == NULL) { javaAbort("cannot find Thread.currentThread()"); }
+		jvalue none[1];
+		none[0].j = 0;
+		jobject thread = (*env)->CallStaticObjectMethodA(env, threads, current, none);
+		if ((*env)->ExceptionCheck(env) || thread == NULL) { javaAbort("Thread.currentThread() failed"); }
+		javaOnMain = (*env)->IsSameObject(env, thread, mainThread) == JNI_TRUE ? 1 : -1;
+		(*env)->PopLocalFrame(env, NULL);
+	}
+	if (javaOnMain < 0) {
+		fprintf(stderr, "%s: called off the main thread\n", what);
+		abort();
+	}
 }
 
 jstring btrcJavaNewString(JNIEnv* env, const char* text) {
@@ -644,6 +748,7 @@ void btrcJavaDestroy(void) {
 	else if (javaAdopted) { snprintf(problem, sizeof problem, "an adopted Java VM belongs to its host and is never destroyed"); }
 	else if (!pthread_equal(javaCreator, pthread_self())) { snprintf(problem, sizeof problem, "only the thread that created the Java VM can destroy it"); }
 	else if (javaClaims != 0) { snprintf(problem, sizeof problem, "the Java VM was destroyed with %lld live references", javaClaims); }
+	else if (javaWeaks != 0) { snprintf(problem, sizeof problem, "the Java VM was destroyed with %lld live weak references", javaWeaks); }
 	else if (javaAttached != 0) { snprintf(problem, sizeof problem, "the Java VM was destroyed with %d attached threads", javaAttached); }
 	pthread_mutex_unlock(&javaLock);
 	if (problem[0]) { javaAbort(problem); }
@@ -654,6 +759,10 @@ void btrcJavaDestroy(void) {
 	for (size_t index = 0; index < javaClassCount; index++) {
 		(*env)->DeleteGlobalRef(env, *javaClassSlots[index]);
 		*javaClassSlots[index] = NULL;
+	}
+	if (javaMain != NULL) {
+		(*env)->DeleteGlobalRef(env, javaMain);
+		javaMain = NULL;
 	}
 	for (size_t index = 0; index < javaMethodCount; index++) { *javaMethodSlots[index] = NULL; }
 	for (size_t index = 0; index < javaFieldCount; index++) { *javaFieldSlots[index] = NULL; }

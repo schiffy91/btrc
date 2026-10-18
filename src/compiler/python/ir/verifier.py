@@ -94,6 +94,11 @@ class IRVerifier:
             "PopLocalFrame",
         }
     )
+    # Critical regions, which no adapter enters: arrays copy through
+    # Get/Set<X>ArrayRegion or borrow through Get<X>ArrayElements (section 2.3, "Arrays").
+    _JNI_CRITICAL: ClassVar[frozenset[str]] = frozenset(
+        {"GetPrimitiveArrayCritical", "ReleasePrimitiveArrayCritical", "GetStringCritical", "ReleaseStringCritical"}
+    )
     # Library.Java helpers that leave a Java exception pending, checked like a JNI call.
     _JNI_HELPERS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -233,6 +238,11 @@ class IRVerifier:
             nodes = [node for value in self._java_expressions(statement) for node in IRNode.walk_value(value)]
             throwing = [slot for node in nodes if (slot := self._java_throwing(node, environment))]
             slots = [slot for node in nodes if (slot := self._java_slot(node, environment))]
+            critical = next((slot for slot in slots if slot in self._JNI_CRITICAL), None)
+            if critical is not None:
+                raise ValueError(
+                    f"Java adapter {name}: {critical} is rejected; a critical region forbids the adapter's other JNI calls"
+                )
             if len(throwing) > 1:
                 raise ValueError(f"Java adapter {name}: {throwing[0]} and {throwing[1]} share one statement")
             if throwing:

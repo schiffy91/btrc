@@ -25,6 +25,7 @@ from src.tests.python.native_import_fixtures import native_project as native_pro
 
 CALLBACKS = "dev.btrc.fixture.JniCallbacks"
 HOST = "dev.btrc.fixture.JniHost"
+WRITABLE = "natives.JniCallbacks.writable-arrays must name array parameters of its methods as <method>.argument<N>"
 PROGRAM = """import Library.Callback;
 import Library.Java.JavaVirtualMachine;
 import ./Fixture.btrc;
@@ -84,7 +85,7 @@ def rejected(source, native_compile, natives, symbols=None):
             registration(["compute(I)I", "depth(I)I", "compute(I)I"]),
             "natives.JniCallbacks.methods registers compute(I)I twice",
         ),
-        (registration(executor='"main"'), "natives.JniCallbacks.executor currently requires caller"),
+        (registration(executor='"apartment"'), "natives.JniCallbacks.executor requires caller or main"),
         (registration(failure='"ignore"'), "natives.JniCallbacks.failure requires throw or abort"),
         (registration(cancellation='"drain"'), "natives.JniCallbacks.cancellation requires entry-barrier"),
         (
@@ -98,6 +99,35 @@ def rejected(source, native_compile, natives, symbols=None):
         (
             registration() + natives_table("JniWorker", "registerJniCallbacks", "IJniWorker", ["twice(I)I"], "abort"),
             "natives.JniWorker: the factory and interface names must be distinct from selected classes and other natives",
+        ),
+        (registration(["sum([I)I"], writable_arrays='["sum([I)I"]'), WRITABLE),
+        (registration(["sum([I)I"], writable_arrays='["fill([II)V.argument0"]'), WRITABLE),
+        (registration(["sum([I)I"], writable_arrays='["sum([I)I.argument01"]'), WRITABLE),
+        (registration(["sum([I)I"], writable_arrays='"sum([I)I.argument0"'), WRITABLE),
+        (
+            registration(["sum([I)I"], writable_arrays='["sum([I)I.argument0", "sum([I)I.argument0"]'),
+            "natives.JniCallbacks.writable-arrays contains a duplicate value",
+        ),
+        (
+            registration() + "[native.bindings.classes.JniOther]\nweak = true\n",
+            "classes.JniOther: classes requires a Java class the binding selects",
+        ),
+        (
+            registration() + "[native.bindings.classes.JniHost]\nextra = 1\n",
+            "classes.JniHost contains unexpected field 'extra'",
+        ),
+        (registration() + "[native.bindings.classes.JniHost]\n", "classes.JniHost requires executor or weak"),
+        (
+            registration() + '[native.bindings.classes.JniHost]\nexecutor = "caller"\n',
+            "classes.JniHost.executor requires main",
+        ),
+        (
+            registration() + '[native.bindings.classes.JniHost]\nweak = "yes"\n',
+            "classes.JniHost.weak must be true or false",
+        ),
+        (
+            registration(name='"JavaWeakJniHost"') + "[native.bindings.classes.JniHost]\nweak = true\n",
+            "classes.JniHost: the weak reference class JavaWeakJniHost must be distinct from selected classes and natives",
         ),
     ],
     ids=[
@@ -114,6 +144,17 @@ def rejected(source, native_compile, natives, symbols=None):
         "factory-names-a-class",
         "interface-is-the-factory",
         "factory-of-another-registration",
+        "writable-no-argument",
+        "writable-unlisted-method",
+        "writable-argument-spelling",
+        "writable-not-a-list",
+        "writable-duplicate",
+        "class-unselected",
+        "class-unknown-key",
+        "class-empty",
+        "class-executor",
+        "class-weak",
+        "class-weak-name",
     ],
 )
 def test_natives_manifest_rejections(natives_project, native_compile, natives, message):
@@ -126,16 +167,31 @@ def test_natives_manifest_rejections(natives_project, native_compile, natives, m
         (["plain(I)I"], f"Java RegisterNatives target {CALLBACKS}.plain(I)I is not ACC_NATIVE"),
         # The class declares depth(I)I: a descriptor it does not declare is not a native of it.
         (["depth(J)J"], f"JavaClassReader: unknown member {CALLBACKS}.depth(J)J"),
-        (["sum([I)I"], f"Java arrays are not projected yet: {CALLBACKS}.sum([I)I"),
+        (
+            ["count([Ljava/lang/String;)I"],
+            f"Java arrays of objects or arrays are not projected yet: {CALLBACKS}.count([Ljava/lang/String;)I",
+        ),
         (
             ["compute(I)I", "compute(J)J"],
             f"Java natives {CALLBACKS}.compute(I)I and {CALLBACKS}.compute(J)J project to the same BTRC name compute",
         ),
+        (
+            ["fill([II)V"],
+            f"Java natives {CALLBACKS}.fill([II)V: argument1 is not a primitive array parameter, "
+            "so writable-arrays cannot name it",
+        ),
+        (
+            ["sum([I)I"],
+            f"Java natives {CALLBACKS}.sum([I)I: argument3 is not a primitive array parameter, "
+            "so writable-arrays cannot name it",
+        ),
     ],
-    ids=["not-native", "signature-mismatch", "array", "overload"],
+    ids=["not-native", "signature-mismatch", "object-array", "overload", "writable-scalar", "writable-missing"],
 )
 def test_natives_projection_rejections(natives_project, native_compile, methods, message):
-    assert message in rejected(natives_project, native_compile, registration(methods))
+    writable = {"fill([II)V": '["fill([II)V.argument1"]', "sum([I)I": '["sum([I)I.argument3"]'}.get(methods[0])
+    natives = registration(methods, writable_arrays=writable)
+    assert message in rejected(natives_project, native_compile, natives)
 
 
 def test_natives_reject_an_unselected_class_type(natives_project, native_compile):
@@ -164,25 +220,33 @@ class Receiver implements IJniCallbacks {
 	public int compute(int argument0) { return argument0; }
 	public string? greet(string? argument0) { return argument0; }
 	public int scale(JniCallbacks instance, int argument0) { return argument0; }
+	public int sum(Span<const int> argument0) { return (int)argument0.length(); }
+	public void fill(Span<int> argument0, int argument1) { argument0.trySet(0, argument1); }
+}
+
+class MainReceiver implements IJniMain {
+	public int tick(int argument0) { return argument0; }
 }
 
 int main() {
 	CallbackScope scope = CallbackScope();
 	var registration = registerJniCallbacks(Receiver(), scope);
-	return registration.isOpen() ? 0 : 1;
+	var main = registerJniMain(MainReceiver(), scope);
+	return registration.isOpen() && main.isOpen() ? 0 : 1;
 }
 """
 
 
 def test_natives_bind_through_register_natives(natives_project, native_compile):
-    methods = ["compute(I)I", "greet(Ljava/lang/String;)Ljava/lang/String;", "scale(I)I"]
-    (natives_project.parent.parent / "btrc.toml").write_text(
-        manifest(None, registration(methods), sources=False), encoding="utf-8"
+    methods = ["compute(I)I", "greet(Ljava/lang/String;)Ljava/lang/String;", "scale(I)I", "sum([I)I", "fill([II)V"]
+    natives = registration(methods, writable_arrays='["fill([II)V.argument0"]') + natives_table(
+        "JniMain", "registerJniMain", "IJniMain", ["tick(I)I"], "throw", executor="main"
     )
+    (natives_project.parent.parent / "btrc.toml").write_text(manifest(None, natives, sources=False), encoding="utf-8")
     natives_project.write_text(REGISTERING, encoding="utf-8")
     compiled = native_compile(natives_project)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
-    c_source = compiled.c_source.replace("JNIEnv* volatile", "JNIEnv*")
+    c_source = compiled.c_source.replace("JNIEnv* volatile", "JNIEnv*").replace(" volatile ", " ")
     # One thunk per native, registered by name and descriptor; an instance
     # native receives its object; no thread-invoke seam.
     for method in methods:
@@ -192,3 +256,16 @@ def test_natives_bind_through_register_natives(natives_project, native_compile):
     assert "__btrc_java_natives_JniCallbacks_scale(JNIEnv* env, jobject __btrc_java_target" in c_source
     assert "btrcJavaRegisterNatives" in c_source and "btrcJavaEnter" in c_source
     assert "__btrc_native_thread_invoke" not in c_source
+    # A borrowed span: the array's elements for the call. A read-only one is
+    # always released with JNI_ABORT; a writable one copies back once the
+    # receiver ran (mode 0), and never critically.
+    assert "jintArray argument0" in c_source and "GetIntArrayElements" in c_source
+    assert (
+        c_source.count("ReleaseIntArrayElements)(__btrc_java_env, argument0, __btrc_java_elements_0, JNI_ABORT)") >= 2
+    )
+    assert "(__btrc_java_entered ? 0 : JNI_ABORT)" in c_source
+    assert "Critical" not in c_source
+    # executor = "main": the factory checks the main Looper's thread, which
+    # its holder then records as the registering one.
+    assert 'btrcJavaRequireMain(__btrc_java_env, "Java natives dev.btrc.fixture.JniMain")' in c_source
+    assert 'btrcJavaRequireMain(__btrc_java_env, "Java natives dev.btrc.fixture.JniCallbacks")' not in c_source

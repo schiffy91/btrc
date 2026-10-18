@@ -20,10 +20,25 @@ itself. Modes 4 and 5 are what terminates: a native called on a thread other
 than its registration's, and a BTRC exception escaping an abort-failure
 native.
 
+Interop step 7, slice B: primitive arrays cross as owners (JavaIntArray and
+its siblings), copied through Get/Set<X>ArrayRegion, and natives borrow them as
+spans, released with JNI_ABORT unless writable; a JavaWeak<Class>
+(JavaWeakJniHost) promotes while its object lives and clears once the
+collector reclaims it; and JniMain runs with `executor = "main"`, its calls
+and natives checked against the main Looper's thread, including a native the
+main Looper runs from a posted message, and a cancellation from another
+thread that the registration refuses before it reaches the holder. Modes 6-9
+are what terminates: a main class called on a BTRC thread, a main native
+called on a Java worker, a VM without a main Looper, and main natives
+registered on another thread.
+
 The application classes load through their own class loader on a host JVM
 (JniEntry's third argument), so a BTRC thread the runtime attaches resolves
 them only through the application ClassLoader cached at JNI_OnLoad, never
-FindClass (section 2.3, "VM lifetime").
+FindClass (section 2.3, "VM lifetime"). A host JVM has no android.os, so the
+fixture's Looper and Handler stand-ins (stubs/, never dexed) give it a main
+Looper the entry prepares, as an application's main thread has; Library.Java
+reads the main thread through Looper.getMainLooper().getThread() on both.
 
 A host `java` process (test_native_jni_adopted.py) and Android's app_process
 (test_native_jni_android.py) load the same sources; each test supplies its own
@@ -120,6 +135,179 @@ public class JniHost {
     public static boolean daemonThread() {
         return Thread.currentThread().isDaemon();
     }
+
+    /** One collection request; a JavaWeak's referent clears once nothing else holds it. */
+    public static void gc() throws InterruptedException {
+        Runtime.getRuntime().gc();
+        System.runFinalization();
+        Thread.sleep(20);
+    }
+}
+"""
+
+# Primitive arrays BTRC passes to Java and receives from it as owners.
+ARRAYS = """package dev.btrc.fixture;
+
+public final class JniArrays {
+    public static long[] stamps;
+
+    private JniArrays() {
+    }
+
+    public static int[] squares(int count) {
+        int[] made = new int[count];
+        for (int index = 0; index < count; index++) {
+            made[index] = index * index;
+        }
+        return made;
+    }
+
+    public static int[] none() {
+        return null;
+    }
+
+    public static long sum(int[] values) {
+        long total = 0;
+        for (int value : values) {
+            total += value;
+        }
+        return total;
+    }
+
+    public static void reverse(int[] values) {
+        for (int low = 0, high = values.length - 1; low < high; low++, high--) {
+            int kept = values[low];
+            values[low] = values[high];
+            values[high] = kept;
+        }
+    }
+
+    public static double[] scaled(double[] values, double factor) {
+        double[] made = new double[values.length];
+        for (int index = 0; index < values.length; index++) {
+            made[index] = values[index] * factor;
+        }
+        return made;
+    }
+}
+"""
+
+# A class whose every BTRC call, and whose natives, run on the main Looper's
+# thread (executor = "main"). postTick hands the native call to the main
+# Looper from a worker; tickFromWorker calls it on the worker instead.
+MAIN = """package dev.btrc.fixture;
+
+import android.os.Handler;
+import android.os.Looper;
+
+public final class JniMain {
+    private JniMain() {
+    }
+
+    public static String title() {
+        return "main";
+    }
+
+    public static native int tick(int value);
+
+    public static int callTick(int value) {
+        return tick(value);
+    }
+
+    public static int postTick(int value) throws InterruptedException {
+        int[] result = {-1};
+        Handler handler = new Handler(Looper.getMainLooper());
+        Thread poster = new Thread(() -> handler.post(() -> {
+            result[0] = tick(value);
+            throw new Done();
+        }));
+        poster.start();
+        poster.join();
+        try {
+            Looper.loop();
+        } catch (Done done) {
+            // The posted call ran; a main Looper never quits.
+        }
+        return result[0];
+    }
+
+    public static void tickFromWorker() throws InterruptedException {
+        Thread worker = new Thread(() -> tick(1));
+        worker.start();
+        worker.join();
+    }
+
+    private static final class Done extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+    }
+}
+"""
+
+# A host JVM has no android.os: these stand in for the two framework classes
+# the fixture uses, so Library.Java captures `main` on a host JVM through the
+# same Looper.getMainLooper().getThread() it reads on Android. They are never
+# dexed: on a device the framework's own classes answer.
+LOOPER_STUB = """package android.os;
+
+import java.util.concurrent.LinkedBlockingQueue;
+
+public final class Looper {
+    private static Looper main;
+    private final Thread thread = Thread.currentThread();
+    private final LinkedBlockingQueue<Runnable> queue = new LinkedBlockingQueue<>();
+
+    private Looper() {
+    }
+
+    public static synchronized void prepareMainLooper() {
+        if (main != null) {
+            throw new IllegalStateException("The main Looper has already been prepared.");
+        }
+        main = new Looper();
+    }
+
+    public static synchronized Looper getMainLooper() {
+        return main;
+    }
+
+    public Thread getThread() {
+        return thread;
+    }
+
+    public static void loop() {
+        Looper looper = getMainLooper();
+        if (looper == null || looper.thread != Thread.currentThread()) {
+            throw new RuntimeException("No Looper; Looper.prepare() wasn't called on this thread.");
+        }
+        while (true) {
+            try {
+                looper.queue.take().run();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    void enqueue(Runnable runnable) {
+        queue.add(runnable);
+    }
+}
+"""
+
+HANDLER_STUB = """package android.os;
+
+public class Handler {
+    private final Looper looper;
+
+    public Handler(Looper looper) {
+        this.looper = looper;
+    }
+
+    public final boolean post(Runnable runnable) {
+        looper.enqueue(runnable);
+        return true;
+    }
 }
 """
 
@@ -154,13 +342,20 @@ public class JniCallbacks {
 
     public native int scale(int value);
 
+    /** Borrowed spans: read-only, released with JNI_ABORT, and writable, copied back. */
+    public static native int sum(int[] values);
+
+    public static native void fill(int[] values, int first);
+
+    public static native double[] doubled(double[] values);
+
     /** Not native: only the ACC_NATIVE rejection names it. */
     public static int plain(int value) {
         return value;
     }
 
-    /** Natives only the rejection cases name: an array, and an overload of compute. */
-    public static native int sum(int[] values);
+    /** Natives only the rejection cases name: an object array, and an overload of compute. */
+    public static native int count(String[] values);
 
     public static native long compute(long value);
 
@@ -204,6 +399,30 @@ public class JniCallbacks {
     public static int callScale(int factor, int value) {
         return new JniCallbacks(factor).scale(value);
     }
+
+    public static int callSum() {
+        return sum(new int[] {1, 2, 3, 4});
+    }
+
+    public static boolean callSumNull() {
+        try {
+            sum(null);
+            return false;
+        } catch (NullPointerException expected) {
+            return expected.getMessage().endsWith("argument0 is null");
+        }
+    }
+
+    public static boolean callFill() {
+        int[] values = new int[3];
+        fill(values, 7);
+        return values[0] == 7 && values[1] == 8 && values[2] == 9;
+    }
+
+    public static double callDoubled() {
+        double[] made = doubled(new double[] {1.5, 2.5});
+        return made == null ? -1 : made[0] + made[1];
+    }
 }
 """
 
@@ -238,22 +457,30 @@ public final class JniApp {
 }
 """
 
-# The process's entry, on the system class path. Given a third argument, it
-# loads the application classes through their own class loader, the one an
-# application's own classes have, and makes it the thread's context class
-# loader, as an Android application's main thread has; else its own loader
-# holds them (app_process).
+# The process's entry, on the system class path. Its thread prepares the main
+# Looper, as an application's main thread has one, except in the mode that
+# proves a VM without one terminates at its first `main` check. Given a third
+# argument, it loads the application classes through their own class loader,
+# the one an application's own classes have, and makes it the thread's
+# context class loader, as an Android application's main thread has; else
+# its own loader holds them (app_process).
 ENTRY = """package dev.btrc.fixture;
 
+import android.os.Looper;
 import java.io.File;
 import java.net.URL;
 import java.net.URLClassLoader;
 
 public final class JniEntry {
+    private static final int NO_LOOPER_MODE = 8;
+
     private JniEntry() {
     }
 
     public static void main(String[] arguments) throws Exception {
+        if (Integer.parseInt(arguments[1]) != NO_LOOPER_MODE && Looper.getMainLooper() == null) {
+            Looper.prepareMainLooper();
+        }
         ClassLoader loader = JniEntry.class.getClassLoader();
         if (arguments.length > 2) {
             loader = new URLClassLoader(new URL[] {new File(arguments[2]).toURI().toURL()}, loader);
@@ -270,14 +497,18 @@ public final class JniEntry {
 }
 """
 
-# The application's classes, which the Java binding reads, and the entry.
+# The application's classes, which the Java binding reads, the entry, and the
+# host JVM's android.os stand-ins (compiled beside classes/, never dexed).
 APP_SOURCES = {
     "dev/btrc/fixture/JniHost.java": HOST,
+    "dev/btrc/fixture/JniArrays.java": ARRAYS,
     "dev/btrc/fixture/JniCallbacks.java": CALLBACKS,
     "dev/btrc/fixture/JniWorker.java": WORKER,
+    "dev/btrc/fixture/JniMain.java": MAIN,
     "dev/btrc/fixture/JniApp.java": APP,
 }
 ENTRY_SOURCES = {"dev/btrc/fixture/JniEntry.java": ENTRY}
+STUB_SOURCES = {"android/os/Looper.java": LOOPER_STUB, "android/os/Handler.java": HANDLER_STUB}
 
 SYMBOLS = [
     "dev.btrc.fixture.JniHost",
@@ -293,8 +524,16 @@ SYMBOLS = [
     "dev.btrc.fixture.JniHost.make(I)Ldev/btrc/fixture/JniHost;",
     "dev.btrc.fixture.JniHost.collected()I",
     "dev.btrc.fixture.JniHost.daemonThread()Z",
+    "dev.btrc.fixture.JniHost.gc()V",
     "dev.btrc.fixture.JniHost.LIMIT:I",
     "dev.btrc.fixture.JniHost.label:Ljava/lang/String;",
+    "dev.btrc.fixture.JniArrays",
+    "dev.btrc.fixture.JniArrays.squares(I)[I",
+    "dev.btrc.fixture.JniArrays.none()[I",
+    "dev.btrc.fixture.JniArrays.sum([I)J",
+    "dev.btrc.fixture.JniArrays.reverse([I)V",
+    "dev.btrc.fixture.JniArrays.scaled([DD)[D",
+    "dev.btrc.fixture.JniArrays.stamps:[J",
     "dev.btrc.fixture.JniCallbacks",
     "dev.btrc.fixture.JniCallbacks.factor()I",
     "dev.btrc.fixture.JniCallbacks.callCompute(I)I",
@@ -307,8 +546,17 @@ SYMBOLS = [
     "dev.btrc.fixture.JniCallbacks.relay(Ljava/lang/String;)V",
     "dev.btrc.fixture.JniCallbacks.callStop()Z",
     "dev.btrc.fixture.JniCallbacks.callScale(II)I",
+    "dev.btrc.fixture.JniCallbacks.callSum()I",
+    "dev.btrc.fixture.JniCallbacks.callSumNull()Z",
+    "dev.btrc.fixture.JniCallbacks.callFill()Z",
+    "dev.btrc.fixture.JniCallbacks.callDoubled()D",
     "dev.btrc.fixture.JniWorker",
     "dev.btrc.fixture.JniWorker.callTwice(I)I",
+    "dev.btrc.fixture.JniMain",
+    "dev.btrc.fixture.JniMain.title()Ljava/lang/String;",
+    "dev.btrc.fixture.JniMain.callTick(I)I",
+    "dev.btrc.fixture.JniMain.postTick(I)I",
+    "dev.btrc.fixture.JniMain.tickFromWorker()V",
 ]
 
 # The natives each registration binds, by name and JNI descriptor.
@@ -321,8 +569,14 @@ CALLBACK_NATIVES = [
     "fail(Ljava/lang/String;)V",
     "stop()Z",
     "scale(I)I",
+    "sum([I)I",
+    "fill([II)V",
+    "doubled([D)[D",
 ]
 WORKER_NATIVES = ["twice(I)I"]
+MAIN_NATIVES = ["tick(I)I"]
+# Per-class options: JniHost has a JavaWeak, JniMain runs on the main Looper's thread.
+CLASS_OPTIONS = '[native.bindings.classes.JniHost]\nweak = true\n[native.bindings.classes.JniMain]\nexecutor = "main"\n'
 
 # Mode 0 is the round trip. Modes 1-3 are what an adopted VM refuses, each
 # before any Java call: shutting it down, a second VM, and VM options. Modes 4
@@ -399,7 +653,39 @@ class Callbacks implements IJniCallbacks {
 		return instance.factor() * argument0;
 	}
 
+	/* A read-only span: Java's elements for the call, released with JNI_ABORT. */
+	public int sum(Span<const int> argument0) {
+		self.calls++;
+		int total = 0;
+		for value in argument0 { total += value; }
+		return total;
+	}
+
+	/* A writable span: what BTRC stores reaches the Java array when the call returns. */
+	public void fill(Span<int> argument0, int argument1) {
+		self.calls++;
+		for (size_t index = 0; index < argument0.length(); index++) {
+			bool stored = argument0.trySet(index, argument1 + (int)index);
+			assert(stored);
+		}
+	}
+
+	public JavaDoubleArray? doubled(Span<const double> argument0) {
+		self.calls++;
+		double first = 0.0;
+		double second = 0.0;
+		bool read = argument0.length() == (size_t)2 && argument0.tryGet(0, &first) && argument0.tryGet(1, &second);
+		assert(read);
+		const double values[2] = {first * 2.0, second * 2.0};
+		return JavaDoubleArray.create(Span(values));
+	}
+
 	public void __del__() { receiversReleased++; }
+}
+
+/* The receiver of dev.btrc.fixture.JniMain's natives, registered and called on the main Looper's thread. */
+class MainReceiver implements IJniMain {
+	public int tick(int argument0) { return argument0 + 1; }
 }
 
 /* The receiver of dev.btrc.fixture.JniWorker's natives, which abort on failure. */
@@ -468,6 +754,10 @@ void exerciseNatives() {
 	catch (string error) { thrown = error; }
 	assert(thrown.equals("JavaException: java.lang.RuntimeException: btrc says aé𝄞"));
 	assert(JniCallbacks.callScale(6, 7) == 42);
+	assert(JniCallbacks.callSum() == 10);
+	assert(JniCallbacks.callSumNull());
+	assert(JniCallbacks.callFill());
+	assert(JniCallbacks.callDoubled() == 8.0);
 
 	int calls = receiver.calls;
 	assert(JniCallbacks.callStop());
@@ -526,6 +816,125 @@ void exercise() {
 	assert(worker.join() == 8);
 }
 
+/* Primitive arrays are owners of one global reference; spans copy in and out. */
+void exerciseArrays() {
+	JavaIntArray? squares = JniArrays.squares(5);
+	assert(squares != null && squares.length() == 5);
+	int seen[5] = {-1, -1, -1, -1, -1};
+	squares.read(0, Span(seen));
+	assert(seen[0] == 0 && seen[1] == 1 && seen[2] == 4 && seen[3] == 9 && seen[4] == 16);
+	assert(JniArrays.none() == null);
+
+	const int values[4] = {1, 2, 3, 4};
+	JavaIntArray made = JavaIntArray.create(Span(values));
+	assert(made.length() == 4 && JniArrays.sum(made) == 10LL);
+	JniArrays.reverse(made);
+	int back[4] = {0, 0, 0, 0};
+	made.read(0, Span(back));
+	assert(back[0] == 4 && back[1] == 3 && back[2] == 2 && back[3] == 1);
+	const int patch[2] = {40, 30};
+	made.write(1, Span(patch));
+	made.read(0, Span(back));
+	assert(back[0] == 4 && back[1] == 40 && back[2] == 30 && back[3] == 1);
+	assert(readPast(made, Span(back)).startsWith("JavaException: java.lang.ArrayIndexOutOfBoundsException"));
+
+	const double samples[3] = {1.0, 2.5, -4.0};
+	JavaDoubleArray? scaled = JniArrays.scaled(JavaDoubleArray.create(Span(samples)), 2.0);
+	double twice[3] = {0.0, 0.0, 0.0};
+	assert(scaled != null && scaled.length() == 3);
+	scaled.read(0, Span(twice));
+	assert(twice[0] == 2.0 && twice[1] == 5.0 && twice[2] == -8.0);
+
+	const long long moments[2] = {6000000000LL, -1LL};
+	JniArrays.setStamps(JavaLongArray.create(Span(moments)));
+	JavaLongArray? stamps = JniArrays.stamps();
+	long long kept[2] = {0LL, 0LL};
+	assert(stamps != null);
+	stamps.read(0, Span(kept));
+	assert(kept[0] == 6000000000LL && kept[1] == -1LL);
+	JniArrays.setStamps(null);
+	assert(JniArrays.stamps() == null);
+	const int nothing[1] = {0};
+	JavaIntArray empty = JavaIntArray.create(Span((const int*)nothing, 0));
+	assert(empty.length() == 0);
+}
+
+/* A region past the array's end is Java's ArrayIndexOutOfBoundsException. */
+string readPast(JavaIntArray made, Span<int> back) {
+	try { made.read(3, back); }
+	catch (string error) { return error; }
+	return "";
+}
+
+/* What a weak reference's get() promotes: a new owner, closed when this returns. */
+int promoted(JavaWeakJniHost weak) {
+	JniHost? again = weak.get();
+	if (again == null) { return -1; }
+	return again.value();
+}
+
+/* A weak reference never keeps its object: get() promotes it while something
+ * else holds it, and returns null once the collector has reclaimed it. */
+void exerciseWeak() {
+	JniHost strong = JniHost.create(7);
+	JavaWeakJniHost weak = JavaWeakJniHost.create(strong);
+	assert(JavaVirtualMachine.liveWeaks() == 1);
+	assert(promoted(weak) == 7);
+	assert(JavaVirtualMachine.liveClaims() == 1);
+	strong.close();
+	bool cleared = false;
+	for (int attempt = 0; attempt < 100 && !cleared; attempt++) {
+		JniHost.gc();
+		cleared = weak.get() == null;
+	}
+	assert(cleared);
+	weak.close();
+	assert(!weak.isOpen() && JavaVirtualMachine.liveWeaks() == 0);
+}
+
+/* A cancellation on another thread never reaches the holder: the registration refuses it. */
+int cancelRegistration(ICallbackRegistration registration) {
+	try { registration.cancel(); }
+	catch (string error) { return error.equals("Callback context requires its creating thread") ? 1 : 0; }
+	return 0;
+}
+
+/* executor = "main": JniMain's calls and natives run on the main Looper's thread. */
+void exerciseMain() {
+	string? title = JniMain.title();
+	assert(title != null && title.equals("main"));
+	CallbackScope scope = CallbackScope();
+	var registration = registerJniMain(MainReceiver(), scope);
+	assert(registration.isOpen() && JavaVirtualMachine.liveNatives() == 1);
+	assert(JniMain.callTick(20) == 21);
+	assert(JniMain.postTick(5) == 6);
+	ICallbackRegistration handle = registration;
+	Thread<int> canceller = spawn(() => cancelRegistration(handle));
+	assert(canceller.join() == 1 && registration.isOpen());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(JavaVirtualMachine.liveNatives() == 0);
+}
+
+int titleFromThread() {
+	string? title = JniMain.title();
+	return title == null ? 0 : 1;
+}
+
+/* Mode 7: a Java thread other than the main Looper's calls a main native. */
+void mainNativeFromWorker() {
+	CallbackScope scope = CallbackScope();
+	var registration = registerJniMain(MainReceiver(), scope);
+	assert(registration.isOpen());
+	JniMain.tickFromWorker();
+}
+
+/* Mode 9: main natives registered on another thread. */
+int registerFromThread() {
+	CallbackScope scope = CallbackScope();
+	var registration = registerJniMain(MainReceiver(), scope);
+	return registration.isOpen() ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
 	assert(argc == 2);
 	int mode = atoi(argv[1]);
@@ -544,17 +953,34 @@ int main(int argc, char** argv) {
 		Thread<int> failing = spawn(() => workOnThread(-1));
 		failing.join();
 	}
+	if (mode == 6) {
+		Thread<int> offMain = spawn(() => titleFromThread());
+		offMain.join();
+	}
+	if (mode == 7) { mainNativeFromWorker(); }
+	if (mode == 8) { JniMain.title(); }
+	if (mode == 9) {
+		Thread<int> registering = spawn(() => registerFromThread());
+		registering.join();
+	}
 	exercise();
 	exerciseNatives();
 	assert(receiversReleased == 2);
 	Thread<int> worker = spawn(() => workOnThread(21));
 	assert(worker.join() == 42);
+	exerciseArrays();
+	exerciseWeak();
+	exerciseMain();
 	assert(JniHost.collected() == 10000);
 	assert(JavaVirtualMachine.liveClaims() == 0);
+	assert(JavaVirtualMachine.liveWeaks() == 0);
 	assert(JavaVirtualMachine.liveNatives() == 0);
 	assert(JavaVirtualMachine.attachedThreads() == 0);
 	assert(JavaVirtualMachine.running() && JavaVirtualMachine.adopted());
 	printf("java-natives-ok\\n");
+	printf("java-arrays-ok\\n");
+	printf("java-weak-ok\\n");
+	printf("java-main-ok\\n");
 	printf("java-adopted-ok\\n");
 	return 0;
 }
@@ -567,9 +993,22 @@ REFUSALS = {
     3: "Library.Java: an adopted Java VM takes no options; its host started it",
     4: "Java natives dev.btrc.fixture.JniCallbacks.compute(I)I: called off its executor thread",
     5: "BTRC native callback failed: a worker refuses negative values",
+    6: "Java call JniMain.title: called off the main thread",
+    7: "Java natives dev.btrc.fixture.JniMain.tick(I)I: called off its executor thread",
+    8: "Library.Java: the main thread is not established: this Java VM has no main Looper",
+    9: "Java natives dev.btrc.fixture.JniMain: called off the main thread",
 }
+# The `main` executor's refusals, which the Android emulators also run.
+MAIN_REFUSALS = (6, 7, 8)
 # The round trip's output after the program's pid line.
-ROUND_TRIP_LINES = ["java-natives-ok", "java-adopted-ok", "java-entry-status=0"]
+ROUND_TRIP_LINES = [
+    "java-natives-ok",
+    "java-arrays-ok",
+    "java-weak-ok",
+    "java-main-ok",
+    "java-adopted-ok",
+    "java-entry-status=0",
+]
 
 HARNESS = """/* The JNI entry of a library a running VM loads. JNI_OnLoad adopts the VM;
  * JniApp.run executes the BTRC program, whose main is compiled as
@@ -615,19 +1054,32 @@ JNIEXPORT jint JNICALL Java_dev_btrc_fixture_JniApp_probe(JNIEnv* env, jclass en
 """
 
 
-def natives_table(owner, factory, interface, methods, failure):
+def natives_table(owner, factory, interface, methods, failure, *, executor="caller", writable=()):
     """One `natives` registration of the Java binding."""
     listed = ", ".join(f'"{method}"' for method in methods)
+    writable_line = (
+        "writable-arrays = [" + ", ".join(f'"{parameter}"' for parameter in writable) + "]\n" if writable else ""
+    )
     return (
         f"[native.bindings.natives.{owner}]\n"
         f'name = "{factory}"\ninterface = "{interface}"\nmethods = [{listed}]\n'
-        f'executor = "caller"\nfailure = "{failure}"\ncancellation = "entry-barrier"\n'
+        f'executor = "{executor}"\nfailure = "{failure}"\ncancellation = "entry-barrier"\n{writable_line}'
     )
 
 
-NATIVES = natives_table(
-    "JniCallbacks", "registerJniCallbacks", "IJniCallbacks", CALLBACK_NATIVES, "throw"
-) + natives_table("JniWorker", "registerJniWorker", "IJniWorker", WORKER_NATIVES, "abort")
+NATIVES = (
+    natives_table(
+        "JniCallbacks",
+        "registerJniCallbacks",
+        "IJniCallbacks",
+        CALLBACK_NATIVES,
+        "throw",
+        writable=["fill([II)V.argument0"],
+    )
+    + natives_table("JniWorker", "registerJniWorker", "IJniWorker", WORKER_NATIVES, "abort")
+    + natives_table("JniMain", "registerJniMain", "IJniMain", MAIN_NATIVES, "throw", executor="main")
+    + CLASS_OPTIONS
+)
 
 
 def manifest(symbols=None, natives=NATIVES, *, sources=True):
@@ -640,9 +1092,19 @@ def manifest(symbols=None, natives=NATIVES, *, sources=True):
 
 
 def compile_java(root):
-    """Compile the application classes into classes/app and the entry into classes/entry; returns classes."""
+    """Compile the application classes into classes/app and the entry into classes/entry; returns classes.
+
+    The host JVM's android.os stand-ins compile into root/stubs, outside
+    classes/, so a device's dex never holds them; a host `java` puts them on
+    its class path beside classes/entry.
+    """
     classes = root / "classes"
-    for directory, files in (("app", APP_SOURCES), ("entry", ENTRY_SOURCES)):
+    stubs = root / "stubs"
+    for directory, files, output in (
+        ("stubs", STUB_SOURCES, stubs),
+        ("app", APP_SOURCES, classes / "app"),
+        ("entry", ENTRY_SOURCES, classes / "entry"),
+    ):
         sources = []
         for name, text in files.items():
             path = root / "java" / directory / name
@@ -650,7 +1112,7 @@ def compile_java(root):
             path.write_text(text, encoding="utf-8")
             sources.append(str(path))
         subprocess.run(
-            ["javac", "--release", "17", "-encoding", "UTF-8", "-d", str(classes / directory), *sources],
+            ["javac", "--release", "17", "-encoding", "UTF-8", "-cp", str(stubs), "-d", str(output), *sources],
             check=True,
             capture_output=True,
             timeout=600,

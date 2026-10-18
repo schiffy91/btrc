@@ -1047,23 +1047,155 @@ class DeclarationLowerer {
 
 	private string javaValueMember(string kind) { return kind == "string" || kind == "object" ? "l" : kind.toLower(); }
 
-	/* A selected Java class: a unique owner of one global reference, and one checked adapter per member. */
+	/* A Java owner: one global reference (a selected class or a primitive
+	 * array) or one weak global reference (JavaWeak<Class>), and one checked
+	 * adapter per member. */
 	private void emitJavaClass(FeNativeImportedDeclaration imported, IRModule module) {
 		string symbol = imported.declaration.name;
 		string releaseAdapter = "__btrc_java_" + symbol + "_release";
 		Vector<IRNode> noArguments = [];
+		bool weak = imported.typeSpelling == "jweak";
 		self.nativeUniqueFunction(module, releaseAdapter, "void", [IRParam("jobject", "native")], [
 			IRNode.variableDeclaration("JNIEnv*", "__btrc_java_env", IRNode.call("btrcJavaEnvironment", noArguments)),
-			IRNode.expressionStatement(self.javaEnvCall("DeleteGlobalRef", [IRNode.variable("native")])),
-			IRNode.expressionStatement(IRNode.call("btrcJavaUnclaim", noArguments))
+			IRNode.expressionStatement(self.javaEnvCall(weak ? "DeleteWeakGlobalRef" : "DeleteGlobalRef", [IRNode.variable("native")])),
+			IRNode.expressionStatement(IRNode.call(weak ? "btrcJavaWeakUnclaim" : "btrcJavaUnclaim", noArguments))
 		]);
 		self.emitUniqueResource(imported, module, symbol, releaseAdapter);
 		for member in imported.declaration.members() {
 			if (member.kind != NK_METHOD_DECL || member.name == "close" || member.name == "isOpen") { continue; }
 			FeNativeJavaMember? java = imported.methods.get(member.name).javaMember;
 			if (java == null) { throw "Java member requires its projection"; }
-			self.emitJavaMember(imported, member, java, module);
+			if (java.kind.startsWith("weak-") || java.kind.startsWith("array-")) { self.emitJavaGeneratedMember(imported, member, java, module); }
+			else { self.emitJavaMember(imported, member, java, module); }
 		}
+	}
+
+	/* executor = "main": the adapter terminates unless it runs on the main Looper's thread. */
+	private Vector<IRNode> javaExecutorCheck(string executor, string what) {
+		Vector<IRNode> statements = [];
+		if (executor == "main") { statements.push(IRNode.expressionStatement(IRNode.call("btrcJavaRequireMain", [IRNode.variable("__btrc_java_env"), IRNode.literal("\"" + what + "\"")]))); }
+		return statements;
+	}
+
+	/* A Span longer than a Java array can be throws before any JNI call. */
+	private IRNode javaSpanBound(IRNode span, string what) {
+		self.context.referenceHelper("__btrc_throw");
+		IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"" + what + ": a Java array holds at most 2147483647 elements\"")]);
+		((IRCallPayload)failure.payload).neverReturns = true;
+		return IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(span, "length", false), ">", IRNode.literal("(size_t)2147483647")), IRNode.block([IRNode.expressionStatement(failure)]), null);
+	}
+
+	/* One member of a generated Java resource, framed and checked like every JNI
+	 * adapter. JavaWeak<Class>.create takes NewWeakGlobalRef of its leased
+	 * referent and get promotes NewLocalRef to a new global owner, or returns
+	 * null once the object is collected. A primitive array owner's create
+	 * copies a Span through New<X>Array and Set<X>ArrayRegion, length reads
+	 * GetArrayLength, and read and write copy through Get<X>ArrayRegion and
+	 * Set<X>ArrayRegion (native-interop-ownership.md section 2.3, "Global refs"
+	 * and "Arrays"); an empty Span copies nothing. */
+	private void emitJavaGeneratedMember(FeNativeImportedDeclaration imported, Node member, FeNativeJavaMember java, IRModule module) {
+		string symbol = imported.declaration.name;
+		string what = "Java call " + symbol + "." + member.name;
+		Vector<IRNode> noArguments = [];
+		Vector<IRNode> nothing = [];
+		Vector<IRParam> parameters = [];
+		for parameter in member.params() { parameters.push(self.cTypes.lowerParameter(parameter)); }
+		string resultType = self.cTypes.lower(member.returnType);
+		bool instance = !java.staticMember;
+		Vector<IRParam> cParameters = [];
+		Map<string, bool> parameterNames = {};
+		if (instance) { cParameters.push(IRParam("struct __btrc_native_" + symbol + "*", "self")); parameterNames.put("self", true); }
+		for parameter in parameters { cParameters.push(parameter); parameterNames.put(parameter.name, true); }
+		Vector<IRNode> statements = [];
+		Vector<Vector<IRNode>> releases = [];
+		if (instance) { statements.push(self.nativeNullGuard(IRNode.variable("self"), what + ": null receiver")); }
+		IRNode cleanup = self.nativeCleanupScope(parameterNames, statements);
+		IRNode receiver = IRNode.variable("self");
+		if (instance) {
+			Node receiverType = Node();
+			receiverType.kind = NK_TYPE_EXPR; receiverType.base = symbol; receiverType.isNullable = true; receiverType.pointerDepth = 1;
+			receiver = self.emitNativeLease(0, receiverType, IRNode.variable("self"), parameterNames, statements, releases);
+		}
+		IRNode span = IRNode.literal("0");
+		bool spanned = false;
+		for parameter in parameters { if (parameter.name == "elements") { span = IRNode.variable(parameter.name); spanned = true; } }
+		if (spanned) { statements.push(self.javaSpanBound(span, what)); }
+		IRNode referent = IRNode.literal("NULL");
+		if (java.kind == "weak-create") {
+			statements.push(self.nativeNullGuard(IRNode.variable(parameters.get(0).name), what + ": null referent"));
+			referent = self.emitNativeLease(1, member.params().get(0).type, IRNode.variable(parameters.get(0).name), parameterNames, statements, releases);
+		}
+		string letter = java.descriptor.startsWith("[") ? java.descriptor.substring(1, java.descriptor.length() - 1) : "";
+		string family = letter.isEmpty() ? "" : self.javaFamily(letter);
+		string element = letter.isEmpty() ? "" : self.javaCType(letter);
+		statements.push(IRNode.variableDeclaration("JNIEnv*", "__btrc_java_env", IRNode.call("btrcJavaEnvironment", noArguments)));
+		statements.push(IRNode.ifStatement(IRNode.binary(self.javaEnvCall("PushLocalFrame", [IRNode.literal("2")]), "!=", IRNode.literal("0")), self.javaTranslate(false, nothing), null));
+		IRNode returned = IRNode.literal("NULL");
+		bool returns = false;
+		IRNode count = IRNode.cast("jsize", IRNode.fieldAccess(span, "length", false));
+		IRNode nonempty = IRNode.binary(IRNode.fieldAccess(span, "length", false), ">", IRNode.literal("0"));
+		if (java.kind == "weak-create") {
+			Node valueType = Node();
+			valueType.kind = NK_TYPE_EXPR; valueType.base = symbol; valueType.isNullable = true; valueType.pointerDepth = 1;
+			IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(valueType), "__btrc_java_object", IRNode.literal("NULL"));
+			IRNode result = IRNode.variable("__btrc_java_object");
+			IRNode weak = IRNode.variable("__btrc_java_weak");
+			statements.push(slot);
+			statements.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(valueType))));
+			statements.push(IRNode.assignment(result, IRNode.call("__btrc_unique_" + symbol + "_new", noArguments)));
+			statements.push(IRNode.variableDeclaration("jweak", "__btrc_java_weak", self.javaEnvCall("NewWeakGlobalRef", [IRNode.fieldAccess(referent, "value", true)])));
+			statements.push(self.javaCheck(nothing));
+			statements.push(self.nativeNullGuard(weak, what + ": no memory for a weak global reference"));
+			statements.push(IRNode.assignment(IRNode.fieldAccess(result, "value", true), weak));
+			statements.push(IRNode.expressionStatement(IRNode.call("btrcJavaWeakClaim", noArguments)));
+			returned = result;
+			returns = true;
+		} else if (java.kind == "weak-get") {
+			statements.push(IRNode.variableDeclaration("jobject", "__btrc_java_local", self.javaEnvCall("NewLocalRef", [IRNode.fieldAccess(receiver, "value", true)])));
+			statements.push(self.javaCheck(nothing));
+			returned = self.javaObjectResult(member, java, IRNode.variable("__btrc_java_local"), statements);
+			returns = true;
+		} else if (java.kind == "array-create") {
+			IRNode array = IRNode.variable("__btrc_java_array");
+			statements.push(IRNode.variableDeclaration(imported.typeSpelling, "__btrc_java_array", self.javaEnvCall("New" + family + "Array", [count])));
+			statements.push(self.javaCheck(nothing));
+			statements.push(self.nativeNullGuard(array, what + ": New" + family + "Array returned null"));
+			statements.push(IRNode.ifStatement(nonempty, IRNode.block([
+				IRNode.expressionStatement(self.javaEnvCall("Set" + family + "ArrayRegion", [array, IRNode.literal("0"), count, IRNode.cast("const " + element + "*", IRNode.fieldAccess(span, "data", false))])),
+				self.javaCheck(nothing)
+			]), null));
+			returned = self.javaObjectResult(member, java, array, statements);
+			returns = true;
+		} else if (java.kind == "array-length") {
+			statements.push(IRNode.variableDeclaration("jsize", "__btrc_java_length", self.javaEnvCall("GetArrayLength", [IRNode.fieldAccess(receiver, "value", true)])));
+			statements.push(self.javaCheck(nothing));
+			returned = IRNode.cast(resultType, IRNode.variable("__btrc_java_length"));
+			returns = true;
+		} else {
+			bool reading = java.kind == "array-read";
+			string region = (reading ? "Get" : "Set") + family + "ArrayRegion";
+			IRNode data = IRNode.cast(reading ? element + "*" : "const " + element + "*", IRNode.fieldAccess(span, "data", false));
+			statements.push(IRNode.ifStatement(nonempty, IRNode.block([
+				IRNode.expressionStatement(self.javaEnvCall(region, [IRNode.fieldAccess(receiver, "value", true), IRNode.cast("jsize", IRNode.variable(parameters.get(0).name)), count, data])),
+				self.javaCheck(nothing)
+			]), null));
+		}
+		statements.push(IRNode.expressionStatement(self.javaEnvCall("PopLocalFrame", [IRNode.literal("NULL")])));
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		statements.push(cleanup);
+		if (java.kind == "weak-create" || java.kind == "array-create") { statements.push(self.nativeNullGuard(returned, what + ": null result")); }
+		if (returns) { statements.push(IRNode.returnStatement(returned)); }
+		self.nativeUniqueFunction(module, "__btrc_unique_" + symbol + "_" + member.name + "_public", resultType, cParameters, statements);
+	}
+
+	/* Each borrowed span's release: a writable one copies back once the receiver ran. */
+	private Vector<IRNode> javaReleaseSpans(Vector<IRNode> arrays, Vector<IRNode> elements, Vector<string> families, Vector<bool> writable, IRNode committed) {
+		Vector<IRNode> statements = [];
+		for index in range(arrays.len) {
+			IRNode mode = writable.get(index) ? IRNode.ternary(committed, IRNode.literal("0"), IRNode.literal("JNI_ABORT")) : IRNode.literal("JNI_ABORT");
+			statements.push(IRNode.expressionStatement(self.javaEnvCall("Release" + families.get(index) + "ArrayElements", [arrays.get(index), elements.get(index), mode])));
+		}
+		return statements;
 	}
 
 	/* One member's adapter: borrow owners, frame the local references, call,
@@ -1111,6 +1243,7 @@ class DeclarationLowerer {
 		}
 		int capacity = 2 + strings + (java.result == "string" || java.result == "object" ? 1 : 0);
 		statements.push(IRNode.variableDeclaration("JNIEnv*", "__btrc_java_env", IRNode.call("btrcJavaEnvironment", noArguments)));
+		statements.extend(self.javaExecutorCheck(java.executor, what));
 		statements.push(IRNode.ifStatement(IRNode.binary(self.javaEnvCall("PushLocalFrame", [IRNode.literal(Strings.fromInt(capacity))]), "!=", IRNode.literal("0")), self.javaTranslate(false, nothing), null));
 		statements.push(IRNode.variableDeclaration("jclass", "__btrc_java_owner", IRNode.call("btrcJavaClass", [environment, IRNode.addressOf(IRNode.variable("__btrc_java_class")), IRNode.literal("\"" + java.binaryName + "\"")])));
 		statements.push(self.javaCheck(nothing));
@@ -1866,8 +1999,11 @@ class DeclarationLowerer {
 			IRNode.returnStatement(holder)
 		]);
 		/* Unpin: at zero the holder is dead before its claim is released, and
-		 * frees itself once its registration has also let go of it. */
+		 * frees itself once its registration has also let go of it. That last
+		 * unpin is the holder's final event: a cancellation off its executor
+		 * thread would release the claim there, which terminates (rule 4). */
 		IRNode remaining = IRNode.variable("remaining");
+		IRNode releasedElsewhere = self.nativeAbortIf(IRNode.binary(IRNode.fieldAccess(holder, "thread", true), "!=", onThread), "Java natives " + natives.className + ": foreign holder released on the wrong thread");
 		Vector<IRNode> finalRelease = [IRNode.expressionStatement(self.managedLifetime.releaseValue(context, contextType)), IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))];
 		self.nativeUniqueFunction(module, prefix + "_unpin", "void", [IRParam(holderType, "holder")], [
 			self.nativeUniqueChecked("pthread_mutex_lock", [lockAddress]),
@@ -1876,6 +2012,7 @@ class DeclarationLowerer {
 			IRNode.ifStatement(IRNode.binary(remaining, "==", IRNode.literal("0u")), IRNode.block([IRNode.assignment(state, IRNode.literal("2u"))]), null),
 			self.nativeUniqueChecked("pthread_mutex_unlock", [lockAddress]),
 			IRNode.ifStatement(IRNode.binary(remaining, "==", IRNode.literal("0u")), IRNode.block([
+			releasedElsewhere,
 			self.nativeCallbackBoundary(finalRelease, module),
 			IRNode.assignment(IRNode.fieldAccess(holder, "context", true), IRNode.literal("NULL")),
 			IRNode.ifStatement(IRNode.unary("!", registered, true), IRNode.block([IRNode.expressionStatement(IRNode.call("free", [holder])), IRNode.expressionStatement(IRNode.call("btrcJavaNativesClosed", noArguments))]), null)
@@ -1948,6 +2085,8 @@ class DeclarationLowerer {
 		Vector<IRNode> nothing = [];
 		IRNode methods = IRNode.variable("__btrc_java_methods");
 		body.push(IRNode.variableDeclaration("JNIEnv*", "__btrc_java_env", IRNode.call("btrcJavaEnvironment", noArguments)));
+		/* executor = "main": the registering thread, and so every call's, is the main Looper's. */
+		body.extend(self.javaExecutorCheck(natives.executor, "Java natives " + natives.className));
 		body.push(IRNode.ifStatement(IRNode.binary(self.javaEnvCall("PushLocalFrame", [IRNode.literal("2")]), "!=", IRNode.literal("0")), self.javaTranslate(false, nothing), null));
 		body.push(IRNode.variableDeclaration("jclass", "__btrc_java_owner", IRNode.call("btrcJavaClass", [environment, IRNode.addressOf(IRNode.variable("__btrc_java_class")), IRNode.literal("\"" + natives.binaryName + "\"")])));
 		body.push(self.javaCheck(nothing));
@@ -2020,8 +2159,9 @@ class DeclarationLowerer {
 		Vector<IRNode> values = [];
 		if (!method.staticMember) { kinds.push("object"); values.push(target); }
 		for index in range(method.parameters.len) {
-			kinds.push(method.parameters.get(index));
-			params.push(IRParam(self.javaCType(method.parameters.get(index)), f"argument{index}"));
+			string parameterKind = method.parameters.get(index);
+			kinds.push(parameterKind);
+			params.push(IRParam(parameterKind.startsWith("[") ? self.javaCType(parameterKind.substring(1, 1)) + "Array" : self.javaCType(parameterKind), f"argument{index}"));
 			parameterNames.put(f"argument{index}", true);
 			values.push(IRNode.variable(f"argument{index}"));
 		}
@@ -2045,6 +2185,11 @@ class DeclarationLowerer {
 		Vector<IRNode> undo = [];
 		Vector<IRNode> converted = [];
 		Map<int, IRNode> strings = {};
+		/* The array, elements, family and writability of each borrowed span. */
+		Vector<IRNode> spanArrays = [];
+		Vector<IRNode> spanElements = [];
+		Vector<string> spanFamilies = [];
+		Vector<bool> spanWritable = [];
 		Node stringType = Node();
 		stringType.kind = NK_TYPE_EXPR; stringType.base = "string"; stringType.isNullable = true; stringType.pointerDepth = 1;
 		for position in range(kinds.len) {
@@ -2080,6 +2225,41 @@ class DeclarationLowerer {
 				undo = undone;
 				strings.put(position, text);
 				converted.push(IRNode.variable(textName));
+			} else if (kind.startsWith("[")) {
+				/* A borrowed span: the array's elements for the call, released
+				 * with JNI_ABORT unless writable (rule "Arrays"); a null array
+				 * has no span, so Java gets a NullPointerException instead. */
+				int argument = method.staticMember ? position : position - 1;
+				string letter = kind.substring(1, 1);
+				string family = self.javaFamily(letter);
+				string elementsName = f"__btrc_java_elements_{position}";
+				string countName = f"__btrc_java_count_{position}";
+				string spanName = f"__btrc_java_span_{position}";
+				IRNode elements = IRNode.variable(elementsName);
+				Node spanType = valueTypes.get(position).type;
+				Node dataType = Node();
+				dataType.kind = NK_TYPE_EXPR; dataType.base = spanType.genericArgs().get(0).base; dataType.isConst = spanType.genericArgs().get(0).isConst; dataType.pointerDepth = 1;
+				Vector<IRNode> refusedNull = [];
+				refusedNull.extend(undo);
+				refusedNull.push(IRNode.expressionStatement(IRNode.call("btrcJavaThrow", [IRNode.variable("env"), IRNode.literal("\"java/lang/NullPointerException\""), IRNode.literal("\"" + what + f": argument{argument} is null\"")])));
+				refusedNull.push(popFrame); refusedNull.push(unpin); refusedNull.push(restore); refusedNull.push(back);
+				body.push(IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block(refusedNull), null));
+				body.push(IRNode.variableDeclaration("jsize", countName, self.javaEnvCall("GetArrayLength", [value])));
+				body.push(IRNode.ifStatement(self.javaEnvCall("ExceptionCheck", noArguments), IRNode.block(exit), null));
+				body.push(IRNode.variableDeclaration(self.javaCType(letter) + "*", elementsName, self.javaEnvCall("Get" + family + "ArrayElements", [value, IRNode.literal("NULL")])));
+				body.push(IRNode.ifStatement(self.javaEnvCall("ExceptionCheck", noArguments), IRNode.block(exit), null));
+				body.push(self.nativeNullGuard(elements, what + ": Get" + family + "ArrayElements returned null"));
+				body.push(IRNode.variableDeclaration(self.cTypes.lower(spanType), spanName, null));
+				body.push(IRNode.assignment(IRNode.fieldAccess(IRNode.variable(spanName), "data", false), IRNode.cast(self.cTypes.lower(dataType), elements)));
+				body.push(IRNode.assignment(IRNode.fieldAccess(IRNode.variable(spanName), "length", false), IRNode.cast("size_t", IRNode.variable(countName))));
+				Vector<IRNode> undone = [IRNode.expressionStatement(self.javaEnvCall("Release" + family + "ArrayElements", [value, elements, IRNode.literal("JNI_ABORT")]))];
+				undone.extend(undo);
+				undo = undone;
+				spanArrays.push(value);
+				spanElements.push(elements);
+				spanFamilies.push(family);
+				spanWritable.push(method.writable.contains(argument));
+				converted.push(IRNode.variable(spanName));
 			} else {
 				converted.push(value);
 			}
@@ -2122,6 +2302,8 @@ class DeclarationLowerer {
 				arguments.push(value);
 				managedValues.push(value);
 				managedTypes.push(stringType);
+			} else if (kind.startsWith("[")) {
+				arguments.push(value);
 			} else {
 				arguments.push(IRNode.cast(self.cTypes.lower(valueType), value));
 			}
@@ -2147,6 +2329,7 @@ class DeclarationLowerer {
 		enteredBody.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_leave", [context])));
 		if (throwing) { enteredBody.push(IRNode.assignment(admitted, IRNode.literal("0"))); }
 		inner.push(IRNode.ifStatement(entered, IRNode.block(enteredBody), null));
+		inner.extend(self.javaReleaseSpans(spanArrays, spanElements, spanFamilies, spanWritable, entered));
 		self.releaseStoredLocal(receiver, receiverType, "__btrc_java_released_receiver", inner);
 		for index in range(managedValues.len) { self.releaseStoredLocal(managedValues.get(index), managedTypes.get(index), f"__btrc_java_released_{index}", inner); }
 		Vector<IRNode> leaving = [cleanup, IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))];
@@ -2204,7 +2387,10 @@ class DeclarationLowerer {
 			IRNode message = IRNode.variable("__btrc_java_failure");
 			Vector<IRNode> handled = [
 				/* The exception ran its cleanups and popped the boundary's frame. */
-				IRNode.ifStatement(admitted, IRNode.block([self.nativeCallbackBoundary(leave, module)]), null),
+				IRNode.ifStatement(admitted, IRNode.block([self.nativeCallbackBoundary(leave, module)]), null)
+			];
+			handled.extend(self.javaReleaseSpans(spanArrays, spanElements, spanFamilies, spanWritable, admitted));
+			handled.extend([
 				IRNode.arrayDeclaration("char", "__btrc_java_failure", IRNode.literal("1024"), null),
 				IRNode.expressionStatement(IRNode.call("snprintf", [message, IRNode.sizeofExpression(message), IRNode.literal("\"%s\""), IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "error_msg", false)])),
 				popFrame,
@@ -2212,7 +2398,7 @@ class DeclarationLowerer {
 				restore,
 				IRNode.expressionStatement(IRNode.call("btrcJavaThrow", [IRNode.variable("env"), IRNode.literal("\"java/lang/RuntimeException\""), message])),
 				back
-			];
+			]);
 			body.push(self.nativeCallbackBoundary(inner, module, handled));
 		} else {
 			body.push(self.nativeCallbackBoundary(inner, module));

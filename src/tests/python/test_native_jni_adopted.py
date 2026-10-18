@@ -16,8 +16,15 @@ and on a BTRC thread), and the application classes load through their own
 URLClassLoader, so a thread the runtime attaches resolves them only through
 the ClassLoader cached at JNI_OnLoad. A native called off its registering
 thread, and a BTRC exception escaping an abort-failure native, terminate.
+
+Interop step 7, slice B: the same run copies primitive arrays both ways,
+borrows them as natives' spans, clears a JavaWeak under System.gc(), and runs
+JniMain's calls and natives on the main Looper's thread (the fixture's
+android.os stand-ins give the host JVM one). Every off-main entry and a VM
+with no main Looper terminate (modes 6-9).
 """
 
+import os
 import shutil
 import subprocess
 import sys
@@ -78,17 +85,30 @@ def test_java_process_adopts_its_vm_under_checkjni(adopted_project, native_compi
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
     # Java natives bind through RegisterNatives, never the thread-invoke seam.
     assert "btrcJavaRegisterNatives" in compiled.c_source and "__btrc_native_thread_invoke" not in compiled.c_source
+    # Arrays copy through their regions and natives borrow their elements, never
+    # critically; a JavaWeak owns a weak global reference; JniMain checks its thread.
+    for call in (
+        "SetIntArrayRegion",
+        "GetIntArrayRegion",
+        "GetIntArrayElements",
+        "NewWeakGlobalRef",
+        "DeleteWeakGlobalRef",
+        'btrcJavaRequireMain(__btrc_java_env, "Java call JniMain.title")',
+    ):
+        assert call in compiled.c_source, call
+    assert "GetPrimitiveArrayCritical" not in compiled.c_source
     suffix = ".dylib" if sys.platform == "darwin" else ".so"
     library = build_library(compiled, root, root / f"lib{LIBRARY_NAME}{suffix}", environment, cc="/usr/bin/clang")
 
     def run(mode):
-        # The application classes load through their own class loader (JniEntry's third argument).
+        # The application classes load through their own class loader (JniEntry's third argument);
+        # the android.os stand-ins sit on the system class path beside the entry.
         return subprocess.run(
             [
                 str(java),
                 "-Xcheck:jni",
                 "-cp",
-                str(classes / "entry"),
+                os.pathsep.join([str(classes / "entry"), str(classes.parent / "stubs")]),
                 ENTRY_CLASS,
                 str(library),
                 str(mode),

@@ -63,13 +63,20 @@ _JAVA_SYMBOL = re.compile(
     rf"|\.[A-Za-z_$][A-Za-z0-9_$]*\((?:{_JAVA_FIELD_DESCRIPTOR})*\)(?:V|{_JAVA_FIELD_DESCRIPTOR})"
     rf"|\.[A-Za-z_$][A-Za-z0-9_$]*:{_JAVA_FIELD_DESCRIPTOR})?$"
 )
-_JAVA_BINDING_FIELDS = frozenset({"module", "language", "symbols", "os", "arch", "env", "natives"})
+_JAVA_BINDING_FIELDS = frozenset({"module", "language", "symbols", "os", "arch", "env", "natives", "classes"})
 # A Java natives registration names each method relative to its class, by
 # name and JNI descriptor; a constructor is never native.
 _JAVA_NATIVE_METHOD = re.compile(
     rf"^[A-Za-z_$][A-Za-z0-9_$]*\((?:{_JAVA_FIELD_DESCRIPTOR})*\)(?:V|{_JAVA_FIELD_DESCRIPTOR})$"
 )
 _JAVA_NATIVES_FIELDS = frozenset({"name", "interface", "methods", "executor", "failure", "cancellation"})
+# A natives registration may also name array parameters ("<method>.argument<N>")
+# whose borrowed span is writable.
+_JAVA_NATIVES_OPTIONAL_FIELDS = frozenset({"writable-arrays"})
+_JAVA_ARGUMENT_INDEX = re.compile(r"^(?:0|[1-9][0-9]*)$")
+# Per-class options of a Java binding: the `main` executor, and a generated
+# JavaWeak resource for the class.
+_JAVA_CLASS_FIELDS = frozenset({"executor", "weak"})
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 # Manifest os/arch/env predicates range over every targets.toml row
@@ -426,6 +433,24 @@ class NativeJavaNativesBinding:
     interface: str
     methods: tuple[str, ...]
     failure: str
+    executor: str = "caller"
+    # "<method>.argument<N>": array parameters whose borrowed span is writable.
+    writable_arrays: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class NativeJavaClassBinding:
+    """Options for one selected Java class, keyed by its BTRC name.
+
+    `executor` is "main" when every call into the class must run on the main
+    Looper's thread, or "" for any thread; `weak` generates the class's
+    JavaWeak resource, `JavaWeak<owner>` (native-interop-ownership.md 2.3).
+    """
+
+    owner: str
+    class_name: str
+    executor: str = ""
+    weak: bool = False
 
 
 @dataclass(frozen=True)
@@ -586,6 +611,8 @@ class NativeBinding:
     com_sinks: tuple[NativeComSinkBinding, ...] = ()
     # Java natives registrations, by their class's BTRC name.
     java_natives: tuple[NativeJavaNativesBinding, ...] = ()
+    # Per-class options of a Java binding (executor, weak), by BTRC name.
+    java_classes: tuple[NativeJavaClassBinding, ...] = ()
     # Objective-C NSError** parameters ("<method>.<parameter>") whose non-nil
     # error throws after the call (F1).
     error_outputs: tuple[str, ...] = ()
@@ -2870,6 +2897,12 @@ class PackageManifestValidator:
             raise ValueError(f"{context}.symbols must name Java classes, or members by JNI descriptor")
         if len(set(symbols)) != len(symbols):
             raise ValueError(f"{context}.symbols contains a duplicate value")
+        classes = {}
+        for symbol in symbols:
+            if "(" not in symbol and ":" not in symbol:
+                classes[symbol.rsplit(".", 1)[-1]] = symbol
+        identifiers = set()
+        natives = self._java_natives(entry.get("natives", {}), classes, identifiers, context)
         return NativeBinding(
             package,
             module_path,
@@ -2880,34 +2913,65 @@ class PackageManifestValidator:
             selector.operating_systems,
             selector.architectures,
             environments=selector.environments,
-            java_natives=self._java_natives(entry.get("natives", {}), symbols, context),
+            java_natives=natives,
+            java_classes=self._java_classes(entry.get("classes", {}), classes, identifiers, context),
         )
 
-    def _java_natives(self, values, symbols, context):
+    def _java_classes(self, values, classes, identifiers, context):
+        """Per-class options, keyed by the BTRC name of a class the binding selects.
+
+        `executor = "main"` makes every call into the class check that it runs
+        on the main Looper's thread; `weak = true` generates the class's
+        JavaWeak resource, named JavaWeak<Class> (native-interop-ownership.md
+        section 2.3, "Executors" and "Global refs").
+        """
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.classes must map selected Java classes to class options")
+        options = []
+        for owner, value in sorted(values.items()):
+            location = f"{context}.classes.{owner}"
+            if owner not in classes:
+                raise ValueError(f"{location}: classes requires a Java class the binding selects")
+            if not isinstance(value, dict):
+                raise ValueError(f"{location} must be a table of class options")
+            self._reject_unknown(value, _JAVA_CLASS_FIELDS, location)
+            if not value:
+                raise ValueError(f"{location} requires executor or weak")
+            executor = value.get("executor", "")
+            if "executor" in value and executor != "main":
+                raise ValueError(f"{location}.executor requires main")
+            weak = value.get("weak", False)
+            if not isinstance(weak, bool):
+                raise ValueError(f"{location}.weak must be true or false")
+            if weak and (f"JavaWeak{owner}" in classes or f"JavaWeak{owner}" in identifiers):
+                raise ValueError(
+                    f"{location}: the weak reference class JavaWeak{owner} must be distinct "
+                    "from selected classes and natives"
+                )
+            options.append(NativeJavaClassBinding(owner, classes[owner], executor, weak))
+        return tuple(options)
+
+    def _java_natives(self, values, classes, identifiers, context):
         """Java natives registrations, keyed by the BTRC name of a class the binding selects.
 
         Each names its factory, its generated receiver interface and the
         class's native methods by name and JNI descriptor. The executor is the
-        registering thread (`caller`); a BTRC exception escaping a native
-        either becomes a Java RuntimeException (`throw`) or terminates
-        (`abort`). Cancellation is an entry barrier (native-interop-ownership.md
-        section 2.3, "Java -> btrc").
+        registering thread (`caller`) or the main Looper's (`main`); a BTRC
+        exception escaping a native either becomes a Java RuntimeException
+        (`throw`) or terminates (`abort`). Cancellation is an entry barrier.
+        `writable-arrays` names the array parameters whose borrowed span is
+        writable (native-interop-ownership.md section 2.3, "Java -> btrc").
         """
         if not isinstance(values, dict):
             raise ValueError(f"{context}.natives must map selected Java classes to native registrations")
-        classes = {}
-        for symbol in symbols:
-            if "(" not in symbol and ":" not in symbol:
-                classes[symbol.rsplit(".", 1)[-1]] = symbol
         registrations = []
-        identifiers = set()
         for owner, value in sorted(values.items()):
             location = f"{context}.natives.{owner}"
             if owner not in classes:
                 raise ValueError(f"{location}: natives requires a Java class the binding selects")
             if not isinstance(value, dict):
                 raise ValueError(f"{location} must be a native registration")
-            self._reject_unknown(value, _JAVA_NATIVES_FIELDS, location)
+            self._reject_unknown(value, _JAVA_NATIVES_FIELDS | _JAVA_NATIVES_OPTIONAL_FIELDS, location)
             missing = sorted(_JAVA_NATIVES_FIELDS - set(value))
             if missing:
                 raise ValueError(f"{location} requires {missing[0]}")
@@ -2928,14 +2992,36 @@ class PackageManifestValidator:
             for index, method in enumerate(methods):
                 if method in methods[:index]:
                     raise ValueError(f"{location}.methods registers {method} twice")
-            if value["executor"] != "caller":
-                raise ValueError(f"{location}.executor currently requires caller")
+            if value["executor"] not in {"caller", "main"}:
+                raise ValueError(f"{location}.executor requires caller or main")
             if value["failure"] not in {"throw", "abort"}:
                 raise ValueError(f"{location}.failure requires throw or abort")
             if value["cancellation"] != "entry-barrier":
                 raise ValueError(f"{location}.cancellation requires entry-barrier")
+            writable = value.get("writable-arrays", [])
+            if not isinstance(writable, list) or not all(
+                isinstance(parameter, str)
+                and (parts := parameter.rpartition(".argument"))[1]
+                and parts[0] in methods
+                and _JAVA_ARGUMENT_INDEX.fullmatch(parts[2])
+                for parameter in writable
+            ):
+                raise ValueError(
+                    f"{location}.writable-arrays must name array parameters of its methods as <method>.argument<N>"
+                )
+            if len(set(writable)) != len(writable):
+                raise ValueError(f"{location}.writable-arrays contains a duplicate value")
             registrations.append(
-                NativeJavaNativesBinding(owner, classes[owner], factory, interface, tuple(methods), value["failure"])
+                NativeJavaNativesBinding(
+                    owner,
+                    classes[owner],
+                    factory,
+                    interface,
+                    tuple(methods),
+                    value["failure"],
+                    value["executor"],
+                    tuple(writable),
+                )
             )
         return tuple(registrations)
 

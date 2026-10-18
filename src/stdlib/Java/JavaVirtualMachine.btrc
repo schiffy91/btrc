@@ -28,8 +28,11 @@ class JavaVirtualMachine {
 	 * one createHost started. */
 	class bool adopted() { return btrcJavaAdopted() != 0; }
 
-	/* Global references held by live Java class owners. */
+	/* Global references held by live Java class and array owners. */
 	class long long liveClaims() { return btrcJavaLiveClaims(); }
+
+	/* Weak global references held by live JavaWeak owners. */
+	class long long liveWeaks() { return btrcJavaLiveWeaks(); }
 
 	/* Threads this library attached that have not exited yet. */
 	class int attachedThreads() { return btrcJavaAttachedThreads(); }

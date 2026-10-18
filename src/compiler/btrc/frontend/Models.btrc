@@ -868,10 +868,14 @@ class FeNativeComInterface {
 
 /* One selected Java member, reached through a checked JNI adapter
  * (native-interop-ownership.md section 2.3). `kind` is constructor, method,
- * getter or setter. `parameters` and `result` are value kinds: a primitive
- * descriptor letter (Z, B, C, S, I, J, F or D; V for no result), "string" for
- * java.lang.String, or "object" for a selected class, whose BTRC owner the
- * projected type names. */
+ * getter or setter; a generated resource's members are weak-create and
+ * weak-get (JavaWeak<Class>), or array-create, array-length, array-read and
+ * array-write (a primitive array owner). `parameters` and `result` are value
+ * kinds: a primitive descriptor letter (Z, B, C, S, I, J, F or D; V for no
+ * result), "string" for java.lang.String, "object" for a selected class or a
+ * primitive array, whose BTRC owner the projected type names, or "span" for a
+ * generated array member's Span. `executor` is "main" when the class's calls
+ * must run on the main Looper's thread. */
 class FeNativeJavaMember {
 	public string kind;
 	public string owner;
@@ -882,18 +886,20 @@ class FeNativeJavaMember {
 	public bool staticMember;
 	public Vector<string> parameters;
 	public string result;
+	public string executor = "";
 	public FeNativeJavaMember(string kind, string owner, string binaryName, string memberName, string descriptor, string identity, bool staticMember, Vector<string> parameters, string result) {
 		self.kind = kind; self.owner = owner; self.binaryName = binaryName; self.memberName = memberName; self.descriptor = descriptor;
 		self.identity = identity; self.staticMember = staticMember; self.parameters = parameters; self.result = result;
 	}
 
-	public string key() { return f"{self.kind}:{self.owner}:{self.binaryName}:{self.memberName}:{self.descriptor}:{self.identity}:{self.staticMember}:" + Strings.join(self.parameters, ",") + ":" + self.result; }
+	public string key() { return f"{self.kind}:{self.owner}:{self.binaryName}:{self.memberName}:{self.descriptor}:{self.identity}:{self.staticMember}:" + Strings.join(self.parameters, ",") + ":" + self.result + ":" + self.executor; }
 }
 
 /* One Java native method, answered by the receiver interface's method `name`.
- * `parameters` and `result` are value kinds as for FeNativeJavaMember; an
- * instance method's own object reaches the receiver first, as an owner of its
- * class. */
+ * `parameters` and `result` are value kinds as for FeNativeJavaMember, and a
+ * primitive array parameter's kind is its descriptor ("[I"): a borrowed Span,
+ * writable when its index is in `writable`. An instance method's own object
+ * reaches the receiver first, as an owner of its class. */
 class FeNativeJavaNative {
 	public string name;
 	public string descriptor;
@@ -901,12 +907,17 @@ class FeNativeJavaNative {
 	public bool staticMember;
 	public Vector<string> parameters;
 	public string result;
+	public Vector<int> writable = [];
 	public FeNativeJavaNative(string name, string descriptor, string identity, bool staticMember, Vector<string> parameters, string result) {
 		self.name = name; self.descriptor = descriptor; self.identity = identity; self.staticMember = staticMember;
 		self.parameters = parameters; self.result = result;
 	}
 
-	public string key() { return f"{self.name}:{self.descriptor}:{self.identity}:{self.staticMember}:" + Strings.join(self.parameters, ",") + ":" + self.result; }
+	public string key() {
+		string text = f"{self.name}:{self.descriptor}:{self.identity}:{self.staticMember}:" + Strings.join(self.parameters, ",") + ":" + self.result + ":";
+		for index in self.writable { text = text + f"{index},"; }
+		return text;
+	}
 }
 
 /* A Java class's natives, bound by RegisterNatives to generated thunks over an
@@ -915,20 +926,23 @@ class FeNativeJavaNative {
  * `className` its dotted one). Each thunk pins the holder on the registering
  * thread, makes its JNIEnv the thread's for the call and enters the receiver
  * through its CallbackContext; a BTRC exception escaping it follows `failure`
- * (native-interop-ownership.md section 2.3). */
+ * (native-interop-ownership.md section 2.3). With `executor = "main"` the
+ * factory runs only on the main Looper's thread, which is then the
+ * registering one. */
 class FeNativeJavaNatives {
 	public string owner;
 	public string binaryName;
 	public string className;
 	public string handler;
 	public string failure;
+	public string executor = "caller";
 	public Vector<FeNativeJavaNative> methods = [];
 	public FeNativeJavaNatives(string owner, string binaryName, string className, string handler, string failure) {
 		self.owner = owner; self.binaryName = binaryName; self.className = className; self.handler = handler; self.failure = failure;
 	}
 
 	public string key() {
-		string text = f"{self.owner}:{self.binaryName}:{self.className}:{self.handler}:{self.failure}";
+		string text = f"{self.owner}:{self.binaryName}:{self.className}:{self.handler}:{self.failure}:{self.executor}";
 		for method in self.methods { text = text + ";" + method.key(); }
 		return text;
 	}

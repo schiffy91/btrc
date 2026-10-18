@@ -102,6 +102,18 @@ def adapter(case):
     statements.append(IRVarDecl(CType("jobject"), "result", init=env_call("CallStaticObjectMethodA", IRVar("owner"))))
     if case != "unchecked-call":
         statements.append(check())
+    if case == "critical":
+        # Arrays copy or borrow their elements; no adapter enters a critical region.
+        statements.extend(
+            [
+                IRVarDecl(
+                    CType("void*"),
+                    "pinned",
+                    init=env_call("GetPrimitiveArrayCritical", IRVar("result"), IRLiteral("NULL")),
+                ),
+                check(),
+            ]
+        )
     if case == "unchecked-copy":
         # A natives thunk's string copy leaves its Java exception pending, as a JNI call does.
         statements.append(
@@ -136,6 +148,11 @@ CASES = [
     ("missing-pop", "Java adapter adapter returns with its local frame pushed"),
     ("throw-pushed", "Java adapter adapter throws with its local frame pushed"),
     ("unregistered-owner", "Java adapter adapter: owner object is not registered before NewGlobalRef"),
+    (
+        "critical",
+        "Java adapter adapter: GetPrimitiveArrayCritical is rejected; a critical region forbids the adapter's "
+        "other JNI calls",
+    ),
 ]
 
 

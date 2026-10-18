@@ -19,6 +19,7 @@ int btrcJavaCreateHost(void);
 int btrcJavaRunning(void);
 int btrcJavaAdopted(void);
 long long btrcJavaLiveClaims(void);
+long long btrcJavaLiveWeaks(void);
 int btrcJavaAttachedThreads(void);
 void btrcJavaDestroy(void);
 
@@ -44,6 +45,15 @@ JNIEnv* btrcJavaEnvironment(void);
 /* One user global reference created or deleted by a class owner. */
 void btrcJavaClaim(void);
 void btrcJavaUnclaim(void);
+/* One weak global reference created or deleted by a JavaWeak owner. */
+void btrcJavaWeakClaim(void);
+void btrcJavaWeakUnclaim(void);
+/* executor = "main" (interop step 7): returns on the main thread, the thread
+ * of android.os.Looper.getMainLooper(), which this runtime captures through
+ * its own checked JNI at the first check and caches as a global reference
+ * outside the user count. Any other thread terminates naming `what`, and so
+ * does the first check of a VM with no main Looper (a host JVM). */
+void btrcJavaRequireMain(JNIEnv* env, const char* what);
 /* Cached global class reference and member IDs, resolved once per slot. Each
  * returns NULL with the Java exception still pending, or aborts naming the
  * member when the class file and the running VM disagree. */
