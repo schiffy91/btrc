@@ -473,10 +473,13 @@ class FeNativeCallbackBinding {
 	/* Instance-scoped instantiated adapters: the selected method after which
 	 * the generated object releases its receiver. */
 	public string terminal = "";
-	/* Subclass adapters ("<designated initializer>.self"): the SDK class the
-	 * generated class extends, and the superclass methods it answers. */
+	/* Instantiated adapters that extend an SDK class: a subclass adapter
+	 * ("<designated initializer>.self") or an SDK-created form (a UIResponder
+	 * app delegate), and the superclass methods it answers. */
 	public string superclass = "";
 	public Vector<string> overrides = [];
+	/* "caller", "realtime", or "main" for a stored Objective-C block. */
+	public string executor = "caller";
 	public string field = "";
 	public Vector<int> ownedArguments = [];
 	public Vector<string> methods = [];
@@ -579,11 +582,16 @@ class FeNativeCallbackProjection {
 	/* A subclass adapter (`initializer` set) extends `superclass`: BTRC calls
 	 * the superclass's designated initializer with a factory,
 	 * `delegateMethods` also holds the instance overrides, and `classMethods`
-	 * the class overrides, which the factory answers. */
+	 * the class overrides, which the factory answers. An SDK-created form
+	 * may extend `superclass` too, without an initializer. */
 	public string superclass = "";
 	public NativeNode? initializer = null;
 	public Vector<string> initializerParameters = [];
 	public Vector<FeNativeCallbackProjection> classMethods = [];
+	/* A stored Objective-C block bound to the main thread (executor =
+	 * "main"): it registers there, and its holder posts a final release made
+	 * elsewhere. */
+	public bool mainExecutor = false;
 	/* Stored C registrations: every registration parameter carrying the
 	 * context, the slots' representation ("pointer" or the shared integer
 	 * builtin), the success statuses, each unregister argument's source
@@ -1020,6 +1028,8 @@ class FeNativeCallContract {
 /* SDK provenance is attached to the actual imported node, never inferred from
  * its spelling, line number, or a user-controlled source marker. */
 class FeNativeImportedDeclaration {
+	/* An Objective-C protocol handle (id<P> in the generated unit), not a class. */
+	public bool objectiveCProtocol = false;
 	/* The lifetime operation that releases this unmanaged handle typedef. */
 	public string unmanagedRelease = "";
 	public string invocation = "";

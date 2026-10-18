@@ -480,7 +480,8 @@ def objective_c_project(native_project):
     return source
 
 
-def test_objective_c_protocol_method_requires_delegate_binding(native_project, native_compile):
+def test_objective_c_optional_protocol_handle_method_requires_availability(native_project, native_compile):
+    """A protocol's own method belongs to its protocol handle; an optional one still needs an availability check."""
     source, _, _ = native_project
     root = source.parent.parent
     (root / "Foundation.h").write_text("#import <AppKit/AppKit.h>\n")
@@ -494,7 +495,9 @@ def test_objective_c_protocol_method_requires_delegate_binding(native_project, n
     source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
     compiled = native_compile(source)
     assert not compiled.successful
-    assert "protocol methods require a delegate binding" in str(compiled.failure) + str(compiled.diagnostics)
+    assert "Optional Objective-C calls require an availability check: -[NSWindowDelegate windowShouldClose:]" in str(
+        compiled.failure
+    ) + str(compiled.diagnostics)
 
 
 def test_objective_c_optional_protocol_method_on_class_requires_availability(native_project, native_compile):

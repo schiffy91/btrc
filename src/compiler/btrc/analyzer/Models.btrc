@@ -833,13 +833,21 @@ class Analyzed {
 		return query != "" && self.isSubclass(source.base, query) ? query : "";
 	}
 
-	/* Whether `(T?)value` checks a managed Objective-C object with
-	 * isKindOfClass: (M3): T is a nullable Objective-C class whose superclass
-	 * chain, read from the SDK interface graph, contains the source's class. */
+	/* An Objective-C protocol handle: casts to it ask conformsToProtocol: (M3). */
+	public bool objectiveCProtocol(string name) { return self.nativeClassIndex.has(name) && self.nativeClassIndex.get(name).objectiveCProtocol; }
+
+	/* Whether `(T?)value` checks a managed Objective-C object at run time
+	 * (M3). T is nullable. A class T asks isKindOfClass: and requires a
+	 * superclass chain, read from the SDK interface graph, that contains the
+	 * source's static class, unless the source is a protocol handle, which
+	 * any class may implement. A protocol handle T asks conformsToProtocol:
+	 * of any other Objective-C object: the reader reports no class
+	 * conformance. */
 	public bool objectiveCDowncast(Node? target, Node? source) {
 		if (source == null || target == null || !target.isNullable || target.isArray || source.isArray || target.base == source.base || target.base == "id") { return false; }
 		if (self.nativeClassLanguage(source.base) != "objective-c" || self.nativeClassLanguage(target.base) != "objective-c") { return false; }
-		return target.pointerDepth == 1 && source.pointerDepth <= 1 && self.nativeClassIndex.get(target.base).nativeAncestors.contains(source.base);
+		bool related = self.nativeClassIndex.get(target.base).nativeAncestors.contains(source.base) || self.objectiveCProtocol(target.base) || self.objectiveCProtocol(source.base);
+		return target.pointerDepth == 1 && source.pointerDepth <= 1 && related;
 	}
 
 	/* A checked native conversion (M3) produces a new owned claim. */

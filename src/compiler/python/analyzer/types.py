@@ -3015,10 +3015,13 @@ class TypeSystem:
 
     @staticmethod
     def native_objective_c_downcast(classes, target, source) -> bool:
-        """Whether `(T?)value` checks a managed Objective-C object with isKindOfClass: (M3).
+        """Whether `(T?)value` checks a managed Objective-C object at run time (M3).
 
-        T must be a nullable Objective-C class whose superclass chain, read
-        from the SDK interface graph, contains the source's static class.
+        T is nullable. A class T asks isKindOfClass: and requires a superclass
+        chain, read from the SDK interface graph, that contains the source's
+        static class, unless the source is a protocol handle, which any class
+        may implement. A protocol handle T asks conformsToProtocol: of any
+        other Objective-C object: the reader reports no class conformance.
         """
         if target is None or source is None or not target.is_nullable or target.is_array or source.is_array:
             return False
@@ -3029,7 +3032,11 @@ class TypeSystem:
             and target_info.native_language == "objective-c"
             and source_info.native_language == "objective-c"
             and target.base not in {source.base, "id"}
-            and source.base in target_info.native_ancestors
+            and (
+                source.base in target_info.native_ancestors
+                or target_info.native_protocol
+                or source_info.native_protocol
+            )
             and target.pointer_depth == 1
             and source.pointer_depth <= 1
         )
