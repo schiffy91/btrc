@@ -3893,8 +3893,25 @@ owner, the exact prerequisite and the next acceptance.
 - **PR51, `CX-P2-02` HTTP contract** (revision 5 `799c9de5`) and
   **PR52, `CX-P2-01` Windows services design** (revision 5 `6866eb3d`).
   Both are refreshed onto main. Earlier docs/static checks passed; PR52's latest
-  clarification passed static CI. The authorized
-  integration session owns `CL-P2-01` round 5: the final review of the round-4 findings.
+  clarification passed static CI.
+  **`CL-P2-01` round 5 (2026-10-17).** The panel ran: feasibility,
+  correctness and parity reviewers, plus a verifier for each blocking finding
+  (reports `cl-p2-01-r5-*.md`, summarized on each PR).
+  - **PR51 (HTTP) is approved.** All three round-4 findings are resolved, and
+    no reviewer left a blocking finding. Batch 8 integrates
+    `docs/design/http-transport.md` (`bed10094`). Its seven non-blocking notes
+    are on [PR51](https://github.com/schiffy91/btrc/pull/51#issuecomment-6243709262).
+    The request lists join the `CL-P2-02/03/04/14` scope. Provider
+    implementation and native qualification are separate steps.
+  - **PR52 (Windows services) is returned** with four confirmed blocking
+    findings, each with a bounded required change
+    ([round-5 comment](https://github.com/schiffy91/btrc/pull/52#issuecomment-6243793535)):
+    - A: the Ctrl-C trampoline order, and an unclassified `ERROR_OPERATION_ABORTED` read;
+    - B: `CX-P2-08`'s Daemon corpus split, covering owned paths, the portable case list and barrier coverage;
+    - C: the strong metadata reference fails to link from the single `windows_os.c` object, confirmed by experiment with zig's lld-link;
+    - D: no build path for the deterministic fixtures. Use a `DebugActiveProcess` freeze, add a test-only launcher fault build in `REQUEST(CL-P2-02)`, and a fake-launcher harness.
+
+    Owner Codex: revision 6. Round 6 reviews only A–D and what the revision changes.
   - HTTP now requires provider-owned `Connection: close` on Android requests
     and redirects, bounded admission while native I/O drains, and hermetic
     Windows revocation fixtures. Review those guarantees before implementing
