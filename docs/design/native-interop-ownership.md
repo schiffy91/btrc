@@ -134,11 +134,34 @@ implemented in both compilers today and documented there.
   still owed. The table and slot reads are reloaded and null-checked like
   step 2's; the base-widened call goes through the base's table type, which
   is the COM ABI.
-- Step 5 still owes: `com-sinks` (the M2 holder with `Unadvise` inside an
-  event and cycle teardown), `copied-outputs` for `BSTR` and `CoTaskMemAlloc`
-  strings, `status-results` on C functions, ole32 and uuid link records for
-  Library.COM, and the Windows CI exit (the registry-free
-  `DllGetClassObject` server round trip and `CreateStreamOnHGlobal`).
+- Step 5's second slice (2026-10-17) is implemented in both compilers
+  (package-manifest.md, "COM interfaces"): `com-sinks` (the M2 holder below,
+  with `Unadvise` inside an event), `copied-outputs` for BSTR and
+  CoTaskMemAlloc strings on dispatched methods, the `pUnkOuter` rejection,
+  and link records: the new `native.libraries` table, through which
+  Library.COM names ole32, uuid and oleaut32 for Windows and the plan links
+  them. A Linux/macOS proxy (`test_native_com_sinks.py`) runs advise, event
+  and unadvise, Unadvise inside an event, a source keeping its sink after
+  cancellation, a failed Advise, the dead-state and off-thread aborts,
+  QueryInterface on the sink and BSTR/CoTaskMem copies with every free
+  counted, through both compilers, plain and under ASan/UBSan, at -O0 and
+  -O2, with 25 rejected facts. `test_native_com_windows.py` is the Windows
+  exit: a registry-free counter server DLL reached through `LoadLibrary` and
+  `DllGetClassObject`, and an ole32 `CreateStreamOnHGlobal` stream, built for
+  windows-x64 and windows-arm64 by both compilers and run by windows.yml's
+  win32-native job.
+- As implemented in the second slice: a sink's handler methods are its
+  table's slots after IUnknown's, named with a lowercase first letter, each
+  returning an HRESULT. The holder frees itself at zero once its
+  registration has ended, so a dead holder stays checkable (AddRef,
+  QueryInterface and Release abort) while the registration lives; the
+  registration owns one claim on the source and the Advise cookie, and an
+  Unadvise that fails after the source already released the sink counts as
+  unregistered. `COMApartment.liveSinks()` counts the holders not yet freed.
+  A `pUnkOuter` parameter is rejected rather than hidden: a C helper that
+  passes NULL binds such a call (the Windows fixture's loader does).
+- Step 5 still owes: `status-results` and `copied-outputs` on C functions,
+  the compile-time `spawn` rule, and the direct R3 cycle rule for sinks.
 
 ## 1. One model: three relations, three mechanisms, two rules
 

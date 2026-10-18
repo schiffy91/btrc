@@ -19,7 +19,6 @@ program runs through both compilers, plain and under ASan/UBSan, at -O0 and
 """
 
 import os
-import shutil
 import subprocess
 
 import pytest
@@ -727,8 +726,9 @@ def test_com_rejects_unchecked_facts(com_project, native_compile, path, before, 
 
 # The real MinGW-w64 declarations of IStream and its bases (objidl.h,
 # unknwn.h): both compilers check lpVtbl slots 0-2 and the base prefixes
-# against the layouts the reader reads for each Windows target, and the
-# generated C compiles and links against ole32 with zig.
+# against the layouts the reader reads for each Windows target. The stream
+# program itself links through its plan and runs on Windows in
+# test_native_com_windows.py.
 WINDOWS_TARGETS = {
     "windows-x64": ("x86_64-w64-windows-gnu", "x86_64"),
     "windows-arm64": ("aarch64-w64-windows-gnu", "aarch64"),
@@ -857,47 +857,12 @@ def windows_transpile(frontend, source, target, request, monkeypatch, manifest=N
 
 @pytest.mark.parametrize("target", sorted(WINDOWS_TARGETS))
 @pytest.mark.parametrize("frontend", ["reference", "selfhost"])
-def test_com_layouts_read_from_real_mingw_headers(stream_project, frontend, target, request, monkeypatch, tmp_path):
+def test_com_layouts_read_from_real_mingw_headers(stream_project, frontend, target, request, monkeypatch):
+    # The stream program links and runs in test_native_com_windows.py; here the
+    # importer only checks the real layouts.
     successful, c_source, failure = windows_transpile(frontend, stream_project, target, request, monkeypatch)
     assert successful, failure
-    generated = tmp_path / "Main.c"
-    generated.write_text(c_source, encoding="utf-8")
-    executable = tmp_path / f"com-stream-{frontend}-{target}.exe"
-    built = subprocess.run(
-        [
-            shutil.which("zig"),
-            "cc",
-            "-target",
-            f"{WINDOWS_TARGETS[target][1]}-windows-gnu",
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-O2",
-            "-I",
-            str(REPO / "src/runtime/windows"),
-            "-include",
-            str(REPO / "src/runtime/windows/btrc_win_compat.h"),
-            "-I",
-            str(stream_project.parent.parent),
-            "-I",
-            str(REPO / "src/stdlib/COM"),
-            str(generated),
-            str(REPO / "src/stdlib/COM/COMRuntime.c"),
-            "-o",
-            str(executable),
-            "-lole32",
-            "-luuid",
-            "-lm",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=600,
-        check=False,
-    )
-    assert built.returncode == 0, built.stderr
-    assert executable.read_bytes()[:2] == b"MZ"
+    assert "->lpVtbl" in c_source
 
 
 PERSIST_RESOURCE = """
