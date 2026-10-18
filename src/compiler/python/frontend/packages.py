@@ -486,6 +486,10 @@ class NativeCallbackBinding:
     # Instance-scoped instantiated adapters: the selected method after which
     # the generated object releases its receiver.
     terminal: str = ""
+    # Subclass adapters ("<designated initializer>.self"): the SDK class the
+    # generated class extends, and the superclass methods it answers.
+    superclass: str = ""
+    overrides: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -582,6 +586,9 @@ class NativeBinding:
     com_sinks: tuple[NativeComSinkBinding, ...] = ()
     # Java natives registrations, by their class's BTRC name.
     java_natives: tuple[NativeJavaNativesBinding, ...] = ()
+    # Objective-C NSError** parameters ("<method>.<parameter>") whose non-nil
+    # error throws after the call (F1).
+    error_outputs: tuple[str, ...] = ()
 
     @property
     def selector(self) -> TargetSelector:
@@ -1671,6 +1678,8 @@ class PackageManifestValidator:
                         "unregister-status",
                         "captured-handles",
                         "terminal",
+                        "superclass",
+                        "overrides",
                     }
                 ),
                 location,
@@ -1698,6 +1707,13 @@ class PackageManifestValidator:
                 raise ValueError(f"{location}.lifetime requires call, stored, one-shot or instantiated")
             scope = value.get("scope", "")
             terminal = value.get("terminal", "")
+            superclass = value.get("superclass", "")
+            overrides = value.get("overrides", [])
+            # A subclass adapter maps the implicit self of its superclass's
+            # designated initializer: BTRC creates the instance there.
+            subclass = parameter.rsplit(".", 1)[1] == "self"
+            if ("superclass" in value or "overrides" in value) and lifetime != "instantiated":
+                raise ValueError(f"{location}: superclass and overrides require an instantiated adapter")
             if lifetime == "instantiated":
                 # The SDK creates the adapter from a class name (UIApplicationMain)
                 # or a class (a scene configuration); the binding only names the
@@ -1708,6 +1724,24 @@ class PackageManifestValidator:
                     )
                 if scope not in {"process", "instance"}:
                     raise ValueError(f"{location}.scope requires process or instance")
+                if not subclass and ("superclass" in value or "overrides" in value):
+                    raise ValueError(
+                        f"{location}: superclass and overrides require a designated initializer's self parameter"
+                    )
+                if subclass:
+                    if "superclass" not in value:
+                        raise ValueError(f"{location}: an initializer's self parameter requires superclass")
+                    superclass = self._identifier(superclass, f"{location}.superclass")
+                    if scope != "instance":
+                        raise ValueError(f"{location}: subclass adapters require scope instance")
+                    if "overrides" in value and (
+                        not isinstance(overrides, list)
+                        or not overrides
+                        or any(not isinstance(method, str) or method not in symbols for method in overrides)
+                    ):
+                        raise ValueError(f"{location}.overrides must name selected native methods")
+                    if len(set(overrides)) != len(overrides):
+                        raise ValueError(f"{location}.overrides contains a duplicate value")
                 if any(
                     key in value
                     for key in (
@@ -1725,22 +1759,26 @@ class PackageManifestValidator:
                     raise ValueError(
                         f"{location}: instantiated adapters take only methods, scope, terminal, failure and executor"
                     )
-                methods = value.get("methods")
+                # A subclass adapter may answer only superclass methods.
+                methods = value.get("methods", [] if subclass and overrides else None)
                 if (
                     not isinstance(methods, list)
-                    or not methods
+                    or (not methods and not (subclass and overrides))
                     or any(not isinstance(method, str) or method not in symbols for method in methods)
                 ):
                     raise ValueError(f"{location}.methods must name selected native methods")
                 if len(set(methods)) != len(methods):
                     raise ValueError(f"{location}.methods contains duplicate methods")
+                if set(methods) & set(overrides):
+                    raise ValueError(f"{location}: methods and overrides must be distinct")
                 # An instance-scoped adapter releases its receiver after the
-                # terminal method; a process root is never released.
-                if scope == "instance" and "terminal" not in value:
+                # terminal method; a process root is never released. A subclass
+                # instance without one releases it at dealloc.
+                if scope == "instance" and "terminal" not in value and not subclass:
                     raise ValueError(f"{location}: instance-scoped instantiated adapters require terminal")
                 if scope == "process" and "terminal" in value:
                     raise ValueError(f"{location}.terminal requires scope instance")
-                if "terminal" in value and terminal not in methods:
+                if "terminal" in value and terminal not in (*methods, *overrides):
                     raise ValueError(f"{location}.terminal must name one of methods")
             elif "scope" in value or "terminal" in value:
                 raise ValueError(f"{location}: scope and terminal require an instantiated adapter")
@@ -1880,6 +1918,8 @@ class PackageManifestValidator:
                     tuple(captured_handles),
                     action_parameter,
                     terminal,
+                    superclass,
+                    tuple(sorted(overrides)) if isinstance(overrides, list) else (),
                 )
             )
         return tuple(callbacks)
@@ -2953,6 +2993,7 @@ class PackageManifestValidator:
                         "owned-output-fields",
                         "null-output-fields",
                         "unmanaged-handles",
+                        "error-outputs",
                     }
                 ),
                 context,
@@ -3241,7 +3282,17 @@ class PackageManifestValidator:
             )
             if binding.static_globals and (language != "c" or not resources):
                 raise ValueError(f"{context}: static-globals requires declared C resources")
-            binding = replace(binding, environments=selector.environments, unmanaged_handles=unmanaged_handles)
+            error_outputs = self._resource_functions(
+                entry.get("error-outputs", []), symbols, context, "error-outputs", parameters=True
+            )
+            if error_outputs and language != "objective-c":
+                raise ValueError(f"{context}: error-outputs require an Objective-C binding")
+            binding = replace(
+                binding,
+                environments=selector.environments,
+                unmanaged_handles=unmanaged_handles,
+                error_outputs=error_outputs,
+            )
             if any(binding.overlaps(previous) for previous in bindings):
                 raise ValueError(f"{context} overlaps a native binding for the same module and target")
             bindings.append(binding)

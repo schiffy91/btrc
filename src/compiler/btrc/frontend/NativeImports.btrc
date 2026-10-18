@@ -138,6 +138,8 @@ class FeNativeDeclarationImporter {
 	private Map<string, string> ownedOutputStatuses = {};
 	private Map<string, string> statusResults = {};
 	private Map<string, string> copiedOutputs = {};
+	/* The binding's Objective-C NSError** outputs not yet consumed (F1). */
+	private Map<string, bool> errorOutputs = {};
 	/* Generated COM adapters count their claims and check their apartment
 	 * through Library.COM's COM.h (native-interop-ownership.md section 2.4). */
 	private bool comRuntime = false;
@@ -1609,7 +1611,8 @@ class FeNativeDeclarationImporter {
 		projection.activationFailure = binding.activationFailure;
 		projection.slotGetter = getter;
 		projection.delegateProtocol = argument.protocols.get(0);
-		self.protocolMethods(binding, index, projection);
+		Vector<NativeNode> noOverrides = [];
+		self.protocolMethods(binding, index, projection, false, noOverrides);
 		return projection;
 	}
 
@@ -1629,7 +1632,8 @@ class FeNativeDeclarationImporter {
 			if (declaration.kind != NNK_NATIVE_OBJECTIVE_C_METHOD || declaration.classMethod || declaration.signature.parameters.len != 1 || result.kind != NNK_NATIVE_BUILTIN || result.name != "void" || argument.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || !argument.classObject || argument.protocols.len > 0 || argument.typeArguments.len > 0) { self.fail("instance-scoped instantiated adapters require a Class parameter of a void Objective-C instance method"); }
 			var instance = FeNativeCallbackProjection(binding.interfaceName, index, -1, -1, voidType);
 			instance.instantiatedScope = binding.scope;
-			self.protocolMethods(binding, index, instance, true);
+			Vector<NativeNode> noOverrides = [];
+			self.protocolMethods(binding, index, instance, true, noOverrides);
 			instance.factoryInterface = binding.interfaceName + "Factory";
 			instance.terminalIndex = binding.methods.indexOf(binding.terminal);
 			Node receiver = self.node(NK_TYPE_EXPR);
@@ -1646,7 +1650,8 @@ class FeNativeDeclarationImporter {
 		if (declaration.kind != NNK_NATIVE_FUNCTION || argument.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || argument.name != "NSString" || argument.protocols.len > 0 || argument.classObject || argument.typeArguments.len > 0) { self.fail("instantiated adapters require an NSString class-name parameter of a C function"); }
 		var projection = FeNativeCallbackProjection(binding.interfaceName, index, -1, -1, voidType);
 		projection.instantiatedScope = binding.scope;
-		self.protocolMethods(binding, index, projection, true);
+		Vector<NativeNode> processOverrides = [];
+		self.protocolMethods(binding, index, projection, true, processOverrides);
 		return projection;
 	}
 
@@ -1654,18 +1659,24 @@ class FeNativeDeclarationImporter {
 	 * is a non-consuming instance requirement of the projection's protocol; an
 	 * empty protocol takes the first method's. Instantiated adapters may also
 	 * return managed Objective-C objects (`objectResults`): the receiver's
-	 * claim is transferred to the SDK. */
-	private void protocolMethods(FeNativeCallbackBinding binding, int index, FeNativeCallbackProjection projection, bool objectResults = false) {
+	 * claim is transferred to the SDK. A subclass adapter's checked instance
+	 * `overrides` join the same interface after the protocol methods. */
+	private void protocolMethods(FeNativeCallbackBinding binding, int index, FeNativeCallbackProjection projection, bool objectResults, Vector<NativeNode> overrides) {
 		Node projectedInterface = self.node(NK_INTERFACE_DECL);
 		projectedInterface.name = binding.interfaceName;
 		Map<string, bool> names = {};
 		string identity = "delegate-interface";
+		Vector<NativeNode> selected = [];
 		for symbol in binding.methods {
 			if (!self.callbackExports.has(symbol)) { self.fail(f"delegate method not selected: {symbol}"); }
 			NativeNode method = self.callbackExports.get(symbol);
 			if (projection.delegateProtocol.isEmpty() && method.kind == NNK_NATIVE_OBJECTIVE_C_METHOD && method.protocolOwner) { projection.delegateProtocol = method.receiver; }
 			if (method.kind != NNK_NATIVE_OBJECTIVE_C_METHOD || !method.protocolOwner || method.receiver != projection.delegateProtocol || method.classMethod || method.signature.variadic || method.consumesSelf || method.returnsInnerPointer || method.returnedOwnership != "unspecified") { self.fail(f"delegate method requires a non-consuming instance method of {projection.delegateProtocol}: {symbol}"); }
 			for parameter in method.parameterSemantics { if (parameter.cfConsumed || parameter.nsConsumed) { self.fail("delegate method parameters must not consume"); } }
+			selected.push(method);
+		}
+		selected.extend(overrides);
+		for method in selected {
 			string name = Strings.split(method.selector, ":").get(0);
 			if (names.has(name)) { self.fail(f"ambiguous delegate method projection: {name}"); }
 			names.put(name, true);
@@ -1701,7 +1712,17 @@ class FeNativeDeclarationImporter {
 	private string blockTypeSpelling(NativeNode native) {
 		while (native.kind == NNK_NATIVE_QUALIFIED_TYPE) { native = native.underlying; }
 		if (native.kind == NNK_NATIVE_BUILTIN || native.kind == NNK_NATIVE_ALIAS) { return native.name; }
-		if (native.kind == NNK_NATIVE_OBJECTIVE_C_OBJECT) { return native.name.isEmpty() || native.name == "id" ? "id" : native.name + "*"; }
+		if (native.kind == NNK_NATIVE_OBJECTIVE_C_OBJECT) {
+			/* The SDK's own type arguments, so a generated implementation
+			 * matches its declaration although BTRC erases them. */
+			string arguments = "";
+			if (native.typeArguments.len > 0) {
+				Vector<string> spelled = [];
+				for value in native.typeArguments { spelled.push(self.blockTypeSpelling(value)); }
+				arguments = "<" + Strings.join(spelled, ", ") + ">";
+			}
+			return native.name.isEmpty() || native.name == "id" ? "id" : native.name + arguments + "*";
+		}
 		if (native.kind == NNK_NATIVE_ENUM_TYPE && !native.name.isEmpty()) { return "enum " + native.name; }
 		self.fail("anonymous native block scalar requires a named SDK type");
 		return "";
@@ -3196,12 +3217,13 @@ class FeNativeDeclarationImporter {
 		if (native.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT) { return self.objectiveCValue(original); }
 		string name = relatedOwner != "" ? relatedOwner : native.name;
 		bool opaqueToken = cancellationToken && (name.isEmpty() || name == "id");
-		bool unboundedArguments = true;
+		/* Lightweight generics are erased to their bound: NSArray<NSString *> *
+		 * is NSArray, whose elements are its type parameter's bound (id), as
+		 * the reader reports them. Only object type arguments exist. */
 		for value in native.typeArguments {
-			NativeNode argument = self.unqualifiedNative(value);
-			if (argument.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || (!argument.name.isEmpty() && argument.name != "id") || argument.classObject || argument.protocols.len > 0 || argument.typeArguments.len > 0) { unboundedArguments = false; }
+			if (self.unqualifiedNative(value).kind != NNK_NATIVE_OBJECTIVE_C_OBJECT) { self.fail("Objective-C protocol/generic/dynamic objects require managed native lowering"); }
 		}
-		if (native.classObject || (native.protocols.len > 0 && !opaqueToken) || !unboundedArguments || name == "Class") { self.fail("Objective-C protocol/generic/dynamic objects require managed native lowering"); }
+		if (native.classObject || (native.protocols.len > 0 && !opaqueToken) || name == "Class") { self.fail("Objective-C protocol/generic/dynamic objects require managed native lowering"); }
 		if (name.isEmpty()) { name = "id"; }
 		if ((nullability != "unannotated" && nullability != "nullable" && nullability != "nonnull") || qualified) { self.fail("unsupported Objective-C object qualifiers"); }
 		if (relatedOwner.isEmpty() && self.nativeInterfaces.has(name) && self.nativeInterfaces.get(name).identity != native.identity) { self.fail(f"conflicting Objective-C object identity '{name}'"); }
@@ -3225,10 +3247,19 @@ class FeNativeDeclarationImporter {
 		if (declaration.optional) { self.fail(f"Optional Objective-C calls require an availability check: {declaration.name}"); }
 		if (declaration.signature.variadic || (declaration.consumesSelf && !initializer) || declaration.returnsInnerPointer) { self.fail("Objective-C instance/ownership calls require managed native lowering"); }
 		for parameter in declaration.parameterSemantics { if (parameter.cfConsumed || parameter.nsConsumed) { self.fail("Objective-C instance/ownership calls require managed native lowering"); } }
+		string subclassKey = declaration.name + ".self";
+		if (self.callbacks.has(subclassKey)) {
+			var subclass = self.callbacks.get(subclassKey);
+			self.callbacks.remove(subclassKey);
+			self.importObjectiveCSubclass(declaration, subclass, initializer);
+			return;
+		}
 		var contract = FeNativeCallContract();
 		contract.objectiveCMethod = declaration;
+		contract.errorOutputs = self.objectiveCErrorOutputs(declaration);
 		contract.callbacks = self.projectCallbacks(declaration);
 		if (initializer && contract.callbacks.len > 0) { self.fail("Objective-C initializer callbacks require an explicit publication contract"); }
+		if (contract.errorOutputs.len > 0 && contract.callbacks.len > 0) { self.fail(f"error-outputs require a method without callback parameters: {declaration.name}"); }
 		bool opaqueToken = false;
 		for callback in contract.callbacks {
 			if (callback.unregister != null && callback.unregister.signature.parameters.len > 0) {
@@ -3243,6 +3274,8 @@ class FeNativeDeclarationImporter {
 			// The compiler supplies a control action's selector itself.
 			if (callback.controlActionIndex >= 0) { hidden.put(callback.controlActionIndex, true); }
 		}
+		/* The adapter supplies its own NSError** output. */
+		for position in contract.errorOutputs { hidden.put(position, true); }
 		var method = self.node(NK_METHOD_DECL);
 		method.access = declaration.classMethod || initializer ? "class" : "public";
 		method.name = Strings.split(declaration.selector, ":").get(0);
@@ -3309,6 +3342,167 @@ class FeNativeDeclarationImporter {
 		imported.declaration.membersMut().push(method);
 	}
 
+	/* The native positions of the NSError** parameters error-outputs maps
+	 * (F1). The adapter supplies each such output itself, so the BTRC method
+	 * omits it; an NSError** parameter that error-outputs does not map has no
+	 * BTRC projection. */
+	private Vector<int> objectiveCErrorOutputs(NativeNode declaration) {
+		string prefix = declaration.name + ".";
+		Map<string, bool> names = {};
+		for parameter in declaration.parameterSemantics { names.put(parameter.name, true); }
+		for key in self.errorOutputs.keys() {
+			if (key.startsWith(prefix) && !names.has(key.substring(prefix.length(), key.length() - prefix.length()))) { self.fail(f"error-outputs names an unknown Objective-C method parameter: {key}"); }
+		}
+		Vector<int> positions = [];
+		for position in range(declaration.parameterSemantics.len) {
+			string key = prefix + declaration.parameterSemantics.get(position).name;
+			bool mapped = self.errorOutputs.has(key);
+			if (mapped) { self.errorOutputs.remove(key); }
+			string shape = self.errorOutputShape(declaration.signature.parameters.get(position));
+			if (mapped && shape != "output") { self.fail(f"error-outputs require an NSError** parameter of an Objective-C method: {key}"); }
+			if (!shape.isEmpty() && !mapped) { self.fail(f"NSError** parameters require error-outputs: {declaration.name}"); }
+			if (mapped) { positions.push(position); }
+		}
+		if (positions.len > 1) { self.fail(f"error-outputs take one NSError** parameter per method: {declaration.name}"); }
+		return positions;
+	}
+
+	/* "output" for an unqualified NSError**, "other" for another NSError**
+	 * form, else "". */
+	private string errorOutputShape(NativeNode native) {
+		bool qualified = false;
+		while (native.kind == NNK_NATIVE_ALIAS || native.kind == NNK_NATIVE_QUALIFIED_TYPE) {
+			qualified = qualified || native.qualifiers.isConst || native.qualifiers.isVolatile || native.qualifiers.isRestrict;
+			native = native.underlying;
+		}
+		if (native.kind != NNK_NATIVE_POINTER) { return ""; }
+		qualified = qualified || native.qualifiers.isConst || native.qualifiers.isVolatile || native.qualifiers.isRestrict;
+		NativeNode error = native.pointee;
+		string nullability = "unannotated";
+		while (error.kind == NNK_NATIVE_ALIAS || error.kind == NNK_NATIVE_QUALIFIED_TYPE) {
+			qualified = qualified || error.qualifiers.isConst || error.qualifiers.isVolatile || error.qualifiers.isRestrict;
+			if (error.qualifiers.nullability != "unannotated") { nullability = error.qualifiers.nullability; }
+			error = error.underlying;
+		}
+		if (error.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || error.name != "NSError") { return ""; }
+		if (error.qualifiers.nullability != "unannotated") { nullability = error.qualifiers.nullability; }
+		string pointer = native.qualifiers.nullability;
+		if (qualified || error.classObject || error.protocols.len > 0 || error.typeArguments.len > 0 || (nullability != "unannotated" && nullability != "nullable") || (pointer != "unannotated" && pointer != "nullable")) { return "other"; }
+		return "output";
+	}
+
+	/* A generated subclass of an SDK class, created by BTRC through the
+	 * superclass's designated initializer: the key maps the initializer's
+	 * implicit self (`-[UIView initWithFrame:].self`). Instance overrides and
+	 * protocol methods join the receiver interface; class overrides, which
+	 * must return Class, join I<Interface>Factory beside create() and return
+	 * the runtime name of an Objective-C class. The initializer becomes a
+	 * class method that takes the factory first and returns the new instance
+	 * (native-interop-ownership.md section 2.2). */
+	private void importObjectiveCSubclass(NativeNode declaration, FeNativeCallbackBinding binding, bool initializer) {
+		if (!initializer || declaration.protocolOwner || !declaration.designatedInitializer) { self.fail(f"subclass adapters require a designated initializer of their superclass: {declaration.name}"); }
+		string superclass = binding.superclass;
+		if (declaration.receiver != superclass) { self.fail(f"subclass adapter superclass must be the initializer's class: {declaration.name}"); }
+		if (!self.nativeInterfaces.has(superclass) || !self.nativeInterfaces.get(superclass).complete) { self.fail(f"subclass adapters require a complete superclass interface: {superclass}"); }
+		string own = declaration.name + ".";
+		for key in self.callbacks.keys() { if (key.startsWith(own)) { self.fail(f"subclass adapter initializers take no other mapping: {declaration.name}"); } }
+		for key in self.errorOutputs.keys() { if (key.startsWith(own)) { self.fail(f"subclass adapter initializers take no other mapping: {declaration.name}"); } }
+		Vector<NativeNode> instanceOverrides = [];
+		Vector<NativeNode> classOverrides = [];
+		for symbol in binding.overrides {
+			if (!self.callbackExports.has(symbol)) { self.fail(f"overrides require a method of the superclass {superclass}: {symbol}"); }
+			NativeNode method = self.callbackExports.get(symbol);
+			if (method.kind != NNK_NATIVE_OBJECTIVE_C_METHOD || method.protocolOwner || method.receiver != superclass) { self.fail(f"overrides require a method of the superclass {superclass}: {symbol}"); }
+			if (method.methodFamily != "none") { self.fail(f"overrides cannot name an initializer, allocator, copy or dealloc method: {symbol}"); }
+			bool consuming = method.signature.variadic || method.consumesSelf || method.returnsInnerPointer || method.returnedOwnership != "unspecified";
+			for parameter in method.parameterSemantics { if (parameter.cfConsumed || parameter.nsConsumed) { consuming = true; } }
+			if (consuming) { self.fail(f"overrides require a non-consuming, non-variadic method: {symbol}"); }
+			NativeNode result = self.unqualifiedNative(method.signature.returnType);
+			if (method.classMethod) {
+				if (method.signature.parameters.len > 0 || result.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || !result.classObject || result.protocols.len > 0) { self.fail(f"class-method overrides require a Class result and no parameters: {symbol}"); }
+				if (method.requiresSuper) { self.fail(f"overrides that require super must return void: {symbol}"); }
+				classOverrides.push(method);
+			} else {
+				if (method.requiresSuper && (result.kind != NNK_NATIVE_BUILTIN || result.name != "void")) { self.fail(f"overrides that require super must return void: {symbol}"); }
+				instanceOverrides.push(method);
+			}
+		}
+		Node voidType = self.node(NK_TYPE_EXPR);
+		voidType.base = "void";
+		var projection = FeNativeCallbackProjection(binding.interfaceName, 0, -1, -1, voidType);
+		projection.instantiatedScope = binding.scope;
+		if (binding.methods.len > 0 && self.callbackExports.has(binding.methods.get(0))) {
+			NativeNode first = self.callbackExports.get(binding.methods.get(0));
+			if (first.kind == NNK_NATIVE_OBJECTIVE_C_METHOD && first.protocolOwner) { projection.delegateProtocol = first.receiver; }
+		}
+		self.protocolMethods(binding, 0, projection, true, instanceOverrides);
+		if (!binding.terminal.isEmpty()) {
+			for position in range(projection.delegateMethods.len) {
+				var nativeMethod = projection.delegateMethods.get(position).nativeMethod;
+				if (nativeMethod != null && nativeMethod.name == binding.terminal) { projection.terminalIndex = position; }
+			}
+			if (projection.terminalIndex < 0) { self.fail(f"terminal must name an instance method: {binding.terminal}"); }
+		}
+		projection.factoryInterface = binding.interfaceName + "Factory";
+		Node receiver = self.node(NK_TYPE_EXPR);
+		receiver.base = binding.interfaceName;
+		Node create = self.node(NK_METHOD_SIG);
+		create.name = "create";
+		create.returnType = receiver;
+		Node factory = self.node(NK_INTERFACE_DECL);
+		factory.name = projection.factoryInterface;
+		factory.methodsStorage = [create];
+		Map<string, bool> names = {"create": true};
+		string identity = "instantiated-factory:" + binding.interfaceName;
+		for method in classOverrides {
+			string name = method.selector;
+			if (names.has(name)) { self.fail(f"ambiguous delegate method projection: {name}"); }
+			names.put(name, true);
+			Node text = self.node(NK_TYPE_EXPR);
+			text.base = "string";
+			Node signature = self.node(NK_METHOD_SIG);
+			signature.name = name;
+			signature.returnType = text;
+			factory.methodsMut().push(signature);
+			var classMethod = FeNativeCallbackProjection(projection.factoryInterface, 0, -1, 0, text);
+			classMethod.methodName = name;
+			classMethod.nativeMethod = method;
+			classMethod.nativeReturn = "Class";
+			Node context = self.node(NK_TYPE_EXPR);
+			context.base = "void";
+			context.pointerDepth = 1;
+			classMethod.parameters.push(context);
+			projection.classMethods.push(classMethod);
+			identity = identity + ":" + name;
+		}
+		self.add(projection.factoryInterface, factory, identity);
+		projection.superclass = superclass;
+		projection.initializer = declaration;
+		for parameter in declaration.signature.parameters { projection.initializerParameters.push(self.blockTypeSpelling(parameter)); }
+		var method = self.node(NK_METHOD_DECL);
+		method.access = "class";
+		method.name = Strings.split(declaration.selector, ":").get(0);
+		method.returnType = self.objectiveCType(declaration.signature.returnType, false, declaration.receiver);
+		var factoryParameter = self.node(NK_PARAM);
+		factoryParameter.name = "factory";
+		factoryParameter.type = self.node(NK_TYPE_EXPR);
+		factoryParameter.type.base = projection.factoryInterface;
+		method.paramsMut().push(factoryParameter);
+		for index in range(declaration.signature.parameters.len) {
+			var parameter = self.node(NK_PARAM);
+			parameter.name = f"argument{index}";
+			parameter.type = self.objectiveCType(declaration.signature.parameters.get(index), true);
+			method.paramsMut().push(parameter);
+		}
+		var contract = FeNativeCallContract();
+		contract.objectiveCMethod = declaration;
+		contract.callbacks = [projection];
+		FeNativeImportedDeclaration imported = self.objectiveCClass(declaration.receiver);
+		if (imported.methods.has(method.name)) { self.fail(f"ambiguous Objective-C method projection {declaration.receiver}.{method.name}"); }
+		imported.methods.put(method.name, contract);
+		imported.declaration.membersMut().push(method);
+	}
+
 	private void mergeObjectiveCMethods(FeNativeImportedDeclaration selected, FeNativeImportedDeclaration imported) {
 		for name in imported.methods.keys() {
 			if (selected.methods.has(name) && !self.sameCallContract(selected.methods.get(name), imported.methods.get(name))) { self.fail(f"conflicting native declaration '{imported.declaration.name}', method '{name}', imported by {selected.module} and {imported.module}"); }
@@ -3353,6 +3547,8 @@ class FeNativeDeclarationImporter {
 		for index in range(left.transparentParameters.len) { if (left.transparentParameters.get(index) != right.transparentParameters.get(index)) { return false; } }
 
 		for index in range(left.variadicArguments.len) { if (left.variadicArguments.get(index) != right.variadicArguments.get(index)) { return false; } }
+		if (left.errorOutputs.len != right.errorOutputs.len) { return false; }
+		for index in range(left.errorOutputs.len) { if (left.errorOutputs.get(index) != right.errorOutputs.get(index)) { return false; } }
 		if (left.executor != right.executor || left.borrowedResultOwner != right.borrowedResultOwner) { return false; }
 		if (left.ownedOutput == null || right.ownedOutput == null) {
 			if (left.ownedOutput != right.ownedOutput) { return false; }
@@ -4206,6 +4402,9 @@ class FeNativeDeclarationImporter {
 					for method in callback.methods { self.callbackOperations.put(method, true); }
 				} else if (callback.lifetime == "instantiated") {
 					for method in callback.methods { self.callbackOperations.put(method, true); }
+					/* A subclass adapter's own initializer is imported, as its constructor. */
+					string initializer = Strings.split(key, ".").get(0);
+					for method in callback.overrides { if (method != initializer) { self.callbackOperations.put(method, true); } }
 				} else if (!callback.unregister.isEmpty()) { self.callbackOperations.put(callback.unregister, true); }
 				var realtime = callback.realtime;
 				if (realtime != null) { for method in realtime.operations.keys() { self.callbackOperations.put(Strings.split(realtime.operations.get(method), ".").get(0), true); } }
@@ -4596,6 +4795,8 @@ class FeNativeDeclarationImporter {
 			self.mainThreadGlobals = {};
 			for name in binding.mainThreadGlobals { self.mainThreadGlobals.put(name, true); }
 			for key in binding.callbacks.keys() { self.callbacks.put(key, binding.callbacks.get(key)); }
+			self.errorOutputs = {};
+			for name in binding.errorOutputs { self.errorOutputs.put(name, true); }
 			self.mergeInterfaces(decoded.interfaces);
 			self.layouts = {};
 			for layout in decoded.records {
@@ -4615,6 +4816,7 @@ class FeNativeDeclarationImporter {
 			self.projectRecordSnapshots(binding);
 			if (self.statusResults.len > 0) { self.fail("status-results names an unknown dispatched method"); }
 			if (self.copiedOutputs.len > 0) { self.fail("copied-outputs names an unknown dispatched method parameter"); }
+			for key in self.errorOutputs.keys() { self.fail(f"error-outputs names an unknown Objective-C method parameter: {key}"); }
 			if (self.borrows.len > 0) { self.fail("read-only-borrows names unknown function parameter"); }
 			if (self.realtime.len > 0) { self.fail("realtime-safe names a non-function declaration"); }
 			if (self.variadicCalls.len > 0) { self.fail("variadic-calls names an unknown function or parameter"); }

@@ -278,6 +278,9 @@ class FeNativeBinding {
 	public Vector<FeNativeComSinkBinding> comSinks = [];
 	/* Java natives registrations, by their class's BTRC name. */
 	public Vector<FeNativeJavaNativesBinding> javaNatives = [];
+	/* Objective-C NSError** parameters ("<method>.<parameter>") whose non-nil
+	 * error throws after the call (F1). */
+	public Vector<string> errorOutputs = [];
 	public Vector<string> borrowedParameters;
 
 	public FeNativeBinding(string packageName, string module, string header, string language, string standard, Vector<string> symbols, Vector<string> operatingSystems, Vector<string> architectures) {
@@ -579,7 +582,7 @@ class FeManifestBlock {
 			if (key.startsWith("variadic-calls.")) { return true; }
 			if (key.startsWith("string-views.")) { return true; }
 			if (key.startsWith("unmanaged-handles.")) { return true; }
-			if (key == "main-thread-globals") { return true; }
+			if (key == "main-thread-globals" || key == "error-outputs") { return true; }
 			if (key.startsWith("callbacks.")) { return true; }
 			if (key.startsWith("resources.") || key.startsWith("borrowed-results.") || key.startsWith("resource-parameters.") || key.startsWith("resource-results.") || key == "owned-results" || key == "borrowed-parameters" || key == "static-globals") { return true; }
 			return key.equals("module") || key.equals("header") || key.equals("symbols") || key.equals("language") || key.equals("standard") || key.equals("os") || key.equals("arch") || key.equals("env") || key.equals("read-only-borrows") || key.equals("realtime-safe") || key.equals("owned-records") || key.equals("record-inputs") || key.equals("record-outputs") || key.equals("owned-output-fields") || key.equals("null-output-fields") || key.startsWith("object-fields.");
@@ -874,7 +877,7 @@ class FeManifestBlock {
 			if (parts.len == 5 && parts.get(3) == "operations" && self.identifier(parts.get(4)) && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string field = parts.get(3);
-			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "action-parameter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles" && field != "terminal") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "action-parameter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles" && field != "terminal" && field != "superclass" && field != "overrides") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
 			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
 		}
 		for name in self.callbackNames.keys() {
@@ -894,12 +897,23 @@ class FeManifestBlock {
 			string lifetime = self.requiredText(prefix + "lifetime");
 			if (lifetime != "call" && lifetime != "stored" && lifetime != "one-shot" && lifetime != "instantiated") { FePackageFailure.fail("callback lifetime requires call, stored, one-shot or instantiated"); }
 			string scope = self.fields.has(prefix + "scope") ? self.requiredText(prefix + "scope") : "";
+			/* A subclass adapter maps the implicit self of its superclass's
+			 * designated initializer: BTRC creates the instance there. */
+			bool subclass = parts.get(1) == "self";
+			bool subclassFacts = self.fields.has(prefix + "superclass") || self.fields.has(prefix + "overrides");
+			if (subclassFacts && lifetime != "instantiated") { FePackageFailure.fail("superclass and overrides require an instantiated adapter"); }
 			if (lifetime == "instantiated") {
 				/* The SDK creates the adapter from a class name (UIApplicationMain)
 				 * or a class (a scene configuration); the binding only names the
 				 * protocol methods it answers. */
 				if (binding.language != "objective-c" || hasContext) { FePackageFailure.fail("instantiated adapters require an Objective-C binding without context"); }
 				if (scope != "process" && scope != "instance") { FePackageFailure.fail("instantiated adapter scope requires process or instance"); }
+				if (!subclass && subclassFacts) { FePackageFailure.fail("superclass and overrides require a designated initializer's self parameter"); }
+				if (subclass) {
+					if (!self.fields.has(prefix + "superclass")) { FePackageFailure.fail("an initializer's self parameter requires superclass"); }
+					if (!self.identifier(self.requiredText(prefix + "superclass"))) { FePackageFailure.fail("callback superclass must be an identifier"); }
+					if (scope != "instance") { FePackageFailure.fail("subclass adapters require scope instance"); }
+				}
 				for field in ["unregister", "activation-failure", "cancellation", "slot-getter", "action-setter", "action-getter", "action-parameter", "owned-arguments", "field"] {
 					if (self.fields.has(prefix + field)) { FePackageFailure.fail("instantiated adapters take only methods, scope, terminal, failure and executor"); }
 				}
@@ -976,22 +990,38 @@ class FeManifestBlock {
 			bool action = self.fields.has(prefix + "action-setter") || self.fields.has(prefix + "action-getter");
 			if (lifetime == "instantiated") {
 				callback.scope = scope;
+				Map<string, bool> overridden = {};
+				if (subclass) {
+					callback.superclass = self.requiredText(prefix + "superclass");
+					if (self.fields.has(prefix + "overrides")) {
+						callback.overrides = self.stringArray(prefix + "overrides");
+						if (callback.overrides.len == 0) { FePackageFailure.fail("callback overrides must name selected native methods"); }
+						for method in callback.overrides {
+							if (!binding.symbols.contains(method)) { FePackageFailure.fail("callback overrides must name selected native methods"); }
+							if (overridden.has(method)) { FePackageFailure.fail("callback overrides contains a duplicate value"); }
+							overridden.put(method, true);
+						}
+					}
+				}
 				callback.methods = self.stringArray(prefix + "methods");
-				if (callback.methods.len == 0) { FePackageFailure.fail("instantiated methods must name selected native methods"); }
+				/* A subclass adapter may answer only superclass methods. */
+				if (callback.methods.len == 0 && (!subclass || callback.overrides.len == 0)) { FePackageFailure.fail("instantiated methods must name selected native methods"); }
 				Map<string, bool> seen = {};
 				for method in callback.methods {
 					if (!binding.symbols.contains(method)) { FePackageFailure.fail("instantiated methods must name selected native methods"); }
 					if (seen.has(method)) { FePackageFailure.fail("instantiated methods contains duplicate methods"); }
+					if (overridden.has(method)) { FePackageFailure.fail("callback methods and overrides must be distinct"); }
 					seen.put(method, true);
 				}
 				/* An instance-scoped adapter releases its receiver after the
-				 * terminal method; a process root is never released. */
+				 * terminal method; a process root is never released. A subclass
+				 * instance without one releases it at dealloc. */
 				bool terminal = self.fields.has(prefix + "terminal");
-				if (scope == "instance" && !terminal) { FePackageFailure.fail("instance-scoped instantiated adapters require terminal"); }
+				if (scope == "instance" && !terminal && !subclass) { FePackageFailure.fail("instance-scoped instantiated adapters require terminal"); }
 				if (scope == "process" && terminal) { FePackageFailure.fail("callback terminal requires scope instance"); }
 				if (terminal) {
 					callback.terminal = self.requiredText(prefix + "terminal");
-					if (!seen.has(callback.terminal)) { FePackageFailure.fail("callback terminal must name one of methods"); }
+					if (!seen.has(callback.terminal) && !overridden.has(callback.terminal)) { FePackageFailure.fail("callback terminal must name one of methods"); }
 				}
 			} else if (self.fields.has(prefix + "methods") || self.fields.has(prefix + "slot-getter") || action) {
 				if (lifetime != "stored" || binding.language != "objective-c" || hasContext) { FePackageFailure.fail("delegate methods require a stored Objective-C callback"); }
@@ -1442,6 +1472,16 @@ class FeManifestBlock {
 			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("borrowed-parameters must name selected function.parameter pairs"); }
 			if (operations.has(parts.get(0))) { FePackageFailure.fail("resource lifetime operations are reserved"); }
 		}
+		/* Objective-C NSError** outputs the adapter supplies (F1). */
+		binding.errorOutputs = self.stringArray("error-outputs");
+		Map<string, bool> errorOutputs = {};
+		for parameter in binding.errorOutputs {
+			var parts = Strings.split(parameter, ".");
+			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("error-outputs must name selected function.parameter pairs"); }
+			if (errorOutputs.has(parameter)) { FePackageFailure.fail("error-outputs contains a duplicate value"); }
+			errorOutputs.put(parameter, true);
+		}
+		if (binding.errorOutputs.len > 0 && binding.language != "objective-c") { FePackageFailure.fail("error-outputs require an Objective-C binding"); }
 		if (binding.resources.len > 0 || binding.ownedResults.len > 0 || binding.borrowedParameters.len > 0 || binding.borrowedResults.len > 0) {
 			if (binding.language != "c" && binding.language != "c++") { FePackageFailure.fail("resource bindings require C or C++"); }
 			if (binding.language == "c++" && (binding.ownedResults.len > 0 || binding.borrowedParameters.len > 0 || binding.borrowedResults.len > 0)) { FePackageFailure.fail("C++ resource methods carry ownership through their receiver"); }
