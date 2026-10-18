@@ -379,8 +379,9 @@ class GenericSpecializer {
 					Node? fromRaw = self.analyzed.classMethod("Bytes", "fromRaw");
 					if (constructor == null || fromRaw == null || !hostedAbi.compilerStdlibNode(constructor) || !hostedAbi.compilerStdlibNode(fromRaw)) { throw "Copied native bytes require authenticated import Library.Bytes"; }
 				}
-				if (contract.comSink != null) {
-					/* A COM sink's registration is a CallbackContext whose token owns its record. */
+				if (contract.comSink != null || contract.javaNatives != null) {
+					/* A COM sink's or Java natives registration is a CallbackContext
+					 * whose token owns its record. */
 					Node context = member.returnType;
 					Node token = context.genericArgs().get(1);
 					for owner in [context, token] {

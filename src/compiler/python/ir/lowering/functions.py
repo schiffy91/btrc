@@ -206,6 +206,9 @@ class FunctionLowerer:
         if contract.com_sink is not None:
             self._emit_com_sink_adapter(declaration, contract)
             return
+        if contract.java_natives is not None:
+            self._emit_java_natives_adapter(declaration, contract)
+            return
         parameters = [self._signatures.lower_source_param(parameter) for parameter in declaration.params]
         return_type = CType(text=self._types.render(declaration.return_type))
         statements = []
@@ -3650,6 +3653,744 @@ class FunctionLowerer:
             ]
         )
         return text
+
+    def _emit_java_natives_adapter(self, declaration, contract):
+        """A Java class's natives: RegisterNatives thunks over one M2 holder, and the registration factory.
+
+        The holder is `{ pins, state, context, thread, registered }`: a state
+        word (0 live, 1 cancelled, 2 dead), the registering thread, and one
+        external claim on the registration's CallbackContext, held while the
+        holder is pinned. The class's binding pins it while the registration
+        lives, and each call pins it for its duration (rule 2), so a receiver
+        may cancel its own registration inside a call. One static slot names
+        the live holder. A thunk on another thread terminates (rule 3); with
+        no live holder it raises IllegalStateException without entering BTRC,
+        which is the cancellation's entry barrier. The natives stay bound to
+        the thunks, which are the stubs that throw (native-interop-ownership.md
+        section 2.3, "Java -> btrc").
+        """
+        natives = contract.java_natives
+        module = self._session.module
+        prefix = f"__btrc_java_natives_{natives.owner}"
+        holder_name, registration_name = prefix + "_holder", prefix + "_registration"
+        holder_type, registration_type = CType(f"struct {holder_name}*"), CType(f"struct {registration_name}*")
+        context_type = declaration.return_type
+        context_c = CType(self._types.render(context_type))
+        context_symbol = context_c.text.removesuffix("*").strip()
+        token_type = context_type.generic_args[1]
+        token_c = CType(self._types.render(token_type))
+        token_symbol = token_c.text.removesuffix("*").strip()
+        include = IRInclude(header="pthread.h")
+        if include not in module.preprocessor_decls:
+            module.preprocessor_decls.append(include)
+        module.struct_forwards.extend([IRStructForward(holder_name), IRStructForward(registration_name)])
+        module.struct_defs.extend(
+            [
+                IRStructDef(
+                    holder_name,
+                    [
+                        IRStructField(CType("uint32_t"), "pins"),
+                        IRStructField(CType("uint32_t"), "state"),
+                        IRStructField(CType("void*"), "context"),
+                        IRStructField(CType("volatile int*"), "thread"),
+                        IRStructField(CType("bool"), "registered"),
+                    ],
+                ),
+                IRStructDef(registration_name, [IRStructField(holder_type, "holder")]),
+            ]
+        )
+        lock_name, current = prefix + "_lock", IRVar(prefix + "_current")
+        module.global_decls.extend(
+            [
+                IRGlobalDecl(
+                    CType("pthread_mutex_t"), lock_name, init=IRLiteral("PTHREAD_MUTEX_INITIALIZER"), is_static=True
+                ),
+                IRGlobalDecl(holder_type, current.name, init=IRLiteral("NULL"), is_static=True),
+            ]
+        )
+        holder, registration = IRVar("holder"), IRVar("registration")
+        state, pins = IRFieldAccess(holder, "state", arrow=True), IRFieldAccess(holder, "pins", arrow=True)
+        registered = IRFieldAccess(holder, "registered", arrow=True)
+        context = IRCast(context_c, IRFieldAccess(holder, "context", arrow=True))
+        on_thread = IRAddressOf(IRFieldAccess(IRVar("__btrc_tls"), "try_top"))
+
+        def define(name, result, params, body):
+            module.function_decls.append(IRFunctionDecl(name, result, params, is_static=True))
+            module.function_defs.append(
+                IRFunctionDef(name=name, return_type=result, params=params, is_static=True, body=IRBlock(body))
+            )
+
+        def locked(function):
+            return self._native_unique_checked(function, [IRAddressOf(IRVar(lock_name))])
+
+        def closed():
+            return [IRExprStmt(IRCall("free", [holder])), IRExprStmt(IRCall("btrcJavaNativesClosed", []))]
+
+        # Pin: the live holder, on its own thread, for one call.
+        what = IRVar("what")
+        define(
+            f"{prefix}_pin",
+            holder_type,
+            [IRParam(CType("JNIEnv*"), "env"), IRParam(CType("const char*"), what.name)],
+            [
+                locked("pthread_mutex_lock"),
+                IRVarDecl(holder_type, holder.name, init=current),
+                IRIf(
+                    IRBinOp(holder, "==", IRLiteral("NULL")),
+                    IRBlock(
+                        [
+                            locked("pthread_mutex_unlock"),
+                            IRExprStmt(
+                                IRCall(
+                                    "btrcJavaThrow",
+                                    [
+                                        IRVar("env"),
+                                        IRLiteral('"java/lang/IllegalStateException"'),
+                                        IRLiteral(json.dumps(f"Java natives {natives.class_name} are not registered")),
+                                    ],
+                                )
+                            ),
+                            IRReturn(IRLiteral("NULL")),
+                        ]
+                    ),
+                ),
+                IRIf(
+                    IRBinOp(IRFieldAccess(holder, "thread", arrow=True), "!=", on_thread),
+                    IRBlock(
+                        [
+                            IRExprStmt(
+                                IRCall(
+                                    "fprintf",
+                                    [
+                                        IRVar("stderr"),
+                                        IRLiteral(json.dumps("%s: called off its executor thread\n")),
+                                        what,
+                                    ],
+                                )
+                            ),
+                            IRExprStmt(IRCall("abort", [], never_returns=True)),
+                        ]
+                    ),
+                ),
+                IRAssign(pins, IRBinOp(pins, "+", IRLiteral("1u"))),
+                locked("pthread_mutex_unlock"),
+                IRReturn(holder),
+            ],
+        )
+        # Unpin: at zero the holder is dead before its claim is released, and
+        # frees itself once its registration has also let go of it.
+        remaining = IRVar("remaining")
+        define(
+            f"{prefix}_unpin",
+            CType("void"),
+            [IRParam(holder_type, holder.name)],
+            [
+                locked("pthread_mutex_lock"),
+                IRAssign(pins, IRBinOp(pins, "-", IRLiteral("1u"))),
+                IRVarDecl(CType("uint32_t"), remaining.name, init=pins),
+                IRIf(IRBinOp(remaining, "==", IRLiteral("0u")), IRBlock([IRAssign(state, IRLiteral("2u"))])),
+                locked("pthread_mutex_unlock"),
+                IRIf(
+                    IRBinOp(remaining, "==", IRLiteral("0u")),
+                    IRBlock(
+                        [
+                            self._exceptions.native_callback_boundary(
+                                IRBlock(
+                                    [
+                                        IRExprStmt(self._lifetime.release_value(context, context_type)),
+                                        *self._exceptions.pop_try_frames(1),
+                                    ]
+                                )
+                            ),
+                            IRAssign(IRFieldAccess(holder, "context", arrow=True), IRLiteral("NULL")),
+                            IRIf(IRUnaryOp(op="!", operand=registered), IRBlock(closed())),
+                        ]
+                    ),
+                ),
+            ],
+        )
+
+        def raw():
+            return IRParam(CType("void*"), "rawRegistration")
+
+        def load():
+            return [
+                IRVarDecl(
+                    registration_type, registration.name, init=IRCast(registration_type, IRVar("rawRegistration"))
+                ),
+                IRVarDecl(holder_type, holder.name, init=IRFieldAccess(registration, "holder", arrow=True)),
+            ]
+
+        # Unregister, the entry barrier: no later call finds the holder, and
+        # the class's binding stops pinning it.
+        live = IRVar("live")
+        define(
+            f"{prefix}_unregister",
+            CType("bool"),
+            [raw()],
+            [
+                *load(),
+                IRIf(IRBinOp(holder, "==", IRLiteral("NULL")), IRBlock([IRReturn(IRLiteral("true"))])),
+                locked("pthread_mutex_lock"),
+                IRVarDecl(CType("bool"), live.name, init=IRBinOp(state, "==", IRLiteral("0u"))),
+                IRIf(
+                    live,
+                    IRBlock(
+                        [
+                            IRAssign(state, IRLiteral("1u")),
+                            IRIf(
+                                IRBinOp(current, "==", holder),
+                                IRBlock([IRAssign(current, IRLiteral("NULL"))]),
+                            ),
+                        ]
+                    ),
+                ),
+                locked("pthread_mutex_unlock"),
+                IRIf(live, IRBlock([IRExprStmt(IRCall(f"{prefix}_unpin", [holder]))])),
+                IRReturn(IRLiteral("true")),
+            ],
+        )
+        # Destroy: the registration has drained; a dead holder is freed now, a
+        # pinned one at its last unpin.
+        define(
+            f"{prefix}_destroy",
+            CType("void"),
+            [raw()],
+            [
+                *load(),
+                IRIf(
+                    IRBinOp(holder, "!=", IRLiteral("NULL")),
+                    IRBlock(
+                        [
+                            IRAssign(registered, IRLiteral("false")),
+                            IRIf(IRBinOp(state, "==", IRLiteral("2u")), IRBlock(closed())),
+                        ]
+                    ),
+                ),
+                IRExprStmt(IRCall("free", [registration])),
+            ],
+        )
+        token = IRParam(token_c, "token")
+        define(
+            f"{prefix}_cancel",
+            CType("bool"),
+            [token],
+            [IRReturn(IRCall(f"{token_symbol}_unregister", [IRVar(token.name)]))],
+        )
+        signatures = self._analyzed.interface_table[natives.interface].methods
+        thunks = [
+            self._java_native_thunk(natives, method, signatures[method.name], prefix, holder_type, context_type, define)
+            for method in natives.methods
+        ]
+        # The factory: refuse a second live registration, bind every native,
+        # then the registration, token, context and holder, and publish.
+        environment = IRVar(self._JAVA_ENVIRONMENT)
+        name = contract.adapter_symbol(declaration.name)
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in declaration.params]
+        receiver, scope = (IRVar(parameter.name) for parameter in parameters)
+        body = [IRVarDecl(CType("jclass"), "__btrc_java_class", init=IRLiteral("NULL"), is_static=True)]
+        cleanup = self._native_cleanup_scope(parameters, body)
+        body.extend(
+            self._native_null_guard(IRVar(parameter.name), f"Native call {declaration.name}: null {parameter.name}")
+            for parameter in parameters
+        )
+        self._session.require_helper("__btrc_throw")
+        taken = IRVar("taken")
+        already = f"Java natives {natives.class_name} are already registered"
+        body.extend(
+            [
+                locked("pthread_mutex_lock"),
+                IRVarDecl(CType("bool"), taken.name, init=IRBinOp(current, "!=", IRLiteral("NULL"))),
+                locked("pthread_mutex_unlock"),
+                IRIf(
+                    taken,
+                    IRBlock(
+                        [
+                            IRExprStmt(
+                                IRCall(
+                                    "__btrc_throw",
+                                    [IRLiteral(json.dumps(already))],
+                                    helper_ref="__btrc_throw",
+                                    never_returns=True,
+                                )
+                            )
+                        ]
+                    ),
+                ),
+            ]
+        )
+        methods = IRVar("__btrc_java_methods")
+        body.extend(
+            [
+                IRVarDecl(CType("JNIEnv*"), self._JAVA_ENVIRONMENT, init=IRCall("btrcJavaEnvironment", [])),
+                IRIf(
+                    IRBinOp(self._java_env_call("PushLocalFrame", IRLiteral("2")), "!=", IRLiteral("0")),
+                    self._java_translate(False),
+                ),
+                IRVarDecl(
+                    CType("jclass"),
+                    "__btrc_java_owner",
+                    init=IRCall(
+                        "btrcJavaClass",
+                        [
+                            environment,
+                            IRAddressOf(IRVar("__btrc_java_class")),
+                            IRLiteral(json.dumps(natives.binary_name)),
+                        ],
+                    ),
+                ),
+                self._java_check(),
+                IRVarDecl(CType("JNINativeMethod"), methods.name, array_size=IRLiteral(str(len(thunks)))),
+                *(
+                    IRExprStmt(
+                        IRCall(
+                            "btrcJavaNativeMethod",
+                            [
+                                IRAddressOf(IRIndex(methods, IRLiteral(str(index)))),
+                                IRLiteral(json.dumps(method.name)),
+                                IRLiteral(json.dumps(method.descriptor)),
+                                IRCast(CType("void (*)(void)"), IRFunctionRef(thunk)),
+                            ],
+                        )
+                    )
+                    for index, (method, thunk) in enumerate(zip(natives.methods, thunks, strict=True))
+                ),
+                IRExprStmt(
+                    IRCall(
+                        "btrcJavaRegisterNatives",
+                        [
+                            environment,
+                            IRVar("__btrc_java_owner"),
+                            methods,
+                            IRLiteral(str(len(thunks))),
+                            IRLiteral(json.dumps(natives.binary_name)),
+                        ],
+                    )
+                ),
+                self._java_check(),
+                IRExprStmt(self._java_env_call("PopLocalFrame", IRLiteral("NULL"))),
+            ]
+        )
+        self._session.require_helper("__btrc_safe_calloc")
+        token_slot = IRVarDecl(
+            token_c,
+            "registrationToken",
+            init=IRCall(
+                f"{token_symbol}_new",
+                [
+                    IRFunctionRef(f"{prefix}_destroy"),
+                    IRCast(CType("void*"), registration),
+                    IRFunctionRef(f"{prefix}_destroy"),
+                    IRFunctionRef(f"{prefix}_unregister"),
+                    IRCast(CType("void*"), registration),
+                ],
+            ),
+        )
+        context_slot = IRVarDecl(
+            context_c, "context", init=IRCall(f"{context_symbol}_new", [receiver, IRFunctionRef(f"{prefix}_cancel")])
+        )
+        context_value = IRVar(context_slot.name)
+        race = self._native_null_guard(IRLiteral("NULL"), already)
+        race.condition = IRBinOp(current, "!=", IRLiteral("NULL"))
+        body.extend(
+            [
+                IRVarDecl(
+                    registration_type,
+                    registration.name,
+                    init=IRCast(
+                        registration_type,
+                        IRCall("__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(CType(f"struct {registration_name}"))]),
+                    ),
+                ),
+                token_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(token_slot, token_type)),
+                context_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(context_slot, context_type)),
+                IRExprStmt(IRCall(f"{context_symbol}_activate", [context_value, scope])),
+                IRVarDecl(
+                    holder_type,
+                    holder.name,
+                    init=IRCast(
+                        holder_type,
+                        IRCall("__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(CType(f"struct {holder_name}"))]),
+                    ),
+                ),
+                IRExprStmt(IRCall("btrcJavaNativesOpened", [])),
+                IRAssign(IRFieldAccess(holder, "thread", arrow=True), on_thread),
+                IRAssign(registered, IRLiteral("true")),
+                # The holder's one external claim on the context.
+                IRExprStmt(self._lifetime.retain_value(context_value, context_type)),
+                IRAssign(IRFieldAccess(holder, "context", arrow=True), IRCast(CType("void*"), context_value)),
+                IRAssign(IRFieldAccess(registration, "holder", arrow=True), holder),
+                # Publication: the class's binding pins the holder.
+                locked("pthread_mutex_lock"),
+                race,
+                IRAssign(current, holder),
+                IRAssign(pins, IRLiteral("1u")),
+                locked("pthread_mutex_unlock"),
+                IRExprStmt(IRCall(f"{context_symbol}_publish", [context_value, IRVar(token_slot.name)])),
+            ]
+        )
+        release_locals = []
+        token_release = self._lifetime.release_and_clear(
+            IRVar(token_slot.name), token_type, release_locals, token_c.text
+        )
+        body.extend(
+            [*release_locals, *(IRExprStmt(value) for value in token_release), *cleanup, IRReturn(context_value)]
+        )
+        define(name, context_c, parameters, body)
+
+    def _java_native_thunk(self, natives, method, signature, prefix, holder_type, context_type, define):
+        """One native's thunk: pin, install the env, frame, convert, enter the receiver, convert back.
+
+        Arguments convert before BTRC is entered: an object to a new global
+        reference, a string to a BTRC string; a JNI failure returns to Java
+        with its exception pending, after releasing what it converted. Inside
+        the callback boundary the global references become owners and the
+        receiver is entered through the context. A BTRC exception escaping the
+        receiver has run its cleanups and, with failure = "throw", is raised
+        as java.lang.RuntimeException carrying its message (F1, reversed).
+        """
+        name = f"{prefix}_{method.name}"
+        what = f"Java natives {natives.class_name}.{method.name}{method.descriptor}"
+        context_c = CType(self._types.render(context_type))
+        context_symbol = context_c.text.removesuffix("*").strip()
+        receiver_type = context_type.generic_args[0]
+        holder = IRVar("holder")
+        context = IRCast(context_c, IRFieldAccess(holder, "context", arrow=True))
+        environment = IRVar(self._JAVA_ENVIRONMENT)
+        previous = IRVar("__btrc_java_previous")
+        target = IRVar("__btrc_java_target")
+        params = [
+            IRParam(CType("JNIEnv*"), "env"),
+            IRParam(CType("jclass" if method.static_member else "jobject"), target.name),
+        ]
+        kinds = list(method.parameters)
+        values = [target] if not method.static_member else []
+        if not method.static_member:
+            kinds.insert(0, "object")
+        for index, kind in enumerate(method.parameters):
+            params.append(IRParam(CType(self._JAVA_VALUES[kind][1]), f"argument{index}"))
+            values.append(IRVar(f"argument{index}"))
+        value_types = [parameter.type for parameter in signature.params]
+        result_c = CType(self._JAVA_VALUES[method.result][1])
+        zero = (
+            None
+            if method.result == "V"
+            else IRLiteral("NULL")
+            if method.result in ("string", "object")
+            else IRCast(result_c, IRLiteral("0"))
+        )
+        unpin = IRExprStmt(IRCall(f"{prefix}_unpin", [holder]))
+        restore = IRExprStmt(IRCall("btrcJavaLeave", [previous]))
+
+        def pop_frame():
+            return IRExprStmt(self._java_env_call("PopLocalFrame", IRLiteral("NULL")))
+
+        def to_java(undo):
+            """Back to Java with its exception pending, after unwinding what this call made."""
+            return IRBlock([*undo, pop_frame(), unpin, restore, IRReturn(zero)])
+
+        body = [] if not method.static_member else [IRExprStmt(IRCast(CType("void"), target))]
+        body.extend(
+            [
+                IRVarDecl(
+                    holder_type, holder.name, init=IRCall(f"{prefix}_pin", [IRVar("env"), IRLiteral(json.dumps(what))])
+                ),
+                IRIf(IRBinOp(holder, "==", IRLiteral("NULL")), IRBlock([IRReturn(zero)])),
+                # The environment Java called with is the thread's for the call.
+                IRVarDecl(CType("JNIEnv*"), previous.name, init=IRCall("btrcJavaEnter", [IRVar("env")])),
+                IRVarDecl(CType("JNIEnv*"), self._JAVA_ENVIRONMENT, init=IRCall("btrcJavaEnvironment", [])),
+                IRIf(
+                    IRBinOp(self._java_env_call("PushLocalFrame", IRLiteral("2")), "!=", IRLiteral("0")),
+                    IRBlock([unpin, restore, IRReturn(zero)]),
+                ),
+            ]
+        )
+        undo = []
+        converted = []
+        strings = {}
+        string_type = TypeExpr(base="string", is_nullable=True, pointer_depth=1)
+        for position, (kind, value) in enumerate(zip(kinds, values, strict=True)):
+            if kind == "object":
+                reference = IRVar(f"__btrc_java_global_{position}")
+                body.extend(
+                    [
+                        IRVarDecl(CType("jobject"), reference.name, init=IRLiteral("NULL")),
+                        IRIf(
+                            IRBinOp(value, "!=", IRLiteral("NULL")),
+                            IRBlock(
+                                [
+                                    IRAssign(reference, self._java_env_call("NewGlobalRef", value)),
+                                    IRIf(self._java_env_call("ExceptionCheck"), to_java(list(undo))),
+                                    self._native_null_guard(reference, f"{what}: no memory for a global reference"),
+                                ]
+                            ),
+                        ),
+                    ]
+                )
+                undo.insert(
+                    0,
+                    IRIf(
+                        IRBinOp(reference, "!=", IRLiteral("NULL")),
+                        IRBlock([IRExprStmt(self._java_env_call("DeleteGlobalRef", reference))]),
+                    ),
+                )
+                converted.append(reference)
+            elif kind == "string":
+                self._session.require_helper("__btrc_string_adopt")
+                text = IRVarDecl(CType("char*"), f"__btrc_java_text_{position}", init=IRLiteral("NULL"))
+                body.extend(
+                    [
+                        text,
+                        IRIf(
+                            IRBinOp(value, "!=", IRLiteral("NULL")),
+                            IRBlock(
+                                [
+                                    IRAssign(IRVar(text.name), IRCall("btrcJavaCopyString", [environment, value])),
+                                    IRIf(self._java_env_call("ExceptionCheck"), to_java(list(undo))),
+                                    IRAssign(
+                                        IRVar(text.name),
+                                        IRCall(
+                                            "__btrc_string_adopt", [IRVar(text.name)], helper_ref="__btrc_string_adopt"
+                                        ),
+                                    ),
+                                ]
+                            ),
+                        ),
+                    ]
+                )
+                undo.insert(0, IRExprStmt(self._lifetime.release_value(IRVar(text.name), string_type)))
+                strings[position] = text
+                converted.append(IRVar(text.name))
+            else:
+                converted.append(value)
+        admitted = IRVar("__btrc_java_admitted")
+        if natives.failure == "throw":
+            body.append(IRVarDecl(CType("int"), admitted.name, init=IRLiteral("0"), is_volatile=True))
+        cleanup = self._native_cleanup_scope(params, body)
+        # Inside the boundary: owners and strings protected first, then the receiver.
+        inner = []
+        arguments = []
+        managed = []
+        for position, (kind, value_type, value) in enumerate(zip(kinds, value_types, converted, strict=True)):
+            if kind == "object":
+                owner_type = TypeExpr(base=value_type.base, is_nullable=True, pointer_depth=1)
+                slot = IRVarDecl(
+                    CType(self._types.render(owner_type)), f"__btrc_java_object_{position}", init=IRLiteral("NULL")
+                )
+                owner = IRVar(slot.name)
+                inner.extend(
+                    [
+                        slot,
+                        IRExprStmt(self._lifetime.register_cleanup_slot(slot, owner_type)),
+                        IRIf(
+                            IRBinOp(value, "!=", IRLiteral("NULL")),
+                            IRBlock(
+                                [
+                                    IRAssign(owner, IRCall(f"__btrc_unique_{value_type.base}_new", [])),
+                                    IRAssign(IRFieldAccess(owner, "value", arrow=True), value),
+                                    IRExprStmt(IRCall("btrcJavaClaim", [])),
+                                ]
+                            ),
+                        ),
+                    ]
+                )
+                arguments.append(owner)
+                managed.append((owner, owner_type))
+            elif kind == "string":
+                inner.append(IRExprStmt(self._lifetime.register_cleanup_slot(strings[position], string_type)))
+                arguments.append(value)
+                managed.append((value, string_type))
+            else:
+                arguments.append(IRCast(CType(self._types.render(value_type)), value))
+        receiver_slot = IRVarDecl(
+            CType(self._types.render(receiver_type)), "receiver", init=IRCall(f"{context_symbol}_enter", [context])
+        )
+        receiver = IRVar(receiver_slot.name)
+        inner.extend([receiver_slot, IRExprStmt(self._lifetime.register_cleanup_slot(receiver_slot, receiver_type))])
+        result_type = signature.return_type
+        result = IRVar("__btrc_java_value")
+        returns_managed = method.result in ("string", "object")
+        if method.result != "V":
+            result_slot = IRVarDecl(
+                CType(self._types.render(result_type)),
+                result.name,
+                init=IRLiteral("NULL")
+                if returns_managed
+                else IRCast(CType(self._types.render(result_type)), IRLiteral("0")),
+            )
+            inner.append(result_slot)
+            if returns_managed:
+                inner.append(IRExprStmt(self._lifetime.register_cleanup_slot(result_slot, result_type)))
+        entered = IRVar("__btrc_java_entered")
+        inner.append(IRVarDecl(CType("bool"), entered.name, init=IRBinOp(receiver, "!=", IRLiteral("NULL"))))
+        call = IRCall(f"{natives.interface}_{method.name}", [receiver, *arguments])
+        inner.append(
+            IRIf(
+                entered,
+                IRBlock(
+                    [
+                        *([IRAssign(admitted, IRLiteral("1"))] if natives.failure == "throw" else []),
+                        IRAssign(result, call) if method.result != "V" else IRExprStmt(call),
+                        IRExprStmt(IRCall(f"{context_symbol}_leave", [context])),
+                        *([IRAssign(admitted, IRLiteral("0"))] if natives.failure == "throw" else []),
+                    ]
+                ),
+            )
+        )
+        release_locals = []
+        releases = [
+            *self._lifetime.release_and_clear(
+                receiver, receiver_type, release_locals, self._types.render(receiver_type)
+            ),
+        ]
+        for value, value_type in managed:
+            releases.extend(
+                self._lifetime.release_and_clear(value, value_type, release_locals, self._types.render(value_type))
+            )
+        inner.extend([*release_locals, *(IRExprStmt(value) for value in releases)])
+        result_locals = []
+        result_release = (
+            [
+                IRExprStmt(value)
+                for value in self._lifetime.release_and_clear(
+                    result, result_type, result_locals, self._types.render(result_type)
+                )
+            ]
+            if returns_managed
+            else []
+        )
+        leaving = [*cleanup, *self._exceptions.pop_try_frames(1)]
+        out = IRVar("__btrc_java_out")
+        if method.result == "string":
+            inner.extend(
+                [
+                    *result_locals,
+                    IRVarDecl(CType("jstring"), out.name, init=IRLiteral("NULL")),
+                    IRIf(
+                        IRBinOp(result, "!=", IRLiteral("NULL")),
+                        IRBlock(
+                            [
+                                IRAssign(out, IRCall("btrcJavaNewString", [environment, result])),
+                                IRIf(self._java_env_call("ExceptionCheck"), to_java([*result_release, *leaving])),
+                            ]
+                        ),
+                    ),
+                    *result_release,
+                ]
+            )
+        elif method.result == "object":
+            prefix_owner = f"__btrc_unique_{result_type.base}"
+            inner.extend(
+                [
+                    *result_locals,
+                    IRVarDecl(CType("jobject"), out.name, init=IRLiteral("NULL")),
+                    IRIf(
+                        IRBinOp(result, "!=", IRLiteral("NULL")),
+                        IRBlock(
+                            [
+                                IRExprStmt(self._lifetime.retain_value(result, result_type)),
+                                IRExprStmt(IRCall(prefix_owner + "_begin_borrow", [result])),
+                                IRAssign(
+                                    out, self._java_env_call("NewLocalRef", IRFieldAccess(result, "value", arrow=True))
+                                ),
+                                IRIf(
+                                    self._java_env_call("ExceptionCheck"),
+                                    to_java(
+                                        [
+                                            IRExprStmt(IRCall(prefix_owner + "_end_borrow", [result])),
+                                            *result_release,
+                                            *leaving,
+                                        ]
+                                    ),
+                                ),
+                                IRExprStmt(IRCall(prefix_owner + "_end_borrow", [result])),
+                            ]
+                        ),
+                    ),
+                    *result_release,
+                ]
+            )
+        inner.extend(leaving)
+        refused = IRBlock(
+            [
+                pop_frame(),
+                unpin,
+                restore,
+                IRExprStmt(
+                    IRCall(
+                        "btrcJavaThrow",
+                        [
+                            IRVar("env"),
+                            IRLiteral('"java/lang/IllegalStateException"'),
+                            IRLiteral(json.dumps(f"Java natives {natives.class_name} are not registered")),
+                        ],
+                    )
+                ),
+                IRReturn(zero),
+            ]
+        )
+        inner.append(IRIf(IRUnaryOp(op="!", operand=entered), refused))
+        returned = IRVar("__btrc_java_returned")
+        if returns_managed:
+            inner.append(
+                IRVarDecl(
+                    result_c,
+                    returned.name,
+                    init=IRCast(result_c, self._java_env_call("PopLocalFrame", out)),
+                )
+            )
+        else:
+            if method.result != "V":
+                inner.append(IRVarDecl(result_c, returned.name, init=IRCast(result_c, result)))
+            inner.append(pop_frame())
+        inner.extend([unpin, restore, IRReturn(returned if method.result != "V" else None)])
+        failure = None
+        if natives.failure == "throw":
+            message = IRVar("__btrc_java_failure")
+            failure = IRBlock(
+                [
+                    # The exception ran its cleanups and popped the boundary's frame.
+                    IRIf(
+                        admitted,
+                        IRBlock(
+                            [
+                                self._exceptions.native_callback_boundary(
+                                    IRBlock(
+                                        [
+                                            IRExprStmt(IRCall(f"{context_symbol}_leave", [context])),
+                                            *self._exceptions.pop_try_frames(1),
+                                        ]
+                                    )
+                                )
+                            ]
+                        ),
+                    ),
+                    IRVarDecl(CType("char"), message.name, array_size=IRLiteral("1024")),
+                    IRExprStmt(
+                        IRCall(
+                            "snprintf",
+                            [
+                                message,
+                                IRSizeof(message),
+                                IRLiteral('"%s"'),
+                                IRFieldAccess(IRVar("__btrc_tls"), "error_msg"),
+                            ],
+                        )
+                    ),
+                    pop_frame(),
+                    unpin,
+                    restore,
+                    IRExprStmt(
+                        IRCall("btrcJavaThrow", [IRVar("env"), IRLiteral('"java/lang/RuntimeException"'), message])
+                    ),
+                    IRReturn(zero),
+                ]
+            )
+        body.append(self._exceptions.native_callback_boundary(IRBlock(inner), failure))
+        define(name, result_c, params, body)
+        return name
 
     def _native_unique_result(self, declaration, call, parameters, statements, releases, cleanup):
         # Allocate and register the ordinary ARC owner before native publication.

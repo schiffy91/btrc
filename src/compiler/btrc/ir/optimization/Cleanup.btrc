@@ -186,7 +186,8 @@ class JavaFrameState {
 
 /* Verifier rule 2 (native-interop-ownership.md section 4): every generated JNI
  * adapter checks, frames and protects as section 2.3 requires. A JNI adapter
- * declares the thread's environment from btrcJavaEnvironment. In one, every
+ * declares the thread's environment from btrcJavaEnvironment (in a natives
+ * thunk, the one Java called it with, which the thunk installed). In one, every
  * throwing env call (and every Library.Java helper that can leave an exception
  * pending) is immediately followed by its ExceptionCheck branch; every path a
  * successful PushLocalFrame dominates passes PopLocalFrame, or the translation
@@ -262,7 +263,8 @@ class JavaAdapterValidator {
 		}
 		if (node.kind != IRK_CALL) { return ""; }
 		string callee = ((IRCallPayload)node.payload).callee;
-		return callee == "btrcJavaClass" || callee == "btrcJavaMethod" || callee == "btrcJavaField" || callee == "btrcJavaNewString" ? callee : "";
+		Vector<string> helpers = ["btrcJavaClass", "btrcJavaMethod", "btrcJavaField", "btrcJavaNewString", "btrcJavaCopyString", "btrcJavaRegisterNatives"];
+		return helpers.contains(callee) ? callee : "";
 	}
 
 	private Vector<IRNode?> expressions(IRNode statement) {

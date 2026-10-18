@@ -96,7 +96,14 @@ class IRVerifier:
     )
     # Library.Java helpers that leave a Java exception pending, checked like a JNI call.
     _JNI_HELPERS: ClassVar[frozenset[str]] = frozenset(
-        {"btrcJavaClass", "btrcJavaMethod", "btrcJavaField", "btrcJavaNewString"}
+        {
+            "btrcJavaClass",
+            "btrcJavaMethod",
+            "btrcJavaField",
+            "btrcJavaNewString",
+            "btrcJavaCopyString",
+            "btrcJavaRegisterNatives",
+        }
     )
 
     _REGISTER_ARITY: ClassVar[dict[str, int]] = {
@@ -150,13 +157,14 @@ class IRVerifier:
     def validate_java_adapters(self) -> None:
         """Rule 2: every generated JNI adapter checks, frames and protects as section 2.3 requires.
 
-        A JNI adapter declares the thread's environment from btrcJavaEnvironment.
-        In one, every throwing env call (and every Library.Java helper that can
-        leave an exception pending) is immediately followed by its
-        ExceptionCheck branch; every path a successful PushLocalFrame dominates
-        passes PopLocalFrame, or the translation that pops; and an owner created
-        inside the frame is registered in a cleanup slot before the next
-        throwing call.
+        A JNI adapter declares the thread's environment from btrcJavaEnvironment
+        (in a natives thunk, the one Java called it with, which the thunk
+        installed). In one, every throwing env call (and every Library.Java
+        helper that can leave an exception pending) is immediately followed by
+        its ExceptionCheck branch; every path a successful PushLocalFrame
+        dominates passes PopLocalFrame, or the translation that pops; and an
+        owner created inside the frame is registered in a cleanup slot before
+        the next throwing call.
         """
         for function in self.module.function_defs:
             environment = next(

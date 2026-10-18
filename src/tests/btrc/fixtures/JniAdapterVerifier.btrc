@@ -54,7 +54,9 @@ class JniAdapterCases {
 		if (name != "unchecked-helper") { statements.push(self.check()); }
 		statements.push(IRNode.variableDeclaration("jobject", "result", self.envCall("CallStaticObjectMethodA", [IRNode.variable("owner")])));
 		if (name != "unchecked-call") { statements.push(self.check()); }
-		IRNode slot = IRNode.variableDeclaration("struct Owner*", "object", IRNode.literal("NULL"));
+		/* A natives thunk's string copy leaves its Java exception pending, as a JNI call does. */
+		if (name == "unchecked-copy") { statements.push(IRNode.variableDeclaration("char*", "text", IRNode.call("btrcJavaCopyString", [self.environment(), IRNode.variable("result")]))); }
+		IRNode slot =IRNode.variableDeclaration("struct Owner*", "object", IRNode.literal("NULL"));
 		((IRDeclarationPayload)slot.payload).isVolatile = true;
 		var metadata = IRCleanupSlot(1, "object", "struct Owner*", "take");
 		((IRDeclarationPayload)slot.payload).cleanupSlot = metadata;
@@ -86,7 +88,7 @@ class JniAdapterCases {
 
 int main() {
 	var cases = JniAdapterCases();
-	Vector<string> names = ["valid", "unchecked-call", "unchecked-helper", "outside-frame", "unchecked-push", "push-pops", "push-continues", "missing-pop", "throw-pushed", "unregistered-owner"];
+	Vector<string> names = ["valid", "unchecked-call", "unchecked-helper", "unchecked-copy", "outside-frame", "unchecked-push", "push-pops", "push-continues", "missing-pop", "throw-pushed", "unregistered-owner"];
 	for name in names {
 		var module = IRModule();
 		module.functions.push(cases.adapter(name));

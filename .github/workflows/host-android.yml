@@ -11,7 +11,8 @@ name: Host Android
 # nix/android-repo-overlay.json, because sdkmanager installs only their latest.
 # Until the tool directory is on the revision being tested, the tooling job
 # reports it absent and the emulator jobs are skipped. Each emulator job then
-# runs interop step 4's checked JNI round trip on its API (CL-P2-09).
+# runs interop step 4's checked JNI round trip on its API (CL-P2-09), which
+# also carries step 7's Java -> BTRC natives round trip (RegisterNatives).
 on:
   push:
     branches: [main]
@@ -160,7 +161,9 @@ jobs:
           retention-days: 30
       # Interop step 4's exit (CL-P2-09): a checked JNI call round trip under
       # app_process on this API's emulator, through each compiler
-      # (src/tests/python/test_native_jni_android.py). The compilers read
+      # (src/tests/python/test_native_jni_android.py). The same run registers
+      # BTRC receivers for Java natives (interop step 7, slice A) and Java
+      # calls them back, nested and on a BTRC thread. The compilers read
       # Library.Java's JNI.h and the fixture's classes through the flake's two
       # readers, the only Nix outputs besides btrcc this job builds; the NDK,
       # d8, adb and JDK 17 are the runner's pinned SDK above. Each run boots the
@@ -188,7 +191,7 @@ jobs:
             echo "BTRC_ANDROID_JNI_REQUIRED=1"
             echo "BTRC_ANDROID_JNI_EVIDENCE=$PWD/build/android-jni-api${{ matrix.api }}"
           } >> "$GITHUB_ENV"
-      - name: Round-trip a checked JNI call on API ${{ matrix.api }} (reference compiler)
+      - name: Round-trip checked JNI calls and Java natives on API ${{ matrix.api }} (reference compiler)
         if: ${{ !cancelled() }}
         run: |
           python3 -m pytest -q -rA -p no:cacheprovider --compilers python \
@@ -196,7 +199,7 @@ jobs:
       - name: Build the self-hosted compiler
         if: ${{ !cancelled() }}
         run: nix build .#btrcc --out-link build/btrcc
-      - name: Round-trip a checked JNI call on API ${{ matrix.api }} (self-hosted compiler)
+      - name: Round-trip checked JNI calls and Java natives on API ${{ matrix.api }} (self-hosted compiler)
         if: ${{ !cancelled() }}
         run: |
           BTRC_TEST_BTRCC="$PWD/build/btrcc/bin/btrcc" python3 -m pytest -q -rA -p no:cacheprovider --compilers btrc \

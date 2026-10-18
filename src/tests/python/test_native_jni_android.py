@@ -9,6 +9,12 @@ app_process starts ART with -Xcheck:jni: the entry class System.loads the
 library, JNI_OnLoad adopts ART's VM, and the BTRC program calls Java through
 its generated binding on the Java main thread and on a BTRC thread.
 
+Interop step 7, slice A rides the same run: the program registers BTRC
+receivers for Java `native` methods through RegisterNatives, and Java calls
+them back, nested Java -> BTRC -> Java -> BTRC, with a BTRC exception surfacing
+in Java, cancellation as an entry barrier and a BTRC thread called back on
+itself ("java-natives-ok"; jni_adoption_fixtures.py).
+
 A deliberate JNI misuse runs first in exactly that configuration and must
 abort with CheckJNI's report, so a clean round trip cannot mean CheckJNI was
 off. The round trip must then exit 0 with its expected output, and logcat must
@@ -42,6 +48,7 @@ from src.tests.python.jni_adoption_fixtures import (
     ENTRY_CLASS,
     LIBRARY_NAME,
     REPO,
+    ROUND_TRIP_LINES,
     build_library,
     missing_java_tools,
     write_project,
@@ -261,7 +268,7 @@ def test_checked_jni_round_trip_on_android(android_device, compiler, tmp_path, m
     monkeypatch.setenv("BTRC_NATIVE_TARGET", tools.triple)
     monkeypatch.setenv("BTRC_NATIVE_SYSROOT", str(tools.sysroot))
     source, classes = write_project(tmp_path)
-    monkeypatch.setenv("BTRC_JAVA_CLASSPATH", str(classes))
+    monkeypatch.setenv("BTRC_JAVA_CLASSPATH", str(classes / "app"))
 
     evidence = os.environ.get("BTRC_ANDROID_JNI_EVIDENCE")
     evidence = Path(evidence) / compiler if evidence else None
@@ -344,8 +351,7 @@ def test_checked_jni_round_trip_on_android(android_device, compiler, tmp_path, m
         assert completed.returncode == 0, (completed.stdout, completed.stderr, logcat[-4000:])
         assert pid is not None and completed.stdout.splitlines() == [
             f"btrc-pid={pid}",
-            "java-adopted-ok",
-            "java-entry-status=0",
+            *ROUND_TRIP_LINES,
         ], completed.stdout
         # The process wrote to logcat (ART's start-up lines), so an empty scan is not a missed filter.
         assert own, logcat[-4000:]

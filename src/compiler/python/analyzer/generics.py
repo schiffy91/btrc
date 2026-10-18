@@ -140,8 +140,9 @@ class GenericAnalyzer:
                 ):
                     self._collect_instantiated_root(contract.callbacks[0], method)
                     continue
-                if contract and contract.com_sink is not None:
-                    # A COM sink's registration is a CallbackContext whose token owns its record.
+                if contract and (contract.com_sink is not None or contract.java_natives is not None):
+                    # A COM sink's or Java natives registration is a CallbackContext
+                    # whose token owns its record.
                     context = method.return_type
                     self._require_callback_methods(
                         [

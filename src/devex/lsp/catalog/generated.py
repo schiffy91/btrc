@@ -696,6 +696,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("adopted", "bool", "method", (), "adopted"),
         BuiltinMemberSpec("liveClaims", "long long", "method", (), "liveClaims"),
         BuiltinMemberSpec("attachedThreads", "int", "method", (), "attachedThreads"),
+        BuiltinMemberSpec("liveNatives", "int", "method", (), "liveNatives"),
         BuiltinMemberSpec("shutdown", "void", "method", (), "shutdown"),
     )),
     ("LocalApplicationChannelClient", (

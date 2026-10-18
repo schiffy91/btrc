@@ -63,7 +63,13 @@ _JAVA_SYMBOL = re.compile(
     rf"|\.[A-Za-z_$][A-Za-z0-9_$]*\((?:{_JAVA_FIELD_DESCRIPTOR})*\)(?:V|{_JAVA_FIELD_DESCRIPTOR})"
     rf"|\.[A-Za-z_$][A-Za-z0-9_$]*:{_JAVA_FIELD_DESCRIPTOR})?$"
 )
-_JAVA_BINDING_FIELDS = frozenset({"module", "language", "symbols", "os", "arch", "env"})
+_JAVA_BINDING_FIELDS = frozenset({"module", "language", "symbols", "os", "arch", "env", "natives"})
+# A Java natives registration names each method relative to its class, by
+# name and JNI descriptor; a constructor is never native.
+_JAVA_NATIVE_METHOD = re.compile(
+    rf"^[A-Za-z_$][A-Za-z0-9_$]*\((?:{_JAVA_FIELD_DESCRIPTOR})*\)(?:V|{_JAVA_FIELD_DESCRIPTOR})$"
+)
+_JAVA_NATIVES_FIELDS = frozenset({"name", "interface", "methods", "executor", "failure", "cancellation"})
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 # Manifest os/arch/env predicates range over every targets.toml row
@@ -404,6 +410,25 @@ class NativeComSinkBinding:
 
 
 @dataclass(frozen=True)
+class NativeJavaNativesBinding:
+    """A Java class's native methods, bound to a BTRC receiver through RegisterNatives.
+
+    `owner` is the class's BTRC name and `class_name` its dotted binary name;
+    `methods` names each native by name and JNI descriptor. `name` is the
+    factory, which takes the receiver and a CallbackScope and returns the
+    registration, and `interface` the generated receiver interface
+    (native-interop-ownership.md section 2.3, "Java -> btrc").
+    """
+
+    owner: str
+    class_name: str
+    name: str
+    interface: str
+    methods: tuple[str, ...]
+    failure: str
+
+
+@dataclass(frozen=True)
 class NativeInitializerBinding:
     """Initialize one zeroed inline resource, optionally retaining copied bytes."""
 
@@ -555,6 +580,8 @@ class NativeBinding:
     # strings, with the allocator's free function, and generated COM sinks.
     copied_outputs: tuple[tuple[str, str], ...] = ()
     com_sinks: tuple[NativeComSinkBinding, ...] = ()
+    # Java natives registrations, by their class's BTRC name.
+    java_natives: tuple[NativeJavaNativesBinding, ...] = ()
 
     @property
     def selector(self) -> TargetSelector:
@@ -2813,7 +2840,64 @@ class PackageManifestValidator:
             selector.operating_systems,
             selector.architectures,
             environments=selector.environments,
+            java_natives=self._java_natives(entry.get("natives", {}), symbols, context),
         )
+
+    def _java_natives(self, values, symbols, context):
+        """Java natives registrations, keyed by the BTRC name of a class the binding selects.
+
+        Each names its factory, its generated receiver interface and the
+        class's native methods by name and JNI descriptor. The executor is the
+        registering thread (`caller`); a BTRC exception escaping a native
+        either becomes a Java RuntimeException (`throw`) or terminates
+        (`abort`). Cancellation is an entry barrier (native-interop-ownership.md
+        section 2.3, "Java -> btrc").
+        """
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.natives must map selected Java classes to native registrations")
+        classes = {}
+        for symbol in symbols:
+            if "(" not in symbol and ":" not in symbol:
+                classes[symbol.rsplit(".", 1)[-1]] = symbol
+        registrations = []
+        identifiers = set()
+        for owner, value in sorted(values.items()):
+            location = f"{context}.natives.{owner}"
+            if owner not in classes:
+                raise ValueError(f"{location}: natives requires a Java class the binding selects")
+            if not isinstance(value, dict):
+                raise ValueError(f"{location} must be a native registration")
+            self._reject_unknown(value, _JAVA_NATIVES_FIELDS, location)
+            missing = sorted(_JAVA_NATIVES_FIELDS - set(value))
+            if missing:
+                raise ValueError(f"{location} requires {missing[0]}")
+            factory = self._identifier(value["name"], f"{location}.name")
+            interface = self._identifier(value["interface"], f"{location}.interface")
+            if factory == interface or {factory, interface} & (set(classes) | identifiers):
+                raise ValueError(
+                    f"{location}: the factory and interface names must be distinct from selected classes and other natives"
+                )
+            identifiers.update((factory, interface))
+            methods = value["methods"]
+            if (
+                not isinstance(methods, list)
+                or not methods
+                or not all(isinstance(method, str) and _JAVA_NATIVE_METHOD.fullmatch(method) for method in methods)
+            ):
+                raise ValueError(f"{location}.methods must name methods by JNI descriptor")
+            for index, method in enumerate(methods):
+                if method in methods[:index]:
+                    raise ValueError(f"{location}.methods registers {method} twice")
+            if value["executor"] != "caller":
+                raise ValueError(f"{location}.executor currently requires caller")
+            if value["failure"] not in {"throw", "abort"}:
+                raise ValueError(f"{location}.failure requires throw or abort")
+            if value["cancellation"] != "entry-barrier":
+                raise ValueError(f"{location}.cancellation requires entry-barrier")
+            registrations.append(
+                NativeJavaNativesBinding(owner, classes[owner], factory, interface, tuple(methods), value["failure"])
+            )
+        return tuple(registrations)
 
     def bindings(self, manifest: Mapping, root: str, package: str, path: str) -> tuple[NativeBinding, ...]:
         entries = manifest.get("native", {}).get("bindings", [])

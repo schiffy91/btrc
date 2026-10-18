@@ -218,6 +218,7 @@ class DeclarationLowerer {
 		for callback in contract.callbacks { if (callback.registrationContexts.len > 0) { self.emitStoredCAdapter(declaration, contract, module); return; } }
 		if (contract.callbackTable != null) { self.emitCallbackTableAdapter(declaration, contract, module); return; }
 		if (contract.comSink != null) { self.emitComSinkAdapter(declaration, contract, module); return; }
+		if (contract.javaNatives != null) { self.emitJavaNativesAdapter(declaration, contract, module); return; }
 		var adapter = IRFunction();
 		adapter.name = name;
 		adapter.returnType = self.cTypes.lower(declaration.returnType);
@@ -490,7 +491,11 @@ class DeclarationLowerer {
 		return IRNode.functionReference(adapter.name);
 	}
 
-	private IRNode nativeCallbackBoundary(Vector<IRNode> body, IRModule module) {
+	/* A BTRC exception reaching the boundary has already run its cleanups and
+	 * popped the boundary's frame. It terminates, unless `handled` handles it
+	 * (a Java natives thunk raising it in Java, failure = "throw"); the
+	 * exception's message is then in __btrc_tls.error_msg. */
+	private IRNode nativeCallbackBoundary(Vector<IRNode> body, IRModule module, Vector<IRNode>? handled = null) {
 		self.context.referenceHelper("__btrc_trycatch_globals");
 		self.context.referenceHelper("__btrc_push_try");
 		IRNode frame = IRNode.indexAccess(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_stack", false), IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false));
@@ -503,6 +508,7 @@ class DeclarationLowerer {
 			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "error_msg", false), IRNode.variable("stderr")])),
 			IRNode.expressionStatement(abortCall)
 		];
+		if (handled != null) { failure = handled; }
 		return IRNode.block([IRNode.expressionStatement(IRNode.call("__btrc_push_try", noArguments)), IRNode.ifStatement(condition, IRNode.block(body), IRNode.block(failure))]);
 	}
 
@@ -1785,6 +1791,434 @@ class DeclarationLowerer {
 		body.push(cleanup);
 		body.push(IRNode.returnStatement(contextValue));
 		self.nativeUniqueFunction(module, contract.adapterSymbol(declaration.name), contextC, parameters, body);
+	}
+
+	/* A Java class's natives: RegisterNatives thunks over one M2 holder, and
+	 * the registration factory. The holder is `{ pins, state, context, thread,
+	 * registered }`: a state word (0 live, 1 cancelled, 2 dead), the
+	 * registering thread, and one external claim on the registration's
+	 * CallbackContext, held while the holder is pinned. The class's binding
+	 * pins it while the registration lives, and each call pins it for its
+	 * duration (rule 2), so a receiver may cancel its own registration inside
+	 * a call. One static slot names the live holder. A thunk on another thread
+	 * terminates (rule 3); with no live holder it raises IllegalStateException
+	 * without entering BTRC, which is the cancellation's entry barrier. The
+	 * natives stay bound to the thunks, which are the stubs that throw
+	 * (native-interop-ownership.md section 2.3, "Java -> btrc"). */
+	private void emitJavaNativesAdapter(Node declaration, FeNativeCallContract contract, IRModule module) {
+		FeNativeJavaNatives? selected = contract.javaNatives;
+		if (selected == null) { throw "java natives adapter requires its projection"; }
+		FeNativeJavaNatives natives = selected;
+		Vector<IRNode> noArguments = [];
+		string prefix = "__btrc_java_natives_" + natives.owner;
+		string holderName = prefix + "_holder";
+		string registrationName = prefix + "_registration";
+		string holderType = "struct " + holderName + "*";
+		string registrationType = "struct " + registrationName + "*";
+		Node contextType = declaration.returnType;
+		string contextC = self.cTypes.lower(contextType);
+		Node tokenType = contextType.genericArgs().get(1);
+		string tokenC = self.cTypes.lower(tokenType);
+		string tokenSymbol = TypeIdentity.mangleGenericSymbol(tokenType.base, tokenType.genericArgs());
+		self.appendPreprocessorDecl(module, IRPreprocessorDecl.include("pthread.h", true));
+		module.structForwards.push(IRStructForward(holderName));
+		module.structForwards.push(IRStructForward(registrationName));
+		var holderDefinition = IRStructDef(); holderDefinition.name = holderName;
+		holderDefinition.fields = [IRStructField("uint32_t", "pins"), IRStructField("uint32_t", "state"), IRStructField("void*", "context"), IRStructField("volatile int*", "thread"), IRStructField("bool", "registered")];
+		module.structDefs.push(holderDefinition);
+		var registrationDefinition = IRStructDef(); registrationDefinition.name = registrationName;
+		registrationDefinition.fields = [IRStructField(holderType, "holder")];
+		module.structDefs.push(registrationDefinition);
+		string lockName = prefix + "_lock";
+		IRNode current = IRNode.variable(prefix + "_current");
+		var lockGlobal = IRGlobalDecl("pthread_mutex_t", lockName);
+		lockGlobal.init = IRNode.literal("PTHREAD_MUTEX_INITIALIZER");
+		module.globalDecls.push(lockGlobal);
+		var currentGlobal = IRGlobalDecl(holderType, prefix + "_current");
+		currentGlobal.init = IRNode.literal("NULL");
+		module.globalDecls.push(currentGlobal);
+		IRNode holder = IRNode.variable("holder");
+		IRNode registration = IRNode.variable("registration");
+		IRNode state = IRNode.fieldAccess(holder, "state", true);
+		IRNode pins = IRNode.fieldAccess(holder, "pins", true);
+		IRNode registered = IRNode.fieldAccess(holder, "registered", true);
+		IRNode context = IRNode.cast(contextC, IRNode.fieldAccess(holder, "context", true));
+		IRNode onThread = IRNode.addressOf(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false));
+		IRNode lockAddress = IRNode.addressOf(IRNode.variable(lockName));
+		string notRegistered = "Java natives " + natives.className + " are not registered";
+		IRNode abortCall = IRNode.call("abort", noArguments);
+		((IRCallPayload)abortCall.payload).neverReturns = true;
+		/* Pin: the live holder, on its own thread, for one call. */
+		self.nativeUniqueFunction(module, prefix + "_pin", holderType, [IRParam("JNIEnv*", "env"), IRParam("const char*", "what")], [
+			self.nativeUniqueChecked("pthread_mutex_lock", [lockAddress]),
+			IRNode.variableDeclaration(holderType, "holder", current),
+			IRNode.ifStatement(IRNode.binary(holder, "==", IRNode.literal("NULL")), IRNode.block([
+			self.nativeUniqueChecked("pthread_mutex_unlock", [lockAddress]),
+			IRNode.expressionStatement(IRNode.call("btrcJavaThrow", [IRNode.variable("env"), IRNode.literal("\"java/lang/IllegalStateException\""), IRNode.literal("\"" + notRegistered + "\"")])),
+			IRNode.returnStatement(IRNode.literal("NULL"))
+		]), null),
+			IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(holder, "thread", true), "!=", onThread), IRNode.block([
+			IRNode.expressionStatement(IRNode.call("fprintf", [IRNode.variable("stderr"), IRNode.literal("\"%s: called off its executor thread\\n\""), IRNode.variable("what")])),
+			IRNode.expressionStatement(abortCall)
+		]), null),
+			IRNode.assignment(pins, IRNode.binary(pins, "+", IRNode.literal("1u"))),
+			self.nativeUniqueChecked("pthread_mutex_unlock", [lockAddress]),
+			IRNode.returnStatement(holder)
+		]);
+		/* Unpin: at zero the holder is dead before its claim is released, and
+		 * frees itself once its registration has also let go of it. */
+		IRNode remaining = IRNode.variable("remaining");
+		Vector<IRNode> finalRelease = [IRNode.expressionStatement(self.managedLifetime.releaseValue(context, contextType)), IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))];
+		self.nativeUniqueFunction(module, prefix + "_unpin", "void", [IRParam(holderType, "holder")], [
+			self.nativeUniqueChecked("pthread_mutex_lock", [lockAddress]),
+			IRNode.assignment(pins, IRNode.binary(pins, "-", IRNode.literal("1u"))),
+			IRNode.variableDeclaration("uint32_t", "remaining", pins),
+			IRNode.ifStatement(IRNode.binary(remaining, "==", IRNode.literal("0u")), IRNode.block([IRNode.assignment(state, IRNode.literal("2u"))]), null),
+			self.nativeUniqueChecked("pthread_mutex_unlock", [lockAddress]),
+			IRNode.ifStatement(IRNode.binary(remaining, "==", IRNode.literal("0u")), IRNode.block([
+			self.nativeCallbackBoundary(finalRelease, module),
+			IRNode.assignment(IRNode.fieldAccess(holder, "context", true), IRNode.literal("NULL")),
+			IRNode.ifStatement(IRNode.unary("!", registered, true), IRNode.block([IRNode.expressionStatement(IRNode.call("free", [holder])), IRNode.expressionStatement(IRNode.call("btrcJavaNativesClosed", noArguments))]), null)
+		]), null)
+		]);
+		/* Unregister, the entry barrier: no later call finds the holder, and the
+		 * class's binding stops pinning it. */
+		IRNode loadRegistration = IRNode.variableDeclaration(registrationType, "registration", IRNode.cast(registrationType, IRNode.variable("rawRegistration")));
+		IRNode loadHolder = IRNode.variableDeclaration(holderType, "holder", IRNode.fieldAccess(registration, "holder", true));
+		IRNode live = IRNode.variable("live");
+		self.nativeUniqueFunction(module, prefix + "_unregister", "bool", [IRParam("void*", "rawRegistration")], [
+			loadRegistration,
+			loadHolder,
+			IRNode.ifStatement(IRNode.binary(holder, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(IRNode.literal("true"))]), null),
+			self.nativeUniqueChecked("pthread_mutex_lock", [lockAddress]),
+			IRNode.variableDeclaration("bool", "live", IRNode.binary(state, "==", IRNode.literal("0u"))),
+			IRNode.ifStatement(live, IRNode.block([
+			IRNode.assignment(state, IRNode.literal("1u")),
+			IRNode.ifStatement(IRNode.binary(current, "==", holder), IRNode.block([IRNode.assignment(current, IRNode.literal("NULL"))]), null)
+		]), null),
+			self.nativeUniqueChecked("pthread_mutex_unlock", [lockAddress]),
+			IRNode.ifStatement(live, IRNode.block([IRNode.expressionStatement(IRNode.call(prefix + "_unpin", [holder]))]), null),
+			IRNode.returnStatement(IRNode.literal("true"))
+		]);
+		/* Destroy: the registration has drained; a dead holder is freed now, a
+		 * pinned one at its last unpin. */
+		self.nativeUniqueFunction(module, prefix + "_destroy", "void", [IRParam("void*", "rawRegistration")], [
+			IRNode.variableDeclaration(registrationType, "registration", IRNode.cast(registrationType, IRNode.variable("rawRegistration"))),
+			IRNode.variableDeclaration(holderType, "holder", IRNode.fieldAccess(registration, "holder", true)),
+			IRNode.ifStatement(IRNode.binary(holder, "!=", IRNode.literal("NULL")), IRNode.block([
+			IRNode.assignment(registered, IRNode.literal("false")),
+			IRNode.ifStatement(IRNode.binary(state, "==", IRNode.literal("2u")), IRNode.block([IRNode.expressionStatement(IRNode.call("free", [holder])), IRNode.expressionStatement(IRNode.call("btrcJavaNativesClosed", noArguments))]), null)
+		]), null),
+			IRNode.expressionStatement(IRNode.call("free", [registration]))
+		]);
+		self.nativeUniqueFunction(module, prefix + "_cancel", "bool", [IRParam(tokenC, "token")], [IRNode.returnStatement(IRNode.call(tokenSymbol + "_unregister", [IRNode.variable("token")]))]);
+		Vector<string> thunks = [];
+		Vector<Node> signatures = self.analyzed.interfaceTable.get(natives.handler).methods();
+		for method in natives.methods {
+			Node? signature = null;
+			for candidate in signatures { if (candidate.name == method.name) { signature = candidate; } }
+			if (signature == null) { throw "java natives thunk requires its interface method"; }
+			thunks.push(self.emitJavaNativeThunk(natives, method, signature, prefix, holderType, contextType, module));
+		}
+		/* The factory: refuse a second live registration, bind every native,
+		 * then the registration, token, context and holder, and publish. */
+		IRNode environment = IRNode.variable("__btrc_java_env");
+		Vector<IRParam> parameters = [];
+		Map<string, bool> parameterNames = {};
+		for parameter in declaration.params() {
+			IRParam lowered = self.cTypes.lowerParameter(parameter);
+			parameters.push(lowered);
+			parameterNames.put(lowered.name, true);
+		}
+		IRNode receiver = IRNode.variable(parameters.get(0).name);
+		IRNode scope = IRNode.variable(parameters.get(1).name);
+		IRNode classSlot = IRNode.variableDeclaration("jclass", "__btrc_java_class", IRNode.literal("NULL"));
+		((IRDeclarationPayload)classSlot.payload).isStatic = true;
+		Vector<IRNode> body = [classSlot];
+		IRNode cleanup = self.nativeCleanupScope(parameterNames, body);
+		for parameter in parameters { body.push(self.nativeNullGuard(IRNode.variable(parameter.name), f"Native call {declaration.name}: null {parameter.name}")); }
+		self.context.referenceHelper("__btrc_throw");
+		string already = "Java natives " + natives.className + " are already registered";
+		IRNode alreadyThrown = IRNode.call("__btrc_throw", [IRNode.literal("\"" + already + "\"")]);
+		((IRCallPayload)alreadyThrown.payload).neverReturns = true;
+		body.push(self.nativeUniqueChecked("pthread_mutex_lock", [lockAddress]));
+		body.push(IRNode.variableDeclaration("bool", "taken", IRNode.binary(current, "!=", IRNode.literal("NULL"))));
+		body.push(self.nativeUniqueChecked("pthread_mutex_unlock", [lockAddress]));
+		body.push(IRNode.ifStatement(IRNode.variable("taken"), IRNode.block([IRNode.expressionStatement(alreadyThrown)]), null));
+		Vector<IRNode> nothing = [];
+		IRNode methods = IRNode.variable("__btrc_java_methods");
+		body.push(IRNode.variableDeclaration("JNIEnv*", "__btrc_java_env", IRNode.call("btrcJavaEnvironment", noArguments)));
+		body.push(IRNode.ifStatement(IRNode.binary(self.javaEnvCall("PushLocalFrame", [IRNode.literal("2")]), "!=", IRNode.literal("0")), self.javaTranslate(false, nothing), null));
+		body.push(IRNode.variableDeclaration("jclass", "__btrc_java_owner", IRNode.call("btrcJavaClass", [environment, IRNode.addressOf(IRNode.variable("__btrc_java_class")), IRNode.literal("\"" + natives.binaryName + "\"")])));
+		body.push(self.javaCheck(nothing));
+		body.push(IRNode.arrayDeclaration("JNINativeMethod", "__btrc_java_methods", IRNode.literal(Strings.fromInt(thunks.len)), null));
+		for index in range(thunks.len) {
+			FeNativeJavaNative method = natives.methods.get(index);
+			body.push(IRNode.expressionStatement(IRNode.call("btrcJavaNativeMethod", [IRNode.addressOf(IRNode.indexAccess(methods, IRNode.literal(Strings.fromInt(index)))), IRNode.literal("\"" + method.name + "\""), IRNode.literal("\"" + method.descriptor + "\""), IRNode.cast("void (*)(void)", IRNode.functionReference(thunks.get(index)))])));
+		}
+		body.push(IRNode.expressionStatement(IRNode.call("btrcJavaRegisterNatives", [environment, IRNode.variable("__btrc_java_owner"), methods, IRNode.literal(Strings.fromInt(thunks.len)), IRNode.literal("\"" + natives.binaryName + "\"")])));
+		body.push(self.javaCheck(nothing));
+		body.push(IRNode.expressionStatement(self.javaEnvCall("PopLocalFrame", [IRNode.literal("NULL")])));
+		self.context.referenceHelper("__btrc_safe_calloc");
+		string contextSymbol = TypeIdentity.mangleGenericSymbol(contextType.base, contextType.genericArgs());
+		body.push(IRNode.variableDeclaration(registrationType, "registration", IRNode.cast(registrationType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + registrationName)]))));
+		IRNode token = IRNode.variable("registrationToken");
+		IRNode tokenSlot = IRNode.variableDeclaration(tokenC, "registrationToken", IRNode.call(tokenSymbol + "_new", [IRNode.functionReference(prefix + "_destroy"), IRNode.cast("void*", registration), IRNode.functionReference(prefix + "_destroy"), IRNode.functionReference(prefix + "_unregister"), IRNode.cast("void*", registration)]));
+		IRNode contextValue = IRNode.variable("context");
+		IRNode contextSlot = IRNode.variableDeclaration(contextC, "context", IRNode.call(contextSymbol + "_new", [receiver, IRNode.functionReference(prefix + "_cancel")]));
+		body.push(tokenSlot);
+		body.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(tokenSlot, self.managedValues.runtimeType(tokenType))));
+		body.push(contextSlot);
+		body.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(contextSlot, self.managedValues.runtimeType(contextType))));
+		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_activate", [contextValue, scope])));
+		body.push(IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + holderName)]))));
+		body.push(IRNode.expressionStatement(IRNode.call("btrcJavaNativesOpened", noArguments)));
+		body.push(IRNode.assignment(IRNode.fieldAccess(holder, "thread", true), onThread));
+		body.push(IRNode.assignment(registered, IRNode.literal("true")));
+		/* The holder's one external claim on the context. */
+		body.push(IRNode.expressionStatement(self.managedLifetime.retainValue(contextValue, contextType)));
+		body.push(IRNode.assignment(IRNode.fieldAccess(holder, "context", true), IRNode.cast("void*", contextValue)));
+		body.push(IRNode.assignment(IRNode.fieldAccess(registration, "holder", true), holder));
+		/* Publication: the class's binding pins the holder. */
+		body.push(self.nativeUniqueChecked("pthread_mutex_lock", [lockAddress]));
+		body.push(self.nativeAbortIf(IRNode.binary(current, "!=", IRNode.literal("NULL")), already));
+		body.push(IRNode.assignment(current, holder));
+		body.push(IRNode.assignment(pins, IRNode.literal("1u")));
+		body.push(self.nativeUniqueChecked("pthread_mutex_unlock", [lockAddress]));
+		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [contextValue, token])));
+		self.releaseStoredLocal(token, tokenType, "releasedToken", body);
+		body.push(cleanup);
+		body.push(IRNode.returnStatement(contextValue));
+		self.nativeUniqueFunction(module, contract.adapterSymbol(declaration.name), contextC, parameters, body);
+	}
+
+	/* One native's thunk: pin, install the env, frame, convert, enter the
+	 * receiver, convert back. Arguments convert before BTRC is entered: an
+	 * object to a new global reference, a string to a BTRC string; a JNI
+	 * failure returns to Java with its exception pending, after releasing what
+	 * it converted. Inside the callback boundary the global references become
+	 * owners and the receiver is entered through the context. A BTRC exception
+	 * escaping the receiver has run its cleanups and, with failure = "throw",
+	 * is raised as java.lang.RuntimeException carrying its message. */
+	private string emitJavaNativeThunk(FeNativeJavaNatives natives, FeNativeJavaNative method, Node signature, string prefix, string holderType, Node contextType, IRModule module) {
+		string name = prefix + "_" + method.name;
+		string what = "Java natives " + natives.className + "." + method.name + method.descriptor;
+		string contextC = self.cTypes.lower(contextType);
+		string contextSymbol = TypeIdentity.mangleGenericSymbol(contextType.base, contextType.genericArgs());
+		Node receiverType = contextType.genericArgs().get(0);
+		Vector<IRNode> noArguments = [];
+		IRNode holder = IRNode.variable("holder");
+		IRNode context = IRNode.cast(contextC, IRNode.fieldAccess(holder, "context", true));
+		IRNode environment = IRNode.variable("__btrc_java_env");
+		IRNode previous = IRNode.variable("__btrc_java_previous");
+		IRNode target = IRNode.variable("__btrc_java_target");
+		Vector<IRParam> params = [IRParam("JNIEnv*", "env"), IRParam(method.staticMember ? "jclass" : "jobject", "__btrc_java_target")];
+		Map<string, bool> parameterNames = {};
+		parameterNames.put("env", true);
+		parameterNames.put("__btrc_java_target", true);
+		Vector<string> kinds = [];
+		Vector<IRNode> values = [];
+		if (!method.staticMember) { kinds.push("object"); values.push(target); }
+		for index in range(method.parameters.len) {
+			kinds.push(method.parameters.get(index));
+			params.push(IRParam(self.javaCType(method.parameters.get(index)), f"argument{index}"));
+			parameterNames.put(f"argument{index}", true);
+			values.push(IRNode.variable(f"argument{index}"));
+		}
+		Vector<Node> valueTypes = signature.params();
+		string resultC = self.javaCType(method.result);
+		bool returnsVoid = method.result == "V";
+		bool returnsManaged = method.result == "string" || method.result == "object";
+		IRNode zero = returnsManaged ? IRNode.literal("NULL") : IRNode.cast(resultC, IRNode.literal("0"));
+		IRNode unpin = IRNode.expressionStatement(IRNode.call(prefix + "_unpin", [holder]));
+		IRNode restore = IRNode.expressionStatement(IRNode.call("btrcJavaLeave", [previous]));
+		IRNode popFrame = IRNode.expressionStatement(self.javaEnvCall("PopLocalFrame", [IRNode.literal("NULL")]));
+		IRNode back = IRNode.returnStatement(returnsVoid ? null : zero);
+		Vector<IRNode> body = [];
+		if (method.staticMember) { body.push(IRNode.expressionStatement(IRNode.cast("void", target))); }
+		body.push(IRNode.variableDeclaration(holderType, "holder", IRNode.call(prefix + "_pin", [IRNode.variable("env"), IRNode.literal("\"" + what + "\"")])));
+		body.push(IRNode.ifStatement(IRNode.binary(holder, "==", IRNode.literal("NULL")), IRNode.block([back]), null));
+		/* The environment Java called with is the thread's for the call. */
+		body.push(IRNode.variableDeclaration("JNIEnv*", "__btrc_java_previous", IRNode.call("btrcJavaEnter", [IRNode.variable("env")])));
+		body.push(IRNode.variableDeclaration("JNIEnv*", "__btrc_java_env", IRNode.call("btrcJavaEnvironment", noArguments)));
+		body.push(IRNode.ifStatement(IRNode.binary(self.javaEnvCall("PushLocalFrame", [IRNode.literal("2")]), "!=", IRNode.literal("0")), IRNode.block([unpin, restore, back]), null));
+		Vector<IRNode> undo = [];
+		Vector<IRNode> converted = [];
+		Map<int, IRNode> strings = {};
+		Node stringType = Node();
+		stringType.kind = NK_TYPE_EXPR; stringType.base = "string"; stringType.isNullable = true; stringType.pointerDepth = 1;
+		for position in range(kinds.len) {
+			string kind = kinds.get(position);
+			IRNode value = values.get(position);
+			Vector<IRNode> exit = [];
+			exit.extend(undo);
+			exit.push(popFrame); exit.push(unpin); exit.push(restore); exit.push(back);
+			if (kind == "object") {
+				IRNode reference = IRNode.variable(f"__btrc_java_global_{position}");
+				body.push(IRNode.variableDeclaration("jobject", f"__btrc_java_global_{position}", IRNode.literal("NULL")));
+				body.push(IRNode.ifStatement(IRNode.binary(value, "!=", IRNode.literal("NULL")), IRNode.block([
+					IRNode.assignment(reference, self.javaEnvCall("NewGlobalRef", [value])),
+					IRNode.ifStatement(self.javaEnvCall("ExceptionCheck", noArguments), IRNode.block(exit), null),
+					self.nativeNullGuard(reference, what + ": no memory for a global reference")
+				]), null));
+				Vector<IRNode> undone = [IRNode.ifStatement(IRNode.binary(reference, "!=", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(self.javaEnvCall("DeleteGlobalRef", [reference]))]), null)];
+				undone.extend(undo);
+				undo = undone;
+				converted.push(reference);
+			} else if (kind == "string") {
+				self.context.referenceHelper("__btrc_string_adopt");
+				string textName = f"__btrc_java_text_{position}";
+				IRNode text = IRNode.variableDeclaration("char*", textName, IRNode.literal("NULL"));
+				body.push(text);
+				body.push(IRNode.ifStatement(IRNode.binary(value, "!=", IRNode.literal("NULL")), IRNode.block([
+					IRNode.assignment(IRNode.variable(textName), IRNode.call("btrcJavaCopyString", [environment, value])),
+					IRNode.ifStatement(self.javaEnvCall("ExceptionCheck", noArguments), IRNode.block(exit), null),
+					IRNode.assignment(IRNode.variable(textName), IRNode.call("__btrc_string_adopt", [IRNode.variable(textName)]))
+				]), null));
+				Vector<IRNode> undone = [IRNode.expressionStatement(self.managedLifetime.releaseValue(IRNode.variable(textName), stringType))];
+				undone.extend(undo);
+				undo = undone;
+				strings.put(position, text);
+				converted.push(IRNode.variable(textName));
+			} else {
+				converted.push(value);
+			}
+		}
+		IRNode admitted = IRNode.variable("__btrc_java_admitted");
+		bool throwing = natives.failure == "throw";
+		if (throwing) {
+			IRNode flag = IRNode.variableDeclaration("int", "__btrc_java_admitted", IRNode.literal("0"));
+			((IRDeclarationPayload)flag.payload).isVolatile = true;
+			body.push(flag);
+		}
+		IRNode cleanup = self.nativeCleanupScope(parameterNames, body);
+		/* Inside the boundary: owners and strings protected first, then the receiver. */
+		Vector<IRNode> inner = [];
+		Vector<IRNode> arguments = [IRNode.variable("receiver")];
+		Vector<IRNode> managedValues = [];
+		Vector<Node> managedTypes = [];
+		for position in range(kinds.len) {
+			string kind = kinds.get(position);
+			Node valueType = valueTypes.get(position).type;
+			IRNode value = converted.get(position);
+			if (kind == "object") {
+				Node ownerType = Node();
+				ownerType.kind = NK_TYPE_EXPR; ownerType.base = valueType.base; ownerType.isNullable = true; ownerType.pointerDepth = 1;
+				string ownerName = f"__btrc_java_object_{position}";
+				IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(ownerType), ownerName, IRNode.literal("NULL"));
+				IRNode owner = IRNode.variable(ownerName);
+				inner.push(slot);
+				inner.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(ownerType))));
+				inner.push(IRNode.ifStatement(IRNode.binary(value, "!=", IRNode.literal("NULL")), IRNode.block([
+					IRNode.assignment(owner, IRNode.call("__btrc_unique_" + valueType.base + "_new", noArguments)),
+					IRNode.assignment(IRNode.fieldAccess(owner, "value", true), value),
+					IRNode.expressionStatement(IRNode.call("btrcJavaClaim", noArguments))
+				]), null));
+				arguments.push(owner);
+				managedValues.push(owner);
+				managedTypes.push(ownerType);
+			} else if (kind == "string") {
+				inner.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(strings.get(position), self.managedValues.runtimeType(stringType))));
+				arguments.push(value);
+				managedValues.push(value);
+				managedTypes.push(stringType);
+			} else {
+				arguments.push(IRNode.cast(self.cTypes.lower(valueType), value));
+			}
+		}
+		IRNode receiver = IRNode.variable("receiver");
+		IRNode receiverSlot = IRNode.variableDeclaration(self.cTypes.lower(receiverType), "receiver", IRNode.call(contextSymbol + "_enter", [context]));
+		inner.push(receiverSlot);
+		inner.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(receiverSlot, self.managedValues.runtimeType(receiverType))));
+		Node resultType = signature.returnType;
+		IRNode result = IRNode.variable("__btrc_java_value");
+		if (!returnsVoid) {
+			string resultBtrc = self.cTypes.lower(resultType);
+			IRNode resultSlot = IRNode.variableDeclaration(resultBtrc, "__btrc_java_value", returnsManaged ? IRNode.literal("NULL") : IRNode.cast(resultBtrc, IRNode.literal("0")));
+			inner.push(resultSlot);
+			if (returnsManaged) { inner.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(resultSlot, self.managedValues.runtimeType(resultType)))); }
+		}
+		IRNode entered = IRNode.variable("__btrc_java_entered");
+		inner.push(IRNode.variableDeclaration("bool", "__btrc_java_entered", IRNode.binary(receiver, "!=", IRNode.literal("NULL"))));
+		IRNode call = IRNode.call(natives.handler + "_" + method.name, arguments);
+		Vector<IRNode> enteredBody = [];
+		if (throwing) { enteredBody.push(IRNode.assignment(admitted, IRNode.literal("1"))); }
+		enteredBody.push(returnsVoid ? IRNode.expressionStatement(call) : IRNode.assignment(result, call));
+		enteredBody.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_leave", [context])));
+		if (throwing) { enteredBody.push(IRNode.assignment(admitted, IRNode.literal("0"))); }
+		inner.push(IRNode.ifStatement(entered, IRNode.block(enteredBody), null));
+		self.releaseStoredLocal(receiver, receiverType, "__btrc_java_released_receiver", inner);
+		for index in range(managedValues.len) { self.releaseStoredLocal(managedValues.get(index), managedTypes.get(index), f"__btrc_java_released_{index}", inner); }
+		Vector<IRNode> leaving = [cleanup, IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))];
+		IRNode out = IRNode.variable("__btrc_java_out");
+		if (returnsManaged) {
+			Vector<IRNode> failed = [];
+			Vector<IRNode> converting = [];
+			if (method.result == "string") {
+				converting.push(IRNode.assignment(out, IRNode.call("btrcJavaNewString", [environment, result])));
+			} else {
+				string ownerPrefix = "__btrc_unique_" + resultType.base;
+				converting.push(IRNode.expressionStatement(self.managedLifetime.retainValue(result, resultType)));
+				converting.push(IRNode.expressionStatement(IRNode.call(ownerPrefix + "_begin_borrow", [result])));
+				converting.push(IRNode.assignment(out, self.javaEnvCall("NewLocalRef", [IRNode.fieldAccess(result, "value", true)])));
+				failed.push(IRNode.expressionStatement(IRNode.call(ownerPrefix + "_end_borrow", [result])));
+			}
+			/* The released value's declaration precedes both of its uses. */
+			failed.push(IRNode.assignment(IRNode.variable("__btrc_java_released_value"), result));
+			failed.push(IRNode.assignment(result, IRNode.literal("NULL")));
+			failed.push(IRNode.expressionStatement(self.managedLifetime.releaseValue(IRNode.variable("__btrc_java_released_value"), resultType)));
+			failed.extend(leaving);
+			failed.push(popFrame); failed.push(unpin); failed.push(restore); failed.push(back);
+			converting.push(IRNode.ifStatement(self.javaEnvCall("ExceptionCheck", noArguments), IRNode.block(failed), null));
+			if (method.result == "object") { converting.push(IRNode.expressionStatement(IRNode.call("__btrc_unique_" + resultType.base + "_end_borrow", [result]))); }
+			inner.push(IRNode.variableDeclaration(self.cTypes.lower(resultType), "__btrc_java_released_value", IRNode.literal("NULL")));
+			inner.push(IRNode.variableDeclaration(method.result == "string" ? "jstring" : "jobject", "__btrc_java_out", IRNode.literal("NULL")));
+			inner.push(IRNode.ifStatement(IRNode.binary(result, "!=", IRNode.literal("NULL")), IRNode.block(converting), null));
+			inner.push(IRNode.assignment(IRNode.variable("__btrc_java_released_value"), result));
+			inner.push(IRNode.assignment(result, IRNode.literal("NULL")));
+			inner.push(IRNode.expressionStatement(self.managedLifetime.releaseValue(IRNode.variable("__btrc_java_released_value"), resultType)));
+		}
+		inner.extend(leaving);
+		inner.push(IRNode.ifStatement(IRNode.unary("!", entered, true), IRNode.block([
+			popFrame,
+			unpin,
+			restore,
+			IRNode.expressionStatement(IRNode.call("btrcJavaThrow", [IRNode.variable("env"), IRNode.literal("\"java/lang/IllegalStateException\""), IRNode.literal("\"Java natives " + natives.className + " are not registered\"")])),
+			back
+		]), null));
+		IRNode returned = IRNode.variable("__btrc_java_returned");
+		if (returnsManaged) {
+			inner.push(IRNode.variableDeclaration(resultC, "__btrc_java_returned", IRNode.cast(resultC, self.javaEnvCall("PopLocalFrame", [out]))));
+		} else {
+			if (!returnsVoid) { inner.push(IRNode.variableDeclaration(resultC, "__btrc_java_returned", IRNode.cast(resultC, result))); }
+			inner.push(popFrame);
+		}
+		inner.push(unpin);
+		inner.push(restore);
+		inner.push(IRNode.returnStatement(returnsVoid ? null : returned));
+		if (throwing) {
+			Vector<IRNode> leave = [
+				IRNode.expressionStatement(IRNode.call(contextSymbol + "_leave", [context])),
+				IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))
+			];
+			IRNode message = IRNode.variable("__btrc_java_failure");
+			Vector<IRNode> handled = [
+				/* The exception ran its cleanups and popped the boundary's frame. */
+				IRNode.ifStatement(admitted, IRNode.block([self.nativeCallbackBoundary(leave, module)]), null),
+				IRNode.arrayDeclaration("char", "__btrc_java_failure", IRNode.literal("1024"), null),
+				IRNode.expressionStatement(IRNode.call("snprintf", [message, IRNode.sizeofExpression(message), IRNode.literal("\"%s\""), IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "error_msg", false)])),
+				popFrame,
+				unpin,
+				restore,
+				IRNode.expressionStatement(IRNode.call("btrcJavaThrow", [IRNode.variable("env"), IRNode.literal("\"java/lang/RuntimeException\""), message])),
+				back
+			];
+			body.push(self.nativeCallbackBoundary(inner, module, handled));
+		} else {
+			body.push(self.nativeCallbackBoundary(inner, module));
+		}
+		self.nativeUniqueFunction(module, name, resultC, params, body);
+		return name;
 	}
 
 	private void emitUniqueResource(FeNativeImportedDeclaration imported, IRModule module, string symbol = "", string releaseSymbol = "") {

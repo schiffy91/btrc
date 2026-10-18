@@ -1954,8 +1954,14 @@ class ExceptionLowerer:
             right=IRLiteral(text="0"),
         )
 
-    def native_callback_boundary(self, body: IRBlock) -> IRBlock:
-        """Contain BTRC failures before they can unwind a foreign stack frame."""
+    def native_callback_boundary(self, body: IRBlock, failure: IRBlock | None = None) -> IRBlock:
+        """Contain BTRC failures before they can unwind a foreign stack frame.
+
+        A BTRC exception reaching the boundary has already run its cleanups and
+        popped the boundary's frame. It terminates, unless `failure` handles it
+        (a Java natives thunk raising it in Java, failure = "throw"); the
+        exception's message is then in __btrc_tls.error_msg.
+        """
         self._require_setjmp()
         self._session.require_helper("__btrc_push_try")
         return IRBlock(
@@ -1964,7 +1970,9 @@ class ExceptionLowerer:
                 IRIf(
                     condition=self.setjmp_success_condition(),
                     then_block=body,
-                    else_block=IRBlock(
+                    else_block=failure
+                    if failure is not None
+                    else IRBlock(
                         stmts=[
                             IRExprStmt(
                                 expr=IRCall(
