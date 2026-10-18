@@ -94,7 +94,9 @@ def _simulator() -> str:
 
     The device stays booted afterwards: another worker may be using it.
     """
-    listed = _xcrun("simctl", "list", "devices", "available", "--json", timeout=60)
+    # The first simctl call of a run starts CoreSimulator's service, which on
+    # a cold hosted runner has outlasted 60 s; booting has its own budget below.
+    listed = _xcrun("simctl", "list", "devices", "available", "--json", timeout=180)
     assert listed.returncode == 0, listed.stderr
     runtimes = json.loads(listed.stdout).get("devices", {})
     candidates = []
@@ -259,7 +261,7 @@ def _launch(
     btrcc: Path | None,
     sdk: str,
     plist: dict | None = None,
-    marker: str = "btrc-",
+    expected: tuple[str, ...] = ("btrc-",),
 ) -> str:
     generated = root / "Main.c"
     plan = root / "Main.link.json"
@@ -269,10 +271,12 @@ def _launch(
     installed = _xcrun("simctl", "install", device, str(bundle), timeout=300)
     assert installed.returncode == 0, installed.stderr
     try:
-        # simctl's console relay can lose every line of an app that exits
-        # moments after printing; a hosted run then shows only the launch
-        # line. One relaunch tells that apart from an app that printed nothing.
-        for _ in range(2):
+        # simctl's console relay can lose lines of an app that exits moments
+        # after printing: a hosted run has shown only the launch line, and one
+        # showed the first line without the next. Relaunching until every
+        # expected line arrives tells that apart from an app that never
+        # printed them, which still fails the caller's assertions.
+        for _ in range(3):
             launched = _xcrun(
                 "simctl",
                 "launch",
@@ -284,7 +288,7 @@ def _launch(
             )
             output = launched.stdout + launched.stderr
             print(f"{frontend} on {device}: {output!r}")
-            if marker in output:
+            if all(line in output for line in expected):
                 break
         return output
     finally:
@@ -299,9 +303,10 @@ def test_uikit_application_delegate_runs_through_btrc(frontend, tmp_path: Path, 
     btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
     root = tmp_path / "project"
     # One identifier per frontend: parallel workers share the booted simulator.
-    output = _launch(frontend, root, _project(root), f"{BUNDLE_IDENTIFIER}.{frontend}", btrcc, sdk)
-    assert "btrc-uikit launched" in output, output
-    assert "btrc-uikit active after 1 launch" in output, output
+    expected = ("btrc-uikit launched", "btrc-uikit active after 1 launch")
+    output = _launch(frontend, root, _project(root), f"{BUNDLE_IDENTIFIER}.{frontend}", btrcc, sdk, expected=expected)
+    for line in expected:
+        assert line in output, output
 
 
 CONTROLS_MANIFEST = MANIFEST.replace(
@@ -381,11 +386,14 @@ def test_uikit_controls_deliver_actions_through_btrc(frontend, tmp_path: Path, r
     btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
     root = tmp_path / "project"
     source = _project(root, CONTROLS_MANIFEST, CONTROLS_PROGRAM)
-    output = _launch(frontend, root, source, f"{BUNDLE_IDENTIFIER}.controls.{frontend}", btrcc, sdk)
     # Two taps, one edit that cancels itself, nothing after cancellation; the
     # button's receiver is released at cancellation, the field's receiver is
     # still held by this frame's `edit`.
-    assert "btrc-uikit controls taps=2 edits=1 released=1 done=1" in output, output
+    expected = "btrc-uikit controls taps=2 edits=1 released=1 done=1"
+    output = _launch(
+        frontend, root, source, f"{BUNDLE_IDENTIFIER}.controls.{frontend}", btrcc, sdk, expected=(expected,)
+    )
+    assert expected in output, output
 
 
 PERSISTENCE_PROGRAM = """import Library.Callback;
@@ -560,11 +568,14 @@ def test_uikit_scene_lifecycle_runs_through_btrc(frontend, tmp_path: Path, reque
     root = tmp_path / "project"
     source = _project(root, SCENE_MANIFEST, SCENE_PROGRAM)
     manifest = {"UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False}}
-    output = _launch(frontend, root, source, f"{BUNDLE_IDENTIFIER}.scenes.{frontend}", btrcc, sdk, manifest)
-    for line in (
+    expected = (
         "btrc-scene launched",
         "btrc-scene configured",
         "btrc-scene window scene connected key=1",
         "btrc-scene active scenes=1 window=1",
-    ):
+    )
+    output = _launch(
+        frontend, root, source, f"{BUNDLE_IDENTIFIER}.scenes.{frontend}", btrcc, sdk, manifest, expected=expected
+    )
+    for line in expected:
         assert line in output, output
