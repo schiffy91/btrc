@@ -1,5 +1,6 @@
 import Library.Math;
 import Library.Console;
+import Library.Platform;
 import Library.Timer;
 import Library.Callback;
 import Library.Vector;
@@ -325,8 +326,13 @@ class MacOSApplication implements IApplication {
 		try {
 			self._application.setDelegate(self._events, self._callbacks);
 			self._signal.subscribe(self._events, self._callbacks);
-			// Unbundled executables otherwise cannot receive keyboard focus.
-			if (self._application.activationPolicy() != NSApplicationActivationPolicyRegular && !self._application.setActivationPolicy(NSApplicationActivationPolicyRegular)) { throw "Cannot enable native application activation"; }
+			// Unbundled executables otherwise cannot receive keyboard focus. A
+			// background session (BTRC_GUI_BACKGROUND, set by local test runs on
+			// a desktop someone is using) asks for an accessory app instead: it
+			// shows no Dock icon and macOS does not bring it to the front when
+			// it launches, so it never takes the user's focus.
+			var policy = Environment.has("BTRC_GUI_BACKGROUND") ? NSApplicationActivationPolicyAccessory : NSApplicationActivationPolicyRegular;
+			if (self._application.activationPolicy() != policy && !self._application.setActivationPolicy(policy)) { throw "Cannot enable native application activation"; }
 			self._application.finishLaunching();
 		} catch (string error) { self.close(); throw error; }
 	}

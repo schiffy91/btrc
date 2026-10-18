@@ -443,7 +443,7 @@ symbols = [
 	"+[NSRunLoop currentRunLoop]", "-[NSRunLoop performBlock:]",
 	"+[NSTimer scheduledTimerWithTimeInterval:repeats:block:]", "-[NSTimer invalidate]", "-[NSTimer isValid]",
 	"+[NSThread isMainThread]", "+[NSApplication sharedApplication]", "-[NSApplication finishLaunching]",
-	"-[NSApplication activationPolicy]", "-[NSApplication setActivationPolicy:]", "NSApplicationActivationPolicyRegular",
+	"-[NSApplication activationPolicy]", "-[NSApplication setActivationPolicy:]", "NSApplicationActivationPolicyRegular", "NSApplicationActivationPolicyAccessory",
 	"-[NSApplication run]", "-[NSApplication stop:]", "-[NSApplication isRunning]",
 	"-[NSApplication modalWindow]", "-[NSApplication stopModalWithCode:]", "NSModalResponseAbort",
 	"-[NSApplication setDelegate:]", "-[NSApplication delegate]", "-[NSApplicationDelegate applicationShouldTerminate:]", "NSTerminateCancel",
