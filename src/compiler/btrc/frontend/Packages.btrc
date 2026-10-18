@@ -271,6 +271,11 @@ class FeNativeBinding {
 	 * owned outputs whose result class carries an HRESULT status. */
 	public Map<string, string> statusResults = {};
 	public Map<string, string> ownedOutputStatuses = {};
+	/* Dispatched COM [out] strings ("<R>.<method>.<parameter>") copied into BTRC
+	 * strings, with the allocator's free function, and generated COM sinks in
+	 * resource order. */
+	public Map<string, string> copiedOutputs = {};
+	public Vector<FeNativeComSinkBinding> comSinks = [];
 	public Vector<string> borrowedParameters;
 
 	public FeNativeBinding(string packageName, string module, string header, string language, string standard, Vector<string> symbols, Vector<string> operatingSystems, Vector<string> architectures) {
@@ -308,6 +313,23 @@ class FeNativeBinding {
 	public bool overlaps(FeNativeBinding other) { return self.module.equals(other.module) && self.intersects(self.symbols, other.symbols) && self.selector().overlaps(other.selector()); }
 
 	public string sortKey() { return self.packageName + "\x1f" + self.module + "\x1f" + self.header + "\x1f" + Strings.join(self.symbols, ",") + "\x1f" + Strings.join(self.operatingSystems, ",") + "\x1f" + Strings.join(self.architectures, ",") + "\x1f" + Strings.join(self.environments, ","); }
+}
+
+/* A generated COM sink: the `com` resource it implements and the source's
+ * Advise and Unadvise. `name` is the factory and `handler` the BTRC handler
+ * interface; the factory takes the source, the handler and a CallbackScope
+ * and returns the registration (native-interop-ownership.md section 2.4, M2). */
+class FeNativeComSinkBinding {
+	public string resource;
+	public string name;
+	public string handler;
+	public string registerMethod;
+	public string unregisterMethod;
+	public string activationFailure;
+	public FeNativeComSinkBinding(string resource, string name, string handler, string registerMethod, string unregisterMethod, string activationFailure) {
+		self.resource = resource; self.name = name; self.handler = handler;
+		self.registerMethod = registerMethod; self.unregisterMethod = unregisterMethod; self.activationFailure = activationFailure;
+	}
 }
 
 class FeNativeInitializerBinding {
@@ -430,6 +452,8 @@ class FeManifestBlock {
 	private Map<string, bool> copiedInputNames = {};
 	private Map<string, bool> recordSnapshotNames = {};
 	private Map<string, bool> variadicCallNames = {};
+	private Map<string, bool> copiedOutputNames = {};
+	private Map<string, bool> comSinkNames = {};
 
 	public FeManifestBlock(string tableName, string manifestPath) {
 		self.tableName = tableName;
@@ -466,6 +490,16 @@ class FeManifestBlock {
 	public void declareOwnedOutput(string name) {
 		if (self.ownedOutputNames.has(name)) { FePackageFailure.fail(f"duplicate owned-output table '{name}'"); }
 		self.ownedOutputNames.put(name, true);
+	}
+
+	public void declareCopiedOutput(string name) {
+		if (self.copiedOutputNames.has(name)) { FePackageFailure.fail(f"duplicate copied-outputs table '{name}'"); }
+		self.copiedOutputNames.put(name, true);
+	}
+
+	public void declareComSink(string name) {
+		if (self.comSinkNames.has(name)) { FePackageFailure.fail(f"duplicate com-sinks table '{name}'"); }
+		self.comSinkNames.put(name, true);
 	}
 
 	public void declareOutputOffset(string name) {
@@ -512,6 +546,7 @@ class FeManifestBlock {
 		if (self.isBinding()) {
 			if (key.startsWith("record-snapshots.")) { return true; }
 			if (key.startsWith("owned-outputs.") || key.startsWith("status-results.")) { return true; }
+			if (key.startsWith("copied-outputs.") || key.startsWith("com-sinks.")) { return true; }
 			if (key.startsWith("output-offsets.")) { return true; }
 			if (key.startsWith("copied-results.") || key.startsWith("initializers.") || key.startsWith("copied-inputs.")) { return true; }
 			if (key.startsWith("variadic-calls.")) { return true; }
@@ -1456,6 +1491,105 @@ class FeManifestBlock {
 		}
 	}
 
+	/* UTF-16 strings a dispatched COM method returns through an [out] slot:
+	 * each "<R>.<method>.<parameter>" names a BSTR (free = "SysFreeString") or
+	 * CoTaskMemAlloc string (free = "CoTaskMemFree") that the adapter copies
+	 * into a BTRC string and frees itself. The method reports failure through
+	 * status-results (native-interop-ownership.md section 2.4). */
+	private void finishCopiedOutputs(FeNativeBinding binding) {
+		Map<string, bool> names = {};
+		for key in self.fields.keys() {
+			if (!key.startsWith("copied-outputs.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 5) { FePackageFailure.fail("copied-outputs currently requires a dispatched com method R.method.parameter"); }
+			names.put(parts.get(1) + "." + parts.get(2) + "." + parts.get(3), true);
+		}
+		Vector<string> ordered = names.keys();
+		ordered.sortBy((string left, string right) => Strings.lessThan(left, right));
+		Map<string, bool> methods = {};
+		for name in ordered {
+			var parts = Strings.split(name, ".");
+			string method = parts.get(0) + "." + parts.get(1);
+			if (!self.identifier(parts.get(2)) || !self.dispatchedMethod(binding, method)) { FePackageFailure.fail("copied-outputs currently requires a dispatched com method R.method.parameter"); }
+			string prefix = "copied-outputs." + name + ".";
+			for key in self.fields.keys() {
+				if (key.startsWith(prefix) && key != prefix + "encoding" && key != prefix + "free") { FePackageFailure.fail("copied-outputs requires exactly encoding and free"); }
+			}
+			if (!self.fields.has(prefix + "encoding") || !self.fields.has(prefix + "free")) { FePackageFailure.fail("copied-outputs requires exactly encoding and free"); }
+			if (self.requiredText(prefix + "encoding") != "utf-16") { FePackageFailure.fail("copied-outputs encoding must be utf-16"); }
+			string free = self.requiredText(prefix + "free");
+			if (free != "SysFreeString" && free != "CoTaskMemFree") { FePackageFailure.fail("copied-outputs free must be SysFreeString or CoTaskMemFree"); }
+			if (!binding.symbols.contains(free)) { FePackageFailure.fail(f"copied-outputs free {free} must be a selected function"); }
+			if (methods.has(method)) { FePackageFailure.fail("copied-outputs requires one output per method"); }
+			if (!binding.statusResults.has(method)) { FePackageFailure.fail("copied-outputs requires status-results on its method"); }
+			methods.put(method, true);
+			binding.copiedOutputs.put(name, free);
+		}
+		for output in binding.ownedOutputs.keys() {
+			var parts = Strings.split(output, ".");
+			if (parts.len == 3 && methods.has(parts.get(0) + "." + parts.get(1))) { FePackageFailure.fail("a method adopts at most one [out] value"); }
+		}
+	}
+
+	/* BTRC receivers behind generated COM sinks (M2). The key names a com
+	 * resource of the binding, whose IID and bases' IIDs the sink answers;
+	 * `register` and `unregister` are the source's dispatched Advise and
+	 * Unadvise (native-interop-ownership.md section 2.4). */
+	private void finishComSinks(FeNativeBinding binding) {
+		Vector<string> known = ["activation-failure", "cancellation", "executor", "failure", "interface", "name", "register", "unregister"];
+		Map<string, bool> names = {};
+		for key in self.fields.keys() {
+			if (!key.startsWith("com-sinks.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 3) { FePackageFailure.fail("com-sinks requires a com resource of the binding"); }
+			names.put(parts.get(1), true);
+		}
+		Vector<string> ordered = names.keys();
+		ordered.sortBy((string left, string right) => Strings.lessThan(left, right));
+		Map<string, bool> identifiers = {};
+		Map<string, bool> declared = {};
+		for name in ordered {
+			string location = "com-sinks." + name;
+			if (!binding.resources.has(name) || binding.resources.get(name).ownership != "com") { FePackageFailure.fail(location + ": com-sinks requires a com resource of the binding"); }
+			string prefix = location + ".";
+			for key in self.fields.keys() {
+				if (!key.startsWith(prefix)) { continue; }
+				string field = key.substring(prefix.length(), key.length() - prefix.length());
+				if (!known.contains(field)) { FePackageFailure.fail(f"{location} contains unexpected field '{field}'"); }
+			}
+			for field in known { if (!self.fields.has(prefix + field)) { FePackageFailure.fail(f"{location} requires {field}"); } }
+			string factory = self.requiredText(prefix + "name");
+			if (!self.identifier(factory)) { FePackageFailure.fail(f"{location}.name must be an ASCII identifier"); }
+			string handler = self.requiredText(prefix + "interface");
+			if (!self.identifier(handler)) { FePackageFailure.fail(f"{location}.interface must be an ASCII identifier"); }
+			if (factory == handler || binding.symbols.contains(factory) || binding.symbols.contains(handler) || identifiers.has(factory) || identifiers.has(handler)) { FePackageFailure.fail(location + ": the factory and interface names must be distinct from selected symbols"); }
+			identifiers.put(factory, true); identifiers.put(handler, true);
+			string registerMethod = self.requiredText(prefix + "register");
+			string unregisterMethod = self.requiredText(prefix + "unregister");
+			if (!self.dispatchedMethod(binding, registerMethod) || !self.dispatchedMethod(binding, unregisterMethod) || Strings.split(registerMethod, ".").get(0) != Strings.split(unregisterMethod, ".").get(0) || registerMethod == unregisterMethod) {
+				FePackageFailure.fail(location + ": register and unregister require two methods of one dispatching com resource");
+			}
+			if (self.requiredText(prefix + "executor") != "apartment") { FePackageFailure.fail(location + ".executor currently requires apartment"); }
+			if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail(location + ".failure currently requires abort"); }
+			string activationFailure = self.requiredText(prefix + "activation-failure");
+			if (activationFailure != "unpublished" && activationFailure != "abort") { FePackageFailure.fail(location + ".activation-failure requires unpublished or abort"); }
+			if (self.requiredText(prefix + "cancellation") != "entry-barrier") { FePackageFailure.fail(location + ".cancellation requires entry-barrier"); }
+			/* QueryInterface answers IID_IUnknown, the sink's IID and its bases';
+			 * each sink alone answers its own IID, and its chain names each once. */
+			if (!binding.symbols.contains("IID_IUnknown")) { FePackageFailure.fail(location + ": a com sink answers IID_IUnknown, which the binding must select"); }
+			Vector<string> chain = [];
+			string current = name;
+			while (!current.isEmpty()) {
+				FeNativeResourceBinding resource = binding.resources.get(current);
+				if (chain.contains(resource.iid) || (current == name && declared.has(resource.iid))) { FePackageFailure.fail(f"{location}: duplicate sink IID {resource.iid}"); }
+				chain.push(resource.iid);
+				current = resource.base;
+			}
+			declared.put(binding.resources.get(name).iid, true);
+			binding.comSinks.push(FeNativeComSinkBinding(name, factory, handler, registerMethod, unregisterMethod, activationFailure));
+		}
+	}
+
 	private FeNativeDispatchTable dispatchTable(string prefix, string ownership, string storage) {
 		if ((ownership != "unique" && ownership != "com") || !storage.isEmpty()) { FePackageFailure.fail("dispatch requires a unique pointer resource and a dispatch declaration"); }
 		Vector<string> known = ["table", "context", "context-index", "executor", "failure", "release"];
@@ -1787,6 +1921,8 @@ class FeManifestBlock {
 		self.finishUnmanagedHandles(binding);
 		self.finishOwnedOutputs(binding);
 		self.finishStatusResults(binding);
+		self.finishCopiedOutputs(binding);
+		self.finishComSinks(binding);
 		self.finishInitializers(binding);
 		self.finishCopiedResults(binding);
 		self.finishOutputOffsets(binding);
@@ -1898,7 +2034,7 @@ class FeManifestBlock {
 		if (!self.nativeName(name)) {
 			FePackageFailure.fail(f"{self.context()}.name contains unsupported characters");
 		}
-		string kind = self.tableName.equals("native.frameworks") ? "framework" : "pkg-config";
+		string kind = self.tableName.equals("native.frameworks") ? "framework" : self.tableName.equals("native.libraries") ? "library" : "pkg-config";
 		return self.selected(FeNativeDeclaration(kind, packageName, name, "", "", "", operatingSystems, architectures, modules), selector);
 	}
 }
@@ -1989,7 +2125,7 @@ class FePackageManifestParser {
 		return FeManifestDependency(alias, path, git, revision);
 	}
 
-	private bool nativeTable(string name) { return name.equals("native.sources") || name.equals("native.headers") || name.equals("native.include-directories") || name.equals("native.defines") || name.equals("native.frameworks") || name.equals("native.pkg-config") || name.equals("native.bindings"); }
+	private bool nativeTable(string name) { return name.equals("native.sources") || name.equals("native.headers") || name.equals("native.include-directories") || name.equals("native.defines") || name.equals("native.frameworks") || name.equals("native.pkg-config") || name.equals("native.libraries") || name.equals("native.bindings"); }
 
 	/* Library.TOML throws on a malformed basic string. A manifest is user
 	 * input, so that becomes a package failure, as tomllib's decode error does
@@ -2093,6 +2229,18 @@ class FePackageManifestParser {
 					if (block == null || !block.isBinding()) { FePackageFailure.fail("owned-outputs requires a preceding native binding"); }
 					block.declareOwnedOutput(name); section = outputPrefix + name; continue;
 				}
+				string copiedOutputPrefix = "native.bindings.copied-outputs.";
+				if (table.startsWith(copiedOutputPrefix)) {
+					string name = TOML.unquote(table.substring(copiedOutputPrefix.length(), table.length() - copiedOutputPrefix.length()));
+					if (block == null || !block.isBinding()) { FePackageFailure.fail("copied-outputs requires a preceding native binding"); }
+					block.declareCopiedOutput(name); section = copiedOutputPrefix + name; continue;
+				}
+				string sinkPrefix = "native.bindings.com-sinks.";
+				if (table.startsWith(sinkPrefix)) {
+					string name = TOML.unquote(table.substring(sinkPrefix.length(), table.length() - sinkPrefix.length()));
+					if (block == null || !block.isBinding() || !self.identifier(name)) { FePackageFailure.fail("com-sinks requires a preceding native binding and a resource name"); }
+					block.declareComSink(name); section = sinkPrefix + name; continue;
+				}
 				if (table.startsWith(callbackPrefix)) {
 					if (block == null || !block.isBinding()) { FePackageFailure.fail("callbacks requires a preceding native binding"); }
 					string suffix = table.substring(callbackPrefix.length(), table.length() - callbackPrefix.length());
@@ -2184,6 +2332,7 @@ class FePackageManifestParser {
 				if (section.startsWith("native.bindings.record-snapshots.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.initializers.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.copied-inputs.")) { prefix = section.substring(16, section.length() - 16) + "."; }
+				if (section.startsWith("native.bindings.copied-outputs.") || section.startsWith("native.bindings.com-sinks.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (block == null) { FePackageFailure.fail(f"package manifest '{self.manifestPath}' field '{key}' requires a preceding native binding"); }
 				block.set(prefix + TOML.unquote(key), raw);
 			}
@@ -2893,6 +3042,10 @@ class FeNativeLinkPlan {
 		}
 		root.set("headers", self.pathRecords("header"));
 		root.set("include-directories", self.pathRecords("include-directory"));
+		/* System libraries the program links (`-l<name>`), present exactly when a
+		 * selected package declares one, so plans without them are unchanged. */
+		JSONValue libraries = self.nameRecords("library");
+		if (libraries.size() > 0) { root.set("libraries", libraries); }
 		root.set("linker-language", JSONValue.makeString(self.linkerLanguage()));
 		root.set("packages", self.packageRecords());
 		root.set("pkg-config", self.nameRecords("pkg-config"));

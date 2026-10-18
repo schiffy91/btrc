@@ -20,6 +20,10 @@ class COMApartment {
 	/* Interface pointers that BTRC values hold in the apartment. */
 	class long long liveClaims() { return btrcCOMLiveClaims(); }
 
+	/* Generated COM sink holders not yet freed: a sink lives while its source
+	 * holds it, and until its registration has ended. */
+	class long long liveSinks() { return btrcCOMLiveSinks(); }
+
 	/* Leaves the apartment (CoUninitialize) from its own thread, after every
 	 * interface has been released. */
 	class void uninitialize() { btrcCOMUninitialize(); }

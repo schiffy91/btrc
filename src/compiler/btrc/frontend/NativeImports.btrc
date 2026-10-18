@@ -137,9 +137,17 @@ class FeNativeDeclarationImporter {
 	private Map<string, string> ownedOutputs = {};
 	private Map<string, string> ownedOutputStatuses = {};
 	private Map<string, string> statusResults = {};
+	private Map<string, string> copiedOutputs = {};
 	/* Generated COM adapters count their claims and check their apartment
 	 * through Library.COM's COM.h (native-interop-ownership.md section 2.4). */
 	private bool comRuntime = false;
+	/* A binding with COM interfaces never aggregates: no call may pass pUnkOuter. */
+	private bool comBinding = false;
+	/* Each COM interface's record, lpVtbl table layout and lpVtbl field, which
+	 * COM sinks implement (projectComSinks). */
+	private Map<string, NativeNode> comRecords = {};
+	private Map<string, NativeNode> comTables = {};
+	private Map<string, NativeNode> comFirsts = {};
 	private Map<string, FeNativeInitializerBinding> initializers = {};
 	private Map<string, FeNativeInitializerBinding> resourceInitializers = {};
 	private Map<string, FeNativeCopiedInputBinding> copiedInputs = {};
@@ -761,6 +769,8 @@ class FeNativeDeclarationImporter {
 			}
 			if (!tables.has(name)) { self.fail(f"resource {name}: com requires a complete record whose first field lpVtbl points to a complete SDK table"); }
 		}
+		/* COM sinks implement these tables (projectComSinks). */
+		self.comRecords = records; self.comTables = tables; self.comFirsts = firsts;
 		for name in interfaces {
 			FeNativeResourceBinding resource = binding.resources.get(name);
 			NativeNode record = records.get(name);
@@ -809,8 +819,9 @@ class FeNativeDeclarationImporter {
 	 * output is released, and the method returns that output, or else the
 	 * nonnegative HRESULT. An owned-outputs result class carries the HRESULT
 	 * and the adopted output instead. An [out] interface with neither form is
-	 * rejected (native-interop-ownership.md section 2.4). */
-	private void comMethodStatus(string resourceName, FeNativeDispatchMethod method, NativeNode signature, Vector<string> names, Vector<int> outputs) {
+	 * rejected (native-interop-ownership.md section 2.4). A copied [out]
+	 * string (copied-outputs) takes the status-results form. */
+	private void comMethodStatus(string resourceName, FeNativeDispatchMethod method, NativeNode signature, Vector<string> names, Vector<int> outputs, Vector<int> copies) {
 		string key = resourceName + "." + method.name;
 		bool throws = self.statusResults.has(key) && self.statusResults.get(key) == "hresult";
 		if (self.statusResults.has(key)) { self.statusResults.remove(key); }
@@ -822,6 +833,11 @@ class FeNativeDeclarationImporter {
 			if (self.ownedOutputs.has(outputKey)) { resultClass = self.ownedOutputs.get(outputKey); self.ownedOutputs.remove(outputKey); }
 		}
 		if ((throws || !resultClass.isEmpty()) && !self.comInteger(signature.returnType, "signed")) { self.fail(f"dispatch method {key}: status = hresult and status-results require a 32-bit signed result"); }
+		if (copies.len > 0) {
+			if (outputs.len > 0 || copies.len > 1) { self.fail(f"dispatch method {key} adopts at most one [out] value"); }
+			self.comCopiedOutput(key, method, signature, copies.get(0), names, throws);
+			return;
+		}
 		if (outputs.len == 0) {
 			if (throws) { method.status = "throw"; }
 			return;
@@ -844,6 +860,56 @@ class FeNativeDeclarationImporter {
 		method.resultClass = resultClass;
 		Node result = self.node(NK_TYPE_EXPR); result.base = resultClass;
 		method.returnType = result;
+	}
+
+	/* A copied [out] UTF-16 string: a BSTR or CoTaskMemAlloc text the adapter
+	 * copies and frees. The slot writes a mutable 16-bit-unit string pointer;
+	 * the method returns its copy as `string?` (null when the slot left it
+	 * null), and the declared free function, which must take that pointer and
+	 * return void, releases it inside the adapter on every HRESULT. */
+	private void comCopiedOutput(string key, FeNativeDispatchMethod method, NativeNode signature, int index, Vector<string> names, bool throws) {
+		string parameter = names.len > 0 ? names.get(index) : f"argument{index}";
+		string free = self.copiedOutputs.get(key + "." + parameter);
+		self.copiedOutputs.remove(key + "." + parameter);
+		if (!throws) { self.fail(f"dispatch method {key}: a copied output requires status-results"); }
+		NativeNode outer = self.unqualifiedNative(signature.parameters.get(index));
+		bool shaped = outer.kind == NNK_NATIVE_POINTER && !self.nativeIsConst(outer.pointee);
+		if (shaped) {
+			NativeNode inner = self.unqualifiedNative(outer.pointee);
+			shaped = inner.kind == NNK_NATIVE_POINTER && !self.nativeIsConst(inner.pointee);
+			if (shaped) {
+				NativeNode unit = self.unqualifiedNative(inner.pointee);
+				shaped = unit.kind == NNK_NATIVE_BUILTIN && unit.bits == 16 && unit.signedness == "unsigned";
+			}
+		}
+		if (!shaped) { self.fail(f"copied-outputs {key}.{parameter} requires a mutable UTF-16 string pointer output"); }
+		bool matches = false;
+		bool voidResult = false;
+		NativeNode? freeSignature = null;
+		if (self.callbackExports.has(free) && self.callbackExports.get(free).kind == NNK_NATIVE_FUNCTION) {
+			NativeNode exported = self.callbackExports.get(free);
+			freeSignature = exported.signature;
+		}
+		if (freeSignature != null && !freeSignature.variadic && freeSignature.parameters.len == 1) {
+			NativeNode accepted = freeSignature.parameters.get(0);
+			NativeNode argument = self.unqualifiedNative(accepted);
+			NativeNode result = self.unqualifiedNative(freeSignature.returnType);
+			voidResult = result.kind == NNK_NATIVE_BUILTIN && result.name == "void";
+			/* SysFreeString takes the BSTR itself; CoTaskMemFree any task-allocated block as void*. */
+			if (free == "SysFreeString") { matches = self.typeIdentity(accepted) == self.typeIdentity(outer.pointee); }
+			else if (argument.kind == NNK_NATIVE_POINTER) {
+				NativeNode pointee = self.unqualifiedNative(argument.pointee);
+				matches = pointee.kind == NNK_NATIVE_BUILTIN && pointee.name == "void" && !self.nativeIsConst(argument.pointee);
+			}
+			if (matches && voidResult) { self.requireQualifiedConvention(freeSignature); }
+		}
+		if (!matches || !voidResult) { self.fail(f"copied-outputs free {free} must take the string and return void"); }
+		method.status = "throw";
+		method.outputPosition = index;
+		method.outputSpelling = self.realtimeNativeSpelling(outer.pointee);
+		method.outputFree = free;
+		Node text = self.node(NK_TYPE_EXPR); text.base = "string"; text.isNullable = true;
+		method.returnType = text;
 	}
 
 	/* The generated class an owning output returns: its status, the adopted resource and any offset. */
@@ -915,11 +981,17 @@ class FeNativeDeclarationImporter {
 				Vector<string> names = field.callbackParameters.len > 0 ? self.semanticNames(field.callbackParameters) : [];
 				var projected = FeNativeDispatchMethod(method, slot, self.callType(signature.returnType), self.realtimeNativeSpelling(signature.returnType), tableType);
 				Vector<int> outputs = [];
+				Vector<int> copies = [];
 				for position in range(signature.parameters.len) {
 					if (position == dispatch.contextIndex) { continue; }
 					NativeNode native = signature.parameters.get(position);
 					string borrowed = "";
 					if (resource.ownership == "com") {
+						/* Aggregation is never supported, so no call passes an outer IUnknown. */
+						string parameterName = names.len > 0 ? names.get(position) : f"argument{position}";
+						if (parameterName == "pUnkOuter") { self.fail(f"dispatch method {name}.{method}: COM aggregation is not supported; pUnkOuter must be hidden or null"); }
+						/* A copied [out] string is hidden and returned as a BTRC string. */
+						if (self.copiedOutputs.has(name + "." + method + "." + parameterName)) { copies.push(position); continue; }
 						/* An [in] interface is borrowed for the call; an [out] IFoo**
 						 * is adopted under a declared status form. */
 						borrowed = self.resourceName(native);
@@ -932,7 +1004,7 @@ class FeNativeDeclarationImporter {
 					projected.parameters.push(value);
 					projected.nativeParameters.push(self.realtimeNativeSpelling(native));
 				}
-				if (resource.ownership == "com") { self.comMethodStatus(name, projected, signature, names, outputs); }
+				if (resource.ownership == "com") { self.comMethodStatus(name, projected, signature, names, outputs, copies); }
 				Node member = self.node(NK_METHOD_DECL); member.access = "public"; member.name = method; member.returnType = projected.returnType;
 				for index in range(projected.names.len) {
 					Node parameter = self.node(NK_PARAM); parameter.name = projected.names.get(index); parameter.type = projected.parameters.get(index); member.paramsMut().push(parameter);
@@ -952,6 +1024,150 @@ class FeNativeDeclarationImporter {
 				var contract = FeNativeCallContract(); contract.dispatchMethod = FeNativeDispatchMethod("", dispatch.releaseSlot, voidType, "void", tableType);
 				owner.methods.put("", contract);
 			}
+		}
+	}
+
+	/* The signature of a named slot of a COM resource's lpVtbl table. */
+	private NativeNode comNamedSlot(string resource, string slot, string what) {
+		NativeNode table = self.comTables.get(resource);
+		for index in range(table.fields.len) {
+			if (table.fields.get(index).name == slot && self.comSlotShaped(table, index, slot)) { return self.comSlotSignature(table, index); }
+		}
+		self.fail(f"{what}: slot {slot} is not a function pointer of {resource}'s table");
+		return null;
+	}
+
+	/* Generate each COM sink: its handler interface and its registration
+	 * factory (M2). The sink implements a selected `com` resource's table.
+	 * Every slot after IUnknown's becomes a method of the BTRC handler
+	 * interface, named by the slot with a lowercase first letter, and must
+	 * return a 32-bit signed HRESULT. QueryInterface answers IID_IUnknown, the
+	 * resource's IID and its bases'. `register` is the source's Advise(sink,
+	 * cookie*) and `unregister` its Unadvise(cookie)
+	 * (native-interop-ownership.md section 2.4). */
+	private void projectComSinks(FeNativeBinding binding) {
+		for sink in binding.comSinks {
+			string what = "com-sinks " + sink.resource;
+			NativeNode record = self.comRecords.get(sink.resource);
+			NativeNode table = self.comTables.get(sink.resource);
+			NativeNode first = self.comFirsts.get(sink.resource);
+			FeNativeComInterface? selected = self.resourceDeclaration(sink.resource).methods.get("").comInterface;
+			if (selected == null) { self.fail(f"{what}: the sink requires its com interface"); }
+			FeNativeComInterface comInterface = selected;
+			if (comInterface.unknownIid.isEmpty()) { self.fail(f"{what}: a com sink answers IID_IUnknown, which must be a read-only GUID global"); }
+			NativeNode tableRecord = self.unqualifiedNative(self.unqualifiedNative(first.fieldType).pointee);
+			if (tableRecord.tagName.isEmpty()) { self.fail(f"{what}: the sink's lpVtbl table must be a tagged struct"); }
+			NativeNode query = self.comSlotSignature(table, 0);
+			NativeNode addRef = self.comSlotSignature(table, 1);
+			var projection = FeNativeComSink(sink.resource, sink.handler);
+			Node handler = self.node(NK_INTERFACE_DECL); handler.name = sink.handler;
+			for index in range(3, table.fields.len) {
+				NativeNode field = table.fields.get(index);
+				if (!self.comSlotShaped(table, index, field.name)) { self.fail(f"{what}: sink slot {field.name} is not a fixed-arity function pointer"); }
+				NativeNode signature = self.comSlotSignature(table, index);
+				self.requireQualifiedConvention(signature);
+				string name = field.name.substring(0, 1).toLower() + field.name.substring(1, field.name.length() - 1);
+				if (name == "queryInterface" || name == "addRef" || name == "release") { self.fail(f"{what}: sink method {field.name} collides with IUnknown"); }
+				for existing in projection.methods { if (existing.name == name) { self.fail(f"{what}: sink methods {name} must have distinct names"); } }
+				if (signature.parameters.len == 0 || !self.dispatchReceiver(signature.parameters.get(0), record)) { self.fail(f"{what}: sink method {field.name} must take the sink first"); }
+				if (!self.comInteger(signature.returnType, "signed")) { self.fail(f"{what}: sink method {field.name} must return a 32-bit signed HRESULT"); }
+				Vector<string> names = field.callbackParameters.len > 0 ? self.semanticNames(field.callbackParameters) : [];
+				Node member = self.node(NK_METHOD_SIG); member.name = name;
+				for position in range(1, signature.parameters.len) {
+					Node parameter = self.node(NK_PARAM);
+					parameter.type = self.tableParameter(signature.parameters.get(position), f"{what}: sink method {field.name}");
+					parameter.name = names.len > 0 ? names.get(position) : f"argument{position}";
+					member.paramsMut().push(parameter);
+				}
+				var method = FeNativeComSinkMethod(name, field.name, self.realtimeNativeSpelling(signature.returnType));
+				for value in signature.parameters { method.nativeParameters.push(self.realtimeNativeSpelling(value)); }
+				projection.methods.push(method);
+				member.returnType = self.callType(signature.returnType);
+				handler.methodsMut().push(member);
+			}
+			self.add(sink.handler, handler, "com-sink:" + sink.resource + ":" + self.typeIdentity(self.resourceTypes.get(sink.resource)));
+			/* QueryInterface answers IID_IUnknown, the sink's IID and its bases'. */
+			Vector<string> chain = [];
+			projection.iids.push("IID_IUnknown");
+			string current = sink.resource;
+			while (!current.isEmpty()) {
+				FeNativeResourceBinding link = binding.resources.get(current);
+				chain.push(link.name);
+				if (link.iid != "IID_IUnknown") { projection.iids.push(link.iid); }
+				current = link.base;
+			}
+			/* Advise(sink, cookie*) and Unadvise(cookie) on the source. */
+			var registerParts = Strings.split(sink.registerMethod, ".");
+			string sourceName = registerParts.get(0);
+			string registerName = registerParts.get(1);
+			string unregisterName = Strings.split(sink.unregisterMethod, ".").get(1);
+			var source = self.resourceDeclaration(sourceName);
+			FeNativeDispatchMethod? registerSelected = source.methods.get(registerName).dispatchMethod;
+			FeNativeDispatchMethod? unregisterSelected = source.methods.get(unregisterName).dispatchMethod;
+			if (registerSelected == null || unregisterSelected == null) { self.fail(f"{what}: register and unregister require dispatched methods"); }
+			FeNativeDispatchMethod registerMethod = registerSelected;
+			FeNativeDispatchMethod unregisterMethod = unregisterSelected;
+			Vector<int> sinks = [];
+			for position in range(registerMethod.resources.len) { if (!registerMethod.resources.get(position).isEmpty()) { sinks.push(position); } }
+			NativeNode advise = self.comNamedSlot(sourceName, registerMethod.slot, what);
+			int cookieIndex = registerMethod.parameters.len == 2 && sinks.len == 1 ? 1 - sinks.get(0) : -1;
+			bool registerShaped = registerMethod.outputPosition < 0 && cookieIndex >= 0;
+			NativeNode cookieValue = advise.returnType;
+			if (registerShaped) {
+				NativeNode cookie = self.unqualifiedNative(advise.parameters.get(cookieIndex + 1));
+				registerShaped = chain.contains(registerMethod.resources.get(sinks.get(0))) && cookie.kind == NNK_NATIVE_POINTER;
+				if (registerShaped) {
+					cookieValue = cookie.pointee;
+					NativeNode unit = self.unqualifiedNative(cookie.pointee);
+					registerShaped = unit.kind == NNK_NATIVE_BUILTIN && self.realtimeScalar(unit) && unit.name != "bool" && unit.name != "_Bool" && !self.nativeIsConst(cookie.pointee);
+				}
+			}
+			if (!registerShaped || !self.comInteger(advise.returnType, "signed")) { self.fail(f"{what}: register {sink.registerMethod} must take the sink and a cookie pointer and return an HRESULT"); }
+			NativeNode unadvise = self.comNamedSlot(sourceName, unregisterMethod.slot, what);
+			bool unregisterShaped = unregisterMethod.parameters.len == 1 && unregisterMethod.outputPosition < 0 && unadvise.parameters.len == 2;
+			for value in unregisterMethod.resources { if (!value.isEmpty()) { unregisterShaped = false; } }
+			if (!unregisterShaped || self.typeIdentity(cookieValue) != self.typeIdentity(unadvise.parameters.get(1)) || !self.comInteger(unadvise.returnType, "signed")) { self.fail(f"{what}: unregister {sink.unregisterMethod} must take the register's cookie and return an HRESULT"); }
+			FeNativeComInterface? sourceSelected = source.methods.get("").comInterface;
+			if (sourceSelected == null) { self.fail(f"{what}: the source requires its com interface"); }
+			FeNativeComInterface sourceInterface = sourceSelected;
+			projection.nativeType = comInterface.nativeType;
+			projection.tableType = comInterface.tableType;
+			projection.tableRecord = "struct " + tableRecord.tagName;
+			for value in query.parameters { projection.queryParameters.push(self.realtimeNativeSpelling(value)); }
+			projection.countParameter = self.realtimeNativeSpelling(addRef.parameters.get(0));
+			projection.countType = self.realtimeNativeSpelling(addRef.returnType);
+			projection.statusType = comInterface.statusType;
+			projection.source = sourceName;
+			projection.sourceType = sourceInterface.nativeType;
+			projection.sourceTable = sourceInterface.tableType;
+			projection.registerMethod = registerName;
+			projection.registerSlot = registerMethod.slot;
+			projection.registerStatus = registerMethod.nativeReturn;
+			projection.sinkPosition = sinks.get(0);
+			projection.sinkSpelling = registerMethod.nativeParameters.get(sinks.get(0));
+			projection.cookieType = self.realtimeNativeSpelling(cookieValue);
+			projection.unregisterMethod = unregisterName;
+			projection.unregisterSlot = unregisterMethod.slot;
+			projection.unregisterStatus = unregisterMethod.nativeReturn;
+			projection.activationFailure = sink.activationFailure;
+			Node voidResult = self.node(NK_TYPE_EXPR); voidResult.base = "void";
+			Node voidPointer = self.node(NK_TYPE_EXPR); voidPointer.base = "void"; voidPointer.pointerDepth = 1;
+			/* CFunction<void, void*>, in the parser's exact callback spelling. */
+			Node destroyType = self.node(NK_TYPE_EXPR); destroyType.base = "__fn_ptr"; destroyType.genericArgsStorage = [voidResult, voidPointer];
+			Node token = self.node(NK_TYPE_EXPR); token.base = "OwnedClosure"; token.genericArgsStorage = [destroyType];
+			Node receiver = self.node(NK_TYPE_EXPR); receiver.base = sink.handler;
+			Node factory = self.node(NK_FUNCTION_DECL); factory.name = sink.name;
+			factory.returnType = self.node(NK_TYPE_EXPR); factory.returnType.base = "CallbackContext"; factory.returnType.genericArgsStorage = [receiver, token];
+			var contract = FeNativeCallContract(); contract.nonnullReturn = true; contract.comSink = projection;
+			Vector<string> parameterNames = ["source", "receiver", "scope"];
+			Vector<string> parameterTypes = [sourceName, sink.handler, "CallbackScope"];
+			for index in range(3) {
+				Node parameter = self.node(NK_PARAM); parameter.name = parameterNames.get(index);
+				parameter.type = self.node(NK_TYPE_EXPR); parameter.type.base = parameterTypes.get(index);
+				factory.paramsMut().push(parameter);
+				contract.nonnullParameters.push(true); contract.readOnlyBorrows.push(false); contract.resourceParameters.push(""); contract.recordInputs.push(null);
+			}
+			self.add(sink.name, factory, "com-sink-factory:" + sink.resource, "", false, contract);
 		}
 	}
 
@@ -1837,6 +2053,10 @@ class FeNativeDeclarationImporter {
 		for name in binding.ownedOutputStatuses.keys() { self.ownedOutputStatuses.put(name, binding.ownedOutputStatuses.get(name)); }
 		self.statusResults = {};
 		for name in binding.statusResults.keys() { self.statusResults.put(name, binding.statusResults.get(name)); }
+		self.copiedOutputs = {};
+		for name in binding.copiedOutputs.keys() { self.copiedOutputs.put(name, binding.copiedOutputs.get(name)); }
+		self.comBinding = false;
+		for name in binding.resources.keys() { if (binding.resources.get(name).ownership == "com") { self.comBinding = true; } }
 		self.ownedOutputResources = {};
 		for name in binding.ownedOutputResources.keys() { self.ownedOutputResources.put(name, binding.ownedOutputResources.get(name)); }
 		self.outputOffsets = {};
@@ -2630,6 +2850,9 @@ class FeNativeDeclarationImporter {
 			self.realtime.remove(declaration.name);
 			NativeNode signature = declaration.signature;
 			self.requireQualifiedConvention(signature);
+			if (self.comBinding) {
+				for parameter in declaration.parameterSemantics { if (parameter.name == "pUnkOuter") { self.fail(f"{declaration.name}: COM aggregation is not supported; pUnkOuter must be hidden or null"); } }
+			}
 			/* The included SDK header owns asm labels. Calls use its source name,
 			 * never a reconstructed declaration or the native linker spelling. */
 			callContract.resourceResult = self.projectResourcePosition(declaration.name, signature.returnType, true);
@@ -4297,8 +4520,10 @@ class FeNativeDeclarationImporter {
 			self.projectCallbackTables(binding);
 			self.projectComInterfaces(binding);
 			self.projectDispatchTables(binding);
+			self.projectComSinks(binding);
 			self.projectRecordSnapshots(binding);
 			if (self.statusResults.len > 0) { self.fail("status-results names an unknown dispatched method"); }
+			if (self.copiedOutputs.len > 0) { self.fail("copied-outputs names an unknown dispatched method parameter"); }
 			if (self.borrows.len > 0) { self.fail("read-only-borrows names unknown function parameter"); }
 			if (self.realtime.len > 0) { self.fail("realtime-safe names a non-function declaration"); }
 			if (self.variadicCalls.len > 0) { self.fail("variadic-calls names an unknown function or parameter"); }

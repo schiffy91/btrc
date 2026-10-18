@@ -633,6 +633,25 @@ def test_same_native_name_with_disjoint_platform_predicates_is_not_duplicate(
     assert linux["pkg-config"] == expected
 
 
+def test_system_libraries_follow_their_platform_predicates(tmp_path: Path) -> None:
+    # Library.COM's link records: present in a plan exactly when one is selected.
+    native = '\n[[native.libraries]]\nname = "ole32"\nos = ["windows"]\n\n[[native.libraries]]\nname = "uuid"\nos = ["windows"]\n'
+    _manifest(tmp_path, "app", native=native)
+
+    windows = PackageUniverse().resolve_manifest(str(tmp_path / "btrc.toml"), target="windows-x64").native_plan
+    linux = PackageUniverse().resolve_manifest(str(tmp_path / "btrc.toml"), target="linux-x64").native_plan
+
+    assert windows.as_dict()["libraries"] == [{"name": "ole32", "package": "app"}, {"name": "uuid", "package": "app"}]
+    assert "libraries" not in linux.as_dict()
+    assert '"libraries":[{"name":"ole32","package":"app"}' in windows.canonical_json()
+
+
+def test_system_library_names_are_plain_names(tmp_path: Path) -> None:
+    _manifest(tmp_path, "app", native='\n[[native.libraries]]\nname = "ole32 -lbad"\n')
+    with pytest.raises(ValueError, match=r"native.libraries\[0\].name contains unsupported characters"):
+        PackageUniverse().resolve_manifest(str(tmp_path / "btrc.toml"), target="windows-x64")
+
+
 def _read_headers_for(monkeypatch: pytest.MonkeyPatch, directory: Path, target: str) -> None:
     for name, value in cross_target_environment(directory, target, {}).items():
         monkeypatch.setenv(name, value)

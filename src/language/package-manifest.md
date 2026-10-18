@@ -154,6 +154,10 @@ os = ["macos"]
 [[native.pkg-config]]
 name = "dbus-1"
 os = ["linux"]
+
+[[native.libraries]]
+name = "ole32"
+os = ["windows"]
 ```
 
 Every native declaration may have a non-empty `modules` array of dotted module
@@ -173,8 +177,14 @@ Source languages and standards are closed sets:
 
 Declared sources and headers must be regular files inside their package root.
 Declared include directories must be directories inside that root.  Symlinks
-that escape the root are rejected.  Define names are C identifiers.  Framework
-and pkg-config names use only letters, digits, `_`, `.`, `+`, and `-`.
+that escape the root are rejected.  Define names are C identifiers.  Framework,
+pkg-config and library names use only letters, digits, `_`, `.`, `+`, and `-`.
+
+`native.libraries` names a system library the executable links, as
+`-l<name>` after the objects: `Library.COM` declares `ole32`, `uuid` and
+`oleaut32` for Windows. A plan carries its selected libraries in a
+`libraries` array of `{name, package}` records, present exactly when one is
+selected, so plans without libraries are unchanged; each name links once.
 
 Selected `native.pkg-config` dependencies supply `--cflags` to typed header
 imports as well as the native build plan. The shared header reader invokes
@@ -2027,10 +2037,97 @@ gains the class method `sameObject(first, second)`, which compares the two
 objects' IUnknown identities and releases both identity claims. IIDs are
 linked from `uuid` on Windows; on other hosts the program defines them.
 
-Not yet supported: COM sinks (`com-sinks`), copied BSTR and `CoTaskMemAlloc`
-outputs (`copied-outputs`), `status-results` on C functions, ole32 and uuid
-link records, and the compile-time ban on capturing a COM resource in
-`spawn`; a COM call on another thread terminates at run time instead.
+A dispatched method's `[out]` UTF-16 string is copied into a BTRC string and
+freed inside the adapter (`copied-outputs`). The slot's parameter must be a
+mutable pointer to a mutable pointer to 16-bit unsigned units (`BSTR*`,
+`LPOLESTR*`), and the method takes the `status-results` form:
+
+```toml
+[native.bindings.status-results]
+"ICounter.name" = "hresult"
+
+[native.bindings.copied-outputs."ICounter.name.name"]
+encoding = "utf-16"
+free = "SysFreeString"     # a BSTR; "CoTaskMemFree" for a CoTaskMemAlloc string
+```
+
+The method returns `string?`: null when the slot left its output null, else
+the UTF-8 copy (unpaired surrogates become U+FFFD). A BSTR's length is its
+prefix, a task-allocated string ends at U+0000, and a BSTR holding U+0000
+frees the string and throws `COM ICounter.name returned a string holding
+U+0000, which a BTRC string cannot hold`. A negative HRESULT frees any string
+the slot still wrote, then throws as for any status-results method. `free`
+must be `SysFreeString` (taking the BSTR) or `CoTaskMemFree` (taking a
+mutable `void*`), selected and returning void; encoding is `utf-16`; a method
+copies at most one output and adopts no `[out]` interface beside it.
+
+A COM sink lets the source of a connection point call a BTRC handler
+(`com-sinks`, native-interop-ownership.md section 2.4). The table key names
+a selected `ownership = "com"` resource, whose IID, bases and table the sink
+reuses:
+
+```toml
+[native.bindings.com-sinks.ICounterEvents]
+name = "makeCounterEvents"            # the factory
+interface = "ICounterEventsHandler"   # the BTRC handler interface
+register = "ICounter.advise"          # the source's Advise(sink, cookie*)
+unregister = "ICounter.unadvise"      # the source's Unadvise(cookie)
+executor = "apartment"
+failure = "abort"
+activation-failure = "unpublished"    # or "abort"
+cancellation = "entry-barrier"
+```
+
+Every slot after IUnknown's becomes a method of the handler interface, named
+by the slot with a lowercase first letter (`Changed` is `changed`), with the
+slot's arguments after `This`, which must be SDK scalars or POD data pointers,
+and a 32-bit signed HRESULT result. Import `Library.Callback`. The factory is
+`CallbackContext<ICounterEventsHandler, ...> makeCounterEvents(ICounter
+source, ICounterEventsHandler receiver, CallbackScope scope)`: it allocates
+the sink, Advises it on the source and returns the registration, an
+`ICallbackRegistration`. `register` must take one `[in]` interface that the
+sink widens to (its own resource or a base, such as `IUnknown*`) and a
+pointer to a mutable integer cookie; `unregister` takes that cookie's type;
+both return an HRESULT and name methods of one dispatching resource.
+
+The generated sink is `{ lpVtbl, comCount, state, context, thread,
+registered }` with one static const table. QueryInterface answers
+IID_IUnknown (which the binding must select), the sink's IID and its bases'
+by `memcmp`, and anything else with `E_NOINTERFACE` and a null output. While
+its COM count is positive the sink holds one external claim on the
+registration's CallbackContext. Each event pins the sink (one AddRef) and
+enters the context, so a handler may cancel its scope, and so Unadvise,
+inside the event; after cancellation an event returns `S_OK` without entering
+BTRC, so a source that keeps the sink pointer pins only the sink and its
+context. At zero the sink is dead before anything is released, releases its
+claim, and frees itself once its registration has ended; until then an
+AddRef, QueryInterface or Release on the dead sink terminates (`Native COM
+sink ICounterEvents.AddRef: the holder is dead`). Every entry checks the
+apartment's thread (`... called off its apartment thread`; `... Release:
+foreign holder released on the wrong thread`). The registration holds one
+claim on the source and the cookie: cancellation marks the sink cancelled,
+calls Unadvise (a dead sink counts as unregistered), drains, then releases
+the receiver; the registration's end releases the source. A failed Advise
+follows `activation-failure`: `unpublished` releases everything and throws
+`COM sink ICounterEvents: ICounter.advise failed with HRESULT 0x80004005`,
+`abort` terminates with that message. `COMApartment.liveSinks()` counts the
+sinks not yet freed.
+
+Rejected: a key that is not a com resource of the binding; a factory or
+interface name equal to a selected symbol or another sink's; two sinks with
+one IID, or a chain naming an IID twice; a sink slot named like an IUnknown
+method (`release`); a sink slot that does not return an HRESULT; and, for COM
+methods and for C functions of a binding with COM resources, a `pUnkOuter`
+parameter: aggregation is not supported, so it must be hidden or null (bind
+such a call through a C helper that passes NULL).
+
+`Library.COM` declares `ole32`, `uuid` and `oleaut32` for Windows as link
+records, so a program with COM resources links them through its plan.
+
+Not yet supported: `status-results` on C functions, `copied-outputs` on C
+functions, and the compile-time ban on capturing a COM resource in `spawn`; a
+COM call on another thread terminates at run time instead. Free-threaded (MTA)
+sinks are deferred.
 
 ### Opaque C++ owners
 
@@ -2415,7 +2512,9 @@ that both compilers' sysroot validation computes when the compile read native
 headers through a sysroot (`""` otherwise). The plan never holds a sysroot
 path: paths are facts of the building host. `generated-units` and
 `emitted-units` (with `emitted-unit-digests`) keep the meanings below and are
-present exactly when non-empty.
+present exactly when non-empty, as is `libraries`, the selected
+`native.libraries` records, which the builder links as `-l<name>` after the
+objects.
 
 The builder (`tools/native_plan.py`) accepts only the exact field set of each
 schema. A schema-5 `target` must equal the row its `label` names, and its

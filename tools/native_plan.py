@@ -212,6 +212,8 @@ class NativeBuildPlan:
     # The sysroot the compile read native headers through (schema 5), or "".
     sysroot_identity: str = ""
     schema: int = 5
+    # System libraries the executable links (schema 5's optional `libraries`).
+    libraries: tuple[str, ...] = ()
 
     @property
     def operating_system(self) -> str:
@@ -321,7 +323,9 @@ class NativePlanReader:
             # meanings: each is present exactly when non-empty.
             fields = ROOT_FIELDS
             if isinstance(payload, dict):
-                fields = fields | ({"generated-units", "emitted-units", "emitted-unit-digests"} & payload.keys())
+                fields = fields | (
+                    {"generated-units", "emitted-units", "emitted-unit-digests", "libraries"} & payload.keys()
+                )
         root = PlanJson.exact_mapping(payload, fields, "native link plan")
         canonical = json.dumps(root, allow_nan=False, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
         if encoded != canonical.encode("utf-8"):
@@ -379,6 +383,10 @@ class NativePlanReader:
         # A mobile app and an MSVC SDK build have no pkg-config search path.
         if pkg_config and (row.operating_system in {"ios", "android"} or row.sysroot_kind == "windows-sdk"):
             raise NativePlanError(f"native link plan pkg-config is unavailable for {row.label}")
+        # System libraries (schema 5), present exactly when non-empty.
+        libraries = self._name_records(root["libraries"], "libraries", package_roots) if "libraries" in root else ()
+        if "libraries" in root and not libraries:
+            raise NativePlanError("native link plan libraries must not be empty")
         units = self._units(root["units"], package_roots)
         generated_units = (
             self._generated_units(root["generated-units"]) if schema >= 2 and "generated-units" in root else ()
@@ -428,6 +436,7 @@ class NativePlanReader:
             emitted_paths,
             sysroot_identity,
             schema,
+            libraries,
         )
 
     def _target_row(self, value: object) -> GeneratedTargetRow:
@@ -1621,12 +1630,15 @@ class NativePlanBuilder:
                     runtime_libraries = toolchain.runtime_libraries()
                     # Group packages may each declare the same framework; link it once.
                     framework_flags = [part for name in dict.fromkeys(plan.frameworks) for part in ("-framework", name)]
+                    # So may system libraries (ole32 for Library.COM): each links once, after the objects.
+                    library_flags = [f"-l{name}" for name in dict.fromkeys(plan.libraries)]
                     report.link_command = [
                         *tools["cxx" if plan.linker_language == "c++" else "cc"],
                         *toolchain.arguments,
                         *(str(path) for path in objects),
                         *package_link,
                         *framework_flags,
+                        *library_flags,
                         *runtime_libraries,
                         "-o",
                         str(staged),

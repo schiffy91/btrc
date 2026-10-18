@@ -730,6 +730,60 @@ class NativeDispatchMethod:
     output_spelling: str = ""
     status: str = ""
     result_class: str = ""
+    # A copied [out] UTF-16 string (copied-outputs) names the function that
+    # frees it instead of an output resource: SysFreeString or CoTaskMemFree.
+    output_free: str = ""
+
+
+@dataclass(frozen=True)
+class NativeComSinkMethod:
+    """One event slot of a COM sink's table, answered by the BTRC handler's method `name`.
+
+    `native_parameters` spells every slot parameter, This first.
+    """
+
+    name: str
+    slot: str
+    native_parameters: tuple[str, ...]
+    native_return: str
+
+
+@dataclass(frozen=True)
+class NativeComSink:
+    """A generated COM sink: an M2 holder implementing a `com` resource's table.
+
+    The holder is `{ lpVtbl, comCount, state, context, thread, registered }`
+    with one static const table (`table_record`). While its COM count is
+    positive it holds one external claim on its CallbackContext; QueryInterface
+    answers `iids`. The factory Advises the holder on `source` through
+    `register_slot`, storing the cookie (`cookie_type`) that `unregister_slot`
+    later passes back (native-interop-ownership.md section 2.4).
+    """
+
+    resource: str
+    interface: str
+    native_type: str
+    table_type: str
+    table_record: str
+    query_parameters: tuple[str, ...]
+    count_parameter: str
+    count_type: str
+    status_type: str
+    iids: tuple[str, ...]
+    methods: tuple[NativeComSinkMethod, ...]
+    source: str
+    source_type: str
+    source_table: str
+    register: str
+    register_slot: str
+    register_status: str
+    sink_position: int
+    sink_spelling: str
+    cookie_type: str
+    unregister: str
+    unregister_slot: str
+    unregister_status: str
+    activation_failure: str
 
 
 @dataclass(frozen=True)
@@ -804,11 +858,13 @@ class NativeCallContract:
     dispatch_method: NativeDispatchMethod | None = None
     java_member: NativeJavaMember | None = None
     com_interface: NativeComInterface | None = None
+    com_sink: NativeComSink | None = None
 
     @property
     def returns_owned(self):
         return bool(
             self.resource_result
+            or self.com_sink
             or self.record_output
             or self.owned_output
             or self.copied_result
@@ -979,6 +1035,9 @@ class NativeDeclarationImporter:
         self._record_resource_fields = {}
         self._string_views = {}
         self._used_string_views = set()
+        self._copied_outputs = {}
+        self._com_binding = False
+        self._com_tables = {}
 
     @staticmethod
     def _reader_identity(reader: str) -> tuple[str, str] | None:
@@ -1059,6 +1118,9 @@ class NativeDeclarationImporter:
             self._owned_outputs = dict(binding.owned_outputs)
             self._owned_output_statuses = dict(binding.owned_output_statuses)
             self._status_results = dict(binding.status_results)
+            self._copied_outputs = dict(binding.copied_outputs)
+            # A binding with COM interfaces never aggregates: no call may pass pUnkOuter.
+            self._com_binding = any(resource.ownership == "com" for resource in binding.resources)
             self._initializers = {value.function: value for value in binding.initializers}
             self._resource_initializers = {value.resource: value for value in binding.initializers}
             self._copied_inputs = {parameter: (owner, length) for parameter, owner, length in binding.copied_inputs}
@@ -1108,9 +1170,12 @@ class NativeDeclarationImporter:
                 self._project_callback_tables(binding)
                 self._project_com_interfaces(binding)
                 self._project_dispatch_tables(binding)
+                self._project_com_sinks(binding)
                 self._project_record_snapshots(binding)
                 if self._status_results:
                     raise NativeImportError("status-results names an unknown dispatched method")
+                if self._copied_outputs:
+                    raise NativeImportError("copied-outputs names an unknown dispatched method parameter")
                 if self._variadic_calls:
                     raise NativeImportError("variadic-calls names an unknown function or parameter")
                 if self._borrows:
@@ -2283,6 +2348,8 @@ class NativeDeclarationImporter:
                     "points to a complete SDK table"
                 )
             tables[resource.name] = (record, tuple(table.fields), first)
+        # COM sinks implement these tables (_project_com_sinks).
+        self._com_tables = tables
         for resource in interfaces:
             record, slots, first = tables[resource.name]
             query, add_ref, release = (
@@ -2350,14 +2417,15 @@ class NativeDeclarationImporter:
                 )
                 declaration.source_file.methods["sameObject"] = NativeCallContract(com_interface=interface)
 
-    def _com_method_status(self, resource, method, signature, names, outputs):
+    def _com_method_status(self, resource, method, signature, names, outputs, copies=()):
         """How a COM method's HRESULT and its one [out] interface reach BTRC.
 
         With status-results a failing (negative) HRESULT throws after the
         adopted output is released, and the method returns that output, or else
         the nonnegative HRESULT. An owned-outputs result class carries the
         HRESULT and the adopted output instead. An [out] interface with neither
-        form is rejected (native-interop-ownership.md section 2.4).
+        form is rejected (native-interop-ownership.md section 2.4). A copied
+        [out] string (copied-outputs) takes the status-results form.
         """
         key = f"{resource.name}.{method.name}"
         throws = self._status_results.pop(key, "") == "hresult"
@@ -2370,6 +2438,10 @@ class NativeDeclarationImporter:
             raise NativeImportError(
                 f"dispatch method {key}: status = hresult and status-results require a 32-bit signed result"
             )
+        if copies:
+            if outputs or len(copies) > 1:
+                raise NativeImportError(f"dispatch method {key} adopts at most one [out] value")
+            return self._com_copied_output(key, method, signature, copies[0], names, throws)
         if not outputs:
             return replace(method, status="throw") if throws else method
         if not throws and not result_class:
@@ -2393,6 +2465,60 @@ class NativeDeclarationImporter:
         self._owned_output_class(result_class, self._type(signature.return_type), output)
         return replace(
             projected, status="result", result_class=result_class, return_type=ast.TypeExpr(base=result_class)
+        )
+
+    def _com_copied_output(self, key, method, signature, index, names, throws):
+        """A copied [out] UTF-16 string: a BSTR or CoTaskMemAlloc text the adapter copies and frees.
+
+        The slot writes a mutable 16-bit-unit string pointer; the method returns
+        its copy as `string?` (null when the slot left it null), and the
+        declared free function, which must take that pointer and return void,
+        releases it inside the adapter on every HRESULT.
+        """
+        parameter = names[index] if names else f"argument{index}"
+        free = self._copied_outputs.pop(f"{key}.{parameter}")
+        if not throws:
+            raise NativeImportError(f"dispatch method {key}: a copied output requires status-results")
+        outer = self._unqualified_native(signature.parameters[index])
+        inner = self._unqualified_native(outer.pointee) if isinstance(outer, NativePointer) else None
+        unit = self._unqualified_native(inner.pointee) if isinstance(inner, NativePointer) else None
+        if (
+            not isinstance(unit, NativeBuiltin)
+            or unit.bits != 16
+            or unit.signedness != "unsigned"
+            or self._native_is_const(outer.pointee)
+            or self._native_is_const(inner.pointee)
+        ):
+            raise NativeImportError(f"copied-outputs {key}.{parameter} requires a mutable UTF-16 string pointer output")
+        function = self._callback_exports.get(free)
+        accepted = (
+            function.signature.parameters
+            if isinstance(function, NativeFunction) and not function.signature.variadic
+            else ()
+        )
+        argument = self._unqualified_native(accepted[0]) if len(accepted) == 1 else None
+        result = self._unqualified_native(function.signature.return_type) if argument is not None else None
+        if free == "SysFreeString":
+            # SysFreeString takes the BSTR itself.
+            matches = argument is not None and self._type_identity(accepted[0]) == self._type_identity(outer.pointee)
+        else:
+            # CoTaskMemFree takes any task-allocated block as void*.
+            pointee = self._unqualified_native(argument.pointee) if isinstance(argument, NativePointer) else None
+            matches = (
+                isinstance(pointee, NativeBuiltin)
+                and pointee.name == "void"
+                and not self._native_is_const(argument.pointee)
+            )
+        if not matches or not isinstance(result, NativeBuiltin) or result.name != "void":
+            raise NativeImportError(f"copied-outputs free {free} must take the string and return void")
+        self._require_qualified_convention(function.signature)
+        return replace(
+            method,
+            status="throw",
+            output_position=index,
+            output_spelling=self._realtime_native_spelling(outer.pointee),
+            output_free=free,
+            return_type=ast.TypeExpr(base="string", is_nullable=True),
         )
 
     def _owned_output_class(self, result_name, status_type, resource, offset=None):
@@ -2493,10 +2619,21 @@ class NativeDeclarationImporter:
                     raise NativeImportError("dispatch methods require scalar or void results")
                 names = self._parameter_names(field.callback_parameters) if field.callback_parameters else ()
                 kept = [index for index in range(len(signature.parameters)) if index != dispatch.context_index]
-                parameters, resources, outputs = [], [], []
+                parameters, resources, outputs, copies = [], [], [], []
                 for index in kept:
                     native = signature.parameters[index]
                     if resource.ownership == "com":
+                        # Aggregation is never supported, so no call passes an outer IUnknown.
+                        parameter = names[index] if names else f"argument{index}"
+                        if parameter == "pUnkOuter":
+                            raise NativeImportError(
+                                f"dispatch method {resource.name}.{method}: COM aggregation is not supported; "
+                                "pUnkOuter must be hidden or null"
+                            )
+                        # A copied [out] string is hidden and returned as a BTRC string.
+                        if f"{resource.name}.{method}.{parameter}" in self._copied_outputs:
+                            copies.append(index)
+                            continue
                         # An [in] interface is borrowed for the call; an [out]
                         # IFoo** is adopted under a declared status form.
                         borrowed = self._resource_name(native)
@@ -2514,7 +2651,7 @@ class NativeDeclarationImporter:
                             "dispatch method arguments require SDK scalar or POD data-pointer types"
                         ) from error
                     resources.append("")
-                visible = [index for index in kept if index not in outputs]
+                visible = [index for index in kept if index not in outputs and index not in copies]
                 projected = NativeDispatchMethod(
                     method,
                     slot,
@@ -2527,7 +2664,7 @@ class NativeDeclarationImporter:
                     resources=tuple(resources) if resource.ownership == "com" else (),
                 )
                 if resource.ownership == "com":
-                    projected = self._com_method_status(resource, projected, signature, names, outputs)
+                    projected = self._com_method_status(resource, projected, signature, names, outputs, copies)
                 methods[method] = projected
             if dispatch.release:
                 field = slots.get(dispatch.release)
@@ -2562,6 +2699,193 @@ class NativeDeclarationImporter:
             declaration.source_file.methods.update(
                 {name: NativeCallContract(dispatch_method=method) for name, method in methods.items()}
             )
+
+    # The IUnknown methods, as a sink handler would spell them.
+    _COM_UNKNOWN_METHODS: ClassVar[frozenset[str]] = frozenset({"queryInterface", "addRef", "release"})
+
+    def _com_slot_signature(self, resource, slot, what):
+        """The signature of a named slot of a COM resource's lpVtbl table."""
+        _, slots, _ = self._com_tables[resource]
+        field = next((candidate for candidate in slots if candidate.name == slot), None)
+        signature = self._com_slot(field, slot)
+        if signature is None:
+            raise NativeImportError(f"{what}: slot {slot} is not a function pointer of {resource}'s table")
+        return signature
+
+    def _project_com_sinks(self, binding):
+        """Generate each COM sink: its handler interface and its registration factory (M2).
+
+        The sink implements a selected `com` resource's table. Every slot after
+        IUnknown's becomes a method of the BTRC handler interface, named by
+        the slot with a lowercase first letter, and must return a 32-bit signed
+        HRESULT. QueryInterface answers IID_IUnknown, the resource's IID and its
+        bases'. `register` is the source's Advise(sink, cookie*) and
+        `unregister` its Unadvise(cookie) (native-interop-ownership.md section
+        2.4).
+        """
+        resources = {resource.name: resource for resource in binding.resources}
+        for sink in binding.com_sinks:
+            resource = resources[sink.resource]
+            what = f"com-sinks {sink.resource}"
+            record, slots, first = self._com_tables[sink.resource]
+            interface = self._declarations[(str(self._origin), sink.resource)].source_file.methods[""].com_interface
+            if not interface.unknown_iid:
+                raise NativeImportError(
+                    f"{what}: a com sink answers IID_IUnknown, which must be a read-only GUID global"
+                )
+            table_record = self._unqualified_native(self._unqualified_native(first.field_type).pointee)
+            if not table_record.tag_name:
+                raise NativeImportError(f"{what}: the sink's lpVtbl table must be a tagged struct")
+            query, add_ref = (
+                self._com_slot(slots[index], name) for index, name in enumerate(("QueryInterface", "AddRef"))
+            )
+            methods, signatures = [], []
+            for field in slots[3:]:
+                signature = self._com_slot(field, field.name)
+                if signature is None:
+                    raise NativeImportError(f"{what}: sink slot {field.name} is not a fixed-arity function pointer")
+                self._require_qualified_convention(signature)
+                name = field.name[:1].lower() + field.name[1:]
+                if name in self._COM_UNKNOWN_METHODS:
+                    raise NativeImportError(f"{what}: sink method {field.name} collides with IUnknown")
+                if any(method.name == name for method in methods):
+                    raise NativeImportError(f"{what}: sink methods {name} must have distinct names")
+                if not signature.parameters or not self._dispatch_receiver(signature.parameters[0], record):
+                    raise NativeImportError(f"{what}: sink method {field.name} must take the sink first")
+                if not self._com_integer(signature.return_type, "signed"):
+                    raise NativeImportError(f"{what}: sink method {field.name} must return a 32-bit signed HRESULT")
+                names = self._parameter_names(field.callback_parameters) if field.callback_parameters else ()
+                parameters = []
+                for index, native in enumerate(signature.parameters[1:], 1):
+                    try:
+                        parameters.append(
+                            ast.Param(
+                                type=self._realtime_parameter(native),
+                                name=names[index] if names else f"argument{index}",
+                            )
+                        )
+                    except NativeImportError as error:
+                        raise NativeImportError(
+                            f"{what}: sink method {field.name} arguments require SDK scalar or POD data-pointer types"
+                        ) from error
+                methods.append(
+                    NativeComSinkMethod(
+                        name,
+                        field.name,
+                        tuple(self._realtime_native_spelling(value) for value in signature.parameters),
+                        self._realtime_native_spelling(signature.return_type),
+                    )
+                )
+                signatures.append(
+                    ast.MethodSig(name=name, return_type=self._call_type(signature.return_type), params=parameters)
+                )
+            self._add(
+                sink.interface,
+                ast.InterfaceDecl(name=sink.interface, methods=signatures),
+                ("com-sink", sink.resource, self._type_identity(self._resource_types[sink.resource])),
+            )
+            # QueryInterface answers IID_IUnknown, the sink's IID and its bases'.
+            chain, current = [], resource
+            while current is not None:
+                chain.append(current)
+                current = resources.get(current.base) if current.base else None
+            iids = ("IID_IUnknown", *(value.iid for value in chain if value.iid != "IID_IUnknown"))
+            # Advise(sink, cookie*) and Unadvise(cookie) on the source.
+            source_name, _, register_name = sink.register.partition(".")
+            unregister_name = sink.unregister.partition(".")[2]
+            source = self._declarations[(str(self._origin), source_name)].source_file
+            register = source.methods[register_name].dispatch_method
+            unregister = source.methods[unregister_name].dispatch_method
+            # The sink widens statically to its own interface or any base.
+            accepted = {value.name for value in chain}
+            sinks = [index for index, value in enumerate(register.resources) if value]
+            advise = self._com_slot_signature(source_name, register.slot, what)
+            cookie_index = 1 - sinks[0] if len(register.parameters) == 2 and len(sinks) == 1 else -1
+            cookie = self._unqualified_native(advise.parameters[cookie_index + 1]) if cookie_index >= 0 else None
+            unit = self._unqualified_native(cookie.pointee) if isinstance(cookie, NativePointer) else None
+            if (
+                register.output_position >= 0
+                or cookie_index < 0
+                or register.resources[sinks[0]] not in accepted
+                or not isinstance(unit, NativeBuiltin)
+                or not self._realtime_scalar(unit)
+                or unit.name in {"bool", "_Bool", "float", "double", "long double"}
+                or self._native_is_const(cookie.pointee)
+                or not self._com_integer(advise.return_type, "signed")
+            ):
+                raise NativeImportError(
+                    f"{what}: register {sink.register} must take the sink and a cookie pointer and return an HRESULT"
+                )
+            unadvise = self._com_slot_signature(source_name, unregister.slot, what)
+            if (
+                len(unregister.parameters) != 1
+                or unregister.output_position >= 0
+                or any(unregister.resources)
+                or len(unadvise.parameters) != 2
+                or self._type_identity(cookie.pointee) != self._type_identity(unadvise.parameters[1])
+                or not self._com_integer(unadvise.return_type, "signed")
+            ):
+                raise NativeImportError(
+                    f"{what}: unregister {sink.unregister} must take the register's cookie and return an HRESULT"
+                )
+            source_interface = source.methods[""].com_interface
+            projection = NativeComSink(
+                sink.resource,
+                sink.interface,
+                interface.native_type,
+                interface.table_type,
+                f"struct {table_record.tag_name}",
+                tuple(self._realtime_native_spelling(value) for value in query.parameters),
+                self._realtime_native_spelling(add_ref.parameters[0]),
+                self._realtime_native_spelling(add_ref.return_type),
+                interface.status_type,
+                iids,
+                tuple(methods),
+                source_name,
+                source_interface.native_type,
+                source_interface.table_type,
+                register_name,
+                register.slot,
+                register.native_return,
+                sinks[0],
+                register.native_parameters[sinks[0]],
+                self._realtime_native_spelling(cookie.pointee),
+                unregister_name,
+                unregister.slot,
+                unregister.native_return,
+                sink.activation_failure,
+            )
+            token = ast.TypeExpr(
+                base="OwnedClosure",
+                generic_args=[
+                    ast.TypeExpr(
+                        base="__fn_ptr",
+                        generic_args=[ast.TypeExpr(base="void"), ast.TypeExpr(base="void", pointer_depth=1)],
+                    )
+                ],
+            )
+            parameters = [
+                ast.Param(type=ast.TypeExpr(base=source_name), name="source"),
+                ast.Param(type=ast.TypeExpr(base=sink.interface), name="receiver"),
+                ast.Param(type=ast.TypeExpr(base="CallbackScope"), name="scope"),
+            ]
+            factory = ast.FunctionDecl(
+                name=sink.name,
+                return_type=ast.TypeExpr(
+                    base="CallbackContext", generic_args=[ast.TypeExpr(base=sink.interface), token]
+                ),
+                params=parameters,
+                body=None,
+            )
+            contract = NativeCallContract(
+                tuple(True for _ in parameters),
+                True,
+                tuple(False for _ in parameters),
+                False,
+                resource_parameters=tuple("" for _ in parameters),
+                com_sink=projection,
+            )
+            self._add(sink.name, factory, ("com-sink-factory", sink.resource), call_contract=contract)
 
     def _project_callbacks(self, declaration):
         projections = []
@@ -5410,6 +5734,10 @@ class NativeDeclarationImporter:
                 return
             signature = declaration.signature
             self._require_qualified_convention(signature)
+            if self._com_binding and "pUnkOuter" in (parameter.name for parameter in declaration.parameter_semantics):
+                raise NativeImportError(
+                    f"{declaration.name}: COM aggregation is not supported; pUnkOuter must be hidden or null"
+                )
             # Emit calls through the included header's source spelling. The C
             # compiler owns SDK asm labels (including Darwin's pthread aliases);
             # redeclaring or calling the linker spelling would discard that ABI.

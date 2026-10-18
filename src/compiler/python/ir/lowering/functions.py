@@ -203,6 +203,9 @@ class FunctionLowerer:
         if contract.callback_table is not None:
             self._emit_callback_table_adapter(declaration, contract)
             return
+        if contract.com_sink is not None:
+            self._emit_com_sink_adapter(declaration, contract)
+            return
         parameters = [self._signatures.lower_source_param(parameter) for parameter in declaration.params]
         return_type = CType(text=self._types.render(declaration.return_type))
         statements = []
@@ -1858,10 +1861,15 @@ class FunctionLowerer:
     @staticmethod
     def _com_call(interface, native, slot, arguments, what):
         """Reload the interface's table and slot, check both, and call through the slot with This first."""
+        return FunctionLowerer._com_table_call(interface.table_type, native, slot, arguments, what)
+
+    @staticmethod
+    def _com_table_call(table_type, native, slot, arguments, what):
+        """Reload a COM object's lpVtbl (spelled `table_type`) and slot, check both, and call with This first."""
         table = IRVar("__btrc_table")
         callee = IRFieldAccess(table, slot, arrow=True)
         return [
-            IRVarDecl(CType(interface.table_type), table.name, init=IRFieldAccess(native, "lpVtbl", arrow=True)),
+            IRVarDecl(CType(table_type), table.name, init=IRFieldAccess(native, "lpVtbl", arrow=True)),
             FunctionLowerer._native_null_guard(table, f"{what}: null function table"),
             FunctionLowerer._native_null_guard(callee, f"{what}: null table slot {slot}"),
         ], IRCall(callee, [native, *arguments])
@@ -2067,7 +2075,7 @@ class FunctionLowerer:
         body.extend(statements)
         returns = method.native_return != "void"
         body.append(IRVarDecl(CType(method.native_return), status.name, init=call) if returns else IRExprStmt(call))
-        if method.output_position >= 0:
+        if method.output_resource:
             body.append(IRExprStmt(IRCall(f"__btrc_com_{method.output_resource}_adopt", [output])))
         body.extend(
             IRExprStmt(IRCall(f"__btrc_native_{resource}_release", [IRVar(parameter.name)]))
@@ -2075,6 +2083,20 @@ class FunctionLowerer:
         )
         body.append(IRExprStmt(IRCall(f"__btrc_native_{symbol}_release", [owner])))
         managed_output = IRCast(CType(f"struct __btrc_native_{method.output_resource}*"), output)
+        # A failing HRESULT first ends the output: an adopted interface's
+        # claim, or a copied string's allocation.
+        released_output = (
+            [IRExprStmt(IRCall(f"__btrc_native_{method.output_resource}_release", [output]))]
+            if method.output_resource
+            else [
+                IRIf(
+                    IRBinOp(output, "!=", IRLiteral("NULL")),
+                    IRBlock([IRExprStmt(IRCall(method.output_free, [output]))]),
+                )
+            ]
+            if method.output_free
+            else []
+        )
         if method.status == "throw":
             self._session.require_helper("__btrc_throw")
             message = IRVar("__btrc_message")
@@ -2083,11 +2105,7 @@ class FunctionLowerer:
                     IRBinOp(status, "<", IRLiteral("0")),
                     IRBlock(
                         [
-                            *(
-                                [IRExprStmt(IRCall(f"__btrc_native_{method.output_resource}_release", [output]))]
-                                if method.output_position >= 0
-                                else []
-                            ),
+                            *released_output,
                             IRVarDecl(CType("char"), message.name, array_size=IRLiteral("128")),
                             IRExprStmt(
                                 IRCall(
@@ -2107,7 +2125,12 @@ class FunctionLowerer:
                     ),
                 )
             )
-            body.append(IRReturn(managed_output if method.output_position >= 0 else IRCast(result_type, status)))
+            if method.output_free:
+                text, copy = self._com_copied_text(symbol, method, output)
+                body.extend(copy)
+                body.append(IRReturn(text))
+            else:
+                body.append(IRReturn(managed_output if method.output_position >= 0 else IRCast(result_type, status)))
         elif method.status == "result":
             body.extend(
                 [
@@ -2124,6 +2147,537 @@ class FunctionLowerer:
             [IRParam(CType(f"struct __btrc_native_{symbol}*"), "self"), *parameters],
             body,
         )
+
+    # E_POINTER, the HRESULT 0x80004003: QueryInterface on a sink without an IID or an output slot.
+    _COM_NULL_POINTER = "-2147467261"
+
+    def _emit_com_sink_adapter(self, declaration, contract):
+        """A generated COM sink: an M2 holder implementing a com resource's table, and its factory.
+
+        The holder is the object the source receives: one static const table, a
+        COM count, a state word (0 live, 1 cancelled, 2 dead), the creating
+        thread, and one external claim on its CallbackContext, held while the
+        count is positive. Every entry checks the thread (rules 3 and 4), and a
+        dead holder aborts AddRef and QueryInterface. An event pins the holder
+        with its count, then enters the context, so a handler may Unadvise from
+        inside it; after cancellation an event returns S_OK without entering
+        BTRC. The registration owns one claim on the source and the Advise
+        cookie, unregisters with Unadvise, and lets the holder free itself at
+        zero once it is gone (native-interop-ownership.md section 2.4).
+        """
+        sink = contract.com_sink
+        module = self._session.module
+        prefix = f"__btrc_com_sink_{sink.resource}"
+        holder_name, registration_name = prefix + "_holder", prefix + "_registration"
+        holder_type, registration_type = CType(f"struct {holder_name}*"), CType(f"struct {registration_name}*")
+        context_type = declaration.return_type
+        context_c = CType(self._types.render(context_type))
+        context_symbol = context_c.text.removesuffix("*").strip()
+        token_type = context_type.generic_args[1]
+        token_c = CType(self._types.render(token_type))
+        token_symbol = token_c.text.removesuffix("*").strip()
+        receiver_type = context_type.generic_args[0]
+        module.struct_forwards.extend([IRStructForward(holder_name), IRStructForward(registration_name)])
+        module.struct_defs.extend(
+            [
+                IRStructDef(
+                    holder_name,
+                    [
+                        IRStructField(CType(sink.table_type), "lpVtbl"),
+                        IRStructField(CType("uint32_t"), "comCount"),
+                        IRStructField(CType("uint32_t"), "state"),
+                        IRStructField(CType("void*"), "context"),
+                        IRStructField(CType("volatile int*"), "thread"),
+                        IRStructField(CType("bool"), "registered"),
+                    ],
+                ),
+                IRStructDef(
+                    registration_name,
+                    [
+                        IRStructField(CType("void*"), "source"),
+                        IRStructField(CType(sink.cookie_type), "cookie"),
+                        IRStructField(holder_type, "sink"),
+                    ],
+                ),
+            ]
+        )
+        holder, registration = IRVar("holder"), IRVar("registration")
+        state, count = IRFieldAccess(holder, "state", arrow=True), IRFieldAccess(holder, "comCount", arrow=True)
+        registered = IRFieldAccess(holder, "registered", arrow=True)
+        context = IRCast(context_c, IRFieldAccess(holder, "context", arrow=True))
+        what = f"Native COM sink {sink.resource}"
+
+        def closed():
+            return IRExprStmt(IRCall("btrcCOMSinkClosed", []))
+
+        def define(name, result, params, body):
+            module.function_decls.append(IRFunctionDecl(name, result, params, is_static=True))
+            module.function_defs.append(
+                IRFunctionDef(name=name, return_type=result, params=params, is_static=True, body=IRBlock(body))
+            )
+
+        def abort_if(condition, message):
+            guard = self._native_null_guard(IRLiteral("NULL"), message)
+            guard.condition = condition
+            return guard
+
+        def load(this, slot, released=False):
+            """The holder behind `this`, on its own thread (rules 3 and 4) and, before Release, not dead."""
+            statements = [
+                IRVarDecl(holder_type, holder.name, init=IRCast(holder_type, IRCast(CType("void*"), this))),
+                abort_if(
+                    IRBinOp(
+                        IRFieldAccess(holder, "thread", arrow=True),
+                        "!=",
+                        IRAddressOf(IRFieldAccess(IRVar("__btrc_tls"), "try_top")),
+                    ),
+                    f"{what}.{slot}: foreign holder released on the wrong thread"
+                    if released
+                    else f"{what}.{slot}: called off its apartment thread",
+                ),
+            ]
+            dead = IRBinOp(state, "==", IRLiteral("2u"))
+            if released:
+                dead = IRBinOp(dead, "||", IRBinOp(count, "==", IRLiteral("0u")))
+            statements.append(abort_if(dead, f"{what}.{slot}: the holder is dead"))
+            return statements
+
+        def answer(value):
+            return IRReturn(IRCast(CType(sink.status_type), IRLiteral(value)))
+
+        # QueryInterface: IID_IUnknown, the sink's IID and its bases', by memcmp.
+        query_params = [
+            IRParam(CType(spelling), name)
+            for spelling, name in zip(sink.query_parameters, ("This", "riid", "ppvObject"), strict=True)
+        ]
+        this, riid, out = (IRVar(parameter.name) for parameter in query_params)
+        matches = None
+        for iid in sink.iids:
+            test = IRBinOp(
+                IRCall("memcmp", [riid, IRAddressOf(IRVar(iid)), IRSizeof(IRVar(iid))]), "==", IRLiteral("0")
+            )
+            matches = test if matches is None else IRBinOp(matches, "||", test)
+        define(
+            f"{prefix}_slot_QueryInterface",
+            CType(sink.status_type),
+            query_params,
+            [
+                *load(this, "QueryInterface"),
+                IRIf(IRBinOp(out, "==", IRLiteral("NULL")), IRBlock([answer(self._COM_NULL_POINTER)])),
+                IRAssign(IRDeref(out), IRLiteral("NULL")),
+                IRIf(IRBinOp(riid, "==", IRLiteral("NULL")), IRBlock([answer(self._COM_NULL_POINTER)])),
+                IRIf(
+                    matches,
+                    IRBlock(
+                        [
+                            IRAssign(count, IRBinOp(count, "+", IRLiteral("1u"))),
+                            IRAssign(IRDeref(out), IRCast(CType("void*"), this)),
+                            answer("0"),
+                        ]
+                    ),
+                ),
+                answer(self._COM_NO_INTERFACE),
+            ],
+        )
+
+        def count_params():
+            return [IRParam(CType(sink.count_parameter), "This")]
+
+        this = IRVar("This")
+        define(
+            f"{prefix}_slot_AddRef",
+            CType(sink.count_type),
+            count_params(),
+            [
+                *load(this, "AddRef"),
+                IRAssign(count, IRBinOp(count, "+", IRLiteral("1u"))),
+                IRReturn(IRCast(CType(sink.count_type), count)),
+            ],
+        )
+        # At zero the holder is dead before anything is released; it frees itself
+        # once its registration has also let go of it.
+        remaining = IRVar("remaining")
+        define(
+            f"{prefix}_slot_Release",
+            CType(sink.count_type),
+            count_params(),
+            [
+                *load(this, "Release", released=True),
+                IRAssign(count, IRBinOp(count, "-", IRLiteral("1u"))),
+                IRVarDecl(CType("uint32_t"), remaining.name, init=count),
+                IRIf(
+                    IRBinOp(remaining, "==", IRLiteral("0u")),
+                    IRBlock(
+                        [
+                            IRAssign(state, IRLiteral("2u")),
+                            self._exceptions.native_callback_boundary(
+                                IRBlock(
+                                    [
+                                        IRExprStmt(self._lifetime.release_value(context, context_type)),
+                                        *self._exceptions.pop_try_frames(1),
+                                    ]
+                                )
+                            ),
+                            IRAssign(IRFieldAccess(holder, "context", arrow=True), IRLiteral("NULL")),
+                            IRIf(
+                                IRUnaryOp(op="!", operand=registered),
+                                IRBlock([IRExprStmt(IRCall("free", [holder])), closed()]),
+                            ),
+                        ]
+                    ),
+                ),
+                IRReturn(IRCast(CType(sink.count_type), remaining)),
+            ],
+        )
+        # Each event pins the holder, then enters the context (rule 2).
+        functions = [f"{prefix}_slot_{slot}" for slot in ("QueryInterface", "AddRef", "Release")]
+        for method in sink.methods:
+            params = [
+                IRParam(CType(spelling), "This" if index == 0 else f"argument{index}")
+                for index, spelling in enumerate(method.native_parameters)
+            ]
+            result_c = CType(method.native_return)
+            result = IRVar("result")
+            inner = []
+            cleanup = self._native_cleanup_scope(params, inner)
+            receiver_slot = IRVarDecl(
+                CType(self._types.render(receiver_type)), "receiver", init=IRCall(f"{context_symbol}_enter", [context])
+            )
+            receiver = IRVar(receiver_slot.name)
+            call = IRCall(
+                f"{sink.interface}_{method.name}", [receiver, *(IRVar(parameter.name) for parameter in params[1:])]
+            )
+            release_locals = []
+            release = self._lifetime.release_and_clear(
+                receiver, receiver_type, release_locals, self._types.render(receiver_type)
+            )
+            inner.extend(
+                [
+                    receiver_slot,
+                    IRExprStmt(self._lifetime.register_cleanup_slot(receiver_slot, receiver_type)),
+                    IRVarDecl(result_c, result.name, init=IRCast(result_c, IRLiteral("0"))),
+                    IRIf(
+                        receiver,
+                        IRBlock(
+                            [
+                                IRAssign(result, IRCast(result_c, call)),
+                                IRExprStmt(IRCall(f"{context_symbol}_leave", [context])),
+                            ]
+                        ),
+                    ),
+                    *release_locals,
+                    *(IRExprStmt(value) for value in release),
+                    *cleanup,
+                    *self._exceptions.pop_try_frames(1),
+                    IRExprStmt(IRCall(f"{prefix}_slot_Release", [IRVar("This")])),
+                    IRReturn(result),
+                ]
+            )
+            name = f"{prefix}_slot_{method.slot}"
+            define(
+                name,
+                result_c,
+                params,
+                [
+                    *load(IRVar("This"), method.slot),
+                    # After cancellation the source may still hold the sink: S_OK, without BTRC.
+                    IRIf(IRBinOp(state, "!=", IRLiteral("0u")), IRBlock([IRReturn(IRCast(result_c, IRLiteral("0")))])),
+                    IRAssign(count, IRBinOp(count, "+", IRLiteral("1u"))),
+                    self._exceptions.native_callback_boundary(IRBlock(inner)),
+                ],
+            )
+            functions.append(name)
+        table = f"{prefix}_table"
+        module.global_decls.append(
+            IRGlobalDecl(
+                CType(f"const {sink.table_record}"),
+                table,
+                init=IRInitializerList([IRFunctionRef(name) for name in functions]),
+                is_static=True,
+            )
+        )
+        source_native = IRVar("__btrc_native")
+        source_what = f"{what}: {sink.source}"
+
+        # Unregister: Unadvise the cookie. The sink is cancelled first, so later
+        # events return S_OK; a dead sink is already unreachable from the source.
+        def raw():
+            return IRParam(CType("void*"), "rawRegistration")
+
+        def load_registration():
+            return IRVarDecl(
+                registration_type, registration.name, init=IRCast(registration_type, IRVar("rawRegistration"))
+            )
+
+        statements, call = self._com_table_call(
+            sink.source_table,
+            source_native,
+            sink.unregister_slot,
+            [IRFieldAccess(registration, "cookie", arrow=True)],
+            f"{source_what}.{sink.unregister}",
+        )
+        status = IRVar("status")
+        define(
+            f"{prefix}_unregister",
+            CType("bool"),
+            [raw()],
+            [
+                load_registration(),
+                IRVarDecl(holder_type, holder.name, init=IRFieldAccess(registration, "sink", arrow=True)),
+                IRIf(
+                    IRBinOp(IRBinOp(holder, "!=", IRLiteral("NULL")), "&&", IRBinOp(state, "==", IRLiteral("0u"))),
+                    IRBlock([IRAssign(state, IRLiteral("1u"))]),
+                ),
+                self._com_apartment(),
+                IRVarDecl(
+                    CType(sink.source_type),
+                    source_native.name,
+                    init=IRCast(CType(sink.source_type), IRFieldAccess(registration, "source", arrow=True)),
+                ),
+                *statements,
+                IRVarDecl(CType(sink.unregister_status), status.name, init=call),
+                IRReturn(
+                    IRBinOp(
+                        IRBinOp(status, ">=", IRLiteral("0")),
+                        "||",
+                        IRBinOp(IRBinOp(holder, "!=", IRLiteral("NULL")), "&&", IRBinOp(state, "==", IRLiteral("2u"))),
+                    )
+                ),
+            ],
+        )
+        # Destroy: the registration has drained. It ends its source claim and
+        # frees a dead sink; a live one stays cancelled until its last Release.
+        define(
+            f"{prefix}_destroy",
+            CType("void"),
+            [raw()],
+            [
+                load_registration(),
+                IRVarDecl(holder_type, holder.name, init=IRFieldAccess(registration, "sink", arrow=True)),
+                IRIf(
+                    IRBinOp(holder, "!=", IRLiteral("NULL")),
+                    IRBlock(
+                        [
+                            IRAssign(registered, IRLiteral("false")),
+                            IRIf(IRBinOp(state, "==", IRLiteral("0u")), IRBlock([IRAssign(state, IRLiteral("1u"))])),
+                            IRIf(
+                                IRBinOp(state, "==", IRLiteral("2u")),
+                                IRBlock([IRExprStmt(IRCall("free", [holder])), closed()]),
+                            ),
+                        ]
+                    ),
+                ),
+                IRExprStmt(
+                    IRCall(f"__btrc_native_{sink.source}_release", [IRFieldAccess(registration, "source", arrow=True)])
+                ),
+                IRExprStmt(IRCall("free", [registration])),
+            ],
+        )
+        token = IRParam(token_c, "token")
+        define(
+            f"{prefix}_cancel",
+            CType("bool"),
+            [token],
+            [IRReturn(IRCall(f"{token_symbol}_unregister", [IRVar(token.name)]))],
+        )
+        # The factory: registration, token and context, then the holder, then Advise.
+        name = contract.adapter_symbol(declaration.name)
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in declaration.params]
+        source, receiver, scope = (IRVar(parameter.name) for parameter in parameters)
+        body = []
+        cleanup = self._native_cleanup_scope(parameters, body)
+        body.extend(
+            self._native_null_guard(IRVar(parameter.name), f"Native call {declaration.name}: null {parameter.name}")
+            for parameter in parameters
+        )
+        body.append(self._com_apartment())
+        self._session.require_helper("__btrc_safe_calloc")
+        body.extend(
+            [
+                IRVarDecl(
+                    registration_type,
+                    registration.name,
+                    init=IRCast(
+                        registration_type,
+                        IRCall("__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(CType(f"struct {registration_name}"))]),
+                    ),
+                ),
+                # The registration's own claim keeps the source alive until Unadvise.
+                IRAssign(IRFieldAccess(registration, "source", arrow=True), IRCast(CType("void*"), source)),
+                IRExprStmt(IRCall(f"__btrc_native_{sink.source}_retain", [source])),
+            ]
+        )
+        token_slot = IRVarDecl(
+            token_c,
+            "registrationToken",
+            init=IRCall(
+                f"{token_symbol}_new",
+                [
+                    IRFunctionRef(f"{prefix}_destroy"),
+                    IRCast(CType("void*"), registration),
+                    IRFunctionRef(f"{prefix}_destroy"),
+                    IRFunctionRef(f"{prefix}_unregister"),
+                    IRCast(CType("void*"), registration),
+                ],
+            ),
+        )
+        context_slot = IRVarDecl(
+            context_c, "context", init=IRCall(f"{context_symbol}_new", [receiver, IRFunctionRef(f"{prefix}_cancel")])
+        )
+        context_value = IRVar(context_slot.name)
+        body.extend(
+            [
+                token_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(token_slot, token_type)),
+                context_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(context_slot, context_type)),
+                IRExprStmt(IRCall(f"{context_symbol}_activate", [context_value, scope])),
+                IRVarDecl(
+                    holder_type,
+                    holder.name,
+                    init=IRCast(
+                        holder_type,
+                        IRCall("__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(CType(f"struct {holder_name}"))]),
+                    ),
+                ),
+                IRExprStmt(IRCall("btrcCOMSinkOpened", [])),
+                IRAssign(
+                    IRFieldAccess(holder, "lpVtbl", arrow=True),
+                    IRCast(CType(sink.table_type), IRAddressOf(IRVar(table))),
+                ),
+                # The factory's own reference, ended after Advise.
+                IRAssign(count, IRLiteral("1u")),
+                IRAssign(
+                    IRFieldAccess(holder, "thread", arrow=True),
+                    IRAddressOf(IRFieldAccess(IRVar("__btrc_tls"), "try_top")),
+                ),
+                IRAssign(registered, IRLiteral("true")),
+                # The holder's one external claim on the context.
+                IRExprStmt(self._lifetime.retain_value(context_value, context_type)),
+                IRAssign(IRFieldAccess(holder, "context", arrow=True), IRCast(CType("void*"), context_value)),
+                IRAssign(IRFieldAccess(registration, "sink", arrow=True), holder),
+                IRVarDecl(CType(sink.source_type), source_native.name, init=IRCast(CType(sink.source_type), source)),
+            ]
+        )
+        arguments = [None, None]
+        arguments[sink.sink_position] = IRCast(CType(sink.sink_spelling), IRCast(CType("void*"), holder))
+        arguments[1 - sink.sink_position] = IRAddressOf(IRFieldAccess(registration, "cookie", arrow=True))
+        statements, call = self._com_table_call(
+            sink.source_table, source_native, sink.register_slot, arguments, f"{source_what}.{sink.register}"
+        )
+        registration_status = IRVar("registrationStatus")
+        body.extend(statements)
+        body.append(IRVarDecl(CType(sink.register_status), registration_status.name, init=call))
+        body.append(
+            IRExprStmt(
+                IRCall(f"{prefix}_slot_Release", [IRCast(CType(sink.count_parameter), IRCast(CType("void*"), holder))])
+            )
+        )
+        failure = f"COM sink {sink.resource}: {sink.source}.{sink.register} failed with HRESULT 0x%08X"
+        if sink.activation_failure == "abort":
+            failed = IRBlock(
+                [
+                    IRExprStmt(
+                        IRCall(
+                            "fprintf",
+                            [
+                                IRVar("stderr"),
+                                IRLiteral(json.dumps(failure + "\n")),
+                                IRCast(CType("unsigned int"), registration_status),
+                            ],
+                        )
+                    ),
+                    IRExprStmt(IRCall("abort", [], never_returns=True)),
+                ]
+            )
+        else:
+            self._session.require_helper("__btrc_throw")
+            message = IRVar("__btrc_message")
+            failed = IRBlock(
+                [
+                    IRExprStmt(IRCall(f"{context_symbol}_abortActivation", [context_value])),
+                    IRVarDecl(CType("char"), message.name, array_size=IRLiteral("160")),
+                    IRExprStmt(
+                        IRCall(
+                            "snprintf",
+                            [
+                                message,
+                                IRSizeof(message),
+                                IRLiteral(json.dumps(failure)),
+                                IRCast(CType("unsigned int"), registration_status),
+                            ],
+                        )
+                    ),
+                    IRExprStmt(IRCall("__btrc_throw", [message], helper_ref="__btrc_throw", never_returns=True)),
+                ]
+            )
+        body.append(IRIf(IRBinOp(registration_status, "<", IRLiteral("0")), failed))
+        body.append(IRExprStmt(IRCall(f"{context_symbol}_publish", [context_value, IRVar(token_slot.name)])))
+        release_locals = []
+        token_release = self._lifetime.release_and_clear(
+            IRVar(token_slot.name), token_type, release_locals, token_c.text
+        )
+        body.extend(
+            [*release_locals, *(IRExprStmt(value) for value in token_release), *cleanup, IRReturn(context_value)]
+        )
+        define(name, context_c, parameters, body)
+
+    def _com_copied_text(self, symbol, method, output):
+        """Copy a returned UTF-16 string into a new BTRC string, then free it with its allocator.
+
+        A BSTR's length is its prefix; a CoTaskMemAlloc string ends at U+0000.
+        U+0000 inside a BSTR has no BTRC spelling, so such a string throws after
+        it is freed; null stays null.
+        """
+        for helper in ("__btrc_string_alloc", "__btrc_throw"):
+            self._session.require_helper(helper)
+        text, units, length = IRVar("__btrc_text"), IRVar("__btrc_units"), IRVar("__btrc_length")
+        release = IRExprStmt(IRCall(method.output_free, [output]))
+
+        def refuse(message):
+            return IRBlock(
+                [
+                    release,
+                    IRExprStmt(
+                        IRCall(
+                            "__btrc_throw",
+                            [IRLiteral(json.dumps(message))],
+                            helper_ref="__btrc_throw",
+                            never_returns=True,
+                        )
+                    ),
+                ]
+            )
+
+        prefixed = "1" if method.output_free == "SysFreeString" else "0"
+        what = f"COM {symbol}.{method.name}"
+        return text, [
+            IRVarDecl(CType("char*"), text.name, init=IRLiteral("NULL")),
+            IRIf(
+                IRBinOp(output, "!=", IRLiteral("NULL")),
+                IRBlock(
+                    [
+                        IRVarDecl(
+                            CType("long long"),
+                            units.name,
+                            init=IRCall("btrcCOMTextUnits", [output, IRLiteral(prefixed)]),
+                        ),
+                        IRVarDecl(CType("long long"), length.name, init=IRCall("btrcCOMTextLength", [output, units])),
+                        IRIf(
+                            IRBinOp(length, "<", IRLiteral("0")),
+                            refuse(f"{what} returned a string holding U+0000, which a BTRC string cannot hold"),
+                        ),
+                        IRIf(
+                            IRBinOp(length, ">", IRLiteral("2147483646")),
+                            refuse(f"{what} returned a string too long for a BTRC string"),
+                        ),
+                        IRAssign(text, IRCall("__btrc_string_alloc", [IRCast(CType("int"), length)])),
+                        IRExprStmt(IRCall("btrcCOMEncodeText", [output, units, text])),
+                        release,
+                    ]
+                ),
+            ),
+        ]
 
     def _emit_unique_resource(self, declaration, symbol=None, release_symbol=None):
         resource = declaration.source_file.resource

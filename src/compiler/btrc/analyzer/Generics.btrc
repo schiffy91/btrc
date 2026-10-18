@@ -379,6 +379,25 @@ class GenericSpecializer {
 					Node? fromRaw = self.analyzed.classMethod("Bytes", "fromRaw");
 					if (constructor == null || fromRaw == null || !hostedAbi.compilerStdlibNode(constructor) || !hostedAbi.compilerStdlibNode(fromRaw)) { throw "Copied native bytes require authenticated import Library.Bytes"; }
 				}
+				if (contract.comSink != null) {
+					/* A COM sink's registration is a CallbackContext whose token owns its record. */
+					Node context = member.returnType;
+					Node token = context.genericArgs().get(1);
+					for owner in [context, token] {
+						if (!self.analyzed.genericClassTable.has(owner.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(owner.base))) { throw "Stored native callbacks require import Library.Callback"; }
+					}
+					for name in ["activate", "publish", "abortActivation", "enter", "leave", "close", "cancel", "pollCompletion"] {
+						Node? method = self.analyzed.genericClassMethod(context.base, name);
+						if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
+					}
+					for name in ["unregister", "close"] {
+						Node? method = self.analyzed.genericClassMethod(token.base, name);
+						if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
+					}
+					self.registerGenericInstanceWithUnresolved(token, self.analyzed, {});
+					self.registerGenericInstanceWithUnresolved(context, self.analyzed, {});
+					continue;
+				}
 				for callback in contract.callbacks {
 					if (!callback.instantiatedScope.isEmpty()) {
 						/* An SDK-instantiated adapter enters its receiver through an
