@@ -246,9 +246,56 @@ implemented in both compilers today and documented there.
     the reader's `unknown member`, because methods are selected by
     descriptor; the receiver interface is generated from the descriptors, so
     it cannot disagree with them.
-- Step 7 still owes: `JavaWeak<T>`, array spans, `executor = "main"` from the
-  main Looper, private natives (reader v2 reports public members only), and
-  the 100-cycle activity lifecycle.
+- Step 7's second slice (2026-10-18) is implemented in both compilers
+  (package-manifest.md, "Java primitive arrays", "Java class options" and
+  "Java natives"): primitive arrays, `JavaWeak<T>` and `executor = "main"`. A
+  host `java -Xcheck:jni` runs array copies and natives' spans with exact
+  elements, a `JavaWeak` cleared under `System.gc()`, and main-executor calls
+  and natives, one dispatched from a message posted to the main Looper, with
+  no CheckJNI warning through both compilers; a main class called on a BTRC
+  thread, a main native called on a Java worker, a VM with no main Looper and
+  main natives registered off the main thread each terminate
+  (`test_native_jni_adopted.py`). The hosted API 29 and 36 emulators run the
+  same program under `app_process` and the first three refusals
+  (`test_native_jni_android.py`); rejections are in
+  `test_native_jni_natives.py` and `test_native_jni_calls.py`, and verifier
+  rule 2's critical-region case in `test_jni_adapter_verifier.py`.
+- As implemented in step 7's second slice:
+  - **Arrays are owners.** A Java array is an object, so a primitive array
+    crosses as an R1 owner of one global reference, a generated unique
+    resource per element kind (`JavaIntArray` and its siblings), and reuses
+    the class owners' borrowed-argument and owned-result paths. Its `create`,
+    `read` and `write` copy a `Span` through `New<X>Array` and
+    `Get/Set<X>ArrayRegion`. A natives parameter is the borrowed span this
+    section names: `Get<X>ArrayElements` for the call, released with
+    `JNI_ABORT` when read-only (`Span<const T>`, which BTRC cannot store
+    through) and with mode 0 once the receiver ran when the manifest's
+    `writable-arrays` makes it `Span<T>`. `GetPrimitiveArrayCritical` is
+    rejected by verifier rule 2, with `GetStringCritical`. Arrays of objects
+    and of arrays stay rejected.
+  - **`JavaWeak<T>` is spelled per class.** A generated resource is not a
+    BTRC template, so `JavaWeak<JniHost>` is the class `JavaWeakJniHost`,
+    generated when the binding's `classes` table sets `weak = true`; its
+    `create(referent)` and `get()` are the design's, and its claims are
+    `JavaVirtualMachine.liveWeaks()`, separate from `liveClaims()`.
+  - **Main is captured through Library.Java's C, not a Java binding.**
+    `btrcJavaRequireMain` reads `Looper.getMainLooper().getThread()` once
+    through checked JNI (a Java binding would need `android.jar` on every
+    host), caches the thread as a global reference outside the user count,
+    and remembers per thread whether it is main. A host JVM has no
+    `android.os`, so the host test gives it a main Looper through two
+    stand-in classes on its class path, which are never dexed; the entry
+    prepares that Looper, as `app_process` needs `Looper.prepareMainLooper()`
+    too.
+  - **Rule 4 never posts for Java natives.** No Java object holds a natives
+    holder, so its final event is never chosen by the SDK: it is a thunk's
+    last unpin, on the executor thread, or a cancellation, which
+    Library.Callback already refuses off the context's creating thread. The
+    holder still terminates if its last unpin runs on another thread, instead
+    of posting the release to the main Looper. A main class's owners release
+    on any thread, since `DeleteGlobalRef` is thread-safe.
+- Step 7 still owes: private natives (reader v2 reports public members only),
+  nested classes, and the 100-cycle activity lifecycle.
 
 ## 1. One model: three relations, three mechanisms, two rules
 
@@ -710,6 +757,9 @@ characters and supplementary characters.
 **Arrays.** Primitive arrays copy through `Get/Set<X>ArrayRegion`. Borrowed
 spans (Stage 29) are released with `JNI_ABORT` when read-only.
 `GetPrimitiveArrayCritical` is rejected.
+- *As implemented (step 7, second slice):* arrays cross as owners of a
+  generated array class, whose members copy; natives borrow spans (see the
+  implementation status).
 
 **Java → btrc (Stage 29) is R3.**
 - `RegisterNatives` thunks run over the M2 holder and the existing
@@ -735,6 +785,10 @@ spans (Stage 29) are released with `JNI_ABORT` when read-only.
 own binding at the first `main` check. If that thread cannot be established
 (the host JVM has no main `Looper`), that first `main` check aborts; bindings
 that never use `main` are unaffected.
+- *As implemented (step 7, second slice):* a binding's `classes` table sets
+  `executor = "main"` on a class, and a `natives` table may too
+  (package-manifest.md, "Java class options" and "Java natives"); the capture
+  runs in Library.Java's C (see the implementation status).
 
 **Metadata.** D22 fixes the source: a class-file reader over `android.jar`,
 not C headers.
@@ -1214,6 +1268,7 @@ every other key keeps its existing closed set.
 | `lifetime = "instantiated"`, `scope`, `terminal`, `superclass`, `overrides` | Objective-C callbacks | 6 |
 | `error-outputs` | binding map | 6 |
 | `failure = "throw"`; `executor = "main"` for Java | Java entry thunks, Java classes | 7 |
+| `natives` (`name`, `interface`, `methods`, `executor`, `failure`, `cancellation`, `writable-arrays`); `classes` (`executor`, `weak`) | Java binding map (as implemented) | 7 |
 | `sink` | resources | 8 |
 | `sunk-results` (`floating-or-none`, `floating-or-full`) | binding map | 8 |
 | `type-relation`, `parent`, `implements` | resources | 8 |

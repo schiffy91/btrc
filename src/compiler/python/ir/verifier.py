@@ -167,9 +167,9 @@ class IRVerifier:
         installed). In one, every throwing env call (and every Library.Java
         helper that can leave an exception pending) is immediately followed by
         its ExceptionCheck branch; every path a successful PushLocalFrame
-        dominates passes PopLocalFrame, or the translation that pops; and an
-        owner created inside the frame is registered in a cleanup slot before
-        the next throwing call.
+        dominates passes PopLocalFrame, or the translation that pops; an owner
+        created inside the frame is registered in a cleanup slot before the
+        next throwing call; and no adapter enters a critical region.
         """
         for function in self.module.function_defs:
             environment = next(

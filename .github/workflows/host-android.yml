@@ -12,7 +12,8 @@ name: Host Android
 # Until the tool directory is on the revision being tested, the tooling job
 # reports it absent and the emulator jobs are skipped. Each emulator job then
 # runs interop step 4's checked JNI round trip on its API (CL-P2-09), which
-# also carries step 7's Java -> BTRC natives round trip (RegisterNatives).
+# also carries step 7's Java -> BTRC natives round trip (RegisterNatives),
+# primitive arrays and spans, JavaWeak and the main Looper's executor.
 on:
   push:
     branches: [main]
@@ -163,7 +164,11 @@ jobs:
       # app_process on this API's emulator, through each compiler
       # (src/tests/python/test_native_jni_android.py). The same run registers
       # BTRC receivers for Java natives (interop step 7, slice A) and Java
-      # calls them back, nested and on a BTRC thread. The compilers read
+      # calls them back, nested and on a BTRC thread; copies primitive arrays
+      # and borrows them as natives' spans, clears a JavaWeak under the
+      # collector, and runs main-executor calls and natives on the main Looper
+      # the entry prepares, one dispatched from a posted message, then checks
+      # the main refusals terminate (interop step 7, slice B). The compilers read
       # Library.Java's JNI.h and the fixture's classes through the flake's two
       # readers, the only Nix outputs besides btrcc this job builds; the NDK,
       # d8, adb and JDK 17 are the runner's pinned SDK above. Each run boots the

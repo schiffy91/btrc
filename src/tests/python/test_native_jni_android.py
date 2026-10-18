@@ -15,6 +15,15 @@ them back, nested Java -> BTRC -> Java -> BTRC, with a BTRC exception surfacing
 in Java, cancellation as an entry barrier and a BTRC thread called back on
 itself ("java-natives-ok"; jni_adoption_fixtures.py).
 
+Interop step 7, slice B rides it too: primitive arrays copy both ways and
+natives borrow them as spans, a JavaWeak clears under the collector, and
+JniMain's calls and natives run on the main Looper's thread, which the entry
+prepares under app_process; one native call is a message the main Looper
+dispatches ("java-arrays-ok", "java-weak-ok", "java-main-ok"). After the round
+trip, the `main` refusals run on the device: a main class called on a BTRC
+thread, a main native called on a Java worker, and a VM whose main Looper was
+never prepared each terminate with their message.
+
 A deliberate JNI misuse runs first in exactly that configuration and must
 abort with CheckJNI's report, so a clean round trip cannot mean CheckJNI was
 off. The round trip must then exit 0 with its expected output, and logcat must
@@ -47,6 +56,8 @@ from src.compiler.python.application.results import CompilerOptions
 from src.tests.python.jni_adoption_fixtures import (
     ENTRY_CLASS,
     LIBRARY_NAME,
+    MAIN_REFUSALS,
+    REFUSALS,
     REPO,
     ROUND_TRIP_LINES,
     build_library,
@@ -356,6 +367,25 @@ def test_checked_jni_round_trip_on_android(android_device, compiler, tmp_path, m
         # The process wrote to logcat (ART's start-up lines), so an empty scan is not a missed filter.
         assert own, logcat[-4000:]
         assert found == [] and fatal == [], logcat[-4000:]
+
+        # The `main` executor's refusals: each terminates with its message, on ART too.
+        refusals = {}
+        for mode in MAIN_REFUSALS:
+            refused, refused_pid, refused_seconds = app_process(device, remote, mode, timeout=120)
+            refusals[str(mode)] = {
+                "exit_status": refused.returncode,
+                "pid": refused_pid,
+                "seconds": round(refused_seconds, 3),
+                "stdout": refused.stdout,
+                "stderr": refused.stderr[-4000:],
+            }
+        report["main_refusals"] = refusals
+        print(json.dumps(refusals, indent=2))
+        for mode in MAIN_REFUSALS:
+            outcome = refusals[str(mode)]
+            assert outcome["pid"] is not None and outcome["exit_status"] != 0, (mode, outcome)
+            assert REFUSALS[mode] in outcome["stderr"], (mode, outcome)
+            assert "java-adopted-ok" not in outcome["stdout"], (mode, outcome)
         report["status"] = "passed"
     finally:
         report.setdefault("status", "failed")

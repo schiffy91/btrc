@@ -2398,15 +2398,18 @@ Projection:
   `java.lang.String` is `string?` both ways: text copies through UTF-16, a
   null Java string is `null`, and a Java string holding U+0000 throws "Java
   string contains U+0000, which a BTRC string cannot hold". A selected class
-  `T` is a borrowed `T?` argument and an owned `T?` result.
+  `T` is a borrowed `T?` argument and an owned `T?` result, and so is a
+  primitive array (`[I` is `JavaIntArray?`, below).
 
 Rejected at compile time, with identical diagnostics in both compilers: a type
 of a class no Java binding selects ("Java member M uses unselected class C"),
-arrays ("Java arrays are not projected yet: M"), nested classes ("Java nested
-classes are not projected yet: C"), two classes with one simple name, a class
-selected by two bindings, and two members projecting to one BTRC name,
-including `close` and `isOpen` ("Java members A and B project to the same BTRC
-name n").
+arrays of objects or of arrays ("Java arrays of objects or arrays are not
+projected yet: M"), nested classes ("Java nested classes are not projected
+yet: C"), two classes with one simple name, a class selected by two bindings,
+two members projecting to one BTRC name, including `close` and `isOpen`
+("Java members A and B project to the same BTRC name n"), and a generated
+class whose name a selected class already has ("Java class C and [I project
+to the same BTRC name JavaIntArray").
 
 Every adapter brackets its JNI calls with a checked `PushLocalFrame`; checks
 `ExceptionCheck` immediately after every JNI call that can throw; turns a
@@ -2419,8 +2422,73 @@ the thread's `JNIEnv`, so the C compiler checks each against `jni.h`; only the
 cached per adapter in Library.Java. In a VM a library adopted at JNI_OnLoad,
 classes resolve through the application ClassLoader cached there (the context
 class loader of the JNI_OnLoad thread), never FindClass on an attached thread.
-Weak references, arrays, nested classes and the `main` executor come with the
-rest of interop step 7.
+No adapter enters a critical region: verifier rule 2 rejects
+`GetPrimitiveArrayCritical`, `GetStringCritical` and their releases. Nested
+classes come with the Java class reader's v2.
+
+#### Java primitive arrays
+
+A primitive array is a Java object, so it crosses as an owner of one global
+reference: each element kind a selected member, field or native uses gets a
+generated abstract class, `JavaBooleanArray`, `JavaByteArray`,
+`JavaCharArray`, `JavaShortArray`, `JavaIntArray`, `JavaLongArray`,
+`JavaFloatArray` or `JavaDoubleArray`, a unique owner exactly like a selected
+class (`close()`, `isOpen()`, `liveClaims()`). A `[I` parameter is a borrowed
+`JavaIntArray?` and a `[I` result or field an owned one; Java's changes to the
+array are visible through the owner. Its members copy through the region
+functions (native-interop-ownership.md section 2.3, "Arrays"):
+
+```btrc
+const int values[4] = {1, 2, 3, 4};
+JavaIntArray made = JavaIntArray.create(Span(values)); // New<X>Array + Set<X>ArrayRegion
+int count = made.length();                              // GetArrayLength
+int back[4] = {0, 0, 0, 0};
+made.read(0, Span(back));                               // Get<X>ArrayRegion from start 0
+made.write(1, Span(values));                            // Set<X>ArrayRegion from start 1
+```
+
+An empty span copies nothing, a span longer than 2147483647 elements throws
+before any JNI call, and a region outside the array is Java's
+`ArrayIndexOutOfBoundsException`, thrown as `JavaException: ...`.
+
+#### Java class options
+
+A binding's `classes` table carries options for a class it selects, keyed by
+the class's BTRC name:
+
+```toml
+[native.bindings.classes.JniHost]
+weak = true          # generates JavaWeakJniHost
+[native.bindings.classes.JniMain]
+executor = "main"    # every call checks the main Looper's thread
+```
+
+- `weak = true` generates `JavaWeak<Class>`, spelled `JavaWeak` and the class's
+  BTRC name (`JavaWeakJniHost`): a unique owner of one weak global reference.
+  `JavaWeakJniHost.create(JniHost referent)` takes `NewWeakGlobalRef` of a
+  live owner; `get()` returns `JniHost?`, a new owner of a new global
+  reference (`NewLocalRef`, a null check, then `NewGlobalRef`), or `null` once
+  the collector has reclaimed the object. `close()` and final cleanup delete
+  the weak reference exactly once; `JavaVirtualMachine.liveWeaks()` counts
+  them, and shutting a created VM down with one alive terminates.
+- `executor = "main"` makes every adapter of the class (constructors, methods
+  and fields) check that it runs on the main thread, the thread of
+  `android.os.Looper.getMainLooper()`, which Library.Java reads once through
+  its own checked JNI and caches; another thread terminates (`Java call
+  JniMain.title: called off the main thread`), and so does the first check in
+  a VM with no main Looper (`Library.Java: the main thread is not established:
+  this Java VM has no main Looper ...`), such as a host JVM. Releasing an owner
+  stays legal on any thread: `DeleteGlobalRef` is thread-safe, so the
+  release executor is `any`.
+
+Rejected, with identical diagnostics in both compilers: a key that is not a
+selected class (`classes requires a Java class the binding selects`), an
+unknown field, a table with neither key (`requires executor or weak`), an
+executor other than `main` (`executor requires main`), a `weak` that is not a
+boolean (`weak must be true or false`), and a weak class whose name a
+selected class or a natives factory or interface already has (`the weak
+reference class JavaWeakJniHost must be distinct from selected classes and
+natives`).
 
 #### Java natives
 
@@ -2435,17 +2503,25 @@ btrc"). The table key is the class's BTRC name; the class must be selected in
 name = "registerJniCallbacks"      # the factory
 interface = "IJniCallbacks"        # the generated receiver interface
 methods = ["compute(I)I", "greet(Ljava/lang/String;)Ljava/lang/String;", "scale(I)I"]
-executor = "caller"
+executor = "caller"                # or "main"
 failure = "throw"                  # or "abort"
 cancellation = "entry-barrier"
+writable-arrays = ["fill([II)V.argument0"]   # optional
 ```
 
 Each method becomes the interface method of its Java name. Parameters and
 results project as for calls into Java: primitives as above, `string?` copied
-through UTF-16, and a selected class `T` as an owned `T?` (a new global
-reference for each argument, released after the call unless the receiver
-keeps it; a returned owner becomes a new local reference). An instance
-native's object reaches the receiver first, as the parameter `T instance`.
+through UTF-16, and a selected class `T` or a primitive array result as an
+owned `T?` (a new global reference for each argument, released after the call
+unless the receiver keeps it; a returned owner becomes a new local reference).
+A primitive array parameter is a borrowed span of the Java array's elements
+for the call (`Get<X>ArrayElements`): `Span<const int>`, released with
+`JNI_ABORT`, or, when `writable-arrays` names it as `<method>.argument<N>`,
+`Span<int>`, released with mode 0 so the receiver's stores reach the array
+once the receiver ran (`JNI_ABORT` when the call never entered BTRC). A null
+array raises `java.lang.NullPointerException` (`...: argument0 is null`)
+without entering BTRC. An instance native's object reaches the receiver
+first, as the parameter `T instance`.
 Import `Library.Callback`. The factory is `CallbackContext<IJniCallbacks, ...>
 registerJniCallbacks(IJniCallbacks receiver, CallbackScope scope)`: it binds
 every native to its generated thunk and returns the registration, an
@@ -2461,7 +2537,11 @@ frames its local references, converts its arguments (a JNI failure returns to
 Java with its exception pending), enters the receiver through the context's
 caller-executor gate and converts the result. A call on a thread other than
 the registering one terminates (`Java natives
-dev.btrc.fixture.JniCallbacks.compute(I)I: called off its executor thread`). A
+dev.btrc.fixture.JniCallbacks.compute(I)I: called off its executor thread`).
+With `executor = "main"` the factory itself checks the main Looper's thread
+(`Java natives dev.btrc.fixture.JniMain: called off the main thread`), so the
+registering thread, and every call's, is the main one; a native the main
+Looper dispatches from a posted message runs there. A
 Java string holding U+0000 raises `java.lang.IllegalArgumentException` without
 entering BTRC. A BTRC exception escaping the receiver runs its cleanups, then
 with `failure = "throw"` is raised in Java as `java.lang.RuntimeException`
@@ -2476,23 +2556,32 @@ dev.btrc.fixture.JniCallbacks are not registered` and return zero; that is the
 stub a later registration rebinds, so UnregisterNatives is never called. A
 receiver may cancel its own registration inside a call: the call keeps the
 holder pinned, cancellation completes once it has left, and the holder
-releases its claim at its last unpin. `JavaVirtualMachine.liveNatives()`
-counts the holders not yet freed.
+releases its claim at its last unpin, which is the holder's final event: a
+last unpin on a thread other than the registering one terminates (`Java
+natives C: foreign holder released on the wrong thread`); Library.Callback
+already refuses a cancellation off the context's creating thread, so no
+program reaches it. `JavaVirtualMachine.liveNatives()` counts the holders not
+yet freed.
 
 Rejected, with identical diagnostics in both compilers: a key that is not a
 selected class (`natives requires a Java class the binding selects`); unknown
 or missing fields; a method that is not `<name>(<descriptors>)<result>`, or a
 constructor; a method listed twice (`registers compute(I)I twice`); a factory
 or interface name equal to another, to a selected class or to another
-registration's; an executor other than `caller`, a failure other than `throw`
-or `abort`, a cancellation other than `entry-barrier`; a method that is not
+registration's; an executor other than `caller` or `main`, a failure other
+than `throw` or `abort`, a cancellation other than `entry-barrier`; a
+`writable-arrays` entry that is not `<method>.argument<N>` of a listed method
+(`writable-arrays must name array parameters of its methods as
+<method>.argument<N>`), a duplicate one, or one naming a parameter that is not
+a primitive array (`Java natives C.fill([II)V: argument1 is not a primitive
+array parameter, so writable-arrays cannot name it`); a method that is not
 `ACC_NATIVE` (`Java RegisterNatives target dev.btrc.fixture.JniCallbacks.plain(I)I
 is not ACC_NATIVE`); a descriptor the class does not declare (the reader's
-`unknown member`), which is how a signature mismatch surfaces; an array or
-unselected class type; and two natives of one name (`Java natives A and B
-project to the same BTRC name compute`). The reader reports public members
-only, so a private `native` method waits for reader v2. The `main` executor,
-weak references and array spans are not yet supported.
+`unknown member`), which is how a signature mismatch surfaces; an array of
+objects or arrays, or an unselected class type; and two natives of one name
+(`Java natives A and B project to the same BTRC name compute`). The reader
+reports public members only, so a private `native` method waits for reader
+v2.
 
 ### Selected C variadic calls
 

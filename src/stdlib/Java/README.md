@@ -5,9 +5,10 @@ call (interop step 4, [native-interop-ownership.md](../../../docs/design/native-
 section 2.3).
 
 - `JavaVirtualMachine` starts a host VM (`createHost`), reports whether the
-  running VM was adopted (`adopted`), live global references, attached
-  threads and Java natives registrations not yet freed (`liveNatives`), and
-  shuts a created VM down (`shutdown`).
+  running VM was adopted (`adopted`), live global references (`liveClaims`)
+  and weak global references (`liveWeaks`), attached threads and Java natives
+  registrations not yet freed (`liveNatives`), and shuts a created VM down
+  (`shutdown`).
 - `JNI.h` and `JavaRuntime.c` own the one VM, the per-thread `JNIEnv` (lazy
   `AttachCurrentThreadAsDaemon`, detached when the thread exits), user claim
   counting, the class and member ID cache, UTF-16 string transcoding and Java
@@ -19,6 +20,14 @@ section 2.3).
   exceptions with UTF-16 messages (`btrcJavaThrow`) and register through
   `btrcJavaRegisterNatives`, which terminates when the running class does not
   declare a native the class file did.
+- Generated `JavaWeak<Class>` owners count their weak global references
+  (`btrcJavaWeakClaim`/`btrcJavaWeakUnclaim`), and every adapter of a class
+  or natives registration with `executor = "main"` calls
+  `btrcJavaRequireMain`: the main thread is the thread of
+  `android.os.Looper.getMainLooper()`, read once through checked JNI and
+  cached as a global reference outside the user count. Any other thread
+  terminates, and so does the first check in a VM with no main Looper, such
+  as a host JVM that never prepared one.
 
 A library that a running VM loads adopts it instead of creating one: its
 `JNI_OnLoad` calls `btrcJavaAdopt(machine)` from C and returns
