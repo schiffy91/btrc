@@ -878,8 +878,53 @@ class FeNativeJavaMember {
 	public string key() { return f"{self.kind}:{self.owner}:{self.binaryName}:{self.memberName}:{self.descriptor}:{self.identity}:{self.staticMember}:" + Strings.join(self.parameters, ",") + ":" + self.result; }
 }
 
+/* One Java native method, answered by the receiver interface's method `name`.
+ * `parameters` and `result` are value kinds as for FeNativeJavaMember; an
+ * instance method's own object reaches the receiver first, as an owner of its
+ * class. */
+class FeNativeJavaNative {
+	public string name;
+	public string descriptor;
+	public string identity;
+	public bool staticMember;
+	public Vector<string> parameters;
+	public string result;
+	public FeNativeJavaNative(string name, string descriptor, string identity, bool staticMember, Vector<string> parameters, string result) {
+		self.name = name; self.descriptor = descriptor; self.identity = identity; self.staticMember = staticMember;
+		self.parameters = parameters; self.result = result;
+	}
+
+	public string key() { return f"{self.name}:{self.descriptor}:{self.identity}:{self.staticMember}:" + Strings.join(self.parameters, ",") + ":" + self.result; }
+}
+
+/* A Java class's natives, bound by RegisterNatives to generated thunks over an
+ * M2 holder. The factory registers every method of `methods` on the class
+ * (`owner` names its BTRC owner, `binaryName` its slash-separated name and
+ * `className` its dotted one). Each thunk pins the holder on the registering
+ * thread, makes its JNIEnv the thread's for the call and enters the receiver
+ * through its CallbackContext; a BTRC exception escaping it follows `failure`
+ * (native-interop-ownership.md section 2.3). */
+class FeNativeJavaNatives {
+	public string owner;
+	public string binaryName;
+	public string className;
+	public string handler;
+	public string failure;
+	public Vector<FeNativeJavaNative> methods = [];
+	public FeNativeJavaNatives(string owner, string binaryName, string className, string handler, string failure) {
+		self.owner = owner; self.binaryName = binaryName; self.className = className; self.handler = handler; self.failure = failure;
+	}
+
+	public string key() {
+		string text = f"{self.owner}:{self.binaryName}:{self.className}:{self.handler}:{self.failure}";
+		for method in self.methods { text = text + ";" + method.key(); }
+		return text;
+	}
+}
+
 class FeNativeCallContract {
 	public FeNativeJavaMember? javaMember = null;
+	public FeNativeJavaNatives? javaNatives = null;
 	public FeNativeCallbackTableProjection? callbackTable = null;
 	public FeNativeDispatchMethod? dispatchMethod = null;
 	public FeNativeComInterface? comInterface = null;
@@ -916,7 +961,7 @@ class FeNativeCallContract {
 	}
 
 	public bool returnsOwned() {
-		if (self.recordSnapshot != null || self.comSink != null) { return true; }
+		if (self.recordSnapshot != null || self.comSink != null || self.javaNatives != null) { return true; }
 		if (!self.resourceResult.isEmpty() || self.recordOutput != null || self.ownedOutput != null || self.copiedResult != null) { return true; }
 		FeNativeCxxProjection? cxxMethod = self.cxxMethod;
 		if (cxxMethod != null && !cxxMethod.factoryResult.isEmpty()) { return true; }

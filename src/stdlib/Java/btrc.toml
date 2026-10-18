@@ -24,5 +24,5 @@ module = "JavaVirtualMachine"
 header = "JNI.h"
 language = "c"
 standard = "c11"
-symbols = ["btrcJavaAddOption", "btrcJavaCreateHost", "btrcJavaRunning", "btrcJavaAdopted", "btrcJavaLiveClaims", "btrcJavaAttachedThreads", "btrcJavaDestroy"]
+symbols = ["btrcJavaAddOption", "btrcJavaCreateHost", "btrcJavaRunning", "btrcJavaAdopted", "btrcJavaLiveClaims", "btrcJavaAttachedThreads", "btrcJavaLiveNatives", "btrcJavaDestroy"]
 read-only-borrows = ["btrcJavaAddOption.option"]

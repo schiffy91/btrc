@@ -8,7 +8,13 @@
  * (btrcJavaAdopt, from the JNI_OnLoad of a library a running VM loaded: an
  * Android application or a host `java` process). An adopted VM belongs to its
  * host: it is never destroyed here, and the threads it attached are never
- * detached here.
+ * detached here. Its application ClassLoader, read at JNI_OnLoad, resolves
+ * every class, so threads this runtime attaches see the application's
+ * classes.
+ *
+ * Java natives registrations (RegisterNatives thunks, interop step 7) install
+ * the environment Java called them with for the duration of each call, raise
+ * their Java exceptions here, and count their holders.
  *
  * Locking: javaLock guards every field below and is never held across a JNI
  * call except JNI_CreateJavaVM and the cache teardown in btrcJavaDestroy,
@@ -37,6 +43,10 @@ static size_t javaFieldCount;
 static pthread_once_t javaKeyOnce = PTHREAD_ONCE_INIT;
 static pthread_key_t javaKey;
 static _Thread_local JNIEnv* javaThreadEnvironment;
+/* An adopted VM's application ClassLoader and its loadClass, or NULL. */
+static jobject javaLoader;
+static jmethodID javaLoadClass;
+static int javaNatives;
 
 static void javaAbort(const char* message) {
 	fprintf(stderr, "Library.Java: %s\n", message);
@@ -128,13 +138,59 @@ int btrcJavaCreateHost(void) {
 #endif
 }
 
+/* The context class loader of the thread running JNI_OnLoad, as a global
+ * reference, and ClassLoader.loadClass. Returns 0 when reading them fails,
+ * with no exception left pending; *loader stays NULL when the thread has no
+ * context class loader, and classes then resolve through FindClass. */
+static int javaReadLoader(JNIEnv* env, jobject* loader, jmethodID* loadClass) {
+	*loader = NULL;
+	*loadClass = NULL;
+	if ((*env)->PushLocalFrame(env, 4) != 0) {
+		(*env)->ExceptionClear(env);
+		return 0;
+	}
+	int read = 0;
+	jvalue none[1];
+	none[0].j = 0;
+	jclass threads = (*env)->FindClass(env, "java/lang/Thread");
+	if ((*env)->ExceptionCheck(env) || threads == NULL) { goto done; }
+	jmethodID current = (*env)->GetStaticMethodID(env, threads, "currentThread", "()Ljava/lang/Thread;");
+	if ((*env)->ExceptionCheck(env) || current == NULL) { goto done; }
+	jobject thread = (*env)->CallStaticObjectMethodA(env, threads, current, none);
+	if ((*env)->ExceptionCheck(env) || thread == NULL) { goto done; }
+	jmethodID context = (*env)->GetMethodID(env, threads, "getContextClassLoader", "()Ljava/lang/ClassLoader;");
+	if ((*env)->ExceptionCheck(env) || context == NULL) { goto done; }
+	jobject found = (*env)->CallObjectMethodA(env, thread, context, none);
+	if ((*env)->ExceptionCheck(env)) { goto done; }
+	if (found == NULL) {
+		read = 1;
+		goto done;
+	}
+	jclass loaders = (*env)->FindClass(env, "java/lang/ClassLoader");
+	if ((*env)->ExceptionCheck(env) || loaders == NULL) { goto done; }
+	jmethodID load = (*env)->GetMethodID(env, loaders, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+	if ((*env)->ExceptionCheck(env) || load == NULL) { goto done; }
+	jobject global = (*env)->NewGlobalRef(env, found);
+	if ((*env)->ExceptionCheck(env) || global == NULL) { goto done; }
+	*loader = global;
+	*loadClass = load;
+	read = 1;
+done:
+	if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); }
+	(*env)->PopLocalFrame(env, NULL);
+	return read;
+}
+
 int btrcJavaAdopt(JavaVM* machine) {
 	if (machine == NULL) { javaAbort("an adopted Java VM cannot be null"); }
 	/* JNI_OnLoad runs on a thread the VM attached, so GetEnv answers without
-	 * attaching; this is the thread's only JNI call, made outside javaLock. */
+	 * attaching; this thread's JNI calls run outside javaLock. */
 	JNIEnv* environment = NULL;
 	jint status = (*machine)->GetEnv(machine, (void**)&environment, JNI_VERSION_1_6);
 	if (status != JNI_OK || environment == NULL) { return status != JNI_OK ? (int)status : JNI_ERR; }
+	jobject loader = NULL;
+	jmethodID loadClass = NULL;
+	if (!javaReadLoader(environment, &loader, &loadClass)) { return JNI_ERR; }
 	pthread_mutex_lock(&javaLock);
 	if (javaMachine != NULL || javaDestroyed) {
 		pthread_mutex_unlock(&javaLock);
@@ -146,6 +202,8 @@ int btrcJavaAdopt(JavaVM* machine) {
 	}
 	javaMachine = machine;
 	javaAdopted = 1;
+	javaLoader = loader;
+	javaLoadClass = loadClass;
 	pthread_mutex_unlock(&javaLock);
 	javaThreadEnvironment = environment;
 	return JNI_OK;
@@ -294,12 +352,38 @@ static void javaRequireLinked(JNIEnv* env, const char* owner, const char* name, 
 	(*env)->DeleteLocalRef(env, thrown);
 }
 
+/* An adopted VM's application classes resolve through its cached ClassLoader,
+ * so a thread this runtime attached sees them too; FindClass there would
+ * search the system class loader (native-interop-ownership.md 2.3, "VM
+ * lifetime"). A class that loader does not know falls back to FindClass, for
+ * a host whose JNI_OnLoad thread had an unrelated context class loader.
+ * Returns a local reference, or NULL with an exception pending. */
+static jclass javaLoadClassNamed(JNIEnv* env, jobject loader, jmethodID loadClass, const char* binaryName) {
+	size_t length = strlen(binaryName);
+	char* dotted = malloc(length + 1);
+	if (dotted == NULL) { javaAbort("out of memory"); }
+	for (size_t index = 0; index <= length; index++) { dotted[index] = binaryName[index] == '/' ? '.' : binaryName[index]; }
+	jstring name = btrcJavaNewString(env, dotted);
+	free(dotted);
+	if ((*env)->ExceptionCheck(env)) { return NULL; }
+	jvalue argument[1];
+	argument[0].l = name;
+	jclass local = (jclass)(*env)->CallObjectMethodA(env, loader, loadClass, argument);
+	int failed = (*env)->ExceptionCheck(env);
+	(*env)->DeleteLocalRef(env, name);
+	if (!failed) { return local; }
+	(*env)->ExceptionClear(env);
+	return (*env)->FindClass(env, binaryName);
+}
+
 jclass btrcJavaClass(JNIEnv* env, jclass* slot, const char* binaryName) {
 	pthread_mutex_lock(&javaLock);
 	jclass cached = *slot;
+	jobject loader = javaLoader;
+	jmethodID loadClass = javaLoadClass;
 	pthread_mutex_unlock(&javaLock);
 	if (cached != NULL) { return cached; }
-	jclass local = (*env)->FindClass(env, binaryName);
+	jclass local = loader != NULL ? javaLoadClassNamed(env, loader, loadClass, binaryName) : (*env)->FindClass(env, binaryName);
 	if ((*env)->ExceptionCheck(env)) {
 		javaRequireLinked(env, binaryName, "", "");
 		return NULL;
@@ -448,6 +532,108 @@ void btrcJavaEncodeString(const jchar* units, jsize count, char* text) {
 			*out++ = (unsigned char)(0x80 | (point & 0x3F));
 		}
 	}
+}
+
+JNIEnv* btrcJavaEnter(JNIEnv* env) {
+	if (env == NULL) { javaAbort("a Java native thunk requires its environment"); }
+	JNIEnv* previous = javaThreadEnvironment;
+	javaThreadEnvironment = env;
+	return previous;
+}
+
+void btrcJavaLeave(JNIEnv* previous) { javaThreadEnvironment = previous; }
+
+void btrcJavaThrow(JNIEnv* env, const char* className, const char* message) {
+	if ((*env)->ExceptionCheck(env)) { return; }
+	if ((*env)->PushLocalFrame(env, 3) != 0) { return; }
+	jclass type = (*env)->FindClass(env, className);
+	if ((*env)->ExceptionCheck(env) || type == NULL) {
+		(*env)->PopLocalFrame(env, NULL);
+		return;
+	}
+	jmethodID create = (*env)->GetMethodID(env, type, "<init>", "(Ljava/lang/String;)V");
+	if ((*env)->ExceptionCheck(env) || create == NULL) {
+		(*env)->PopLocalFrame(env, NULL);
+		return;
+	}
+	jstring text = btrcJavaNewString(env, message);
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->PopLocalFrame(env, NULL);
+		return;
+	}
+	jvalue argument[1];
+	argument[0].l = text;
+	jthrowable thrown = (jthrowable)(*env)->NewObjectA(env, type, create, argument);
+	if ((*env)->ExceptionCheck(env) || thrown == NULL) {
+		(*env)->PopLocalFrame(env, NULL);
+		return;
+	}
+	if ((*env)->Throw(env, thrown) != 0) { javaAbort("cannot throw a Java exception"); }
+	(*env)->PopLocalFrame(env, NULL);
+}
+
+char* btrcJavaCopyString(JNIEnv* env, jstring value) {
+	jsize count = (*env)->GetStringLength(env, value);
+	if ((*env)->ExceptionCheck(env)) { return NULL; }
+	jchar* units = malloc((count > 0 ? (size_t)count : 1u) * sizeof *units);
+	if (units == NULL) { javaAbort("out of memory"); }
+	(*env)->GetStringRegion(env, value, 0, count, units);
+	if ((*env)->ExceptionCheck(env)) {
+		free(units);
+		return NULL;
+	}
+	long long length = btrcJavaStringLength(units, count);
+	if (length < 0 || length > 2147483646) {
+		free(units);
+		btrcJavaThrow(env, "java/lang/IllegalArgumentException", length < 0 ? "Java string contains U+0000, which a BTRC string cannot hold" : "Java string is too long for a BTRC string");
+		return NULL;
+	}
+	char* text = malloc((size_t)length + 1);
+	if (text == NULL) { javaAbort("out of memory"); }
+	btrcJavaEncodeString(units, count, text);
+	text[length] = '\0';
+	free(units);
+	return text;
+}
+
+void btrcJavaNativeMethod(JNINativeMethod* entry, const char* name, const char* signature, void (*function)(void)) {
+	_Static_assert(sizeof(void (*)(void)) == sizeof(void*), "JNI stores a native function as void*");
+	entry->name = (char*)name;
+	entry->signature = (char*)signature;
+	memcpy(&entry->fnPtr, &function, sizeof entry->fnPtr);
+}
+
+jint btrcJavaRegisterNatives(JNIEnv* env, jclass owner, const JNINativeMethod* methods, jint count, const char* binaryName) {
+	jint status = (*env)->RegisterNatives(env, owner, methods, count);
+	if ((*env)->ExceptionCheck(env)) {
+		javaRequireLinked(env, binaryName, "", "");
+		return JNI_ERR;
+	}
+	if (status != JNI_OK) { javaAbort("RegisterNatives failed without an exception"); }
+	return status;
+}
+
+void btrcJavaNativesOpened(void) {
+	pthread_mutex_lock(&javaLock);
+	javaNatives++;
+	pthread_mutex_unlock(&javaLock);
+}
+
+void btrcJavaNativesClosed(void) {
+	pthread_mutex_lock(&javaLock);
+	if (javaNatives <= 0) {
+		pthread_mutex_unlock(&javaLock);
+		javaAbort("a Java natives holder was freed twice");
+	}
+	javaNatives--;
+	pthread_mutex_unlock(&javaLock);
+}
+
+int btrcJavaLiveNatives(void) {
+	pthread_mutex_lock(&javaLock);
+	int natives = javaNatives;
+	pthread_mutex_unlock(&javaLock);
+	return natives;
 }
 
 void btrcJavaDestroy(void) {

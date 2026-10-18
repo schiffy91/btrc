@@ -2285,9 +2285,83 @@ registers a new result owner in a cleanup slot before `NewGlobalRef`. Adapters
 call JNI function-table slots by their JNI-spec names (`CallIntMethodA`) through
 the thread's `JNIEnv`, so the C compiler checks each against `jni.h`; only the
 `...A` (`jvalue*`) call variants are used. Class references and member IDs are
-cached per adapter in Library.Java. Weak references, arrays, nested classes,
-Java-to-BTRC entry, executors and Android's application class loader come with
-interop step 7.
+cached per adapter in Library.Java. In a VM a library adopted at JNI_OnLoad,
+classes resolve through the application ClassLoader cached there (the context
+class loader of the JNI_OnLoad thread), never FindClass on an attached thread.
+Weak references, arrays, nested classes and the `main` executor come with the
+rest of interop step 7.
+
+#### Java natives
+
+A `natives` table lets Java call BTRC: it binds a selected class's `native`
+methods, by name and JNI descriptor, to a generated BTRC receiver interface
+through RegisterNatives (native-interop-ownership.md section 2.3, "Java ->
+btrc"). The table key is the class's BTRC name; the class must be selected in
+`symbols`:
+
+```toml
+[native.bindings.natives.JniCallbacks]
+name = "registerJniCallbacks"      # the factory
+interface = "IJniCallbacks"        # the generated receiver interface
+methods = ["compute(I)I", "greet(Ljava/lang/String;)Ljava/lang/String;", "scale(I)I"]
+executor = "caller"
+failure = "throw"                  # or "abort"
+cancellation = "entry-barrier"
+```
+
+Each method becomes the interface method of its Java name. Parameters and
+results project as for calls into Java: primitives as above, `string?` copied
+through UTF-16, and a selected class `T` as an owned `T?` (a new global
+reference for each argument, released after the call unless the receiver
+keeps it; a returned owner becomes a new local reference). An instance
+native's object reaches the receiver first, as the parameter `T instance`.
+Import `Library.Callback`. The factory is `CallbackContext<IJniCallbacks, ...>
+registerJniCallbacks(IJniCallbacks receiver, CallbackScope scope)`: it binds
+every native to its generated thunk and returns the registration, an
+`ICallbackRegistration`; a second registration of the class while one lives
+throws `Java natives dev.btrc.fixture.JniCallbacks are already registered`.
+A selected method that is also listed in `symbols` stays callable from BTRC.
+
+Every thunk runs over one M2 holder per class, which holds the registration's
+one external claim on its CallbackContext while it is pinned. A call pins the
+holder, makes the JNIEnv Java called with the thread's for the call (and
+restores the previous one after, so calls nest: Java -> BTRC -> Java -> BTRC),
+frames its local references, converts its arguments (a JNI failure returns to
+Java with its exception pending), enters the receiver through the context's
+caller-executor gate and converts the result. A call on a thread other than
+the registering one terminates (`Java natives
+dev.btrc.fixture.JniCallbacks.compute(I)I: called off its executor thread`). A
+Java string holding U+0000 raises `java.lang.IllegalArgumentException` without
+entering BTRC. A BTRC exception escaping the receiver runs its cleanups, then
+with `failure = "throw"` is raised in Java as `java.lang.RuntimeException`
+carrying its message (copied through UTF-16, as ThrowNew would but without
+modified UTF-8), and the native returns zero; with `failure = "abort"` it
+terminates (`BTRC native callback failed: ...`).
+
+Cancellation is the entry barrier: it marks the holder cancelled and clears
+the class's live slot, so no later call enters BTRC. The natives stay bound to
+their thunks, which then raise `java.lang.IllegalStateException: Java natives
+dev.btrc.fixture.JniCallbacks are not registered` and return zero; that is the
+stub a later registration rebinds, so UnregisterNatives is never called. A
+receiver may cancel its own registration inside a call: the call keeps the
+holder pinned, cancellation completes once it has left, and the holder
+releases its claim at its last unpin. `JavaVirtualMachine.liveNatives()`
+counts the holders not yet freed.
+
+Rejected, with identical diagnostics in both compilers: a key that is not a
+selected class (`natives requires a Java class the binding selects`); unknown
+or missing fields; a method that is not `<name>(<descriptors>)<result>`, or a
+constructor; a method listed twice (`registers compute(I)I twice`); a factory
+or interface name equal to another, to a selected class or to another
+registration's; an executor other than `caller`, a failure other than `throw`
+or `abort`, a cancellation other than `entry-barrier`; a method that is not
+`ACC_NATIVE` (`Java RegisterNatives target dev.btrc.fixture.JniCallbacks.plain(I)I
+is not ACC_NATIVE`); a descriptor the class does not declare (the reader's
+`unknown member`), which is how a signature mismatch surfaces; an array or
+unselected class type; and two natives of one name (`Java natives A and B
+project to the same BTRC name compute`). The reader reports public members
+only, so a private `native` method waits for reader v2. The `main` executor,
+weak references and array spans are not yet supported.
 
 ### Selected C variadic calls
 

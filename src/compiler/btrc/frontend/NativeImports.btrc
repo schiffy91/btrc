@@ -3347,6 +3347,8 @@ class FeNativeDeclarationImporter {
 		else if (left.cxxMethod.identity() != right.cxxMethod.identity()) { return false; }
 		if (left.javaMember == null || right.javaMember == null) { if (left.javaMember != right.javaMember) { return false; } }
 		else if (left.javaMember.key() != right.javaMember.key()) { return false; }
+		if (left.javaNatives == null || right.javaNatives == null) { if (left.javaNatives != right.javaNatives) { return false; } }
+		else if (left.javaNatives.key() != right.javaNatives.key()) { return false; }
 		if (left.variadicArguments.len != right.variadicArguments.len || left.transparentParameters.len != right.transparentParameters.len) { return false; }
 		for index in range(left.transparentParameters.len) { if (left.transparentParameters.get(index) != right.transparentParameters.get(index)) { return false; } }
 
@@ -4292,7 +4294,16 @@ class FeNativeDeclarationImporter {
 		if (runtime.isEmpty()) { self.fail("Java bindings require import Library.Java.JavaVirtualMachine"); }
 		if (self.headerReader == null) { self.fail("SDK header scanning is unavailable in this compiler host build"); }
 		Vector<string> arguments = ["--target=" + target, "--classpath=" + classpath];
-		for symbol in binding.symbols { arguments.push("--symbol=" + symbol); }
+		/* The binding's symbols, then each natives method its registrations name, once each. */
+		Vector<string> symbols = [];
+		for symbol in binding.symbols { symbols.push(symbol); }
+		for natives in binding.javaNatives {
+			for method in natives.methods {
+				string symbol = natives.className + "." + method;
+				if (!symbols.contains(symbol)) { symbols.push(symbol); }
+			}
+		}
+		for symbol in symbols { arguments.push("--symbol=" + symbol); }
 		var request = FeNativeHeaderRead(reader, arguments);
 		var batch = FeNativeHeaderBatch();
 		batch.append(request);
@@ -4387,12 +4398,14 @@ class FeNativeDeclarationImporter {
 	/* Constructors, methods and fields of the selected classes, by JNI
 	 * descriptor. A constructor is the class method create(); a static member
 	 * is a class method; a field is a getter named for it plus set<Field>
-	 * unless final. */
-	private void projectJavaMembers(NativeNode header, Map<string, string> classes, Map<string, NativeNode> declarations) {
+	 * unless final. A native method only a natives registration names is not
+	 * callable. */
+	private void projectJavaMembers(NativeNode header, Map<string, string> classes, Map<string, NativeNode> declarations, Vector<string> selected) {
 		Map<string, Map<string, string>> projected = {};
 		for declaration in header.exports {
 			if (declaration.kind == NNK_NATIVE_JAVA_CLASS) { continue; }
 			if (declaration.kind != NNK_NATIVE_JAVA_METHOD && declaration.kind != NNK_NATIVE_JAVA_FIELD) { self.fail("Java class documents declare only classes, methods and fields"); }
+			if (!selected.contains(declaration.name)) { continue; }
 			string simple = classes.get(declaration.owner);
 			NativeNode ownerClass = declarations.get(declaration.owner);
 			var owner = self.resourceDeclaration(simple);
@@ -4443,6 +4456,79 @@ class FeNativeDeclarationImporter {
 		}
 	}
 
+	/* Each natives registration: its receiver interface and its registration
+	 * factory (M2, R3). Every method must be one of the class's ACC_NATIVE
+	 * methods and becomes the interface method of its Java name. Parameters and
+	 * results project as for calls into Java; an instance method's own object
+	 * reaches the receiver first, as an owner of its class. The factory takes
+	 * the receiver and a CallbackScope and returns the registration
+	 * (native-interop-ownership.md section 2.3, "Java -> btrc"). */
+	private void projectJavaNatives(FeNativeBinding binding, NativeNode header, Map<string, string> classes, Map<string, NativeNode> declarations) {
+		Map<string, NativeNode> exports = {};
+		for declaration in header.exports { exports.put(declaration.name, declaration); }
+		for natives in binding.javaNatives {
+			if (!classes.has(natives.className)) { self.fail(f"Java natives {natives.className} require a class the reader reports"); }
+			string simple = classes.get(natives.className);
+			NativeNode ownerClass = declarations.get(natives.className);
+			var projection = FeNativeJavaNatives(simple, ownerClass.binaryName, natives.className, natives.handler, natives.failure);
+			Node handler = self.node(NK_INTERFACE_DECL); handler.name = natives.handler;
+			Map<string, string> names = {};
+			string identities = "";
+			for method in natives.methods {
+				string symbol = natives.className + "." + method;
+				if (!exports.has(symbol) || exports.get(symbol).kind != NNK_NATIVE_JAVA_METHOD || exports.get(symbol).constructor) { self.fail(f"Java natives method {symbol} is not a method the reader reports"); }
+				NativeNode declaration = exports.get(symbol);
+				if (!declaration.nativeMethod) { self.fail(f"Java RegisterNatives target {symbol} is not ACC_NATIVE"); }
+				Vector<string> kinds = [];
+				Vector<Node> parameters = [];
+				for index in range(declaration.signature.parameters.len) {
+					Vector<Node> projectedType = [];
+					kinds.push(self.javaValue(declaration.signature.parameters.get(index), symbol, classes, projectedType));
+					Node parameter = self.node(NK_PARAM);
+					parameter.name = f"argument{index}";
+					parameter.type = projectedType.get(0);
+					parameters.push(parameter);
+				}
+				Vector<Node> returnType = [];
+				string result = self.javaValue(declaration.signature.returnType, symbol, classes, returnType, true);
+				string name = declaration.methodName;
+				if (names.has(name)) { self.fail(f"Java natives {names.get(name)} and {symbol} project to the same BTRC name {name}"); }
+				names.put(name, symbol);
+				Node member = self.node(NK_METHOD_SIG); member.name = name;
+				if (!declaration.staticMember) {
+					Node instance = self.node(NK_PARAM);
+					instance.name = "instance";
+					instance.type = self.javaType(simple, false);
+					member.paramsMut().push(instance);
+				}
+				for parameter in parameters { member.paramsMut().push(parameter); }
+				member.returnType = returnType.get(0);
+				handler.methodsMut().push(member);
+				projection.methods.push(FeNativeJavaNative(name, declaration.descriptor, declaration.identity, declaration.staticMember, kinds, result));
+				identities = identities + ";" + declaration.identity;
+			}
+			self.add(natives.handler, handler, "java-natives:" + ownerClass.identity + identities);
+			Node voidResult = self.node(NK_TYPE_EXPR); voidResult.base = "void";
+			Node voidPointer = self.node(NK_TYPE_EXPR); voidPointer.base = "void"; voidPointer.pointerDepth = 1;
+			/* CFunction<void, void*>, in the parser's exact callback spelling. */
+			Node destroyType = self.node(NK_TYPE_EXPR); destroyType.base = "__fn_ptr"; destroyType.genericArgsStorage = [voidResult, voidPointer];
+			Node token = self.node(NK_TYPE_EXPR); token.base = "OwnedClosure"; token.genericArgsStorage = [destroyType];
+			Node receiver = self.node(NK_TYPE_EXPR); receiver.base = natives.handler;
+			Node factory = self.node(NK_FUNCTION_DECL); factory.name = natives.name;
+			factory.returnType = self.node(NK_TYPE_EXPR); factory.returnType.base = "CallbackContext"; factory.returnType.genericArgsStorage = [receiver, token];
+			var contract = FeNativeCallContract(); contract.nonnullReturn = true; contract.javaNatives = projection;
+			Vector<string> parameterNames = ["receiver", "scope"];
+			Vector<string> parameterTypes = [natives.handler, "CallbackScope"];
+			for index in range(2) {
+				Node parameter = self.node(NK_PARAM); parameter.name = parameterNames.get(index);
+				parameter.type = self.node(NK_TYPE_EXPR); parameter.type.base = parameterTypes.get(index);
+				factory.paramsMut().push(parameter);
+				contract.nonnullParameters.push(true); contract.readOnlyBorrows.push(false); contract.resourceParameters.push(""); contract.recordInputs.push(null);
+			}
+			self.add(natives.name, factory, "java-natives-factory:" + ownerClass.identity, "", false, contract);
+		}
+	}
+
 	/* Every Java binding's classes, then their members, so one binding's
 	 * member may use another's class. */
 	private void completeJavaBindings(string target) {
@@ -4464,7 +4550,12 @@ class FeNativeDeclarationImporter {
 
 		for index in range(documents.len) {
 			self.module = self.pendingJavaBindings.get(index).module;
-			self.projectJavaMembers(documents.get(index), classes, declarations);
+			self.projectJavaMembers(documents.get(index), classes, declarations, self.pendingJavaBindings.get(index).symbols);
+		}
+
+		for index in range(documents.len) {
+			self.module = self.pendingJavaBindings.get(index).module;
+			self.projectJavaNatives(self.pendingJavaBindings.get(index), documents.get(index), classes, declarations);
 		}
 		self.pendingJavaBindings = [];
 		self.pendingJavaResponses = [];

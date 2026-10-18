@@ -34,6 +34,10 @@ class JavaVirtualMachine {
 	/* Threads this library attached that have not exited yet. */
 	class int attachedThreads() { return btrcJavaAttachedThreads(); }
 
+	/* Java natives registrations whose holder is not freed yet: live ones,
+	 * and cancelled ones a running call still pins. */
+	class int liveNatives() { return btrcJavaLiveNatives(); }
+
 	/* Shuts a created VM down from the thread that created it, after every
 	 * owner has been released and every attached thread has exited. An
 	 * adopted VM is never shut down here: this terminates. */

@@ -102,6 +102,11 @@ def adapter(case):
     statements.append(IRVarDecl(CType("jobject"), "result", init=env_call("CallStaticObjectMethodA", IRVar("owner"))))
     if case != "unchecked-call":
         statements.append(check())
+    if case == "unchecked-copy":
+        # A natives thunk's string copy leaves its Java exception pending, as a JNI call does.
+        statements.append(
+            IRVarDecl(CType("char*"), "text", init=IRCall("btrcJavaCopyString", [IRVar(ENV), IRVar("result")]))
+        )
     slot, registration = owner_slot()
     created = IRAssign(IRVar("object"), IRCall("__btrc_unique_Owner_new", []))
     global_reference = IRVarDecl(CType("jobject"), "global", init=env_call("NewGlobalRef", IRVar("result")))
@@ -123,6 +128,7 @@ CASES = [
     ("valid", None),
     ("unchecked-call", "Java adapter adapter: CallStaticObjectMethodA is not followed by its ExceptionCheck branch"),
     ("unchecked-helper", "Java adapter adapter: btrcJavaClass is not followed by its ExceptionCheck branch"),
+    ("unchecked-copy", "Java adapter adapter: btrcJavaCopyString is not followed by its ExceptionCheck branch"),
     ("outside-frame", "Java adapter adapter: NewStringUTF runs outside its local frame"),
     ("unchecked-push", "Java adapter adapter: PushLocalFrame must be checked by its failure branch"),
     ("push-pops", "Java adapter adapter: an exception translation pops a frame it did not push"),

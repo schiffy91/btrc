@@ -162,6 +162,52 @@ implemented in both compilers today and documented there.
   passes NULL binds such a call (the Windows fixture's loader does).
 - Step 5 still owes: `status-results` and `copied-outputs` on C functions,
   the compile-time `spawn` rule, and the direct R3 cycle rule for sinks.
+- Step 7's first slice (Java -> btrc, 2026-10-18) is implemented in both
+  compilers (package-manifest.md, "Java natives"): a Java binding's `natives`
+  table binds a selected class's `ACC_NATIVE` methods, by name and JNI
+  descriptor, to a generated receiver interface through RegisterNatives. The
+  factory takes the receiver and a CallbackScope and returns the registration
+  (a CallbackContext, an `ICallbackRegistration`), as for COM sinks. The
+  thunks run over one M2 holder per class and the `caller` callback boundary,
+  not `__btrc_native_thread_invoke`; each installs its JNIEnv for the call
+  and restores the previous one, so Java -> btrc -> Java -> btrc nests; F1
+  runs in reverse (a JNI failure while converting returns to Java with its
+  exception pending, never entering btrc); `failure = "throw"` raises a
+  `java.lang.RuntimeException` carrying the btrc message, and `abort`
+  terminates. Library.Java caches an adopted VM's application ClassLoader at
+  JNI_OnLoad. A host `java -Xcheck:jni` (classes in their own URLClassLoader)
+  runs the round trip with no CheckJNI warning through both compilers, and the
+  hosted API 29 and 36 emulators run it under `app_process`
+  (`test_native_jni_adopted.py`, `test_native_jni_android.py`); rejections are
+  in `test_native_jni_natives.py`.
+- As implemented in step 7's first slice:
+  - **Cancellation keeps the natives bound.** The thunks are the stubs: with
+    no live holder a call raises `IllegalStateException` without entering
+    btrc, so cancellation (the entry barrier) only marks the holder cancelled
+    and clears the class's live slot, and UnregisterNatives, which the JNI
+    specification reserves for reloading libraries and which is no barrier for
+    a call already resolving its pointer, is never called. A second live
+    registration of one class is refused.
+  - **The holder's foreign side is the class binding.** No Java object holds
+    the holder: the class's live slot pins it while the registration lives,
+    each call pins it for its duration, and the claim is released at the last
+    unpin, after cancellation (rule 2). A call on another thread terminates
+    (rule 3); every final event runs on the registering thread (rule 4).
+  - **Objects cross as owners.** Each object argument (and an instance
+    native's own object) becomes a new global reference and owner for the
+    call; a returned owner becomes a new local reference before the frame
+    pops.
+  - **The application ClassLoader** is the context class loader of the
+    JNI_OnLoad thread, cached as a global reference; with it every class
+    resolves through `loadClass` on every thread, and a class it does not know
+    falls back to FindClass.
+  - **A signature mismatch** between a listed native and the class surfaces as
+    the reader's `unknown member`, because methods are selected by
+    descriptor; the receiver interface is generated from the descriptors, so
+    it cannot disagree with them.
+- Step 7 still owes: `JavaWeak<T>`, array spans, `executor = "main"` from the
+  main Looper, private natives (reader v2 reports public members only), and
+  the 100-cycle activity lifecycle.
 
 ## 1. One model: three relations, three mechanisms, two rules
 
@@ -634,6 +680,11 @@ spans (Stage 29) are released with `JNI_ABORT` when read-only.
   to `onDestroy`, or hold the back edge as `JavaWeak`.
 - `failure = "throw"` turns a btrc exception into `ThrowNew` of
   `java.lang.RuntimeException`, carrying the message.
+- *As implemented (step 7, first slice):* the binding's `natives` table
+  (package-manifest.md, "Java natives"); the message is copied through UTF-16
+  into a constructed RuntimeException rather than ThrowNew's modified UTF-8,
+  and cancellation leaves the natives bound to thunks that raise
+  IllegalStateException (see the implementation status).
 
 **Executors.** `executor = "main"` marks UI classes. `main` is the thread of
 `Looper.getMainLooper()`, captured lazily by `src/stdlib/Java/` through its

@@ -24,11 +24,18 @@ void btrcJavaDestroy(void);
 
 /* For the JNI_OnLoad of a library a running VM loaded (an Android app, or
  * System.load in a host `java` process): makes `machine` the process's VM.
- * Returns JNI_OK, or GetEnv's status when the VM lacks JNI 1.6, for
- * JNI_OnLoad to refuse the load. An adopted VM is the host's: queued options,
- * a second VM and btrcJavaDestroy all terminate. The loading thread keeps
- * the environment its VM gave it; other threads attach as daemons on first
- * use and detach when they exit, as with a created VM. */
+ * Returns JNI_OK, or GetEnv's status when the VM lacks JNI 1.6 (or the
+ * application class loader cannot be read), for JNI_OnLoad to refuse the
+ * load. An adopted VM is the host's: queued options, a second VM and
+ * btrcJavaDestroy all terminate. The loading thread keeps the environment its
+ * VM gave it; other threads attach as daemons on first use and detach when
+ * they exit, as with a created VM.
+ *
+ * The application ClassLoader is the context class loader of the thread
+ * running JNI_OnLoad (an Android application's main thread runs with its
+ * PathClassLoader). It is cached as a global reference, and every class then
+ * resolves through its loadClass, on every thread: FindClass on a thread
+ * the runtime attached would search the system class loader instead. */
 int btrcJavaAdopt(JavaVM* machine);
 
 /* For generated adapters. The environment of the calling thread, attached as
@@ -54,5 +61,33 @@ void btrcJavaEncodeString(const jchar* units, jsize count, char* text);
 /* Clears the pending exception, pops the adapter's local frame when `pop`,
  * and formats "JavaException: <Throwable.toString()>" into `message`. */
 void btrcJavaTakeException(JNIEnv* env, int pop, char* message, size_t capacity);
+
+/* For the generated thunks of a Java `natives` registration (Java -> BTRC,
+ * interop step 7). A thunk makes the environment Java called it with the
+ * calling thread's for the duration of the call, so the BTRC code it runs
+ * calls back into Java through it (btrcJavaEnvironment returns it), and
+ * restores the one btrcJavaEnter returned when it returns; calls nest. */
+JNIEnv* btrcJavaEnter(JNIEnv* env);
+void btrcJavaLeave(JNIEnv* previous);
+/* Leaves a new `className` (a Throwable taking one String) pending, its
+ * message copied through UTF-16. When that fails, the failure (an
+ * OutOfMemoryError) is what is pending instead; either way the thunk then
+ * returns to Java. */
+void btrcJavaThrow(JNIEnv* env, const char* className, const char* message);
+/* A malloc'd UTF-8 copy of a Java string, or NULL with an exception pending:
+ * IllegalArgumentException when it holds U+0000, which a BTRC string cannot
+ * carry, or when it is too long for one. Unpaired surrogates become U+FFFD. */
+char* btrcJavaCopyString(JNIEnv* env, jstring value);
+/* Fills one RegisterNatives entry. `function` is the thunk, as a generic
+ * function pointer: JNI stores it as void*, which ISO C cannot convert to. */
+void btrcJavaNativeMethod(JNINativeMethod* entry, const char* name, const char* signature, void (*function)(void));
+/* RegisterNatives on `owner`. A class that does not declare the natives the
+ * class file did terminates as a metadata/runtime API mismatch; any other
+ * failure returns JNI_ERR with its exception pending. */
+jint btrcJavaRegisterNatives(JNIEnv* env, jclass owner, const JNINativeMethod* methods, jint count, const char* binaryName);
+/* Registration holders not yet freed, for JavaVirtualMachine.liveNatives(). */
+void btrcJavaNativesOpened(void);
+void btrcJavaNativesClosed(void);
+int btrcJavaLiveNatives(void);
 
 #endif

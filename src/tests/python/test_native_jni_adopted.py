@@ -8,6 +8,14 @@ adopts the running VM and a native method runs the program on the Java main
 thread, through both compilers. Any CheckJNI warning fails. The program also
 proves what an adopted VM refuses: shutting it down, a second VM and VM
 options each terminate before any Java call.
+
+Interop step 7, slice A: the program registers BTRC receivers for Java
+natives through RegisterNatives and Java calls them back (nested, with a BTRC
+exception surfacing as a RuntimeException, cancellation as an entry barrier,
+and on a BTRC thread), and the application classes load through their own
+URLClassLoader, so a thread the runtime attaches resolves them only through
+the ClassLoader cached at JNI_OnLoad. A native called off its registering
+thread, and a BTRC exception escaping an abort-failure native, terminate.
 """
 
 import shutil
@@ -22,6 +30,7 @@ from src.tests.python.jni_adoption_fixtures import (
     ENTRY_CLASS,
     LIBRARY_NAME,
     REFUSALS,
+    ROUND_TRIP_LINES,
     build_library,
     missing_java_tools,
     write_project,
@@ -57,7 +66,7 @@ def adopted_project(native_project, monkeypatch):
     root = source.parent.parent
     (source.parent / "Foundation.btrc").unlink()
     source, classes = write_project(root)
-    monkeypatch.setenv("BTRC_JAVA_CLASSPATH", str(classes))
+    monkeypatch.setenv("BTRC_JAVA_CLASSPATH", str(classes / "app"))
     return source, classes, java
 
 
@@ -66,12 +75,25 @@ def test_java_process_adopts_its_vm_under_checkjni(adopted_project, native_compi
     root = source.parent.parent
     environment = apple_environment()
     compiled = native_compile(source, plan_path=root / "Program.link.json")
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    # Java natives bind through RegisterNatives, never the thread-invoke seam.
+    assert "btrcJavaRegisterNatives" in compiled.c_source and "__btrc_native_thread_invoke" not in compiled.c_source
     suffix = ".dylib" if sys.platform == "darwin" else ".so"
     library = build_library(compiled, root, root / f"lib{LIBRARY_NAME}{suffix}", environment, cc="/usr/bin/clang")
 
     def run(mode):
+        # The application classes load through their own class loader (JniEntry's third argument).
         return subprocess.run(
-            [str(java), "-Xcheck:jni", "-cp", str(classes), ENTRY_CLASS, str(library), str(mode)],
+            [
+                str(java),
+                "-Xcheck:jni",
+                "-cp",
+                str(classes / "entry"),
+                ENTRY_CLASS,
+                str(library),
+                str(mode),
+                str(classes / "app"),
+            ],
             env={key: value for key, value in environment.items() if key != "JAVA_TOOL_OPTIONS"},
             capture_output=True,
             text=True,
@@ -82,7 +104,7 @@ def test_java_process_adopts_its_vm_under_checkjni(adopted_project, native_compi
     completed = run(0)
     assert completed.returncode == 0, (completed.stdout, completed.stderr)
     pid, *lines = completed.stdout.splitlines()
-    assert pid.startswith("btrc-pid=") and lines == ["java-adopted-ok", "java-entry-status=0"], completed.stdout
+    assert pid.startswith("btrc-pid=") and lines == ROUND_TRIP_LINES, completed.stdout
     # -Xcheck:jni reports every JNI misuse as a warning on stdout or stderr.
     assert "WARNING" not in completed.stdout + completed.stderr, completed.stderr
     assert "FATAL ERROR" not in completed.stdout + completed.stderr, completed.stderr
@@ -90,6 +112,6 @@ def test_java_process_adopts_its_vm_under_checkjni(adopted_project, native_compi
     for mode, message in REFUSALS.items():
         refused = run(mode)
         assert refused.returncode == -6, (mode, refused.stdout, refused.stderr)
-        assert f"Library.Java: {message}" in refused.stderr, (mode, refused.stderr)
+        assert message in refused.stderr, (mode, refused.stderr)
         assert "java-adopted-ok" not in refused.stdout and "java-entry-status" not in refused.stdout, mode
         assert "WARNING" not in refused.stdout + refused.stderr, (mode, refused.stderr)

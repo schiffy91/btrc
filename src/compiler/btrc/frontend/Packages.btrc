@@ -276,6 +276,8 @@ class FeNativeBinding {
 	 * resource order. */
 	public Map<string, string> copiedOutputs = {};
 	public Vector<FeNativeComSinkBinding> comSinks = [];
+	/* Java natives registrations, by their class's BTRC name. */
+	public Vector<FeNativeJavaNativesBinding> javaNatives = [];
 	public Vector<string> borrowedParameters;
 
 	public FeNativeBinding(string packageName, string module, string header, string language, string standard, Vector<string> symbols, Vector<string> operatingSystems, Vector<string> architectures) {
@@ -329,6 +331,25 @@ class FeNativeComSinkBinding {
 	public FeNativeComSinkBinding(string resource, string name, string handler, string registerMethod, string unregisterMethod, string activationFailure) {
 		self.resource = resource; self.name = name; self.handler = handler;
 		self.registerMethod = registerMethod; self.unregisterMethod = unregisterMethod; self.activationFailure = activationFailure;
+	}
+}
+
+/* A Java class's native methods, bound to a BTRC receiver through
+ * RegisterNatives. `owner` is the class's BTRC name and `className` its
+ * dotted binary name; `methods` names each native by name and JNI descriptor.
+ * `name` is the factory, which takes the receiver and a CallbackScope and
+ * returns the registration, and `handler` the generated receiver interface
+ * (native-interop-ownership.md section 2.3, "Java -> btrc"). */
+class FeNativeJavaNativesBinding {
+	public string owner;
+	public string className;
+	public string name;
+	public string handler;
+	public Vector<string> methods;
+	public string failure;
+	public FeNativeJavaNativesBinding(string owner, string className, string name, string handler, Vector<string> methods, string failure) {
+		self.owner = owner; self.className = className; self.name = name; self.handler = handler;
+		self.methods = methods; self.failure = failure;
 	}
 }
 
@@ -454,6 +475,7 @@ class FeManifestBlock {
 	private Map<string, bool> variadicCallNames = {};
 	private Map<string, bool> copiedOutputNames = {};
 	private Map<string, bool> comSinkNames = {};
+	private Map<string, bool> javaNativesNames = {};
 
 	public FeManifestBlock(string tableName, string manifestPath) {
 		self.tableName = tableName;
@@ -500,6 +522,11 @@ class FeManifestBlock {
 	public void declareComSink(string name) {
 		if (self.comSinkNames.has(name)) { FePackageFailure.fail(f"duplicate com-sinks table '{name}'"); }
 		self.comSinkNames.put(name, true);
+	}
+
+	public void declareJavaNatives(string name) {
+		if (self.javaNativesNames.has(name)) { FePackageFailure.fail(f"duplicate natives table '{name}'"); }
+		self.javaNativesNames.put(name, true);
 	}
 
 	public void declareOutputOffset(string name) {
@@ -1886,7 +1913,7 @@ class FeManifestBlock {
 		Vector<string> keys = self.fields.keys();
 		keys.sortBy((string left, string right) => Strings.lessThan(left, right));
 		Vector<string> allowed = ["module", "language", "symbols", "os", "arch", "env"];
-		for key in keys { if (!allowed.contains(key)) { FePackageFailure.fail(f"{self.context()} contains unexpected field '{key}'"); } }
+		for key in keys { if (!allowed.contains(key) && !key.startsWith("natives.")) { FePackageFailure.fail(f"{self.context()} contains unexpected field '{key}'"); } }
 		if (!self.moduleName(self.requiredText("module"))) { FePackageFailure.fail(f"{self.context()}.module must be a dotted module name"); }
 		Vector<string> modules = self.modulePaths(root);
 		FeTargetSelector selector = self.targetSelector();
@@ -1897,7 +1924,68 @@ class FeManifestBlock {
 		for symbol in symbols { if (!self.javaSymbol(symbol)) { FePackageFailure.fail(f"{self.context()}.symbols must name Java classes, or members by JNI descriptor"); } }
 		var binding = FeNativeBinding(packageName, modules.get(0), "", "java", "", symbols, selector.operatingSystems, selector.architectures);
 		binding.environments = selector.environments;
+		self.finishJavaNatives(binding);
 		return binding;
+	}
+
+	/* Java natives registrations, keyed by the BTRC name of a class the binding
+	 * selects. Each names its factory, its generated receiver interface and
+	 * the class's native methods by name and JNI descriptor. The executor is
+	 * the registering thread (`caller`); a BTRC exception escaping a native
+	 * either becomes a Java RuntimeException (`throw`) or terminates
+	 * (`abort`). Cancellation is an entry barrier (native-interop-ownership.md
+	 * section 2.3, "Java -> btrc"). */
+	private void finishJavaNatives(FeNativeBinding binding) {
+		Vector<string> known = ["cancellation", "executor", "failure", "interface", "methods", "name"];
+		Map<string, string> classes = {};
+		for symbol in binding.symbols {
+			if (!symbol.contains("(") && !symbol.contains(":")) {
+				var parts = Strings.split(symbol, ".");
+				classes.put(parts.get(parts.len - 1), symbol);
+			}
+		}
+		Map<string, bool> owners = {};
+		for key in self.fields.keys() {
+			if (!key.startsWith("natives.")) { continue; }
+			int field = key.lastIndexOf(".");
+			if (field > 8) { owners.put(key.substring(8, field - 8), true); }
+		}
+		Vector<string> ordered = owners.keys();
+		ordered.sortBy((string left, string right) => Strings.lessThan(left, right));
+		Map<string, bool> identifiers = {};
+		for owner in ordered {
+			string location = f"{self.context()}.natives.{owner}";
+			if (!classes.has(owner)) { FePackageFailure.fail(location + ": natives requires a Java class the binding selects"); }
+			string prefix = "natives." + owner + ".";
+			Vector<string> fields = [];
+			for key in self.fields.keys() { if (key.startsWith(prefix)) { fields.push(key.substring(prefix.length(), key.length() - prefix.length())); } }
+			fields.sortBy((string left, string right) => Strings.lessThan(left, right));
+			for field in fields { if (!known.contains(field)) { FePackageFailure.fail(f"{location} contains unexpected field '{field}'"); } }
+			for field in known { if (!self.fields.has(prefix + field)) { FePackageFailure.fail(f"{location} requires {field}"); } }
+			string factory = self.requiredText(prefix + "name");
+			if (!self.identifier(factory)) { FePackageFailure.fail(f"{location}.name must be an ASCII identifier"); }
+			string handler = self.requiredText(prefix + "interface");
+			if (!self.identifier(handler)) { FePackageFailure.fail(f"{location}.interface must be an ASCII identifier"); }
+			if (factory == handler || classes.has(factory) || classes.has(handler) || identifiers.has(factory) || identifiers.has(handler)) {
+				FePackageFailure.fail(location + ": the factory and interface names must be distinct from selected classes and other natives");
+			}
+			identifiers.put(factory, true);
+			identifiers.put(handler, true);
+			Vector<string> methods = self.stringArray(prefix + "methods", true);
+			bool shaped = methods.len > 0;
+			for method in methods { if (!method.contains("(") || method.startsWith("<") || !self.javaSymbol("C." + method)) { shaped = false; } }
+			if (!shaped) { FePackageFailure.fail(f"{location}.methods must name methods by JNI descriptor"); }
+			for index in range(methods.len) {
+				for earlier in range(index) {
+					if (methods.get(earlier) == methods.get(index)) { FePackageFailure.fail(f"{location}.methods registers {methods.get(index)} twice"); }
+				}
+			}
+			if (self.requiredText(prefix + "executor") != "caller") { FePackageFailure.fail(location + ".executor currently requires caller"); }
+			string failure = self.requiredText(prefix + "failure");
+			if (failure != "throw" && failure != "abort") { FePackageFailure.fail(location + ".failure requires throw or abort"); }
+			if (self.requiredText(prefix + "cancellation") != "entry-barrier") { FePackageFailure.fail(location + ".cancellation requires entry-barrier"); }
+			binding.javaNatives.push(FeNativeJavaNativesBinding(owner, classes.get(owner), factory, handler, methods, failure));
+		}
 	}
 
 	public FeNativeBinding finishBinding(string root, string packageName) {
@@ -2235,6 +2323,12 @@ class FePackageManifestParser {
 					if (block == null || !block.isBinding()) { FePackageFailure.fail("copied-outputs requires a preceding native binding"); }
 					block.declareCopiedOutput(name); section = copiedOutputPrefix + name; continue;
 				}
+				string nativesPrefix = "native.bindings.natives.";
+				if (table.startsWith(nativesPrefix)) {
+					string name = TOML.unquote(table.substring(nativesPrefix.length(), table.length() - nativesPrefix.length()));
+					if (block == null || !block.isBinding() || name.isEmpty()) { FePackageFailure.fail("natives requires a preceding native binding and a class name"); }
+					block.declareJavaNatives(name); section = nativesPrefix + name; continue;
+				}
 				string sinkPrefix = "native.bindings.com-sinks.";
 				if (table.startsWith(sinkPrefix)) {
 					string name = TOML.unquote(table.substring(sinkPrefix.length(), table.length() - sinkPrefix.length()));
@@ -2332,7 +2426,7 @@ class FePackageManifestParser {
 				if (section.startsWith("native.bindings.record-snapshots.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.initializers.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.copied-inputs.")) { prefix = section.substring(16, section.length() - 16) + "."; }
-				if (section.startsWith("native.bindings.copied-outputs.") || section.startsWith("native.bindings.com-sinks.")) { prefix = section.substring(16, section.length() - 16) + "."; }
+				if (section.startsWith("native.bindings.copied-outputs.") || section.startsWith("native.bindings.com-sinks.") || section.startsWith("native.bindings.natives.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (block == null) { FePackageFailure.fail(f"package manifest '{self.manifestPath}' field '{key}' requires a preceding native binding"); }
 				block.set(prefix + TOML.unquote(key), raw);
 			}

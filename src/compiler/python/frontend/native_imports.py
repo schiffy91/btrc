@@ -826,6 +826,43 @@ class NativeJavaMember:
 
 
 @dataclass(frozen=True)
+class NativeJavaNative:
+    """One Java native method, answered by the receiver interface's method `name`.
+
+    `parameters` and `result` are value kinds as for NativeJavaMember; an
+    instance method's own object reaches the receiver first, as an owner of
+    its class.
+    """
+
+    name: str
+    descriptor: str
+    identity: str
+    static_member: bool
+    parameters: tuple[str, ...]
+    result: str
+
+
+@dataclass(frozen=True)
+class NativeJavaNatives:
+    """A Java class's natives, bound by RegisterNatives to generated thunks over an M2 holder.
+
+    The factory registers every method of `methods` on the class (`owner`
+    names its BTRC owner, `binary_name` its slash-separated name and
+    `class_name` its dotted one). Each thunk pins the holder on the
+    registering thread, makes its JNIEnv the thread's for the call and enters
+    the receiver through its CallbackContext; a BTRC exception escaping it
+    follows `failure` (native-interop-ownership.md section 2.3).
+    """
+
+    owner: str
+    binary_name: str
+    class_name: str
+    interface: str
+    failure: str
+    methods: tuple[NativeJavaNative, ...]
+
+
+@dataclass(frozen=True)
 class NativeCallContract:
     """Checks at a native call boundary, including calls through function values."""
 
@@ -859,12 +896,14 @@ class NativeCallContract:
     java_member: NativeJavaMember | None = None
     com_interface: NativeComInterface | None = None
     com_sink: NativeComSink | None = None
+    java_natives: NativeJavaNatives | None = None
 
     @property
     def returns_owned(self):
         return bool(
             self.resource_result
             or self.com_sink
+            or self.java_natives
             or self.record_output
             or self.owned_output
             or self.copied_result
@@ -1497,7 +1536,7 @@ class NativeDeclarationImporter:
                     reader,
                     f"--target={target}",
                     f"--classpath={classpath}",
-                    *(f"--symbol={symbol}" for symbol in binding.symbols),
+                    *(f"--symbol={symbol}" for symbol in self._java_reader_symbols(binding)),
                 )
                 header = NativeHeaderCodec().decode(
                     NativeHeaderRead(arguments, (0,)).read(environment), expected_target=target
@@ -1528,10 +1567,27 @@ class NativeDeclarationImporter:
         for binding, header, jni in documents:
             self._origin = NativeHeaderSource(binding.module, jni, language="java")
             try:
-                self._project_java_members(header, classes)
+                self._project_java_members(header, classes, set(binding.symbols))
+            except NativeImportError as error:
+                raise IncludeResolutionError(f"{binding.module}: {error}") from error
+        for binding, header, jni in documents:
+            self._origin = NativeHeaderSource(binding.module, jni, language="java")
+            try:
+                self._project_java_natives(binding, header, classes)
             except NativeImportError as error:
                 raise IncludeResolutionError(f"{binding.module}: {error}") from error
         return reader_identity
+
+    @staticmethod
+    def _java_reader_symbols(binding):
+        """The binding's symbols, then each natives method its registrations name, once each."""
+        symbols = list(binding.symbols)
+        for natives in binding.java_natives:
+            for method in natives.methods:
+                symbol = f"{natives.class_name}.{method}"
+                if symbol not in symbols:
+                    symbols.append(symbol)
+        return symbols
 
     def _project_java_classes(self, header, classes):
         """Each selected class is an abstract unique owner of one JNI global reference."""
@@ -1585,11 +1641,12 @@ class NativeDeclarationImporter:
             raise NativeImportError(f"Java member {member} uses unselected class {native.name}")
         return "object", ast.TypeExpr(base=classes[native.name][0], is_nullable=True, pointer_depth=1)
 
-    def _project_java_members(self, header, classes):
+    def _project_java_members(self, header, classes, selected):
         """Constructors, methods and fields of the selected classes, by JNI descriptor.
 
         A constructor is the class method create(); a static member is a class
         method; a field is a getter named for it plus set<Field> unless final.
+        A native method only a natives registration names is not callable.
         """
         projected = {}
         for declaration in header.exports:
@@ -1597,6 +1654,8 @@ class NativeDeclarationImporter:
                 continue
             if not isinstance(declaration, (NativeJavaMethod, NativeJavaField)):
                 raise NativeImportError("Java class documents declare only classes, methods and fields")
+            if declaration.name not in selected:
+                continue
             simple, owner_class = classes[declaration.owner]
             owner = self._declarations[(str(self._origin), simple)]
             names = projected.setdefault(
@@ -1656,6 +1715,94 @@ class NativeDeclarationImporter:
                 owner.members.append(
                     ast.MethodDecl(access=member_access, name=name, return_type=return_type, params=list(parameters))
                 )
+
+    def _project_java_natives(self, binding, header, classes):
+        """Each natives registration: its receiver interface and its registration factory (M2, R3).
+
+        Every method must be one of the class's ACC_NATIVE methods and becomes
+        the interface method of its Java name. Parameters and results project
+        as for calls into Java; an instance method's own object reaches the
+        receiver first, as an owner of its class. The factory takes the
+        receiver and a CallbackScope and returns the registration
+        (native-interop-ownership.md section 2.3, "Java -> btrc").
+        """
+        exports = {declaration.name: declaration for declaration in header.exports}
+        for natives in binding.java_natives:
+            if natives.class_name not in classes:
+                raise NativeImportError(f"Java natives {natives.class_name} require a class the reader reports")
+            simple, owner_class = classes[natives.class_name]
+            signatures, methods, names = [], [], {}
+            for method in natives.methods:
+                symbol = f"{natives.class_name}.{method}"
+                declaration = exports.get(symbol)
+                if not isinstance(declaration, NativeJavaMethod) or declaration.constructor:
+                    raise NativeImportError(f"Java natives method {symbol} is not a method the reader reports")
+                if not declaration.native_method:
+                    raise NativeImportError(f"Java RegisterNatives target {symbol} is not ACC_NATIVE")
+                values = [
+                    self._java_value(parameter, symbol, classes) for parameter in declaration.signature.parameters
+                ]
+                result, return_type = self._java_value(declaration.signature.return_type, symbol, classes, result=True)
+                name = declaration.method_name
+                if name in names:
+                    raise NativeImportError(
+                        f"Java natives {names[name]} and {symbol} project to the same BTRC name {name}"
+                    )
+                names[name] = symbol
+                parameters = [
+                    ast.Param(name=f"argument{index}", type=value_type) for index, (_, value_type) in enumerate(values)
+                ]
+                if not declaration.static_member:
+                    parameters.insert(0, ast.Param(name="instance", type=ast.TypeExpr(base=simple)))
+                signatures.append(ast.MethodSig(name=name, return_type=return_type, params=parameters))
+                methods.append(
+                    NativeJavaNative(
+                        name,
+                        declaration.descriptor,
+                        declaration.identity,
+                        declaration.static_member,
+                        tuple(kind for kind, _ in values),
+                        result,
+                    )
+                )
+            self._add(
+                natives.interface,
+                ast.InterfaceDecl(name=natives.interface, methods=signatures),
+                ("java-natives", owner_class.identity, tuple(method.identity for method in methods)),
+            )
+            projection = NativeJavaNatives(
+                simple, owner_class.binary_name, natives.class_name, natives.interface, natives.failure, tuple(methods)
+            )
+            token = ast.TypeExpr(
+                base="OwnedClosure",
+                generic_args=[
+                    ast.TypeExpr(
+                        base="__fn_ptr",
+                        generic_args=[ast.TypeExpr(base="void"), ast.TypeExpr(base="void", pointer_depth=1)],
+                    )
+                ],
+            )
+            parameters = [
+                ast.Param(type=ast.TypeExpr(base=natives.interface), name="receiver"),
+                ast.Param(type=ast.TypeExpr(base="CallbackScope"), name="scope"),
+            ]
+            factory = ast.FunctionDecl(
+                name=natives.name,
+                return_type=ast.TypeExpr(
+                    base="CallbackContext", generic_args=[ast.TypeExpr(base=natives.interface), token]
+                ),
+                params=parameters,
+                body=None,
+            )
+            contract = NativeCallContract(
+                tuple(True for _ in parameters),
+                True,
+                tuple(False for _ in parameters),
+                False,
+                resource_parameters=tuple("" for _ in parameters),
+                java_natives=projection,
+            )
+            self._add(natives.name, factory, ("java-natives-factory", owner_class.identity), call_contract=contract)
 
     def _prepare_record_fields(self, binding):
         self._record_private_fields = {}
