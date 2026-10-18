@@ -272,7 +272,15 @@ class CycleSemantics {
 	}
 
 	private bool computeRuntimeTypeMayCycle(string runtimeType) {
-		if (self.analyzed.isClass(runtimeType)) {
+		/* An interface value is one of its implementers at run time, so it may
+		 * cycle exactly when one of them may, as the reference compiler
+		 * decides through its runtime candidates. */
+		if (self.analyzed.isClass(runtimeType) || self.analyzed.isInterface(runtimeType)) {
+			/* A generic subclass stands for every specialization of it, so it
+			 * conservatively may cycle, as in the reference compiler. */
+			for genericClass in self.analyzed.genericClassTable.keys() {
+				if (self.analyzed.isSubclass(genericClass, runtimeType)) { return true; }
+			}
 			for runtimeClass in self.analyzed.subclassesOf(runtimeType) {
 				if (self.typeIsCyclable(SemanticTypeSystem.primitive(runtimeClass))) { return true; }
 			}

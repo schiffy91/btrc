@@ -6,6 +6,8 @@ only where a module binds it, so each import re-exports it as itself.
 
 import os
 import platform
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -73,6 +75,17 @@ def native_project(tmp_path, monkeypatch):
     source = tmp_path / "src/Main.btrc"
     source.write_text("import ./Foundation.btrc;\nint main() { return verifyFoundation(); }\n", encoding="utf-8")
     return source, sdk, triple
+
+
+def zig_libc() -> Path:
+    """zig's libc directory, whose include/any-windows-any holds the MinGW-w64 headers."""
+    zig = shutil.which("zig")
+    if zig is None or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("requires zig's MinGW-w64 headers and the native header reader (the dev shell provides both)")
+    listed = subprocess.run([zig, "env"], capture_output=True, text=True, check=True, timeout=TOOL_TIMEOUT).stdout
+    match = re.search(r'\.lib_dir = "([^"]+)"', listed) or re.search(r'"lib_dir"\s*:\s*"([^"]+)"', listed)
+    assert match, listed
+    return Path(match.group(1)) / "libc"
 
 
 def compile_source(source, data_root=None, plan_path=None, *, use_cache=True):

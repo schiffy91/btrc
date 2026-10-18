@@ -412,6 +412,12 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("fromSignedInteger", "uint", "method", (("int", "value"),), "fromSignedInteger"),
         BuiltinMemberSpec("fromFloatingPoint", "uint", "method", (("float", "value"),), "fromFloatingPoint"),
     )),
+    ("COMApartment", (
+        BuiltinMemberSpec("initialize", "void", "method", (), "initialize"),
+        BuiltinMemberSpec("initialized", "bool", "method", (), "initialized"),
+        BuiltinMemberSpec("liveClaims", "long long", "method", (), "liveClaims"),
+        BuiltinMemberSpec("uninitialize", "void", "method", (), "uninitialize"),
+    )),
     ("Console", (
         BuiltinMemberSpec("log", "void", "method", (("string", "msg"),), "log"),
         BuiltinMemberSpec("error", "void", "method", (("string", "msg"),), "error"),
@@ -686,6 +692,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("JavaVirtualMachine", (
         BuiltinMemberSpec("createHost", "void", "method", (("Vector<string>", "options"),), "createHost"),
         BuiltinMemberSpec("running", "bool", "method", (), "running"),
+        BuiltinMemberSpec("adopted", "bool", "method", (), "adopted"),
         BuiltinMemberSpec("liveClaims", "long long", "method", (), "liveClaims"),
         BuiltinMemberSpec("attachedThreads", "int", "method", (), "attachedThreads"),
         BuiltinMemberSpec("shutdown", "void", "method", (), "shutdown"),

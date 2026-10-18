@@ -136,10 +136,22 @@ class FunctionLowerer:
             if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
             and declaration.source_file.resource is not None
         }
+        # The C type each resource's adapters convert to: a COM interface is
+        # its record pointer (`IStream*`), a reference-counted resource its typedef.
+        self._native_spellings = {
+            declaration.name: declaration.source_file.type_spelling or declaration.source_file.resource.name
+            for declaration in analyzed.program.declarations
+            if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            and declaration.source_file.resource is not None
+        }
 
     def _unique_resource(self, name):
         resource = self._native_resources.get(name)
         return resource if resource is not None and resource.ownership == "unique" else None
+
+    def _com_resource(self, name):
+        resource = self._native_resources.get(name)
+        return resource if resource is not None and resource.ownership == "com" else None
 
     def lower_declaration(self, declaration):
         return self.emit_function_decl(
@@ -256,7 +268,7 @@ class FunctionLowerer:
                 arguments[index] = (
                     IRTernary(arguments[index], IRFieldAccess(arguments[index], "value", arrow=True), IRLiteral("NULL"))
                     if self._unique_resource(resource)
-                    else IRCast(target_type=CType(text=resource), expr=arguments[index])
+                    else IRCast(target_type=CType(text=self._native_spellings[resource]), expr=arguments[index])
                 )
         if contract.callbacks:
             native_arguments = dict(zip(visible, arguments, strict=True))
@@ -293,6 +305,9 @@ class FunctionLowerer:
             self._native_unique_result(declaration, call, parameters, statements, releases, cleanup)
             call = None
         if contract.resource_result:
+            if call is not None and self._com_resource(contract.resource_result) and contract.borrowed_result_owner < 0:
+                # A factory's interface pointer is one claim, counted against the apartment.
+                call = IRCall(f"__btrc_com_{contract.resource_result}_adopt", [call])
             call = IRCast(target_type=return_type, expr=call) if call is not None else None
         if call is None:
             pass
@@ -429,6 +444,34 @@ class FunctionLowerer:
         owner_c = CType(self._types.render(owner_type))
         slot = IRVarDecl(owner_c, name, init=IRCall(f"{output.result_name}_new", []))
         owner = IRVar(name)
+        if self._com_resource(output.resource):
+            # The [out] interface lands in a zeroed slot; a nonnull one is one
+            # adopted claim on every HRESULT, which the caller inspects.
+            interface = IRVar(name + "_interface")
+            statements.extend(
+                [
+                    slot,
+                    IRExprStmt(self._lifetime.register_cleanup_slot(slot, owner_type)),
+                    IRVarDecl(CType(self._native_spellings[output.resource]), interface.name, init=IRLiteral("NULL")),
+                ]
+            )
+            arguments.insert(output.parameter_index, IRAddressOf(interface))
+            statements.extend(
+                [
+                    IRAssign(IRFieldAccess(owner, "status", arrow=True), IRCall(declaration.name, arguments)),
+                    IRAssign(
+                        IRFieldAccess(owner, "value", arrow=True),
+                        IRCast(
+                            CType(f"struct __btrc_native_{output.resource}*"),
+                            IRCall(f"__btrc_com_{output.resource}_adopt", [interface]),
+                        ),
+                    ),
+                    *releases,
+                    *cleanup,
+                    IRReturn(owner),
+                ]
+            )
+            return
         child = IRFieldAccess(owner, "value", arrow=True)
         native = IRFieldAccess(child, "value", arrow=True)
         statements.extend(
@@ -1660,6 +1703,9 @@ class FunctionLowerer:
                             declaration, method, declaration.source_file.methods[method.name].dispatch_method
                         )
             return
+        if resource.ownership == "com":
+            self._emit_com_interface(declaration)
+            return
         module = self._session.module
         forward = IRStructForward(name=f"__btrc_native_{declaration.name}")
         if forward not in module.struct_forwards:
@@ -1800,6 +1846,280 @@ class FunctionLowerer:
         ]
         self._native_unique_function(
             f"__btrc_unique_{symbol}_{method.name}_public",
+            result_type.text,
+            [IRParam(CType(f"struct __btrc_native_{symbol}*"), "self"), *parameters],
+            body,
+        )
+
+    # E_NOINTERFACE, the HRESULT 0x80004002 as a 32-bit signed value: the one
+    # QueryInterface failure that answers "no" rather than reporting an error.
+    _COM_NO_INTERFACE = "-2147467262"
+
+    @staticmethod
+    def _com_call(interface, native, slot, arguments, what):
+        """Reload the interface's table and slot, check both, and call through the slot with This first."""
+        table = IRVar("__btrc_table")
+        callee = IRFieldAccess(table, slot, arrow=True)
+        return [
+            IRVarDecl(CType(interface.table_type), table.name, init=IRFieldAccess(native, "lpVtbl", arrow=True)),
+            FunctionLowerer._native_null_guard(table, f"{what}: null function table"),
+            FunctionLowerer._native_null_guard(callee, f"{what}: null table slot {slot}"),
+        ], IRCall(callee, [native, *arguments])
+
+    @staticmethod
+    def _com_apartment():
+        """Every COM adapter runs on its apartment's thread (Library.COM checks it)."""
+        return IRExprStmt(IRCall("btrcCOMRequireApartment", []))
+
+    def _emit_com_interface(self, declaration):
+        """A COM interface: AddRef and Release through its table, M3 queries, sameObject and its methods.
+
+        A BTRC value of the interface is the SDK's own pointer, and each value
+        holds one claim: adopted from a factory, an [out] parameter or
+        QueryInterface, or taken by AddRef for an alias. Release ends it. Every
+        adapter checks its apartment, and Library.COM counts each claim against
+        it, so the apartment cannot be uninitialized while one is live
+        (native-interop-ownership.md section 2.4).
+        """
+        symbol = declaration.name
+        interface = declaration.source_file.methods[""].com_interface
+        module = self._session.module
+        forward = IRStructForward(name=f"__btrc_native_{symbol}")
+        if forward not in module.struct_forwards:
+            module.struct_forwards.append(forward)
+        value = IRVar("value")
+        native = IRVar("__btrc_native")
+        for operation, slot, count in (("retain", "AddRef", "btrcCOMClaim"), ("release", "Release", "btrcCOMUnclaim")):
+            statements, call = self._com_call(interface, native, slot, [], f"Native COM {symbol}.{slot}")
+            self._native_unique_function(
+                f"__btrc_native_{symbol}_{operation}",
+                "void",
+                [IRParam(CType("void*"), "value")],
+                [
+                    IRIf(
+                        IRBinOp(value, "!=", IRLiteral("NULL")),
+                        IRBlock(
+                            [
+                                self._com_apartment(),
+                                IRVarDecl(
+                                    CType(interface.native_type),
+                                    native.name,
+                                    init=IRCast(CType(interface.native_type), value),
+                                ),
+                                *statements,
+                                # The returned count is diagnostic only, and discarded.
+                                IRExprStmt(call),
+                                IRExprStmt(IRCall(count, [])),
+                            ]
+                        ),
+                    )
+                ],
+            )
+        self._native_unique_function(
+            f"__btrc_com_{symbol}_adopt",
+            "void*",
+            [IRParam(CType("void*"), "value")],
+            [
+                IRIf(
+                    IRBinOp(value, "!=", IRLiteral("NULL")),
+                    IRBlock([self._com_apartment(), IRExprStmt(IRCall("btrcCOMClaim", []))]),
+                ),
+                IRReturn(value),
+            ],
+        )
+        self._emit_com_query(declaration, interface)
+        for member in declaration.members:
+            contract = declaration.source_file.methods[member.name]
+            if contract.dispatch_method is not None:
+                self._emit_com_method(declaration, member, contract.dispatch_method, interface)
+            else:
+                self._emit_com_identity(declaration, member, interface)
+
+    def _emit_com_query(self, declaration, interface):
+        """M3: QueryInterface through the source's own table.
+
+        Success is one new claim; E_NOINTERFACE gives null; any other failure
+        terminates, and a failure that still wrote an interface adopts it first.
+        """
+        symbol = declaration.name
+        source, result, status = IRVar("source"), IRVar("__btrc_result"), IRVar("__btrc_status")
+        native = IRVar("__btrc_native")
+        what = f"Native COM {symbol}.QueryInterface"
+        statements, call = self._com_call(
+            interface, native, "QueryInterface", [IRVar("iid"), IRAddressOf(result)], what
+        )
+        failure = self._native_null_guard(IRLiteral("NULL"), f"{what}: a failed query returned an interface")
+        failure.condition = IRBinOp(result, "!=", IRLiteral("NULL"))
+        failure.then_block.stmts.insert(0, IRExprStmt(IRCall("btrcCOMClaim", [])))
+        self._native_unique_function(
+            f"__btrc_com_{symbol}_query",
+            "void*",
+            [IRParam(CType("void*"), "source"), IRParam(CType(interface.iid_type), "iid")],
+            [
+                IRIf(IRBinOp(source, "==", IRLiteral("NULL")), IRBlock([IRReturn(IRLiteral("NULL"))])),
+                self._com_apartment(),
+                IRVarDecl(CType(interface.native_type), native.name, init=IRCast(CType(interface.native_type), source)),
+                *statements,
+                IRVarDecl(CType("void*"), result.name, init=IRLiteral("NULL")),
+                IRVarDecl(CType(interface.status_type), status.name, init=call),
+                IRIf(
+                    IRBinOp(status, ">=", IRLiteral("0")),
+                    IRBlock(
+                        [
+                            self._native_null_guard(result, f"{what}: success without an interface"),
+                            IRExprStmt(IRCall("btrcCOMClaim", [])),
+                            IRReturn(result),
+                        ]
+                    ),
+                ),
+                failure,
+                IRIf(IRBinOp(status, "==", IRLiteral(self._COM_NO_INTERFACE)), IRBlock([IRReturn(IRLiteral("NULL"))])),
+                IRExprStmt(
+                    IRCall(
+                        "fprintf",
+                        [
+                            IRVar("stderr"),
+                            IRLiteral(json.dumps(f"{what} failed with HRESULT 0x%08X\n")),
+                            IRCast(CType("unsigned int"), status),
+                        ],
+                    )
+                ),
+                IRExprStmt(IRCall("abort", [], never_returns=True)),
+            ],
+        )
+
+    def _emit_com_identity(self, declaration, member, interface):
+        """sameObject(a, b): two objects are one when their IUnknown identities are one pointer."""
+        symbol = declaration.name
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in member.params]
+        first, second = (IRVar(parameter.name) for parameter in parameters)
+        query = f"__btrc_com_{symbol}_query"
+        identities = (IRVar("__btrc_first"), IRVar("__btrc_second"))
+        statements = [
+            IRIf(
+                IRBinOp(IRBinOp(first, "==", IRLiteral("NULL")), "||", IRBinOp(second, "==", IRLiteral("NULL"))),
+                IRBlock([IRReturn(IRBinOp(first, "==", second))]),
+            )
+        ]
+        for identity, value in zip(identities, (first, second), strict=True):
+            statements.extend(
+                [
+                    IRVarDecl(
+                        CType("void*"),
+                        identity.name,
+                        init=IRCall(query, [value, IRAddressOf(IRVar(interface.unknown_iid))]),
+                    ),
+                    self._native_null_guard(identity, f"Native COM {symbol}.sameObject: an object has no IUnknown"),
+                ]
+            )
+        statements.extend(
+            [
+                IRVarDecl(CType("bool"), "__btrc_same", init=IRBinOp(identities[0], "==", identities[1])),
+                # Release is slot 2 of every table, so the interface's own adapter ends each IUnknown claim.
+                *(IRExprStmt(IRCall(f"__btrc_native_{symbol}_release", [identity])) for identity in identities),
+                IRReturn(IRVar("__btrc_same")),
+            ]
+        )
+        self._native_unique_function(f"__btrc_com_{symbol}_{member.name}_public", "bool", parameters, statements)
+
+    def _emit_com_method(self, declaration, member, method, interface):
+        """A dispatched COM method: borrow the receiver and each [in] interface, call, then report.
+
+        The adapter holds one claim on the receiver and on every [in] interface
+        for the call, and adopts a nonnull [out] interface before those end.
+        With status-results a failing HRESULT releases the adopted output and
+        throws (F1); an owned-outputs result class carries the HRESULT and the
+        output; otherwise the slot's result is returned unchanged.
+        """
+        symbol = declaration.name
+        owner = IRVar("self")
+        native = IRVar("__btrc_native")
+        status = IRVar("__btrc_status")
+        output = IRVar("__btrc_output")
+        result = IRVar("__btrc_result")
+        what = f"Native dispatch {symbol}.{method.name}"
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in member.params]
+        result_type = CType(self._types.render(member.return_type))
+        arguments = [
+            IRCast(CType(spelling), IRVar(parameter.name))
+            for parameter, spelling in zip(parameters, method.native_parameters, strict=True)
+        ]
+        if method.output_position >= 0:
+            # The slot's argument list puts This first; the output keeps its own position.
+            arguments.insert(method.output_position - 1, IRAddressOf(output))
+        statements, call = self._com_call(interface, native, method.slot, arguments, what)
+        borrowed = [
+            (parameter, resource) for parameter, resource in zip(parameters, method.resources, strict=True) if resource
+        ]
+        body = [
+            self._native_null_guard(owner, f"{what}: null receiver"),
+            IRExprStmt(IRCall(f"__btrc_native_{symbol}_retain", [owner])),
+            *(
+                IRExprStmt(IRCall(f"__btrc_native_{resource}_retain", [IRVar(parameter.name)]))
+                for parameter, resource in borrowed
+            ),
+            IRVarDecl(CType(interface.native_type), native.name, init=IRCast(CType(interface.native_type), owner)),
+        ]
+        if method.status == "result":
+            body.append(IRVarDecl(result_type, result.name, init=IRCall(f"{method.result_class}_new", [])))
+        if method.output_position >= 0:
+            body.append(IRVarDecl(CType(method.output_spelling), output.name, init=IRLiteral("NULL")))
+        body.extend(statements)
+        returns = method.native_return != "void"
+        body.append(IRVarDecl(CType(method.native_return), status.name, init=call) if returns else IRExprStmt(call))
+        if method.output_position >= 0:
+            body.append(IRExprStmt(IRCall(f"__btrc_com_{method.output_resource}_adopt", [output])))
+        body.extend(
+            IRExprStmt(IRCall(f"__btrc_native_{resource}_release", [IRVar(parameter.name)]))
+            for parameter, resource in reversed(borrowed)
+        )
+        body.append(IRExprStmt(IRCall(f"__btrc_native_{symbol}_release", [owner])))
+        managed_output = IRCast(CType(f"struct __btrc_native_{method.output_resource}*"), output)
+        if method.status == "throw":
+            self._session.require_helper("__btrc_throw")
+            message = IRVar("__btrc_message")
+            body.append(
+                IRIf(
+                    IRBinOp(status, "<", IRLiteral("0")),
+                    IRBlock(
+                        [
+                            *(
+                                [IRExprStmt(IRCall(f"__btrc_native_{method.output_resource}_release", [output]))]
+                                if method.output_position >= 0
+                                else []
+                            ),
+                            IRVarDecl(CType("char"), message.name, array_size=IRLiteral("128")),
+                            IRExprStmt(
+                                IRCall(
+                                    "snprintf",
+                                    [
+                                        message,
+                                        IRSizeof(message),
+                                        IRLiteral(json.dumps(f"COM {symbol}.{method.name} failed with HRESULT 0x%08X")),
+                                        IRCast(CType("unsigned int"), status),
+                                    ],
+                                )
+                            ),
+                            IRExprStmt(
+                                IRCall("__btrc_throw", [message], helper_ref="__btrc_throw", never_returns=True)
+                            ),
+                        ]
+                    ),
+                )
+            )
+            body.append(IRReturn(managed_output if method.output_position >= 0 else IRCast(result_type, status)))
+        elif method.status == "result":
+            body.extend(
+                [
+                    IRAssign(IRFieldAccess(result, "status", arrow=True), status),
+                    IRAssign(IRFieldAccess(result, "value", arrow=True), managed_output),
+                    IRReturn(result),
+                ]
+            )
+        elif returns:
+            body.append(IRReturn(IRCast(result_type, status)))
+        self._native_unique_function(
+            f"__btrc_com_{symbol}_{method.name}_public",
             result_type.text,
             [IRParam(CType(f"struct __btrc_native_{symbol}*"), "self"), *parameters],
             body,

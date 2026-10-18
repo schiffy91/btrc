@@ -1988,12 +1988,15 @@ class CallLowerer:
         self._operand_order = operand_order
         self._mutex_constructor = mutex_constructor
         self._default_argument_helpers: set[str] = set()
+        # Unique owners and COM interfaces publish their methods as generated adapters.
         self._native_unique_methods = {
-            (declaration.name, method.name): f"__btrc_unique_{declaration.name}_{method.name}_public"
+            (declaration.name, method.name): (
+                f"__btrc_{declaration.source_file.resource.ownership}_{declaration.name}_{method.name}_public"
+            )
             for declaration in analyzed.program.declarations
             if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
             and declaration.source_file.resource is not None
-            and declaration.source_file.resource.ownership == "unique"
+            and declaration.source_file.resource.ownership in ("unique", "com")
             for method in declaration.members
             if isinstance(method, MethodDecl)
         }

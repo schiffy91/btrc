@@ -110,6 +110,35 @@ implemented in both compilers today and documented there.
   selected when the binding names it or one of its members (the reader reports
   each member's class); arrays, nested classes and `java.lang.String` as a
   class are rejected until step 7.
+- Step 5's first slice (2026-10-17) is implemented in both compilers
+  (package-manifest.md, "COM interfaces"): `ownership = "com"` with `iid`,
+  `base` and `release-executor = "apartment"`; slot 0-2 and base-prefix
+  validation against the real `lpVtbl` layout; AddRef and Release adapters;
+  M1 dispatch over `lpVtbl` with `[in]` borrows and one adopted `[out]`
+  interface; `status-results` and `owned-outputs.status = "hresult"`; M3
+  QueryInterface casts and `sameObject`; and `src/stdlib/COM/`'s
+  `COMApartment`, which checks every adapter's thread and counts every claim.
+  A Linux/macOS proxy (`ComShape.h` and a counter server) runs through both
+  compilers, plain and under ASan/UBSan, at -O0 and -O2, and ends with no live
+  object and one Release per claim; the importer also reads zig's MinGW-w64
+  `IStream`, `ISequentialStream` and `IUnknown` for windows-x86_64 and
+  windows-aarch64 and the generated C links against ole32
+  (`src/tests/python/test_native_com_interfaces.py`).
+- As implemented in step 5's first slice: `status-results` names dispatched
+  COM methods only. An `[out]` interface of a method is implicit in COM: the
+  status form adopts the method's one `IFoo**` parameter, which the method
+  returns (throw form) or stores in its result class. `sameObject` is a class
+  method of every COM resource, generated when the binding selects
+  `IID_IUnknown`. Library.COM keeps one apartment per process, and a COM call
+  on another thread terminates at run time; the compile-time `spawn` rule is
+  still owed. The table and slot reads are reloaded and null-checked like
+  step 2's; the base-widened call goes through the base's table type, which
+  is the COM ABI.
+- Step 5 still owes: `com-sinks` (the M2 holder with `Unadvise` inside an
+  event and cycle teardown), `copied-outputs` for `BSTR` and `CoTaskMemAlloc`
+  strings, `status-results` on C functions, ole32 and uuid link records for
+  Library.COM, and the Windows CI exit (the registry-free
+  `DllGetClassObject` server round trip and `CreateStreamOnHGlobal`).
 
 ## 1. One model: three relations, three mechanisms, two rules
 
@@ -534,6 +563,15 @@ ownership idea.
 - Destroying the VM with live user claims aborts.
 - On Android the VM is never destroyed. On a host JVM, the test destroys it
   after every owner is closed.
+- *As implemented (CL-P2-09):* a library that a running VM loads adopts it.
+  Its `JNI_OnLoad` calls `btrcJavaAdopt(machine)` from C (Android's
+  `app_process` or app VM, or `System.load` in a host `java` process), and
+  `JavaVirtualMachine.adopted()` reports it. The loading thread keeps the
+  `JNIEnv` its VM gave it and never gets a key value; other threads attach as
+  daemons and detach as above. An adopted VM refuses `shutdown`, VM options
+  and a second VM, each by terminating. `test_native_jni_adopted.py` runs this
+  under a host `java -Xcheck:jni` through both compilers, and
+  `test_native_jni_android.py` runs the step's exit under `app_process`.
 - Class and ID initialization runs once per binding symbol, under the
   existing btrc mutex. (C11 `call_once` is missing on macOS.)
 - Application classes resolve at `JNI_OnLoad` or through a cached application

@@ -11,7 +11,6 @@ import, the generated C and the link, not the execution.
 """
 
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +21,7 @@ import pytest
 from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.results import CompilerOptions
 from src.tests.process_limits import TOOL_TIMEOUT
+from src.tests.python.native_import_fixtures import zig_libc
 
 REPO = Path(__file__).resolve().parents[3]
 EXPECTED = "win32-subclass first=42 after=0 cancelled=1 destroyed=1 open=0"
@@ -79,16 +79,6 @@ int main() {
 	return first == 42 && after == 0 && cancelled && destroyed == 1 && !registration.isOpen() ? 0 : 2;
 }
 """
-
-
-def zig_libc() -> Path:
-    zig = shutil.which("zig")
-    if zig is None or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
-        pytest.skip("requires zig's MinGW-w64 headers and the native header reader (the dev shell provides both)")
-    listed = subprocess.run([zig, "env"], capture_output=True, text=True, check=True, timeout=TOOL_TIMEOUT).stdout
-    match = re.search(r'\.lib_dir = "([^"]+)"', listed) or re.search(r'"lib_dir"\s*:\s*"([^"]+)"', listed)
-    assert match, listed
-    return Path(match.group(1)) / "libc"
 
 
 @pytest.fixture

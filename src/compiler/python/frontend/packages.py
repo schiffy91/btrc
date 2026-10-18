@@ -42,7 +42,7 @@ class LockfileVersionError(LockfileError):
 LOCK_SCHEMA = 2
 PACKAGE_GRAPH_LOCK_SCHEMA = 3
 PACKAGE_MANIFEST_VERSION = 1
-NATIVE_LINK_PLAN_SCHEMA = 1
+NATIVE_LINK_PLAN_SCHEMA = 5
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _UNIT_NAME = re.compile(r"^unit-[A-Za-z0-9][A-Za-z0-9_-]*$")
@@ -358,7 +358,13 @@ class NativeDispatchTable:
 
 @dataclass(frozen=True)
 class NativeResourceBinding:
-    """Missing ownership facts for one header-declared native resource."""
+    """Missing ownership facts for one header-declared native resource.
+
+    A `com` resource is a COM interface record: AddRef and Release are slots 1
+    and 2 of its `lpVtbl` table, `iid` names the selected `IID` global that
+    QueryInterface asks for, and `base` names the selected interface its table
+    extends (native-interop-ownership.md section 2.4).
+    """
 
     name: str
     ownership: str
@@ -375,6 +381,9 @@ class NativeResourceBinding:
     methods: tuple[str, ...] = ()
     table: NativeCallbackTable | None = None
     dispatch: NativeDispatchTable | None = None
+    iid: str = ""
+    base: str = ""
+    release_executor: str = ""
 
 
 @dataclass(frozen=True)
@@ -521,6 +530,10 @@ class NativeBinding:
     # Raw record-pointer handles (typedef, release) that one selected lifetime
     # operation releases directly, beside managed resources sharing that name.
     unmanaged_handles: tuple[tuple[str, str], ...] = ()
+    # Dispatched COM methods ("<R>.<method>") whose failing HRESULT throws, and
+    # owned outputs whose result class carries an HRESULT status.
+    status_results: tuple[tuple[str, str], ...] = ()
+    owned_output_statuses: tuple[tuple[str, str], ...] = ()
 
     @property
     def selector(self) -> TargetSelector:
@@ -582,15 +595,18 @@ class NativeLinkPlan:
     packages: tuple[PackageNode, ...] = ()
     declarations: tuple[NativeDeclaration, ...] = ()
     generated_units: tuple[NativeGeneratedUnit, ...] = ()
-    # Ordered absolute paths of secondary compiler outputs (schema 4).
+    # Ordered absolute paths of secondary compiler outputs (emitted-units).
     emitted_units: tuple[str, ...] = ()
     # SHA-256 of each secondary output's text, in `emitted_units` order, so
     # the plan changes whenever any unit of the program does.
     emitted_unit_digests: tuple[str, ...] = ()
+    # The validated sysroot's identity (NativeSysroot) when the compile read
+    # native headers through one, else empty. The plan never holds the path.
+    sysroot_identity: str = ""
 
     @property
     def bindings(self) -> tuple[NativeBinding, ...]:
-        """Compiler-only imports; these are not linker units or schema-1 records."""
+        """Compiler-only imports; these are not linker units or link-plan records."""
         return tuple(
             binding
             for package in sorted(self.packages, key=lambda package: package.name)
@@ -643,7 +659,28 @@ class NativeLinkPlan:
     def _name_record(item: NativeDeclaration) -> dict[str, str]:
         return {"name": item.value, "package": item.package}
 
+    def target_record(self) -> dict[str, str]:
+        """The schema-5 target identity: the selected row, never a host fact."""
+        row = self.target.row
+        return {
+            "arch": row.architecture,
+            "environment": row.environment,
+            "label": row.label,
+            "minimum": row.minimum_version,
+            "os": row.operating_system,
+            "triple": row.triple,
+        }
+
+    def toolchain_record(self) -> dict:
+        """The row's clang target arguments and sysroot identity, with no path."""
+        row = self.target.row
+        return {
+            "sysroot": {"identity": self.sysroot_identity, "kind": row.sysroot_kind, "name": row.sysroot_name},
+            "target-arguments": list(row.target_arguments),
+        }
+
     def as_dict(self) -> dict:
+        """The frozen schema-5 plan (platform-target-contract.md section 4.1)."""
         selected = tuple(item for item in self.declarations if item.selected_for(self.target))
         sources = [
             {
@@ -688,16 +725,15 @@ class NativeLinkPlan:
                 key=lambda item: (item["package"], item["name"]),
             ),
             "schema": NATIVE_LINK_PLAN_SCHEMA,
-            "target": {"arch": self.target.architecture, "os": self.target.operating_system},
+            "target": self.target_record(),
+            "toolchain": self.toolchain_record(),
             "units": sorted(sources, key=lambda item: (item["package"], item["path"], item["language"])),
         }
         if self.generated_units:
-            result["schema"] = 2
             result["generated-units"] = [
                 unit.as_dict() for unit in sorted(self.generated_units, key=lambda unit: unit.name)
             ]
         if self.emitted_units:
-            result["schema"] = 4
             result["emitted-units"] = list(self.emitted_units)
             result["emitted-unit-digests"] = list(self.emitted_unit_digests)
         return result
@@ -756,6 +792,10 @@ class NativeLinkPlan:
             emitted_units=tuple(f"{absolute_prefix}.{name}.c" for name in names),
             emitted_unit_digests=tuple(self.unit_digest(source) for source in sources),
         )
+
+    def with_sysroot_identity(self, identity: str) -> NativeLinkPlan:
+        """This plan recording the sysroot its native headers were read through."""
+        return replace(self, sysroot_identity=identity)
 
     @staticmethod
     def unit_digest(source: str) -> str:
@@ -1932,13 +1972,22 @@ class PackageManifestValidator:
                         "storage",
                         "table",
                         "dispatch",
+                        "iid",
+                        "base",
+                        "release-executor",
                     }
                 ),
                 location,
             )
             ownership = value.get("ownership")
-            if ownership not in {"reference-counted", "unique"}:
-                raise ValueError(f"{location}.ownership requires reference-counted or unique")
+            if ownership not in {"reference-counted", "unique", "com"}:
+                raise ValueError(f"{location}.ownership requires reference-counted, unique or com")
+            if ownership == "com":
+                resources.append(self._com_resource(name, value, values, symbols, location))
+                continue
+            if "iid" in value or "base" in value:
+                raise ValueError(f"{location}: iid and base require a com resource")
+            self._release_executor(value, location, ownership)
             if ownership == "unique" and "retain" in value:
                 raise ValueError(f"{location}: unique resources must not declare retain")
             storage = value.get("storage", "")
@@ -2007,10 +2056,50 @@ class PackageManifestValidator:
             raise ValueError(f"{context}: lifetime operations must be distinct from resource types")
         return tuple(resources)
 
+    # The closed executor vocabulary (native-interop-ownership.md section 1, rule 3).
+    _RELEASE_EXECUTORS = frozenset({"caller", "main", "main-context", "apartment", "any"})
+
+    def _release_executor(self, value, location, ownership):
+        """A resource's final-release executor: today only a COM interface declares one, `apartment`."""
+        executor = value.get("release-executor", "")
+        if "release-executor" in value and executor not in self._RELEASE_EXECUTORS:
+            raise ValueError(f"{location}.release-executor must be caller, main, main-context, apartment or any")
+        if ("release-executor" in value or ownership == "com") and (ownership != "com" or executor != "apartment"):
+            raise ValueError(f"{location}.release-executor currently requires apartment on a com resource")
+        return executor
+
+    def _com_resource(self, name, value, values, symbols, location):
+        """A COM interface record whose AddRef, Release and QueryInterface are its lpVtbl slots 0-2."""
+        if set(value) - {"ownership", "iid", "base", "release-executor", "dispatch"}:
+            raise ValueError(f"{location}: com resources take AddRef, Release and QueryInterface from lpVtbl")
+        iid = value.get("iid")
+        if not isinstance(iid, str) or _IDENTIFIER.fullmatch(iid) is None or iid not in symbols:
+            raise ValueError(f"{location}: com resources require a selected iid")
+        base = value.get("base", "")
+        if "base" in value and (
+            not isinstance(base, str)
+            or base == name
+            or not isinstance(values.get(base), dict)
+            or values[base].get("ownership") != "com"
+        ):
+            raise ValueError(f"{location}: com base requires another com resource of the binding")
+        visited, current = {name}, base
+        while current:
+            if current in visited:
+                raise ValueError(f"{location}: com base chain must not be cyclic")
+            visited.add(current)
+            following = values[current].get("base", "")
+            current = following if isinstance(following, str) and isinstance(values.get(following), dict) else ""
+        executor = self._release_executor(value, location, "com")
+        dispatch = self._dispatch_table(value, location, "com", "") if "dispatch" in value else None
+        return NativeResourceBinding(
+            name, "com", "", "", dispatch=dispatch, iid=iid, base=base, release_executor=executor
+        )
+
     def _dispatch_table(self, value, location, ownership, storage):
         dispatch = value["dispatch"]
         location = f"{location}.dispatch"
-        if ownership != "unique" or storage or not isinstance(dispatch, dict):
+        if ownership not in {"unique", "com"} or storage or not isinstance(dispatch, dict):
             raise ValueError(f"{location} requires a unique pointer resource and a dispatch declaration")
         self._reject_unknown(
             dispatch,
@@ -2024,8 +2113,10 @@ class PackageManifestValidator:
         index = dispatch.get("context-index", 0)
         if type(index) is not int or index < 0 or index > 999999999:
             raise ValueError(f"{location}.context-index must be a nonnegative native parameter index")
-        if dispatch["executor"] != "caller":
-            raise ValueError(f"{location}.executor currently requires caller")
+        # A COM method runs on its apartment's thread; a C table on its creating thread.
+        executor = "apartment" if ownership == "com" else "caller"
+        if dispatch["executor"] != executor:
+            raise ValueError(f"{location}.executor currently requires {executor}")
         if dispatch["failure"] != "abort":
             raise ValueError(f"{location}.failure currently requires abort")
         methods = dispatch["methods"]
@@ -2035,16 +2126,47 @@ class PackageManifestValidator:
             (self._identifier(method, f"{location}.methods"), self._identifier(slot, f"{location}.methods.{method}"))
             for method, slot in sorted(methods.items())
         )
-        if any(method in {"close", "isOpen"} for method, _ in projected):
+        reserved = {"sameObject"} if ownership == "com" else {"close", "isOpen"}
+        if any(method in reserved for method, _ in projected):
             raise ValueError(f"{location}.methods cannot shadow resource operations")
         context = self._identifier(dispatch["context"], f"{location}.context") if "context" in dispatch else ""
         release = self._identifier(dispatch["release"], f"{location}.release") if "release" in dispatch else ""
+        if ownership == "com":
+            if table != "lpVtbl":
+                raise ValueError(f"{location}: com dispatch requires table = lpVtbl")
+            if context or release or index != 0:
+                raise ValueError(f"{location}: com dispatch passes the object first and releases through Release")
+            if any(slot in {"QueryInterface", "AddRef", "Release"} for _, slot in projected):
+                raise ValueError(f"{location}: com dispatch cannot map the IUnknown slots")
         slots = [slot for _, slot in projected] + ([release] if release else [])
         if len(set(slots)) != len(slots):
             raise ValueError(f"{location}: method and release slots must be distinct")
         if context and context == table:
             raise ValueError(f"{location}: the context and table fields must be distinct")
         return NativeDispatchTable(table, index, projected, context, release)
+
+    @staticmethod
+    def _dispatched_method(name, resources):
+        """Whether `name` is "<R>.<method>", a mapped method of a dispatching COM resource."""
+        resource, _, method = name.partition(".")
+        return any(
+            candidate.name == resource
+            and candidate.ownership == "com"
+            and candidate.dispatch is not None
+            and method in dict(candidate.dispatch.methods)
+            for candidate in resources
+        )
+
+    def _status_result_bindings(self, values, resources, context):
+        """Dispatched COM methods whose failing HRESULT throws (F1)."""
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.status-results must map dispatched methods to status kinds")
+        for name, kind in sorted(values.items()):
+            if not isinstance(name, str) or not self._dispatched_method(name, resources):
+                raise ValueError(f"{context}.status-results currently requires a dispatched com method R.method")
+            if kind != "hresult":
+                raise ValueError(f"{context}.status-results kind must be hresult")
+        return tuple(sorted(values.items()))
 
     def _callback_table(self, value, symbols, location, ownership, storage):
         table = value["table"]
@@ -2256,19 +2378,32 @@ class PackageManifestValidator:
             raise ValueError(f"{context}.{field} contains a duplicate value")
         return tuple(sorted(values))
 
-    def _owned_output_bindings(self, values, symbols, context):
+    def _owned_output_bindings(self, values, symbols, context, resources=()):
         if not isinstance(values, dict):
             raise ValueError(f"{context}.owned-outputs must map function.parameter names to result classes")
         outputs = []
         functions = set()
         results = set()
         for parameter, value in sorted(values.items()):
-            self._resource_functions([parameter], symbols, context, "owned-outputs", parameters=True)
-            if not isinstance(value, dict) or set(value) not in ({"result"}, {"result", "resource", "size", "name"}):
+            # A dispatched COM method's output is named "<R>.<method>.<parameter>".
+            method, _, output = parameter.rpartition(".")
+            if not (
+                parameter.count(".") == 2
+                and _IDENTIFIER.fullmatch(output)
+                and self._dispatched_method(method, resources)
+            ):
+                self._resource_functions([parameter], symbols, context, "owned-outputs", parameters=True)
+            if not isinstance(value, dict) or set(value) not in (
+                {"result"},
+                {"result", "status"},
+                {"result", "resource", "size", "name"},
+            ):
                 raise ValueError(f"{context}.owned-outputs requires only a result class; adoption is unconditional")
+            if "status" in value and value["status"] != "hresult":
+                raise ValueError(f"{context}.owned-outputs status must be hresult")
             result = value["result"]
             self._identifier(result, f"{context}.owned-outputs result")
-            function = parameter.split(".", 1)[0]
+            function = method
             if function in functions or result in results or result in symbols:
                 raise ValueError(
                     f"{context}.owned-outputs requires one output per function and distinct result classes"
@@ -2571,6 +2706,7 @@ class PackageManifestValidator:
                         "resources",
                         "owned-results",
                         "owned-outputs",
+                        "status-results",
                         "variadic-calls",
                         "output-offsets",
                         "copied-results",
@@ -2796,10 +2932,24 @@ class PackageManifestValidator:
                 tuple(sorted(borrowed_results.items())),
                 self._resource_functions(entry.get("static-globals", []), symbols, context, "static-globals"),
                 *resource_projections,
-                self._owned_output_bindings(entry.get("owned-outputs", {}), symbols, context),
+                self._owned_output_bindings(entry.get("owned-outputs", {}), symbols, context, resources),
             )
             if binding.owned_outputs and (language != "c" or not resources):
                 raise ValueError(f"{context}: owned-outputs requires declared C resources")
+            status_results = self._status_result_bindings(entry.get("status-results", {}), resources, context)
+            if {key.rpartition(".")[0] for key, _ in binding.owned_outputs} & {name for name, _ in status_results}:
+                raise ValueError(f"{context}: a method declares one status form, status-results or owned-outputs")
+            binding = replace(
+                binding,
+                status_results=status_results,
+                owned_output_statuses=tuple(
+                    sorted(
+                        (key, value["status"])
+                        for key, value in entry.get("owned-outputs", {}).items()
+                        if isinstance(value, dict) and "status" in value
+                    )
+                ),
+            )
             binding = replace(
                 binding,
                 variadic_calls=self._variadic_bindings(entry.get("variadic-calls", {}), symbols, context, language),

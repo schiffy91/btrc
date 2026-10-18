@@ -160,11 +160,13 @@ class CallTargetResolver {
 		self.cTypes = cTypes;
 		self.context = context;
 		self.nativeUniqueMethods = {};
+		/* Unique owners and COM interfaces publish their methods as generated adapters. */
 		for imported in analyzed.nativeDeclarations {
-			if (imported.resource != null && imported.resource.ownership == "unique") {
-				for method in imported.declaration.members() {
-					if (method.kind == NK_METHOD_DECL) { self.nativeUniqueMethods.put(imported.declaration.name + "." + method.name, "__btrc_unique_" + imported.declaration.name + "_" + method.name + "_public"); }
-				}
+			var resource = imported.resource;
+			string ownership = resource != null ? resource.ownership : "";
+			if (ownership != "unique" && ownership != "com") { continue; }
+			for method in imported.declaration.members() {
+				if (method.kind == NK_METHOD_DECL) { self.nativeUniqueMethods.put(imported.declaration.name + "." + method.name, "__btrc_" + ownership + "_" + imported.declaration.name + "_" + method.name + "_public"); }
 			}
 		}
 	}
