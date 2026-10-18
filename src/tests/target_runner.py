@@ -8,8 +8,10 @@ strict C11 flags (the Windows compatibility overlay on the gnu rows), and
 writes the executable into a bundle. An executor then runs the bundle on the
 target, serially, and each program's output is compared with its
 ``expected/<Stem>.stdout``, ``.stderr`` and ``.warnings`` goldens exactly as
-``src/tests/runner.py`` compares them. Until CL-P1-15 keys the caches by
-target, every compile is uncached and no prebuilt stdlib archive is used.
+``src/tests/runner.py`` compares them. Like ``runner.py``, every compile is
+uncached and uses no prebuilt stdlib archive, so each program's result
+stands alone; since CL-P1-15 keys every cache by the row's label, a cached
+mode would be sound.
 
     python -m src.tests.target_runner --target macos-aarch64 --frontend both --executor local
     python -m src.tests.target_runner --target windows-x86_64 --frontend both --compile-only --bundle out/x64
