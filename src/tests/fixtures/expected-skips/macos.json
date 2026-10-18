@@ -326,6 +326,21 @@
       "note": "Real Linux ProcessThreads directory-read failure and closure, paired plain/sanitized native fixture."
     },
     {
+      "id": "http-transport-libcurl-linux-only",
+      "files": [
+        "src/tests/python/test_http_transport_inputs.py"
+      ],
+      "nodes": [
+        "*::test_linux_libcurl_*"
+      ],
+      "reason": "^requires Linux: only the Linux dev shell carries the HTTP transport's libcurl$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "libcurl (OpenSSL 3, c-ares) is the Linux HTTP transport's input (CL-P2-04); macOS uses NSURLSession, so the Darwin shells carry no libcurl. The devcontainer's unit shard builds the version probe against it."
+    },
+    {
       "id": "target-abi-ndk-bound",
       "files": [
         "src/tests/btrc/test_target_abi_fixture.py"

@@ -25,6 +25,22 @@
       westonPatched = pkgs: pkgs.weston.overrideAttrs (old: {
         patches = (old.patches or [ ]) ++ [ ./nix/weston-unmapped-subsurface.patch ];
       });
+      # The libcurl Library.HTTP's Linux transport links through
+      # `pkg-config libcurl` (docs/design/http-transport.md, Native providers
+      # and the Linux resolver, TLS and revocation profiles): OpenSSL 3.x for
+      # TLS and c-ares for DNS, because a threaded getaddrinfo resolver cannot
+      # be cancelled within the transport's bound. curlMinimal keeps HTTP/1.1
+      # and HTTP/2 and drops what the provider never admits (HTTP/3, brotli,
+      # IDN, scp/sftp, Kerberos). Its dev output propagates the library but
+      # not the curl executable, so the shell gains no curl on PATH: the
+      # transport needs none, and the legacy client keeps the host's curl.
+      # test_http_transport_inputs.py checks the versions it reports.
+      curlHttpTransport = pkgs: (pkgs.curlMinimal.override {
+        opensslSupport = true;
+        c-aresSupport = true;
+        scpSupport = false;
+        gssSupport = false;
+      }).overrideAttrs { propagatedBuildOutputs = [ "out" ]; };
       cfg = {
         name = "btrc";
         image = "btrc-devcontainer:latest";
@@ -56,6 +72,11 @@
               mkdir -p "$out/bin"
               ln -s ${wgpu-utils}/bin/naga "$out/bin/naga"
             '')
+            # The HTTP TLS fixtures mint a per-run CA and leaf keys on the host
+            # that serves them (docs/design/http-transport.md, Curl-free
+            # endpoint and trust fixture plan). Pin an OpenSSL 3.x CLI ahead of
+            # macOS's LibreSSL /usr/bin/openssl; only its bin output, the CLI.
+            openssl.bin
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
             # Real SDKs the macOS-only native-interop proofs link through
             # pkg-config: the C++ owner proof (pugixml) and the owned-output
@@ -66,6 +87,7 @@
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
             libdecor.dev   # libdecor-0.pc: the Wayland decoration probe (src/tests/native/gui/shell/probes/linux/LibdecorPending.c)
             (sdl3Patched pkgs).dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
+            (curlHttpTransport pkgs).dev   # libcurl.pc: the Linux HTTP transport (OpenSSL 3, c-ares)
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
             # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
             # (weston's headless backend) display inside its own session bus,
