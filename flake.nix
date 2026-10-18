@@ -122,12 +122,29 @@
           python314 = prev.python314.override (old: {
             self = final.python314;
             libffi = final.libffiReal;
-            packageOverrides = lib.composeExtensions (old.packageOverrides or (_: _: { }))
+            packageOverrides = lib.composeManyExtensions [
+              (old.packageOverrides or (_: _: { }))
               (_pythonFinal: pythonPrev: {
                 cffi = (pythonPrev.cffi.override { libffi = final.libffiReal; }).overrideAttrs (oldCffi: {
                   patches = (oldCffi.patches or [ ]) ++ [ ./nix/cffi-darwin-upstream-libffi.patch ];
                 });
-              });
+              })
+              # Overriding the interpreter changes every package's hash, so no
+              # Darwin Python package here is in cache.nixos.org. A hosted
+              # runner whose Magic Nix Cache is throttled rebuilds the set
+              # from source, upstream test suites included, and one of them
+              # (pytest-timeout's pexpect case) failed macOS CI on 2026-10-17
+              # and 2026-10-18. Skip those package checks: the packages are
+              # uncached either way, and btrc's own tests are unaffected.
+              (_pythonFinal: pythonPrev: {
+                buildPythonPackage = args: pythonPrev.buildPythonPackage (
+                  if builtins.isFunction args then
+                    (finalAttrs: (args finalAttrs) // { doCheck = false; })
+                  else
+                    args // { doCheck = false; }
+                );
+              })
+            ];
           });
         }) ];
       }));
