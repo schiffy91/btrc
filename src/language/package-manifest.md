@@ -1942,6 +1942,96 @@ requires `caller` and `failure` requires `abort`; method names cannot shadow
 `close`/`isOpen`, and each slot is mapped at most once. The reader reads each
 slot's layout by record path, so the table record need not be exported.
 
+### COM interfaces
+
+A COM interface is a resource with `ownership = "com"` on a selected record
+typedef (`typedef struct IStream IStream;` represents `IStream*`). Its
+lifetime hooks are slots of its own table: AddRef and Release are slots 1 and
+2 of `lpVtbl` (interop step 5 in
+[native-interop-ownership.md](../../docs/design/native-interop-ownership.md)).
+Programs with COM resources import `Library.COM.COMApartment`.
+
+```toml
+[native.bindings.resources.ICounter]
+ownership = "com"
+iid = "IID_ICounter"          # selected read-only IID global
+base = "IBaseCounter"         # optional: another com resource of the binding
+release-executor = "apartment"
+
+[native.bindings.resources.ICounter.dispatch]
+table = "lpVtbl"
+executor = "apartment"
+failure = "abort"
+
+[native.bindings.resources.ICounter.dispatch.methods]
+add = "Add"
+clone = "Clone"
+split = "Split"
+
+[native.bindings.status-results]
+"ICounter.add" = "hresult"
+"ICounter.clone" = "hresult"
+
+[native.bindings.owned-outputs."ICounter.split.part"]
+result = "CounterSplit"
+status = "hresult"
+```
+
+The importer checks the real layout. The record's first field must be
+`lpVtbl`, a pointer to a complete table whose slots 0 to 2 are
+`QueryInterface(This, REFIID, void**)` returning a 32-bit signed HRESULT, then
+`AddRef(This)` and `Release(This)` returning a 32-bit unsigned ULONG, all with
+the C convention. `iid` must be a read-only global of the record that
+QueryInterface's REFIID points to. A `base` table must be a slot-by-slot
+prefix whose signatures equal the interface's own except for `This`; the
+interface then widens to its base, and to the base's bases, without a call.
+A resource with `ownership = "com"` takes no `retain`, `release`, `type-query`,
+`storage` or `table`, and `release-executor` is required and currently
+`apartment`, which only COM resources accept.
+
+Every BTRC value of the interface is the SDK's own pointer and holds one
+claim, ended by exactly one Release through that pointer. An `owned-results`
+factory, an `[out]` interface and a successful QueryInterface each hand over
+one claim; an alias takes its own claim with AddRef; the returned counts are
+discarded. Each AddRef, Release, QueryInterface and method call reloads the
+table and the slot, aborts when either is null, and first checks that it runs
+on the apartment's thread. `Library.COM` counts every claim, so
+`COMApartment.uninitialize()` with a claim still live terminates.
+
+`dispatch` maps methods as for C tables, with `table = "lpVtbl"`,
+`executor = "apartment"` and the object passed first; `context`, a nonzero
+`context-index`, `release` and the three IUnknown slots cannot be mapped, and
+no method may be named `sameObject`. Each call holds a claim on the receiver
+and on every `[in]` interface argument for the call. An `[out]` `IFoo**`
+parameter is hidden and adopted on every HRESULT, under one of two status
+forms, and a method uses at most one of them and one such output:
+
+- `status-results."<R>.<method>" = "hresult"` makes a negative HRESULT release
+  the adopted output and throw `COM <R>.<method> failed with HRESULT
+  0x80004005`; otherwise the method returns the output, or the nonnegative
+  HRESULT when it has none.
+- `owned-outputs."<R>.<method>.<parameter>"` with `status = "hresult"` returns
+  the result class (`status`, nullable `value`), as for C functions. A C
+  factory such as `HRESULT CounterOpen(int32_t, ICounter**)` uses the same form
+  under its two-part name, and a COM output requires `status = "hresult"`.
+
+Both forms require a 32-bit signed result. An `[out]` interface without either
+form, a second `[out]` interface, and both forms on one method are rejected.
+
+`(IFoo?)value` between two COM interfaces asks the source's own table for
+`IID_IFoo` (M3): success is one new claim, `E_NOINTERFACE` gives null, and any
+other failure terminates, adopting first any interface a failed query still
+wrote. A cast to a declared base is the static widening. `==` stays pointer
+equality; when the binding also selects `IID_IUnknown`, every COM resource
+gains the class method `sameObject(first, second)`, which compares the two
+objects' IUnknown identities and releases both identity claims. IIDs are
+linked from `uuid` on Windows; on other hosts the program defines them.
+
+Not yet supported: COM sinks (`com-sinks`), copied BSTR and `CoTaskMemAlloc`
+outputs (`copied-outputs`), `status-results` on C functions, ole32 and uuid
+link records, and the compile-time ban on capturing a COM resource in
+`spawn`; a COM call on another thread terminates at run time instead.
+
 ### Opaque C++ owners
 
 A `language = "c++"` binding publishes SDK classes as opaque owners and

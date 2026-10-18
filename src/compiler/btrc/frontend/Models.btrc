@@ -400,6 +400,11 @@ class FeNativeDispatchTable {
 	public string identity() { return f"{self.table}:{self.contextIndex}:{self.context}:{self.releaseSlot}:" + Strings.join(self.methodNames, ",") + ":" + Strings.join(self.methodSlots, ","); }
 }
 
+/* Missing ownership facts for one header-declared native resource. A `com`
+ * resource is a COM interface record: AddRef and Release are slots 1 and 2 of
+ * its `lpVtbl` table, `iid` names the selected IID global QueryInterface asks
+ * for, and `base` names the selected interface its table extends
+ * (native-interop-ownership.md section 2.4). */
 class FeNativeResourceBinding {
 	public FeNativeCallbackTable? table = null;
 	public FeNativeDispatchTable? dispatch = null;
@@ -407,6 +412,9 @@ class FeNativeResourceBinding {
 	public string constructor = "";
 	public string owner = "";
 	public Vector<string> methods = [];
+	public string iid = "";
+	public string base = "";
+	public string releaseExecutor = "";
 	public string storage;
 	public string name;
 	public string ownership;
@@ -433,7 +441,7 @@ class FeNativeResourceBinding {
 		if (table != null) { tableIdentity = table.identity(); }
 		FeNativeDispatchTable? dispatch = self.dispatch;
 		if (dispatch != null) { tableIdentity = tableIdentity + ":dispatch:" + dispatch.identity(); }
-		return f"{self.name}:{self.ownership}:{self.retainFunction}:{self.releaseFunction}:{self.releaseConsumption}:{self.cleanupStatus}:{self.typeQuery}:{self.typeTag}:{self.storage}:{self.alias}:{self.constructor}:{self.owner}:" + Strings.join(self.methods, ",") + ":" + tableIdentity;
+		return f"{self.name}:{self.ownership}:{self.retainFunction}:{self.releaseFunction}:{self.releaseConsumption}:{self.cleanupStatus}:{self.typeQuery}:{self.typeTag}:{self.storage}:{self.alias}:{self.constructor}:{self.owner}:" + Strings.join(self.methods, ",") + ":" + tableIdentity + f":{self.iid}:{self.base}:{self.releaseExecutor}";
 	}
 }
 
@@ -764,8 +772,37 @@ class FeNativeDispatchMethod {
 	public Vector<string> nativeParameters = [];
 	public string nativeReturn;
 	public string tableType;
+	/* A COM method (native-interop-ownership.md section 2.4) borrows each [in]
+	 * interface in `resources` for the call. Its one hidden [out] interface
+	 * sits at `outputPosition` among the slot's arguments; `status` says how
+	 * its HRESULT reaches BTRC: "throw" (status-results) or "result" (an
+	 * owned-outputs result class). */
+	public Vector<string> resources = [];
+	public int outputPosition = -1;
+	public string outputResource = "";
+	public string outputSpelling = "";
+	public string status = "";
+	public string resultClass = "";
 	public FeNativeDispatchMethod(string name, string slot, Node returnType, string nativeReturn, string tableType) {
 		self.name = name; self.slot = slot; self.returnType = returnType; self.nativeReturn = nativeReturn; self.tableType = tableType;
+	}
+}
+
+/* The IUnknown slots of one COM interface, checked against its lpVtbl table.
+ * `tableType` spells the lpVtbl field, `statusType` QueryInterface's HRESULT
+ * and `iidType` its REFIID parameter. `unknownIid` is IID_IUnknown when the
+ * binding selects it, which sameObject's identity query needs. */
+class FeNativeComInterface {
+	public string resource;
+	public string nativeType;
+	public string tableType;
+	public string statusType;
+	public string iidType;
+	public string iid;
+	public string unknownIid;
+	public FeNativeComInterface(string resource, string nativeType, string tableType, string statusType, string iidType, string iid, string unknownIid) {
+		self.resource = resource; self.nativeType = nativeType; self.tableType = tableType; self.statusType = statusType;
+		self.iidType = iidType; self.iid = iid; self.unknownIid = unknownIid;
 	}
 }
 
@@ -797,6 +834,7 @@ class FeNativeCallContract {
 	public FeNativeJavaMember? javaMember = null;
 	public FeNativeCallbackTableProjection? callbackTable = null;
 	public FeNativeDispatchMethod? dispatchMethod = null;
+	public FeNativeComInterface? comInterface = null;
 	public FeNativeCxxProjection? cxxMethod = null;
 	public FeNativeCopiedInput? copiedInput = null;
 	public FeNativeRecordSnapshot? recordSnapshot = null;

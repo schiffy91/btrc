@@ -92,6 +92,8 @@ class ClassInfo:
     native_ancestors: tuple[str, ...] = ()
     native_query_type: str = ""
     native_invocation: str = ""
+    # A COM interface's IID global, which QueryInterface casts to it ask for.
+    native_iid: str = ""
     generic_params: list[str] = field(default_factory=list)
     fields: dict[str, FieldDecl] = field(default_factory=dict)
     static_fields: dict[str, FieldDecl] = field(default_factory=dict)

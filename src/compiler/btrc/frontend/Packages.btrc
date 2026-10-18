@@ -267,6 +267,10 @@ class FeNativeBinding {
 	public Map<string, string> resourceResults = {};
 	public Map<string, string> ownedOutputs = {};
 	public Map<string, FeNativeResourceOutputBinding> ownedOutputResources = {};
+	/* Dispatched COM methods ("<R>.<method>") whose failing HRESULT throws, and
+	 * owned outputs whose result class carries an HRESULT status. */
+	public Map<string, string> statusResults = {};
+	public Map<string, string> ownedOutputStatuses = {};
 	public Vector<string> borrowedParameters;
 
 	public FeNativeBinding(string packageName, string module, string header, string language, string standard, Vector<string> symbols, Vector<string> operatingSystems, Vector<string> architectures) {
@@ -507,7 +511,7 @@ class FeManifestBlock {
 		if (self.isProvider()) { return key == "module" || key == "implementation" || key == "os" || key == "arch" || key == "env"; }
 		if (self.isBinding()) {
 			if (key.startsWith("record-snapshots.")) { return true; }
-			if (key.startsWith("owned-outputs.")) { return true; }
+			if (key.startsWith("owned-outputs.") || key.startsWith("status-results.")) { return true; }
 			if (key.startsWith("output-offsets.")) { return true; }
 			if (key.startsWith("copied-results.") || key.startsWith("initializers.") || key.startsWith("copied-inputs.")) { return true; }
 			if (key.startsWith("variadic-calls.")) { return true; }
@@ -1040,19 +1044,29 @@ class FeManifestBlock {
 		for key in self.fields.keys() {
 			if (!key.startsWith("owned-outputs.")) { continue; }
 			var parts = Strings.split(key, ".");
-			if (parts.len != 4 || !["result", "resource", "size", "name"].contains(parts.get(3))) { FePackageFailure.fail("owned-outputs requires only a result class; adoption is unconditional"); }
-			names.put(parts.get(1) + "." + parts.get(2), true);
+			string field = parts.get(parts.len - 1);
+			/* A dispatched COM method's output is named "<R>.<method>.<parameter>". */
+			if ((parts.len != 4 && parts.len != 5) || !["result", "resource", "size", "name", "status"].contains(field)) { FePackageFailure.fail("owned-outputs requires only a result class; adoption is unconditional"); }
+			names.put(key.substring(14, key.length() - 15 - field.length()), true);
 		}
 		Map<string, bool> functions = {};
 		Map<string, bool> results = {};
 		for name in names.keys() {
 			var parts = Strings.split(name, ".");
-			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("owned-outputs must name selected function.parameter paths"); }
+			bool dispatched = parts.len == 3 && self.identifier(parts.get(2)) && self.dispatchedMethod(binding, parts.get(0) + "." + parts.get(1));
+			if (!dispatched && (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1)))) { FePackageFailure.fail("owned-outputs must name selected function.parameter paths"); }
+			string method = dispatched ? parts.get(0) + "." + parts.get(1) : parts.get(0);
 			string result = self.requiredText("owned-outputs." + name + ".result");
 			if (!self.identifier(result)) { FePackageFailure.fail("owned-outputs result must be an identifier"); }
-			if (functions.has(parts.get(0)) || results.has(result) || binding.symbols.contains(result)) { FePackageFailure.fail("owned-outputs requires one output per function and distinct result classes"); }
-			functions.put(parts.get(0), true); results.put(result, true);
+			if (functions.has(method) || results.has(result) || binding.symbols.contains(result)) { FePackageFailure.fail("owned-outputs requires one output per function and distinct result classes"); }
+			functions.put(method, true); results.put(result, true);
 			binding.ownedOutputs.put(name, result);
+			string prefix = "owned-outputs." + name + ".";
+			if (self.fields.has(prefix + "status")) {
+				if (self.fields.has(prefix + "resource") || self.fields.has(prefix + "size") || self.fields.has(prefix + "name")) { FePackageFailure.fail("owned-outputs requires only a result class; adoption is unconditional"); }
+				if (self.requiredText(prefix + "status") != "hresult") { FePackageFailure.fail("owned-outputs status must be hresult"); }
+				binding.ownedOutputStatuses.put(name, "hresult");
+			}
 		}
 		Map<string, bool> aliases = {};
 		for name in names.keys() {
@@ -1292,7 +1306,7 @@ class FeManifestBlock {
 			string field = parts.get(2);
 			if (binding.language == "c++") {
 				if (!["name", "ownership", "methods", "constructor", "release", "owner"].contains(field)) { FePackageFailure.fail(f"unexpected C++ resource field '{field}'"); }
-			} else if (field != "ownership" && field != "retain" && field != "release" && field != "release-consumption" && field != "cleanup-status" && field != "type-query" && field != "type-tag" && field != "storage") { FePackageFailure.fail(f"unexpected resource field '{field}'"); }
+			} else if (field != "ownership" && field != "retain" && field != "release" && field != "release-consumption" && field != "cleanup-status" && field != "type-query" && field != "type-tag" && field != "storage" && field != "iid" && field != "base" && field != "release-executor") { FePackageFailure.fail(f"unexpected resource field '{field}'"); }
 			names.put(parts.get(1), true);
 		}
 		/* Resources finish in name order so both compilers publish the same declaration order. */
@@ -1307,7 +1321,13 @@ class FeManifestBlock {
 			if (!self.identifier(name) || !binding.symbols.contains(name)) { FePackageFailure.fail("resources must name selected typedefs"); }
 			string prefix = "resources." + name + ".";
 			string ownership = self.requiredText(prefix + "ownership");
-			if (ownership != "reference-counted" && ownership != "unique") { FePackageFailure.fail("resource ownership requires reference-counted or unique"); }
+			if (ownership != "reference-counted" && ownership != "unique" && ownership != "com") { FePackageFailure.fail("resource ownership requires reference-counted, unique or com"); }
+			if (ownership == "com") {
+				binding.resources.put(name, self.comResource(binding, name, names));
+				continue;
+			}
+			if (self.fields.has(prefix + "iid") || self.fields.has(prefix + "base")) { FePackageFailure.fail("iid and base require a com resource"); }
+			self.releaseExecutor(prefix, ownership);
 			if (ownership == "unique" && self.fields.has(prefix + "retain")) { FePackageFailure.fail("unique resources must not declare retain"); }
 			string consumption = self.fields.has(prefix + "release-consumption") ? self.requiredText(prefix + "release-consumption") : "";
 			string cleanup = self.fields.has(prefix + "cleanup-status") ? self.requiredText(prefix + "cleanup-status") : "";
@@ -1372,8 +1392,72 @@ class FeManifestBlock {
 		return false;
 	}
 
+	/* A resource's final-release executor, from the closed executor vocabulary
+	 * (native-interop-ownership.md section 1, rule 3): today only a COM
+	 * interface declares one, `apartment`. */
+	private string releaseExecutor(string prefix, string ownership) {
+		bool declared = self.fields.has(prefix + "release-executor");
+		string executor = declared ? self.requiredText(prefix + "release-executor") : "";
+		if (declared && !["caller", "main", "main-context", "apartment", "any"].contains(executor)) { FePackageFailure.fail("release-executor must be caller, main, main-context, apartment or any"); }
+		if ((declared || ownership == "com") && (ownership != "com" || executor != "apartment")) { FePackageFailure.fail("release-executor currently requires apartment on a com resource"); }
+		return executor;
+	}
+
+	/* A COM interface record whose AddRef, Release and QueryInterface are its lpVtbl slots 0-2. */
+	private FeNativeResourceBinding comResource(FeNativeBinding binding, string name, Map<string, bool> names) {
+		string prefix = "resources." + name + ".";
+		for key in self.fields.keys() {
+			if (!key.startsWith(prefix)) { continue; }
+			string field = key.substring(prefix.length(), key.length() - prefix.length());
+			if (field != "ownership" && field != "iid" && field != "base" && field != "release-executor" && !field.startsWith("dispatch.")) { FePackageFailure.fail("com resources take AddRef, Release and QueryInterface from lpVtbl"); }
+		}
+		string iid = self.fields.has(prefix + "iid") ? self.requiredText(prefix + "iid") : "";
+		if (!self.identifier(iid) || !binding.symbols.contains(iid)) { FePackageFailure.fail("com resources require a selected iid"); }
+		string base = self.fields.has(prefix + "base") ? self.requiredText(prefix + "base") : "";
+		if (self.fields.has(prefix + "base") && (base == name || !names.has(base) || !self.fields.has("resources." + base + ".ownership") || self.requiredText("resources." + base + ".ownership") != "com")) { FePackageFailure.fail("com base requires another com resource of the binding"); }
+		Map<string, bool> visited = {};
+		visited.put(name, true);
+		string current = base;
+		while (!current.isEmpty()) {
+			if (visited.has(current)) { FePackageFailure.fail("com base chain must not be cyclic"); }
+			visited.put(current, true);
+			string following = self.fields.has("resources." + current + ".base") ? self.requiredText("resources." + current + ".base") : "";
+			current = names.has(following) ? following : "";
+		}
+		string executor = self.releaseExecutor(prefix, "com");
+		var resource = FeNativeResourceBinding(name, "com", "", "");
+		resource.iid = iid; resource.base = base; resource.releaseExecutor = executor;
+		if (self.hasKeyPrefix(prefix + "dispatch.")) { resource.dispatch = self.dispatchTable(prefix + "dispatch.", "com", ""); }
+		return resource;
+	}
+
+	/* Whether `name` is "<R>.<method>", a mapped method of a dispatching COM resource. */
+	private bool dispatchedMethod(FeNativeBinding binding, string name) {
+		var parts = Strings.split(name, ".");
+		if (parts.len != 2 || !binding.resources.has(parts.get(0)) || binding.resources.get(parts.get(0)).ownership != "com") { return false; }
+		FeNativeDispatchTable? dispatch = binding.resources.get(parts.get(0)).dispatch;
+		if (dispatch == null) { return false; }
+		return dispatch.methodNames.contains(parts.get(1));
+	}
+
+	/* Dispatched COM methods whose failing HRESULT throws (F1); a method takes
+	 * this form or an owned-outputs result class, not both. */
+	private void finishStatusResults(FeNativeBinding binding) {
+		for key in self.fields.keys() {
+			if (!key.startsWith("status-results.")) { continue; }
+			string name = key.substring(15, key.length() - 15);
+			if (!self.dispatchedMethod(binding, name)) { FePackageFailure.fail("status-results currently requires a dispatched com method R.method"); }
+			if (self.requiredText(key) != "hresult") { FePackageFailure.fail("status-results kind must be hresult"); }
+			binding.statusResults.put(name, "hresult");
+		}
+		for output in binding.ownedOutputs.keys() {
+			var parts = Strings.split(output, ".");
+			if (parts.len == 3 && binding.statusResults.has(parts.get(0) + "." + parts.get(1))) { FePackageFailure.fail("a method declares one status form, status-results or owned-outputs"); }
+		}
+	}
+
 	private FeNativeDispatchTable dispatchTable(string prefix, string ownership, string storage) {
-		if (ownership != "unique" || !storage.isEmpty()) { FePackageFailure.fail("dispatch requires a unique pointer resource and a dispatch declaration"); }
+		if ((ownership != "unique" && ownership != "com") || !storage.isEmpty()) { FePackageFailure.fail("dispatch requires a unique pointer resource and a dispatch declaration"); }
 		Vector<string> known = ["table", "context", "context-index", "executor", "failure", "release"];
 		Map<string, string> methods = {};
 		for key in self.fields.keys() {
@@ -1398,7 +1482,9 @@ class FeManifestBlock {
 			for character in raw { if (character < '0' || character > '9') { FePackageFailure.fail("dispatch context-index must be a nonnegative native parameter index"); } }
 			contextIndex = Strings.toInt(raw);
 		}
-		if (self.requiredText(prefix + "executor") != "caller") { FePackageFailure.fail("dispatch executor currently requires caller"); }
+		/* A COM method runs on its apartment's thread; a C table on its creating thread. */
+		string executor = ownership == "com" ? "apartment" : "caller";
+		if (self.requiredText(prefix + "executor") != executor) { FePackageFailure.fail(f"dispatch executor currently requires {executor}"); }
 		if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail("dispatch failure currently requires abort"); }
 		var dispatch = FeNativeDispatchTable(tableField, contextIndex);
 		Vector<string> slots = [];
@@ -1407,7 +1493,8 @@ class FeManifestBlock {
 		for method in methodNames {
 			string slot = methods.get(method);
 			if (!self.identifier(slot)) { FePackageFailure.fail("dispatch methods must map BTRC method names to table slots"); }
-			if (method == "close" || method == "isOpen") { FePackageFailure.fail("dispatch methods cannot shadow resource operations"); }
+			bool reserved = (ownership == "com" && method == "sameObject") || (ownership != "com" && (method == "close" || method == "isOpen"));
+			if (reserved) { FePackageFailure.fail("dispatch methods cannot shadow resource operations"); }
 			dispatch.methodNames.push(method); dispatch.methodSlots.push(slot); slots.push(slot);
 		}
 		if (self.fields.has(prefix + "context")) {
@@ -1419,6 +1506,11 @@ class FeManifestBlock {
 			dispatch.releaseSlot = self.requiredText(prefix + "release");
 			if (!self.identifier(dispatch.releaseSlot)) { FePackageFailure.fail("dispatch fields require identifiers"); }
 			slots.push(dispatch.releaseSlot);
+		}
+		if (ownership == "com") {
+			if (tableField != "lpVtbl") { FePackageFailure.fail("com dispatch requires table = lpVtbl"); }
+			if (!dispatch.context.isEmpty() || !dispatch.releaseSlot.isEmpty() || contextIndex != 0) { FePackageFailure.fail("com dispatch passes the object first and releases through Release"); }
+			for slot in dispatch.methodSlots { if (slot == "QueryInterface" || slot == "AddRef" || slot == "Release") { FePackageFailure.fail("com dispatch cannot map the IUnknown slots"); } }
 		}
 		Map<string, bool> seen = {};
 		for slot in slots {
@@ -1694,6 +1786,7 @@ class FeManifestBlock {
 		self.finishResources(binding);
 		self.finishUnmanagedHandles(binding);
 		self.finishOwnedOutputs(binding);
+		self.finishStatusResults(binding);
 		self.finishInitializers(binding);
 		self.finishCopiedResults(binding);
 		self.finishOutputOffsets(binding);
@@ -2040,7 +2133,7 @@ class FePackageManifestParser {
 					section = "native.bindings.resources." + name + subsection;
 					continue;
 				}
-				if (table.equals("native.bindings.object-fields") || table.equals("native.bindings.borrowed-results") || table.equals("native.bindings.resource-parameters") || table.equals("native.bindings.resource-results")) {
+				if (table.equals("native.bindings.object-fields") || table.equals("native.bindings.borrowed-results") || table.equals("native.bindings.resource-parameters") || table.equals("native.bindings.resource-results") || table.equals("native.bindings.status-results")) {
 					if (block == null || !block.isBinding() || section.equals(table)) { FePackageFailure.fail("object-fields requires a preceding native binding"); }
 					section = table;
 					continue;
@@ -2087,7 +2180,7 @@ class FePackageManifestParser {
 			} else if (section.equals("dependencies")) {
 				dependencies.push(self.dependency(key, raw));
 			} else {
-				string prefix = section.startsWith("native.bindings.copied-results.") || section.startsWith("native.bindings.resources.") || section.startsWith("native.bindings.callbacks.") || section.startsWith("native.bindings.string-views.") || section.startsWith("native.bindings.owned-outputs.") || section.startsWith("native.bindings.output-offsets.") || section.startsWith("native.bindings.variadic-calls.") || section.startsWith("native.bindings.unmanaged-handles.") ? section.substring(16, section.length() - 16) + "." : section.equals("native.bindings.object-fields") ? "object-fields." : section.equals("native.bindings.borrowed-results") ? "borrowed-results." : section.equals("native.bindings.resource-parameters") ? "resource-parameters." : section.equals("native.bindings.resource-results") ? "resource-results." : "";
+				string prefix = section.startsWith("native.bindings.copied-results.") || section.startsWith("native.bindings.resources.") || section.startsWith("native.bindings.callbacks.") || section.startsWith("native.bindings.string-views.") || section.startsWith("native.bindings.owned-outputs.") || section.startsWith("native.bindings.output-offsets.") || section.startsWith("native.bindings.variadic-calls.") || section.startsWith("native.bindings.unmanaged-handles.") ? section.substring(16, section.length() - 16) + "." : section.equals("native.bindings.object-fields") ? "object-fields." : section.equals("native.bindings.borrowed-results") ? "borrowed-results." : section.equals("native.bindings.resource-parameters") ? "resource-parameters." : section.equals("native.bindings.resource-results") ? "resource-results." : section.equals("native.bindings.status-results") ? "status-results." : "";
 				if (section.startsWith("native.bindings.record-snapshots.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.initializers.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.copied-inputs.")) { prefix = section.substring(16, section.length() - 16) + "."; }

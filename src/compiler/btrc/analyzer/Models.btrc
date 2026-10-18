@@ -297,6 +297,14 @@ class Analyzed {
 
 	public bool nativeInvocation(string name) { return self.nativeClassIndex.has(name) && !self.nativeClassIndex.get(name).invocation.isEmpty(); }
 
+	/* A COM interface's IID global, which QueryInterface casts to it ask for; empty for any other class. */
+	public string nativeComIid(string name) {
+		if (!self.nativeClassIndex.has(name)) { return ""; }
+		FeNativeResourceBinding? resource = self.nativeClassIndex.get(name).resource;
+		if (resource == null || resource.ownership != "com") { return ""; }
+		return resource.iid;
+	}
+
 	public bool nativeFunctionReturnsOwned(Node declaration) { return self.nativeOwnedFunctions.has(declaration.name) && self.nativeOwnedFunctions.get(declaration.name) == declaration; }
 
 	public bool nativeGlobalReadOnly(string name) {
@@ -819,6 +827,8 @@ class Analyzed {
 	public string nativeResourceQueryType(Node? target, Node? source) {
 		if (source == null || target == null || !target.isNullable || target.isArray || source.isArray || source.base == target.base || self.nativeClassLanguage(source.base) != "c" || self.nativeClassLanguage(target.base) != "c") { return ""; }
 		if (source.pointerDepth - (source.isNullable ? 1 : 0) != 0 || target.pointerDepth - 1 != 0 || self.isSubclass(source.base, target.base)) { return ""; }
+		/* A COM cast asks the source's own table for the target's IID (M3). */
+		if (!self.nativeComIid(target.base).isEmpty() && !self.nativeComIid(source.base).isEmpty()) { return source.base; }
 		string query = self.nativeClassIndex.get(target.base).resourceQueryType;
 		return query != "" && self.isSubclass(source.base, query) ? query : "";
 	}

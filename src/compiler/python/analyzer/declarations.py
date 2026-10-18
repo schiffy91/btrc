@@ -1485,6 +1485,9 @@ class DeclarationRegistry:
             native_invocation=declaration.source_file.invocation
             if isinstance(declaration.source_file, NativeHeaderSource)
             else "",
+            native_iid=declaration.source_file.resource.iid
+            if isinstance(declaration.source_file, NativeHeaderSource) and declaration.source_file.resource is not None
+            else "",
             generic_params=declaration.generic_params,
             parent=declaration.parent,
             interfaces=declaration.interfaces,

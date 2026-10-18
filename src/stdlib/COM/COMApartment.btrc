@@ -1,0 +1,26 @@
+/* btrc standard library — the process's COM apartment
+ *
+ * COM objects live in an apartment. initialize() enters a single-threaded
+ * apartment on the calling thread, and every compiler-generated COM adapter (a
+ * method call, AddRef, Release or QueryInterface) checks that it runs on that
+ * thread. Each interface pointer a BTRC value holds is one claim counted here,
+ * and uninitialize() with a claim still live terminates
+ * (docs/design/native-interop-ownership.md section 2.4).
+ */
+class COMApartment {
+	/* Enters a single-threaded apartment on this thread (CoInitializeEx). A
+	 * process holds at most one apartment at a time. */
+	class void initialize() {
+		int status = btrcCOMInitialize();
+		if (status < 0) { throw f"COMApartment: CoInitializeEx failed with HRESULT {status}"; }
+	}
+
+	class bool initialized() { return btrcCOMInitialized() != 0; }
+
+	/* Interface pointers that BTRC values hold in the apartment. */
+	class long long liveClaims() { return btrcCOMLiveClaims(); }
+
+	/* Leaves the apartment (CoUninitialize) from its own thread, after every
+	 * interface has been released. */
+	class void uninitialize() { btrcCOMUninitialize(); }
+}

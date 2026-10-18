@@ -3007,6 +3007,9 @@ class TypeSystem:
             or source.pointer_depth - int(source.is_nullable) != 0
         ):
             return ""
+        if target_info.native_iid and source_info.native_iid:
+            # A COM cast asks the source's own table for the target's IID (M3).
+            return source.base
         query = target_info.native_query_type
         return query if query and (query == source.base or query in source_info.native_ancestors) else ""
 

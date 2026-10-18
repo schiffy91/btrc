@@ -1673,27 +1673,38 @@ class ExpressionLowerer:
             and target.is_nullable
         )
 
-    def _native_checked_cast(self, node: CastExpr) -> tuple[str, TypeExpr] | None:
-        """The generated helper and its argument type when `node` is an M3 checked conversion.
+    def _native_checked_cast(self, node: CastExpr) -> tuple[str, TypeExpr, tuple[IRExpr, ...]] | None:
+        """The generated helper, its argument type and extra arguments when `node` is an M3 checked conversion.
 
         A Core Foundation resource passes its declared query type; an
         Objective-C object passes through the target's opaque pointer, whose
-        retain and release adapters are class-agnostic ARC bridges.
+        retain and release adapters are class-agnostic ARC bridges. A COM
+        interface asks its own table's QueryInterface for the target's IID.
         """
         target = self._types.canonical_type(node.target_type)
         source = self._types.canonical_type(self._session.type_of(node.expr))
         query = TypeSystem.native_resource_query_type(self._analyzed.class_table, target, source)
+        if query and self._analyzed.class_table[target.base].native_iid:
+            return (
+                f"__btrc_com_{source.base}_query",
+                TypeExpr(base=source.base, is_nullable=True, pointer_depth=1),
+                (IRAddressOf(IRVar(self._analyzed.class_table[target.base].native_iid)),),
+            )
         if query:
-            return f"__btrc_native_{target.base}_try_cast", TypeExpr(base=query, is_nullable=True, pointer_depth=1)
+            return f"__btrc_native_{target.base}_try_cast", TypeExpr(base=query, is_nullable=True, pointer_depth=1), ()
         if TypeSystem.native_objective_c_downcast(self._analyzed.class_table, target, source):
-            return f"__btrc_objc_{target.base}_try_cast", TypeExpr(base=target.base, is_nullable=True, pointer_depth=1)
+            return (
+                f"__btrc_objc_{target.base}_try_cast",
+                TypeExpr(base=target.base, is_nullable=True, pointer_depth=1),
+                (),
+            )
         return None
 
     def _lower_native_checked_cast(
-        self, node: CastExpr, provenance: CallableProvenance, checked: tuple[str, TypeExpr]
+        self, node: CastExpr, provenance: CallableProvenance, checked: tuple[str, TypeExpr, tuple[IRExpr, ...]]
     ) -> IRExpr:
         target = self._types.canonical_type(node.target_type)
-        helper, argument_type = checked
+        helper, argument_type, extra = checked
         prepared = self._prepare_operand_evaluation((node.expr,), provenance, operand_targets=(None,), force=True)
         if prepared is None:
             return IRCast(CType(self._cast_target_type(target)), self.lower_expr(node.expr, provenance))
@@ -1701,7 +1712,10 @@ class ExpressionLowerer:
         with self._session.operand_scope(evaluation.values, fact_types, evaluation.ownership):
             receiver = self.lower_expr(node.expr, provenance)
         argument = IRCast(CType(self._types.render(argument_type)), receiver)
-        result = IRCall(helper, [argument])
+        result = IRCall(helper, [argument, *extra])
+        if extra:
+            # A COM query answers the target's IID with an untyped interface pointer.
+            result = IRCast(CType(self._cast_target_type(target)), result)
         return self._call_boundary.materialize(
             evaluation, result, CallResultPlan(c_type=self._cast_target_type(target), type_expr=target, owned=True)
         )

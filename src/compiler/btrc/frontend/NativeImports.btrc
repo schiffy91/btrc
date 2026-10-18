@@ -135,6 +135,11 @@ class FeNativeDeclarationImporter {
 	private Map<string, NativeNode> resourceTypes = {};
 	private Map<string, string> resourceRecords = {};
 	private Map<string, string> ownedOutputs = {};
+	private Map<string, string> ownedOutputStatuses = {};
+	private Map<string, string> statusResults = {};
+	/* Generated COM adapters count their claims and check their apartment
+	 * through Library.COM's COM.h (native-interop-ownership.md section 2.4). */
+	private bool comRuntime = false;
 	private Map<string, FeNativeInitializerBinding> initializers = {};
 	private Map<string, FeNativeInitializerBinding> resourceInitializers = {};
 	private Map<string, FeNativeCopiedInputBinding> copiedInputs = {};
@@ -653,6 +658,208 @@ class FeNativeDeclarationImporter {
 		}
 	}
 
+	/* COM's 32-bit integer: an HRESULT (signed) or a ULONG (unsigned). */
+	private bool comInteger(NativeNode native, string signedness) {
+		NativeNode value = self.unqualifiedNative(native);
+		return value.kind == NNK_NATIVE_BUILTIN && ["int", "unsigned int", "long", "unsigned long"].contains(value.name) && value.bits == 32 && value.signedness == signedness;
+	}
+
+	/* Whether a REFIID parameter is `const IID*`, a pointer to a const record. */
+	private bool comIidShaped(NativeNode native) {
+		NativeNode pointer = self.unqualifiedNative(native);
+		return pointer.kind == NNK_NATIVE_POINTER && self.nativeIsConst(pointer.pointee) && self.unqualifiedNative(pointer.pointee).kind == NNK_NATIVE_RECORD_TYPE;
+	}
+
+	/* Whether QueryInterface's last parameter is a mutable `void**`. */
+	private bool comVoidOutput(NativeNode native) {
+		NativeNode output = self.unqualifiedNative(native);
+		if (output.kind != NNK_NATIVE_POINTER || self.nativeIsConst(output.pointee)) { return false; }
+		NativeNode target = self.unqualifiedNative(output.pointee);
+		if (target.kind != NNK_NATIVE_POINTER) { return false; }
+		NativeNode value = self.unqualifiedNative(target.pointee);
+		return value.kind == NNK_NATIVE_BUILTIN && value.name == "void";
+	}
+
+	/* Whether slot `index` of a COM table is the named fixed-arity function-pointer field. */
+	private bool comSlotShaped(NativeNode table, int index, string name) {
+		if (index >= table.fields.len) { return false; }
+		NativeNode field = table.fields.get(index);
+		if (field.name != name || field.isBitfield) { return false; }
+		NativeNode pointer = self.unqualifiedNative(field.fieldType);
+		if (pointer.kind != NNK_NATIVE_POINTER) { return false; }
+		NativeNode signature = self.unqualifiedNative(pointer.pointee);
+		return signature.kind == NNK_NATIVE_FUNCTION_TYPE && !signature.variadic;
+	}
+
+	/* The signature of a COM table slot that comSlotShaped accepted. */
+	private NativeNode comSlotSignature(NativeNode table, int index) { return self.unqualifiedNative(self.unqualifiedNative(table.fields.get(index).fieldType).pointee); }
+
+	/* The COM interface an [out] `IFoo**` parameter receives, or empty. */
+	private string comOutput(NativeNode native) {
+		NativeNode pointer = self.unqualifiedNative(native);
+		if (pointer.kind != NNK_NATIVE_POINTER || self.nativeIsConst(pointer.pointee)) { return ""; }
+		NativeNode inner = self.unqualifiedNative(pointer.pointee);
+		if (inner.kind != NNK_NATIVE_POINTER || self.nativeIsConst(inner.pointee)) { return ""; }
+		string name = self.resourceName(pointer.pointee);
+		return !name.isEmpty() && self.resources.get(name).ownership == "com" ? name : "";
+	}
+
+	/* A slot's receiver argument takes a pointer to the dispatching object. */
+	private bool dispatchReceiver(NativeNode native, NativeNode record) {
+		NativeNode pointer = self.unqualifiedNative(native);
+		if (pointer.kind != NNK_NATIVE_POINTER) { return false; }
+		NativeNode pointee = self.unqualifiedNative(pointer.pointee);
+		return pointee.kind == NNK_NATIVE_RECORD_TYPE && pointee.identity == record.identity;
+	}
+
+	/* A derived table's slot repeats its base's: same name and signature except This. */
+	private bool comSlotMatches(NativeNode table, NativeNode baseTable, int index, NativeNode record, NativeNode baseRecord) {
+		string name = baseTable.fields.get(index).name;
+		if (!self.comSlotShaped(table, index, name) || !self.comSlotShaped(baseTable, index, name)) { return false; }
+		NativeNode mine = self.comSlotSignature(table, index);
+		NativeNode theirs = self.comSlotSignature(baseTable, index);
+		if (mine.parameters.len != theirs.parameters.len || theirs.parameters.len < 1 || mine.callingConvention != theirs.callingConvention) { return false; }
+		if (!self.dispatchReceiver(mine.parameters.get(0), record) || !self.dispatchReceiver(theirs.parameters.get(0), baseRecord)) { return false; }
+		if (self.typeIdentity(mine.returnType) != self.typeIdentity(theirs.returnType)) { return false; }
+		for position in range(1, mine.parameters.len) { if (self.typeIdentity(mine.parameters.get(position)) != self.typeIdentity(theirs.parameters.get(position))) { return false; } }
+		return true;
+	}
+
+	/* Whether `name` is a selected read-only global of the GUID record `identity`. */
+	private bool guidGlobal(string name, string identity) {
+		if (!self.callbackExports.has(name)) { return false; }
+		NativeNode selected = self.callbackExports.get(name);
+		if (selected.kind != NNK_NATIVE_GLOBAL || !selected.readOnly) { return false; }
+		NativeNode value = self.unqualifiedNative(selected.valueType);
+		return value.kind == NNK_NATIVE_RECORD_TYPE && value.identity == identity;
+	}
+
+	/* Check each COM interface's lpVtbl slots 0-2 against IUnknown, and its base
+	 * prefix. The importer reads the table's real layout: QueryInterface(This,
+	 * REFIID, void**) returning a 32-bit signed HRESULT, then AddRef(This) and
+	 * Release(This) returning a 32-bit unsigned ULONG. A declared base must be a
+	 * slot-by-slot prefix whose signatures differ only in This, so widening to
+	 * the base is static (native-interop-ownership.md section 2.4). */
+	private void projectComInterfaces(FeNativeBinding binding) {
+		Vector<string> interfaces = [];
+		for name in binding.resources.keys() { if (binding.resources.get(name).ownership == "com") { interfaces.push(name); } }
+		interfaces.sortBy((string left, string right) => Strings.lessThan(left, right));
+		Map<string, NativeNode> records = {};
+		Map<string, NativeNode> tables = {};
+		Map<string, NativeNode> firsts = {};
+		for name in interfaces {
+			NativeNode record = self.unqualifiedNative(self.resourceTypes.get(name).pointee);
+			if (self.layouts.has(record.identity) && self.layouts.get(record.identity).recordKind == "struct" && self.layouts.get(record.identity).fields.len > 0) {
+				NativeNode first = self.layouts.get(record.identity).fields.get(0);
+				NativeNode pointer = self.unqualifiedNative(first.fieldType);
+				if (first.name == "lpVtbl" && pointer.kind == NNK_NATIVE_POINTER) {
+					NativeNode tableRecord = self.unqualifiedNative(pointer.pointee);
+					if (tableRecord.kind == NNK_NATIVE_RECORD_TYPE && self.layouts.has(tableRecord.identity) && self.layouts.get(tableRecord.identity).recordKind == "struct") {
+						records.put(name, record); tables.put(name, self.layouts.get(tableRecord.identity)); firsts.put(name, first);
+					}
+				}
+			}
+			if (!tables.has(name)) { self.fail(f"resource {name}: com requires a complete record whose first field lpVtbl points to a complete SDK table"); }
+		}
+		for name in interfaces {
+			FeNativeResourceBinding resource = binding.resources.get(name);
+			NativeNode record = records.get(name);
+			NativeNode table = tables.get(name);
+			bool shaped = self.comSlotShaped(table, 0, "QueryInterface") && self.comSlotShaped(table, 1, "AddRef") && self.comSlotShaped(table, 2, "Release");
+			if (shaped) {
+				NativeNode slotQuery = self.comSlotSignature(table, 0);
+				NativeNode slotAddRef = self.comSlotSignature(table, 1);
+				NativeNode slotRelease = self.comSlotSignature(table, 2);
+				shaped = slotQuery.parameters.len == 3 && slotAddRef.parameters.len == 1 && slotRelease.parameters.len == 1 && self.comIidShaped(slotQuery.parameters.get(1)) && self.comVoidOutput(slotQuery.parameters.get(2)) && self.dispatchReceiver(slotQuery.parameters.get(0), record) && self.dispatchReceiver(slotAddRef.parameters.get(0), record) && self.dispatchReceiver(slotRelease.parameters.get(0), record) && self.comInteger(slotQuery.returnType, "signed") && self.comInteger(slotAddRef.returnType, "unsigned") && self.comInteger(slotRelease.returnType, "unsigned");
+			}
+			if (!shaped) { self.fail(f"resource {name}: lpVtbl slots 0-2 are not IUnknown-shaped (QueryInterface, AddRef, Release)"); }
+			NativeNode query = self.comSlotSignature(table, 0);
+			for index in range(3) { self.requireQualifiedConvention(self.comSlotSignature(table, index)); }
+			string iidIdentity = self.unqualifiedNative(self.unqualifiedNative(query.parameters.get(1)).pointee).identity;
+			if (!self.guidGlobal(resource.iid, iidIdentity)) { self.fail(f"resource {name}: iid {resource.iid} is not a read-only GUID global"); }
+			if (!resource.base.isEmpty()) {
+				NativeNode baseTable = tables.get(resource.base);
+				bool prefix = baseTable.fields.len <= table.fields.len;
+				for index in range(baseTable.fields.len) { if (prefix && !self.comSlotMatches(table, baseTable, index, record, records.get(resource.base))) { prefix = false; } }
+				if (!prefix) { self.fail(f"resource {name}: base {resource.base} is not a slot-by-slot prefix of its lpVtbl table"); }
+			}
+			var owner = self.resourceDeclaration(name);
+			/* sameObject asks each object for its IUnknown identity. */
+			string unknown = self.guidGlobal("IID_IUnknown", iidIdentity) ? "IID_IUnknown" : "";
+			var projected = FeNativeComInterface(name, owner.typeSpelling, self.realtimeNativeSpelling(firsts.get(name).fieldType), self.realtimeNativeSpelling(query.returnType), self.realtimeNativeSpelling(query.parameters.get(1)), resource.iid, unknown);
+			var contract = FeNativeCallContract(); contract.comInterface = projected;
+			owner.methods.put("", contract);
+			if (!unknown.isEmpty()) {
+				Node member = self.node(NK_METHOD_DECL); member.access = "class"; member.name = "sameObject";
+				member.returnType = self.node(NK_TYPE_EXPR); member.returnType.base = "bool";
+				for parameterName in ["first", "second"] {
+					Node parameter = self.node(NK_PARAM); parameter.name = parameterName;
+					parameter.type = self.node(NK_TYPE_EXPR); parameter.type.base = name; parameter.type.isNullable = true; parameter.type.pointerDepth = 1;
+					member.paramsMut().push(parameter);
+				}
+				owner.declaration.membersMut().push(member);
+				var identity = FeNativeCallContract(); identity.comInterface = projected;
+				owner.methods.put("sameObject", identity);
+			}
+		}
+	}
+
+	/* How a COM method's HRESULT and its one [out] interface reach BTRC. With
+	 * status-results a failing (negative) HRESULT throws after the adopted
+	 * output is released, and the method returns that output, or else the
+	 * nonnegative HRESULT. An owned-outputs result class carries the HRESULT
+	 * and the adopted output instead. An [out] interface with neither form is
+	 * rejected (native-interop-ownership.md section 2.4). */
+	private void comMethodStatus(string resourceName, FeNativeDispatchMethod method, NativeNode signature, Vector<string> names, Vector<int> outputs) {
+		string key = resourceName + "." + method.name;
+		bool throws = self.statusResults.has(key) && self.statusResults.get(key) == "hresult";
+		if (self.statusResults.has(key)) { self.statusResults.remove(key); }
+		if (outputs.len > 1) { self.fail(f"dispatch method {key} adopts at most one [out] interface"); }
+		string outputKey = "";
+		string resultClass = "";
+		if (outputs.len > 0) {
+			outputKey = key + "." + (names.len > 0 ? names.get(outputs.get(0)) : f"argument{outputs.get(0)}");
+			if (self.ownedOutputs.has(outputKey)) { resultClass = self.ownedOutputs.get(outputKey); self.ownedOutputs.remove(outputKey); }
+		}
+		if ((throws || !resultClass.isEmpty()) && !self.comInteger(signature.returnType, "signed")) { self.fail(f"dispatch method {key}: status = hresult and status-results require a 32-bit signed result"); }
+		if (outputs.len == 0) {
+			if (throws) { method.status = "throw"; }
+			return;
+		}
+		if (!throws && resultClass.isEmpty()) { self.fail(f"dispatch method {key}: an [out] interface requires status-results or owned-outputs"); }
+		NativeNode native = signature.parameters.get(outputs.get(0));
+		string output = self.comOutput(native);
+		method.outputPosition = outputs.get(0);
+		method.outputResource = output;
+		method.outputSpelling = self.realtimeNativeSpelling(self.unqualifiedNative(native).pointee);
+		if (throws) {
+			method.status = "throw";
+			Node value = self.node(NK_TYPE_EXPR); value.base = output; value.isNullable = true; value.pointerDepth = 1;
+			method.returnType = value;
+			return;
+		}
+		if (!self.ownedOutputStatuses.has(outputKey) || self.ownedOutputStatuses.get(outputKey) != "hresult") { self.fail("owned-outputs status = hresult pairs with a com interface output"); }
+		self.ownedOutputClass(resultClass, self.type(signature.returnType), output, null);
+		method.status = "result";
+		method.resultClass = resultClass;
+		Node result = self.node(NK_TYPE_EXPR); result.base = resultClass;
+		method.returnType = result;
+	}
+
+	/* The generated class an owning output returns: its status, the adopted resource and any offset. */
+	private void ownedOutputClass(string resultName, Node statusType, string resource, FeNativeOutputOffset? offset) {
+		for existing in self.declarations { if (existing.declaration.name == resultName) { self.fail(f"conflicting owned-output result class '{resultName}'"); } }
+		for existing in self.inputClasses { if (existing.declaration.name == resultName) { self.fail(f"conflicting owned-output result class '{resultName}'"); } }
+		Node owner = self.node(NK_CLASS_DECL); owner.name = resultName; owner.sourceFile = self.module;
+		Node statusField = self.node(NK_FIELD_DECL); statusField.name = "status"; statusField.access = "public"; statusField.type = statusType;
+		Node valueField = self.node(NK_FIELD_DECL); valueField.name = "value"; valueField.access = "public";
+		valueField.type = self.node(NK_TYPE_EXPR); valueField.type.base = resource; valueField.type.isNullable = true; valueField.type.pointerDepth = 1;
+		owner.membersStorage = [statusField, valueField];
+		if (offset != null) { Node field = self.node(NK_FIELD_DECL); field.name = offset.field; field.access = "public"; field.type = self.node(NK_TYPE_EXPR); field.type.base = "int"; owner.membersMut().push(field); }
+		var generated = FeNativeImportedDeclaration(owner, self.module, self.header); generated.generatedInput = true;
+		self.inputClasses.push(generated);
+	}
+
 	/* The argument at context-index takes the context field, or the object itself. */
 	private void dispatchContext(string resourceName, FeNativeDispatchTable dispatch, NativeNode record, NativeNode signature, string what) {
 		if (dispatch.contextIndex >= signature.parameters.len) { self.fail(f"resource {resourceName}: dispatch context-index is outside {what}"); }
@@ -707,14 +914,28 @@ class FeNativeDeclarationImporter {
 				if (!voidResult && !self.realtimeScalar(signature.returnType)) { self.fail("dispatch methods require scalar or void results"); }
 				Vector<string> names = field.callbackParameters.len > 0 ? self.semanticNames(field.callbackParameters) : [];
 				var projected = FeNativeDispatchMethod(method, slot, self.callType(signature.returnType), self.realtimeNativeSpelling(signature.returnType), tableType);
-				Node member = self.node(NK_METHOD_DECL); member.access = "public"; member.name = method; member.returnType = projected.returnType;
+				Vector<int> outputs = [];
 				for position in range(signature.parameters.len) {
 					if (position == dispatch.contextIndex) { continue; }
-					Node value = self.tableParameter(signature.parameters.get(position), "dispatch method");
-					string parameterName = names.len > 0 ? names.get(position) : f"argument{position}";
-					projected.names.push(parameterName); projected.parameters.push(value);
-					projected.nativeParameters.push(self.realtimeNativeSpelling(signature.parameters.get(position)));
-					Node parameter = self.node(NK_PARAM); parameter.name = parameterName; parameter.type = value; member.paramsMut().push(parameter);
+					NativeNode native = signature.parameters.get(position);
+					string borrowed = "";
+					if (resource.ownership == "com") {
+						/* An [in] interface is borrowed for the call; an [out] IFoo**
+						 * is adopted under a declared status form. */
+						borrowed = self.resourceName(native);
+						if (!borrowed.isEmpty() && self.resources.get(borrowed).ownership != "com") { borrowed = ""; }
+						if (borrowed.isEmpty() && !self.comOutput(native).isEmpty()) { outputs.push(position); continue; }
+					}
+					Node value = borrowed.isEmpty() ? self.tableParameter(native, "dispatch method") : self.resourceCallType(native, borrowed);
+					if (resource.ownership == "com") { projected.resources.push(borrowed); }
+					projected.names.push(names.len > 0 ? names.get(position) : f"argument{position}");
+					projected.parameters.push(value);
+					projected.nativeParameters.push(self.realtimeNativeSpelling(native));
+				}
+				if (resource.ownership == "com") { self.comMethodStatus(name, projected, signature, names, outputs); }
+				Node member = self.node(NK_METHOD_DECL); member.access = "public"; member.name = method; member.returnType = projected.returnType;
+				for index in range(projected.names.len) {
+					Node parameter = self.node(NK_PARAM); parameter.name = projected.names.get(index); parameter.type = projected.parameters.get(index); member.paramsMut().push(parameter);
 				}
 				var contract = FeNativeCallContract(); contract.dispatchMethod = projected;
 				owner.methods.put(method, contract);
@@ -1612,6 +1833,10 @@ class FeNativeDeclarationImporter {
 		for name in binding.resourceResults.keys() { self.resourceResults.put(name, binding.resourceResults.get(name)); }
 		self.ownedOutputs = {};
 		for name in binding.ownedOutputs.keys() { self.ownedOutputs.put(name, binding.ownedOutputs.get(name)); }
+		self.ownedOutputStatuses = {};
+		for name in binding.ownedOutputStatuses.keys() { self.ownedOutputStatuses.put(name, binding.ownedOutputStatuses.get(name)); }
+		self.statusResults = {};
+		for name in binding.statusResults.keys() { self.statusResults.put(name, binding.statusResults.get(name)); }
 		self.ownedOutputResources = {};
 		for name in binding.ownedOutputResources.keys() { self.ownedOutputResources.put(name, binding.ownedOutputResources.get(name)); }
 		self.outputOffsets = {};
@@ -1631,6 +1856,12 @@ class FeNativeDeclarationImporter {
 		for declaration in header.exports { exports.put(declaration.name, declaration); }
 		for name in binding.resources.keys() {
 			FeNativeResourceBinding resource = binding.resources.get(name);
+			if (resource.ownership == "com") {
+				/* A COM interface is a record typedef: `typedef struct IStream IStream;`
+				 * represents IStream* (native-interop-ownership.md section 2.4). */
+				if (!exports.has(name) || exports.get(name).kind != NNK_NATIVE_TYPEDEF || self.unqualifiedNative(exports.get(name).underlying).kind != NNK_NATIVE_RECORD_TYPE) { self.fail(f"resource {name}: com resources require a record typedef"); }
+				if (!self.comRuntime) { self.fail("COM resources require import Library.COM.COMApartment"); }
+			}
 			if (!exports.has(name)) { self.fail(f"resource {name}: expected a selected pointer typedef or unique record"); }
 			NativeNode declaration = exports.get(name);
 			NativeNode native = declaration.underlying;
@@ -1640,7 +1871,7 @@ class FeNativeDeclarationImporter {
 			} else if (declaration.kind != NNK_NATIVE_TYPEDEF) { self.fail(f"resource {name}: expected a selected pointer typedef or unique record"); }
 			NativeNode pointer = self.unqualifiedNative(native);
 			string recordSpelling = "";
-			if (resource.ownership == "unique" && pointer.kind == NNK_NATIVE_RECORD_TYPE) {
+			if ((resource.ownership == "unique" || resource.ownership == "com") && pointer.kind == NNK_NATIVE_RECORD_TYPE) {
 				if (self.resourceRecords.has(pointer.identity)) { self.fail("one SDK record cannot declare multiple unique owners"); }
 				self.resourceRecords.put(pointer.identity, name);
 				pointer = NativeNode(); pointer.kind = NNK_NATIVE_POINTER; pointer.pointee = native;
@@ -1660,8 +1891,10 @@ class FeNativeDeclarationImporter {
 			}
 			Node closeType = self.node(NK_TYPE_EXPR); closeType.base = "void";
 			string resourceIdentity = self.typeIdentity(pointer);
+			/* AddRef and Release are table slots, checked with the table when the interface is projected. */
+			if (resource.ownership == "com") { resourceIdentity = resourceIdentity + ":com:" + resource.iid + ":" + resource.base; }
 			for operation in [resource.retainFunction, resource.releaseFunction] {
-				if (resource.ownership == "unique" && operation.isEmpty()) { continue; }
+				if ((resource.ownership == "unique" || resource.ownership == "com") && operation.isEmpty()) { continue; }
 				if (!exports.has(operation) || exports.get(operation).kind != NNK_NATIVE_FUNCTION) { self.fail(f"resource {name}: lifetime operation {operation} requires one pointer parameter"); }
 				NativeNode nativeFunction = exports.get(operation);
 				if (nativeFunction.signature.variadic || nativeFunction.signature.parameters.len != 1) { self.fail(f"resource {name}: lifetime operation {operation} requires one pointer parameter"); }
@@ -1707,6 +1940,15 @@ class FeNativeDeclarationImporter {
 		for declaration in header.exports { exports.put(declaration.name, declaration); }
 		for name in binding.resources.keys() {
 			var resource = binding.resources.get(name);
+			if (resource.ownership == "com") {
+				/* A COM interface widens statically along its declared base chain;
+				 * the table prefix is checked when the interface is projected. */
+				Vector<string> ancestors = [];
+				string base = resource.base;
+				while (!base.isEmpty()) { ancestors.push(base); base = binding.resources.get(base).base; }
+				self.resourceDeclaration(name).nativeAncestors = ancestors;
+				continue;
+			}
 			if (resource.ownership != "reference-counted") { continue; }
 			var origin = self.resourceDeclaration(name);
 			origin.nativeAncestors = [];
@@ -2064,8 +2306,10 @@ class FeNativeDeclarationImporter {
 	private FeNativeOwnedOutput? projectOwnedOutput(NativeNode declaration, Vector<string> parameterNames) {
 		if (self.initializers.has(declaration.name)) { return self.projectInitializer(declaration, parameterNames); }
 		string selected = ""; string resultName = "";
+		/* A dispatched COM method's "<R>.<method>.<parameter>" output is projected
+		 * with its table, not by a function of the same name. */
 		for key in self.ownedOutputs.keys() {
-			if (key.startsWith(declaration.name + ".")) { selected = key; resultName = self.ownedOutputs.get(key); break; }
+			if (key.startsWith(declaration.name + ".") && Strings.split(key, ".").len == 2) { selected = key; resultName = self.ownedOutputs.get(key); break; }
 		}
 		if (selected.isEmpty() || self.ownedOutputResources.has(selected)) { return null; }
 		string parameterName = selected.substring(declaration.name.length() + 1, selected.length() - declaration.name.length() - 1);
@@ -2075,24 +2319,20 @@ class FeNativeDeclarationImporter {
 		NativeNode pointer = self.unqualifiedNative(declaration.signature.parameters.get(position));
 		if (pointer.kind != NNK_NATIVE_POINTER || self.unqualifiedNative(pointer.pointee).kind != NNK_NATIVE_POINTER || self.nativeIsConst(pointer.pointee)) { self.fail("owned-outputs requires a mutable resource pointer output slot"); }
 		string resource = self.resourceName(pointer.pointee);
-		if (resource.isEmpty() || self.resources.get(resource).ownership != "unique") { self.fail("owned-outputs requires a declared unique resource"); }
+		if (resource.isEmpty() || (self.resources.get(resource).ownership != "unique" && self.resources.get(resource).ownership != "com")) { self.fail("owned-outputs requires a declared unique resource"); }
 		if (!self.resources.get(resource).storage.isEmpty()) { self.fail("inline resources require checked initializers, not owned pointer outputs"); }
 		if (!self.resourcePointerAccepts(self.resourceTypes.get(resource), pointer.pointee) || !self.resourcePointerAccepts(pointer.pointee, self.resourceTypes.get(resource))) { self.fail("owned-outputs has incompatible resource pointer qualifiers"); }
 		NativeNode nativeStatus = self.unqualifiedNative(declaration.signature.returnType);
 		if (nativeStatus.kind == NNK_NATIVE_ENUM_TYPE) { nativeStatus = self.unqualifiedNative(nativeStatus.underlying); }
 		if (nativeStatus.kind != NNK_NATIVE_BUILTIN || !["bool", "_Bool", "char", "signed char", "unsigned char", "short", "unsigned short", "int", "unsigned int", "long", "unsigned long", "long long", "unsigned long long"].contains(nativeStatus.name)) { self.fail("owned-outputs requires an integral or enum status result"); }
+		/* A COM [out] interface reports an HRESULT (native-interop-ownership.md section 2.4). */
+		bool hresult = self.ownedOutputStatuses.has(selected) && self.ownedOutputStatuses.get(selected) == "hresult";
+		if ((self.resources.get(resource).ownership == "com") != hresult) { self.fail("owned-outputs status = hresult pairs with a com interface output"); }
+		if (hresult && !self.comInteger(declaration.signature.returnType, "signed")) { self.fail(f"owned-outputs {selected}: status = hresult and status-results require a 32-bit signed result"); }
 		Node statusType = self.type(declaration.signature.returnType);
 		FeNativeOutputOffset? offset = self.projectOutputOffset(declaration, parameterNames, position);
-		for existing in self.declarations { if (existing.declaration.name == resultName) { self.fail(f"conflicting owned-output result class '{resultName}'"); } }
-		for existing in self.inputClasses { if (existing.declaration.name == resultName) { self.fail(f"conflicting owned-output result class '{resultName}'"); } }
-		Node owner = self.node(NK_CLASS_DECL); owner.name = resultName; owner.sourceFile = self.module;
-		Node statusField = self.node(NK_FIELD_DECL); statusField.name = "status"; statusField.access = "public"; statusField.type = statusType;
-		Node valueField = self.node(NK_FIELD_DECL); valueField.name = "value"; valueField.access = "public";
-		valueField.type = self.node(NK_TYPE_EXPR); valueField.type.base = resource; valueField.type.isNullable = true; valueField.type.pointerDepth = 1;
-		owner.membersStorage = [statusField, valueField];
-		if (offset != null) { Node field = self.node(NK_FIELD_DECL); field.name = offset.field; field.access = "public"; field.type = self.node(NK_TYPE_EXPR); field.type.base = "int"; owner.membersMut().push(field); }
-		var generated = FeNativeImportedDeclaration(owner, self.module, self.header); generated.generatedInput = true;
-		self.inputClasses.push(generated); self.ownedOutputs.remove(selected);
+		self.ownedOutputClass(resultName, statusType, resource, offset);
+		self.ownedOutputs.remove(selected);
 		FeNativeOwnedOutput projected = FeNativeOwnedOutput(position, resultName, resource, statusType); projected.offset = offset;
 		return projected;
 	}
@@ -3684,6 +3924,11 @@ class FeNativeDeclarationImporter {
 			if (!dispatch.releaseSlot.isEmpty()) { slots.push(dispatch.releaseSlot); }
 			for slot in slots { string path = resourceName + "." + dispatch.table + "." + slot; if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
 		}
+		/* A COM interface's IUnknown slots are checked against its table. */
+		for resourceName in binding.resources.keys() {
+			if (binding.resources.get(resourceName).ownership != "com") { continue; }
+			for slot in ["QueryInterface", "AddRef", "Release"] { string path = resourceName + ".lpVtbl." + slot; if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
+		}
 		snapshotPaths.sortBy((string left, string right) => Strings.lessThan(left, right));
 		for path in snapshotPaths { arguments.push("--record-path=" + path); }
 		Vector<string> packages = [];
@@ -3726,6 +3971,7 @@ class FeNativeDeclarationImporter {
 		Vector<FeNativeBinding> bindings = plan.bindingImports();
 		if (bindings.len == 0) { return; }
 		for binding in bindings {
+			if (binding.packageName == "btrc_stdlib_com" && binding.language == "c" && PathTools.basename(binding.header) == "COM.h") { self.comRuntime = true; }
 			for key in binding.callbacks.keys() {
 				var callback = binding.callbacks.get(key);
 				if (!callback.slotGetter.isEmpty()) {
@@ -4049,8 +4295,10 @@ class FeNativeDeclarationImporter {
 			for declaration in decoded.exports { self.importDeclaration(declaration); }
 			self.projectRealtimeCallbacks(binding);
 			self.projectCallbackTables(binding);
+			self.projectComInterfaces(binding);
 			self.projectDispatchTables(binding);
 			self.projectRecordSnapshots(binding);
+			if (self.statusResults.len > 0) { self.fail("status-results names an unknown dispatched method"); }
 			if (self.borrows.len > 0) { self.fail("read-only-borrows names unknown function parameter"); }
 			if (self.realtime.len > 0) { self.fail("realtime-safe names a non-function declaration"); }
 			if (self.variadicCalls.len > 0) { self.fail("variadic-calls names an unknown function or parameter"); }

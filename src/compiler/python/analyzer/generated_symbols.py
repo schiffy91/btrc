@@ -354,16 +354,19 @@ class GeneratedSymbolRegistry:
     def _claim_class_members(self, declaration, info, claims) -> None:
         name = declaration.name
         origin = declaration.source_file
-        unique = (
-            isinstance(origin, NativeHeaderSource)
+        # Unique owners and COM interfaces publish their methods as generated adapters.
+        adapter = (
+            f"__btrc_{origin.resource.ownership}_"
+            if isinstance(origin, NativeHeaderSource)
             and origin.resource is not None
-            and origin.resource.ownership == "unique"
+            and origin.resource.ownership in ("unique", "com")
+            else ""
         )
         for method_name, method in info.methods.items():
             if method.is_constructor or method_name == "__del__" or method.generic_params:
                 continue
             self._claim_generated_symbol(
-                f"__btrc_unique_{name}_{method_name}_public" if unique else f"{name}_{method_name}",
+                f"{adapter}{name}_{method_name}_public" if adapter else f"{name}_{method_name}",
                 f"method '{name}.{method_name}'",
                 method.line,
                 method.col,
