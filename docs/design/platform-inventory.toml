@@ -189,8 +189,8 @@ id = "Library.BackgroundJobs.ProcessThreads"
 group = "stdlib/BackgroundJobs"
 title = "Live thread count of this process"
 regression = ["src/tests/python/test_background_jobs_runtime.py::test_host_worker_pools_on_both_frontends"]
-windows-x64 = { parity = "missing", implementation = "missing", owner = "W1", status = "source-only", reason = "no windows provider in btrc.toml; feasible via CreateToolhelp32Snapshot, unused since windows pool never forks" }
-windows-arm64 = { parity = "missing", implementation = "missing", owner = "W1", status = "source-only", reason = "no windows provider in btrc.toml; feasible via CreateToolhelp32Snapshot, unused since windows pool never forks" }
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "btrc.toml os=windows selects Windows.ProcessThreadsProvider: a CreateToolhelp32Snapshot thread walk counting this process's threads" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "btrc.toml os=windows selects Windows.ProcessThreadsProvider: a CreateToolhelp32Snapshot thread walk counting this process's threads" }
 ios-device = { parity = "adapted", implementation = "missing", owner = "I1", status = "source-only", reason = "libproc.h not in iOS SDK; Mach task_threads() gives the count; no ios provider row" }
 ios-simulator = { parity = "adapted", implementation = "missing", owner = "I1", status = "source-only", reason = "libproc.h not in iOS SDK; Mach task_threads() gives the count; no ios provider row" }
 android-arm64 = { parity = "equivalent", implementation = "source-only", owner = "A1", status = "source-only", reason = "Linux provider's /proc/self/task readdir works on Android; providers list lacks android" }
