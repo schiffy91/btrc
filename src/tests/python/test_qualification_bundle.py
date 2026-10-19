@@ -24,7 +24,9 @@ def _manifest() -> TierManifest:
 
 def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
     matrix = plan["matrix"].get(job, {"include": []})
-    key = {"native-bundle": "target", "linux-gui": "session", "win32-native": "target"}.get(job, "shard")
+    key = {"native-bundle": "target", "linux-gui": "session", "win32-native": "target", "target-corpus": "target"}.get(
+        job, "shard"
+    )
     return {row[key]: row for row in matrix["include"]}
 
 
@@ -33,7 +35,17 @@ def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
 
 def test_the_tracked_manifest_loads_and_describes_every_tier() -> None:
     manifest = _manifest()
-    assert list(manifest.tiers) == ["docs", "pr", "lane", "main", "extended", "release", "native-gui", "hardware"]
+    assert list(manifest.tiers) == [
+        "docs",
+        "pr",
+        "lane",
+        "main",
+        "extended",
+        "release",
+        "native-gui",
+        "target-corpus",
+        "hardware",
+    ]
     assert manifest.workflows() == ["ci.yml", "macos.yml", "windows.yml"]
     assert {runner.runner for runner in manifest.hardware} == {"macos", "linux", "ios", "android"}
 
@@ -278,6 +290,27 @@ def test_a_lane_keeps_the_linux_matrix_and_the_macos_lane_jobs() -> None:
     macos = manifest.plan("macos.yml", "lane", ["src/stdlib/GUI/Linux/Window.btrc"])
     assert macos["jobs"] == ["native-bundle", "native-gui"]
     assert list(_rows(macos, "native-bundle")) == ["macos-arm64"]
+
+
+def test_the_ios_corpus_row_runs_when_the_simulator_lane_changes() -> None:
+    # CX-P1-08: every push, the wider tiers and its focused dispatch run the
+    # iOS simulator corpus; a pull request or lane runs it when its executor,
+    # the runner, the applicability data or an iOS provider changes.
+    manifest = _manifest()
+    for tier in ("main", "extended", "release", "target-corpus"):
+        assert list(_rows(manifest.plan("macos.yml", tier), "target-corpus")) == ["ios-simulator"], tier
+    assert manifest.plan("macos.yml", "target-corpus")["jobs"] == ["target-corpus"]
+    for path in (
+        "tools/target_hosts/ios/executor.py",
+        "src/tests/target_runner.py",
+        "src/tests/fixtures/target-applicability.toml",
+        "docs/design/platform-inventory.toml",
+        "src/stdlib/GUI/IOS/Window.btrc",
+    ):
+        for tier in ("pr", "lane"):
+            assert "target-corpus" in manifest.plan("macos.yml", tier, [path])["jobs"], (tier, path)
+    assert "target-corpus" not in manifest.plan("macos.yml", "pr", ["tools/target_hosts/android/executor.py"])["jobs"]
+    assert "target-corpus" not in manifest.plan("macos.yml", "lane")["jobs"]
 
 
 LANE_LINUX = ["static", "release", "tests", "bench", "linux-arm64-bundle"]

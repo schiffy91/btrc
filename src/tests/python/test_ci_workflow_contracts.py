@@ -1198,6 +1198,57 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
     assert "podman" not in job
 
 
+def test_the_ios_corpus_lane_builds_and_runs_on_one_simulator_runner() -> None:
+    """CX-P1-08: the whole corpus, through both compilers, on the hosted iOS simulator."""
+
+    job = _parsed("macos.yml")["jobs"]["target-corpus"]
+    text = _job(_workflow("macos.yml"), "target-corpus")
+    rows = [shard.row for shard in TIERS.shards if shard.job == "macos.yml/target-corpus"]
+    assert rows == [
+        {
+            "target": "ios-simulator",
+            "label": "ios-aarch64-simulator",
+            "runner": "xcode-27",
+            "device_class": "iphone",
+            "report_only": "true",
+        }
+    ]
+    assert job["runs-on"] == "${{ matrix.runner }}"
+    assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
+    # The bundle pins each program's deadline; the run admits it only with the same value.
+    assert job["env"]["BTRC_TEST_RUN_TIMEOUT"] == "60"
+    # The native header reader is built and rooted before the target runner reads a header.
+    reader = _step_containing(text, "nix build .#btrc-native-header")
+    assert 'nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true' in reader
+    commands = _code("\n".join(step.get("run", "") for step in job["steps"]))
+    words = " ".join(commands.replace("\\\n", " ").split())
+    assert "nix develop --command make NIX= btrcc" in commands
+    assert (
+        'python3 -m src.tests.target_runner --target "${{ matrix.label }}" --frontend both '
+        "--compile-only --btrcc bin/btrcc --jobs 3 --output build/target-corpus/build"
+    ) in words
+    # A program that fails to build is a result; only a runner error fails the build step.
+    assert 'if [ "$status" -gt 1 ]; then' in commands
+    assert (
+        "python3 -m src.tests.target_runner --execute-bundle build/target-corpus/build/bundle "
+        "--executor ios-simulator --executor-option device_class=${{ matrix.device_class }}"
+    ) in words
+    assert '>> "$GITHUB_STEP_SUMMARY"' in commands
+    names = [step.get("name") for step in job["steps"]]
+    assert names.index("Record the Xcode, SDK and simulator inventory") < names.index(
+        "Run every program on the simulator through both compilers"
+    )
+    final = job["steps"][-1]
+    assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT
+    assert final["with"]["name"] == "target-corpus-${{ matrix.target }}"
+    # Everything but the bundle's executables.
+    assert final["with"]["path"].split() == ["build/target-corpus/", "!build/target-corpus/build/bundle/"]
+    # The executor the lane names is the one the runner's registry resolves.
+    from src.tests.target_runner import ExecutorRegistry
+
+    assert ExecutorRegistry().spec("ios-simulator") == "tools.target_hosts.ios.executor:IOSSimulatorExecutor"
+
+
 def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     job = _job(_workflow("windows.yml"), "windows")
 
@@ -1268,7 +1319,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                 "focus": {
                     "description": "Which jobs to run",
                     "type": "choice",
-                    "options": ["full", "native-gui", "extended"],
+                    "options": ["full", "native-gui", "extended", "target-corpus"],
                     "default": "full",
                 }
             }
@@ -1276,6 +1327,9 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
         expected = {"ci.yml": ["native-gui", "linux-gui"], "macos.yml": ["native-gui"]}.get(workflow, [])
         assert TIERS.plan(workflow, "native-gui")["jobs"] == expected, workflow
+        # `-f focus=target-corpus` runs the target-runner corpus lanes alone.
+        expected = {"macos.yml": ["target-corpus"]}.get(workflow, [])
+        assert TIERS.plan(workflow, "target-corpus")["jobs"] == expected, workflow
 
     linux = _job(_workflow("ci.yml"), "native-gui")
     assert _code(linux).count("make NIX=") == 1

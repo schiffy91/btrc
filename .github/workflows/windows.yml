@@ -14,13 +14,14 @@ on:
     branches: [main]
   # Manual dispatch (`gh workflow run`) reruns these hosted jobs without a push:
   # `-f focus=native-gui` runs only the native-GUI job, `-f focus=extended`
-  # the extended tier.
+  # the extended tier, `-f focus=target-corpus` the target-runner corpus
+  # lanes alone.
   workflow_dispatch:
     inputs:
       focus:
         description: Which jobs to run
         type: choice
-        options: [full, native-gui, extended]
+        options: [full, native-gui, extended, target-corpus]
         default: full
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
@@ -55,6 +56,8 @@ jobs:
   #   release, extended  release.yml's call (its tier input), or a dispatch
   #         with focus=extended.
   #   native-gui  a dispatch with focus=native-gui.
+  #   target-corpus  a dispatch with focus=target-corpus: the target-runner
+  #         corpus lanes alone.
   #   main  a push, a full dispatch, the ci:full label (added before a push or
   #         a rerun), a change under FULL_PATHS (the compilers, their specs and
   #         runtime, the stdlib modules btrcc imports, the CI hotspots), or a
@@ -135,7 +138,7 @@ jobs:
           }
           tier=$(classify)
           case "$tier" in
-            docs | pr | lane | main | extended | release | native-gui) ;;
+            docs | pr | lane | main | extended | release | native-gui | target-corpus) ;;
             *) echo "::error::unknown tier: $tier"; exit 1 ;;
           esac
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
