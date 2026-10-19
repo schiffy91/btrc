@@ -51,6 +51,13 @@ class ProcessStatus {
 #endif
 	}
 
+	/* The signal that ended the process, or 0 when it exited: code() alone
+	 * cannot tell signal N from an exit status of 128 + N. */
+	public int terminatingSignal() {
+		if (self.raw == -1 || !WIFSIGNALED(self.raw)) { return 0; }
+		return WTERMSIG(self.raw);
+	}
+
 	public bool ok() { return self.code() == 0; }
 }
 
@@ -164,6 +171,9 @@ class ExecResult {
 	 * (code 127); each also appends a diagnostic line to err. */
 	public bool captureExceeded;
 	public bool captureFailed;
+	/* The signal that ended the child (code is then 128 + it), or 0. A child
+	 * this API killed for its timeout or capture limit reports 0. */
+	public int terminatingSignal;
 
 	public ExecResult(int code, string out, string err, string command, int capturedStdoutBytes = 0, int capturedStderrBytes = 0) {
 		self.code = code;
@@ -171,6 +181,7 @@ class ExecResult {
 		self.err = err;
 		self.command = command;
 		self.timedOut = false;
+		self.terminatingSignal = 0;
 		self.capturedStdoutBytes = capturedStdoutBytes;
 		self.capturedStderrBytes = capturedStderrBytes;
 		self.captureExceeded = false;
@@ -1115,6 +1126,7 @@ class ChildProcess {
 		result.timedOut = timedOut;
 		result.captureExceeded = captureExceeded;
 		result.captureFailed = captureFailed;
+		result.terminatingSignal = captureFailed || captureExceeded || timedOut ? 0 : ProcessStatus(rawStatus).terminatingSignal();
 		return result;
 #endif
 	}
@@ -1227,6 +1239,7 @@ class UnixShell {
 		result.timedOut = child.timedOut;
 		result.captureExceeded = child.captureExceeded;
 		result.captureFailed = child.captureFailed;
+		result.terminatingSignal = child.terminatingSignal;
 		return result;
 	}
 }

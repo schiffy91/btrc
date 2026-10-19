@@ -87,15 +87,32 @@ class FeNativeHeaderProcess {
 				if (payload.length() <= 8388608) { arguments = ["--cached-native-read=-"]; input = payload; }
 			}
 			var result = ChildProcess.run(request.command(), arguments, unsetEnvironment = FeNativeHeaderProcess.scratchEnvironment(), timeoutMilliseconds = request.timeoutMilliseconds, maxStdoutBytes = request.maxStdoutBytes, stdinData = input);
+			if (!result.ok()) {
+				request.complete(new Result<string, string>(false, "", FeNativeHeaderProcess.failure(result, request.timeoutMilliseconds)));
+				return;
+			}
 			string text = request.captureStderr ? result.err : result.out;
 			int capturedBytes = request.captureStderr ? result.capturedStderrBytes : result.capturedStdoutBytes;
-			if (result.ok() && text.length() != capturedBytes) {
+			if (text.length() != capturedBytes) {
 				request.complete(new Result<string, string>(false, "", "native header reader output contains NUL"));
 				return;
 			}
-			request.complete(new Result<string, string>(result.ok(), text, result.err.isEmpty() ? "native header reader failed" : result.err.trim()));
+			request.complete(new Result<string, string>(true, text, ""));
 		} catch (string error) {
 			request.complete(new Result<string, string>(false, "", error));
 		}
+	}
+
+	/* The reader's own stderr, then how its process ended; the reference
+	 * compiler's NativeHeaderRead.failure reports the same text. A reader that
+	 * timed out or was killed often leaves only an unrelated warning on
+	 * stderr, which alone reads as the cause. */
+	class string failure(ExecResult result, int timeoutMilliseconds) {
+		if (result.captureExceeded) { return "native header reader output exceeds capture allowance"; }
+		string ending = f"native header reader exited with status {result.code}";
+		if (result.timedOut) { ending = f"native header reader timed out after {timeoutMilliseconds / 1000} s"; }
+		else if (result.terminatingSignal > 0) { ending = f"native header reader was terminated by signal {result.terminatingSignal}"; }
+		string diagnostic = result.err.trim();
+		return diagnostic.isEmpty() ? ending : diagnostic + "\n" + ending;
 	}
 }

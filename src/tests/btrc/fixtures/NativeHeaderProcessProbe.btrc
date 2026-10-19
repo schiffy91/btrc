@@ -1,0 +1,23 @@
+import Library.Result;
+import Library.Vector;
+
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/frontend/NativeHeaderProcess.btrc;
+#include <stdio.h>
+#include <stdlib.h>
+
+/* Runs one reader request through the self-hosted compiler's process layer
+ * with the given timeout and prints how it failed, for
+ * test_native_header_process.py to compare with the reference compiler. */
+int main(int argc, char** argv) {
+	if (argc != 3) { return 2; }
+	Vector<string> arguments = ["--probe"];
+	var request = FeNativeHeaderRead(argv[1], arguments);
+	request.timeoutMilliseconds = atoi(argv[2]);
+	FeNativeHeaderProcess.readOne(request);
+	var result = request.result();
+	if (result.isOk()) { return 3; }
+	string failure = result.unwrapErr();
+	printf("%s", (char*)failure);
+	return 0;
+}

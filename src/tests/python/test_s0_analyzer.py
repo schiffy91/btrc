@@ -6,7 +6,7 @@ inside lambdas (S0-10b), unknown cast target diagnostics (S0-1b), and
 linear-time, recursion-safe analysis of long binary chains (S0-14).
 """
 
-import time
+import sys
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
@@ -286,11 +286,32 @@ class TestLongBinaryChains:
         an, _ = analyze(self._chain(5000))
         assert an.errors == []
 
-    def test_2000_terms_under_one_second(self):
-        program = parse(self._chain(2000))
-        start = time.time()
-        SemanticAnalyzer().analyze(program)
-        assert time.time() - start < 1.0
+    @staticmethod
+    def _analysis_calls(terms):
+        """Python function calls one analysis of a chain makes: deterministic, unlike its wall time."""
+        program = parse(TestLongBinaryChains._chain(terms))
+        calls = 0
+
+        def count(frame, event, argument):
+            nonlocal calls
+            calls += event == "call"
+
+        previous = sys.getprofile()
+        sys.setprofile(count)
+        try:
+            SemanticAnalyzer().analyze(program)
+        finally:
+            sys.setprofile(previous)
+        return calls
+
+    def test_analysis_work_grows_linearly_with_chain_length(self):
+        # S0-14 made long chains linear. A wall-clock bound (once "2000 terms
+        # under one second") failed on loaded hosted runners without any
+        # regression, so count the work instead: a chain four times longer
+        # costs four times the calls (about 235 per term today), where a
+        # quadratic walk would cost sixteen times and n log n about five.
+        short, long = self._analysis_calls(1000), self._analysis_calls(4000)
+        assert long <= 4.5 * short, (short, long)
 
     def test_node_types_still_recorded(self):
         src = "int f(int a, float b) { return a + a; }"

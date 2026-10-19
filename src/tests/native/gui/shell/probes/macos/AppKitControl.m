@@ -9,7 +9,8 @@
     NSScrollView *_scroll;
     NSTimer *_timer;
     int _step;
-    NSTimeInterval _deadline;
+    NSTimeInterval _began;
+    NSTimeInterval _stepBegan;
     int _actions;
 }
 @property(nonatomic) BOOL passed;
@@ -24,7 +25,7 @@
     _window = window;
     _field = field;
     _scroll = scroll;
-    _deadline = NSProcessInfo.processInfo.systemUptime + 15;
+    _began = _stepBegan = NSProcessInfo.processInfo.systemUptime;
     [NSApp activateIgnoringOtherApps:YES];
     [window makeKeyAndOrderFront:nil];
     _timer = [NSTimer scheduledTimerWithTimeInterval:0.01 target:self selector:@selector(tick:)
@@ -48,9 +49,18 @@
 }
 - (void)tick:(NSTimer *)timer {
     (void)timer;
-    if (NSProcessInfo.processInfo.systemUptime >= _deadline) {
-        fprintf(stderr, "BASELINE event deadline at step=%d actions=%d active=%d key=%d policy=%ld\n",
-            _step, _actions, NSApp.isActive, _window.isKeyWindow, (long)NSApp.activationPolicy);
+    /* Like NativeShell.btrc's journey, each step has its own 15 s budget from
+     * its first tick, so slow activation in an earlier step on a loaded runner
+     * never shortens a later step's wait. */
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (now - _stepBegan >= 15) {
+        NSResponder *responder = _window.firstResponder;
+        NSString *editor = [responder isKindOfClass:NSTextView.class] ? [(NSTextView *)responder string] : @"";
+        fprintf(stderr, "BASELINE event deadline at step=%d step-seconds=%.3f journey-seconds=%.3f actions=%d "
+            "active=%d key=%d policy=%ld field=\"%s\" responder=%s editor=\"%s\"\n",
+            _step, now - _stepBegan, now - _began, _actions, NSApp.isActive, _window.isKeyWindow,
+            (long)NSApp.activationPolicy, _field.stringValue.UTF8String,
+            responder ? NSStringFromClass(responder.class).UTF8String : "nil", editor.UTF8String);
         [self stop]; return;
     }
     switch (_step) {
@@ -82,6 +92,7 @@
             shellProbeClose(); self.passed = YES; [self stop]; return;
     }
     _step++;
+    _stepBegan = NSProcessInfo.processInfo.systemUptime;
 }
 @end
 

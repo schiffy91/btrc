@@ -248,6 +248,16 @@ int main(int argc, char** argv) {
 	ExecResult pathOverride = ChildProcess.run("helper with spaces", ["--probe"], cwd=root, environment=["PATH=" + root], timeoutMilliseconds=2000);
 	assert(pathOverride.code == 23);
 
+	// A signal and the exit status 128 + N share a code; only the signal
+	// sets terminatingSignal, here and through UnixShell.
+	assert(result.terminatingSignal == 0);
+	ExecResult signaled = ChildProcess.run("/bin/sh", ["-c", "kill -TERM $$"], timeoutMilliseconds=5000);
+	assert(signaled.code == 143 && signaled.terminatingSignal == 15);
+	ExecResult exited = ChildProcess.run("/bin/sh", ["-c", "exit 143"], timeoutMilliseconds=5000);
+	assert(exited.code == 143 && exited.terminatingSignal == 0);
+	ExecResult shellKilled = UnixShell().run("kill -KILL $$", logFailure=false);
+	assert(shellKilled.code == 137 && shellKilled.terminatingSignal == 9);
+
 	bool rejected = false;
 	Vector<string> noArguments = [];
 	try {
@@ -309,6 +319,8 @@ int main(int argc, char** argv) {
 	timer.stop();
 	assert(timeout.code == 124);
 	assert(timeout.wasTimedOut());
+	// The API's own kill is a timeout, not a terminating signal.
+	assert(timeout.terminatingSignal == 0 && bounded.terminatingSignal == 0);
 	assert(timer.elapsedMillis() < 2000.0f);
 	usleep(700000);
 	assert(!FileSystem.exists(descendantMarker));
